@@ -74,14 +74,14 @@ impl ApplicationHandler for App {
                 let mut changed = false;
 
                 match key_event.physical_key {
-                    // Right arrow: move cursor one character to the right.
+                    // Right arrow: delegate movement logic to Cursor.
                     PhysicalKey::Code(KeyCode::ArrowRight) => {
-                        self.cursor.position = self.cursor.position.saturating_add(1);
+                        self.cursor.move_right();
                         changed = true;
                     }
-                    // Left arrow: move cursor one character to the left (min 0).
+                    // Left arrow: delegate movement logic to Cursor.
                     PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                        self.cursor.position = self.cursor.position.saturating_sub(1);
+                        self.cursor.move_left();
                         changed = true;
                     }
                     _ => {}

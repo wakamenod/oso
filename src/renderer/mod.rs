@@ -15,6 +15,19 @@ const MARGIN_Y: f32 = 8.0;
 // Validation test per §7.3: each key press shifts the cursor by +10 px.
 const CHAR_WIDTH_PX: f32 = 10.0;
 
+/// Calculates the pixel X coordinate of the cursor from its logical position.
+///
+/// This is a pure function with no GPU dependency, enabling straightforward
+/// unit testing independent of the wgpu context.
+///
+/// # Arguments
+/// - `position`   – byte offset of the cursor in the text buffer
+/// - `char_width` – pixel width per character position (current placeholder: 10.0)
+/// - `margin_x`   – left margin in pixels (current placeholder: 8.0)
+pub(crate) fn cursor_pixel_x(position: usize, char_width: f32, margin_x: f32) -> f32 {
+    position as f32 * char_width + margin_x
+}
+
 /// Manages the wgpu device, queue, and surface; issues frame draws.
 ///
 /// Render pass layout (§5.6 — separated pass design):
@@ -123,8 +136,8 @@ impl RenderState {
     /// Converting `Cursor.position` to pixel coordinates is the renderer's
     /// responsibility (§7.1); the `Cursor` struct itself stays free of pixel data.
     pub fn render(&mut self, cursor: &Cursor) -> Result<(), String> {
-        // Translate cursor.position → screen X (temporary mapping until cosmic-text).
-        let cursor_x = MARGIN_X + cursor.position as f32 * CHAR_WIDTH_PX;
+        // Translate cursor.position → screen X via the pure coordinate function.
+        let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
         let cursor_y = MARGIN_Y;
 
         // Acquire the next surface texture.
@@ -175,5 +188,61 @@ impl RenderState {
         output.present();
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cursor_pixel_x;
+    use proptest::prelude::*;
+
+    // --- Deterministic unit tests ---
+
+    #[test]
+    fn pixel_x_at_position_zero_equals_margin() {
+        assert_eq!(cursor_pixel_x(0, 10.0, 8.0), 8.0);
+    }
+
+    #[test]
+    fn pixel_x_at_position_one() {
+        assert_eq!(cursor_pixel_x(1, 10.0, 8.0), 18.0);
+    }
+
+    #[test]
+    fn pixel_x_at_position_ten() {
+        assert_eq!(cursor_pixel_x(10, 10.0, 8.0), 108.0);
+    }
+
+    #[test]
+    fn pixel_x_scales_linearly() {
+        let base = cursor_pixel_x(0, 10.0, 8.0);
+        let next = cursor_pixel_x(1, 10.0, 8.0);
+        assert_eq!(next - base, 10.0);
+    }
+
+    // --- Property-based tests (proptest) ---
+
+    proptest! {
+        /// The pixel X coordinate must always be >= margin_x for any position.
+        #[test]
+        fn prop_pixel_x_never_less_than_margin(pos in 0usize..10_000usize) {
+            let margin = 8.0_f32;
+            let x = cursor_pixel_x(pos, 10.0, margin);
+            prop_assert!(x >= margin, "x={x} was less than margin={margin}");
+        }
+
+        /// Pixel X must increase monotonically as position increases.
+        #[test]
+        fn prop_pixel_x_is_monotone(a in 0usize..10_000usize, b in 0usize..10_000usize) {
+            let xa = cursor_pixel_x(a, 10.0, 8.0);
+            let xb = cursor_pixel_x(b, 10.0, 8.0);
+            if a < b {
+                prop_assert!(xa < xb);
+            } else if a > b {
+                prop_assert!(xa > xb);
+            } else {
+                prop_assert_eq!(xa, xb);
+            }
+        }
     }
 }
