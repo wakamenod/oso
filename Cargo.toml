@@ -20,3 +20,5 @@ proptest = "1"
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
 disallowed_methods = "deny"
+disallowed_types = "deny"
+allow_attributes_without_reason = "deny"

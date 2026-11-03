@@ -1,3 +1,13 @@
+# Spawn processes only through oso-platform::process, and no network code
+# (ADR 0010). Paths into crates that are not dependencies are ignored, so the
+# async spawn APIs are listed ahead of time.
 disallowed-methods = [
     { path = "std::process::Command::new", reason = "spawn only through oso-platform::process (ADR 0010)" },
+    { path = "tokio::process::Command::new", reason = "spawn only through oso-platform::process (ADR 0010)" },
+    { path = "async_process::Command::new", reason = "spawn only through oso-platform::process (ADR 0010)" },
+]
+disallowed-types = [
+    { path = "std::net::TcpListener", reason = "no network code in oso (ADR 0010)" },
+    { path = "std::net::TcpStream", reason = "no network code in oso (ADR 0010)" },
+    { path = "std::net::UdpSocket", reason = "no network code in oso (ADR 0010)" },
 ]

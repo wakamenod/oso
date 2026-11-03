@@ -1,6 +1,11 @@
 # cargo-deny configuration. Policy: ADR 0010 (dependencies, network, regex)
 # and ADR 0020 (license). Changes to this file need human approval.
 
+[graph]
+# Check every feature, so a crate behind a dev or optional feature is not
+# missed.
+all-features = true
+
 [advisories]
 yanked = "deny"
 ignore = [
@@ -46,8 +51,25 @@ deny = [
     { crate = "native-tls", reason = "no network code in oso (ADR 0010)" },
     { crate = "openssl", reason = "no network code in oso (ADR 0010)" },
     { crate = "rustls", reason = "no network code in oso (ADR 0010)" },
+    { crate = "openssl-sys", reason = "no network code in oso (ADR 0010)" },
+    { crate = "curl-sys", reason = "no network code in oso (ADR 0010)" },
+    { crate = "libssh2-sys", reason = "no network code in oso (ADR 0010)" },
+    { crate = "ssh2", reason = "no network code in oso (ADR 0010)" },
+    { crate = "hyper-util", reason = "no network code in oso (ADR 0010)" },
+    { crate = "socket2", reason = "no network code in oso (ADR 0010)" },
+    { crate = "quinn", reason = "no network code in oso (ADR 0010)" },
+    { crate = "hickory-proto", reason = "no network code in oso (ADR 0010)" },
+    { crate = "hickory-resolver", reason = "no network code in oso (ADR 0010)" },
     # Only the linear-time regex crate (ADR 0010).
     { crate = "fancy-regex", reason = "backtracking regex engine; use regex (ADR 0010)" },
     { crate = "onig", reason = "backtracking regex engine; use regex (ADR 0010)" },
     { crate = "pcre2", reason = "backtracking regex engine; use regex (ADR 0010)" },
+    { crate = "regress", reason = "backtracking regex engine; use regex (ADR 0010)" },
+    # Spawn processes only through oso-platform::process (ADR 0010).
+    { crate = "duct", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
+    { crate = "subprocess", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
+    { crate = "xshell", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
+    { crate = "open", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
+    { crate = "opener", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
+    { crate = "webbrowser", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
 ]
