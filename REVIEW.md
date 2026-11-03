@@ -48,6 +48,11 @@ need the author's explicit approval.
 - [ ] Panics cannot corrupt state beyond the failing command.
 - [ ] Platform-specific code is behind `oso-platform` traits.
 - [ ] Consistent with accepted ADRs, or a new ADR is proposed.
+- [ ] Dependencies point the allowed way, and each module stays within the
+  responsibility in its `//!` header (ADR 0038).
+- [ ] No new global state, and no file or function grows past the size
+  limits without an ADR.
+- [ ] Public API changes are intended and visible in the API snapshot.
 
 ## Tests and docs
 

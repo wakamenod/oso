@@ -85,7 +85,7 @@ The setup is recorded in
 
 ### Reviewer subagents
 
-Read-only `security-reviewer` and `perf-reviewer` agents follow the matching
+Read-only `security-reviewer`, `perf-reviewer` and `arch-reviewer` (ADR 0038) agents follow the matching
 sections of `REVIEW.md`. They check the blast radius of a change and ask for
 fail-then-pass evidence. They run in parallel after implementation, and their
 findings are fixed before human review.

@@ -44,6 +44,7 @@ old one's status.
 | 0035 | [SumTree, rope chunks and the cell grid](0035-sumtree-rope-and-cell-grid.md) | Accepted |
 | 0036 | [Text system, glyph atlas and the default font](0036-text-system-and-glyph-atlas.md) | Accepted |
 | 0037 | [Test pyramid](0037-test-pyramid.md) | Accepted |
+| 0038 | [Architecture guardrails](0038-architecture-guardrails.md) | Accepted |
 
 ## Template
 
