@@ -146,7 +146,7 @@ visibly.
 
 - The dev control socket and hot reload exist only behind cargo features that
   release builds never enable. CI will verify this once the features exist
-  (M1-7).
+  (M1-7a).
 - The control socket lives in a `0700` directory and checks the peer's user
   ID.
 - Human approval is required for:

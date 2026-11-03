@@ -20,24 +20,42 @@ A cursor rectangle drawn with wgpu that moves with the arrow keys.
 
 ### M1 — Viewer
 
-- Quick fixes to the current code:
+M1 is built in this order. Each step is one PR.
+
+- **M1-0** (done): development tooling
+  ([ADR 0021](adr/0021-development-tooling.md)).
+- **M1-1** (done): quick fixes to the current code:
   - `ControlFlow::Wait` instead of `Poll`
   - an explicit present mode and frame latency 1
   - one backend per OS
   - a low-power adapter
   - typed surface-error handling
-- Workspace split into four crates ([ADR 0004](adr/0004-crate-layout.md)).
+- **M1-2**: workspace split into four crates
+  ([ADR 0004](adr/0004-crate-layout.md)).
   - Compile in only each OS's wgpu backend, with `default-features = false`
     and per-target backend features. Until then GL and the other backends
     are built in and only narrowed at run time
     ([ADR 0003](adr/0003-platform-tiers.md)).
-- Command registry and keymaps with prefix keys.
-- Display model skeleton ([`display-model.md`](display-model.md)).
-- OS-native text rendering on macOS.
-- Asynchronous, progressive file loading.
-- Scrolling and cursor motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`.
-- Dev control socket and the restart-and-restore loop.
-- Performance measurement in CI.
+- **M1-7a**: dev control socket foundation, so that agents can check their
+  own work in the app from here on
+  ([ADR 0016](adr/0016-dev-control-socket.md),
+  [ADR 0023](adr/0023-control-socket-protocol-and-restart.md)):
+  - the socket (`0700` directory, peer user check), JSON Lines and `oso ctl`
+  - `screenshot`, and `send-keys` injecting key events into the app
+  - the key and modifier type in `oso-core`, which M1-3 builds on
+- **In parallel** after M1-7a:
+  - **M1-3**: command registry and keymaps with prefix keys.
+  - **M1-4**: `SumTree`, rope and display model skeleton
+    ([`display-model.md`](display-model.md),
+    [ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
+  - **M1-5**: OS-native text rendering on macOS.
+- **M1-6**: asynchronous, progressive file loading; scrolling and cursor
+  motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`.
+- **M1-7b**: the rest of the control socket (`run-command`, `get-state`) and
+  the restart-and-restore loop (`oso dev`).
+- **M1-8**: performance measurement in CI
+  ([ADR 0024](adr/0024-dev-build-profile.md),
+  [ADR 0025](adr/0025-latency-measurement.md)).
 
 ### M2 — Editor (start using oso for text and notes)
 

@@ -82,6 +82,6 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
 Planned:
 
-- a check that release builds contain no dev-only features (M1-7)
+- a check that release builds contain no dev-only features (M1-7a)
 - performance and build-time budgets
 - snapshot tests on Linux with lavapipe, once they exist

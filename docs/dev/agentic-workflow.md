@@ -78,7 +78,7 @@ Planned:
 - `add-command` (M1-3): implement the function, register it with a docstring
   and argument spec, add a key binding, write unit tests and an end-to-end
   test, and regenerate the command reference.
-- `verify-in-app` (M1-7): start a dev build, drive it over the control socket
+- `verify-in-app` (M1-7a): start a dev build, drive it over the control socket
   and check screenshots.
 
 ### Reviewer subagents
