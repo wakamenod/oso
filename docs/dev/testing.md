@@ -67,10 +67,15 @@ run them for long periods.
 
 ## CI
 
-GitHub Actions runs Linux, macOS and Windows:
+GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
+every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
-- `just ci` on all three platforms
+- `just ci` on Linux, macOS and Windows
 - `cargo-deny` and `cargo-audit`
-- a check that release builds contain no dev-only features
+- a gitleaks scan of the full history
+
+Planned:
+
+- a check that release builds contain no dev-only features (M1-7)
 - performance and build-time budgets
 - snapshot tests on Linux with lavapipe, once they exist

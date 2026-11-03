@@ -22,6 +22,9 @@ item notes when it must be settled.
 - Dev profile tuning, linker choice, optional cranelift backend, and how to
   measure the 2 s build budget.
 - How to measure key-to-photon latency in CI.
+- `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
+  It comes from winit's Wayland decorations. Re-check when winit is
+  upgraded.
 
 ## M2
 

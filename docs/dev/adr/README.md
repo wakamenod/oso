@@ -27,6 +27,7 @@ old one's status.
 | 0018 | [Development process](0018-development-process.md) | Accepted |
 | 0019 | [Configuration](0019-configuration.md) | Accepted |
 | 0020 | [License](0020-license.md) | Accepted |
+| 0021 | [Development tooling](0021-development-tooling.md) | Accepted |
 
 ## Template
 

@@ -76,20 +76,27 @@ network features.
 ### Process spawning (T1, T6)
 
 - Only `oso-platform::process` may create processes. Clippy
-  `disallowed_methods` bans `std::process::Command::new` everywhere else.
+  `disallowed_methods` bans `std::process::Command::new` (and its async
+  counterparts) everywhere else, and `cargo-deny` bans process-spawning
+  helper crates. Clippy `disallowed_types` bans `std::net` sockets.
 - Executables resolve from absolute paths in user config, or from `PATH` with
   the current directory and the project directory removed.
 - The environment is sanitized and every spawn is logged in a visible buffer.
 
 ### Dependencies (T2, T8)
 
-- `cargo-deny` enforces:
-  - advisories
-  - licenses
+- `cargo-deny` (`deny.toml`, `just deny`) enforces:
+  - advisories, including yanked crates
+  - a minimal permissive license allowlist
+    ([ADR 0020](adr/0020-license.md))
   - sources (crates.io only)
   - bans on networking crates (reqwest, hyper and similar)
-  - bans on backtracking regex engines (fancy-regex, onig)
-- `cargo-audit` runs in CI and all builds use `--locked`.
+  - bans on backtracking regex engines (fancy-regex, onig, pcre2, regress)
+  - bans on process-spawning helper crates (duct, open and similar)
+  - all of the above with every feature enabled
+- `cargo-audit` (`just audit`) runs in CI, and `Justfile` builds use
+  `--locked`.
+- The toolchain is pinned in `rust-toolchain.toml`.
 - New dependencies require human approval. Agents must justify them: who
   maintains the crate, how much `unsafe` it has, and how many transitive
   dependencies it adds.
@@ -138,14 +145,27 @@ visibly.
 ### Development (T9)
 
 - The dev control socket and hot reload exist only behind cargo features that
-  release builds never enable, and CI verifies this.
+  release builds never enable. CI will verify this once the features exist
+  (M1-7).
 - The control socket lives in a `0700` directory and checks the peer's user
   ID.
 - Human approval is required for:
-  - changes to `Cargo.toml`, `Cargo.lock`, `deny.toml` and `.claude/`
+  - changes to `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.claude/` and the
+    files that define the checks (`Justfile`, `clippy.toml`,
+    `rust-toolchain.toml`, `.cargo/`, `.github/`, gitleaks config).
+    `.claude/settings.json` asks before agents edit them, and the pre-commit
+    hook asks again before a commit that touches them. In auto mode these
+    prompts do not reach a human, so agents must ask in the conversation and
+    PR review is the backstop.
   - new `unsafe`
   - changes to process, file-writing or trust code
-- Secret scanning runs through GitHub push protection and gitleaks.
+- Secret scanning runs through GitHub push protection, a gitleaks scan in the
+  Claude Code pre-commit hook, and a full-history gitleaks scan in CI. Both
+  scans ignore `gitleaks:allow` comments, and CI rejects gitleaks allowlist
+  files.
+- CI actions are pinned by commit SHA, the workflow token is read-only, and
+  checkout does not persist credentials
+  ([ADR 0021](adr/0021-development-tooling.md)).
 
 ## What must never be committed
 

@@ -11,11 +11,11 @@ default:
 
 # Debug build
 build:
-    cargo build
+    cargo build --locked
 
 # Release build (with optimizations)
 release:
-    cargo build --release
+    cargo build --locked --release
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Run
@@ -23,15 +23,15 @@ release:
 
 # Run with standard logging (wgpu warnings only / oso at debug level)
 run:
-    RUST_LOG="wgpu=warn,oso=debug" cargo run
+    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked
 
 # Run with verbose logging (includes wgpu GPU init logs / backtraces enabled)
 run-verbose:
-    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run
+    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run --locked
 
 # Run the release build
 run-release:
-    RUST_LOG="wgpu=warn,oso=info" cargo run --release
+    RUST_LOG="wgpu=warn,oso=info" cargo run --locked --release
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Verify
@@ -39,11 +39,11 @@ run-release:
 
 # Type-check only (faster than a full build)
 check:
-    cargo check
+    cargo check --locked
 
 # Lint with Clippy (warnings treated as errors)
 lint:
-    cargo clippy -- -D warnings
+    cargo clippy --locked --all-targets -- -D warnings
 
 # Format code
 fmt:
@@ -55,10 +55,22 @@ fmt-check:
 
 # Run tests
 test:
-    cargo test
+    cargo test --locked
 
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
+
+# Check dependencies against deny.toml (advisories, licenses, sources, bans)
+deny:
+    cargo deny check
+
+# Check Cargo.lock against the RustSec advisory database
+audit:
+    cargo audit
+
+# Scan the full git history for secrets
+secrets:
+    gitleaks git --redact
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Docs
@@ -66,7 +78,7 @@ ci: check lint fmt-check test
 
 # Generate documentation and open it in the browser (excludes dependencies)
 doc:
-    cargo doc --open --no-deps
+    cargo doc --locked --open --no-deps
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Clean
