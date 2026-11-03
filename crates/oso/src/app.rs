@@ -1,33 +1,55 @@
+use std::sync::Arc;
+
+use oso_core::cursor::Cursor;
+use oso_render::{Redraw, RenderState};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
-use crate::editor::cursor::Cursor;
-use crate::renderer::RenderState;
-
 /// Top-level application state.
 ///
-/// - `render_state`: wgpu surface, device, and rendering pipeline.
+/// - `view`: the window and what draws into it.
 /// - `cursor`: logical cursor position in the editor (data layer).
 #[derive(Default)]
 pub struct App {
-    render_state: Option<RenderState>,
+    view: Option<View>,
     cursor: Cursor,
+}
+
+/// The window and its renderer. The tip crate owns the window; `oso-render`
+/// only draws into it and asks for redraws through [`Redraw`].
+struct View {
+    window: Arc<Window>,
+    render_state: RenderState,
+}
+
+impl View {
+    /// Requests a redraw if the renderer asked for one.
+    fn redraw_if(&self, redraw: Redraw) {
+        if redraw == Redraw::Needed {
+            self.window.request_redraw();
+        }
+    }
 }
 
 impl ApplicationHandler for App {
     /// Called when the OS signals that the window is ready to be created (or resumed).
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.render_state.is_none() {
+        if self.view.is_none() {
             let window_attributes = Window::default_attributes().with_title("oso Editor");
-            let window = event_loop.create_window(window_attributes).unwrap();
-            let state = pollster::block_on(RenderState::new(window));
+            let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
+            let size = window.inner_size();
+            let render_state =
+                pollster::block_on(RenderState::new(window.clone(), size.width, size.height));
             // Under `ControlFlow::Wait` nothing is drawn until requested, and
             // not every platform sends an initial resize or redraw.
-            state.window.request_redraw();
-            self.render_state = Some(state);
+            window.request_redraw();
+            self.view = Some(View {
+                window,
+                render_state,
+            });
         }
     }
 
@@ -37,9 +59,8 @@ impl ApplicationHandler for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let state = match self.render_state.as_mut() {
-            Some(s) => s,
-            None => return,
+        let Some(view) = self.view.as_mut() else {
+            return;
         };
 
         match event {
@@ -50,19 +71,27 @@ impl ApplicationHandler for App {
 
             // ---- Resize ----
             WindowEvent::Resized(physical_size) => {
-                state.resize(physical_size);
+                let redraw = view
+                    .render_state
+                    .resize(physical_size.width, physical_size.height);
+                view.redraw_if(redraw);
             }
 
             // ---- Visible again: frames skipped while occluded need a redraw ----
             WindowEvent::Occluded(false) => {
-                state.window.request_redraw();
+                view.window.request_redraw();
             }
 
             // ---- Redraw ----
             WindowEvent::RedrawRequested => {
-                // Not fatal: the frame is skipped and the next one retries.
-                if let Err(e) = state.render(&self.cursor) {
-                    log::error!("render error: {e}");
+                let size = view.window.inner_size();
+                match view
+                    .render_state
+                    .render(&self.cursor, size.width, size.height)
+                {
+                    Ok(redraw) => view.redraw_if(redraw),
+                    // Not fatal: the frame is skipped and the next one retries.
+                    Err(e) => log::error!("render error: {e}"),
                 }
             }
 
@@ -91,7 +120,7 @@ impl ApplicationHandler for App {
                 }
 
                 if changed {
-                    state.window.request_redraw();
+                    view.window.request_redraw();
                 }
             }
 

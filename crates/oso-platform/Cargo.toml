@@ -1,0 +1,13 @@
+[package]
+name = "oso-platform"
+description = "oso OS abstractions: text backends, IME, clipboard, filesystem, processes, PTY"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

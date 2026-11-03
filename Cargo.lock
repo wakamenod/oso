@@ -1309,13 +1309,34 @@ dependencies = [
 name = "oso"
 version = "0.1.0"
 dependencies = [
- "bytemuck",
  "env_logger",
  "log",
+ "oso-core",
+ "oso-render",
  "pollster",
+ "winit",
+]
+
+[[package]]
+name = "oso-core"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "oso-platform"
+version = "0.1.0"
+
+[[package]]
+name = "oso-render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "log",
+ "oso-core",
  "proptest",
  "wgpu",
- "winit",
 ]
 
 [[package]]

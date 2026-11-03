@@ -11,11 +11,11 @@ default:
 
 # Debug build
 build:
-    cargo build --locked
+    cargo build --locked --workspace
 
 # Release build (with optimizations)
 release:
-    cargo build --locked --release
+    cargo build --locked --workspace --release
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Run
@@ -23,15 +23,15 @@ release:
 
 # Run with standard logging (wgpu warnings only / oso at debug level)
 run:
-    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked
+    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked -p oso
 
 # Run with verbose logging (includes wgpu GPU init logs / backtraces enabled)
 run-verbose:
-    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run --locked
+    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run --locked -p oso
 
 # Run the release build
 run-release:
-    RUST_LOG="wgpu=warn,oso=info" cargo run --locked --release
+    RUST_LOG="wgpu=warn,oso=info" cargo run --locked -p oso --release
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Verify
@@ -39,23 +39,23 @@ run-release:
 
 # Type-check only (faster than a full build)
 check:
-    cargo check --locked
+    cargo check --locked --workspace
 
 # Lint with Clippy (warnings treated as errors)
 lint:
-    cargo clippy --locked --all-targets -- -D warnings
+    cargo clippy --locked --workspace --all-targets -- -D warnings
 
 # Format code
 fmt:
-    cargo fmt
+    cargo fmt --all
 
 # Check formatting without modifying files (for CI)
 fmt-check:
-    cargo fmt -- --check
+    cargo fmt --all -- --check
 
 # Run tests
 test:
-    cargo test --locked
+    cargo test --locked --workspace
 
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
@@ -78,7 +78,7 @@ secrets:
 
 # Generate documentation and open it in the browser (excludes dependencies)
 doc:
-    cargo doc --locked --open --no-deps
+    cargo doc --locked --workspace --open --no-deps
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Clean

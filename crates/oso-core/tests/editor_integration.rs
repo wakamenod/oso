@@ -1,10 +1,11 @@
 //! Integration tests for the editor layer.
 //!
-//! These tests exercise `editor::cursor` (and, in future milestones,
-//! `editor::buffer` and `editor::history`) without touching any wgpu or
-//! winit APIs.  They can always run in headless / CI environments.
+//! These tests exercise `oso_core::cursor` (and, in future milestones, the
+//! buffer and history) through the public API of `oso-core`, which has no
+//! wgpu or winit dependency. They can always run in headless / CI
+//! environments.
 
-use oso::editor::cursor::Cursor;
+use oso_core::cursor::Cursor;
 
 // ---------------------------------------------------------------------------
 // Basic movement scenarios

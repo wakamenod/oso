@@ -1,11 +1,15 @@
+//! The wgpu rendering pipeline (ADR 0004).
+//!
+//! This crate does not depend on winit: the caller owns the window, passes it
+//! in as a [`wgpu::DisplayAndWindowHandle`] and its size as plain pixels, and
+//! requests redraws when told to through [`Redraw`].
+
 mod shape;
 use shape::ShapeRenderer;
 
 use std::sync::Arc;
-use winit::dpi::PhysicalSize;
-use winit::window::Window;
 
-use crate::editor::cursor::Cursor;
+use oso_core::cursor::Cursor;
 
 // Top-left margin (will become the line-number gutter offset in the future).
 const MARGIN_X: f32 = 8.0;
@@ -121,13 +125,25 @@ impl std::fmt::Display for RenderError {
 
 impl std::error::Error for RenderError {}
 
+/// Whether the caller should request another frame from its window.
+#[must_use = "the caller must request a redraw when one is needed"]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Redraw {
+    /// Request a redraw: the view changed, or a failed frame is retried.
+    Needed,
+    /// Draw nothing until the next event.
+    NotNeeded,
+}
+
 /// Manages the wgpu device, queue, and surface; issues frame draws.
 ///
 /// Render pass layout (§5.6 — separated pass design):
 ///   Pass 1: ShapeRenderer  — clear background + cursor rectangle
 ///   Pass 2: TextRenderer   — (added in a future milestone)
 pub struct RenderState {
-    pub window: Arc<Window>,
+    /// The window the surface draws to, kept to create the surface again
+    /// after it is lost.
+    target: Arc<dyn wgpu::DisplayAndWindowHandle>,
     instance: wgpu::Instance,
     /// `None` only after creating a lost surface again failed.
     surface: Option<wgpu::Surface<'static>>,
@@ -140,10 +156,13 @@ pub struct RenderState {
 }
 
 impl RenderState {
-    pub async fn new(window: Window) -> Self {
-        let window = Arc::new(window);
-        let size = window.inner_size();
-
+    /// Sets up the GPU for `target`, whose drawable area is `width` x
+    /// `height` physical pixels.
+    pub async fn new(
+        target: Arc<dyn wgpu::DisplayAndWindowHandle>,
+        width: u32,
+        height: u32,
+    ) -> Self {
         // 1. Create a wgpu instance for this OS's backend.
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: platform_backend(),
@@ -154,7 +173,7 @@ impl RenderState {
         });
 
         // 2. Create a surface tied to the window.
-        let surface = instance.create_surface(window.clone()).unwrap();
+        let surface = instance.create_surface(target.clone()).unwrap();
 
         // 3. Request a physical GPU adapter. An editor draws very little, and
         //    low power keeps dual-GPU machines on the integrated GPU.
@@ -196,8 +215,8 @@ impl RenderState {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: width.max(1),
+            height: height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
@@ -216,15 +235,11 @@ impl RenderState {
         );
 
         // 6. Initialize the shape renderer.
-        let shape_renderer = ShapeRenderer::new(
-            &device,
-            surface_format,
-            size.width as f32,
-            size.height as f32,
-        );
+        let shape_renderer =
+            ShapeRenderer::new(&device, surface_format, width as f32, height as f32);
 
         Self {
-            window,
+            target,
             instance,
             surface: Some(surface),
             device,
@@ -235,35 +250,44 @@ impl RenderState {
         }
     }
 
-    /// Reconfigures the surface and updates the orthographic matrix on window resize.
-    pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        if self.configure(new_size) {
-            self.window.request_redraw();
+    /// Reconfigures the surface and updates the orthographic matrix on window
+    /// resize. The new size is in physical pixels.
+    pub fn resize(&mut self, width: u32, height: u32) -> Redraw {
+        if self.configure(width, height) {
+            Redraw::Needed
+        } else {
+            Redraw::NotNeeded
         }
     }
 
-    /// Configures the surface and the orthographic matrix for `size`.
+    /// Configures the surface and the orthographic matrix for the given size.
     /// Returns false, and does nothing, for a zero-sized (minimized) window.
-    fn configure(&mut self, size: PhysicalSize<u32>) -> bool {
-        if size.width == 0 || size.height == 0 {
+    fn configure(&mut self, width: u32, height: u32) -> bool {
+        if width == 0 || height == 0 {
             return false;
         }
-        self.config.width = size.width;
-        self.config.height = size.height;
+        self.config.width = width;
+        self.config.height = height;
         if let Some(surface) = &self.surface {
             surface.configure(&self.device, &self.config);
         }
         self.shape_renderer
-            .resize(&self.queue, size.width as f32, size.height as f32);
+            .resize(&self.queue, width as f32, height as f32);
         true
     }
 
-    /// Recovers from a surface that gave no texture, and requests a redraw
-    /// to retry the frame unless retries are exhausted.
-    fn recover(&mut self, action: SurfaceAction) -> Result<(), RenderError> {
+    /// Recovers from a surface that gave no texture, and asks for a redraw
+    /// to retry the frame unless retries are exhausted. `width` and `height`
+    /// are the window's current size.
+    fn recover(
+        &mut self,
+        action: SurfaceAction,
+        width: u32,
+        height: u32,
+    ) -> Result<Redraw, RenderError> {
         match action {
             SurfaceAction::Reconfigure => {
-                self.configure(self.window.inner_size());
+                self.configure(width, height);
             }
             SurfaceAction::Recreate => {
                 // Drop the old surface first. DXGI allows one swapchain per
@@ -272,7 +296,7 @@ impl RenderState {
                 self.surface = None;
                 let surface = self
                     .instance
-                    .create_surface(self.window.clone())
+                    .create_surface(self.target.clone())
                     .map_err(RenderError::RecreateSurface)?;
                 surface.configure(&self.device, &self.config);
                 self.surface = Some(surface);
@@ -280,26 +304,32 @@ impl RenderState {
             SurfaceAction::Retry => {}
             SurfaceAction::Fail => return Err(RenderError::SurfaceValidation),
             SurfaceAction::Skip | SurfaceAction::Draw | SurfaceAction::DrawThenReconfigure => {
-                return Ok(());
+                return Ok(Redraw::NotNeeded);
             }
         }
         let retry;
         (self.failed_frames, retry) = count_failed_frame(self.failed_frames);
         if retry {
-            self.window.request_redraw();
-            Ok(())
+            Ok(Redraw::Needed)
         } else if self.failed_frames == MAX_RETRIES + 1 {
             Err(RenderError::RetriesExhausted)
         } else {
-            Ok(())
+            Ok(Redraw::NotNeeded)
         }
     }
 
-    /// Renders a single frame.
+    /// Renders a single frame. `width` and `height` are the window's current
+    /// size in physical pixels, used when the surface must be configured
+    /// again.
     ///
     /// Converting `Cursor.position` to pixel coordinates is the renderer's
     /// responsibility (§7.1); the `Cursor` struct itself stays free of pixel data.
-    pub fn render(&mut self, cursor: &Cursor) -> Result<(), RenderError> {
+    pub fn render(
+        &mut self,
+        cursor: &Cursor,
+        width: u32,
+        height: u32,
+    ) -> Result<Redraw, RenderError> {
         // Translate cursor.position → screen X via the pure coordinate function.
         let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
         let cursor_y = MARGIN_Y;
@@ -317,7 +347,7 @@ impl RenderState {
             ) => tex,
             other => {
                 log::debug!("no surface texture: {other:?}");
-                return self.recover(action);
+                return self.recover(action, width, height);
             }
         };
         let view = output
@@ -366,22 +396,21 @@ impl RenderState {
         // Configure only after presenting: no surface texture may be alive.
         // Only a size change is fixed here; reconfiguring with the same size
         // would cost a GPU wait on every frame without clearing the status.
-        if action == SurfaceAction::DrawThenReconfigure {
-            let size = self.window.inner_size();
-            if size.width != self.config.width || size.height != self.config.height {
-                self.configure(size);
-            }
+        if action == SurfaceAction::DrawThenReconfigure
+            && (width != self.config.width || height != self.config.height)
+        {
+            self.configure(width, height);
         }
 
-        Ok(())
+        Ok(Redraw::NotNeeded)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        count_failed_frame, cursor_pixel_x, platform_backend, surface_action, SurfaceAction,
-        MAX_RETRIES,
+        MAX_RETRIES, SurfaceAction, count_failed_frame, cursor_pixel_x, platform_backend,
+        surface_action,
     };
     use proptest::prelude::*;
     use wgpu::CurrentSurfaceTexture as S;
