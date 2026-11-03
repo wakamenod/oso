@@ -1,149 +1,17 @@
-//! The layer rules in `guardrails/layers.txt` and the module edges they
-//! constrain.
+//! The module graph of a crate: which top-level modules each file uses,
+//! found from `crate::` and `super::` paths and, in the crate root, bare
+//! paths to child modules.
 //!
-//! A rules section lists layers, highest first, one per line. An entry may
-//! use only entries on lower lines; entries on the same line may not use
-//! each other. The same check serves the crate graph (`[workspace]`) and the
-//! modules of each crate (`[<crate>]`).
+//! Known gaps (ADR 0039): uses inside macros, `#[path]` attributes, and
+//! bare paths in a module that glob-imports the root (`use super::*;` in a
+//! top-level file).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
+use std::path::Path;
 
-use crate::source::{Tok, Token, skip_group};
-
-/// The crate root (`lib.rs` or `main.rs`) as a node of the module graph.
-pub const ROOT: &str = "crate";
-
-pub type Edges = BTreeSet<(String, String)>;
-
-/// Each section's layers, highest first.
-#[derive(Debug, Default)]
-pub struct Rules {
-    sections: BTreeMap<String, Vec<Vec<String>>>,
-}
-
-impl Rules {
-    pub fn parse(text: &str) -> Result<Self, String> {
-        let mut rules = Self::default();
-        let mut current: Option<String> = None;
-        for (n, line) in text.lines().enumerate() {
-            let line = line.split('#').next().unwrap_or_default().trim();
-            if line.is_empty() {
-                continue;
-            }
-            if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
-                if rules.sections.insert(name.to_owned(), Vec::new()).is_some() {
-                    return Err(format!("line {}: [{name}] appears twice", n + 1));
-                }
-                current = Some(name.to_owned());
-                continue;
-            }
-            let Some(section) = &current else {
-                return Err(format!("line {}: a layer outside any [section]", n + 1));
-            };
-            let layer = line.split_whitespace().map(str::to_owned).collect();
-            rules
-                .sections
-                .entry(section.clone())
-                .or_default()
-                .push(layer);
-        }
-        Ok(rules)
-    }
-
-    pub fn section(&self, name: &str) -> Option<&[Vec<String>]> {
-        self.sections.get(name).map(Vec::as_slice)
-    }
-}
-
-/// Every problem with `edges` between `nodes` under `layers`: unlisted
-/// nodes, stale rules, cycles and edges that do not point down. With
-/// `implicit_top`, that node may be left out and then sits above every
-/// layer.
-pub fn check(
-    section: &str,
-    layers: &[Vec<String>],
-    nodes: &BTreeSet<String>,
-    edges: &Edges,
-    implicit_top: Option<&str>,
-) -> Vec<String> {
-    let mut level: BTreeMap<&str, usize> = BTreeMap::new();
-    let mut problems = Vec::new();
-    for (i, layer) in layers.iter().enumerate() {
-        for name in layer {
-            if level.insert(name, i + 1).is_some() {
-                problems.push(format!("[{section}]: `{name}` is listed twice"));
-            }
-            if !nodes.contains(name) {
-                problems.push(format!("[{section}]: `{name}` matches nothing; remove it"));
-            }
-        }
-    }
-    if let Some(top) = implicit_top {
-        level.entry(top).or_insert(0);
-    }
-    for node in nodes {
-        if !level.contains_key(node.as_str()) {
-            problems.push(format!(
-                "[{section}]: `{node}` is not in guardrails/layers.txt; place it in a layer"
-            ));
-        }
-    }
-    problems.extend(
-        find_cycle(edges)
-            .map(|cycle| format!("[{section}]: dependency cycle {}", cycle.join(" -> "))),
-    );
-    for (from, to) in edges {
-        if let (Some(&a), Some(&b)) = (level.get(from.as_str()), level.get(to.as_str()))
-            && a >= b
-        {
-            problems.push(format!(
-                "[{section}]: `{from}` must not use `{to}` (layer {a} may use only layers below it, \
-                 and `{to}` is on layer {b})"
-            ));
-        }
-    }
-    problems
-}
-
-/// One cycle in `edges`, as a path that ends where it starts.
-pub fn find_cycle(edges: &Edges) -> Option<Vec<String>> {
-    let mut next: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-    for (from, to) in edges {
-        next.entry(from).or_default().push(to);
-    }
-    let mut done = BTreeSet::new();
-    for start in next.keys() {
-        let mut path = Vec::new();
-        if let Some(cycle) = visit(start, &next, &mut path, &mut done) {
-            return Some(cycle);
-        }
-    }
-    None
-}
-
-fn visit<'a>(
-    node: &'a str,
-    next: &BTreeMap<&'a str, Vec<&'a str>>,
-    path: &mut Vec<&'a str>,
-    done: &mut BTreeSet<&'a str>,
-) -> Option<Vec<String>> {
-    if let Some(i) = path.iter().position(|&n| n == node) {
-        let mut cycle: Vec<String> = path[i..].iter().map(|&n| n.to_owned()).collect();
-        cycle.push(node.to_owned());
-        return Some(cycle);
-    }
-    if !done.insert(node) {
-        return None;
-    }
-    path.push(node);
-    for &to in next.get(node).into_iter().flatten() {
-        if let Some(cycle) = visit(to, next, path, done) {
-            return Some(cycle);
-        }
-    }
-    path.pop();
-    None
-}
+use crate::lexer::{Tok, Token, skip_group, tokenize};
+use crate::rules::{Edges, ROOT};
+use crate::workspace::{read, rust_files};
 
 /// The modules a crate root declares with `mod name;`.
 pub fn declared_modules(root: &[Token]) -> BTreeSet<String> {
@@ -213,17 +81,17 @@ fn root_targets(tokens: &[Token], i: usize, modules: &BTreeSet<String>) -> Vec<S
 pub fn file_edges(file: &FileModule<'_>, modules: &BTreeSet<String>) -> Edges {
     let from = file.path.first().map_or(ROOT, String::as_str).to_owned();
     let tokens = file.tokens;
-    let mut walker = Walker::default();
+    let mut scope = ScopeTracker::default();
     let mut edges = Edges::new();
     for i in 0..tokens.len() {
-        walker.step(tokens, i);
+        scope.step(tokens, i);
         let current: Vec<&str> = file
             .path
             .iter()
             .map(String::as_str)
-            .chain(walker.inline.iter().map(|(name, _)| name.as_str()))
+            .chain(scope.inline.iter().map(|(name, _)| name.as_str()))
             .collect();
-        for to in path_targets(tokens, i, &current, modules, walker.reexport) {
+        for to in path_targets(tokens, i, &current, modules, scope.reexport) {
             if to != from {
                 edges.insert((from.clone(), to));
             }
@@ -234,7 +102,7 @@ pub fn file_edges(file: &FileModule<'_>, modules: &BTreeSet<String>) -> Edges {
 
 /// Tracks inline modules and `pub use` statements while scanning a file.
 #[derive(Default)]
-struct Walker {
+struct ScopeTracker {
     depth: usize,
     /// Inline modules (`mod name { … }`) around the position, with the
     /// depth inside their braces.
@@ -243,7 +111,7 @@ struct Walker {
     reexport: bool,
 }
 
-impl Walker {
+impl ScopeTracker {
     fn step(&mut self, tokens: &[Token], i: usize) {
         let token = &tokens[i];
         match &token.tok {
@@ -319,12 +187,61 @@ fn path_targets(
     }
 }
 
+/// One crate's modules and the edges between them.
+pub struct CrateModules {
+    pub nodes: BTreeSet<String>,
+    pub edges: Edges,
+}
+
+/// The module graph of the crate whose sources are in `src`.
+pub fn crate_modules(src: &Path) -> CrateModules {
+    let root = ["lib.rs", "main.rs"]
+        .iter()
+        .map(|f| src.join(f))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| panic!("{}: no lib.rs or main.rs", src.display()));
+    let modules = declared_modules(&tokenize(&read(&root)));
+    let mut edges = Edges::new();
+    for file in rust_files(src) {
+        let tokens = tokenize(&read(&file));
+        let path = module_path(src, &file, &root);
+        edges.extend(file_edges(
+            &FileModule {
+                path,
+                tokens: &tokens,
+            },
+            &modules,
+        ));
+    }
+    let mut nodes = modules;
+    nodes.insert(ROOT.to_owned());
+    CrateModules { nodes, edges }
+}
+
+/// The module path of `file` in the crate whose sources are in `src`.
+fn module_path(src: &Path, file: &Path, root: &Path) -> Vec<String> {
+    if file == root {
+        return Vec::new();
+    }
+    let relative = file.strip_prefix(src).expect("file under src");
+    let mut path: Vec<String> = relative
+        .with_extension("")
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    if path.last().is_some_and(|last| last == "mod") {
+        path.pop();
+    }
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{Edges, FileModule, ROOT, Rules, check, declared_modules, file_edges, find_cycle};
-    use crate::source::tokenize;
+    use super::{FileModule, declared_modules, file_edges};
+    use crate::lexer::tokenize;
+    use crate::rules::{Edges, ROOT};
 
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|&n| n.to_owned()).collect()
@@ -344,50 +261,6 @@ mod tests {
             tokens: &tokens,
         };
         file_edges(&file, &set(modules))
-    }
-
-    #[test]
-    fn rules_parse_sections_and_layers() {
-        let rules = Rules::parse("# c\n[a]\nx y # z\nw\n\n[b]\nv\n").unwrap();
-        assert_eq!(rules.section("a").unwrap(), [vec!["x", "y"], vec!["w"]]);
-        assert_eq!(rules.section("b").unwrap(), [vec!["v"]]);
-        assert!(Rules::parse("x\n").is_err());
-        assert!(Rules::parse("[a]\n[a]\n").is_err());
-    }
-
-    #[test]
-    fn check_accepts_downward_edges_only() {
-        let layers = Rules::parse("[s]\ntop\nmid other\nlow\n").unwrap();
-        let layers = layers.section("s").unwrap();
-        let nodes = set(&["top", "mid", "other", "low"]);
-        let ok = edges(&[("top", "mid"), ("top", "low"), ("mid", "low")]);
-        assert!(check("s", layers, &nodes, &ok, None).is_empty());
-        for bad in [("low", "mid"), ("mid", "other"), ("mid", "top")] {
-            let problems = check("s", layers, &nodes, &edges(&[bad]), None);
-            assert_eq!(problems.len(), 1, "{bad:?}: {problems:?}");
-        }
-    }
-
-    #[test]
-    fn check_reports_unlisted_and_stale_entries() {
-        let layers = Rules::parse("[s]\na gone\n").unwrap();
-        let problems = check(
-            "s",
-            layers.section("s").unwrap(),
-            &set(&["a", "new"]),
-            &Edges::new(),
-            None,
-        );
-        assert_eq!(problems.len(), 2, "{problems:?}");
-        let implicit = check("s", &[], &set(&[ROOT]), &Edges::new(), Some(ROOT));
-        assert!(implicit.is_empty(), "{implicit:?}");
-    }
-
-    #[test]
-    fn cycles_are_found() {
-        assert_eq!(find_cycle(&edges(&[("a", "b"), ("b", "c")])), None);
-        let cycle = find_cycle(&edges(&[("a", "b"), ("b", "c"), ("c", "a")])).unwrap();
-        assert_eq!(cycle, ["a", "b", "c", "a"]);
     }
 
     #[test]

@@ -8,7 +8,8 @@
 
 use std::collections::BTreeMap;
 
-use crate::source::{Token, test_item_lines};
+use crate::lexer::{Token, test_item_lines, tokenize};
+use crate::workspace::{Workspace, data_lines, read};
 
 /// The most lines of non-test code a file may have. Changing it needs an ADR.
 pub const MAX_LINES: usize = 600;
@@ -22,13 +23,30 @@ pub fn non_test_lines(src: &str, tokens: &[Token]) -> usize {
     src.lines().count() - test_lines
 }
 
+/// The size of every checked file: all Rust code under `crates/` outside
+/// `tests/` directories, keyed by its path relative to the workspace.
+pub fn file_sizes(workspace: &Workspace) -> BTreeMap<String, usize> {
+    workspace
+        .rust_files()
+        .into_iter()
+        .map(|path| (workspace.relative_path(&path), path))
+        .filter(|(relative, _)| !relative.split('/').any(|part| part == "tests"))
+        .map(|(relative, path)| {
+            let src = read(&path);
+            let tokens = tokenize(&src);
+            (relative, non_test_lines(&src, &tokens))
+        })
+        .collect()
+}
+
 /// The allowlist: each file with the most lines it may have.
 pub fn parse_allowlist(text: &str) -> Result<BTreeMap<String, usize>, String> {
     let mut allowed = BTreeMap::new();
-    for (n, line) in text.lines().enumerate() {
-        let line = line.split('#').next().unwrap_or_default().trim();
-        if line.is_empty() {
-            continue;
+    for (n, line) in data_lines(text) {
+        // Entries start at the line start, so the ADR check in
+        // .github/scripts/structural-change.sh sees every one.
+        if line.starts_with(char::is_whitespace) {
+            return Err(format!("line {}: an entry must not be indented", n + 1));
         }
         let entry = line
             .split_once(char::is_whitespace)
@@ -78,7 +96,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{MAX_LINES, non_test_lines, parse_allowlist, problems};
-    use crate::source::tokenize;
+    use crate::lexer::tokenize;
 
     fn sizes(entries: &[(&str, usize)]) -> BTreeMap<String, usize> {
         entries.iter().map(|&(p, n)| (p.to_owned(), n)).collect()
@@ -96,6 +114,7 @@ mod tests {
         assert_eq!(allowed, sizes(&[("a.rs", 700), ("b.rs", 650)]));
         assert!(parse_allowlist("a.rs\n").is_err());
         assert!(parse_allowlist("a.rs 1\na.rs 2\n").is_err());
+        assert!(parse_allowlist("  a.rs 700\n").is_err());
     }
 
     #[test]

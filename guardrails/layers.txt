@@ -22,8 +22,10 @@ oso-core oso-platform
 [oso-core]
 keymap
 command
-editor display_map
-cursor key rope
+editor
+cursor
+display_map
+key rope
 sum_tree
 
 [oso-platform]
