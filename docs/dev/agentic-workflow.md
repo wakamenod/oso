@@ -43,12 +43,13 @@ The setup is recorded in
 
 ### Permissions and hooks
 
-- `.claude/settings.json` asks for human approval before edits to
-  `Cargo.toml`, `Cargo.lock`, `deny.toml` or `.claude/`, and before
-  `cargo add`, `remove`, `update` or `install`.
+- `.claude/settings.json` asks for human approval before edits to the files
+  listed in `AGENTS.md`, and before `cargo add`, `remove`, `update` or
+  `install`.
 - Pre-commit hook (`.claude/hooks/pre-commit.sh`): before `git commit`, run
   `just ci` and a gitleaks scan of staged, unstaged and untracked changes.
-  Block the commit if either fails.
+  Block the commit if either fails, and ask the human if the commit touches
+  a file that needs approval. The hook fails closed.
 - Post-edit hook (`.claude/hooks/fmt-rs.sh`): run `cargo fmt` after a `.rs`
   file is edited, and nothing heavier.
 - Both hooks check the checkout Claude is working in, so they work in
@@ -56,8 +57,9 @@ The setup is recorded in
 
 ### Mechanical checks
 
-- Clippy denies undocumented `unsafe` blocks and `std::process::Command::new`
-  (`Cargo.toml` `[lints]`, `clippy.toml`).
+- Clippy denies undocumented `unsafe` blocks, `allow` attributes without a
+  reason, process spawning outside `oso-platform::process` and `std::net`
+  sockets (`Cargo.toml` `[lints]`, `clippy.toml`).
 - `just deny` and `just audit` check dependencies against `deny.toml` and
   the RustSec database. `just secrets` scans the git history.
 - CI runs `just ci` on all three platforms, plus `cargo-deny`, `cargo-audit`

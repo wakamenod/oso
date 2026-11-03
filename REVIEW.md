@@ -12,7 +12,8 @@ need the author's explicit approval.
 - [ ] **[gate]** New `unsafe`: does it have a `// SAFETY:` comment, and is it
   outside `oso-core`?
 - [ ] **[gate]** Changes to process spawning, file writing, the trust model,
-  the control socket or `deny.toml`.
+  the control socket, `deny.toml` or the files that define the checks (see
+  `AGENTS.md`).
 - [ ] Nothing executes on file or project open. External tools run only in
   trusted projects.
 - [ ] No network code, and no process spawning outside

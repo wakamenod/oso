@@ -25,7 +25,9 @@ one. Open topics are in `docs/dev/open-questions.md`.
 - Commands are plain functions over host-owned state, with no globals. They
   operate on the window's selection set (multiple cursors).
 - Ask before adding or upgrading dependencies, or before editing
-  `Cargo.toml`, `Cargo.lock`, `deny.toml` or `.claude/`.
+  `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.claude/` or the files that
+  define the checks (`Justfile`, `clippy.toml`, `rust-toolchain.toml`,
+  `.cargo/`, `.github/`, gitleaks config).
 - Dev-only code (control socket, hot reload) stays behind dev cargo features.
 
 ## Workflow
