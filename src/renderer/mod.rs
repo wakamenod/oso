@@ -28,6 +28,17 @@ pub(crate) fn cursor_pixel_x(position: usize, char_width: f32, margin_x: f32) ->
     position as f32 * char_width + margin_x
 }
 
+/// The single wgpu backend used on this OS (ADR 0003). There is no GL fallback.
+pub(crate) fn platform_backend() -> wgpu::Backends {
+    if cfg!(target_os = "macos") {
+        wgpu::Backends::METAL
+    } else if cfg!(target_os = "windows") {
+        wgpu::Backends::DX12
+    } else {
+        wgpu::Backends::VULKAN
+    }
+}
+
 /// Manages the wgpu device, queue, and surface; issues frame draws.
 ///
 /// Render pass layout (§5.6 — separated pass design):
@@ -47,9 +58,9 @@ impl RenderState {
         let window = Arc::new(window);
         let size = window.inner_size();
 
-        // 1. Create a wgpu instance (abstracts Vulkan, Metal, DX12, etc.).
+        // 1. Create a wgpu instance for this OS's backend.
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: platform_backend(),
             flags: wgpu::InstanceFlags::default(),
             memory_budget_thresholds: Default::default(),
             backend_options: Default::default(),
@@ -59,10 +70,11 @@ impl RenderState {
         // 2. Create a surface tied to the window.
         let surface = instance.create_surface(window.clone()).unwrap();
 
-        // 3. Request a physical GPU adapter.
+        // 3. Request a physical GPU adapter. An editor draws very little, and
+        //    low power keeps dual-GPU machines on the integrated GPU.
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
@@ -105,6 +117,16 @@ impl RenderState {
             desired_maximum_frame_latency: 1,
         };
         surface.configure(&device, &config);
+
+        let info = adapter.get_info();
+        log::debug!(
+            "wgpu backend {:?}, adapter {:?} ({:?}), present mode {:?}, frame latency {}",
+            info.backend,
+            info.name,
+            info.device_type,
+            config.present_mode,
+            config.desired_maximum_frame_latency,
+        );
 
         // 6. Initialize the shape renderer.
         let shape_renderer = ShapeRenderer::new(
@@ -198,8 +220,35 @@ impl RenderState {
 
 #[cfg(test)]
 mod tests {
-    use super::cursor_pixel_x;
+    use super::{cursor_pixel_x, platform_backend};
     use proptest::prelude::*;
+
+    // --- Backend selection ---
+
+    #[test]
+    fn exactly_one_backend_and_never_gl() {
+        let backends = platform_backend();
+        assert_eq!(backends.iter().count(), 1, "{backends:?}");
+        assert!(!backends.contains(wgpu::Backends::GL));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_uses_metal() {
+        assert_eq!(platform_backend(), wgpu::Backends::METAL);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_uses_dx12() {
+        assert_eq!(platform_backend(), wgpu::Backends::DX12);
+    }
+
+    #[test]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    fn other_systems_use_vulkan() {
+        assert_eq!(platform_backend(), wgpu::Backends::VULKAN);
+    }
 
     // --- Deterministic unit tests ---
 
