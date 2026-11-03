@@ -542,6 +542,26 @@ mod tests {
     }
 
     #[test]
+    fn keys_reuse_one_buffer_once_warm() {
+        let registry = registry(NAMES);
+        let map = global(&registry);
+        let layers = Layers::global(&map);
+        let mut resolver = KeyResolver::new();
+        // Warm up with the longest sequence in the keymap.
+        feed_all(&mut resolver, &layers, &registry, "C-x 4 f");
+        let buffer = (resolver.keys.as_ptr(), resolver.keys.capacity());
+        for _ in 0..1000 {
+            feed_all(
+                &mut resolver,
+                &layers,
+                &registry,
+                "C-f C-b <right> C-x C-g C-x C-z a C-g C-x 4 z C-x C-c",
+            );
+        }
+        assert_eq!((resolver.keys.as_ptr(), resolver.keys.capacity()), buffer);
+    }
+
+    #[test]
     fn cancel_clears_a_pending_prefix() {
         let registry = registry(NAMES);
         let map = global(&registry);

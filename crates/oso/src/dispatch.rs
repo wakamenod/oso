@@ -41,6 +41,24 @@ impl Dispatcher {
         self.resolver.pending()
     }
 
+    /// Handles key presses in order, as from the control socket's
+    /// `send-keys`. Keys after one that exits are dropped.
+    #[cfg(any(test, feature = "dev"))]
+    pub fn handle_keys(
+        &mut self,
+        editor: &mut Editor,
+        keys: impl IntoIterator<Item = KeyPress>,
+    ) -> Effects {
+        let mut effects = Effects::default();
+        for key in keys {
+            effects = effects.union(self.handle_key(editor, key));
+            if effects.exit {
+                break;
+            }
+        }
+        effects
+    }
+
     /// Handles one key press: waits on a prefix, or runs the command the
     /// keys resolve to. Returns what the host should do: redraw only when a
     /// command changed something visible, and exit when one asked to.
@@ -73,11 +91,11 @@ impl Dispatcher {
                 Effects::default()
             }
             Resolution::Unbound(keys) => {
-                log::info!("{} is undefined", display_keys(keys));
+                log::debug!("{} is undefined", display_keys(keys));
                 Effects::default()
             }
             Resolution::Cancelled => {
-                log::info!("Quit");
+                log::debug!("Quit");
                 Effects::default()
             }
         }
@@ -96,9 +114,7 @@ mod tests {
     /// Feeds the keys of `s` and returns the combined effects.
     fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, s: &str) -> Effects {
         let keys: KeySequence = s.parse().unwrap();
-        keys.0.into_iter().fold(Effects::default(), |effects, key| {
-            effects.union(dispatcher.handle_key(editor, key))
-        })
+        dispatcher.handle_keys(editor, keys.0)
     }
 
     const REDRAW: Effects = Effects {
@@ -175,6 +191,16 @@ mod tests {
                 exit: true
             }
         );
+    }
+
+    #[test]
+    fn keys_after_an_exit_are_dropped() {
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = Editor::default();
+        let effects = send(&mut dispatcher, &mut editor, "C-f C-x C-c <right> C-x");
+        assert!(effects.exit);
+        assert_eq!(editor.cursor.position, 1);
+        assert!(dispatcher.pending().is_empty());
     }
 
     fn explode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

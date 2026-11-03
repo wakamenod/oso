@@ -185,11 +185,9 @@ pub enum ExecuteError {
         error: CommandError,
     },
     /// The command panicked. State it touched may be partially updated
-    /// (ADR 0014).
-    Panicked {
-        command: &'static str,
-        message: String,
-    },
+    /// (ADR 0014). The panic message is dropped: it may quote buffer text,
+    /// which errors never carry (ADR 0028).
+    Panicked { command: &'static str },
     /// The id does not belong to this registry.
     UnknownId(CommandId),
 }
@@ -198,7 +196,7 @@ impl fmt::Display for ExecuteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Failed { command, error } => write!(f, "{command}: {error}"),
-            Self::Panicked { command, message } => write!(f, "{command} panicked: {message}"),
+            Self::Panicked { command } => write!(f, "{command} panicked"),
             Self::UnknownId(id) => write!(f, "no command with id {}", id.0),
         }
     }
@@ -305,9 +303,9 @@ impl Registry {
                 command: command.name,
                 error,
             }),
-            Err(payload) => Err(ExecuteError::Panicked {
+            // The payload is dropped unread (ADR 0028).
+            Err(_) => Err(ExecuteError::Panicked {
                 command: command.name,
-                message: panic_message(payload.as_ref()),
             }),
         }
     }
@@ -319,17 +317,6 @@ fn is_command_name(name: &str) -> bool {
         && name.split('-').all(|word| {
             !word.is_empty() && word.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9'))
         })
-}
-
-/// The message a panic was raised with, if it is a string.
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    if let Some(s) = payload.downcast_ref::<&str>() {
-        (*s).to_owned()
-    } else if let Some(s) = payload.downcast_ref::<String>() {
-        s.clone()
-    } else {
-        "a panic without a message".to_owned()
-    }
 }
 
 #[cfg(test)]
@@ -354,7 +341,7 @@ mod tests {
 
     fn explode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         ctx.editor.cursor.position = 7;
-        panic!("deliberate panic in a test command");
+        panic!("deliberate panic quoting SECRET-MARKER");
     }
 
     fn quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -506,13 +493,10 @@ mod tests {
         let registry = registry();
         let mut editor = Editor::default();
         let (result, _) = run(&registry, &mut editor, "explode", Args::NONE);
-        assert_eq!(
-            result,
-            Err(ExecuteError::Panicked {
-                command: "explode",
-                message: "deliberate panic in a test command".into()
-            })
-        );
+        assert_eq!(result, Err(ExecuteError::Panicked { command: "explode" }));
+        // The panic message may quote buffer text, so it is not kept.
+        let shown = format!("{} {:?}", result.as_ref().unwrap_err(), result);
+        assert!(!shown.contains("SECRET-MARKER"), "{shown}");
         // The partial update stays (ADR 0014), and later commands still run.
         assert_eq!(editor.cursor.position, 7);
         assert_eq!(run(&registry, &mut editor, "forward", Args::NONE).0, Ok(()));

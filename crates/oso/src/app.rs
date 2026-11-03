@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use oso_core::command::Effects;
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_render::{Redraw, RenderState};
@@ -58,11 +59,16 @@ impl App {
         Self { dev, ..Self::new() }
     }
 
-    /// Handles one key press, from the window or from the dev control
-    /// socket, through the keymaps and the command registry. Returns false
-    /// once a command asked to exit.
-    fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyPress) -> bool {
+    /// Handles one key press from the window, through the keymaps and the
+    /// command registry. Keys from the dev control socket take the same
+    /// path, through [`Dispatcher::handle_keys`].
+    fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyPress) {
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
+        self.apply(event_loop, effects);
+    }
+
+    /// Does what commands asked for.
+    fn apply(&self, event_loop: &ActiveEventLoop, effects: Effects) {
         if effects.redraw
             && let Some(view) = &self.view
         {
@@ -71,7 +77,6 @@ impl App {
         if effects.exit {
             event_loop.exit();
         }
-        !effects.exit
     }
 }
 
@@ -99,12 +104,8 @@ impl App {
         let result = match op {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
-                for key in keys {
-                    // Keys after an exit are dropped.
-                    if !self.handle_key(event_loop, key) {
-                        break;
-                    }
-                }
+                let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
+                self.apply(event_loop, effects);
                 Ok(serde_json::json!({ "keys": count }))
             }
             dev::UiOp::GetState => {

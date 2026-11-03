@@ -69,7 +69,7 @@ fn backward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 
 fn keyboard_quit(_: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // The echo area (M2) shows "Quit"; deactivating the mark comes with it.
-    log::info!("Quit");
+    log::debug!("Quit");
     Ok(())
 }
 
