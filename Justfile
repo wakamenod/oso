@@ -158,16 +158,24 @@ public-api-check: public-api
     fi
     echo "public API: matches the snapshots"
 
-# Write the design health report (ADR 0038) as Markdown
+# Write the design health report (ADR 0038) as Markdown. Its clippy run
+# uses a changed config, so the next `just lint` re-lints the workspace.
 health-report out="target/design-health.md":
     #!/usr/bin/env bash
     set -euo pipefail
     out="{{out}}"
     mkdir -p "$(dirname "$out")"
     tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
     since=$(git rev-list -1 --before="7 days ago" HEAD || true)
-    OSO_HEALTH_REPORT="$tmp/tests.md" cargo test --locked -q -p oso --test architecture \
+    # The checkout from 7 days ago, for the growth of files and edges.
+    base=
+    if [ -n "$since" ]; then
+        base="$tmp/base"
+        git worktree add -q --detach "$base" "$since"
+    fi
+    trap '[ -z "$base" ] || git worktree remove --force "$base"; rm -rf "$tmp"' EXIT
+    OSO_HEALTH_REPORT="$tmp/tests.md" OSO_HEALTH_BASE="$base" \
+        cargo test --locked -q -p oso --test architecture \
         -- --ignored --exact design_health_report >/dev/null
     # Clippy lists every function over 40 lines. Functions with an
     # #[expect(clippy::too_many_lines)] are listed separately below.
@@ -230,12 +238,12 @@ health-report out="target/design-health.md":
         echo
         echo "## Surviving mutants"
         echo
-        # Hook for mutation testing (M1-9, ADR 0037): cargo-mutants writes
+        # Hook for mutation testing (M1-9a, ADR 0037): cargo-mutants writes
         # mutants.out/missed.txt.
         if [ -f mutants.out/missed.txt ]; then
             sed 's/^/- /' mutants.out/missed.txt
         else
-            echo "Not collected yet: mutation testing arrives with M1-9 (ADR 0037)."
+            echo "Not collected yet: mutation testing arrives with M1-9a (ADR 0037)."
         fi
     } >"$out"
     echo "design health report: $out"
