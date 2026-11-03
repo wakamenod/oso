@@ -73,15 +73,18 @@ M1 is built in this order. Each step is one PR.
   - automated end-to-end tests over the control socket (`just e2e`, and
     Linux CI with lavapipe)
   - weekly mutation testing, coverage reports and the 30 s test time budget
-- **M1-10**: architecture guardrails
-  ([ADR 0038](adr/0038-architecture-guardrails.md)):
+- **M1-10a** (now, in parallel with M1-6; merge before M1-7b): architecture
+  guardrails ([ADR 0038](adr/0038-architecture-guardrails.md)):
   - dependency-direction rules between crates and modules
   - public API snapshots
   - size limits with a ratchet allowlist
   - design-rule lints
-  - the `arch-reviewer` subagent and the PR template
-  - module responsibility headers and crate `AGENTS.md` files
+  - the `arch-reviewer` subagent and the PR template with the ADR check
+  - crate `AGENTS.md` files
   - the weekly design health check
+- **M1-10b** (right after M1-6 merges): module responsibility headers in
+  every source file and the test that requires them. This step touches
+  every file, so it waits for M1-6 to avoid conflicts.
 
 ### M2 — Editor (start using oso for text and notes)
 
