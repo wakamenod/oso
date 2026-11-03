@@ -88,6 +88,10 @@ up. See [`agentic-workflow.md`](../agentic-workflow.md).
   updates.
 - The CI check that release builds contain no dev-only features is deferred
   to M1-7, when dev features exist.
+- With `wildcards = "deny"`, `cargo-deny` treats path dependencies without a
+  version as wildcards. When M1-2 splits the workspace, add
+  `allow-wildcard-paths = true` to `deny.toml` (the crates are
+  `publish = false`) or give path dependencies a version.
 - The `add-command` and `verify-in-app` skills and `crates/*/AGENTS.md` are
   still planned.
 

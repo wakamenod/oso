@@ -23,15 +23,15 @@ release:
 
 # Run with standard logging (wgpu warnings only / oso at debug level)
 run:
-    RUST_LOG="wgpu=warn,oso=debug" cargo run
+    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked
 
 # Run with verbose logging (includes wgpu GPU init logs / backtraces enabled)
 run-verbose:
-    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run
+    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run --locked
 
 # Run the release build
 run-release:
-    RUST_LOG="wgpu=warn,oso=info" cargo run --release
+    RUST_LOG="wgpu=warn,oso=info" cargo run --locked --release
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Verify
@@ -78,7 +78,7 @@ secrets:
 
 # Generate documentation and open it in the browser (excludes dependencies)
 doc:
-    cargo doc --open --no-deps
+    cargo doc --locked --open --no-deps
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Clean
