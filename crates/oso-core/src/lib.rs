@@ -5,4 +5,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cursor;
+pub mod display_map;
 pub mod key;
+pub mod rope;
+pub mod sum_tree;

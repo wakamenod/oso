@@ -28,11 +28,32 @@ Display rows
 - Each layer converts positions in both directions in O(log n), using
   summarized trees in the style of Zed's `SumTree`. oso implements its own
   `SumTree` in `oso-core`, and the buffer's rope is built on it too
-  ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
-- Layers update incrementally. An edit invalidates only the affected range.
+  ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
+  [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)).
+- Layers update incrementally. An edit invalidates only the affected range:
+  the rope reports the chunks an edit replaced (`RopeEdit`), and each layer
+  replaces its items for them.
 - Only visible rows are laid out and rendered.
 - The whole pipeline lives in `oso-core`. It has no GPU dependency and is
   unit- and property-tested.
+
+### What exists today
+
+M1-4 built only what the viewer needs (`oso_core::display_map`):
+
+- **TabMap.** A `SumTree` whose items mirror the rope's chunks and share
+  their text. Each item's summary holds its line breaks and the column
+  function of its last line, so the column of any offset is found in
+  O(log n) plus a scan of one chunk, even on a 10 MB line full of tabs. The
+  tab width is a parameter; changing it rebuilds only the TabMap.
+- **`DisplayMap` and `DisplaySnapshot`.** The API callers use: offset ↔
+  `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
+  clusters, row widths, and the clusters of a row from any column, for
+  rendering. A snapshot is O(1) to take and can go to another thread.
+- **Rows are buffer lines**, because soft wrap is off by default.
+- FoldMap and InlayMap will go below the TabMap; its items then mirror
+  InlayMap chunks. WrapMap and BlockMap will go above it; a display point
+  then differs from a TabMap point. There are no placeholder layers.
 
 ## Cell grid
 
@@ -42,6 +63,20 @@ cell is `column × cell_width`, so hit testing and cursor motion need no
 shaping. Shaping and rasterization are still used for drawing (emoji, CJK,
 ligatures) through the OS-native backend. Proportional fonts are not
 supported.
+
+The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
+
+- A grapheme cluster takes 1 or 2 cells. Emoji sequences take 2.
+- Ambiguous-width characters take 1 cell.
+- Bidi controls and invisible characters (ZWSP, ZWNJ, tag characters,
+  U+2028) are boxed code points such as `U+202E`, one cell per label
+  character. One that would extend a cluster is split out, except inside
+  emoji sequences and after non-ASCII text.
+- Every other cluster takes at least 1 cell, so a lone combining mark stays
+  visible.
+- Control characters are shown as escapes, as in Emacs: `^@` to `^_`, `^?`
+  (2 cells) and `\200` to `\237` (4 cells). A lone `\r` is shown as `^M`.
+- A tab advances to the next tab stop. `\n` and `\r\n` end the row.
 
 ## Row heights
 
