@@ -7,13 +7,25 @@
 
 use bytemuck::{Pod, Zeroable};
 use oso_platform::text::{CellMetrics, GlyphFormat, ShapedGlyph, TextSystem};
+
 use wgpu::util::DeviceExt;
 
 use crate::atlas::{AtlasGlyph, GlyphAtlas};
+use crate::grid::{PlacedGlyph, Placer};
 use crate::shape::Uniforms;
 
 /// Instances the buffer holds before it first grows.
 const INITIAL_INSTANCES: usize = 1024;
+
+/// The most quads in one frame. A screen of text needs far fewer; this
+/// bounds the instance buffer when text stacks many glyphs in a cell.
+const MAX_INSTANCES: usize = 1 << 18;
+
+/// [`MAX_INSTANCES`], or fewer if the device's buffers cannot hold them.
+fn max_instances(device: &wgpu::Device) -> usize {
+    let limit = device.limits().max_buffer_size / std::mem::size_of::<GlyphInstance>() as u64;
+    MAX_INSTANCES.min(usize::try_from(limit).unwrap_or(usize::MAX))
+}
 
 /// One glyph quad, as the shader reads it.
 #[repr(C)]
@@ -78,11 +90,18 @@ impl Layout {
         visible.min(rows)
     }
 
+    /// The columns at least partly inside the viewport, plus one for glyphs
+    /// that overhang their cell to the left.
+    pub(crate) fn visible_columns(&self) -> u32 {
+        let space = (self.viewport[0] - self.origin[0]).max(0.0);
+        (space / self.metrics.width).ceil() as u32 + 1
+    }
+
     /// The quad for one glyph of `row`, or `None` if it is off screen.
     pub(crate) fn quad(
         &self,
         row: u32,
-        glyph: &ShapedGlyph,
+        glyph: &PlacedGlyph,
         entry: &AtlasGlyph,
     ) -> Option<GlyphInstance> {
         let [cell_x, cell_y] = self.cell(row, glyph.column);
@@ -94,7 +113,7 @@ impl Layout {
         }
         let (cursor_row, cursor_column) = self.cursor;
         let under_cursor = row == cursor_row
-            && (glyph.column..glyph.column + u32::from(glyph.cells)).contains(&cursor_column);
+            && (glyph.column..glyph.column + glyph.cells).contains(&cursor_column);
         Some(GlyphInstance {
             position: [x, y],
             size: [w, h],
@@ -112,11 +131,15 @@ impl Layout {
     }
 }
 
-/// Rows of text and their shaped glyphs, shaped on first use.
+/// Rows of text and their glyphs on the grid, shaped on first use.
 #[derive(Default)]
 pub(crate) struct Rows {
     text: Vec<String>,
-    shaped: Vec<Option<Vec<ShapedGlyph>>>,
+    /// Sorted by column.
+    shaped: Vec<Option<Vec<PlacedGlyph>>>,
+    /// Scratch space for shaping and placing a row.
+    glyphs: Vec<ShapedGlyph>,
+    placer: Placer,
 }
 
 impl Rows {
@@ -160,20 +183,25 @@ impl Rows {
             .and_then(Option::as_deref)
             .unwrap_or(&[]);
         // Glyphs are in column order.
-        let i = glyphs.partition_point(|g| g.column + u32::from(g.cells) <= column);
+        let i = glyphs.partition_point(|g| g.column + g.cells <= column);
         match glyphs.get(i) {
-            Some(g) if g.column <= column => (g.column, u32::from(g.cells)),
+            Some(g) if g.column <= column => (g.column, g.cells),
             _ => (column, 1),
         }
     }
 
-    /// The glyphs of row `i`, shaping it if needed.
-    fn shaped(&mut self, i: usize, system: &mut dyn TextSystem) -> &[ShapedGlyph] {
-        self.shaped[i].get_or_insert_with(|| {
-            let mut glyphs = Vec::new();
-            system.shape(&self.text[i], &mut glyphs);
-            glyphs
-        })
+    /// The glyphs of row `i` that start before column `end`, shaping the
+    /// row if needed.
+    fn shaped(&mut self, i: usize, end: u32, system: &mut dyn TextSystem) -> &[PlacedGlyph] {
+        let placed = self.shaped[i].get_or_insert_with(|| {
+            let text = &self.text[i];
+            system.shape(text, &mut self.glyphs);
+            let mut placed = Vec::new();
+            self.placer
+                .place(text, &self.glyphs, system.metrics().width, &mut placed);
+            placed
+        });
+        &placed[..placed.partition_point(|g| g.column < end)]
     }
 }
 
@@ -188,6 +216,8 @@ pub(crate) struct TextRenderer {
     instance_buffer: wgpu::Buffer,
     /// Instances `instance_buffer` holds.
     capacity: usize,
+    /// The most quads drawn in one frame, within the device's buffer limit.
+    max_instances: usize,
     /// This frame's quads, reused across frames.
     instances: Vec<GlyphInstance>,
     pub(crate) atlas: GlyphAtlas,
@@ -276,6 +306,7 @@ impl TextRenderer {
             bind_group,
             instance_buffer: Self::instance_buffer(device, INITIAL_INSTANCES),
             capacity: INITIAL_INSTANCES,
+            max_instances: max_instances(device),
             instances: Vec::with_capacity(INITIAL_INSTANCES),
             atlas,
         }
@@ -332,15 +363,16 @@ impl TextRenderer {
         rows: &mut Rows,
         layout: &Layout,
     ) {
-        self.instances.clear();
-        for i in 0..layout.visible_rows(rows.len()) {
-            for glyph in rows.shaped(i, system) {
-                let Some(entry) = self.atlas.get(device, queue, system, glyph.key) else {
-                    continue;
-                };
-                if let Some(quad) = layout.quad(i as u32, glyph, &entry) {
-                    self.instances.push(quad);
-                }
+        // A frame that fills the atlas clears it and is built once more,
+        // so a full atlas never leaves glyphs invisible for good.
+        for attempt in 0..2 {
+            self.build(device, queue, system, rows, layout);
+            if !self.atlas.take_full() {
+                break;
+            }
+            if attempt == 0 {
+                log::debug!("glyph atlas is full; clearing it");
+                self.atlas.clear();
             }
         }
         if self.atlas.generation() != self.bound_generation {
@@ -353,7 +385,11 @@ impl TextRenderer {
             self.bound_generation = self.atlas.generation();
         }
         if self.instances.len() > self.capacity {
-            self.capacity = self.instances.len().next_power_of_two();
+            self.capacity = self
+                .instances
+                .len()
+                .next_power_of_two()
+                .min(self.max_instances);
             self.instance_buffer = Self::instance_buffer(device, self.capacity);
         }
         if !self.instances.is_empty() {
@@ -362,6 +398,34 @@ impl TextRenderer {
                 0,
                 bytemuck::cast_slice(&self.instances),
             );
+        }
+    }
+
+    /// Fills `self.instances` with the quads of the visible glyphs.
+    fn build(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        system: &mut dyn TextSystem,
+        rows: &mut Rows,
+        layout: &Layout,
+    ) {
+        self.instances.clear();
+        let end = layout.visible_columns();
+        for i in 0..layout.visible_rows(rows.len()) {
+            // Only glyphs that can show are looked up, so nothing off screen
+            // is rasterized.
+            for glyph in rows.shaped(i, end, system) {
+                if self.instances.len() >= self.max_instances {
+                    return;
+                }
+                let Some(entry) = self.atlas.get(device, queue, system, glyph.key) else {
+                    continue;
+                };
+                if let Some(quad) = layout.quad(i as u32, glyph, &entry) {
+                    self.instances.push(quad);
+                }
+            }
         }
     }
 
@@ -401,15 +465,14 @@ mod tests {
         }
     }
 
-    fn glyph(column: u32, cells: u8) -> ShapedGlyph {
-        ShapedGlyph {
+    fn glyph(column: u32, cells: u32) -> PlacedGlyph {
+        PlacedGlyph {
             key: GlyphKey {
                 font: FontId(0),
                 glyph: GlyphId(1),
             },
             column,
             cells,
-            cluster: 0,
             offset: [0.0, 0.0],
         }
     }
@@ -475,6 +538,22 @@ mod tests {
         let l = layout();
         assert!(l.quad(0, &glyph(100, 1), &entry()).is_none());
         assert!(l.quad(10, &glyph(0, 1), &entry()).is_none());
+    }
+
+    #[test]
+    fn only_columns_in_the_viewport_are_visible() {
+        // (200 - 8) / 10 = 19.2, so 20 columns show, plus one for overhang.
+        assert_eq!(layout().visible_columns(), 21);
+    }
+
+    #[test]
+    fn rows_skip_glyphs_past_the_viewport() {
+        let mut rows = Rows::default();
+        rows.set(&["abcd"]);
+        rows.shaped[0] = Some((0..4).map(|c| glyph(c, 1)).collect());
+        let mut system = oso_platform::text::NullTextSystem::new(13.0, 1.0);
+        let visible = rows.shaped(0, 2, &mut system);
+        assert_eq!(visible.iter().map(|g| g.column).collect::<Vec<_>>(), [0, 1]);
     }
 
     #[test]

@@ -9,10 +9,15 @@
 //! All sizes are in physical pixels: fonts are loaded at the point size times
 //! the window's scale factor, so glyphs are rasterized at the resolution they
 //! are shown at.
+//!
+//! A text system reports which cluster of the text each glyph draws and
+//! where the font puts it. Placing glyphs on the cell grid is left to the
+//! caller (`oso-render`), which takes cell widths from the display model, so
+//! that drawing and cursor motion agree on every cluster whatever the
+//! backend.
 
 #[cfg(target_os = "macos")]
 mod coretext;
-pub mod grid;
 
 use std::fmt;
 
@@ -23,6 +28,27 @@ pub struct FontRequest<'a> {
     pub families: &'a [&'a str],
     /// The size in points; one point is `scale` physical pixels.
     pub size_pt: f32,
+}
+
+/// The font sizes accepted, in points. Others are clamped into it.
+pub const FONT_SIZES: std::ops::RangeInclusive<f32> = 4.0..=256.0;
+
+/// `size_pt` clamped to [`FONT_SIZES`]; the default size for NaN.
+fn font_size(size_pt: f32) -> f32 {
+    if size_pt.is_nan() {
+        13.0
+    } else {
+        size_pt.clamp(*FONT_SIZES.start(), *FONT_SIZES.end())
+    }
+}
+
+/// A window scale factor clamped to what displays use; 1 for NaN.
+fn display_scale(scale: f64) -> f64 {
+    if scale.is_nan() {
+        1.0
+    } else {
+        scale.clamp(0.5, 8.0)
+    }
 }
 
 /// The size of one cell of the monospace grid, in physical pixels.
@@ -45,7 +71,7 @@ impl CellMetrics {
     /// Metrics estimated from the font size alone, for when no font is
     /// loaded: a monospace cell is about 0.6 em wide and 1.2 em tall.
     pub fn estimate(size_pt: f32, scale: f64) -> Self {
-        let em = size_pt * scale as f32;
+        let em = font_size(size_pt) * display_scale(scale) as f32;
         let width = (em * 0.6).round().max(1.0);
         let height = (em * 1.2).ceil().max(1.0);
         let ascent = (em * 0.95).round().min(height);
@@ -74,20 +100,17 @@ pub struct GlyphKey {
     pub glyph: GlyphId,
 }
 
-/// One glyph of a shaped run, placed on the cell grid.
+/// One glyph of a shaped row, as the font places it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ShapedGlyph {
     pub key: GlyphKey,
-    /// The first cell of the glyph's cluster, counted from the run start.
-    pub column: u32,
-    /// How many cells the cluster takes: 1 for half-width, 2 for full-width.
-    pub cells: u8,
-    /// Byte offset of the cluster in the run's text.
+    /// Byte offset in the row's text where the glyph's cluster starts.
     pub cluster: u32,
-    /// Pen position relative to the cluster's first cell, at the baseline,
-    /// in whole pixels; y grows downwards. Centers glyphs whose advance is
-    /// not exactly `cells` cells, such as CJK from a fallback font.
-    pub offset: [f32; 2],
+    /// Pen position from the row's origin, in pixels; y grows upwards.
+    pub x: f32,
+    pub y: f32,
+    /// Horizontal advance in pixels.
+    pub advance: f32,
 }
 
 /// How a glyph bitmap stores its pixels.
@@ -153,9 +176,10 @@ pub trait TextSystem {
     /// The cell grid of the primary font.
     fn metrics(&self) -> CellMetrics;
 
-    /// Shapes one row of text into `out`, replacing its contents. Characters
-    /// the primary font lacks come from fallback fonts. Line breaks and tabs
-    /// are not handled: the caller passes one row of plain text.
+    /// Shapes one row of text into `out`, replacing its contents, with the
+    /// glyphs in visual order. Characters the primary font lacks come from
+    /// fallback fonts. Line breaks and tabs are not handled: the caller
+    /// passes one row of text.
     fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>);
 
     /// Rasterizes a glyph from [`Self::shape`]. `None` for glyphs that draw
@@ -235,6 +259,22 @@ mod tests {
     }
 
     #[test]
+    fn odd_sizes_are_clamped() {
+        for (size, scale) in [
+            (f32::NAN, 1.0),
+            (-5.0, 1.0),
+            (1e30, 1.0),
+            (13.0, f64::NAN),
+            (13.0, 1e30),
+            (f32::INFINITY, f64::INFINITY),
+        ] {
+            let m = CellMetrics::estimate(size, scale);
+            assert!(m.width.is_finite() && m.width >= 1.0, "{size} {scale}");
+            assert!(m.height <= 256.0 * 8.0 * 1.2 + 1.0, "{size} {scale}");
+        }
+    }
+
+    #[test]
     fn null_system_shapes_nothing() {
         let mut system = NullTextSystem::new(13.0, 2.0);
         let mut out = vec![ShapedGlyph {
@@ -242,10 +282,10 @@ mod tests {
                 font: FontId(0),
                 glyph: GlyphId(1),
             },
-            column: 0,
-            cells: 1,
             cluster: 0,
-            offset: [0.0, 0.0],
+            x: 0.0,
+            y: 0.0,
+            advance: 8.0,
         }];
         system.shape("abc", &mut out);
         assert!(out.is_empty());

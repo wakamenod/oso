@@ -7,6 +7,7 @@
 mod atlas;
 #[cfg(feature = "dev")]
 mod capture;
+mod grid;
 mod shape;
 mod text;
 #[cfg(feature = "dev")]

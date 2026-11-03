@@ -22,7 +22,6 @@ use objc2_core_text::{
     CTFont, CTFontOrientation, CTFontSymbolicTraits, CTLine, CTRun, kCTFontAttributeName,
 };
 
-use super::grid::{self, RawGlyph};
 use super::{
     CellMetrics, FontId, FontRequest, GlyphBitmap, GlyphFormat, GlyphId, GlyphKey, ShapedGlyph,
     TextError, TextSystem,
@@ -59,8 +58,9 @@ pub(super) struct CoreTextSystem {
     /// fonts in the order shaping first used them.
     fonts: Vec<LoadedFont>,
     metrics: CellMetrics,
-    /// Scratch buffers reused across calls to `shape`.
-    raw: Vec<RawGlyph>,
+    /// Scratch buffers reused across calls to `shape`. `bytes` maps UTF-16
+    /// offsets, which CoreText uses, to byte offsets.
+    bytes: Vec<u32>,
     glyphs: Vec<CGGlyph>,
     positions: Vec<CGPoint>,
     advances: Vec<CGSize>,
@@ -69,7 +69,7 @@ pub(super) struct CoreTextSystem {
 
 impl CoreTextSystem {
     pub(super) fn load(request: &FontRequest<'_>, scale: f64) -> Result<Self, TextError> {
-        let size = CGFloat::from(request.size_pt) * scale;
+        let size = CGFloat::from(super::font_size(request.size_pt)) * super::display_scale(scale);
         let font = request
             .families
             .iter()
@@ -79,7 +79,7 @@ impl CoreTextSystem {
         Ok(Self {
             fonts: vec![LoadedFont::new(font)],
             metrics,
-            raw: Vec::new(),
+            bytes: Vec::new(),
             glyphs: Vec::new(),
             positions: Vec::new(),
             advances: Vec::new(),
@@ -88,32 +88,29 @@ impl CoreTextSystem {
     }
 
     /// The id of the font a run was shaped with, registering a fallback
-    /// font the first time it is seen.
-    fn run_font(&mut self, run: &CTRun) -> FontId {
+    /// font the first time it is seen. `None` if the run names no font, or
+    /// there are too many fonts: its glyph ids would mean nothing.
+    fn run_font(&mut self, run: &CTRun) -> Option<FontId> {
         // SAFETY: `run` is a valid run.
         let attributes = unsafe { run.attributes() };
         // SAFETY: the keys of a run's attribute dictionary are attribute
-        // names, which are strings, and every value is a CF object.
+        // names, which are strings, and every value is a CF object. Values
+        // are only used after a checked downcast.
         let attributes: CFRetained<CFDictionary<CFString, CFType>> =
             unsafe { CFRetained::cast_unchecked(attributes) };
-        let Some(font) = attributes
+        let font = attributes
             .get(font_attribute())
-            .and_then(|value| value.downcast::<CTFont>().ok())
-        else {
-            return FontId(0);
-        };
+            .and_then(|value| value.downcast::<CTFont>().ok())?;
         if let Some(i) = self.fonts.iter().position(|loaded| loaded.font == font) {
-            return FontId(i as u16);
+            return u16::try_from(i).ok().map(FontId);
         }
-        let Ok(id) = u16::try_from(self.fonts.len()) else {
-            return FontId(0);
-        };
+        let id = u16::try_from(self.fonts.len()).ok()?;
         self.fonts.push(LoadedFont::new(font));
-        FontId(id)
+        Some(FontId(id))
     }
 
-    /// Appends the glyphs of one run to `self.raw`.
-    fn collect_run(&mut self, run: &CTRun) {
+    /// Appends the glyphs of one run to `out`.
+    fn collect_run(&mut self, run: &CTRun, out: &mut Vec<ShapedGlyph>) {
         // SAFETY: `run` is a valid run.
         let count = unsafe { run.glyph_count() };
         let Ok(n) = usize::try_from(count) else {
@@ -122,7 +119,9 @@ impl CoreTextSystem {
         if n == 0 {
             return;
         }
-        let font = self.run_font(run);
+        let Some(font) = self.run_font(run) else {
+            return;
+        };
         self.glyphs.resize(n, 0);
         self.positions.resize(n, CGPoint::ZERO);
         self.advances.resize(n, CGSize::ZERO);
@@ -140,15 +139,18 @@ impl CoreTextSystem {
             run.string_indices(all, buffer(&mut self.indices));
         }
         for i in 0..n {
-            let Ok(utf16) = usize::try_from(self.indices[i]) else {
+            let byte = usize::try_from(self.indices[i])
+                .ok()
+                .and_then(|utf16| self.bytes.get(utf16));
+            let Some(&cluster) = byte else {
                 continue;
             };
-            self.raw.push(RawGlyph {
+            out.push(ShapedGlyph {
                 key: GlyphKey {
                     font,
                     glyph: GlyphId(self.glyphs[i]),
                 },
-                utf16,
+                cluster,
                 x: self.positions[i].x as f32,
                 y: self.positions[i].y as f32,
                 advance: self.advances[i].width as f32,
@@ -164,9 +166,13 @@ impl TextSystem for CoreTextSystem {
 
     fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
         out.clear();
-        self.raw.clear();
         if text.is_empty() {
             return;
+        }
+        self.bytes.clear();
+        for (byte, c) in text.char_indices() {
+            let byte = u32::try_from(byte).unwrap_or(u32::MAX);
+            self.bytes.extend(std::iter::repeat_n(byte, c.len_utf16()));
         }
         let string = CFString::from_str(text);
         let primary: &CFType = &self.fonts[0].font;
@@ -188,10 +194,9 @@ impl TextSystem for CoreTextSystem {
         let runs: CFRetained<CFArray<CFType>> = unsafe { CFRetained::cast_unchecked(runs) };
         for run in runs.iter() {
             if let Ok(run) = run.downcast::<CTRun>() {
-                self.collect_run(&run);
+                self.collect_run(&run, out);
             }
         }
-        grid::place(text, &self.raw, self.metrics.width, out);
     }
 
     fn rasterize(&mut self, key: GlyphKey) -> Option<GlyphBitmap> {
@@ -207,18 +212,12 @@ impl TextSystem for CoreTextSystem {
                 1,
             );
         }
-        if bounds.size.width <= 0.0 || bounds.size.height <= 0.0 {
-            return None;
-        }
-        let left = bounds.origin.x.floor() as i32 - PADDING;
-        let bottom = bounds.origin.y.floor() as i32 - PADDING;
-        let right = (bounds.origin.x + bounds.size.width).ceil() as i32 + PADDING;
-        let top = (bounds.origin.y + bounds.size.height).ceil() as i32 + PADDING;
-        let width = u32::try_from(right - left).ok()?;
-        let height = u32::try_from(top - bottom).ok()?;
-        if width > MAX_GLYPH_SIDE || height > MAX_GLYPH_SIDE {
-            return None;
-        }
+        let BitmapBox {
+            left,
+            bottom,
+            width,
+            height,
+        } = bitmap_box(bounds)?;
 
         let format = if loaded.color {
             GlyphFormat::Color
@@ -273,11 +272,48 @@ impl TextSystem for CoreTextSystem {
             width,
             height,
             left,
-            top,
+            top: bottom + height as i32,
             format,
             data,
         })
     }
+}
+
+/// The pixels a glyph bitmap covers, around the pen at the origin.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct BitmapBox {
+    left: i32,
+    bottom: i32,
+    width: u32,
+    height: u32,
+}
+
+/// The whole-pixel box, with padding, around a glyph's `bounds`. `None` for
+/// an empty glyph, and for bounds that are not finite or larger than
+/// [`MAX_GLYPH_SIDE`] (a broken or hostile font).
+fn bitmap_box(bounds: CGRect) -> Option<BitmapBox> {
+    let (x, y) = (bounds.origin.x, bounds.origin.y);
+    let (w, h) = (bounds.size.width, bounds.size.height);
+    if ![x, y, w, h].iter().all(|v| v.is_finite()) || w <= 0.0 || h <= 0.0 {
+        return None;
+    }
+    let padding = CGFloat::from(PADDING);
+    let left = x.floor() - padding;
+    let bottom = y.floor() - padding;
+    let width = (x + w).ceil() + padding - left;
+    let height = (y + h).ceil() + padding - bottom;
+    let max = CGFloat::from(MAX_GLYPH_SIDE);
+    // The pen stays within a few glyph sizes of the bitmap.
+    let reach = 4.0 * max;
+    if width > max || height > max || left.abs() > reach || bottom.abs() > reach {
+        return None;
+    }
+    Some(BitmapBox {
+        left: left as i32,
+        bottom: bottom as i32,
+        width: width as u32,
+        height: height as u32,
+    })
 }
 
 /// `kCTFontAttributeName`: the attribute whose value is a run's font.
@@ -392,17 +428,20 @@ mod tests {
     }
 
     #[test]
-    fn full_width_and_emoji_take_two_cells() {
+    fn fallback_fonts_draw_what_menlo_lacks() {
         let mut system = menlo(2.0);
         let mut out = Vec::new();
         system.shape("a日🍣b", &mut out);
-        let cells: Vec<_> = out.iter().map(|g| (g.column, g.cells)).collect();
-        assert_eq!(cells, [(0, 1), (1, 2), (3, 2), (5, 1)]);
+        let clusters: Vec<_> = out.iter().map(|g| g.cluster).collect();
+        assert_eq!(clusters, [0, 1, 4, 8], "byte offsets, not UTF-16");
         // 日 and 🍣 come from fallback fonts.
         assert_eq!(out[0].key.font, FontId(0));
         assert_ne!(out[1].key.font, FontId(0));
         assert_ne!(out[2].key.font, FontId(0));
         assert_eq!(out[3].key.font, FontId(0));
+        // Pen positions advance left to right.
+        assert!(out.windows(2).all(|w| w[0].x < w[1].x));
+        assert_eq!(out[1].x, out[0].x + out[0].advance);
     }
 
     #[test]
@@ -456,6 +495,41 @@ mod tests {
         let densest = ink.iter().enumerate().max_by_key(|(_, v)| **v).unwrap().0;
         assert!(densest < t.height as usize / 2, "{ink:?}");
         assert!(t.top > 0, "T sits above the baseline");
+    }
+
+    fn rect(x: f64, y: f64, w: f64, h: f64) -> CGRect {
+        CGRect::new(CGPoint::new(x, y), CGSize::new(w, h))
+    }
+
+    #[test]
+    fn bitmap_box_pads_whole_pixels() {
+        let b = bitmap_box(rect(0.5, -2.25, 7.0, 10.0)).unwrap();
+        assert_eq!(
+            b,
+            BitmapBox {
+                left: -1,
+                bottom: -4,
+                width: 10,
+                height: 13,
+            }
+        );
+    }
+
+    #[test]
+    fn bitmap_box_refuses_bad_bounds() {
+        for bounds in [
+            rect(0.0, 0.0, 0.0, 10.0),
+            rect(0.0, 0.0, 10.0, -1.0),
+            rect(f64::NAN, 0.0, 10.0, 10.0),
+            rect(0.0, f64::INFINITY, 10.0, 10.0),
+            rect(0.0, 0.0, f64::INFINITY, 10.0),
+            rect(-1e300, 0.0, 10.0, 10.0),
+            rect(0.0, 1e300, 10.0, 10.0),
+            rect(0.0, 0.0, 1e300, 10.0),
+            rect(0.0, 0.0, f64::from(MAX_GLYPH_SIDE), 10.0),
+        ] {
+            assert_eq!(bitmap_box(bounds), None, "{bounds:?}");
+        }
     }
 
     #[test]

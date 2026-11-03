@@ -55,15 +55,16 @@ impl ShelfPacker {
             return None;
         }
         // A shelf at least as tall, but not much taller, with room left.
-        let fits = |s: &Shelf| {
-            s.height >= height && s.height <= height + height / 4 + 1 && s.x + width <= self.width
-        };
+        // Sizes are bounded by the atlas side, so none of this overflows.
+        let tallest = height.saturating_add(height / 4 + 1);
+        let fits =
+            |s: &Shelf| s.height >= height && s.height <= tallest && width <= self.width - s.x;
         if let Some(shelf) = self.shelves.iter_mut().find(|s| fits(s)) {
             let corner = [shelf.x, shelf.y];
             shelf.x += width;
             return Some(corner);
         }
-        if self.next_y + height > self.height {
+        if height > self.height - self.next_y {
             return None;
         }
         let corner = [0, self.next_y];
@@ -204,6 +205,14 @@ impl Page {
     }
 }
 
+/// Whether `bitmap` has the data its size says and fits in an atlas page.
+fn valid(bitmap: &GlyphBitmap, max_side: u32) -> bool {
+    let len = (bitmap.width as usize)
+        .checked_mul(bitmap.height as usize)
+        .and_then(|n| n.checked_mul(bitmap.format.bytes_per_pixel()));
+    bitmap.width <= max_side && bitmap.height <= max_side && len == Some(bitmap.data.len())
+}
+
 /// The texture format a glyph format is stored in.
 fn texture_format(format: GlyphFormat) -> wgpu::TextureFormat {
     match format {
@@ -225,6 +234,8 @@ pub(crate) struct GlyphAtlas {
     generation: u64,
     /// Glyphs rasterized since the atlas was created, for tests and logs.
     rasterized: u64,
+    /// Whether a glyph did not fit since the last [`Self::take_full`].
+    full: bool,
 }
 
 impl GlyphAtlas {
@@ -238,6 +249,7 @@ impl GlyphAtlas {
             max_side,
             generation: 0,
             rasterized: 0,
+            full: false,
         }
     }
 
@@ -255,6 +267,13 @@ impl GlyphAtlas {
 
     pub(crate) fn rasterized(&self) -> u64 {
         self.rasterized
+    }
+
+    /// Whether a glyph did not fit, even at the largest size, since the last
+    /// call. The caller clears the atlas and draws the frame again, so a
+    /// full atlas never leaves glyphs invisible for good.
+    pub(crate) fn take_full(&mut self) -> bool {
+        std::mem::take(&mut self.full)
     }
 
     /// Forgets every glyph, for when the text system's fonts change. The
@@ -277,10 +296,22 @@ impl GlyphAtlas {
         if let Some(&cached) = self.glyphs.get(&key) {
             return cached;
         }
-        let entry = system
-            .rasterize(key)
-            .and_then(|bitmap| self.insert(device, queue, &bitmap));
+        let bitmap = system.rasterize(key);
         self.rasterized += 1;
+        let entry = match bitmap {
+            Some(bitmap) if valid(&bitmap, self.max_side) => {
+                match self.insert(device, queue, &bitmap) {
+                    Some(entry) => Some(entry),
+                    // Not cached: it may fit once the atlas is cleared.
+                    None => {
+                        self.full = true;
+                        return None;
+                    }
+                }
+            }
+            // Empty, or a bitmap the atlas cannot hold.
+            _ => None,
+        };
         self.glyphs.insert(key, entry);
         entry
     }
@@ -326,7 +357,8 @@ impl GlyphAtlas {
 
 #[cfg(test)]
 mod tests {
-    use super::ShelfPacker;
+    use super::{ShelfPacker, valid};
+    use oso_platform::text::{GlyphBitmap, GlyphFormat};
     use proptest::prelude::*;
 
     fn overlaps(a: ([u32; 2], [u32; 2]), b: ([u32; 2], [u32; 2])) -> bool {
@@ -380,6 +412,36 @@ mod tests {
         p.grow(32, 32);
         let next = p.allocate(16, 16).unwrap();
         assert!(!overlaps(([0, 0], [16, 16]), (next, [16, 16])));
+    }
+
+    #[test]
+    fn bitmaps_must_match_their_size() {
+        let bitmap = |width, height, format, len| GlyphBitmap {
+            width,
+            height,
+            left: 0,
+            top: 0,
+            format,
+            data: vec![0; len],
+        };
+        assert!(valid(&bitmap(3, 2, GlyphFormat::Coverage, 6), 64));
+        assert!(valid(&bitmap(3, 2, GlyphFormat::Color, 24), 64));
+        assert!(!valid(&bitmap(3, 2, GlyphFormat::Color, 6), 64));
+        assert!(!valid(&bitmap(3, 2, GlyphFormat::Coverage, 7), 64));
+        assert!(!valid(&bitmap(65, 1, GlyphFormat::Coverage, 65), 64));
+        assert!(!valid(
+            &bitmap(u32::MAX, u32::MAX, GlyphFormat::Color, 0),
+            64
+        ));
+    }
+
+    #[test]
+    fn huge_requests_are_refused_without_overflow() {
+        let mut p = ShelfPacker::new(64, 64);
+        p.allocate(10, 10);
+        assert_eq!(p.allocate(10, u32::MAX), None);
+        assert_eq!(p.allocate(u32::MAX, 10), None);
+        assert!(p.allocate(10, 10).is_some());
     }
 
     #[test]
