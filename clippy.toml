@@ -1,0 +1,3 @@
+disallowed-methods = [
+    { path = "std::process::Command::new", reason = "spawn only through oso-platform::process (ADR 0010)" },
+]

@@ -2,6 +2,8 @@
 name = "oso"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 winit = "0.30"
@@ -14,3 +16,7 @@ bytemuck = { version = "1", features = ["derive"] }
 [dev-dependencies]
 # Property-based testing: automatically explores boundary values (e.g. usize::MAX).
 proptest = "1"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+disallowed_methods = "deny"

@@ -11,11 +11,11 @@ default:
 
 # Debug build
 build:
-    cargo build
+    cargo build --locked
 
 # Release build (with optimizations)
 release:
-    cargo build --release
+    cargo build --locked --release
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Run
@@ -39,11 +39,11 @@ run-release:
 
 # Type-check only (faster than a full build)
 check:
-    cargo check
+    cargo check --locked
 
 # Lint with Clippy (warnings treated as errors)
 lint:
-    cargo clippy -- -D warnings
+    cargo clippy --locked --all-targets -- -D warnings
 
 # Format code
 fmt:
@@ -55,10 +55,22 @@ fmt-check:
 
 # Run tests
 test:
-    cargo test
+    cargo test --locked
 
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
+
+# Check dependencies against deny.toml (advisories, licenses, sources, bans)
+deny:
+    cargo deny check
+
+# Check Cargo.lock against the RustSec advisory database
+audit:
+    cargo audit
+
+# Scan the full git history for secrets
+secrets:
+    gitleaks git --redact
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Docs
