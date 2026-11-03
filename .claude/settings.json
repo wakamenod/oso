@@ -19,6 +19,7 @@
       "Edit(/.claude/skills/**)",
       "Edit(/.claude/agents/**)",
       "Edit(/.claude/commands/**)",
+      "Edit(/guardrails/**)",
       "Bash(cargo add:*)",
       "Bash(cargo remove:*)",
       "Bash(cargo update:*)",
