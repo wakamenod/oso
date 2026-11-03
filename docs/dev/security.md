@@ -78,7 +78,8 @@ network features.
 - Only `oso-platform::process` may create processes. Clippy
   `disallowed_methods` bans `std::process::Command::new` (and its async
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
-  helper crates. Clippy `disallowed_types` bans `std::net` sockets.
+  helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
+  Unix domain sockets outside the dev control socket.
 - Executables resolve from absolute paths in user config, or from `PATH` with
   the current directory and the project directory removed.
 - The environment is sanitized and every spawn is logged in a visible buffer.

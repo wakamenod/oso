@@ -55,16 +55,21 @@ release check works. A named pipe on Windows needs `windows-sys` and
   pipe restricted to the current user is added when Windows needs agent
   testing.
 - **Release check:** `just release-safety`, run by CI on Linux, fails if
-  - the release dependency tree of `oso`, for every target, enables a `dev`
-    feature of an oso crate, or contains a dev-only crate (`serde_json`,
-    `miniz_oxide`);
-  - the release binary contains the marker string `oso-dev-control-socket`,
-    which every dev binary contains.
+  - the release dependency tree of the workspace, for every target, enables
+    a `dev` feature of an oso crate, or contains a dev-only crate
+    (`serde_json`, `miniz_oxide`). The workspace is checked, as `just
+    release` builds it, because features are unified across its crates;
+  - the release binary, at the path cargo reports, contains the marker
+    string `oso-dev-control-socket`, which every dev binary contains.
 
   Each check first runs against a dev build and fails if it cannot see the
   dev code there, so it cannot pass vacuously.
-- `just check`, `lint` and `test` also run with `--all-features`, so dev
-  code is linted and tested.
+- `just check`, `lint` and `test` run both without features and with
+  `--all-features`, so dev code is linted and tested, and so is the code
+  that ships.
+- **Local sockets** (`std::os::unix::net`) are banned by clippy
+  `disallowed_types` everywhere except `oso-platform::control`'s Unix
+  transport.
 
 ## Consequences
 

@@ -58,8 +58,9 @@ The setup is recorded in
 ### Mechanical checks
 
 - Clippy denies undocumented `unsafe` blocks, `allow` attributes without a
-  reason, process spawning outside `oso-platform::process` and `std::net`
-  sockets (`Cargo.toml` `[lints]`, `clippy.toml`).
+  reason, process spawning outside `oso-platform::process`, `std::net`
+  sockets, and Unix domain sockets outside the dev control socket
+  (`Cargo.toml` `[lints]`, `clippy.toml`).
 - `just deny` and `just audit` check dependencies against `deny.toml` and
   the RustSec database. `just secrets` scans the git history.
 - CI runs `just ci` on all three platforms, plus `just release-safety`

@@ -1,5 +1,11 @@
 //! The control socket on Unix: a Unix domain socket in a `0700` directory.
 
+// The only place allowed to open local sockets (clippy.toml).
+#![expect(
+    clippy::disallowed_types,
+    reason = "the dev control socket is the one user of Unix domain sockets"
+)]
+
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};
 use std::io::{self, Read, Write};
