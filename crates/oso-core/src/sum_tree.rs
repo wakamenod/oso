@@ -319,7 +319,7 @@ impl<T: Item> SumTree<T> {
     pub fn cursor<D: Dimension<T::Summary>>(&self) -> Cursor<'_, T, D> {
         let mut cursor = Cursor {
             tree: self,
-            stack: Vec::new(),
+            stack: Vec::with_capacity(usize::from(self.height()) + 1),
             position: D::default(),
         };
         cursor.descend_first(&self.0, D::default());

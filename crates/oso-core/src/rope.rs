@@ -277,8 +277,14 @@ impl Rope {
         cursor.seek(&offset, Bias::Right);
         let (start, mut point) = *cursor.start();
         if let Some(chunk) = cursor.item() {
-            let before = &chunk.as_str()[..offset - start];
-            point.add_summary(&TextSummary::from_text(before));
+            let before = &chunk.as_str().as_bytes()[..offset - start];
+            match before.iter().rposition(|&byte| byte == b'\n') {
+                Some(newline) => {
+                    point.row += before.iter().filter(|&&byte| byte == b'\n').count();
+                    point.column = before.len() - newline - 1;
+                }
+                None => point.column += before.len(),
+            }
         }
         point
     }
@@ -411,7 +417,9 @@ impl Rope {
     }
 
     /// Iterates over the lines, without their line breaks. A line within
-    /// one chunk is borrowed; a longer one is copied into a `String`.
+    /// one chunk is borrowed; a longer one is copied into a `String`, so
+    /// rendering and other per-frame code use `chunks_in_range` or the
+    /// display map instead, which never copy a long line.
     pub fn lines(&self) -> Lines<'_> {
         Lines {
             chunks: self.chunks(),
@@ -470,43 +478,80 @@ impl Rope {
         cursor.seek(&end, Bias::Right);
         let mut window_end = cursor.end();
 
-        let mut middle = String::with_capacity(window_end - window_start + text.len());
-        middle.extend(self.chunks_in_range(window_start..start));
-        middle.push_str(text);
-        middle.extend(self.chunks_in_range(end..window_end));
+        let mut core = String::with_capacity(window_end - window_start + text.len());
+        core.extend(self.chunks_in_range(window_start..start));
+        core.push_str(text);
+        core.extend(self.chunks_in_range(end..window_end));
 
         // The edit may join grapheme clusters across the window's edges, for
         // example a combining mark inserted after a chunk that ends in its
-        // base letter. Take in neighbors until both edges are boundaries.
+        // base letter. Take in neighbors until both edges are boundaries:
+        // first on the right, then on the left, so that an emptied window is
+        // checked where its neighbors now meet.
+        let mut suffix: Vec<&str> = Vec::new();
         for _ in 0..MAX_BOUNDARY_CHUNKS {
+            let mut cursor = self.tree.cursor::<usize>();
+            cursor.seek(&window_end, Bias::Right);
+            let Some(next) = cursor.item().map(Chunk::as_str) else {
+                break;
+            };
+            let edge =
+                window_start + core.len() + suffix.iter().map(|text| text.len()).sum::<usize>();
+            let before = suffix
+                .iter()
+                .rev()
+                .copied()
+                .chain(std::iter::once(core.as_str()))
+                .chain(self.chunks_before(window_start));
+            if is_grapheme_boundary(edge, next, before) {
+                break;
+            }
+            suffix.push(next);
+            window_end += next.len();
+        }
+        let mut prefix: Vec<&str> = Vec::new();
+        for _ in 0..MAX_BOUNDARY_CHUNKS {
+            let after = prefix
+                .last()
+                .copied()
+                .into_iter()
+                .chain(std::iter::once(core.as_str()))
+                .chain(suffix.iter().copied())
+                .find(|text| !text.is_empty())
+                .unwrap_or_default();
             let mut before = self.chunks_before(window_start);
             let Some(previous) = before.next() else {
                 break;
             };
-            if is_grapheme_boundary(
-                window_start,
-                &middle,
-                std::iter::once(previous).chain(before),
-            ) {
+            if is_grapheme_boundary(window_start, after, std::iter::once(previous).chain(before)) {
                 break;
             }
-            middle.insert_str(0, previous);
+            prefix.push(previous);
             window_start -= previous.len();
         }
-        for _ in 0..MAX_BOUNDARY_CHUNKS {
+        // Keep chunks from shrinking under repeated small edits.
+        let len = prefix
+            .iter()
+            .chain(&suffix)
+            .map(|text| text.len())
+            .sum::<usize>()
+            + core.len();
+        if len < MAX_CHUNK_BYTES / 2 {
             let mut cursor = self.tree.cursor::<usize>();
             cursor.seek(&window_end, Bias::Right);
-            let Some(next) = cursor.item() else {
-                break;
-            };
-            let edge = window_start + middle.len();
-            let before = std::iter::once(middle.as_str()).chain(self.chunks_before(window_start));
-            if is_grapheme_boundary(edge, next.as_str(), before) {
-                break;
+            if let Some(next) = cursor.item() {
+                suffix.push(next.as_str());
+                window_end += next.as_str().len();
+            } else if let Some(previous) = self.chunks_before(window_start).next() {
+                prefix.push(previous);
+                window_start -= previous.len();
             }
-            middle.push_str(next.as_str());
-            window_end += next.as_str().len();
         }
+
+        let mut middle = String::with_capacity(len + MAX_CHUNK_BYTES);
+        middle.extend(prefix.iter().rev().copied());
+        middle.push_str(&core);
+        middle.extend(suffix.iter().copied());
 
         let (mut tree, _) = self.tree.split(&window_start, Bias::Right);
         let (_, right) = self.tree.split(&window_end, Bias::Right);
@@ -621,31 +666,30 @@ impl<'a> Iterator for SplitChunks<'a> {
 /// boundary at most `target` bytes on, or failing that the first one within
 /// `MAX_CHUNK_BYTES`, or failing that a character boundary.
 fn chunk_end(text: &str, start: usize, target: usize) -> usize {
-    let mut want = start + target.min(MAX_CHUNK_BYTES);
-    while !text.is_char_boundary(want) {
-        want -= 1;
-    }
-    if GraphemeCursor::new(want, text.len(), true).is_boundary(text, 0) == Ok(true) {
+    let limit = text.floor_char_boundary(start + MAX_CHUNK_BYTES);
+    let want = text.floor_char_boundary(start + target.min(MAX_CHUNK_BYTES));
+    // Look only at a window around the chunk, so that a long cluster or run
+    // of flags costs O(chunk) per chunk, not O(text). A boundary the window
+    // cannot decide counts as none.
+    let from = text.floor_char_boundary(start.saturating_sub(MAX_CHUNK_BYTES));
+    let to = text.ceil_char_boundary((limit + 4).min(text.len()));
+    let window = &text[from..to];
+    let at = |offset| GraphemeCursor::new(offset, text.len(), true);
+    if at(want).is_boundary(window, from) == Ok(true) {
         return want;
     }
-    let mut cursor = GraphemeCursor::new(want, text.len(), true);
-    if let Ok(Some(previous)) = cursor.prev_boundary(text, 0)
+    if let Ok(Some(previous)) = at(want).prev_boundary(window, from)
         && previous > start
     {
         return previous;
     }
-    let mut cursor = GraphemeCursor::new(want, text.len(), true);
-    if let Ok(Some(next)) = cursor.next_boundary(text, 0)
-        && next <= start + MAX_CHUNK_BYTES
+    if let Ok(Some(next)) = at(want).next_boundary(window, from)
+        && next <= limit
     {
         return next;
     }
     // One cluster longer than a chunk: split it between characters.
-    let mut end = start + MAX_CHUNK_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    end
+    limit
 }
 
 /// Iterates over a rope's text in chunks. See [`Rope::chunks_in_range`].
@@ -754,6 +798,9 @@ pub(crate) mod tests {
         "❤\u{fe0f}",
         "🇯🇵",
         "\u{200b}",
+        "\u{200c}",
+        "\u{202e}",
+        "\u{e0041}",
         "\u{7f}",
         "\u{85}",
         "\0",
@@ -934,6 +981,38 @@ pub(crate) mod tests {
         rope.delete(0..4);
         model.replace_range(0..4, "");
         check_against(&rope, &model);
+    }
+
+    #[test]
+    fn adversarial_text_builds_in_linear_time() {
+        // Long runs of flags and one huge cluster used to rescan the whole
+        // text for every chunk. Debug test builds are slow, so the bound is
+        // loose; quadratic behavior would take minutes.
+        let started = std::time::Instant::now();
+        for text in [
+            "🇯🇵".repeat(64 * 1024),
+            "e".to_owned() + &"\u{301}".repeat(128 * 1024),
+            "a".to_owned() + &"\u{200d}👍".repeat(32 * 1024),
+        ] {
+            let rope = Rope::from(text.as_str());
+            assert_eq!(rope.len(), text.len());
+            assert!(rope.chunks().all(|chunk| chunk.len() <= MAX_CHUNK_BYTES));
+            let mut pasted = Rope::from("xy");
+            pasted.insert(1, &text);
+            assert_eq!(pasted.len(), text.len() + 2);
+        }
+        assert!(started.elapsed() < std::time::Duration::from_secs(20));
+    }
+
+    #[test]
+    fn small_edits_do_not_fragment_chunks() {
+        let text = "x".repeat(MAX_CHUNK_BYTES * 20);
+        let mut rope = Rope::from(text.as_str());
+        for _ in 0..text.len() - MAX_CHUNK_BYTES * 2 {
+            rope.delete(5..6);
+        }
+        rope.check_invariants();
+        assert!(rope.chunks().count() <= 4);
     }
 
     #[test]
