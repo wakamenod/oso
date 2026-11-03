@@ -24,6 +24,9 @@ impl ApplicationHandler for App {
             let window_attributes = Window::default_attributes().with_title("oso Editor");
             let window = event_loop.create_window(window_attributes).unwrap();
             let state = pollster::block_on(RenderState::new(window));
+            // Under `ControlFlow::Wait` nothing is drawn until requested, and
+            // not every platform sends an initial resize or redraw.
+            state.window.request_redraw();
             self.render_state = Some(state);
         }
     }
@@ -50,16 +53,16 @@ impl ApplicationHandler for App {
                 state.resize(physical_size);
             }
 
+            // ---- Visible again: frames skipped while occluded need a redraw ----
+            WindowEvent::Occluded(false) => {
+                state.window.request_redraw();
+            }
+
             // ---- Redraw ----
             WindowEvent::RedrawRequested => {
-                match state.render(&self.cursor) {
-                    Ok(_) => {}
-                    // Reconfigure if the surface is lost or outdated.
-                    Err(e) if e.contains("Lost") || e.contains("Outdated") => {
-                        let size = state.window.inner_size();
-                        state.resize(size);
-                    }
-                    Err(e) => eprintln!("render error: {e}"),
+                // Not fatal: the frame is skipped and the next one retries.
+                if let Err(e) = state.render(&self.cursor) {
+                    log::error!("render error: {e}");
                 }
             }
 

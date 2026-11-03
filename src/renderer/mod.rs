@@ -28,6 +28,99 @@ pub(crate) fn cursor_pixel_x(position: usize, char_width: f32, margin_x: f32) ->
     position as f32 * char_width + margin_x
 }
 
+/// The single wgpu backend used on this OS (ADR 0003). There is no GL fallback.
+pub(crate) fn platform_backend() -> wgpu::Backends {
+    if cfg!(target_os = "macos") {
+        wgpu::Backends::METAL
+    } else if cfg!(target_os = "windows") {
+        wgpu::Backends::DX12
+    } else {
+        wgpu::Backends::VULKAN
+    }
+}
+
+/// What to do after asking the surface for the next texture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SurfaceAction {
+    /// Draw and present the frame.
+    Draw,
+    /// Draw and present the frame, then configure the surface again.
+    DrawThenReconfigure,
+    /// Configure the surface again and retry the frame.
+    Reconfigure,
+    /// Create the surface again, configure it and retry the frame.
+    Recreate,
+    /// Skip this frame and retry it.
+    Retry,
+    /// Skip this frame. A later event requests the next one.
+    Skip,
+    /// Skip this frame and report an error.
+    Fail,
+}
+
+/// Frames retried in a row before giving up until the next event.
+const MAX_RETRIES: u8 = 3;
+
+/// Counts one more frame that failed to draw. Returns the new count and
+/// whether to request another redraw at once.
+///
+/// Under `ControlFlow::Wait` a retry that never succeeds would redraw as fast
+/// as the event loop runs, so retries stop after `MAX_RETRIES`. The next
+/// event (input, resize, visibility) starts a new attempt.
+pub(crate) fn count_failed_frame(failed_frames: u8) -> (u8, bool) {
+    let failed_frames = failed_frames.saturating_add(1);
+    (failed_frames, failed_frames <= MAX_RETRIES)
+}
+
+/// Maps the result of `Surface::get_current_texture` to the recovery that
+/// wgpu documents for it. `None` means there is no surface, because creating
+/// it again failed, so it is created again.
+pub(crate) fn surface_action(status: Option<&wgpu::CurrentSurfaceTexture>) -> SurfaceAction {
+    use wgpu::CurrentSurfaceTexture as S;
+    let Some(status) = status else {
+        return SurfaceAction::Recreate;
+    };
+    match status {
+        S::Success(_) => SurfaceAction::Draw,
+        S::Suboptimal(_) => SurfaceAction::DrawThenReconfigure,
+        S::Outdated => SurfaceAction::Reconfigure,
+        S::Lost => SurfaceAction::Recreate,
+        S::Timeout => SurfaceAction::Retry,
+        // Occluded windows get `WindowEvent::Occluded(false)` when visible again.
+        S::Occluded => SurfaceAction::Skip,
+        S::Validation => SurfaceAction::Fail,
+    }
+}
+
+/// A frame that could not be drawn. None of these are fatal: the frame is
+/// skipped, and the next requested frame tries again.
+#[derive(Debug)]
+pub enum RenderError {
+    /// Acquiring the surface texture raised a validation error.
+    SurfaceValidation,
+    /// The surface still failed after `MAX_RETRIES` retries in a row.
+    RetriesExhausted,
+    /// Creating the surface again after it was lost failed.
+    RecreateSurface(wgpu::CreateSurfaceError),
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SurfaceValidation => {
+                f.write_str("validation error acquiring the surface texture")
+            }
+            Self::RetriesExhausted => write!(
+                f,
+                "surface did not recover after {MAX_RETRIES} retries; waiting for the next event"
+            ),
+            Self::RecreateSurface(e) => write!(f, "could not recreate the lost surface: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for RenderError {}
+
 /// Manages the wgpu device, queue, and surface; issues frame draws.
 ///
 /// Render pass layout (§5.6 — separated pass design):
@@ -35,11 +128,15 @@ pub(crate) fn cursor_pixel_x(position: usize, char_width: f32, margin_x: f32) ->
 ///   Pass 2: TextRenderer   — (added in a future milestone)
 pub struct RenderState {
     pub window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
+    instance: wgpu::Instance,
+    /// `None` only after creating a lost surface again failed.
+    surface: Option<wgpu::Surface<'static>>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     shape_renderer: ShapeRenderer,
+    /// Frames in a row that failed to draw; see `count_failed_frame`.
+    failed_frames: u8,
 }
 
 impl RenderState {
@@ -47,9 +144,9 @@ impl RenderState {
         let window = Arc::new(window);
         let size = window.inner_size();
 
-        // 1. Create a wgpu instance (abstracts Vulkan, Metal, DX12, etc.).
+        // 1. Create a wgpu instance for this OS's backend.
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
+            backends: platform_backend(),
             flags: wgpu::InstanceFlags::default(),
             memory_budget_thresholds: Default::default(),
             backend_options: Default::default(),
@@ -59,10 +156,11 @@ impl RenderState {
         // 2. Create a surface tied to the window.
         let surface = instance.create_surface(window.clone()).unwrap();
 
-        // 3. Request a physical GPU adapter.
+        // 3. Request a physical GPU adapter. An editor draws very little, and
+        //    low power keeps dual-GPU machines on the integrated GPU.
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
+                power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
@@ -89,17 +187,33 @@ impl RenderState {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
+        // Fifo is the only present mode every backend must support, and it
+        // never tears. Frames are drawn on demand, so vsync costs nothing while
+        // idle. A frame latency of 1 keeps at most one frame queued, aiming at
+        // the p99 <= 8 ms key-to-photon budget. A second frame within one
+        // refresh may still wait for vblank. Once ADR 0025 measures this,
+        // Mailbox, Immediate or a latency of 2 can be revisited.
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 1,
         };
         surface.configure(&device, &config);
+
+        let info = adapter.get_info();
+        log::debug!(
+            "wgpu backend {:?}, adapter {:?} ({:?}), present mode {:?}, frame latency {}",
+            info.backend,
+            info.name,
+            info.device_type,
+            config.present_mode,
+            config.desired_maximum_frame_latency,
+        );
 
         // 6. Initialize the shape renderer.
         let shape_renderer = ShapeRenderer::new(
@@ -111,23 +225,73 @@ impl RenderState {
 
         Self {
             window,
-            surface,
+            instance,
+            surface: Some(surface),
             device,
             queue,
             config,
             shape_renderer,
+            failed_frames: 0,
         }
     }
 
     /// Reconfigures the surface and updates the orthographic matrix on window resize.
     pub fn resize(&mut self, new_size: PhysicalSize<u32>) {
-        if new_size.width > 0 && new_size.height > 0 {
-            self.config.width = new_size.width;
-            self.config.height = new_size.height;
-            self.surface.configure(&self.device, &self.config);
-            self.shape_renderer
-                .resize(&self.queue, new_size.width as f32, new_size.height as f32);
+        if self.configure(new_size) {
             self.window.request_redraw();
+        }
+    }
+
+    /// Configures the surface and the orthographic matrix for `size`.
+    /// Returns false, and does nothing, for a zero-sized (minimized) window.
+    fn configure(&mut self, size: PhysicalSize<u32>) -> bool {
+        if size.width == 0 || size.height == 0 {
+            return false;
+        }
+        self.config.width = size.width;
+        self.config.height = size.height;
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
+        self.shape_renderer
+            .resize(&self.queue, size.width as f32, size.height as f32);
+        true
+    }
+
+    /// Recovers from a surface that gave no texture, and requests a redraw
+    /// to retry the frame unless retries are exhausted.
+    fn recover(&mut self, action: SurfaceAction) -> Result<(), RenderError> {
+        match action {
+            SurfaceAction::Reconfigure => {
+                self.configure(self.window.inner_size());
+            }
+            SurfaceAction::Recreate => {
+                // Drop the old surface first. DXGI allows one swapchain per
+                // window and Vulkan fails with NATIVE_WINDOW_IN_USE, and the
+                // failed configure would panic in wgpu's default error handler.
+                self.surface = None;
+                let surface = self
+                    .instance
+                    .create_surface(self.window.clone())
+                    .map_err(RenderError::RecreateSurface)?;
+                surface.configure(&self.device, &self.config);
+                self.surface = Some(surface);
+            }
+            SurfaceAction::Retry => {}
+            SurfaceAction::Fail => return Err(RenderError::SurfaceValidation),
+            SurfaceAction::Skip | SurfaceAction::Draw | SurfaceAction::DrawThenReconfigure => {
+                return Ok(());
+            }
+        }
+        let retry;
+        (self.failed_frames, retry) = count_failed_frame(self.failed_frames);
+        if retry {
+            self.window.request_redraw();
+            Ok(())
+        } else if self.failed_frames == MAX_RETRIES + 1 {
+            Err(RenderError::RetriesExhausted)
+        } else {
+            Ok(())
         }
     }
 
@@ -135,16 +299,26 @@ impl RenderState {
     ///
     /// Converting `Cursor.position` to pixel coordinates is the renderer's
     /// responsibility (§7.1); the `Cursor` struct itself stays free of pixel data.
-    pub fn render(&mut self, cursor: &Cursor) -> Result<(), String> {
+    pub fn render(&mut self, cursor: &Cursor) -> Result<(), RenderError> {
         // Translate cursor.position → screen X via the pure coordinate function.
         let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
         let cursor_y = MARGIN_Y;
 
-        // Acquire the next surface texture.
-        let output = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(tex) => tex,
-            wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
-            other => return Err(format!("{other:?}")),
+        // Acquire the next surface texture, or recover as wgpu documents.
+        let current = self
+            .surface
+            .as_ref()
+            .map(wgpu::Surface::get_current_texture);
+        let action = surface_action(current.as_ref());
+        let output = match current {
+            Some(
+                wgpu::CurrentSurfaceTexture::Success(tex)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(tex),
+            ) => tex,
+            other => {
+                log::debug!("no surface texture: {other:?}");
+                return self.recover(action);
+            }
         };
         let view = output
             .texture
@@ -187,14 +361,112 @@ impl RenderState {
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
+        self.failed_frames = 0;
+
+        // Configure only after presenting: no surface texture may be alive.
+        // Only a size change is fixed here; reconfiguring with the same size
+        // would cost a GPU wait on every frame without clearing the status.
+        if action == SurfaceAction::DrawThenReconfigure {
+            let size = self.window.inner_size();
+            if size.width != self.config.width || size.height != self.config.height {
+                self.configure(size);
+            }
+        }
+
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::cursor_pixel_x;
+    use super::{
+        count_failed_frame, cursor_pixel_x, platform_backend, surface_action, SurfaceAction,
+        MAX_RETRIES,
+    };
     use proptest::prelude::*;
+    use wgpu::CurrentSurfaceTexture as S;
+
+    // --- Surface status mapping ---
+    // `Success` and `Suboptimal` carry a texture and need a GPU to construct.
+
+    #[test]
+    fn outdated_reconfigures() {
+        assert_eq!(
+            surface_action(Some(&S::Outdated)),
+            SurfaceAction::Reconfigure
+        );
+    }
+
+    #[test]
+    fn missing_surface_is_created_again() {
+        assert_eq!(surface_action(None), SurfaceAction::Recreate);
+    }
+
+    #[test]
+    fn lost_recreates_the_surface() {
+        assert_eq!(surface_action(Some(&S::Lost)), SurfaceAction::Recreate);
+    }
+
+    #[test]
+    fn timeout_retries_the_frame() {
+        assert_eq!(surface_action(Some(&S::Timeout)), SurfaceAction::Retry);
+    }
+
+    #[test]
+    fn occluded_skips_the_frame() {
+        assert_eq!(surface_action(Some(&S::Occluded)), SurfaceAction::Skip);
+    }
+
+    #[test]
+    fn validation_fails_the_frame() {
+        assert_eq!(surface_action(Some(&S::Validation)), SurfaceAction::Fail);
+    }
+
+    // --- Retry limit ---
+
+    #[test]
+    fn retries_stop_after_the_limit() {
+        let mut failed = 0;
+        let mut retries = 0;
+        for _ in 0..100 {
+            let retry;
+            (failed, retry) = count_failed_frame(failed);
+            retries += u32::from(retry);
+        }
+        assert_eq!(retries, u32::from(MAX_RETRIES));
+    }
+
+    #[test]
+    fn failed_frame_count_saturates() {
+        assert_eq!(count_failed_frame(u8::MAX), (u8::MAX, false));
+    }
+
+    // --- Backend selection ---
+
+    #[test]
+    fn exactly_one_backend_and_never_gl() {
+        let backends = platform_backend();
+        assert_eq!(backends.iter().count(), 1, "{backends:?}");
+        assert!(!backends.contains(wgpu::Backends::GL));
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_uses_metal() {
+        assert_eq!(platform_backend(), wgpu::Backends::METAL);
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn windows_uses_dx12() {
+        assert_eq!(platform_backend(), wgpu::Backends::DX12);
+    }
+
+    #[test]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    fn other_systems_use_vulkan() {
+        assert_eq!(platform_backend(), wgpu::Backends::VULKAN);
+    }
 
     // --- Deterministic unit tests ---
 
