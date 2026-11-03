@@ -15,13 +15,30 @@ item notes when it must be settled.
 
 - Control socket, before M1-7b: once `get-state` returns buffer text and
   screenshots show buffers, decide whether secret-pattern files
-  ([ADR 0028](adr/0028-secrets-handling.md)) are masked in both. Also, once
-  `run-command` exists, any process running as the same user can run
-  editor commands; ADR 0016 accepts same-user trust, and this consequence
-  should be stated there, with commands that spawn processes in mind.
+  ([ADR 0028](adr/0028-secrets-handling.md)) are masked in both. Also, any
+  process running as the same user can run editor commands: already every
+  bound command through `send-keys`, which shares the keymaps with the
+  window ([ADR 0034](adr/0034-command-registry-and-keymaps.md)), and any
+  command once `run-command` exists. ADR 0016 accepts same-user trust, and
+  this consequence should be stated there, with commands that spawn
+  processes in mind.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
+
+## M2
+
+- The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
+  Rust's default hook prints panic messages, which may quote buffer text,
+  to stderr even for panics caught at the command boundary. Decide what
+  the hook prints, in dev and release builds
+  ([ADR 0028](adr/0028-secrets-handling.md),
+  [ADR 0034](adr/0034-command-registry-and-keymaps.md)).
+
+- User key bindings from TOML ([ADR 0019](adr/0019-configuration.md)):
+  `Keymap::bind` refuses to rebind, so decide between a user layer above
+  the global keymap and explicit rebinding and unbinding
+  ([ADR 0034](adr/0034-command-registry-and-keymaps.md)).
 
 ## M3
 

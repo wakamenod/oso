@@ -40,6 +40,7 @@ old one's status.
 | 0031 | [Claude Code integration: host the official TUI](0031-claude-code-integration.md) | Accepted |
 | 0032 | [Control socket transport, limits and release check](0032-control-socket-transport.md) | Accepted |
 | 0033 | [Key presses and Emacs key notation](0033-key-presses-and-notation.md) | Accepted |
+| 0034 | [Command registry, keymaps and key resolution](0034-command-registry-and-keymaps.md) | Proposed |
 
 ## Template
 

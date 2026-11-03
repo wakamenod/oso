@@ -59,10 +59,11 @@ Input: key translation into oso_core::key::KeyPress
    │
    ▼
 Keymap lookup: keymap-at-point > minor modes > major mode > global
-   │
+   │           (the key resolver keeps a pending prefix such as C-x)
    ▼
 Command registry: commands are plain functions over host-owned state
-   fn(&mut Ctx, Args) -> Result<()>   (run once per command, across all cursors)
+   fn(&mut Ctx, Args) -> Result<(), CommandError>
+   (run once per command, across all cursors)
    │
    ▼
 oso-core state: buffers (rope), per-window selection sets, decoration layers
@@ -90,12 +91,38 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 
 Every command is registered with a name, a docstring, an argument spec and a
 function. The registry drives `M-x` completion, `describe-function`,
-`describe-key` and the generated command reference. Commands never keep global
-state: the host owns all state and passes it in. This keeps commands
-testable, restartable and hot-patchable.
+`describe-key`, the control socket's `run-command` and the generated command
+reference. Commands never keep global state: the host owns all state and
+passes it in. This keeps commands testable, restartable and hot-patchable.
+See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 
-A panicking command is caught at the command boundary. The editor reports the
-error and keeps running ([ADR 0014](adr/0014-panic-strategy.md)).
+- `oso_core::command`: `Command`, `Registry`, and `Ctx`, which lends a
+  command the host's `Editor` and collects its requests to the host
+  (redraw, exit). `Args` carries the numeric prefix argument.
+- Commands live in the tip crate (`crates/oso/src/commands.rs`) as a
+  `const` table. Registering a name twice is an error, and the tests build
+  the full registry.
+- A command asks for a redraw only when it changed something visible.
+
+A panicking command is caught at the command boundary
+(`Registry::execute`). The editor reports the error and keeps running
+([ADR 0014](adr/0014-panic-strategy.md)).
+
+### Keymaps
+
+- `oso_core::keymap::Keymap` maps a key press to a command or to a nested
+  prefix keymap. Bindings refer to commands by id, resolved from names
+  once, when a keymap is built from a table in Emacs notation
+  ([ADR 0033](adr/0033-key-presses-and-notation.md)). Default bindings are
+  in `crates/oso/src/bindings.rs`.
+- `Layers` holds the active keymaps, highest priority first: keymap at
+  point, minor modes, major mode, global. The first keymap that binds the
+  whole key sequence decides. Only the global layer exists so far.
+- `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
+  `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
+  and `C-g` cancels a pending prefix.
+- The tip crate's `Dispatcher` wires the resolver to the registry. Keys from
+  the window and from the control socket's `send-keys` both go through it.
 
 ### Display model
 

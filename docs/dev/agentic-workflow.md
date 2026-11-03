@@ -77,12 +77,11 @@ The setup is recorded in
 - `verify-in-app`: start a dev build, drive it with `oso ctl` over the
   control socket (`send-keys`, `get-state`, `screenshot`), read the
   screenshots, and stop the app.
-
-Planned:
-
-- `add-command` (M1-3): implement the function, register it with a docstring
-  and argument spec, add a key binding, write unit tests and an end-to-end
-  test, and regenerate the command reference.
+- `add-command`: implement the function, register it with a docstring and
+  argument spec, add a key binding, write unit tests, and check it end to
+  end over the control socket with `verify-in-app`
+  ([ADR 0034](adr/0034-command-registry-and-keymaps.md)). Regenerating the
+  command reference is added once the reference exists.
 
 ### Reviewer subagents
 
