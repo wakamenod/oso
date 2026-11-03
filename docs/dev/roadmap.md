@@ -68,11 +68,16 @@ M1 is built in this order. Each step is one PR.
   ([ADR 0024](adr/0024-dev-build-profile.md),
   [ADR 0025](adr/0025-latency-measurement.md)).
 - **M1-9**: test infrastructure from the test pyramid
-  ([ADR 0037](adr/0037-test-pyramid.md)):
-  - the text-grid snapshot harness
-  - automated end-to-end tests over the control socket (`just e2e`, and
-    Linux CI with lavapipe)
-  - weekly mutation testing, coverage reports and the 30 s test time budget
+  ([ADR 0037](adr/0037-test-pyramid.md)), in three steps, each started as
+  soon as its prerequisite merges:
+  - **M1-9a** (right after M1-10a merges, since both change CI and the
+    `Justfile`): weekly mutation testing, coverage reports and the 30 s test
+    time budget.
+  - **M1-9b** (right after M1-6 merges, since it snapshots real buffer
+    views): the text-grid snapshot harness.
+  - **M1-9c** (after M1-7b, which completes `get-state`): automated
+    end-to-end tests over the control socket (`just e2e`, and Linux CI with
+    lavapipe).
 - **M1-10a** (now, in parallel with M1-6; merge before M1-7b): architecture
   guardrails ([ADR 0038](adr/0038-architecture-guardrails.md)):
   - dependency-direction rules between crates and modules
