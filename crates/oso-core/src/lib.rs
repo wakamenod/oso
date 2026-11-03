@@ -4,5 +4,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod command;
 pub mod cursor;
+pub mod editor;
 pub mod key;
+pub mod keymap;
