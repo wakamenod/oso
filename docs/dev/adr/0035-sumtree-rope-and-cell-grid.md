@@ -41,10 +41,14 @@ on a 1 GB file or a 10 MB line, and O(log n) mapping in both directions
   boundaries. A character, a `\r\n` pair or an emoji sequence is never split
   across chunks. Only a cluster longer than a whole chunk is split, between
   characters; such clusters occur only in contrived text.
+- The search for a chunk boundary looks at a window of about two chunks
+  around it, so long flag runs or huge clusters cost O(n) to load, not
+  O(n²). A boundary the window cannot decide counts as none.
 - An edit rebuilds the chunks it touches, and takes in neighboring chunks
   (up to 8 on each side) until both edges of the rebuilt range are cluster
-  boundaries. It returns the replaced chunk range (`RopeEdit`), which display
-  layers use to follow the edit.
+  boundaries. A rebuilt range smaller than half a chunk also takes in a
+  neighbor, so small edits do not fragment the tree. The edit returns the
+  replaced chunk range (`RopeEdit`), which display layers use to follow it.
 - The rope's summary holds bytes, characters, line breaks and the bytes
   after the last line break. It holds no display data.
 - Line breaks are `\n` and `\r\n`, counted as one. A lone `\r` is not a line
@@ -58,8 +62,18 @@ on a 1 GB file or a 10 MB line, and O(log n) mapping in both directions
   (`unicode-width`), clamped to 1 to 2 cells. Emoji sequences take 2 cells.
 - **Ambiguous-width characters take 1 cell.** Width 2 may become a setting
   later.
-- **Every cluster takes at least 1 cell.** Zero-width characters such as
-  ZWSP and bidi controls stay visible, and the cursor can stop on them.
+- **Bidi controls and invisible characters are boxed code points**, as
+  `ui.md` requires: a box labeled `U+202E` takes one cell per character of
+  its label (6 or 7). This covers bidi controls, default-ignorable code
+  points and the line and paragraph separators (U+2028, U+2029).
+  - An invisible character that would extend a cluster is split out and
+    boxed, so tag characters or a ZWNJ after `a` are all shown (hidden-text
+    and identifier spoofing).
+  - Allowed inside a cluster are ZWJ, ZWNJ and variation selectors after
+    non-ASCII text (emoji sequences, scripts that need them), VS15 and VS16
+    after a keycap base (`1️⃣`), and tag characters in a U+1F3F4 flag.
+- **Every other cluster takes at least 1 cell**, so a lone combining mark
+  stays visible and the cursor can stop on it.
 - **Control characters are shown as escapes, as in Emacs.** C0 and DEL use
   caret notation in 2 cells (`^@`, `^M`, `^?`), and C1 uses an octal escape
   in 4 cells (`\200`). A lone `\r` is shown as `^M`.
@@ -71,7 +85,8 @@ on a 1 GB file or a 10 MB line, and O(log n) mapping in both directions
 - The TabMap is its own `SumTree`. Its items mirror the rope's chunks and
   share their text through `Arc`.
 - Each item's summary holds its bytes, its line breaks and the *column
-  function* of its last line. The column function says how the column at
+  function* of its last line. Only the text after the item's last `\n` is
+  measured to build it. The column function says how the column at
   the end depends on the column at the start: either `c + lead`, or, after
   a tab, `next_tab_stop(c + lead) + after_tab`. Column functions compose,
   so the column of any offset is found in O(log n) plus a scan of one
@@ -88,13 +103,18 @@ on a 1 GB file or a 10 MB line, and O(log n) mapping in both directions
 
 - The rope stays a plain text structure, and the display model owns
   everything that depends on fonts or settings.
-- Measured on the author's Mac (release build, `crates/oso-core/examples/text_perf.rs`):
-  - building a rope from 100 MB takes about 35 ms
+- Measured on the author's Mac (release build,
+  `crates/oso-core/examples/text_perf.rs`):
+  - building a rope from 100 MB takes about 35 ms, and the TabMap about
+    25 ms more; changing the tab width takes about 25 ms
   - offset ↔ line conversions take under 1 µs
-  - column mapping on a 10 MB line takes about 3 µs per query, the same as
-    on a 1 MB line
-- Building the TabMap measures every cluster: about 0.5 s for 100 MB of
-  mixed text. M1-6 must build it in the background as the file loads,
+  - column mapping on a 10 MB line takes about 3.4 µs per query, the same
+    as on a 1 MB line
+  - a one-character edit plus the TabMap sync takes about 22 µs at p99
+  - flag runs, huge clusters, CJK-only and tab-only text all build in time
+    linear in their size
+- A single line with no line break is measured in full: about 7 ms per MB
+  of CJK text. M1-6 builds the TabMap off the UI thread as the file loads,
   like the rope.
 - The TabMap keeps a second tree, of about one item per 1 KB of text.
 - Text with clusters longer than 1 KB is measured piece by piece, so such a
@@ -119,3 +139,10 @@ on a 1 GB file or a 10 MB line, and O(log n) mapping in both directions
   but eight times as many items and nodes, and slower building.
 - **Zero width for invisible characters:** what terminals do, but it hides
   bidi controls (Trojan Source) and leaves cursor positions with no cell.
+- **One cell for invisible characters:** keeps them reachable, but a box
+  with a code point does not fit, and changing the width later would change
+  every column mapping.
+- **Boxing every invisible character, even inside emoji and scripts:**
+  simplest, but breaks emoji ZWJ sequences, keycaps and Persian or Indic
+  text. An invisible character after non-ASCII text can still hide; that
+  is the remaining gap.
