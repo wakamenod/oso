@@ -27,36 +27,63 @@ AGENTS.md                   always loaded: priorities, hard rules, workflow
 crates/*/AGENTS.md          crate-specific rules (planned)
 REVIEW.md                   review checklist
 docs/dev/                   design docs, ADRs, open questions
-.claude/settings.json       permissions and hooks (planned)
-.claude/skills/             repeatable procedures (planned)
-.claude/agents/             reviewer subagents (planned)
+.claude/settings.json       permissions and hooks
+.claude/hooks/              hook scripts
+.claude/skills/             repeatable procedures
+.claude/agents/             reviewer subagents
+clippy.toml, deny.toml      lint and dependency policy
+rust-toolchain.toml         pinned toolchain
+.github/workflows/ci.yml    CI
 ```
 
-## Planned tooling
+## Tooling
+
+The setup is recorded in
+[ADR 0021](adr/0021-development-tooling.md).
 
 ### Permissions and hooks
 
-- Ask for human approval before editing `Cargo.toml`, `Cargo.lock`,
-  `deny.toml` or `.claude/`, and before running `cargo add`.
-- Pre-commit hook: run `just ci` and block the commit if it fails.
-- Post-edit hook on `.rs` files: run `cargo fmt` (nothing heavier).
-- Pre-commit secret scan with gitleaks.
+- `.claude/settings.json` asks for human approval before edits to
+  `Cargo.toml`, `Cargo.lock`, `deny.toml` or `.claude/`, and before
+  `cargo add`, `remove`, `update` or `install`.
+- Pre-commit hook (`.claude/hooks/pre-commit.sh`): before `git commit`, run
+  `just ci` and a gitleaks scan of staged, unstaged and untracked changes.
+  Block the commit if either fails.
+- Post-edit hook (`.claude/hooks/fmt-rs.sh`): run `cargo fmt` after a `.rs`
+  file is edited, and nothing heavier.
+- Both hooks check the checkout Claude is working in, so they work in
+  worktrees.
+
+### Mechanical checks
+
+- Clippy denies undocumented `unsafe` blocks and `std::process::Command::new`
+  (`Cargo.toml` `[lints]`, `clippy.toml`).
+- `just deny` and `just audit` check dependencies against `deny.toml` and
+  the RustSec database. `just secrets` scans the git history.
+- CI runs `just ci` on all three platforms, plus `cargo-deny`, `cargo-audit`
+  and gitleaks.
 
 ### Skills
 
-- `add-command`: implement the function, register it with a docstring and
-  argument spec, add a key binding, write unit tests and an end-to-end test,
-  and regenerate the command reference.
-- `verify-in-app`: start a dev build, drive it over the control socket and
-  check screenshots.
-- `adr`: record a decision with the standard template.
+- `adr`: record a decision with the standard template, and update the index,
+  related docs and open questions.
 - `add-dependency`: research maintenance, `unsafe` usage, transitive
-  dependencies and `cargo-deny` results, report back, and wait for approval.
+  dependencies, license and `cargo-deny` results, report back, and wait for
+  approval.
+
+Planned:
+
+- `add-command` (M1-3): implement the function, register it with a docstring
+  and argument spec, add a key binding, write unit tests and an end-to-end
+  test, and regenerate the command reference.
+- `verify-in-app` (M1-7): start a dev build, drive it over the control socket
+  and check screenshots.
 
 ### Reviewer subagents
 
 Read-only `security-reviewer` and `perf-reviewer` agents follow the matching
-sections of `REVIEW.md`. They run in parallel after implementation, and their
+sections of `REVIEW.md`. They check the blast radius of a change and ask for
+fail-then-pass evidence. They run in parallel after implementation, and their
 findings are fixed before human review.
 
 ## Flow of a feature

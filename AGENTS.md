@@ -30,7 +30,8 @@ one. Open topics are in `docs/dev/open-questions.md`.
 
 ## Workflow
 
-- Run `just ci` (check, lint, fmt-check, test) before every commit.
+- Run `just ci` (check, lint, fmt-check, test) before every commit. Run
+  `just deny` and `just audit` when dependencies change.
 - Features: a worktree branch, then a PR. Small chores may go to `main`.
 - Review your own changes against `REVIEW.md` before asking for review.
 - When a decision is made, record it as an ADR (`docs/dev/adr/`) and update
