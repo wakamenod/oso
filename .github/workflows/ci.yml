@@ -39,6 +39,8 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: just@1.52.0
+          # Never fall back to an install without checksum verification.
+          fallback: none
       # On Windows, just runs recipes with Git Bash's sh. Fail early if missing.
       - run: sh -c 'command -v sh'
       - run: just ci
@@ -50,7 +52,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - run: rustup toolchain install
+      # Not cargo-deny-action: its image downloads cargo-deny without a
+      # checksum. install-action verifies one.
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+      - run: cargo deny check
 
   audit:
     runs-on: ubuntu-latest
@@ -63,6 +72,7 @@ jobs:
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-audit@0.22.2
+          fallback: none
       - run: cargo audit
 
   secrets:
@@ -84,5 +94,12 @@ jobs:
           echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
           tar -xzf "$tarball" gitleaks
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      # Allowlists in the repository could silence the scan. Adding one needs
+      # approval and a change to this step.
+      - name: Reject gitleaks allowlists
+        run: |
+          for f in .gitleaks.toml .gitleaksignore; do
+            if [ -e "$f" ]; then echo "::error::$f is not allowed"; exit 1; fi
+          done
       - name: Scan the full history
-        run: gitleaks git --redact --no-banner
+        run: gitleaks git --redact --no-banner --ignore-gitleaks-allow
