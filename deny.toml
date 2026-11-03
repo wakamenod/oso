@@ -37,6 +37,9 @@ unknown-git = "deny"
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Path dependencies between workspace crates carry no version. Allowed because
+# every crate is `publish = false` (ADR 0021).
+allow-wildcard-paths = true
 deny = [
     # No network code in oso (ADR 0010).
     { crate = "reqwest", reason = "no network code in oso (ADR 0010)" },

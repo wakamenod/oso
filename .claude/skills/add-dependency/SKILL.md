@@ -26,7 +26,7 @@ For the crate and version you propose:
 - **Transitive dependencies:** which new crates it adds to `Cargo.lock`, and
   any duplicate versions. To measure without touching the repo, copy
   `Cargo.toml`, `Cargo.lock`, `deny.toml`, `clippy.toml`,
-  `rust-toolchain.toml`, `src/` and `tests/` to a scratch directory, add it
+  `rust-toolchain.toml` and `crates/` to a scratch directory, add it
   there and compare `cargo tree` output. Do not build the scratch copy:
   building runs the candidate's `build.rs` and proc macros.
 - **License:** must be allowed by `[licenses]` in `deny.toml` (ADR 0020).

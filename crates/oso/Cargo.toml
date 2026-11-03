@@ -1,0 +1,19 @@
+[package]
+name = "oso"
+description = "An Emacs-like GUI editor: the binary, commands, default keymaps and app glue"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+oso-core.workspace = true
+oso-render.workspace = true
+winit.workspace = true
+pollster.workspace = true
+log.workspace = true
+env_logger.workspace = true
+
+[lints]
+workspace = true

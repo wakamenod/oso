@@ -1,24 +1,43 @@
-[package]
-name = "oso"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
+rust-version = "1.96"
 
-[dependencies]
+[workspace.dependencies]
+oso-core = { path = "crates/oso-core" }
+oso-render = { path = "crates/oso-render" }
+oso-platform = { path = "crates/oso-platform" }
+
 winit = "0.30"
-wgpu = "29.0"
+# Backends are enabled per OS in crates/oso-render (ADR 0003): no GL and no
+# backend that the OS does not use is compiled in.
+wgpu = { version = "29.0", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 pollster = "0.3"
 log = "0.4"
 env_logger = "0.11"
 bytemuck = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
 # Property-based testing: automatically explores boundary values (e.g. usize::MAX).
 proptest = "1"
 
-[lints.clippy]
+[workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
 disallowed_methods = "deny"
 disallowed_types = "deny"
 allow_attributes_without_reason = "deny"
+
+# Optimize dependencies, not oso, so the tip crate rebuilds within 2 s and
+# GPU code still runs fast in dev builds (ADR 0024).
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+
+# ADR 0004. `panic` stays at the default `unwind` (ADR 0014).
+[profile.release]
+lto = true
+codegen-units = 1

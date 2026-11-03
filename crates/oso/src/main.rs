@@ -1,6 +1,8 @@
+//! The oso binary and tip crate: commands, default keymaps and the glue
+//! that wires `oso-core`, `oso-render` and `oso-platform` to the window
+//! (ADR 0004).
+
 mod app;
-mod editor;
-mod renderer;
 
 use app::App;
 use winit::event_loop::{ControlFlow, EventLoop};

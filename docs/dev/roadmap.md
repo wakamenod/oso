@@ -30,11 +30,10 @@ M1 is built in this order. Each step is one PR.
   - one backend per OS
   - a low-power adapter
   - typed surface-error handling
-- **M1-2**: workspace split into four crates
+- **M1-2** (done): workspace split into four crates
   ([ADR 0004](adr/0004-crate-layout.md)).
-  - Compile in only each OS's wgpu backend, with `default-features = false`
-    and per-target backend features. Until then GL and the other backends
-    are built in and only narrowed at run time
+  - Only each OS's wgpu backend is compiled in, with
+    `default-features = false` and per-target backend features
     ([ADR 0003](adr/0003-platform-tiers.md)).
 - **M1-7a**: dev control socket foundation, so that agents can check their
   own work in the app from here on
