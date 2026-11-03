@@ -79,10 +79,33 @@ impl Uniforms {
 pub struct ShapeRenderer {
     pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
+    /// Rectangles `vertex_buffer` holds.
+    capacity: usize,
+    /// Rectangles drawn this frame.
+    count: usize,
+    /// This frame's vertices, reused across frames.
+    vertices: Vec<Vertex>,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
 }
+
+/// A filled rectangle: its top-left corner, size and color, in pixels.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Rect {
+    pub(crate) position: [f32; 2],
+    pub(crate) size: [f32; 2],
+    pub(crate) color: [f32; 4],
+}
+
+/// Vertices per rectangle: two triangles.
+const RECT_VERTICES: usize = 6;
+
+/// Rectangles the vertex buffer holds before it first grows.
+const INITIAL_RECTS: usize = 64;
+
+/// The most rectangles in one frame: a screen of boxed characters needs
+/// far fewer.
+const MAX_RECTS: usize = 1 << 14;
 
 impl ShapeRenderer {
     pub fn new(
@@ -167,34 +190,24 @@ impl ShapeRenderer {
             cache: None,
         });
 
-        // Vertex buffer pre-allocated for 4 vertices (one quad).
-        let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Shape Vertex Buffer"),
-            size: (std::mem::size_of::<Vertex>() * 4) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        // Index buffer: 2 triangles (6 indices, never changes).
-        //
-        //  3 --- 2
-        //  |  \  |
-        //  0 --- 1
-        //
-        let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Shape Index Buffer"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
         Self {
             pipeline,
-            vertex_buffer,
-            index_buffer,
+            vertex_buffer: Self::vertex_buffer(device, INITIAL_RECTS),
+            capacity: INITIAL_RECTS,
+            count: 0,
+            vertices: Vec::with_capacity(INITIAL_RECTS * RECT_VERTICES),
             uniform_buffer,
             bind_group,
         }
+    }
+
+    fn vertex_buffer(device: &wgpu::Device, rects: usize) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Shape Vertex Buffer"),
+            size: (std::mem::size_of::<Vertex>() * RECT_VERTICES * rects) as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
     }
 
     /// Updates the orthographic projection matrix when the window is resized.
@@ -203,42 +216,44 @@ impl ShapeRenderer {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// Writes the cursor quad vertices to the vertex buffer: a box with its
-    /// top-left corner at `(x, y)`, `w` x `h` pixels. Must be called before
-    /// the render pass begins.
-    pub fn prepare(&self, queue: &wgpu::Queue, [x, y, w, h]: [f32; 4], color: [f32; 4]) {
-        //  3(x, y+h) --- 2(x+w, y+h)
-        //  |                         |
-        //  0(x,   y) --- 1(x+w,   y)
-
-        let vertices = [
-            Vertex {
-                position: [x, y],
-                color,
-            },
-            Vertex {
-                position: [x + w, y],
-                color,
-            },
-            Vertex {
-                position: [x + w, y + h],
-                color,
-            },
-            Vertex {
-                position: [x, y + h],
-                color,
-            },
-        ];
-
-        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
+    /// Uploads this frame's rectangles, drawn in order. Must be called
+    /// before the render pass begins.
+    pub(crate) fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, rects: &[Rect]) {
+        let rects = &rects[..rects.len().min(MAX_RECTS)];
+        self.vertices.clear();
+        for rect in rects {
+            let ([x, y], [w, h], color) = (rect.position, rect.size, rect.color);
+            let corner = |position| Vertex { position, color };
+            //  (x, y) ---- (x+w, y)
+            //    |      /     |
+            //  (x, y+h) -- (x+w, y+h)
+            self.vertices.extend([
+                corner([x, y]),
+                corner([x + w, y]),
+                corner([x, y + h]),
+                corner([x + w, y]),
+                corner([x + w, y + h]),
+                corner([x, y + h]),
+            ]);
+        }
+        if rects.len() > self.capacity {
+            self.capacity = rects.len().next_power_of_two().min(MAX_RECTS);
+            self.vertex_buffer = Self::vertex_buffer(device, self.capacity);
+        }
+        self.count = rects.len();
+        if !self.vertices.is_empty() {
+            queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
+        }
     }
 
-    /// Records the cursor rectangle draw commands into the given render pass.
+    /// Records this frame's rectangles into the given render pass.
     pub fn render<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        if self.count == 0 {
+            return;
+        }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        pass.draw_indexed(0..6, 0, 0..1);
+        pass.draw(0..(self.count * RECT_VERTICES) as u32, 0..1);
     }
 }

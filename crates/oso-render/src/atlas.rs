@@ -6,6 +6,10 @@
 //! - Glyphs are packed into shelves (rows) and never move. A full texture
 //!   grows to twice its size, keeping its contents, so a glyph is
 //!   rasterized once for as long as the font stays loaded.
+//! - A frame rasterizes at most a [`RasterBudget`] of new glyphs, so a page
+//!   of new CJK text cannot stall one frame; the rest follow in the next
+//!   frames. New glyphs are uploaded together at the end of the frame, one
+//!   write per run of neighbors on a shelf ([`GlyphAtlas::flush`]).
 
 use std::collections::HashMap;
 
@@ -88,6 +92,56 @@ impl ShelfPacker {
         self.shelves.clear();
         self.next_y = 0;
     }
+}
+
+/// How many new glyphs a frame may still rasterize.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RasterBudget {
+    /// `None` for no limit.
+    left: Option<usize>,
+    /// A glyph was skipped for lack of budget: draw another frame.
+    pub(crate) exhausted: bool,
+}
+
+impl RasterBudget {
+    /// At most `glyphs` new glyphs.
+    pub(crate) fn new(glyphs: usize) -> Self {
+        Self {
+            left: Some(glyphs),
+            exhausted: false,
+        }
+    }
+
+    /// Every glyph, for a frame that must be complete (a screenshot).
+    #[cfg(feature = "dev")]
+    pub(crate) fn unlimited() -> Self {
+        Self {
+            left: None,
+            exhausted: false,
+        }
+    }
+
+    /// Takes one glyph from the budget, or notes that none is left.
+    fn take(&mut self) -> bool {
+        match &mut self.left {
+            None => true,
+            Some(0) => {
+                self.exhausted = true;
+                false
+            }
+            Some(left) => {
+                *left -= 1;
+                true
+            }
+        }
+    }
+}
+
+/// A glyph rasterized this frame, waiting to be uploaded.
+struct Pending {
+    format: GlyphFormat,
+    uv: [u32; 2],
+    bitmap: GlyphBitmap,
 }
 
 /// Where a cached glyph is, and how to place it.
@@ -178,7 +232,8 @@ impl Page {
         true
     }
 
-    fn upload(&self, queue: &wgpu::Queue, uv: [u32; 2], bitmap: &GlyphBitmap) {
+    /// Writes `data`, `size` pixels with rows of `bytes_per_row`, at `uv`.
+    fn upload(&self, queue: &wgpu::Queue, uv: [u32; 2], size: [u32; 2], data: &[u8]) {
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.texture,
@@ -190,19 +245,28 @@ impl Page {
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            &bitmap.data,
+            data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(bitmap.width * bitmap.format.bytes_per_pixel() as u32),
-                rows_per_image: Some(bitmap.height),
+                bytes_per_row: Some(size[0] * self.format.bytes_per_pixel() as u32),
+                rows_per_image: Some(size[1]),
             },
             wgpu::Extent3d {
-                width: bitmap.width,
-                height: bitmap.height,
+                width: size[0],
+                height: size[1],
                 depth_or_array_layers: 1,
             },
         );
     }
+}
+
+/// Splits glyphs sorted by format, shelf and x into runs of neighbors: one
+/// format, one shelf (the same top), each glyph starting where the last
+/// one ends.
+fn runs(pending: &[Pending]) -> impl Iterator<Item = &[Pending]> {
+    pending.chunk_by(|a, b| {
+        a.format == b.format && a.uv[1] == b.uv[1] && a.uv[0] + a.bitmap.width == b.uv[0]
+    })
 }
 
 /// Whether `bitmap` has the data its size says and fits in an atlas page.
@@ -236,6 +300,10 @@ pub(crate) struct GlyphAtlas {
     rasterized: u64,
     /// Whether a glyph did not fit since the last [`Self::take_full`].
     full: bool,
+    /// Glyphs rasterized but not uploaded yet.
+    pending: Vec<Pending>,
+    /// Scratch space for uploading a run of glyphs.
+    staging: Vec<u8>,
 }
 
 impl GlyphAtlas {
@@ -250,6 +318,8 @@ impl GlyphAtlas {
             generation: 0,
             rasterized: 0,
             full: false,
+            pending: Vec::new(),
+            staging: Vec::new(),
         }
     }
 
@@ -280,27 +350,33 @@ impl GlyphAtlas {
     /// textures are kept and refilled.
     pub(crate) fn clear(&mut self) {
         self.glyphs.clear();
+        self.pending.clear();
         self.coverage.packer.clear();
         self.color.packer.clear();
     }
 
-    /// The cached glyph for `key`, rasterizing and uploading it on first
-    /// use. `None` if it draws nothing.
+    /// The cached glyph for `key`, rasterizing it on first use if
+    /// `budget` allows. `None` if it draws nothing, or must wait for a
+    /// later frame. Call [`Self::flush`] before drawing.
     pub(crate) fn get(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         system: &mut dyn TextSystem,
         key: GlyphKey,
+        budget: &mut RasterBudget,
     ) -> Option<AtlasGlyph> {
         if let Some(&cached) = self.glyphs.get(&key) {
             return cached;
+        }
+        if !budget.take() {
+            return None;
         }
         let bitmap = system.rasterize(key);
         self.rasterized += 1;
         let entry = match bitmap {
             Some(bitmap) if valid(&bitmap, self.max_side) => {
-                match self.insert(device, queue, &bitmap) {
+                match self.insert(device, queue, bitmap) {
                     Some(entry) => Some(entry),
                     // Not cached: it may fit once the atlas is cleared.
                     None => {
@@ -320,7 +396,7 @@ impl GlyphAtlas {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        bitmap: &GlyphBitmap,
+        bitmap: GlyphBitmap,
     ) -> Option<AtlasGlyph> {
         let max_side = self.max_side;
         let page = match bitmap.format {
@@ -338,26 +414,65 @@ impl GlyphAtlas {
             }
             grew = true;
         };
-        if let Some(uv) = uv {
-            page.upload(queue, uv, bitmap);
-        }
         if grew {
             self.generation += 1;
         }
         let uv = uv?;
-        Some(AtlasGlyph {
+        let entry = AtlasGlyph {
             format: bitmap.format,
             uv,
             size: [bitmap.width, bitmap.height],
             left: bitmap.left,
             top: bitmap.top,
-        })
+        };
+        self.pending.push(Pending {
+            format: bitmap.format,
+            uv,
+            bitmap,
+        });
+        Some(entry)
+    }
+
+    /// Uploads the glyphs rasterized since the last flush. Glyphs placed
+    /// side by side on one shelf go up in one write: the space between and
+    /// below them belongs to no other glyph.
+    pub(crate) fn flush(&mut self, queue: &wgpu::Queue) {
+        if self.pending.is_empty() {
+            return;
+        }
+        let mut pending = std::mem::take(&mut self.pending);
+        pending.sort_by_key(|p| (p.format == GlyphFormat::Color, p.uv[1], p.uv[0]));
+        for run in runs(&pending) {
+            let first = &run[0];
+            let page = match first.format {
+                GlyphFormat::Coverage => &self.coverage,
+                GlyphFormat::Color => &self.color,
+            };
+            let bpp = first.format.bytes_per_pixel();
+            let width = run.iter().map(|p| p.bitmap.width).sum::<u32>();
+            let height = run.iter().map(|p| p.bitmap.height).max().unwrap_or(0);
+            let row = width as usize * bpp;
+            self.staging.clear();
+            self.staging.resize(row * height as usize, 0);
+            let mut x = 0;
+            for p in run {
+                let glyph_row = p.bitmap.width as usize * bpp;
+                for (y, line) in p.bitmap.data.chunks_exact(glyph_row.max(1)).enumerate() {
+                    let at = y * row + x;
+                    self.staging[at..at + glyph_row].copy_from_slice(line);
+                }
+                x += glyph_row;
+            }
+            page.upload(queue, first.uv, [width, height], &self.staging);
+        }
+        pending.clear();
+        self.pending = pending;
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ShelfPacker, valid};
+    use super::{Pending, RasterBudget, ShelfPacker, runs, valid};
     use oso_platform::text::{GlyphBitmap, GlyphFormat};
     use proptest::prelude::*;
 
@@ -442,6 +557,44 @@ mod tests {
         assert_eq!(p.allocate(10, u32::MAX), None);
         assert_eq!(p.allocate(u32::MAX, 10), None);
         assert!(p.allocate(10, 10).is_some());
+    }
+
+    fn pending(format: GlyphFormat, uv: [u32; 2], width: u32) -> Pending {
+        Pending {
+            format,
+            uv,
+            bitmap: GlyphBitmap {
+                width,
+                height: 4,
+                left: 0,
+                top: 0,
+                format,
+                data: vec![0; (width * 4) as usize * format.bytes_per_pixel()],
+            },
+        }
+    }
+
+    #[test]
+    fn neighbors_on_a_shelf_upload_together() {
+        use GlyphFormat::{Color, Coverage};
+        let glyphs = [
+            pending(Coverage, [0, 0], 5),
+            pending(Coverage, [5, 0], 3),
+            pending(Coverage, [10, 0], 2),
+            pending(Coverage, [0, 8], 4),
+            pending(Color, [12, 8], 4),
+        ];
+        let lens: Vec<usize> = runs(&glyphs).map(<[_]>::len).collect();
+        assert_eq!(lens, [2, 1, 1, 1], "a gap, a new shelf, another format");
+    }
+
+    #[test]
+    fn the_raster_budget_runs_out_and_says_so() {
+        let mut budget = RasterBudget::new(2);
+        assert!(budget.take() && budget.take());
+        assert!(!budget.exhausted);
+        assert!(!budget.take());
+        assert!(budget.exhausted);
     }
 
     #[test]

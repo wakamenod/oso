@@ -10,6 +10,7 @@ mod server;
 use std::sync::mpsc;
 use std::thread;
 
+use oso_core::buffer::ReadOnly;
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
@@ -107,12 +108,39 @@ fn write_screenshot(capture: Capture, dir: &ControlDir, name: &str) -> Reply {
     Ok(json!({ "path": path, "width": image.width, "height": image.height }))
 }
 
-/// The result of `get-state`: the cursor, the keys of a pending prefix,
-/// and the surface size, if there is a window. M1-7b extends it to buffers
-/// and windows.
+/// The result of `get-state`: the selected window's buffer, cursor and
+/// scroll position, the keys of a pending prefix, and the surface size if
+/// there is a window. It never includes buffer text. M1-7b extends it.
 pub fn state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
+    let (window, buffer) = editor.current();
+    let display = buffer.display();
+    let cursor = window.selections.primary().cursor;
+    let point = display.offset_to_display_point(cursor);
+    let info = buffer.file_info();
+    let size = window.size();
     json!({
-        "cursor": { "position": editor.cursor.position },
+        "buffer": {
+            "name": buffer.name(),
+            "path": buffer.path().map(|path| path.to_string_lossy()),
+            "read_only": buffer.read_only().map(ReadOnly::as_str),
+            "line_ending": info.line_ending.as_str(),
+            "bom": info.bom,
+            "invalid_bytes": buffer.invalid_bytes().len(),
+            "bytes": buffer.text().len(),
+            "lines": display.row_count(),
+            "loading": buffer.loading().map(|progress| json!({
+                "read": progress.read,
+                "total": progress.total,
+            })),
+        },
+        "cursor": {
+            "offset": cursor,
+            "row": point.row,
+            "column": point.column,
+            "count": window.selections.len(),
+        },
+        "scroll": { "top": window.scroll.top, "left": window.scroll.left },
+        "window": { "rows": size.rows, "columns": size.columns },
         "keys": { "pending": display_keys(pending).to_string() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     })
@@ -121,32 +149,46 @@ pub fn state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u
 #[cfg(test)]
 mod tests {
     use super::state;
-    use oso_core::cursor::Cursor;
+    use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
     use oso_core::key::KeySequence;
+    use oso_core::selection::SelectionSet;
+    use oso_core::window::ViewSize;
     use serde_json::json;
 
     #[test]
-    fn state_reports_the_cursor_pending_keys_and_surface() {
-        let editor = Editor {
-            cursor: Cursor { position: 2 },
-        };
+    fn state_reports_the_buffer_cursor_scroll_and_surface() {
+        let mut editor = Editor::with_buffer(Buffer::from_bytes("bad.txt", b"a\r\n\xffSECRET"));
+        editor.set_view_size(ViewSize::new(5, 2));
+        editor.current_mut().0.selections = SelectionSet::new(6);
+        editor.follow_cursor();
+        let state = state(&editor, &[], Some((800, 600)));
         assert_eq!(
-            state(&editor, &[], Some((800, 600))),
+            state,
             json!({
-                "cursor": { "position": 2 },
+                "buffer": {
+                    "name": "bad.txt",
+                    "path": null,
+                    "read_only": "invalid-utf8",
+                    "line_ending": "crlf",
+                    "bom": false,
+                    "invalid_bytes": 1,
+                    "bytes": 12,
+                    "lines": 2,
+                    "loading": null,
+                },
+                "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1 },
+                "scroll": { "top": 0, "left": 3 },
+                "window": { "rows": 5, "columns": 2 },
                 "keys": { "pending": "" },
                 "surface": { "width": 800, "height": 600 },
             })
         );
+        assert!(!state.to_string().contains("SECRET"), "no buffer text");
         let pending: KeySequence = "C-x 4".parse().unwrap();
-        assert_eq!(
-            state(&editor, &pending.0, None),
-            json!({
-                "cursor": { "position": 2 },
-                "keys": { "pending": "C-x 4" },
-                "surface": null,
-            })
-        );
+        let state = super::state(&Editor::default(), &pending.0, None);
+        assert_eq!(state["keys"]["pending"], "C-x 4");
+        assert_eq!(state["buffer"]["name"], "*scratch*");
+        assert_eq!(state["surface"], json!(null));
     }
 }

@@ -1,11 +1,11 @@
 //! Placing shaped glyphs on the monospace cell grid (ADR 0005, ADR 0035,
 //! ADR 0036).
 //!
-//! Cell widths come from the display model (`oso_core::display_map`), so a
-//! cluster takes the same cells here as for cursor motion. The text system
-//! only says which cluster each glyph draws and where the font puts it.
+//! Cells come from the display model (`oso_core::display_map`), so a
+//! cluster takes the same cells here as for cursor motion. The caller
+//! lists the display clusters of the text it shaped; the text system only
+//! says which cluster each glyph draws and where the font puts it.
 
-use oso_core::display_map::{CellKind, Clusters, TabWidth};
 use oso_platform::text::{GlyphKey, ShapedGlyph};
 
 /// The most glyphs drawn for one span. Real text stacks a few marks on a
@@ -13,12 +13,25 @@ use oso_platform::text::{GlyphKey, ShapedGlyph};
 /// drawing them all in one cell.
 const MAX_GLYPHS_PER_SPAN: u32 = 32;
 
+/// How a glyph is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub(crate) enum Style {
+    /// Buffer text.
+    #[default]
+    Text,
+    /// The label of an escape: a control character (`^M`) or an invalid
+    /// byte (`\xFF`), drawn in the escape color.
+    Escape,
+    /// The label of a boxed invisible character (`U+202E`).
+    Boxed,
+}
+
 /// A glyph placed on the grid.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct PlacedGlyph {
     pub(crate) key: GlyphKey,
     /// The first cell of the glyph's cluster, counted from the row start.
-    pub(crate) column: u32,
+    pub(crate) column: usize,
     /// The cells the cluster takes: 1 for half-width, 2 for full-width,
     /// more for a ligature over several clusters.
     pub(crate) cells: u32,
@@ -26,21 +39,26 @@ pub(crate) struct PlacedGlyph {
     /// in whole pixels; y grows downwards. Centers glyphs whose advance is
     /// not exactly `cells` cells, such as CJK from a fallback font.
     pub(crate) offset: [f32; 2],
+    pub(crate) style: Style,
 }
 
-/// A display cluster of the row (`oso_core::display_map::Clusters`).
-#[derive(Debug, Clone, Copy)]
-struct Grapheme {
-    byte: u32,
-    column: u32,
+/// A display cluster of the shaped text: where it starts in the text, and
+/// its cells on the row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Grapheme {
+    pub(crate) byte: u32,
+    pub(crate) column: usize,
+    pub(crate) cells: u32,
+    pub(crate) style: Style,
 }
 
 /// A run of display clusters that the shaper drew as one unit: usually one
 /// cluster, several for a ligature.
 #[derive(Debug, Clone, Copy)]
 struct Span {
-    column: u32,
+    column: usize,
     cells: u32,
+    style: Style,
     /// Glyphs placed so far.
     glyphs: u32,
     /// Leftmost pen position of the span's glyphs, and their total advance.
@@ -51,7 +69,6 @@ struct Span {
 /// Places shaped glyphs on the grid, reusing its buffers across rows.
 #[derive(Debug, Default)]
 pub(crate) struct Placer {
-    graphemes: Vec<Grapheme>,
     /// Whether a glyph's cluster starts at each grapheme.
     starts: Vec<bool>,
     /// The span each grapheme belongs to.
@@ -60,8 +77,9 @@ pub(crate) struct Placer {
 }
 
 impl Placer {
-    /// Places the glyphs of a shaped row of `text` on a grid of cells
-    /// `cell_width` pixels wide, replacing the contents of `out`. The placed
+    /// Places the glyphs of shaped text on a grid of cells `cell_width`
+    /// pixels wide, replacing the contents of `out`. `graphemes` are the
+    /// text's display clusters in order, starting at byte 0. The placed
     /// glyphs are sorted by column.
     ///
     /// A glyph's cluster is snapped to the display cluster that contains
@@ -70,17 +88,16 @@ impl Placer {
     /// (a ligature) spans all their cells.
     pub(crate) fn place(
         &mut self,
-        text: &str,
+        graphemes: &[Grapheme],
         glyphs: &[ShapedGlyph],
         cell_width: f32,
         out: &mut Vec<PlacedGlyph>,
     ) {
         out.clear();
-        if glyphs.is_empty() {
+        if glyphs.is_empty() || graphemes.is_empty() {
             return;
         }
-        let end = self.measure(text);
-        let grapheme_of = |graphemes: &[Grapheme], byte: u32| {
+        let grapheme_of = |byte: u32| {
             graphemes
                 .partition_point(|g| g.byte <= byte)
                 .saturating_sub(1)
@@ -88,10 +105,9 @@ impl Placer {
 
         // Which graphemes start a shaper cluster.
         self.starts.clear();
-        self.starts.resize(self.graphemes.len(), false);
+        self.starts.resize(graphemes.len(), false);
         for glyph in glyphs {
-            let i = grapheme_of(&self.graphemes, glyph.cluster);
-            if let Some(start) = self.starts.get_mut(i) {
+            if let Some(start) = self.starts.get_mut(grapheme_of(glyph.cluster)) {
                 *start = true;
             }
         }
@@ -100,29 +116,23 @@ impl Placer {
         // next.
         self.spans.clear();
         self.span_of.clear();
-        for (i, g) in self.graphemes.iter().enumerate() {
-            if self.spans.is_empty() || self.starts[i] {
-                if let Some(last) = self.spans.last_mut() {
-                    last.cells = g.column - last.column;
-                }
-                self.spans.push(Span {
+        for (i, g) in graphemes.iter().enumerate() {
+            match self.spans.last_mut() {
+                Some(span) if !self.starts[i] => span.cells = span.cells.saturating_add(g.cells),
+                _ => self.spans.push(Span {
                     column: g.column,
-                    cells: 0,
+                    cells: g.cells,
+                    style: g.style,
                     glyphs: 0,
                     x: f32::INFINITY,
                     advance: 0.0,
-                });
+                }),
             }
             self.span_of.push(self.spans.len() as u32 - 1);
         }
-        if let Some(last) = self.spans.last_mut() {
-            last.cells = end - last.column;
-        }
 
-        let span_index = |placer: &Self, byte: u32| {
-            let g = grapheme_of(&placer.graphemes, byte);
-            placer.span_of.get(g).map(|&s| s as usize)
-        };
+        let span_index =
+            |placer: &Self, byte: u32| placer.span_of.get(grapheme_of(byte)).map(|&s| s as usize);
         for glyph in glyphs {
             if let Some(s) = span_index(self, glyph.cluster) {
                 let span = &mut self.spans[s];
@@ -148,39 +158,12 @@ impl Placer {
                 column: span.column,
                 cells,
                 offset: [(glyph.x - span.x + centering).round(), (-glyph.y).round()],
+                style: span.style,
             });
         }
         // Right-to-left runs come in visual order; drawing and lookups by
         // column need column order.
         out.sort_by_key(|g| g.column);
-    }
-
-    /// Splits `text` into display clusters and finds their columns.
-    /// Returns the column after the last one.
-    fn measure(&mut self, text: &str) -> u32 {
-        self.graphemes.clear();
-        let mut column = 0u32;
-        for (byte, _, kind, cells) in Clusters::new(text) {
-            self.graphemes.push(Grapheme {
-                byte: byte as u32,
-                column,
-            });
-            column = column.saturating_add(Self::cells(kind, cells, column));
-        }
-        column
-    }
-
-    /// The cells of one display cluster at `column`. Tabs reach the next
-    /// stop at the default width, until rows come from the display model
-    /// (M1-6).
-    fn cells(kind: CellKind, cells: usize, column: u32) -> u32 {
-        match kind {
-            CellKind::Tab => {
-                let stop = TabWidth::default().next_stop(column as usize);
-                (stop - column as usize) as u32
-            }
-            _ => cells as u32,
-        }
     }
 }
 
@@ -188,6 +171,7 @@ impl Placer {
 mod tests {
     use super::*;
     use oso_core::display_map::cell::classify;
+    use oso_core::display_map::{CellKind, Clusters, TabWidth};
     use oso_platform::text::{FontId, GlyphId};
 
     const CELL: f32 = 10.0;
@@ -222,13 +206,34 @@ mod tests {
         matches!(u32::from(c), 0x300..=0x36f)
     }
 
+    /// The display clusters of `text`, as the display model gives them.
+    fn graphemes(text: &str) -> Vec<Grapheme> {
+        let mut column = 0;
+        Clusters::new(text)
+            .map(|(byte, _, kind, cells)| {
+                let cells = match kind {
+                    CellKind::Tab => TabWidth::default().next_stop(column) - column,
+                    _ => cells,
+                };
+                let g = Grapheme {
+                    byte: byte as u32,
+                    column,
+                    cells: cells as u32,
+                    style: Style::Text,
+                };
+                column += cells;
+                g
+            })
+            .collect()
+    }
+
     fn place(text: &str, glyphs: &[ShapedGlyph]) -> Vec<PlacedGlyph> {
         let mut out = Vec::new();
-        Placer::default().place(text, glyphs, CELL, &mut out);
+        Placer::default().place(&graphemes(text), glyphs, CELL, &mut out);
         out
     }
 
-    fn columns(text: &str) -> Vec<(u32, u32)> {
+    fn columns(text: &str) -> Vec<(usize, u32)> {
         place(text, &shape_naively(text))
             .iter()
             .map(|g| (g.column, g.cells))
@@ -331,6 +336,30 @@ mod tests {
     }
 
     #[test]
+    fn styles_follow_their_graphemes() {
+        let text = "a^M";
+        let mut graphemes = graphemes(text);
+        graphemes[1].style = Style::Escape;
+        graphemes[2].style = Style::Escape;
+        let mut out = Vec::new();
+        Placer::default().place(&graphemes, &shape_naively(text), CELL, &mut out);
+        let styles: Vec<_> = out.iter().map(|g| g.style).collect();
+        assert_eq!(styles, [Style::Text, Style::Escape, Style::Escape]);
+    }
+
+    #[test]
+    fn graphemes_need_not_start_at_column_zero() {
+        let text = "ab";
+        let mut graphemes = graphemes(text);
+        for g in &mut graphemes {
+            g.column += 1_000_000;
+        }
+        let mut out = Vec::new();
+        Placer::default().place(&graphemes, &shape_naively(text), CELL, &mut out);
+        assert_eq!(out[1].column, 1_000_001);
+    }
+
+    #[test]
     fn nothing_shaped_places_nothing() {
         assert!(place("abc", &[]).is_empty());
     }
@@ -356,7 +385,7 @@ mod tests {
                     continue;
                 }
                 assert_eq!(g.column, end, "{text:?}");
-                end = g.column + g.cells;
+                end = g.column + g.cells as usize;
                 last = Some(g.column);
             }
         }

@@ -8,9 +8,8 @@ use std::fmt;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use oso_core::cursor::Cursor;
-
-use crate::RenderState;
+use crate::atlas::RasterBudget;
+use crate::{RenderState, TextView};
 
 /// How long [`Capture::wait`] waits for the GPU.
 const GPU_TIMEOUT: Duration = Duration::from_secs(5);
@@ -120,7 +119,8 @@ impl RenderState {
     /// surface's size and format, and submits a copy of it to a buffer.
     /// This does not wait for the GPU; call [`Capture::wait`] on another
     /// thread for the pixels.
-    pub fn capture(&mut self, cursor: &Cursor) -> Result<Capture, CaptureError> {
+    /// Every glyph of the frame is rasterized, so the image is complete.
+    pub fn capture(&mut self, text: &TextView) -> Result<Capture, CaptureError> {
         let (width, height) = (self.config.width, self.config.height);
         let format = self.config.format;
         let layout =
@@ -154,7 +154,7 @@ impl RenderState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("capture"),
             });
-        self.encode_frame(&mut encoder, &view, cursor);
+        self.encode_frame(&mut encoder, &view, text, &mut RasterBudget::unlimited());
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,

@@ -1,4 +1,4 @@
-//! The default font, and the sample text drawn until buffers arrive.
+//! The default font.
 
 use oso_platform::text::{self, FontRequest, NullTextSystem, TextSystem};
 
@@ -9,16 +9,6 @@ pub const FONT_FAMILIES: &[&str] = &["SF Mono", "Menlo"];
 
 /// The font size in points, until configuration exists (ADR 0019).
 pub const FONT_SIZE_PT: f32 = 13.0;
-
-/// TEMPORARY (M1-5): rows drawn at the top left until M1-6 draws buffers.
-/// The cursor moves over the first row, one cell per `<right>`.
-pub const SAMPLE_ROWS: &[&str] = &[
-    "abc 日本語 🍣 xyz",
-    "oso: OS-native text on a monospace cell grid",
-    "全角は２セル、半角は１セル: ｱｲｳ ABC",
-    "Emoji: 🍣 👍 ✨ 🦀 ❤️",
-    "0123456789 !@#$%^&*() []{}<> -> => != ==",
-];
 
 /// Loads the default font for a window at `scale` physical pixels per
 /// point. Where text cannot be drawn (no backend on this OS, or no font),
