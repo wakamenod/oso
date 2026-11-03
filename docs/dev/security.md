@@ -136,6 +136,16 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
 - Sequences that echo data back, such as title reporting, are disabled.
 - OSC 8 hyperlinks show the real target before opening.
 
+### Agent integration (T7, T9)
+
+- Claude Code runs as its official TUI in a terminal view
+  ([ADR 0031](adr/0031-claude-code-integration.md)).
+- Its MCP tools reach oso only through the `oso mcp` stdio bridge and a Unix
+  socket with a peer user check; no TCP port is opened. Tools follow the
+  trust model, and there is no code-execution tool.
+- Hooks are installed only by an explicit command that shows the settings
+  change first.
+
 ### Denial of service (T8)
 
 - Files load in the background, and the UI stays responsive on huge files and
@@ -155,8 +165,8 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
   release builds never enable. `just release-safety` runs in CI and fails if
   a release build enables a `dev` feature, depends on a dev-only crate or
   contains the dev marker string. Each check first proves it can see the dev
-  code in a dev build ([ADR 0031](adr/0031-control-socket-transport.md)).
-- The control socket ([ADR 0031](adr/0031-control-socket-transport.md)):
+  code in a dev build ([ADR 0032](adr/0032-control-socket-transport.md)).
+- The control socket ([ADR 0032](adr/0032-control-socket-transport.md)):
   - lives in a private directory (`$XDG_RUNTIME_DIR/oso`, or `oso-<uid>` in
     the temporary directory), created `0700` and refused if it is a symlink,
     owned by another user or has a looser mode, or if other users can

@@ -6,7 +6,7 @@ description: Check a change in the running app over the dev control socket. Star
 # Verify a change in the running app
 
 Agents cannot see the screen or send OS key events. Dev builds expose a
-control socket instead (ADR 0016, ADR 0023, ADR 0031), and `oso ctl` drives
+control socket instead (ADR 0016, ADR 0023, ADR 0032), and `oso ctl` drives
 it. Use this after `just ci` passes, before the reviewer agents.
 
 Unix only for now: on Windows, `oso ctl` reports that the socket is not
@@ -49,7 +49,7 @@ echo $! > "$SCRATCH/oso.pid"
 - Each command prints one JSON response. Exit status 0 is a result, 1 an
   error response, 2 means no request was made (no instance, bad arguments).
 - Key notation: `C-x C-f`, `M-<`, `S-<right>`, `RET`, `SPC`, `TAB`, `DEL`,
-  `<f1>`. Shift is part of a character: write `A`, not `S-a` (ADR 0032).
+  `<f1>`. Shift is part of a character: write `A`, not `S-a` (ADR 0033).
 - Prefer `get-state` for facts (positions, sizes). Use screenshots for
   what only pixels show.
 - Read the PNG at the returned path with the Read tool and check what you

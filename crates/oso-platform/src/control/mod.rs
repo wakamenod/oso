@@ -1,4 +1,4 @@
-//! Transport for the dev control socket (ADR 0016, ADR 0031). Dev builds
+//! Transport for the dev control socket (ADR 0016, ADR 0032). Dev builds
 //! only: this module exists only with the `dev` feature.
 //!
 //! - The socket lives in a private directory: `$XDG_RUNTIME_DIR/oso` when

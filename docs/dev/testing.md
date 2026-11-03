@@ -35,9 +35,9 @@
 - Start a dev build (`just run-dev`, or `cargo build -p oso --features dev`)
   and drive it with `oso ctl` over the dev control socket
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
-  [ADR 0031](adr/0031-control-socket-transport.md)):
+  [ADR 0032](adr/0032-control-socket-transport.md)):
   - `send-keys` sends input in Emacs notation, through the same path as
-    keys from the window ([ADR 0032](adr/0032-key-presses-and-notation.md))
+    keys from the window ([ADR 0033](adr/0033-key-presses-and-notation.md))
   - `get-state` reads the state as JSON. Today this is the cursor position
     and the surface size; buffers, cursors and the modeline come in M1-7b.
   - `screenshot` writes a PNG of the current frame and returns its path
@@ -48,7 +48,7 @@
   still checked by hand.
 - The transport and protocol themselves are tested without a window or GPU
   (`oso-platform` control tests, the server tests in the tip crate), so CI
-  runs them on Linux and macOS. Windows is not supported yet (ADR 0031).
+  runs them on Linux and macOS. Windows is not supported yet (ADR 0032).
 
 ### Level 3: snapshot tests (after text rendering lands)
 
@@ -90,7 +90,7 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
   the dev features too (`--all-features`).
 - `just release-safety` on Linux: release builds contain no dev-only
-  features, crates or code ([ADR 0031](adr/0031-control-socket-transport.md))
+  features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
 

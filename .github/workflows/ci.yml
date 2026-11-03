@@ -46,7 +46,7 @@ jobs:
       - run: just ci
 
   # Release builds must not contain the dev control socket or other dev-only
-  # code (ADR 0016, ADR 0031).
+  # code (ADR 0016, ADR 0032).
   release-safety:
     runs-on: ubuntu-latest
     timeout-minutes: 30

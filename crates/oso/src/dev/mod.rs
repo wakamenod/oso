@@ -1,5 +1,5 @@
 //! Dev-only tooling behind the `dev` feature: the control socket and
-//! `oso ctl` (ADR 0016, ADR 0023, ADR 0031). Release builds never contain
+//! `oso ctl` (ADR 0016, ADR 0023, ADR 0032). Release builds never contain
 //! it, and CI checks this (`just release-safety`).
 
 pub mod ctl;

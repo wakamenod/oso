@@ -1,4 +1,4 @@
-//! The control socket where it is not implemented yet (Windows, ADR 0031).
+//! The control socket where it is not implemented yet (Windows, ADR 0032).
 //! The API matches the Unix one, and every operation fails.
 
 use std::convert::Infallible;

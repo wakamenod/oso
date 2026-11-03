@@ -67,7 +67,7 @@ test:
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
 
-# Fail if a release build contains dev-only code (ADR 0016, ADR 0031)
+# Fail if a release build contains dev-only code (ADR 0016, ADR 0032)
 release-safety:
     #!/usr/bin/env bash
     # Each check first proves on a dev build that it can see the dev code,

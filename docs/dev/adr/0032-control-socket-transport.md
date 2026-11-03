@@ -1,4 +1,4 @@
-# 0031. Control socket transport, limits and release check
+# 0032. Control socket transport, limits and release check
 
 - Status: Accepted
 - Date: 2026-11-03
@@ -83,6 +83,10 @@ release check works. A named pipe on Windows needs `windows-sys` and
 - `libc` is a direct dependency of `oso-platform` with the `dev` feature,
   with three `unsafe` calls (`geteuid`, `getpeereid`, `getsockopt`).
 - Agents on Windows cannot drive the app yet.
+- The clippy ban on local sockets admits only this transport. The MCP
+  bridge planned in [ADR 0031](0031-claude-code-integration.md) (M4) uses a
+  Unix socket in release builds, so it will need its own exception, and may
+  share the directory and peer-check code here.
 - The release check costs one release build in CI.
 
 ## Alternatives considered

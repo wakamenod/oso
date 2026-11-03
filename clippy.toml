@@ -11,7 +11,7 @@ disallowed-types = [
     { path = "std::net::TcpStream", reason = "no network code in oso (ADR 0010)" },
     { path = "std::net::UdpSocket", reason = "no network code in oso (ADR 0010)" },
     # Local sockets only in the dev control socket (oso-platform::control).
-    { path = "std::os::unix::net::UnixListener", reason = "local sockets only in the dev control socket (ADR 0031)" },
-    { path = "std::os::unix::net::UnixStream", reason = "local sockets only in the dev control socket (ADR 0031)" },
-    { path = "std::os::unix::net::UnixDatagram", reason = "local sockets only in the dev control socket (ADR 0031)" },
+    { path = "std::os::unix::net::UnixListener", reason = "local sockets only in the dev control socket (ADR 0032)" },
+    { path = "std::os::unix::net::UnixStream", reason = "local sockets only in the dev control socket (ADR 0032)" },
+    { path = "std::os::unix::net::UnixDatagram", reason = "local sockets only in the dev control socket (ADR 0032)" },
 ]

@@ -1,4 +1,4 @@
-# 0032. Key presses and Emacs key notation
+# 0033. Key presses and Emacs key notation
 
 - Status: Accepted
 - Date: 2026-11-03

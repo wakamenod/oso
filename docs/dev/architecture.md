@@ -55,7 +55,7 @@ OS events (winit)
    │
    ▼
 Input: key translation into oso_core::key::KeyPress
-       (Command = Meta, Option = Super on macOS; ADR 0032), IME
+       (Command = Meta, Option = Super on macOS; ADR 0033), IME
    │
    ▼
 Keymap lookup: keymap-at-point > minor modes > major mode > global
@@ -210,7 +210,7 @@ Full details are in [`security.md`](security.md).
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
   - The transport lives in `oso-platform::control`: a Unix domain socket in a
     private `0700` directory, with a peer user check. Windows is not
-    supported yet ([ADR 0031](adr/0031-control-socket-transport.md)).
+    supported yet ([ADR 0032](adr/0032-control-socket-transport.md)).
   - Background threads read and parse requests. They reach the UI thread as
     winit user events, and replies return over a channel. Keys from the
     socket take the same path as keys from the window.
@@ -223,4 +223,4 @@ Full details are in [`security.md`](security.md).
 Hot reload and the control socket are behind cargo features (`dev` in each
 crate, enabled through `oso/dev`) that release builds never enable. CI checks
 this with `just release-safety`
-([ADR 0031](adr/0031-control-socket-transport.md)).
+([ADR 0032](adr/0032-control-socket-transport.md)).
