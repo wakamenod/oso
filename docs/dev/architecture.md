@@ -102,7 +102,8 @@ The display model maps buffer positions to screen rows and back, in O(log n),
 through a stack of transforms. It supports folding, virtual text, soft wrap
 (off by default), block decorations and variable row heights. See
 [`display-model.md`](display-model.md) and
-[ADR 0006](adr/0006-display-model.md).
+[ADR 0006](adr/0006-display-model.md). The M2 screen layout is in
+[`ui.md`](ui.md).
 
 ### Text rendering
 

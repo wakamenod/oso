@@ -109,15 +109,20 @@ network features.
 ### Display (T3)
 
 Bidirectional control characters and invisible characters are always shown
-visibly.
+as boxed code points, and a buffer containing bidirectional controls shows a
+modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
 
 ### Persistence (T4, T5)
 
 - There is no periodic auto-save, no backup files and no persisted undo
   history.
 - On panic, unsaved buffers are written to a private directory (`0700`,
-  files `0600`). Files matching secret patterns (`.env`, `*.pem`, `id_*` and
-  more) are excluded.
+  files `0600`). Files matching secret patterns are excluded
+  ([ADR 0028](adr/0028-secrets-handling.md) lists the defaults; users can
+  extend them).
+- The kill ring syncs with the OS clipboard but is never persisted. Core
+  dumps are disabled, and panic messages never include buffer contents
+  ([ADR 0028](adr/0028-secrets-handling.md)).
 - Saving writes a temporary file in the same directory, fsyncs it, renames it
   over the target and preserves permissions.
 - Dev state handoff for hot reload goes process-to-process in memory, never

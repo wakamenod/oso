@@ -32,6 +32,10 @@ old one's status.
 | 0023 | [Control socket protocol and restart-and-restore](0023-control-socket-protocol-and-restart.md) | Accepted |
 | 0024 | [Dev build profile and build-time budget](0024-dev-build-profile.md) | Accepted |
 | 0025 | [Key-to-photon latency measurement](0025-latency-measurement.md) | Accepted |
+| 0026 | [M2 UI layout](0026-m2-ui-layout.md) | Accepted |
+| 0027 | [Theme](0027-theme.md) | Accepted |
+| 0028 | [Handling secrets in memory and on disk](0028-secrets-handling.md) | Accepted |
+| 0029 | [File changes on disk and editing while loading](0029-file-changes-on-disk.md) | Accepted |
 
 ## Template
 

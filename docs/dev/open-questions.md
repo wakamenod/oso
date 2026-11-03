@@ -9,24 +9,16 @@ item notes when it must be settled.
 - **Claude Code client design** (before M4). Revisit whether a
   `claude -p`-based design is right. Also decide whether a wiki/GTD client
   belongs in oso, and if so when.
-- **UI of each feature** (before building it). For example: where the
-  minibuffer appears, how completion candidates and previews look, and how
-  menus appear.
+- **UI of each later feature** (before building it). The M2 UI is decided
+  ([`ui.md`](ui.md), [ADR 0026](adr/0026-m2-ui-layout.md)); M3 and later
+  features (avy, ripgrep results, the menu contents, the git status buffer,
+  the terminal) are designed when they come up.
 
 ## M1
 
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
-
-## M2
-
-- Default secret-file patterns, used by emergency save.
-- Clipboard and crash-dump handling of secrets.
-- How bidirectional and invisible characters are rendered.
-- Whether a buffer can be edited while it is still loading. In M1 it is
-  read-only until loading finishes ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
-- Detecting a file that changes on disk while it is open or loading.
 
 ## M3
 

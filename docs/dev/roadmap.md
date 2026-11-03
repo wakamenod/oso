@@ -64,6 +64,11 @@ M1 is built in this order. Each step is one PR.
 - Kill ring, mark and region, multiple cursors.
 - isearch (`C-s`/`C-r`).
 - Minibuffer with fuzzy matching and preview: `M-x`, `C-x C-f`, `C-x b`, `C-g`.
+- The UI from [`ui.md`](ui.md): top-center minibuffer with in-popup
+  preview, echo area, per-window modelines, isearch match count, inline IME
+  preedit, visual aids, and the dark/light theme
+  ([ADR 0026](adr/0026-m2-ui-layout.md), [ADR 0027](adr/0027-theme.md)).
+- Reloading files changed on disk ([ADR 0029](adr/0029-file-changes-on-disk.md)).
 - The author's key customizations:
   - `C-z` undo
   - `C-w` kills the region, or the previous word when there is no region
