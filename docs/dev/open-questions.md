@@ -24,6 +24,19 @@ item notes when it must be settled.
   never saved ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)). The
   cell grid already escapes control characters
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)).
+- M1-6 rendering of buffer text through the text system
+  ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)):
+  - shape only the visible column window of a row, so a 10 MB line does not
+    block the UI thread
+  - key the shaping cache by buffer line rather than screen row, so
+    scrolling does not reshape every row
+  - cap new rasterizations per frame and batch atlas uploads
+  - draw boxed code points and control escapes from the display model
+    instead of shaping the raw characters (T3 in `security.md`)
+  - measure startup from process start in a release build, cold (fonts not
+    cached), and the p99 frame time with a full screen of mixed text
+- Text gamma: text is blended in linear space on the sRGB surface, so light
+  text on dark looks heavier than in native apps. Decide with the theme.
 - M1-6 rendering: a multi-row cluster iterator that keeps one cursor across
   rows, instead of a seek per row (about 25 µs per 60-row frame today).
 - Horizontal scroll extent needs the widest row, and the bidi-control
@@ -76,7 +89,9 @@ item notes when it must be settled.
 - Dev control socket on Windows: a named pipe restricted to the current
   user ([ADR 0032](adr/0032-control-socket-transport.md)). Needed when
   agents test on Windows.
-- Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz.
+- Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz. Until
+  then Linux (and Windows, until DirectWrite) draws no text
+  ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)).
 - Exact command subsets for the directory editor and org.
 - PDF engine and isolation (pdfium, a pure-Rust renderer, a separate
   process); image decoders.
