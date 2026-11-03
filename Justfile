@@ -59,8 +59,9 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Run tests, including dev-feature code (the control socket)
+# Run tests, with and without dev features (the control socket)
 test:
+    cargo test --locked --workspace
     cargo test --locked --workspace --all-features
 
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
@@ -70,19 +71,24 @@ ci: check lint fmt-check test
 release-safety:
     #!/usr/bin/env bash
     # Each check first proves on a dev build that it can see the dev code,
-    # so it cannot pass vacuously.
+    # so it cannot pass vacuously. The release side checks what `just
+    # release` builds: the whole workspace, with features unified.
     set -euo pipefail
     dev_crates="serde_json miniz_oxide"
     marker="oso-dev-control-socket"
-    target="${CARGO_TARGET_DIR:-target}"
     tree() {
-        cargo tree --locked -p oso --target all -e normal,build --prefix none \
+        cargo tree --locked --workspace --target all -e normal,build --prefix none \
             --format '{p} [{f}]' "$@" | sort -u
+    }
+    # Builds, and prints the path of the oso executable cargo reports.
+    oso_bin() {
+        cargo build --locked --message-format=json-render-diagnostics "$@" \
+            | sed -n 's|.*"executable":"\([^"]*/oso\)".*|\1|p' | tail -n 1
     }
     dev_feature='^oso(-[a-z]+)? v.*\[([^]]*,)?dev(,[^]]*)?\]$'
     fail=0
 
-    dev_tree=$(tree --features dev)
+    dev_tree=$(tree --features oso/dev)
     release_tree=$(tree)
     grep -Eq "$dev_feature" <<<"$dev_tree" \
         || { echo "error: the dev tree shows no dev feature; fix this check"; exit 1; }
@@ -97,15 +103,17 @@ release-safety:
         fi
     done
 
-    cargo build --locked -p oso --features dev
-    grep -qaF "$marker" "$target/debug/oso" \
-        || { echo "error: the dev binary lacks the marker $marker; fix this check"; exit 1; }
-    cargo build --locked -p oso --release
-    if grep -qaF "$marker" "$target/release/oso"; then
+    dev_bin=$(oso_bin -p oso --features dev)
+    [ -f "$dev_bin" ] && grep -qaF "$marker" "$dev_bin" \
+        || { echo "error: no dev binary with the marker $marker; fix this check"; exit 1; }
+    release_bin=$(oso_bin --workspace --release)
+    [ -f "$release_bin" ] \
+        || { echo "error: cargo reported no release binary; fix this check"; exit 1; }
+    if grep -qaF "$marker" "$release_bin"; then
         echo "error: the release binary contains the dev marker $marker"; fail=1
     fi
 
-    if [ "$fail" -eq 0 ]; then echo "release safety: ok"; fi
+    if [ "$fail" -eq 0 ]; then echo "release safety: ok ($release_bin)"; fi
     exit "$fail"
 
 # Check dependencies against deny.toml (advisories, licenses, sources, bans)
