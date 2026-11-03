@@ -42,6 +42,12 @@ Commands live in the tip crate because it changes most often and rebuilds
 fastest. Stable foundations live in library crates. See
 [ADR 0004](adr/0004-crate-layout.md).
 
+Dependencies point one way: `oso` depends on the libraries, `oso-render`
+depends on `oso-core`, and `oso-core` depends on none of them. Only the tip
+crate uses winit. It owns the window and hands `oso-render` a
+`wgpu::DisplayAndWindowHandle` and the size in pixels; the renderer reports
+back when it needs a redraw instead of calling into the window.
+
 ## Layers
 
 ```
@@ -107,8 +113,9 @@ characters take two. See [ADR 0005](adr/0005-text-rendering.md).
 
 ### GPU rendering
 
-wgpu with one backend per OS: Metal, DX12 and Vulkan. There is no GL
-fallback. Each frame runs independent passes:
+wgpu with one backend per OS: Metal, DX12 and Vulkan. Only that backend is
+compiled in, through per-target wgpu features, and there is no GL fallback.
+Each frame runs independent passes:
 
 ```
 Pass 1: background, cursors, selections, underlines   (shape renderer)

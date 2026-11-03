@@ -14,7 +14,7 @@
 |---|---|---|
 | High | `oso-core`: buffers, selections, display model, registry, keymaps | inline unit tests and property tests |
 | High | pure coordinate functions | unit tests |
-| Medium | command scenarios: key sequences to state | integration tests in `tests/` with no window |
+| Medium | command scenarios: key sequences to state | integration tests in `crates/*/tests/` with no window |
 | Medium | the running app | end-to-end tests over the dev control socket |
 | Low | `oso-render` GPU code | logic split out and unit-tested; pixels checked by snapshot tests |
 
