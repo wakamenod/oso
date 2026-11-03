@@ -89,15 +89,20 @@ impl RenderState {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
+        // Fifo is the only present mode every backend must support, and it
+        // never tears. Frames are drawn on demand, so vsync costs nothing while
+        // idle. A frame latency of 1 keeps at most one frame queued, which
+        // serves the p99 <= 8 ms key-to-photon budget. Mailbox or Immediate
+        // can be revisited once that latency is measured (ADR 0025).
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 1,
         };
         surface.configure(&device, &config);
 
