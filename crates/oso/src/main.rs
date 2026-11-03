@@ -3,17 +3,30 @@
 //! (ADR 0004).
 
 mod app;
+#[cfg(feature = "dev")]
+mod dev;
 mod keys;
 
-use app::App;
+use app::{App, UserEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 
 fn main() {
+    #[cfg(feature = "dev")]
+    if let Some(status) = dev::ctl::main_if_requested() {
+        std::process::exit(status);
+    }
+
     env_logger::init();
-    let event_loop = EventLoop::new().unwrap();
+    let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
     // Sleep until an event arrives; frames are drawn only on demand.
     event_loop.set_control_flow(ControlFlow::Wait);
 
+    #[cfg(feature = "dev")]
+    let mut app = {
+        let proxy = event_loop.create_proxy();
+        App::with_dev(dev::start(move |request| proxy.send_event(request).is_ok()))
+    };
+    #[cfg(not(feature = "dev"))]
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
 }
