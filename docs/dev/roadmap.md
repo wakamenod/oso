@@ -27,6 +27,10 @@ A cursor rectangle drawn with wgpu that moves with the arrow keys.
   - a low-power adapter
   - typed surface-error handling
 - Workspace split into four crates ([ADR 0004](adr/0004-crate-layout.md)).
+  - Compile in only each OS's wgpu backend, with `default-features = false`
+    and per-target backend features. Until then GL and the other backends
+    are built in and only narrowed at run time
+    ([ADR 0003](adr/0003-platform-tiers.md)).
 - Command registry and keymaps with prefix keys.
 - Display model skeleton ([`display-model.md`](display-model.md)).
 - OS-native text rendering on macOS.
