@@ -7,3 +7,4 @@
 
 #[cfg(feature = "dev")]
 pub mod control;
+pub mod text;
