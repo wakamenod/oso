@@ -1,21 +1,44 @@
 use std::sync::Arc;
 
 use oso_core::cursor::Cursor;
+use oso_core::key::{Key, KeyPress, NamedKey};
 use oso_render::{Redraw, RenderState};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
+
+use crate::keys;
 
 /// Top-level application state.
 ///
 /// - `view`: the window and what draws into it.
 /// - `cursor`: logical cursor position in the editor (data layer).
+/// - `modifiers`: the modifier keys held, as winit last reported them.
 #[derive(Default)]
 pub struct App {
     view: Option<View>,
     cursor: Cursor,
+    modifiers: ModifiersState,
+}
+
+impl App {
+    /// Handles one key press, from the window or from the dev control
+    /// socket.
+    ///
+    /// Until the keymaps of M1-3, only the arrow keys do anything, and
+    /// modifiers are ignored.
+    fn handle_key(&mut self, key: KeyPress) {
+        match key.key {
+            Key::Named(NamedKey::Right) => self.cursor.move_right(),
+            Key::Named(NamedKey::Left) => self.cursor.move_left(),
+            _ => return,
+        }
+        if let Some(view) = &self.view {
+            view.window.request_redraw();
+        }
+    }
 }
 
 /// The window and its renderer. The tip crate owns the window; `oso-render`
@@ -97,6 +120,9 @@ impl ApplicationHandler for App {
             }
 
             // ---- Keyboard input ----
+            WindowEvent::ModifiersChanged(modifiers) => {
+                self.modifiers = modifiers.state();
+            }
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
@@ -104,24 +130,8 @@ impl ApplicationHandler for App {
                 if key_event.state != ElementState::Pressed {
                     return;
                 }
-                let mut changed = false;
-
-                match key_event.physical_key {
-                    // Right arrow: delegate movement logic to Cursor.
-                    PhysicalKey::Code(KeyCode::ArrowRight) => {
-                        self.cursor.move_right();
-                        changed = true;
-                    }
-                    // Left arrow: delegate movement logic to Cursor.
-                    PhysicalKey::Code(KeyCode::ArrowLeft) => {
-                        self.cursor.move_left();
-                        changed = true;
-                    }
-                    _ => {}
-                }
-
-                if changed {
-                    view.window.request_redraw();
+                if let Some(key) = keys::from_event(&key_event, self.modifiers) {
+                    self.handle_key(key);
                 }
             }
 

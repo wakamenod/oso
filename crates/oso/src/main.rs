@@ -3,6 +3,7 @@
 //! (ADR 0004).
 
 mod app;
+mod keys;
 
 use app::App;
 use winit::event_loop::{ControlFlow, EventLoop};
