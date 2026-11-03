@@ -4,7 +4,11 @@
 //! in as a [`wgpu::DisplayAndWindowHandle`] and its size as plain pixels, and
 //! requests redraws when told to through [`Redraw`].
 
+#[cfg(feature = "dev")]
+mod capture;
 mod shape;
+#[cfg(feature = "dev")]
+pub use capture::{Capture, CaptureError, Image};
 use shape::ShapeRenderer;
 
 use std::sync::Arc;
@@ -253,6 +257,11 @@ impl RenderState {
         }
     }
 
+    /// The size of the surface in physical pixels, as last configured.
+    pub fn surface_size(&self) -> (u32, u32) {
+        (self.config.width, self.config.height)
+    }
+
     /// Reconfigures the surface and updates the orthographic matrix on window
     /// resize. The new size is in physical pixels.
     pub fn resize(&mut self, width: u32, height: u32) -> Redraw {
@@ -335,10 +344,6 @@ impl RenderState {
         cursor: &Cursor,
         window_size: &dyn Fn() -> (u32, u32),
     ) -> Result<Redraw, RenderError> {
-        // Translate cursor.position → screen X via the pure coordinate function.
-        let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
-        let cursor_y = MARGIN_Y;
-
         // Acquire the next surface texture, or recover as wgpu documents.
         let current = self
             .surface
@@ -363,35 +368,7 @@ impl RenderState {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        // --- Pass 1: clear background + cursor rectangle (ShapeRenderer) ---
-        self.shape_renderer.prepare(&self.queue, cursor_x, cursor_y);
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Pass 1: Shape"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        // Clear with the editor background color.
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.05,
-                            g: 0.05,
-                            b: 0.07,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                occlusion_query_set: None,
-                timestamp_writes: None,
-                multiview_mask: None,
-            });
-            self.shape_renderer.render(&mut pass);
-        }
-
-        // --- Pass 2+: text rendering (added in a future milestone) ---
+        self.encode_frame(&mut encoder, &view, cursor);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -409,6 +386,47 @@ impl RenderState {
         }
 
         Ok(Redraw::NotNeeded)
+    }
+
+    /// Records the passes that draw one frame into `view`.
+    fn encode_frame(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        cursor: &Cursor,
+    ) {
+        // Translate cursor.position → screen X via the pure coordinate function.
+        let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
+        let cursor_y = MARGIN_Y;
+
+        // --- Pass 1: clear background + cursor rectangle (ShapeRenderer) ---
+        self.shape_renderer.prepare(&self.queue, cursor_x, cursor_y);
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Pass 1: Shape"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    // Clear with the editor background color.
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: 0.05,
+                        g: 0.05,
+                        b: 0.07,
+                        a: 1.0,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+        self.shape_renderer.render(&mut pass);
+        drop(pass);
+
+        // --- Pass 2+: text rendering (added in a future milestone) ---
     }
 }
 
