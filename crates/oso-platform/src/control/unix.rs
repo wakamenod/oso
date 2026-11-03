@@ -374,9 +374,10 @@ fn check_peer(peer: u32, own: u32) -> io::Result<()> {
     if peer == own {
         Ok(())
     } else {
+        // The user IDs are left out of the message, which is logged.
         Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!("refused a control socket peer running as uid {peer} (expected {own})"),
+            "refused a control socket peer running as another user",
         ))
     }
 }
