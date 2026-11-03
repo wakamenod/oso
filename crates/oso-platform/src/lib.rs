@@ -3,4 +3,7 @@
 //! spawning and PTY.
 //!
 //! `oso_platform::process` will be the only place allowed to spawn child
-//! processes (ADR 0010). The crate is empty until the first of these lands.
+//! processes (ADR 0010).
+
+#[cfg(feature = "dev")]
+pub mod control;
