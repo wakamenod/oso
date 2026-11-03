@@ -15,7 +15,9 @@ oso-render = { path = "crates/oso-render" }
 oso-platform = { path = "crates/oso-platform" }
 
 winit = "0.30"
-wgpu = "29.0"
+# Backends are enabled per OS in crates/oso-render (ADR 0003): no GL and no
+# backend that the OS does not use is compiled in.
+wgpu = { version = "29.0", default-features = false, features = ["std", "parking_lot", "wgsl"] }
 pollster = "0.3"
 log = "0.4"
 env_logger = "0.11"

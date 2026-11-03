@@ -33,6 +33,9 @@ pub(crate) fn cursor_pixel_x(position: usize, char_width: f32, margin_x: f32) ->
 }
 
 /// The single wgpu backend used on this OS (ADR 0003). There is no GL fallback.
+///
+/// These conditions match the per-target wgpu features in this crate's
+/// `Cargo.toml`, so this is the only backend compiled in.
 pub(crate) fn platform_backend() -> wgpu::Backends {
     if cfg!(target_os = "macos") {
         wgpu::Backends::METAL
@@ -477,6 +480,14 @@ mod tests {
         let backends = platform_backend();
         assert_eq!(backends.iter().count(), 1, "{backends:?}");
         assert!(!backends.contains(wgpu::Backends::GL));
+    }
+
+    #[test]
+    fn only_the_platform_backend_is_compiled_in() {
+        assert_eq!(
+            wgpu::Instance::enabled_backend_features(),
+            platform_backend()
+        );
     }
 
     #[test]
