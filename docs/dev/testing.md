@@ -47,6 +47,20 @@ all show up. For example:
 They need no GPU, so they run on every OS in `just ci`, and both people and
 agents can read the diffs.
 
+### Guard tests
+
+Some tests check the repository rather than behavior:
+
+- `crates/oso/tests/workspace_lints.rs`: every crate uses the workspace
+  lints.
+- `crates/oso/tests/architecture`: dependency direction, confined crates,
+  file sizes and `static mut`
+  ([ADR 0038](adr/0038-architecture-guardrails.md),
+  [ADR 0039](adr/0039-architecture-guardrail-mechanics.md)).
+
+Each check comes with a unit test on a fixture that shows it catches a
+violation, so a broken parser cannot pass silently.
+
 ### Test quality
 
 - Mutation testing (`cargo-mutants`) runs weekly in CI. Surviving mutants in

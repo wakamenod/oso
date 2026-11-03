@@ -24,8 +24,9 @@ regularly.
 
 ```
 AGENTS.md                   always loaded: priorities, hard rules, workflow
-crates/*/AGENTS.md          crate-specific rules (planned)
+crates/*/AGENTS.md          crate-specific rules
 REVIEW.md                   review checklist
+guardrails/                 layer rules, size allowlist, public API snapshots
 docs/dev/                   design docs, ADRs, open questions
 .claude/settings.json       permissions and hooks
 .claude/hooks/              hook scripts
@@ -33,7 +34,8 @@ docs/dev/                   design docs, ADRs, open questions
 .claude/agents/             reviewer subagents
 clippy.toml, deny.toml      lint and dependency policy
 rust-toolchain.toml         pinned toolchain
-.github/workflows/ci.yml    CI
+.github/workflows/          CI, the ADR check, the design health report
+.github/pull_request_template.md
 ```
 
 ## Tooling
@@ -63,6 +65,27 @@ The setup is recorded in
   (`Cargo.toml` `[lints]`, `clippy.toml`).
 - `just deny` and `just audit` check dependencies against `deny.toml` and
   the RustSec database. `just secrets` scans the git history.
+- Architecture guardrails ([ADR 0038](adr/0038-architecture-guardrails.md),
+  [ADR 0039](adr/0039-architecture-guardrail-mechanics.md)):
+  - `crates/oso/tests/architecture` enforces the dependency direction
+    between crates and modules (`guardrails/layers.txt`), confines wgpu,
+    winit and OS bindings to their crates, applies the 600-line file
+    limit with its ratchet (`guardrails/size-allowlist.txt`), and rejects
+    `static mut`.
+  - Clippy bans global state (`OnceLock`, `LazyLock`, `thread_local!`),
+    printing and `todo!`, and limits functions to 80 lines and a
+    cognitive complexity of 25. `oso-core` denies `unwrap` and `expect`
+    outside tests. Exceptions need an `#[expect]` with a reason.
+  - `cargo-deny` allows `wgpu` only in `oso-render` and `winit` only in
+    `oso`.
+  - `just public-api-check` (CI only; it needs nightly) compares the
+    public API with `guardrails/public-api`. `just public-api` updates it.
+  - The structure workflow fails a pull request that changes the layer
+    rules, the crate graph or the API, or grows the allowlist, unless its
+    description cites an ADR.
+  - A weekly workflow writes `just health-report` (largest files and
+    functions, new dependencies, API growth, size exceptions) into a
+    GitHub issue.
 - CI runs `just ci` on all three platforms, plus `just release-safety`
   (no dev-only code in release builds), `cargo-deny`, `cargo-audit` and
   gitleaks.
@@ -85,8 +108,10 @@ The setup is recorded in
 
 ### Reviewer subagents
 
-Read-only `security-reviewer`, `perf-reviewer` and `arch-reviewer` (ADR 0038) agents follow the matching
-sections of `REVIEW.md`. They check the blast radius of a change and ask for
+Read-only `security-reviewer`, `perf-reviewer` and `arch-reviewer`
+([ADR 0038](adr/0038-architecture-guardrails.md)) agents follow the matching
+sections of `REVIEW.md`. `arch-reviewer` also checks the architecture docs,
+the ADRs and the layer rules. They check the blast radius of a change and ask for
 fail-then-pass evidence. They run in parallel after implementation, and their
 findings are fixed before human review.
 
