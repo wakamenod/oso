@@ -54,7 +54,8 @@ back when it needs a redraw instead of calling into the window.
 OS events (winit)
    │
    ▼
-Input: key translation (Command = Meta, Option = Super on macOS), IME
+Input: key translation into oso_core::key::KeyPress
+       (Command = Meta, Option = Super on macOS; ADR 0032), IME
    │
    ▼
 Keymap lookup: keymap-at-point > minor modes > major mode > global
@@ -207,8 +208,19 @@ Full details are in [`security.md`](security.md).
   screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
   JSON Lines, and `oso ctl` is the client
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
+  - The transport lives in `oso-platform::control`: a Unix domain socket in a
+    private `0700` directory, with a peer user check. Windows is not
+    supported yet ([ADR 0031](adr/0031-control-socket-transport.md)).
+  - Background threads read and parse requests. They reach the UI thread as
+    winit user events, and replies return over a channel. Keys from the
+    socket take the same path as keys from the window.
+  - `screenshot` renders the frame again offscreen (`oso-render`, `dev`
+    feature). Readback, PNG encoding and the file write run on a background
+    thread.
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 
-Hot reload and the control socket are behind cargo features that release
-builds never enable. CI will check this once the features exist (M1-7a).
+Hot reload and the control socket are behind cargo features (`dev` in each
+crate, enabled through `oso/dev`) that release builds never enable. CI checks
+this with `just release-safety`
+([ADR 0031](adr/0031-control-socket-transport.md)).

@@ -35,13 +35,18 @@ M1 is built in this order. Each step is one PR.
   - Only each OS's wgpu backend is compiled in, with
     `default-features = false` and per-target backend features
     ([ADR 0003](adr/0003-platform-tiers.md)).
-- **M1-7a**: dev control socket foundation, so that agents can check their
-  own work in the app from here on
+- **M1-7a** (done): dev control socket foundation, so that agents can check
+  their own work in the app from here on
   ([ADR 0016](adr/0016-dev-control-socket.md),
-  [ADR 0023](adr/0023-control-socket-protocol-and-restart.md)):
+  [ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
+  [ADR 0031](adr/0031-control-socket-transport.md),
+  [ADR 0032](adr/0032-key-presses-and-notation.md)):
   - the socket (`0700` directory, peer user check), JSON Lines and `oso ctl`
   - `screenshot`, and `send-keys` injecting key events into the app
   - the key and modifier type in `oso-core`, which M1-3 builds on
+  - a CI check that release builds contain no dev-only code
+  - Windows is deferred: `oso ctl` reports that it is not supported there
+    yet.
 - **In parallel** after M1-7a:
   - **M1-3**: command registry and keymaps with prefix keys.
   - **M1-4**: `SumTree`, rope and display model skeleton
@@ -50,8 +55,9 @@ M1 is built in this order. Each step is one PR.
   - **M1-5**: OS-native text rendering on macOS.
 - **M1-6**: asynchronous, progressive file loading; scrolling and cursor
   motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`.
-- **M1-7b**: the rest of the control socket (`run-command`, `get-state`) and
-  the restart-and-restore loop (`oso dev`).
+- **M1-7b**: the rest of the control socket (`run-command`, the full
+  `get-state`, `export-state` and `import-state`) and the restart-and-restore
+  loop (`oso dev`).
 - **M1-8**: performance measurement in CI
   ([ADR 0024](adr/0024-dev-build-profile.md),
   [ADR 0025](adr/0025-latency-measurement.md)).

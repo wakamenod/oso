@@ -41,6 +41,9 @@ item notes when it must be settled.
 
 ## Later
 
+- Dev control socket on Windows: a named pipe restricted to the current
+  user ([ADR 0031](adr/0031-control-socket-transport.md)). Needed when
+  agents test on Windows.
 - Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz.
 - Terminal: PTY implementation per OS (ConPTY on Windows) and the full list of
   allowed and blocked escape sequences.
