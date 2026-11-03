@@ -15,6 +15,12 @@ fn main() {
     if let Some(status) = dev::ctl::main_if_requested() {
         std::process::exit(status);
     }
+    // Without the control socket, `oso ctl` must not open the editor.
+    #[cfg(not(feature = "dev"))]
+    if std::env::args_os().nth(1).is_some_and(|arg| arg == "ctl") {
+        eprintln!("oso ctl needs a dev build (cargo run -p oso --features dev)");
+        std::process::exit(2);
+    }
 
     env_logger::init();
     let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();

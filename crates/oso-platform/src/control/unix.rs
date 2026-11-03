@@ -216,7 +216,10 @@ impl ControlDir {
     /// no harm.
     ///
     /// Probing a socket may block (on Linux, while a stopped instance's
-    /// backlog is full), so call this away from the UI thread.
+    /// backlog is full), so call this away from the UI thread. On macOS a
+    /// full backlog refuses connections instead, so such a live instance
+    /// would be treated as stale; this is rare enough to accept for a dev
+    /// tool.
     pub fn remove_stale(&self) {
         let own_pid = std::process::id();
         let Ok(names) = self.file_names() else {

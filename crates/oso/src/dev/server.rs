@@ -25,6 +25,10 @@ pub const MAX_CLIENTS: usize = 4;
 /// How long a client thread waits for the UI to reply.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long a client may stay connected without sending a request. An idle
+/// client is disconnected, so it cannot hold one of the slots forever.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// How long writing a response may block on a client that does not read.
 const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -60,13 +64,21 @@ pub fn spawn<S>(listener: ControlListener, send: S) -> io::Result<()>
 where
     S: Fn(UiRequest) -> bool + Clone + Send + 'static,
 {
+    spawn_with_idle_timeout(listener, send, IDLE_TIMEOUT)
+}
+
+/// [`spawn`], with clients disconnected after `idle` without a request.
+fn spawn_with_idle_timeout<S>(listener: ControlListener, send: S, idle: Duration) -> io::Result<()>
+where
+    S: Fn(UiRequest) -> bool + Clone + Send + 'static,
+{
     thread::Builder::new()
         .name("oso-control-accept".into())
-        .spawn(move || accept_loop(&listener, &send))?;
+        .spawn(move || accept_loop(&listener, &send, idle))?;
     Ok(())
 }
 
-fn accept_loop<S>(listener: &ControlListener, send: &S)
+fn accept_loop<S>(listener: &ControlListener, send: &S, idle: Duration)
 where
     S: Fn(UiRequest) -> bool + Clone + Send + 'static,
 {
@@ -93,7 +105,7 @@ where
             .name("oso-control-client".into())
             .spawn(move || {
                 let _slot = slot;
-                if let Err(e) = serve(stream, &send) {
+                if let Err(e) = serve(stream, &send, idle) {
                     log::debug!("control socket: client ended: {e}");
                 }
             });
@@ -129,19 +141,33 @@ fn refuse(mut stream: ControlStream, message: &str) {
     let _ = writeln!(stream, "{}", protocol::failure(&Value::Null, message));
 }
 
-/// Serves one client until it hangs up or sends a line that is too long.
-pub fn serve<S>(stream: ControlStream, send: &S) -> io::Result<()>
+/// Serves one client until it hangs up, sends a line that is too long, or
+/// sends nothing for `idle`.
+pub fn serve<S>(stream: ControlStream, send: &S, idle: Duration) -> io::Result<()>
 where
     S: Fn(UiRequest) -> bool,
 {
     stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
+    stream.set_read_timeout(Some(idle))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     let mut line = Vec::new();
     loop {
         line.clear();
         let limit = u64::try_from(MAX_LINE + 1).expect("the limit fits in u64");
-        let n = (&mut reader).take(limit).read_until(b'\n', &mut line)?;
+        let n = match (&mut reader).take(limit).read_until(b'\n', &mut line) {
+            Ok(n) => n,
+            // Idle for too long: a normal end, not an error.
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
         if n == 0 {
             return Ok(());
         }
@@ -208,7 +234,9 @@ fn version() -> Value {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{MAX_CLIENTS, UiOp, UiRequest, serve, spawn};
+    use super::{
+        IDLE_TIMEOUT, MAX_CLIENTS, UiOp, UiRequest, serve, spawn, spawn_with_idle_timeout,
+    };
     use crate::dev::protocol::{self, MAX_LINE};
     use oso_platform::control::{ControlDir, ControlStream};
     use serde_json::{Value, json};
@@ -235,7 +263,7 @@ mod tests {
     /// Serves a fake UI on one end of a socket pair, and returns the other.
     fn connected() -> (BufReader<ControlStream>, ControlStream) {
         let (client, server) = ControlStream::pair().unwrap();
-        thread::spawn(move || serve(server, &fake_ui));
+        thread::spawn(move || serve(server, &fake_ui, IDLE_TIMEOUT));
         let reader = BufReader::new(client.try_clone().unwrap());
         (reader, client)
     }
@@ -317,7 +345,7 @@ mod tests {
     #[test]
     fn a_closed_ui_is_reported() {
         let (client, server) = ControlStream::pair().unwrap();
-        thread::spawn(move || serve(server, &|_| false));
+        thread::spawn(move || serve(server, &|_| false, IDLE_TIMEOUT));
         let mut reader = BufReader::new(client.try_clone().unwrap());
         let mut writer = client;
         let response = call(
@@ -362,6 +390,58 @@ mod tests {
         assert_eq!(padded.len(), MAX_LINE);
         let response = call(&mut reader, &mut writer, &padded);
         assert_eq!(response["id"], 1);
+    }
+
+    #[test]
+    fn disconnects_an_idle_client() {
+        let (client, server) = ControlStream::pair().unwrap();
+        let served = thread::spawn(move || serve(server, &fake_ui, Duration::from_millis(100)));
+        // The client sends nothing; the server hangs up on its own.
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut rest = Vec::new();
+        BufReader::new(client).read_to_end(&mut rest).unwrap();
+        assert!(rest.is_empty());
+        assert!(
+            served.join().unwrap().is_ok(),
+            "an idle client is a normal end"
+        );
+    }
+
+    #[test]
+    fn idle_clients_give_their_slots_back() {
+        let (dir, scratch) = control_dir();
+        let listener = dir.bind().unwrap();
+        let cleanup = listener.cleanup_guard();
+        spawn_with_idle_timeout(listener, fake_ui, Duration::from_secs(1)).unwrap();
+
+        // Every slot is taken by a client that never sends anything.
+        let idle: Vec<_> = (0..MAX_CLIENTS)
+            .map(|_| dir.connect(None).unwrap().1)
+            .collect();
+        thread::sleep(Duration::from_millis(50));
+        let (_, mut extra) = dir.connect(None).unwrap();
+        let _ = writeln!(extra, "{}", protocol::request(1, "version", None));
+        let mut response = String::new();
+        let _ = BufReader::new(extra).read_line(&mut response);
+        assert!(response.contains("too many control clients"), "{response}");
+
+        // Once they time out, a new client is served.
+        thread::sleep(Duration::from_millis(1500));
+        let (_, client) = dir.connect(None).unwrap();
+        let mut reader = BufReader::new(client.try_clone().unwrap());
+        let mut writer = client;
+        let response = call(
+            &mut reader,
+            &mut writer,
+            &protocol::request(2, "version", None),
+        );
+        assert_eq!(response["id"], 2);
+
+        drop(idle);
+        drop(cleanup);
+        let _ = fs::remove_dir_all(scratch);
     }
 
     /// A fresh control directory for one test.

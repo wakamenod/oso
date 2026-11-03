@@ -36,8 +36,9 @@ release check works. A named pipe on Windows needs `windows-sys` and
   through `libc`. Other Unix systems refuse every peer. A peer running as
   root is refused too, unless oso itself runs as root.
 - **Limits:** request lines of at most 1 MiB, string ids of at most 256
-  bytes, at most 4 clients at once, at most 4096 keys per `send-keys`, and
-  10 s for the UI to reply. Errors quote at most a short prefix of the bad
+  bytes, at most 4 clients at once, clients disconnected after 60 s without
+  a request, at most 4096 keys per `send-keys`, and 10 s for the UI to
+  reply. Errors quote at most a short prefix of the bad
   input, so responses stay small; `oso ctl` reads at most 1 MiB.
 - **Threads:** one thread accepts and one thread per client reads, parses
   JSON and key notation, and waits for the reply. Requests reach the UI
