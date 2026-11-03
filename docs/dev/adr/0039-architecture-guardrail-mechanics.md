@@ -1,6 +1,6 @@
 # 0039. Architecture guardrail mechanics
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-03
 
 ## Context
@@ -139,6 +139,12 @@ beginning of the line, so the check sees each one.
   yet caught mechanically. They are listed in the open questions.
 - Contributors who update snapshots need the pinned nightly and
   `cargo-public-api`. `just ci` does not.
+- CI builds `cargo-public-api` from source with `cargo install --locked`,
+  because `taiki-e/install-action` has no binary for it. This is an
+  exception to installing tools as checksum-verified binaries
+  ([ADR 0021](0021-development-tooling.md)): the sources are still verified
+  against the crates.io checksums, and the job has a read-only token and no
+  secrets, but the tool's build scripts run in CI.
 
 ## Alternatives considered
 
