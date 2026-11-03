@@ -207,4 +207,56 @@ mod tests {
         );
         assert_eq!(display.row_cells(0), alone + 4 + 1);
     }
+
+    /// Bytes mixing text, line breaks, controls and invalid sequences.
+    fn bytes() -> impl proptest::strategy::Strategy<Value = Vec<u8>> {
+        use proptest::prelude::*;
+        let piece = prop_oneof![
+            Just(b"a".to_vec()),
+            Just(b"\t".to_vec()),
+            Just(b"\r\n".to_vec()),
+            Just(b"\n".to_vec()),
+            Just(b"\r".to_vec()),
+            Just("日\u{301}".as_bytes().to_vec()),
+            Just("\u{600}".as_bytes().to_vec()),
+            Just("\u{202e}".as_bytes().to_vec()),
+            Just("👨\u{200d}👩".as_bytes().to_vec()),
+            Just("\u{fffd}".as_bytes().to_vec()),
+            any::<u8>().prop_map(|b| vec![b]),
+        ];
+        prop::collection::vec(piece, 0..60).prop_map(|pieces| pieces.concat())
+    }
+
+    proptest::proptest! {
+        /// Any bytes, split anywhere, build the same buffer as decoding
+        /// them whole, and every cursor stop maps back to itself.
+        #[test]
+        fn prop_pieces_match_the_whole(bytes in bytes(), splits in proptest::collection::vec(0usize..300, 0..8)) {
+            let whole = decode_all(&bytes, TabWidth::default());
+            let mut builder = Builder::new(None, TabWidth::default());
+            let mut splits: Vec<usize> = splits.into_iter().map(|s| s.min(bytes.len())).collect();
+            splits.sort_unstable();
+            let mut from = 0;
+            for split in splits.into_iter().chain([bytes.len()]) {
+                builder.push(&bytes[from..split]);
+                from = split;
+            }
+            builder.finish();
+            let pieces = builder.snapshot();
+            proptest::prop_assert_eq!(pieces.text.to_string(), whole.text.to_string());
+            proptest::prop_assert_eq!(pieces.invalid.len(), whole.invalid.len());
+            let (a, b) = (whole.display.snapshot(), pieces.display.snapshot());
+            proptest::prop_assert_eq!(a.max_point(), b.max_point());
+            let mut offset = 0;
+            loop {
+                let point = b.offset_to_display_point(offset);
+                proptest::prop_assert_eq!(point, a.offset_to_display_point(offset));
+                proptest::prop_assert_eq!(b.display_point_to_offset(point, Bias::Left), offset);
+                match crate::motion::next_cluster(&b, offset) {
+                    Some(next) => offset = next,
+                    None => break,
+                }
+            }
+        }
+    }
 }

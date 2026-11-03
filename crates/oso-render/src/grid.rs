@@ -163,7 +163,9 @@ impl Placer {
         }
         // Right-to-left runs come in visual order; drawing and lookups by
         // column need column order.
-        out.sort_by_key(|g| g.column);
+        if !out.is_sorted_by_key(|g| g.column) {
+            out.sort_by_key(|g| g.column);
+        }
     }
 }
 

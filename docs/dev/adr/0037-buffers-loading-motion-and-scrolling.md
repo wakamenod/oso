@@ -108,9 +108,11 @@ ADR records the decisions the implementation needed beyond those.
 - `oso [FILE]` opens one file; `--` ends options. Only regular files are
   opened, checked before opening, since opening a pipe blocks. Nothing in
   the file is run or interpreted.
-- A loading thread per file reads 64 KB at a time. A `load::Builder`
-  decodes each piece, appends it to the rope, extends the invalid bytes
-  and syncs the display map, all on that thread.
+- A loading thread per file reads 64 KB at a time, up to the size seen
+  at open, so a file that keeps growing (a log) is not read forever. A
+  `load::Builder` decodes each piece, appends it to the rope, extends the
+  invalid bytes and syncs the display map, all on that thread. A panic
+  there fails the load instead of leaving the buffer loading.
 - Snapshots (rope, display map, invalid bytes: each O(1)) go to a
   one-entry slot. The thread wakes the UI with a user event only when the
   slot was empty. The UI takes the latest snapshot when woken and before
@@ -129,12 +131,23 @@ ADR records the decisions the implementation needed beyond those.
 - Each frame draws the visible rows from the window's top row and left
   column.
 - Shaping is cached by display row. An entry records the columns it
-  shaped and the buffer offsets they cover, and is reused while both
-  match; text loaded there changes the offsets. Switching buffers or
-  fonts drops the cache, and rows far from the view are evicted.
-- A row is shaped only for the visible columns, widened by 64 to 128
-  columns on each side and aligned to 64, so a 10 MB line costs one
-  screen, and sideways scrolling reshapes once per 64 columns.
+  shaped, the buffer offsets they cover and the buffer's revision. It is
+  reused without looking at the buffer while the revision holds, and
+  after a change while the offsets match; text loaded there changes them.
+  Switching buffers or fonts drops the cache, and rows far from the view
+  are evicted.
+- A row is shaped from the left edge rounded down to a multiple of 64 to
+  past the right edge one step later, so a 10 MB line costs one screen,
+  and sideways scrolling reshapes once per 64 columns.
+- At most 16 characters of a cluster are shaped, and past 4 characters
+  per shaped column a row's clusters are shaped by their first character
+  only. Real text never reaches either limit; a base with thousands of
+  combining marks costs a bounded amount.
+- The frame is prepared (shaping, rasterizing, uploads) before the
+  drawable is acquired, so that work overlaps the wait for it.
+- Rope chunks hold at most 1008 bytes instead of 1024, so a chunk and its
+  `Arc` counts fit a 1 KB allocation; this keeps ADR 0035's "at most
+  1 KB" and cut a 1 GB file from 1.7 GB to 1.4 GB.
 - Control characters, invalid bytes and invisible characters are never
   passed to the shaper. Their escapes (`^M`, `\xFF`, `U+202E`) are shaped
   as ASCII labels in an escape color; invisible characters also get a
@@ -151,7 +164,9 @@ ADR records the decisions the implementation needed beyond those.
 - All motion and scrolling rules are pure functions in `oso-core`
   (`motion`, `window`), tested without a window.
 - A binary file of random bytes takes about 3 bytes in the rope and 4 in
-  the table per invalid byte.
+  the table per invalid byte. There is no size limit on opening yet.
+- A screen of hostile text (a base and 1 KB of combining marks in every
+  cell) still takes about 36 ms to segment and shape on first view.
 - Search (M2) must skip U+FFFD at offsets in `InvalidBytes`.
 - Editing (M2) must invalidate shaped rows by edit range; the offset check
   alone misses an edit that keeps a row's length.

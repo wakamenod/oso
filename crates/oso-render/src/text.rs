@@ -36,6 +36,25 @@ use crate::shape::Uniforms;
 /// shaped window moves by.
 pub(crate) const WINDOW_STEP: usize = 64;
 
+/// The most characters of one cluster passed to the shaper: enough for
+/// the longest emoji sequences and Indic clusters. A cluster of a base and
+/// thousands of combining marks takes one cell; shaping all of it on the
+/// UI thread would let a small file stall a frame.
+const MAX_CLUSTER_CHARS: usize = 16;
+
+/// The characters shaped per row, per column shaped. Real text has one or
+/// two; past this budget, clusters are shaped by their first character
+/// only, so hostile text costs a bounded amount per row.
+const CHARS_PER_COLUMN: usize = 4;
+
+/// `text` cut to its first `chars` characters.
+fn clip_cluster(text: &str, chars: usize) -> &str {
+    match text.char_indices().nth(chars) {
+        Some((end, _)) => &text[..end],
+        None => text,
+    }
+}
+
 /// Instances the buffer holds before it first grows.
 const INITIAL_INSTANCES: usize = 1024;
 
@@ -125,14 +144,15 @@ impl Layout {
         (space / self.metrics.width).ceil() as usize + 1
     }
 
-    /// The columns of a row to shape: the visible ones, widened by at
-    /// least [`WINDOW_STEP`] on each side and aligned to it. The range
-    /// changes only when the left edge crosses a multiple of the step, so
-    /// scrolling sideways shapes again once per step at most.
+    /// The columns of a row to shape: from the left edge rounded down to
+    /// a multiple of [`WINDOW_STEP`], to past the right edge as it stands
+    /// one step later. The range changes only when the left edge crosses
+    /// a multiple of the step, so scrolling sideways shapes again once per
+    /// step at most.
     pub(crate) fn shaped_columns(&self) -> Range<usize> {
         let base = self.scroll.left / WINDOW_STEP * WINDOW_STEP;
-        let visible = self.visible_columns().div_ceil(WINDOW_STEP) * WINDOW_STEP;
-        base.saturating_sub(WINDOW_STEP)..base.saturating_add(visible + WINDOW_STEP)
+        let width = (self.visible_columns() + WINDOW_STEP).div_ceil(WINDOW_STEP) * WINDOW_STEP;
+        base..base.saturating_add(width)
     }
 
     /// The quad for one glyph of `row`, or `None` if it is off screen.
@@ -178,6 +198,9 @@ pub(crate) struct ShapedRow {
     /// The buffer offsets those columns cover. Text loaded or edited there
     /// changes them, which makes the row shape again.
     offsets: Range<usize>,
+    /// The buffer revision the offsets were checked at. While it holds,
+    /// the row is reused without looking at the buffer.
+    revision: u64,
     /// Sorted by column.
     pub(crate) glyphs: Vec<PlacedGlyph>,
     /// Boxed invisible characters: their first column and cells.
@@ -188,6 +211,8 @@ pub(crate) struct ShapedRow {
 #[derive(Default)]
 pub(crate) struct Rows {
     buffer: Option<BufferId>,
+    /// The revision of the buffer this frame shows.
+    revision: u64,
     rows: HashMap<usize, ShapedRow>,
     /// Scratch space for shaping a row.
     text: String,
@@ -204,12 +229,14 @@ impl Rows {
         self.rows.clear();
     }
 
-    /// Starts a frame of `buffer`: another buffer's rows are dropped.
-    pub(crate) fn begin(&mut self, buffer: BufferId) {
+    /// Starts a frame of `buffer` at `revision`: another buffer's rows are
+    /// dropped.
+    pub(crate) fn begin(&mut self, buffer: BufferId, revision: u64) {
         if self.buffer != Some(buffer) {
             self.buffer = Some(buffer);
             self.rows.clear();
         }
+        self.revision = revision;
     }
 
     /// Drops cached rows outside `keep` once there are many more of them
@@ -234,6 +261,14 @@ impl Rows {
         columns: Range<usize>,
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
+        let revision = self.revision;
+        let unchanged = self
+            .rows
+            .get(&row)
+            .is_some_and(|shaped| shaped.revision == revision && shaped.columns == columns);
+        if unchanged {
+            return &self.rows[&row];
+        }
         let offsets = display
             .display_point_to_offset(DisplayPoint::new(row, columns.start), Bias::Left)
             ..display.display_point_to_offset(DisplayPoint::new(row, columns.end), Bias::Right);
@@ -248,7 +283,9 @@ impl Rows {
             shaped.offsets = offsets;
             self.rows.insert(row, shaped);
         }
-        &self.rows[&row]
+        let shaped = self.rows.get_mut(&row).expect("inserted above");
+        shaped.revision = revision;
+        shaped
     }
 
     /// Shapes the clusters of `row` that start in `columns` into `out`.
@@ -264,6 +301,7 @@ impl Rows {
         self.text.clear();
         self.graphemes.clear();
         out.boxes.clear();
+        let budget = columns.len().saturating_mul(CHARS_PER_COLUMN);
         for cluster in display.clusters(DisplayPoint::new(row, columns.start)) {
             if cluster.column >= columns.end {
                 break;
@@ -278,10 +316,15 @@ impl Rows {
                 text.push_str(piece);
             };
             let cells = u32::try_from(cluster.cells).unwrap_or(u32::MAX);
+            let chars = if self.text.len() < budget {
+                MAX_CLUSTER_CHARS
+            } else {
+                1
+            };
             match cluster.kind {
                 CellKind::Text => push(
                     &mut self.text,
-                    cluster.text,
+                    clip_cluster(cluster.text, chars),
                     cluster.column,
                     cells,
                     Style::Text,
@@ -763,10 +806,14 @@ mod tests {
         assert_eq!(l.shaped_columns(), 0..128);
         l.scroll.left = 63;
         assert_eq!(l.shaped_columns(), 0..128);
+        l.scroll.left = 64;
+        assert_eq!(l.shaped_columns(), 64..192);
         l.scroll.left = 200;
-        let columns = l.shaped_columns();
-        assert!(columns.start <= 200 - WINDOW_STEP + 1 && columns.end >= 221 + WINDOW_STEP - 1);
-        assert_eq!(columns.start % WINDOW_STEP, 0);
+        assert_eq!(l.shaped_columns(), 192..320);
+        // Every left edge until the next step is still covered.
+        l.scroll.left = 255;
+        assert_eq!(l.shaped_columns(), 192..320);
+        assert!(255 + l.visible_columns() <= 320);
     }
 
     #[test]
@@ -793,13 +840,16 @@ mod tests {
         let mut system = Recorder::default();
         let buffer = Buffer::from_text("t", "one\ntwo\nthree");
         let display = buffer.display();
-        rows.begin(oso_core::editor::Editor::default().window().buffer());
+        let id = oso_core::editor::Editor::default().window().buffer();
+        rows.begin(id, 1);
         rows.row(&display, 0, 0..128, &mut system);
         rows.row(&display, 1, 0..128, &mut system);
         rows.row(&display, 0, 0..128, &mut system);
         assert_eq!(rows.shaped_count(), 2, "row 0 came from the cache");
         // More text on row 2, as while loading, reshapes only row 2.
         rows.row(&display, 2, 0..128, &mut system);
+        // The buffer changed: rows are checked against their offsets.
+        rows.begin(id, 2);
         let longer = Buffer::from_text("t", "one\ntwo\nthree four");
         rows.row(&longer.display(), 2, 0..128, &mut system);
         rows.row(&longer.display(), 1, 0..128, &mut system);
@@ -811,6 +861,23 @@ mod tests {
     }
 
     #[test]
+    fn huge_clusters_are_cut_before_shaping() {
+        let zalgo = format!("e{}", "\u{301}".repeat(100_000));
+        let text = format!("{zalgo}\n{zalgo}");
+        let buffer = Buffer::from_text("t", &text);
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        rows.row(&buffer.display(), 0, 0..256, &mut system);
+        let shaped = system.shaped[0].chars().count();
+        // The rope splits the cluster into 1 KB pieces of one cell each,
+        // and each piece is cut to 32 characters.
+        assert!(
+            shaped <= 256 * (CHARS_PER_COLUMN + 1),
+            "{shaped} characters shaped"
+        );
+    }
+
+    #[test]
     fn a_long_line_shapes_only_the_columns_asked_for() {
         let line = "あ".repeat(1_000_000);
         let buffer = Buffer::from_text("t", &line);
@@ -819,5 +886,32 @@ mod tests {
         let shaped = rows.row(&buffer.display(), 0, 640..768, &mut system);
         assert_eq!(system.shaped[0].chars().count(), 64);
         assert_eq!(shaped.glyphs[0].column, 640);
+    }
+
+    proptest::proptest! {
+        /// Whatever the file holds, the shaper never sees a control
+        /// character or a bidi control (T3 in security.md).
+        #[test]
+        fn prop_the_shaper_never_sees_controls(bytes in proptest::collection::vec(proptest::prelude::any::<u8>(), 0..200),
+                                               extra in proptest::collection::vec(0usize..8, 0..20)) {
+            let mut bytes = bytes;
+            let specials = ["\u{202e}", "\u{2066}", "\u{200f}", "\u{61c}", "\r", "\u{85}", "\u{7f}", "👨\u{200d}👩"];
+            for i in extra {
+                bytes.extend_from_slice(specials[i].as_bytes());
+            }
+            let buffer = Buffer::from_bytes("t", &bytes);
+            let display = buffer.display();
+            let mut rows = Rows::default();
+            let mut system = Recorder::default();
+            for row in 0..display.row_count() {
+                rows.row(&display, row, 0..256, &mut system);
+            }
+            for shaped in &system.shaped {
+                for c in shaped.chars() {
+                    let bidi = matches!(u32::from(c), 0x61c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069);
+                    proptest::prop_assert!(!c.is_control() && !bidi, "{c:?} in {shaped:?}");
+                }
+            }
+        }
     }
 }

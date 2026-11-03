@@ -366,6 +366,7 @@ impl<'a> Iterator for Clusters<'a> {
             // An invalid byte's U+FFFD is never part of a larger cluster.
             if let Some((at, _)) = self.next_invalid
                 && at < cluster_end
+                && text.is_char_boundary(at)
             {
                 cluster_end = at;
             }

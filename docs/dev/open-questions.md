@@ -35,15 +35,25 @@ item notes when it must be settled.
 - Text gamma: text is blended in linear space on the sRGB surface, so light
   text on dark looks heavier than in native apps. Decide with the theme.
 - Rendering: a multi-row cluster iterator that keeps one cursor across
-  rows, instead of a seek per row. M1-6 seeks three times per visible row
-  each frame (two to check the shaping cache, one for the clusters of a
-  row it shapes); a frame costs 0.2 to 0.6 ms of CPU (p50 to p99), so this
-  waits until a profile shows it.
+  rows, instead of a seek per row. Since M1-6 a cached row is reused
+  without a seek while the buffer's revision holds, and only rows shaped
+  or rechecked after a change seek; a frame costs 0.07 to 0.5 ms of CPU
+  (p50 to p99), so this waits until a profile shows it.
 - Horizontal scroll extent needs the widest row, and the bidi-control
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
   summary tracks neither yet; add them when M2 needs them.
 - Large deletions free their chunks on the calling thread. Measure when M2
   editing lands, and drop big subtrees in the background if needed.
+- A path swapped for a FIFO between the loader's check and its open blocks
+  the loading thread (not the UI). Opening with `O_NONBLOCK` closes this
+  and needs `libc` behind an `oso-platform` filesystem helper.
+- UI-thread allocations per frame: every `SumTree` seek allocates a cursor
+  stack, and every visible glyph hashes its key in the atlas with SipHash.
+  A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
+  stack and a cheaper hash are the next steps if a profile shows them.
+- Segmenting hostile text: a cell holding a 1 KB piece of combining marks
+  costs about 1 KB of segmentation, so a screen of it takes about 36 ms on
+  first view. Real text is unaffected.
 - `unicode-width` 0.2 and 0.1 (through naga) are both in the build.
   Re-check when wgpu is upgraded.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
@@ -60,9 +70,18 @@ item notes when it must be settled.
   (`InvalidBytes`, ADR 0037).
 - Horizontal mouse wheel and trackpad scrolling: the view scrolls only
   vertically, and auto-hscroll keeps the cursor in view.
-- Memory of very large files: a 1 GB file takes about 1.7 GB, and a binary
+- Memory of very large files: a 1 GB file takes about 1.4 GB, and a binary
   file of random bytes about 3 bytes in the rope and 4 in the invalid-byte
-  table per invalid byte. Revisit if it matters in daily use.
+  table per invalid byte. Nothing limits the size of a file opened: decide
+  on a threshold that asks first, as Emacs's `large-file-warning-threshold`
+  does, once the minibuffer exists. Running out of memory aborts, so
+  emergency save would not run.
+- Emergency save must match secret patterns against a file's resolved
+  path too: a buffer is named after the symlink it was opened through
+  ([ADR 0028](adr/0028-secrets-handling.md)).
+- Killing a large buffer (and a load that fails midway) frees its trees on
+  the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
+  them on a background thread.
 
 - The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
   Rust's default hook prints panic messages, which may quote buffer text,
@@ -79,8 +98,9 @@ item notes when it must be settled.
 ## M3
 
 - Initial set of tree-sitter grammars, beyond Rust, Markdown and TOML.
-- Fuzzing targets and how long they run. The `SumTree`, the rope and the
-  display model under random edits are the first candidates.
+- Fuzzing targets and how long they run. The `SumTree`, the rope, the
+  display model under random edits, and the streaming decoder and load
+  builder (property-tested since M1-6) are the first candidates.
 - URL-opening policy: which schemes, and what confirmation.
 - Migemo dictionary source and licensing. Common dictionaries derive from GPL
   SKK dictionaries and cannot be bundled under MIT OR Apache-2.0

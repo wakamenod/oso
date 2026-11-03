@@ -49,6 +49,8 @@ pub struct Buffer {
     info: FileInfo,
     /// `Some` while the file loads.
     loading: Option<Progress>,
+    /// Changes whenever the content does.
+    revision: u64,
 }
 
 impl Buffer {
@@ -68,6 +70,7 @@ impl Buffer {
             invalid: InvalidBytes::new(),
             info: FileInfo::default(),
             loading: None,
+            revision: 0,
         }
     }
 
@@ -96,11 +99,18 @@ impl Buffer {
         self.invalid = snapshot.invalid;
         self.info = snapshot.info;
         self.loading = (!snapshot.done).then_some(snapshot.progress);
+        self.revision += 1;
     }
 
     /// Ends loading with no content, for a file that does not exist yet.
     pub fn finish_empty(&mut self) {
         self.loading = None;
+    }
+
+    /// A number that changes whenever the content does, so that caches of
+    /// it (shaped rows) know when to check it again.
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// The buffer's name, such as `main.rs` or `*scratch*`.

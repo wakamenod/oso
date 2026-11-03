@@ -49,6 +49,9 @@ pub struct TextView {
     pub display: DisplaySnapshot,
     /// The buffer, so that cached shaping of another one is not reused.
     pub buffer: BufferId,
+    /// The buffer's revision: while it holds, cached rows are reused
+    /// without looking at the buffer.
+    pub revision: u64,
     /// The display row and column at the top left.
     pub scroll: Scroll,
     /// Where the cursor box goes.
@@ -415,6 +418,13 @@ impl RenderState {
         view: &TextView,
         window_size: &dyn Fn() -> (u32, u32),
     ) -> Result<Redraw, RenderError> {
+        // The CPU work (shaping, rasterizing, building quads) comes first,
+        // so it overlaps the wait for a drawable instead of adding to it.
+        let started = std::time::Instant::now();
+        let mut budget = RasterBudget::new(GLYPHS_PER_FRAME);
+        self.prepare_frame(view, &mut budget);
+        log::trace!("frame prepared in {:?}", started.elapsed());
+
         // Acquire the next surface texture, or recover as wgpu documents.
         let current = self
             .surface
@@ -439,13 +449,11 @@ impl RenderState {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        let started = std::time::Instant::now();
-        let mut budget = RasterBudget::new(GLYPHS_PER_FRAME);
-        self.encode_frame(&mut encoder, &target, view, &mut budget);
+        self.encode_passes(&mut encoder, &target);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        log::trace!("frame encoded and submitted in {:?}", started.elapsed());
+        log::trace!("frame presented {:?} after it started", started.elapsed());
 
         self.failed_frames = 0;
         self.presented += 1;
@@ -467,15 +475,9 @@ impl RenderState {
         })
     }
 
-    /// Records the passes that draw one frame of `text` into `view`,
-    /// rasterizing at most `budget` new glyphs.
-    fn encode_frame(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        text: &TextView,
-        budget: &mut RasterBudget,
-    ) {
+    /// Shapes, rasterizes and uploads what one frame of `text` draws,
+    /// with at most `budget` new glyphs. Touches the queue, not the surface.
+    fn prepare_frame(&mut self, text: &TextView, budget: &mut RasterBudget) {
         let metrics = self.text_system.metrics();
         let display = &text.display;
         // The box cursor covers the whole character under it, two cells for
@@ -495,7 +497,7 @@ impl RenderState {
         let rasterized = self.text_renderer.atlas.rasterized();
         let shaped = self.rows.shaped_count();
         let started = std::time::Instant::now();
-        self.rows.begin(text.buffer);
+        self.rows.begin(text.buffer, text.revision);
         self.text_renderer.prepare(
             &self.device,
             &self.queue,
@@ -530,7 +532,10 @@ impl RenderState {
         });
         self.shape_renderer
             .prepare(&self.device, &self.queue, &self.rects);
+    }
 
+    /// Records the passes of the prepared frame into `view`.
+    fn encode_passes(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
         // --- Pass 1: clear background, boxes and the cursor (ShapeRenderer) ---
         let [r, g, b, a] = BACKGROUND.map(f64::from);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

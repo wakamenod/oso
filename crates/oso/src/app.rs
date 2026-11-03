@@ -179,7 +179,8 @@ impl App {
                     log::debug!("{} loaded in {:?}", buffer.name(), load.started.elapsed());
                 }
                 let window = self.editor.window();
-                shown && window.scroll.top + window.size().rows >= old_rows
+                // The partly shown row below the full ones counts too.
+                shown && window.scroll.top + window.size().rows + 1 >= old_rows
             }
             LoadUpdate::Failed(LoadError::NotFound) => {
                 // As Emacs does: a new file, empty until saved.
@@ -253,6 +254,7 @@ fn text_view(editor: &Editor) -> TextView {
     TextView {
         display,
         buffer: window.buffer(),
+        revision: buffer.revision(),
         scroll: window.scroll,
         cursor,
     }

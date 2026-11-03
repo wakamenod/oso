@@ -154,7 +154,8 @@ impl RenderState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("capture"),
             });
-        self.encode_frame(&mut encoder, &view, text, &mut RasterBudget::unlimited());
+        self.prepare_frame(text, &mut RasterBudget::unlimited());
+        self.encode_passes(&mut encoder, &view);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,

@@ -65,6 +65,8 @@ pub enum LoadError {
     NotAFile,
     /// Reading failed.
     Io(io::Error),
+    /// The loading thread panicked.
+    Panicked,
 }
 
 impl std::fmt::Display for LoadError {
@@ -73,6 +75,7 @@ impl std::fmt::Display for LoadError {
             Self::NotFound => f.write_str("no such file"),
             Self::NotAFile => f.write_str("not a regular file"),
             Self::Io(e) => write!(f, "{e}"),
+            Self::Panicked => f.write_str("loading failed"),
         }
     }
 }
@@ -133,11 +136,26 @@ where
         .spawn(move || {
             let shared = thread_shared;
             let post = |update| {
-                let was_empty = shared.slot().replace(update).is_none();
+                let old = shared.slot().replace(update);
+                let was_empty = old.is_none();
+                // Dropped after the lock is released, so the UI never waits
+                // on freeing a snapshot.
+                drop(old);
                 !was_empty || wake(buffer)
             };
-            if let Err(e) = load(&path, &shared.cancel, &post) {
-                post(LoadUpdate::Failed(e));
+            // A panic must not leave the buffer loading for good. Its
+            // message, which may quote file content, is dropped.
+            let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                load(&path, &shared.cancel, &post)
+            }));
+            match loaded {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => {
+                    post(LoadUpdate::Failed(e));
+                }
+                Err(_) => {
+                    post(LoadUpdate::Failed(LoadError::Panicked));
+                }
             }
         })?;
     Ok(LoadHandle { buffer, shared })
@@ -163,13 +181,17 @@ fn open(path: &Path) -> Result<(File, u64), LoadError> {
 
 /// Reads, decodes and sends the file. Returns early, without an error,
 /// when cancelled or when the UI is gone.
+///
+/// Only the size seen at open is read, so a file another process keeps
+/// appending to (a log) cannot be read forever.
 fn load(
     path: &Path,
     cancel: &AtomicBool,
     send: &dyn Fn(LoadUpdate) -> bool,
 ) -> Result<(), LoadError> {
     let started = Instant::now();
-    let (mut file, total) = open(path)?;
+    let (file, total) = open(path)?;
+    let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];
     let mut sent: Option<Instant> = None;
@@ -195,6 +217,13 @@ fn load(
         }
     }
     builder.finish();
+    if file
+        .into_inner()
+        .read(&mut piece[..1])
+        .is_ok_and(|read| read > 0)
+    {
+        log::info!("the file grew while loading; the rest is not shown");
+    }
     log::debug!("loaded {} bytes in {:?}", builder.len(), started.elapsed());
     send(LoadUpdate::Progress(Box::new(builder.snapshot())));
     Ok(())
@@ -207,10 +236,10 @@ mod tests {
     use std::sync::mpsc;
     use std::time::Duration;
 
+    /// A file in the temporary directory, which the test removes.
     fn scratch_file(name: &str, content: &[u8]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("oso-loader-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join(name);
+        let name = format!("oso-loader-test-{}-{name}", std::process::id());
+        let path = std::env::temp_dir().join(name);
         std::fs::write(&path, content).unwrap();
         path
     }
@@ -271,6 +300,15 @@ mod tests {
             directory[..],
             [LoadUpdate::Failed(LoadError::NotAFile)]
         ));
+        #[cfg(unix)]
+        {
+            // A device is refused before it is opened.
+            let device = events(PathBuf::from("/dev/null"));
+            assert!(matches!(
+                device[..],
+                [LoadUpdate::Failed(LoadError::NotAFile)]
+            ));
+        }
     }
 
     #[test]

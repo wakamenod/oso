@@ -176,7 +176,8 @@ null text system: the cursor is drawn on the grid, and no text. See
   while its font is loaded.
 - **Per frame**, only visible rows are drawn, and of each only the visible
   columns, widened to 64-column steps, are shaped. Shaping is cached by
-  display row and checked against the buffer offsets it covers, so
+  display row and reused while the buffer's revision holds, or after a
+  change while the buffer offsets it covers are the same, so
   scrolling reshapes only rows that come into view and a 10 MB line costs
   one screen. Only glyphs inside the viewport become quads.
 - **Escapes** for control characters, invalid bytes and invisible
