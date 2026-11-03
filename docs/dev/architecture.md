@@ -33,9 +33,10 @@ crates/
 ├── oso/            bin, "tip" crate: commands, default keymaps, app glue
 ├── oso-core/       buffers, selections, display model, command registry,
 │                   keymaps, config; no GPU, #![forbid(unsafe_code)]
-├── oso-render/     wgpu pipeline, glyph atlas, text-system trait
-└── oso-platform/   OS abstractions: text shaping/rasterizing backends, IME,
-                    clipboard, filesystem and paths, process spawning, PTY
+├── oso-render/     wgpu pipeline, glyph atlas
+└── oso-platform/   OS abstractions: the text-system trait and its
+                    shaping/rasterizing backends, IME, clipboard,
+                    filesystem and paths, process spawning, PTY
 ```
 
 Commands live in the tip crate because it changes most often and rebuilds
@@ -43,8 +44,16 @@ fastest. Stable foundations live in library crates. See
 [ADR 0004](adr/0004-crate-layout.md).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
-depends on `oso-core`, and `oso-core` depends on none of them. Only the tip
-crate uses winit. It owns the window and hands `oso-render` a
+depends on `oso-core` and `oso-platform`, and neither of those depends on
+another workspace crate. Only `oso-render` uses wgpu, and only
+`oso-platform` uses OS bindings. These rules, and the allowed layers of
+modules inside each crate, are listed in
+[`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
+`crates/oso/tests/architecture`
+([ADR 0038](adr/0038-architecture-guardrails.md),
+[ADR 0039](adr/0039-architecture-guardrail-mechanics.md)).
+
+Only the tip crate uses winit. It owns the window and hands `oso-render` a
 `wgpu::DisplayAndWindowHandle` and the size in pixels; the renderer reports
 back when it needs a redraw instead of calling into the window.
 

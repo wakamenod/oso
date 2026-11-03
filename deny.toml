@@ -75,4 +75,10 @@ deny = [
     { crate = "open", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
     { crate = "opener", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
     { crate = "webbrowser", reason = "spawns processes; use oso-platform::process (ADR 0010)" },
+    # External crates stay in their owning crate (ADR 0038). `wrappers` lists
+    # the only crates that may depend on them directly. OS bindings have many
+    # third-party dependents, so crates/oso/tests/architecture confines them
+    # to oso-platform instead (ADR 0039).
+    { crate = "wgpu", wrappers = ["oso-render"], reason = "GPU code stays in oso-render (ADR 0038)" },
+    { crate = "winit", wrappers = ["oso"], reason = "window code stays in the oso tip crate (ADR 0038)" },
 ]

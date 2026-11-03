@@ -1,6 +1,6 @@
 ---
 name: perf-reviewer
-description: Read-only performance review of a change against the Performance section of REVIEW.md and the budgets in docs/dev/roadmap.md. Use after implementation, in parallel with security-reviewer, before asking for human review.
+description: Read-only performance review of a change against the Performance section of REVIEW.md and the budgets in docs/dev/roadmap.md. Use after implementation, in parallel with security-reviewer and arch-reviewer, before asking for human review.
 tools: Read, Grep, Glob
 ---
 

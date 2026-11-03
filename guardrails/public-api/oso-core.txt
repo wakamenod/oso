@@ -1,0 +1,874 @@
+pub mod oso_core
+pub mod oso_core::command
+pub enum oso_core::command::ArgSpec
+pub oso_core::command::ArgSpec::Count
+pub oso_core::command::ArgSpec::None
+impl core::clone::Clone for oso_core::command::ArgSpec
+pub fn oso_core::command::ArgSpec::clone(&self) -> oso_core::command::ArgSpec
+impl core::cmp::Eq for oso_core::command::ArgSpec
+impl core::cmp::PartialEq for oso_core::command::ArgSpec
+pub fn oso_core::command::ArgSpec::eq(&self, &oso_core::command::ArgSpec) -> bool
+impl core::fmt::Debug for oso_core::command::ArgSpec
+pub fn oso_core::command::ArgSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::command::ArgSpec
+impl core::marker::StructuralPartialEq for oso_core::command::ArgSpec
+pub enum oso_core::command::ExecuteError
+pub oso_core::command::ExecuteError::Failed
+pub oso_core::command::ExecuteError::Failed::command: &'static str
+pub oso_core::command::ExecuteError::Failed::error: oso_core::command::CommandError
+pub oso_core::command::ExecuteError::Panicked
+pub oso_core::command::ExecuteError::Panicked::command: &'static str
+pub oso_core::command::ExecuteError::UnknownId(oso_core::command::CommandId)
+impl core::clone::Clone for oso_core::command::ExecuteError
+pub fn oso_core::command::ExecuteError::clone(&self) -> oso_core::command::ExecuteError
+impl core::cmp::Eq for oso_core::command::ExecuteError
+impl core::cmp::PartialEq for oso_core::command::ExecuteError
+pub fn oso_core::command::ExecuteError::eq(&self, &oso_core::command::ExecuteError) -> bool
+impl core::error::Error for oso_core::command::ExecuteError
+impl core::fmt::Debug for oso_core::command::ExecuteError
+pub fn oso_core::command::ExecuteError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::command::ExecuteError
+pub fn oso_core::command::ExecuteError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::command::ExecuteError
+pub enum oso_core::command::RegisterError
+pub oso_core::command::RegisterError::BadName(&'static str)
+pub oso_core::command::RegisterError::Duplicate(&'static str)
+pub oso_core::command::RegisterError::MissingDoc(&'static str)
+impl core::clone::Clone for oso_core::command::RegisterError
+pub fn oso_core::command::RegisterError::clone(&self) -> oso_core::command::RegisterError
+impl core::cmp::Eq for oso_core::command::RegisterError
+impl core::cmp::PartialEq for oso_core::command::RegisterError
+pub fn oso_core::command::RegisterError::eq(&self, &oso_core::command::RegisterError) -> bool
+impl core::error::Error for oso_core::command::RegisterError
+impl core::fmt::Debug for oso_core::command::RegisterError
+pub fn oso_core::command::RegisterError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::command::RegisterError
+pub fn oso_core::command::RegisterError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::command::RegisterError
+pub struct oso_core::command::Args
+impl oso_core::command::Args
+pub const oso_core::command::Args::NONE: Self
+pub const fn oso_core::command::Args::count(self) -> isize
+pub const fn oso_core::command::Args::numeric(isize) -> Self
+pub const fn oso_core::command::Args::prefix(self) -> core::option::Option<isize>
+impl core::clone::Clone for oso_core::command::Args
+pub fn oso_core::command::Args::clone(&self) -> oso_core::command::Args
+impl core::cmp::Eq for oso_core::command::Args
+impl core::cmp::PartialEq for oso_core::command::Args
+pub fn oso_core::command::Args::eq(&self, &oso_core::command::Args) -> bool
+impl core::default::Default for oso_core::command::Args
+pub fn oso_core::command::Args::default() -> oso_core::command::Args
+impl core::fmt::Debug for oso_core::command::Args
+pub fn oso_core::command::Args::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::command::Args
+impl core::marker::StructuralPartialEq for oso_core::command::Args
+pub struct oso_core::command::Command
+pub oso_core::command::Command::args: oso_core::command::ArgSpec
+pub oso_core::command::Command::doc: &'static str
+pub oso_core::command::Command::name: &'static str
+pub oso_core::command::Command::run: oso_core::command::CommandFn
+impl core::clone::Clone for oso_core::command::Command
+pub fn oso_core::command::Command::clone(&self) -> oso_core::command::Command
+impl core::fmt::Debug for oso_core::command::Command
+pub fn oso_core::command::Command::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::command::Command
+pub struct oso_core::command::CommandError
+impl oso_core::command::CommandError
+pub fn oso_core::command::CommandError::message(&self) -> &str
+pub fn oso_core::command::CommandError::new(impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
+impl core::clone::Clone for oso_core::command::CommandError
+pub fn oso_core::command::CommandError::clone(&self) -> oso_core::command::CommandError
+impl core::cmp::Eq for oso_core::command::CommandError
+impl core::cmp::PartialEq for oso_core::command::CommandError
+pub fn oso_core::command::CommandError::eq(&self, &oso_core::command::CommandError) -> bool
+impl core::error::Error for oso_core::command::CommandError
+impl core::fmt::Debug for oso_core::command::CommandError
+pub fn oso_core::command::CommandError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::command::CommandError
+pub fn oso_core::command::CommandError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::command::CommandError
+pub struct oso_core::command::CommandId(_)
+impl core::clone::Clone for oso_core::command::CommandId
+pub fn oso_core::command::CommandId::clone(&self) -> oso_core::command::CommandId
+impl core::cmp::Eq for oso_core::command::CommandId
+impl core::cmp::PartialEq for oso_core::command::CommandId
+pub fn oso_core::command::CommandId::eq(&self, &oso_core::command::CommandId) -> bool
+impl core::fmt::Debug for oso_core::command::CommandId
+pub fn oso_core::command::CommandId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::command::CommandId
+pub fn oso_core::command::CommandId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::command::CommandId
+impl core::marker::StructuralPartialEq for oso_core::command::CommandId
+pub struct oso_core::command::Ctx<'a>
+pub oso_core::command::Ctx::editor: &'a mut oso_core::editor::Editor
+impl<'a> oso_core::command::Ctx<'a>
+pub fn oso_core::command::Ctx<'a>::effects(&self) -> oso_core::command::Effects
+pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
+pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
+pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
+pub struct oso_core::command::Effects
+pub oso_core::command::Effects::exit: bool
+pub oso_core::command::Effects::redraw: bool
+impl oso_core::command::Effects
+pub const fn oso_core::command::Effects::union(self, Self) -> Self
+impl core::clone::Clone for oso_core::command::Effects
+pub fn oso_core::command::Effects::clone(&self) -> oso_core::command::Effects
+impl core::cmp::Eq for oso_core::command::Effects
+impl core::cmp::PartialEq for oso_core::command::Effects
+pub fn oso_core::command::Effects::eq(&self, &oso_core::command::Effects) -> bool
+impl core::default::Default for oso_core::command::Effects
+pub fn oso_core::command::Effects::default() -> oso_core::command::Effects
+impl core::fmt::Debug for oso_core::command::Effects
+pub fn oso_core::command::Effects::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::command::Effects
+impl core::marker::StructuralPartialEq for oso_core::command::Effects
+pub struct oso_core::command::Registry
+impl oso_core::command::Registry
+pub fn oso_core::command::Registry::execute(&self, oso_core::command::CommandId, &mut oso_core::command::Ctx<'_>, oso_core::command::Args) -> core::result::Result<(), oso_core::command::ExecuteError>
+pub fn oso_core::command::Registry::get(&self, oso_core::command::CommandId) -> core::option::Option<&oso_core::command::Command>
+pub fn oso_core::command::Registry::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = (oso_core::command::CommandId, &oso_core::command::Command)>
+pub fn oso_core::command::Registry::lookup(&self, &str) -> core::option::Option<oso_core::command::CommandId>
+pub fn oso_core::command::Registry::new() -> Self
+pub fn oso_core::command::Registry::register(&mut self, oso_core::command::Command) -> core::result::Result<oso_core::command::CommandId, oso_core::command::RegisterError>
+pub fn oso_core::command::Registry::register_all(&mut self, &[oso_core::command::Command]) -> core::result::Result<(), oso_core::command::RegisterError>
+impl core::default::Default for oso_core::command::Registry
+pub fn oso_core::command::Registry::default() -> oso_core::command::Registry
+impl core::fmt::Debug for oso_core::command::Registry
+pub fn oso_core::command::Registry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub type oso_core::command::CommandFn = fn(&mut oso_core::command::Ctx<'_>, oso_core::command::Args) -> core::result::Result<(), oso_core::command::CommandError>
+pub mod oso_core::cursor
+pub struct oso_core::cursor::Cursor
+pub oso_core::cursor::Cursor::position: usize
+impl oso_core::cursor::Cursor
+pub fn oso_core::cursor::Cursor::move_left(&mut self)
+pub fn oso_core::cursor::Cursor::move_right(&mut self)
+impl core::default::Default for oso_core::cursor::Cursor
+pub fn oso_core::cursor::Cursor::default() -> oso_core::cursor::Cursor
+pub mod oso_core::display_map
+pub mod oso_core::display_map::cell
+pub enum oso_core::display_map::cell::CellKind
+pub oso_core::display_map::cell::CellKind::Control(char)
+pub oso_core::display_map::cell::CellKind::Invisible(char)
+pub oso_core::display_map::cell::CellKind::LineBreak
+pub oso_core::display_map::cell::CellKind::Tab
+pub oso_core::display_map::cell::CellKind::Text
+impl core::clone::Clone for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::clone(&self) -> oso_core::display_map::cell::CellKind
+impl core::cmp::Eq for oso_core::display_map::cell::CellKind
+impl core::cmp::PartialEq for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::eq(&self, &oso_core::display_map::cell::CellKind) -> bool
+impl core::fmt::Debug for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::cell::CellKind
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellKind
+pub struct oso_core::display_map::cell::Clusters<'a>
+impl<'a> oso_core::display_map::cell::Clusters<'a>
+pub fn oso_core::display_map::cell::Clusters<'a>::new(&'a str) -> Self
+impl<'a> core::iter::traits::iterator::Iterator for oso_core::display_map::cell::Clusters<'a>
+pub type oso_core::display_map::cell::Clusters<'a>::Item = (usize, &'a str, oso_core::display_map::cell::CellKind, usize)
+pub fn oso_core::display_map::cell::Clusters<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct oso_core::display_map::cell::Escape
+impl oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::as_str(&self) -> &str
+impl core::clone::Clone for oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::clone(&self) -> oso_core::display_map::cell::Escape
+impl core::cmp::Eq for oso_core::display_map::cell::Escape
+impl core::cmp::PartialEq for oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::eq(&self, &oso_core::display_map::cell::Escape) -> bool
+impl core::fmt::Debug for oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::display_map::cell::Escape
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::Escape
+pub struct oso_core::display_map::cell::TabWidth(_)
+impl oso_core::display_map::cell::TabWidth
+pub const oso_core::display_map::cell::TabWidth::MAX: u32
+pub fn oso_core::display_map::cell::TabWidth::get(self) -> u32
+pub fn oso_core::display_map::cell::TabWidth::new(u32) -> Self
+pub fn oso_core::display_map::cell::TabWidth::next_stop(self, usize) -> usize
+impl core::clone::Clone for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::clone(&self) -> oso_core::display_map::cell::TabWidth
+impl core::cmp::Eq for oso_core::display_map::cell::TabWidth
+impl core::cmp::PartialEq for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::eq(&self, &oso_core::display_map::cell::TabWidth) -> bool
+impl core::default::Default for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::default() -> Self
+impl core::fmt::Debug for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::cell::TabWidth
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::classify(&str) -> (oso_core::display_map::cell::CellKind, usize)
+pub fn oso_core::display_map::cell::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
+pub fn oso_core::display_map::cell::is_invisible(char) -> bool
+pub mod oso_core::display_map::tab_map
+pub struct oso_core::display_map::tab_map::RowClusters<'a>
+impl<'a> core::iter::traits::iterator::Iterator for oso_core::display_map::tab_map::RowClusters<'a>
+pub type oso_core::display_map::tab_map::RowClusters<'a>::Item = oso_core::display_map::DisplayCluster<'a>
+pub fn oso_core::display_map::tab_map::RowClusters<'a>::next(&mut self) -> core::option::Option<oso_core::display_map::DisplayCluster<'a>>
+pub struct oso_core::display_map::tab_map::TabMap
+impl oso_core::display_map::tab_map::TabMap
+pub fn oso_core::display_map::tab_map::TabMap::clusters(&self, oso_core::display_map::tab_map::TabPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
+pub fn oso_core::display_map::tab_map::TabMap::max_point(&self) -> oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabMap::new(&oso_core::rope::Rope, oso_core::display_map::cell::TabWidth) -> Self
+pub fn oso_core::display_map::tab_map::TabMap::summary(&self) -> &oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::rope::RopeEdit)
+pub fn oso_core::display_map::tab_map::TabMap::tab_width(&self) -> oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::tab_map::TabMap::to_offset(&self, oso_core::display_map::tab_map::TabPoint, oso_core::sum_tree::Bias) -> usize
+pub fn oso_core::display_map::tab_map::TabMap::to_tab_point(&self, usize) -> oso_core::display_map::tab_map::TabPoint
+impl core::clone::Clone for oso_core::display_map::tab_map::TabMap
+pub fn oso_core::display_map::tab_map::TabMap::clone(&self) -> oso_core::display_map::tab_map::TabMap
+pub struct oso_core::display_map::tab_map::TabPoint
+pub oso_core::display_map::tab_map::TabPoint::column: usize
+pub oso_core::display_map::tab_map::TabPoint::row: usize
+impl oso_core::display_map::tab_map::TabPoint
+pub const fn oso_core::display_map::tab_map::TabPoint::new(usize, usize) -> Self
+impl core::clone::Clone for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::clone(&self) -> oso_core::display_map::tab_map::TabPoint
+impl core::cmp::Eq for oso_core::display_map::tab_map::TabPoint
+impl core::cmp::Ord for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::cmp(&self, &oso_core::display_map::tab_map::TabPoint) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::eq(&self, &oso_core::display_map::tab_map::TabPoint) -> bool
+impl core::cmp::PartialOrd for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::partial_cmp(&self, &oso_core::display_map::tab_map::TabPoint) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<oso_core::display_map::DisplayPoint> for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::from(oso_core::display_map::DisplayPoint) -> Self
+impl core::convert::From<oso_core::display_map::tab_map::TabPoint> for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::from(oso_core::display_map::tab_map::TabPoint) -> Self
+impl core::default::Default for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::default() -> oso_core::display_map::tab_map::TabPoint
+impl core::fmt::Debug for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::tab_map::TabPoint
+impl core::marker::StructuralPartialEq for oso_core::display_map::tab_map::TabPoint
+impl oso_core::sum_tree::Dimension<oso_core::display_map::tab_map::TabSummary> for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary)
+pub fn oso_core::display_map::tab_map::TabPoint::from_summary(&S) -> Self
+pub struct oso_core::display_map::tab_map::TabSummary
+pub oso_core::display_map::tab_map::TabSummary::bytes: usize
+pub oso_core::display_map::tab_map::TabSummary::lines: usize
+impl core::clone::Clone for oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabSummary::clone(&self) -> oso_core::display_map::tab_map::TabSummary
+impl core::cmp::Eq for oso_core::display_map::tab_map::TabSummary
+impl core::cmp::PartialEq for oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabSummary::eq(&self, &oso_core::display_map::tab_map::TabSummary) -> bool
+impl core::default::Default for oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabSummary::default() -> oso_core::display_map::tab_map::TabSummary
+impl core::fmt::Debug for oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabSummary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::display_map::tab_map::TabSummary
+impl core::marker::StructuralPartialEq for oso_core::display_map::tab_map::TabSummary
+impl oso_core::sum_tree::Dimension<oso_core::display_map::tab_map::TabSummary> for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary)
+pub fn oso_core::display_map::tab_map::TabPoint::from_summary(&S) -> Self
+impl oso_core::sum_tree::Dimension<oso_core::display_map::tab_map::TabSummary> for usize
+pub fn usize::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary)
+pub fn usize::from_summary(&S) -> Self
+impl oso_core::sum_tree::Summary for oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
+pub enum oso_core::display_map::CellKind
+pub oso_core::display_map::CellKind::Control(char)
+pub oso_core::display_map::CellKind::Invisible(char)
+pub oso_core::display_map::CellKind::LineBreak
+pub oso_core::display_map::CellKind::Tab
+pub oso_core::display_map::CellKind::Text
+impl core::clone::Clone for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::clone(&self) -> oso_core::display_map::cell::CellKind
+impl core::cmp::Eq for oso_core::display_map::cell::CellKind
+impl core::cmp::PartialEq for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::eq(&self, &oso_core::display_map::cell::CellKind) -> bool
+impl core::fmt::Debug for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::cell::CellKind
+pub fn oso_core::display_map::cell::CellKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::cell::CellKind
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellKind
+pub struct oso_core::display_map::Clusters<'a>
+impl<'a> oso_core::display_map::cell::Clusters<'a>
+pub fn oso_core::display_map::cell::Clusters<'a>::new(&'a str) -> Self
+impl<'a> core::iter::traits::iterator::Iterator for oso_core::display_map::cell::Clusters<'a>
+pub type oso_core::display_map::cell::Clusters<'a>::Item = (usize, &'a str, oso_core::display_map::cell::CellKind, usize)
+pub fn oso_core::display_map::cell::Clusters<'a>::next(&mut self) -> core::option::Option<Self::Item>
+pub struct oso_core::display_map::DisplayCluster<'a>
+pub oso_core::display_map::DisplayCluster::cells: usize
+pub oso_core::display_map::DisplayCluster::column: usize
+pub oso_core::display_map::DisplayCluster::kind: oso_core::display_map::cell::CellKind
+pub oso_core::display_map::DisplayCluster::offset: usize
+pub oso_core::display_map::DisplayCluster::text: &'a str
+impl<'a> core::clone::Clone for oso_core::display_map::DisplayCluster<'a>
+pub fn oso_core::display_map::DisplayCluster<'a>::clone(&self) -> oso_core::display_map::DisplayCluster<'a>
+impl<'a> core::cmp::Eq for oso_core::display_map::DisplayCluster<'a>
+impl<'a> core::cmp::PartialEq for oso_core::display_map::DisplayCluster<'a>
+pub fn oso_core::display_map::DisplayCluster<'a>::eq(&self, &oso_core::display_map::DisplayCluster<'a>) -> bool
+impl<'a> core::fmt::Debug for oso_core::display_map::DisplayCluster<'a>
+pub fn oso_core::display_map::DisplayCluster<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_core::display_map::DisplayCluster<'a>
+impl<'a> core::marker::StructuralPartialEq for oso_core::display_map::DisplayCluster<'a>
+pub struct oso_core::display_map::DisplayMap
+impl oso_core::display_map::DisplayMap
+pub fn oso_core::display_map::DisplayMap::new(&oso_core::rope::Rope, oso_core::display_map::cell::TabWidth) -> Self
+pub fn oso_core::display_map::DisplayMap::set_tab_width(&mut self, &oso_core::rope::Rope, oso_core::display_map::cell::TabWidth)
+pub fn oso_core::display_map::DisplayMap::snapshot(&self) -> oso_core::display_map::DisplaySnapshot
+pub fn oso_core::display_map::DisplayMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::rope::RopeEdit)
+pub fn oso_core::display_map::DisplayMap::tab_width(&self) -> oso_core::display_map::cell::TabWidth
+impl core::clone::Clone for oso_core::display_map::DisplayMap
+pub fn oso_core::display_map::DisplayMap::clone(&self) -> oso_core::display_map::DisplayMap
+pub struct oso_core::display_map::DisplayPoint
+pub oso_core::display_map::DisplayPoint::column: usize
+pub oso_core::display_map::DisplayPoint::row: usize
+impl oso_core::display_map::DisplayPoint
+pub const fn oso_core::display_map::DisplayPoint::new(usize, usize) -> Self
+impl core::clone::Clone for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::clone(&self) -> oso_core::display_map::DisplayPoint
+impl core::cmp::Eq for oso_core::display_map::DisplayPoint
+impl core::cmp::Ord for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::cmp(&self, &oso_core::display_map::DisplayPoint) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::eq(&self, &oso_core::display_map::DisplayPoint) -> bool
+impl core::cmp::PartialOrd for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::partial_cmp(&self, &oso_core::display_map::DisplayPoint) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<oso_core::display_map::DisplayPoint> for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::from(oso_core::display_map::DisplayPoint) -> Self
+impl core::convert::From<oso_core::display_map::tab_map::TabPoint> for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::from(oso_core::display_map::tab_map::TabPoint) -> Self
+impl core::default::Default for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::default() -> oso_core::display_map::DisplayPoint
+impl core::fmt::Debug for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::DisplayPoint
+impl core::marker::StructuralPartialEq for oso_core::display_map::DisplayPoint
+pub struct oso_core::display_map::DisplaySnapshot
+impl oso_core::display_map::DisplaySnapshot
+pub fn oso_core::display_map::DisplaySnapshot::clip_point(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplaySnapshot::clusters(&self, oso_core::display_map::DisplayPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
+pub fn oso_core::display_map::DisplaySnapshot::display_point_to_offset(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> usize
+pub fn oso_core::display_map::DisplaySnapshot::max_point(&self) -> oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplaySnapshot::offset_to_display_point(&self, usize) -> oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplaySnapshot::row_cells(&self, usize) -> usize
+pub fn oso_core::display_map::DisplaySnapshot::row_count(&self) -> usize
+impl core::clone::Clone for oso_core::display_map::DisplaySnapshot
+pub fn oso_core::display_map::DisplaySnapshot::clone(&self) -> oso_core::display_map::DisplaySnapshot
+pub struct oso_core::display_map::Escape
+impl oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::as_str(&self) -> &str
+impl core::clone::Clone for oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::clone(&self) -> oso_core::display_map::cell::Escape
+impl core::cmp::Eq for oso_core::display_map::cell::Escape
+impl core::cmp::PartialEq for oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::eq(&self, &oso_core::display_map::cell::Escape) -> bool
+impl core::fmt::Debug for oso_core::display_map::cell::Escape
+pub fn oso_core::display_map::cell::Escape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::display_map::cell::Escape
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::Escape
+pub struct oso_core::display_map::TabMap
+impl oso_core::display_map::tab_map::TabMap
+pub fn oso_core::display_map::tab_map::TabMap::clusters(&self, oso_core::display_map::tab_map::TabPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
+pub fn oso_core::display_map::tab_map::TabMap::max_point(&self) -> oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabMap::new(&oso_core::rope::Rope, oso_core::display_map::cell::TabWidth) -> Self
+pub fn oso_core::display_map::tab_map::TabMap::summary(&self) -> &oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::rope::RopeEdit)
+pub fn oso_core::display_map::tab_map::TabMap::tab_width(&self) -> oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::tab_map::TabMap::to_offset(&self, oso_core::display_map::tab_map::TabPoint, oso_core::sum_tree::Bias) -> usize
+pub fn oso_core::display_map::tab_map::TabMap::to_tab_point(&self, usize) -> oso_core::display_map::tab_map::TabPoint
+impl core::clone::Clone for oso_core::display_map::tab_map::TabMap
+pub fn oso_core::display_map::tab_map::TabMap::clone(&self) -> oso_core::display_map::tab_map::TabMap
+pub struct oso_core::display_map::TabPoint
+pub oso_core::display_map::TabPoint::column: usize
+pub oso_core::display_map::TabPoint::row: usize
+impl oso_core::display_map::tab_map::TabPoint
+pub const fn oso_core::display_map::tab_map::TabPoint::new(usize, usize) -> Self
+impl core::clone::Clone for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::clone(&self) -> oso_core::display_map::tab_map::TabPoint
+impl core::cmp::Eq for oso_core::display_map::tab_map::TabPoint
+impl core::cmp::Ord for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::cmp(&self, &oso_core::display_map::tab_map::TabPoint) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::eq(&self, &oso_core::display_map::tab_map::TabPoint) -> bool
+impl core::cmp::PartialOrd for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::partial_cmp(&self, &oso_core::display_map::tab_map::TabPoint) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<oso_core::display_map::DisplayPoint> for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::from(oso_core::display_map::DisplayPoint) -> Self
+impl core::convert::From<oso_core::display_map::tab_map::TabPoint> for oso_core::display_map::DisplayPoint
+pub fn oso_core::display_map::DisplayPoint::from(oso_core::display_map::tab_map::TabPoint) -> Self
+impl core::default::Default for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::default() -> oso_core::display_map::tab_map::TabPoint
+impl core::fmt::Debug for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::tab_map::TabPoint
+impl core::marker::StructuralPartialEq for oso_core::display_map::tab_map::TabPoint
+impl oso_core::sum_tree::Dimension<oso_core::display_map::tab_map::TabSummary> for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary)
+pub fn oso_core::display_map::tab_map::TabPoint::from_summary(&S) -> Self
+pub struct oso_core::display_map::TabWidth(_)
+impl oso_core::display_map::cell::TabWidth
+pub const oso_core::display_map::cell::TabWidth::MAX: u32
+pub fn oso_core::display_map::cell::TabWidth::get(self) -> u32
+pub fn oso_core::display_map::cell::TabWidth::new(u32) -> Self
+pub fn oso_core::display_map::cell::TabWidth::next_stop(self, usize) -> usize
+impl core::clone::Clone for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::clone(&self) -> oso_core::display_map::cell::TabWidth
+impl core::cmp::Eq for oso_core::display_map::cell::TabWidth
+impl core::cmp::PartialEq for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::eq(&self, &oso_core::display_map::cell::TabWidth) -> bool
+impl core::default::Default for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::default() -> Self
+impl core::fmt::Debug for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::cell::TabWidth::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::cell::TabWidth
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
+pub fn oso_core::display_map::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
+pub mod oso_core::editor
+pub struct oso_core::editor::Editor
+pub oso_core::editor::Editor::cursor: oso_core::cursor::Cursor
+impl core::default::Default for oso_core::editor::Editor
+pub fn oso_core::editor::Editor::default() -> oso_core::editor::Editor
+pub mod oso_core::key
+pub enum oso_core::key::Key
+pub oso_core::key::Key::Char(char)
+pub oso_core::key::Key::Named(oso_core::key::NamedKey)
+impl oso_core::key::Key
+pub fn oso_core::key::Key::char(char) -> core::option::Option<Self>
+impl core::clone::Clone for oso_core::key::Key
+pub fn oso_core::key::Key::clone(&self) -> oso_core::key::Key
+impl core::cmp::Eq for oso_core::key::Key
+impl core::cmp::PartialEq for oso_core::key::Key
+pub fn oso_core::key::Key::eq(&self, &oso_core::key::Key) -> bool
+impl core::fmt::Debug for oso_core::key::Key
+pub fn oso_core::key::Key::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::key::Key
+pub fn oso_core::key::Key::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::key::Key
+pub fn oso_core::key::Key::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::key::Key
+impl core::marker::StructuralPartialEq for oso_core::key::Key
+pub enum oso_core::key::NamedKey
+pub oso_core::key::NamedKey::Backspace
+pub oso_core::key::NamedKey::Delete
+pub oso_core::key::NamedKey::Down
+pub oso_core::key::NamedKey::End
+pub oso_core::key::NamedKey::Escape
+pub oso_core::key::NamedKey::F(u8)
+pub oso_core::key::NamedKey::Home
+pub oso_core::key::NamedKey::Insert
+pub oso_core::key::NamedKey::Left
+pub oso_core::key::NamedKey::PageDown
+pub oso_core::key::NamedKey::PageUp
+pub oso_core::key::NamedKey::Return
+pub oso_core::key::NamedKey::Right
+pub oso_core::key::NamedKey::Tab
+pub oso_core::key::NamedKey::Up
+impl oso_core::key::NamedKey
+pub const oso_core::key::NamedKey::MAX_FUNCTION: u8
+pub const fn oso_core::key::NamedKey::function(u8) -> core::option::Option<Self>
+impl core::clone::Clone for oso_core::key::NamedKey
+pub fn oso_core::key::NamedKey::clone(&self) -> oso_core::key::NamedKey
+impl core::cmp::Eq for oso_core::key::NamedKey
+impl core::cmp::PartialEq for oso_core::key::NamedKey
+pub fn oso_core::key::NamedKey::eq(&self, &oso_core::key::NamedKey) -> bool
+impl core::fmt::Debug for oso_core::key::NamedKey
+pub fn oso_core::key::NamedKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::key::NamedKey
+pub fn oso_core::key::NamedKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::key::NamedKey
+pub fn oso_core::key::NamedKey::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::key::NamedKey
+impl core::marker::StructuralPartialEq for oso_core::key::NamedKey
+pub struct oso_core::key::KeyPress
+pub oso_core::key::KeyPress::key: oso_core::key::Key
+pub oso_core::key::KeyPress::modifiers: oso_core::key::Modifiers
+impl oso_core::key::KeyPress
+pub fn oso_core::key::KeyPress::new(oso_core::key::Modifiers, oso_core::key::Key) -> core::option::Option<Self>
+pub const fn oso_core::key::KeyPress::plain(oso_core::key::Key) -> Self
+impl core::clone::Clone for oso_core::key::KeyPress
+pub fn oso_core::key::KeyPress::clone(&self) -> oso_core::key::KeyPress
+impl core::cmp::Eq for oso_core::key::KeyPress
+impl core::cmp::PartialEq for oso_core::key::KeyPress
+pub fn oso_core::key::KeyPress::eq(&self, &oso_core::key::KeyPress) -> bool
+impl core::fmt::Debug for oso_core::key::KeyPress
+pub fn oso_core::key::KeyPress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::key::KeyPress
+pub fn oso_core::key::KeyPress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::key::KeyPress
+pub fn oso_core::key::KeyPress::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::key::KeyPress
+impl core::marker::StructuralPartialEq for oso_core::key::KeyPress
+impl core::str::traits::FromStr for oso_core::key::KeyPress
+pub type oso_core::key::KeyPress::Err = oso_core::key::ParseKeyError
+pub fn oso_core::key::KeyPress::from_str(&str) -> core::result::Result<Self, oso_core::key::ParseKeyError>
+pub struct oso_core::key::KeySequence(pub alloc::vec::Vec<oso_core::key::KeyPress>)
+impl core::clone::Clone for oso_core::key::KeySequence
+pub fn oso_core::key::KeySequence::clone(&self) -> oso_core::key::KeySequence
+impl core::cmp::Eq for oso_core::key::KeySequence
+impl core::cmp::PartialEq for oso_core::key::KeySequence
+pub fn oso_core::key::KeySequence::eq(&self, &oso_core::key::KeySequence) -> bool
+impl core::default::Default for oso_core::key::KeySequence
+pub fn oso_core::key::KeySequence::default() -> oso_core::key::KeySequence
+impl core::fmt::Debug for oso_core::key::KeySequence
+pub fn oso_core::key::KeySequence::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::key::KeySequence
+pub fn oso_core::key::KeySequence::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::key::KeySequence
+pub fn oso_core::key::KeySequence::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::StructuralPartialEq for oso_core::key::KeySequence
+impl core::str::traits::FromStr for oso_core::key::KeySequence
+pub type oso_core::key::KeySequence::Err = oso_core::key::ParseKeyError
+pub fn oso_core::key::KeySequence::from_str(&str) -> core::result::Result<Self, oso_core::key::ParseKeyError>
+pub struct oso_core::key::Modifiers(_)
+impl oso_core::key::Modifiers
+pub const oso_core::key::Modifiers::CONTROL: Self
+pub const oso_core::key::Modifiers::META: Self
+pub const oso_core::key::Modifiers::NONE: Self
+pub const oso_core::key::Modifiers::SHIFT: Self
+pub const oso_core::key::Modifiers::SUPER: Self
+pub const fn oso_core::key::Modifiers::contains(self, Self) -> bool
+pub const fn oso_core::key::Modifiers::is_empty(self) -> bool
+pub const fn oso_core::key::Modifiers::without(self, Self) -> Self
+impl core::clone::Clone for oso_core::key::Modifiers
+pub fn oso_core::key::Modifiers::clone(&self) -> oso_core::key::Modifiers
+impl core::cmp::Eq for oso_core::key::Modifiers
+impl core::cmp::PartialEq for oso_core::key::Modifiers
+pub fn oso_core::key::Modifiers::eq(&self, &oso_core::key::Modifiers) -> bool
+impl core::default::Default for oso_core::key::Modifiers
+pub fn oso_core::key::Modifiers::default() -> oso_core::key::Modifiers
+impl core::fmt::Debug for oso_core::key::Modifiers
+pub fn oso_core::key::Modifiers::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::key::Modifiers
+pub fn oso_core::key::Modifiers::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::key::Modifiers
+impl core::marker::StructuralPartialEq for oso_core::key::Modifiers
+impl core::ops::bit::BitOr for oso_core::key::Modifiers
+pub type oso_core::key::Modifiers::Output = oso_core::key::Modifiers
+pub fn oso_core::key::Modifiers::bitor(self, Self) -> Self
+pub struct oso_core::key::ParseKeyError
+impl core::clone::Clone for oso_core::key::ParseKeyError
+pub fn oso_core::key::ParseKeyError::clone(&self) -> oso_core::key::ParseKeyError
+impl core::cmp::Eq for oso_core::key::ParseKeyError
+impl core::cmp::PartialEq for oso_core::key::ParseKeyError
+pub fn oso_core::key::ParseKeyError::eq(&self, &oso_core::key::ParseKeyError) -> bool
+impl core::error::Error for oso_core::key::ParseKeyError
+impl core::fmt::Debug for oso_core::key::ParseKeyError
+pub fn oso_core::key::ParseKeyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::key::ParseKeyError
+pub fn oso_core::key::ParseKeyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::key::ParseKeyError
+pub mod oso_core::keymap
+pub enum oso_core::keymap::BindError
+pub oso_core::keymap::BindError::AlreadyBound
+pub oso_core::keymap::BindError::Empty
+pub oso_core::keymap::BindError::IsPrefix
+pub oso_core::keymap::BindError::NonPrefix
+pub oso_core::keymap::BindError::NonPrefix::len: usize
+impl core::clone::Clone for oso_core::keymap::BindError
+pub fn oso_core::keymap::BindError::clone(&self) -> oso_core::keymap::BindError
+impl core::cmp::Eq for oso_core::keymap::BindError
+impl core::cmp::PartialEq for oso_core::keymap::BindError
+pub fn oso_core::keymap::BindError::eq(&self, &oso_core::keymap::BindError) -> bool
+impl core::error::Error for oso_core::keymap::BindError
+impl core::fmt::Debug for oso_core::keymap::BindError
+pub fn oso_core::keymap::BindError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::keymap::BindError
+pub fn oso_core::keymap::BindError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::keymap::BindError
+impl core::marker::StructuralPartialEq for oso_core::keymap::BindError
+pub enum oso_core::keymap::Binding
+pub oso_core::keymap::Binding::Command(oso_core::command::CommandId)
+pub oso_core::keymap::Binding::Prefix(oso_core::keymap::Keymap)
+impl core::clone::Clone for oso_core::keymap::Binding
+pub fn oso_core::keymap::Binding::clone(&self) -> oso_core::keymap::Binding
+impl core::cmp::Eq for oso_core::keymap::Binding
+impl core::cmp::PartialEq for oso_core::keymap::Binding
+pub fn oso_core::keymap::Binding::eq(&self, &oso_core::keymap::Binding) -> bool
+impl core::fmt::Debug for oso_core::keymap::Binding
+pub fn oso_core::keymap::Binding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::keymap::Binding
+pub enum oso_core::keymap::Resolution<'a>
+pub oso_core::keymap::Resolution::Cancelled
+pub oso_core::keymap::Resolution::Command(oso_core::command::CommandId)
+pub oso_core::keymap::Resolution::Pending
+pub oso_core::keymap::Resolution::Unbound(&'a [oso_core::key::KeyPress])
+impl<'a> core::clone::Clone for oso_core::keymap::Resolution<'a>
+pub fn oso_core::keymap::Resolution<'a>::clone(&self) -> oso_core::keymap::Resolution<'a>
+impl<'a> core::cmp::Eq for oso_core::keymap::Resolution<'a>
+impl<'a> core::cmp::PartialEq for oso_core::keymap::Resolution<'a>
+pub fn oso_core::keymap::Resolution<'a>::eq(&self, &oso_core::keymap::Resolution<'a>) -> bool
+impl<'a> core::fmt::Debug for oso_core::keymap::Resolution<'a>
+pub fn oso_core::keymap::Resolution<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_core::keymap::Resolution<'a>
+impl<'a> core::marker::StructuralPartialEq for oso_core::keymap::Resolution<'a>
+pub enum oso_core::keymap::TableErrorReason
+pub oso_core::keymap::TableErrorReason::Bind(oso_core::keymap::BindError)
+pub oso_core::keymap::TableErrorReason::Notation(alloc::string::String)
+pub oso_core::keymap::TableErrorReason::UnknownCommand
+impl core::clone::Clone for oso_core::keymap::TableErrorReason
+pub fn oso_core::keymap::TableErrorReason::clone(&self) -> oso_core::keymap::TableErrorReason
+impl core::cmp::Eq for oso_core::keymap::TableErrorReason
+impl core::cmp::PartialEq for oso_core::keymap::TableErrorReason
+pub fn oso_core::keymap::TableErrorReason::eq(&self, &oso_core::keymap::TableErrorReason) -> bool
+impl core::fmt::Debug for oso_core::keymap::TableErrorReason
+pub fn oso_core::keymap::TableErrorReason::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::keymap::TableErrorReason
+pub struct oso_core::keymap::KeyResolver
+impl oso_core::keymap::KeyResolver
+pub fn oso_core::keymap::KeyResolver::feed(&mut self, &oso_core::keymap::Layers<'_>, oso_core::key::KeyPress) -> oso_core::keymap::Resolution<'_>
+pub fn oso_core::keymap::KeyResolver::new() -> Self
+pub fn oso_core::keymap::KeyResolver::pending(&self) -> &[oso_core::key::KeyPress]
+pub fn oso_core::keymap::KeyResolver::reset(&mut self)
+impl core::default::Default for oso_core::keymap::KeyResolver
+pub fn oso_core::keymap::KeyResolver::default() -> oso_core::keymap::KeyResolver
+impl core::fmt::Debug for oso_core::keymap::KeyResolver
+pub fn oso_core::keymap::KeyResolver::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::keymap::Keymap
+impl oso_core::keymap::Keymap
+pub fn oso_core::keymap::Keymap::bind(&mut self, &[oso_core::key::KeyPress], oso_core::command::CommandId) -> core::result::Result<(), oso_core::keymap::BindError>
+pub fn oso_core::keymap::Keymap::from_table(&oso_core::command::Registry, &[(&str, &str)]) -> core::result::Result<Self, oso_core::keymap::TableError>
+pub fn oso_core::keymap::Keymap::get(&self, oso_core::key::KeyPress) -> core::option::Option<&oso_core::keymap::Binding>
+pub fn oso_core::keymap::Keymap::is_empty(&self) -> bool
+pub fn oso_core::keymap::Keymap::len(&self) -> usize
+pub fn oso_core::keymap::Keymap::lookup(&self, &[oso_core::key::KeyPress]) -> core::option::Option<&oso_core::keymap::Binding>
+pub fn oso_core::keymap::Keymap::new() -> Self
+impl core::clone::Clone for oso_core::keymap::Keymap
+pub fn oso_core::keymap::Keymap::clone(&self) -> oso_core::keymap::Keymap
+impl core::cmp::Eq for oso_core::keymap::Keymap
+impl core::cmp::PartialEq for oso_core::keymap::Keymap
+pub fn oso_core::keymap::Keymap::eq(&self, &oso_core::keymap::Keymap) -> bool
+impl core::default::Default for oso_core::keymap::Keymap
+pub fn oso_core::keymap::Keymap::default() -> oso_core::keymap::Keymap
+impl core::fmt::Debug for oso_core::keymap::Keymap
+pub fn oso_core::keymap::Keymap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::keymap::Keymap
+pub struct oso_core::keymap::Layers<'a>
+pub oso_core::keymap::Layers::at_point: core::option::Option<&'a oso_core::keymap::Keymap>
+pub oso_core::keymap::Layers::global: &'a oso_core::keymap::Keymap
+pub oso_core::keymap::Layers::major: core::option::Option<&'a oso_core::keymap::Keymap>
+pub oso_core::keymap::Layers::minor: &'a [&'a oso_core::keymap::Keymap]
+impl<'a> oso_core::keymap::Layers<'a>
+pub fn oso_core::keymap::Layers<'a>::global(&'a oso_core::keymap::Keymap) -> Self
+pub fn oso_core::keymap::Layers<'a>::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = &'a oso_core::keymap::Keymap>
+pub fn oso_core::keymap::Layers<'a>::lookup(&self, &[oso_core::key::KeyPress]) -> core::option::Option<&'a oso_core::keymap::Binding>
+impl<'a> core::clone::Clone for oso_core::keymap::Layers<'a>
+pub fn oso_core::keymap::Layers<'a>::clone(&self) -> oso_core::keymap::Layers<'a>
+impl<'a> core::fmt::Debug for oso_core::keymap::Layers<'a>
+pub fn oso_core::keymap::Layers<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_core::keymap::Layers<'a>
+pub struct oso_core::keymap::TableError
+pub oso_core::keymap::TableError::command: alloc::string::String
+pub oso_core::keymap::TableError::keys: alloc::string::String
+pub oso_core::keymap::TableError::reason: oso_core::keymap::TableErrorReason
+impl core::clone::Clone for oso_core::keymap::TableError
+pub fn oso_core::keymap::TableError::clone(&self) -> oso_core::keymap::TableError
+impl core::cmp::Eq for oso_core::keymap::TableError
+impl core::cmp::PartialEq for oso_core::keymap::TableError
+pub fn oso_core::keymap::TableError::eq(&self, &oso_core::keymap::TableError) -> bool
+impl core::error::Error for oso_core::keymap::TableError
+impl core::fmt::Debug for oso_core::keymap::TableError
+pub fn oso_core::keymap::TableError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::keymap::TableError
+pub fn oso_core::keymap::TableError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::keymap::TableError
+pub const oso_core::keymap::CANCEL: oso_core::key::KeyPress
+pub fn oso_core::keymap::display_keys(&[oso_core::key::KeyPress]) -> impl core::fmt::Display + '_
+pub mod oso_core::rope
+pub struct oso_core::rope::Chunks<'a>
+impl<'a> core::iter::traits::iterator::Iterator for oso_core::rope::Chunks<'a>
+pub type oso_core::rope::Chunks<'a>::Item = &'a str
+pub fn oso_core::rope::Chunks<'a>::next(&mut self) -> core::option::Option<&'a str>
+pub struct oso_core::rope::Lines<'a>
+impl<'a> core::iter::traits::iterator::Iterator for oso_core::rope::Lines<'a>
+pub type oso_core::rope::Lines<'a>::Item = alloc::borrow::Cow<'a, str>
+pub fn oso_core::rope::Lines<'a>::next(&mut self) -> core::option::Option<alloc::borrow::Cow<'a, str>>
+pub struct oso_core::rope::Point
+pub oso_core::rope::Point::column: usize
+pub oso_core::rope::Point::row: usize
+impl oso_core::rope::Point
+pub const fn oso_core::rope::Point::new(usize, usize) -> Self
+impl core::clone::Clone for oso_core::rope::Point
+pub fn oso_core::rope::Point::clone(&self) -> oso_core::rope::Point
+impl core::cmp::Eq for oso_core::rope::Point
+impl core::cmp::Ord for oso_core::rope::Point
+pub fn oso_core::rope::Point::cmp(&self, &oso_core::rope::Point) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_core::rope::Point
+pub fn oso_core::rope::Point::eq(&self, &oso_core::rope::Point) -> bool
+impl core::cmp::PartialOrd for oso_core::rope::Point
+pub fn oso_core::rope::Point::partial_cmp(&self, &oso_core::rope::Point) -> core::option::Option<core::cmp::Ordering>
+impl core::default::Default for oso_core::rope::Point
+pub fn oso_core::rope::Point::default() -> oso_core::rope::Point
+impl core::fmt::Debug for oso_core::rope::Point
+pub fn oso_core::rope::Point::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::rope::Point
+pub fn oso_core::rope::Point::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::rope::Point
+impl core::marker::StructuralPartialEq for oso_core::rope::Point
+impl oso_core::sum_tree::Dimension<oso_core::rope::TextSummary> for oso_core::rope::Point
+pub fn oso_core::rope::Point::add_summary(&mut self, &oso_core::rope::TextSummary)
+pub fn oso_core::rope::Point::from_summary(&S) -> Self
+pub struct oso_core::rope::Rope
+impl oso_core::rope::Rope
+pub fn oso_core::rope::Rope::char_count(&self) -> usize
+pub fn oso_core::rope::Rope::chunks(&self) -> oso_core::rope::Chunks<'_>
+pub fn oso_core::rope::Rope::chunks_in_range(&self, core::ops::range::Range<usize>) -> oso_core::rope::Chunks<'_>
+pub fn oso_core::rope::Rope::clip_offset(&self, usize, oso_core::sum_tree::Bias) -> usize
+pub fn oso_core::rope::Rope::clip_point(&self, oso_core::rope::Point) -> oso_core::rope::Point
+pub fn oso_core::rope::Rope::delete(&mut self, core::ops::range::Range<usize>) -> oso_core::rope::RopeEdit
+pub fn oso_core::rope::Rope::insert(&mut self, usize, &str) -> oso_core::rope::RopeEdit
+pub fn oso_core::rope::Rope::is_empty(&self) -> bool
+pub fn oso_core::rope::Rope::len(&self) -> usize
+pub fn oso_core::rope::Rope::line_count(&self) -> usize
+pub fn oso_core::rope::Rope::line_end(&self, usize) -> usize
+pub fn oso_core::rope::Rope::line_len(&self, usize) -> usize
+pub fn oso_core::rope::Rope::line_start(&self, usize) -> usize
+pub fn oso_core::rope::Rope::lines(&self) -> oso_core::rope::Lines<'_>
+pub fn oso_core::rope::Rope::max_point(&self) -> oso_core::rope::Point
+pub fn oso_core::rope::Rope::new() -> Self
+pub fn oso_core::rope::Rope::offset_to_point(&self, usize) -> oso_core::rope::Point
+pub fn oso_core::rope::Rope::point_to_offset(&self, oso_core::rope::Point) -> usize
+pub fn oso_core::rope::Rope::push_str(&mut self, &str) -> oso_core::rope::RopeEdit
+pub fn oso_core::rope::Rope::replace(&mut self, core::ops::range::Range<usize>, &str) -> oso_core::rope::RopeEdit
+pub fn oso_core::rope::Rope::slice(&self, core::ops::range::Range<usize>) -> oso_core::rope::Rope
+pub fn oso_core::rope::Rope::summary(&self) -> &oso_core::rope::TextSummary
+impl core::clone::Clone for oso_core::rope::Rope
+pub fn oso_core::rope::Rope::clone(&self) -> oso_core::rope::Rope
+impl core::convert::From<&str> for oso_core::rope::Rope
+pub fn oso_core::rope::Rope::from(&str) -> Self
+impl core::default::Default for oso_core::rope::Rope
+pub fn oso_core::rope::Rope::default() -> oso_core::rope::Rope
+impl core::fmt::Debug for oso_core::rope::Rope
+pub fn oso_core::rope::Rope::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::rope::Rope
+pub fn oso_core::rope::Rope::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::rope::RopeEdit
+pub oso_core::rope::RopeEdit::new: core::ops::range::Range<usize>
+pub oso_core::rope::RopeEdit::old: core::ops::range::Range<usize>
+impl core::clone::Clone for oso_core::rope::RopeEdit
+pub fn oso_core::rope::RopeEdit::clone(&self) -> oso_core::rope::RopeEdit
+impl core::cmp::Eq for oso_core::rope::RopeEdit
+impl core::cmp::PartialEq for oso_core::rope::RopeEdit
+pub fn oso_core::rope::RopeEdit::eq(&self, &oso_core::rope::RopeEdit) -> bool
+impl core::default::Default for oso_core::rope::RopeEdit
+pub fn oso_core::rope::RopeEdit::default() -> oso_core::rope::RopeEdit
+impl core::fmt::Debug for oso_core::rope::RopeEdit
+pub fn oso_core::rope::RopeEdit::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::rope::RopeEdit
+pub struct oso_core::rope::TextSummary
+pub oso_core::rope::TextSummary::bytes: usize
+pub oso_core::rope::TextSummary::chars: usize
+pub oso_core::rope::TextSummary::last_line_bytes: usize
+pub oso_core::rope::TextSummary::lines: usize
+impl oso_core::rope::TextSummary
+pub fn oso_core::rope::TextSummary::from_text(&str) -> Self
+impl core::clone::Clone for oso_core::rope::TextSummary
+pub fn oso_core::rope::TextSummary::clone(&self) -> oso_core::rope::TextSummary
+impl core::cmp::Eq for oso_core::rope::TextSummary
+impl core::cmp::PartialEq for oso_core::rope::TextSummary
+pub fn oso_core::rope::TextSummary::eq(&self, &oso_core::rope::TextSummary) -> bool
+impl core::default::Default for oso_core::rope::TextSummary
+pub fn oso_core::rope::TextSummary::default() -> oso_core::rope::TextSummary
+impl core::fmt::Debug for oso_core::rope::TextSummary
+pub fn oso_core::rope::TextSummary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::rope::TextSummary
+impl core::marker::StructuralPartialEq for oso_core::rope::TextSummary
+impl oso_core::sum_tree::Dimension<oso_core::rope::TextSummary> for oso_core::rope::Point
+pub fn oso_core::rope::Point::add_summary(&mut self, &oso_core::rope::TextSummary)
+pub fn oso_core::rope::Point::from_summary(&S) -> Self
+impl oso_core::sum_tree::Dimension<oso_core::rope::TextSummary> for usize
+pub fn usize::add_summary(&mut self, &oso_core::rope::TextSummary)
+pub fn usize::from_summary(&S) -> Self
+impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
+pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
+pub const oso_core::rope::MAX_CHUNK_BYTES: usize
+pub mod oso_core::sum_tree
+pub enum oso_core::sum_tree::Bias
+pub oso_core::sum_tree::Bias::Left
+pub oso_core::sum_tree::Bias::Right
+impl core::clone::Clone for oso_core::sum_tree::Bias
+pub fn oso_core::sum_tree::Bias::clone(&self) -> oso_core::sum_tree::Bias
+impl core::cmp::Eq for oso_core::sum_tree::Bias
+impl core::cmp::PartialEq for oso_core::sum_tree::Bias
+pub fn oso_core::sum_tree::Bias::eq(&self, &oso_core::sum_tree::Bias) -> bool
+impl core::default::Default for oso_core::sum_tree::Bias
+pub fn oso_core::sum_tree::Bias::default() -> oso_core::sum_tree::Bias
+impl core::fmt::Debug for oso_core::sum_tree::Bias
+pub fn oso_core::sum_tree::Bias::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::sum_tree::Bias
+pub fn oso_core::sum_tree::Bias::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::sum_tree::Bias
+impl core::marker::StructuralPartialEq for oso_core::sum_tree::Bias
+pub struct oso_core::sum_tree::Cursor<'a, T: oso_core::sum_tree::Item, D>
+impl<'a, T: oso_core::sum_tree::Item, D: oso_core::sum_tree::Dimension<<T as oso_core::sum_tree::Item>::Summary>> oso_core::sum_tree::Cursor<'a, T, D>
+pub fn oso_core::sum_tree::Cursor<'a, T, D>::end(&self) -> D
+pub fn oso_core::sum_tree::Cursor<'a, T, D>::item(&self) -> core::option::Option<&'a T>
+pub fn oso_core::sum_tree::Cursor<'a, T, D>::item_summary(&self) -> core::option::Option<&'a <T as oso_core::sum_tree::Item>::Summary>
+pub fn oso_core::sum_tree::Cursor<'a, T, D>::next(&mut self)
+pub fn oso_core::sum_tree::Cursor<'a, T, D>::prev(&mut self) -> bool
+pub fn oso_core::sum_tree::Cursor<'a, T, D>::seek<Tg>(&mut self, &Tg, oso_core::sum_tree::Bias) where Tg: oso_core::sum_tree::SeekTarget<<T as oso_core::sum_tree::Item>::Summary, D> + ?core::marker::Sized
+pub fn oso_core::sum_tree::Cursor<'a, T, D>::start(&self) -> &D
+pub struct oso_core::sum_tree::Iter<'a, T: oso_core::sum_tree::Item>
+impl<'a, T: oso_core::sum_tree::Item> core::iter::traits::iterator::Iterator for oso_core::sum_tree::Iter<'a, T>
+pub type oso_core::sum_tree::Iter<'a, T>::Item = &'a T
+pub fn oso_core::sum_tree::Iter<'a, T>::next(&mut self) -> core::option::Option<&'a T>
+pub struct oso_core::sum_tree::SumTree<T: oso_core::sum_tree::Item>(_)
+impl<T: oso_core::sum_tree::Item> oso_core::sum_tree::SumTree<T>
+pub fn oso_core::sum_tree::SumTree<T>::append(&mut self, Self)
+pub fn oso_core::sum_tree::SumTree<T>::cursor<D: oso_core::sum_tree::Dimension<<T as oso_core::sum_tree::Item>::Summary>>(&self) -> oso_core::sum_tree::Cursor<'_, T, D>
+pub fn oso_core::sum_tree::SumTree<T>::extent<D: oso_core::sum_tree::Dimension<<T as oso_core::sum_tree::Item>::Summary>>(&self) -> D
+pub fn oso_core::sum_tree::SumTree<T>::from_item(T) -> Self
+pub fn oso_core::sum_tree::SumTree<T>::is_empty(&self) -> bool
+pub fn oso_core::sum_tree::SumTree<T>::iter(&self) -> oso_core::sum_tree::Iter<'_, T>
+pub fn oso_core::sum_tree::SumTree<T>::new() -> Self
+pub fn oso_core::sum_tree::SumTree<T>::push(&mut self, T)
+pub fn oso_core::sum_tree::SumTree<T>::split<D>(&self, &D, oso_core::sum_tree::Bias) -> (Self, Self) where D: oso_core::sum_tree::Dimension<<T as oso_core::sum_tree::Item>::Summary> + core::cmp::Ord
+pub fn oso_core::sum_tree::SumTree<T>::summary(&self) -> &<T as oso_core::sum_tree::Item>::Summary
+impl<T: oso_core::sum_tree::Item + core::fmt::Debug> core::fmt::Debug for oso_core::sum_tree::SumTree<T>
+pub fn oso_core::sum_tree::SumTree<T>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<T: oso_core::sum_tree::Item> core::clone::Clone for oso_core::sum_tree::SumTree<T>
+pub fn oso_core::sum_tree::SumTree<T>::clone(&self) -> Self
+impl<T: oso_core::sum_tree::Item> core::default::Default for oso_core::sum_tree::SumTree<T>
+pub fn oso_core::sum_tree::SumTree<T>::default() -> Self
+impl<T: oso_core::sum_tree::Item> core::iter::traits::collect::FromIterator<T> for oso_core::sum_tree::SumTree<T>
+pub fn oso_core::sum_tree::SumTree<T>::from_iter<I: core::iter::traits::collect::IntoIterator<Item = T>>(I) -> Self
+pub trait oso_core::sum_tree::Dimension<S: oso_core::sum_tree::Summary>: core::clone::Clone + core::default::Default
+pub fn oso_core::sum_tree::Dimension::add_summary(&mut self, &S)
+pub fn oso_core::sum_tree::Dimension::from_summary(&S) -> Self
+impl oso_core::sum_tree::Dimension<oso_core::display_map::tab_map::TabSummary> for oso_core::display_map::tab_map::TabPoint
+pub fn oso_core::display_map::tab_map::TabPoint::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary)
+pub fn oso_core::display_map::tab_map::TabPoint::from_summary(&S) -> Self
+impl oso_core::sum_tree::Dimension<oso_core::display_map::tab_map::TabSummary> for usize
+pub fn usize::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary)
+pub fn usize::from_summary(&S) -> Self
+impl oso_core::sum_tree::Dimension<oso_core::rope::TextSummary> for oso_core::rope::Point
+pub fn oso_core::rope::Point::add_summary(&mut self, &oso_core::rope::TextSummary)
+pub fn oso_core::rope::Point::from_summary(&S) -> Self
+impl oso_core::sum_tree::Dimension<oso_core::rope::TextSummary> for usize
+pub fn usize::add_summary(&mut self, &oso_core::rope::TextSummary)
+pub fn usize::from_summary(&S) -> Self
+impl<S: oso_core::sum_tree::Summary, D1: oso_core::sum_tree::Dimension<S>, D2: oso_core::sum_tree::Dimension<S>> oso_core::sum_tree::Dimension<S> for (D1, D2)
+pub fn (D1, D2)::add_summary(&mut self, &S)
+pub fn (D1, D2)::from_summary(&S) -> Self
+impl<S: oso_core::sum_tree::Summary> oso_core::sum_tree::Dimension<S> for ()
+pub fn ()::add_summary(&mut self, &S)
+pub fn ()::from_summary(&S) -> Self
+pub trait oso_core::sum_tree::Item: core::clone::Clone
+pub type oso_core::sum_tree::Item::Summary: oso_core::sum_tree::Summary
+pub fn oso_core::sum_tree::Item::summary(&self) -> Self::Summary
+pub trait oso_core::sum_tree::SeekTarget<S: oso_core::sum_tree::Summary, D: oso_core::sum_tree::Dimension<S>>
+pub fn oso_core::sum_tree::SeekTarget::cmp_position(&self, &D) -> core::cmp::Ordering
+impl<S, D1, D2> oso_core::sum_tree::SeekTarget<S, (D1, D2)> for D1 where S: oso_core::sum_tree::Summary, D1: oso_core::sum_tree::Dimension<S> + core::cmp::Ord, D2: oso_core::sum_tree::Dimension<S>
+pub fn D1::cmp_position(&self, &(D1, D2)) -> core::cmp::Ordering
+impl<S: oso_core::sum_tree::Summary, D: oso_core::sum_tree::Dimension<S> + core::cmp::Ord> oso_core::sum_tree::SeekTarget<S, D> for D
+pub fn D::cmp_position(&self, &D) -> core::cmp::Ordering
+pub trait oso_core::sum_tree::Summary: core::clone::Clone + core::default::Default
+pub fn oso_core::sum_tree::Summary::add_summary(&mut self, &Self)
+impl oso_core::sum_tree::Summary for oso_core::display_map::tab_map::TabSummary
+pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
+impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
+pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)

@@ -243,6 +243,10 @@ impl Registry {
 
     /// Adds a command. Fails if its name is taken or malformed, or it has
     /// no docstring.
+    #[expect(
+        clippy::expect_used,
+        reason = "each command is a static item in the binary, so there are far fewer than 2^32"
+    )]
     pub fn register(&mut self, command: Command) -> Result<CommandId, RegisterError> {
         if !is_command_name(command.name) {
             return Err(RegisterError::BadName(command.name));
@@ -277,6 +281,10 @@ impl Registry {
     }
 
     /// All commands with their ids, in the order they were registered.
+    #[expect(
+        clippy::expect_used,
+        reason = "`register` gives out every id, so each index fits in u32"
+    )]
     pub fn iter(&self) -> impl ExactSizeIterator<Item = (CommandId, &Command)> {
         self.commands.iter().enumerate().map(|(i, command)| {
             (

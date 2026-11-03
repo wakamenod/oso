@@ -3,6 +3,9 @@
 //! (ADR 0004). Everything here is testable with plain `cargo test`.
 
 #![forbid(unsafe_code)]
+// Panics in core logic must be real errors or justified invariants (ADR 0038).
+// Tests may unwrap (`allow-unwrap-in-tests` in clippy.toml).
+#![deny(clippy::unwrap_used, clippy::expect_used)]
 
 pub mod command;
 pub mod cursor;

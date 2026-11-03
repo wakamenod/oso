@@ -48,6 +48,16 @@ undocumented_unsafe_blocks = "deny"
 disallowed_methods = "deny"
 disallowed_types = "deny"
 allow_attributes_without_reason = "deny"
+# Architecture guardrails (ADR 0038): no global state, no printing, size
+# limits. Thresholds and banned paths are in clippy.toml.
+disallowed_macros = "deny"
+too_many_lines = "deny"
+cognitive_complexity = "deny"
+
+[workspace.lints.rust]
+# Mutable statics are global state (ADR 0038). `static mut` items themselves
+# are rejected by crates/oso/tests/architecture.
+static_mut_refs = "deny"
 
 # Optimize dependencies, not oso, so the tip crate rebuilds within 2 s and
 # GPU code still runs fast in dev builds (ADR 0024).

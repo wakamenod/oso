@@ -1,0 +1,200 @@
+pub mod oso_platform
+pub mod oso_platform::control
+pub struct oso_platform::control::CleanupGuard
+impl core::clone::Clone for oso_platform::control::CleanupGuard
+pub fn oso_platform::control::CleanupGuard::clone(&self) -> oso_platform::control::CleanupGuard
+impl core::fmt::Debug for oso_platform::control::CleanupGuard
+pub fn oso_platform::control::CleanupGuard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for oso_platform::control::CleanupGuard
+pub fn oso_platform::control::CleanupGuard::drop(&mut self)
+pub struct oso_platform::control::ControlDir
+impl oso_platform::control::ControlDir
+pub fn oso_platform::control::ControlDir::at(impl core::convert::Into<std::path::PathBuf>) -> std::io::error::Result<Self>
+pub fn oso_platform::control::ControlDir::bind(&self) -> std::io::error::Result<oso_platform::control::ControlListener>
+pub fn oso_platform::control::ControlDir::connect(&self, core::option::Option<u32>) -> std::io::error::Result<(u32, oso_platform::control::ControlStream)>
+pub fn oso_platform::control::ControlDir::open() -> std::io::error::Result<Self>
+pub fn oso_platform::control::ControlDir::open_existing() -> std::io::error::Result<Self>
+pub fn oso_platform::control::ControlDir::path(&self) -> &std::path::Path
+pub fn oso_platform::control::ControlDir::remove_stale(&self)
+pub fn oso_platform::control::ControlDir::write_private_file(&self, &str, &[u8]) -> std::io::error::Result<std::path::PathBuf>
+impl core::clone::Clone for oso_platform::control::ControlDir
+pub fn oso_platform::control::ControlDir::clone(&self) -> oso_platform::control::ControlDir
+impl core::fmt::Debug for oso_platform::control::ControlDir
+pub fn oso_platform::control::ControlDir::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_platform::control::ControlListener
+impl oso_platform::control::ControlListener
+pub fn oso_platform::control::ControlListener::accept(&self) -> std::io::error::Result<oso_platform::control::ControlStream>
+pub fn oso_platform::control::ControlListener::cleanup_guard(&self) -> oso_platform::control::CleanupGuard
+pub fn oso_platform::control::ControlListener::socket_path(&self) -> std::path::PathBuf
+impl core::fmt::Debug for oso_platform::control::ControlListener
+pub fn oso_platform::control::ControlListener::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_platform::control::ControlStream(_)
+impl oso_platform::control::ControlStream
+pub fn oso_platform::control::ControlStream::set_read_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
+pub fn oso_platform::control::ControlStream::set_write_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
+pub fn oso_platform::control::ControlStream::try_clone(&self) -> std::io::error::Result<Self>
+impl core::fmt::Debug for oso_platform::control::ControlStream
+pub fn oso_platform::control::ControlStream::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl std::io::Read for oso_platform::control::ControlStream
+pub fn oso_platform::control::ControlStream::read(&mut self, &mut [u8]) -> std::io::error::Result<usize>
+impl std::io::Write for oso_platform::control::ControlStream
+pub fn oso_platform::control::ControlStream::flush(&mut self) -> std::io::error::Result<()>
+pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io::error::Result<usize>
+pub mod oso_platform::text
+pub enum oso_platform::text::GlyphFormat
+pub oso_platform::text::GlyphFormat::Color
+pub oso_platform::text::GlyphFormat::Coverage
+impl oso_platform::text::GlyphFormat
+pub fn oso_platform::text::GlyphFormat::bytes_per_pixel(self) -> usize
+impl core::clone::Clone for oso_platform::text::GlyphFormat
+pub fn oso_platform::text::GlyphFormat::clone(&self) -> oso_platform::text::GlyphFormat
+impl core::cmp::Eq for oso_platform::text::GlyphFormat
+impl core::cmp::PartialEq for oso_platform::text::GlyphFormat
+pub fn oso_platform::text::GlyphFormat::eq(&self, &oso_platform::text::GlyphFormat) -> bool
+impl core::fmt::Debug for oso_platform::text::GlyphFormat
+pub fn oso_platform::text::GlyphFormat::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_platform::text::GlyphFormat
+pub fn oso_platform::text::GlyphFormat::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_platform::text::GlyphFormat
+impl core::marker::StructuralPartialEq for oso_platform::text::GlyphFormat
+pub enum oso_platform::text::TextError
+pub oso_platform::text::TextError::NoFont
+pub oso_platform::text::TextError::Unsupported
+impl core::clone::Clone for oso_platform::text::TextError
+pub fn oso_platform::text::TextError::clone(&self) -> oso_platform::text::TextError
+impl core::cmp::Eq for oso_platform::text::TextError
+impl core::cmp::PartialEq for oso_platform::text::TextError
+pub fn oso_platform::text::TextError::eq(&self, &oso_platform::text::TextError) -> bool
+impl core::error::Error for oso_platform::text::TextError
+impl core::fmt::Debug for oso_platform::text::TextError
+pub fn oso_platform::text::TextError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_platform::text::TextError
+pub fn oso_platform::text::TextError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::text::TextError
+pub struct oso_platform::text::CellMetrics
+pub oso_platform::text::CellMetrics::ascent: f32
+pub oso_platform::text::CellMetrics::descent: f32
+pub oso_platform::text::CellMetrics::height: f32
+pub oso_platform::text::CellMetrics::width: f32
+impl oso_platform::text::CellMetrics
+pub fn oso_platform::text::CellMetrics::estimate(f32, f64) -> Self
+impl core::clone::Clone for oso_platform::text::CellMetrics
+pub fn oso_platform::text::CellMetrics::clone(&self) -> oso_platform::text::CellMetrics
+impl core::cmp::PartialEq for oso_platform::text::CellMetrics
+pub fn oso_platform::text::CellMetrics::eq(&self, &oso_platform::text::CellMetrics) -> bool
+impl core::fmt::Debug for oso_platform::text::CellMetrics
+pub fn oso_platform::text::CellMetrics::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::text::CellMetrics
+impl core::marker::StructuralPartialEq for oso_platform::text::CellMetrics
+pub struct oso_platform::text::FontId(pub u16)
+impl core::clone::Clone for oso_platform::text::FontId
+pub fn oso_platform::text::FontId::clone(&self) -> oso_platform::text::FontId
+impl core::cmp::Eq for oso_platform::text::FontId
+impl core::cmp::Ord for oso_platform::text::FontId
+pub fn oso_platform::text::FontId::cmp(&self, &oso_platform::text::FontId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_platform::text::FontId
+pub fn oso_platform::text::FontId::eq(&self, &oso_platform::text::FontId) -> bool
+impl core::cmp::PartialOrd for oso_platform::text::FontId
+pub fn oso_platform::text::FontId::partial_cmp(&self, &oso_platform::text::FontId) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_platform::text::FontId
+pub fn oso_platform::text::FontId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_platform::text::FontId
+pub fn oso_platform::text::FontId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_platform::text::FontId
+impl core::marker::StructuralPartialEq for oso_platform::text::FontId
+pub struct oso_platform::text::FontRequest<'a>
+pub oso_platform::text::FontRequest::families: &'a [&'a str]
+pub oso_platform::text::FontRequest::size_pt: f32
+impl<'a> core::clone::Clone for oso_platform::text::FontRequest<'a>
+pub fn oso_platform::text::FontRequest<'a>::clone(&self) -> oso_platform::text::FontRequest<'a>
+impl<'a> core::cmp::PartialEq for oso_platform::text::FontRequest<'a>
+pub fn oso_platform::text::FontRequest<'a>::eq(&self, &oso_platform::text::FontRequest<'a>) -> bool
+impl<'a> core::fmt::Debug for oso_platform::text::FontRequest<'a>
+pub fn oso_platform::text::FontRequest<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_platform::text::FontRequest<'a>
+impl<'a> core::marker::StructuralPartialEq for oso_platform::text::FontRequest<'a>
+pub struct oso_platform::text::GlyphBitmap
+pub oso_platform::text::GlyphBitmap::data: alloc::vec::Vec<u8>
+pub oso_platform::text::GlyphBitmap::format: oso_platform::text::GlyphFormat
+pub oso_platform::text::GlyphBitmap::height: u32
+pub oso_platform::text::GlyphBitmap::left: i32
+pub oso_platform::text::GlyphBitmap::top: i32
+pub oso_platform::text::GlyphBitmap::width: u32
+impl core::clone::Clone for oso_platform::text::GlyphBitmap
+pub fn oso_platform::text::GlyphBitmap::clone(&self) -> oso_platform::text::GlyphBitmap
+impl core::cmp::Eq for oso_platform::text::GlyphBitmap
+impl core::cmp::PartialEq for oso_platform::text::GlyphBitmap
+pub fn oso_platform::text::GlyphBitmap::eq(&self, &oso_platform::text::GlyphBitmap) -> bool
+impl core::fmt::Debug for oso_platform::text::GlyphBitmap
+pub fn oso_platform::text::GlyphBitmap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::text::GlyphBitmap
+pub struct oso_platform::text::GlyphId(pub u16)
+impl core::clone::Clone for oso_platform::text::GlyphId
+pub fn oso_platform::text::GlyphId::clone(&self) -> oso_platform::text::GlyphId
+impl core::cmp::Eq for oso_platform::text::GlyphId
+impl core::cmp::Ord for oso_platform::text::GlyphId
+pub fn oso_platform::text::GlyphId::cmp(&self, &oso_platform::text::GlyphId) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_platform::text::GlyphId
+pub fn oso_platform::text::GlyphId::eq(&self, &oso_platform::text::GlyphId) -> bool
+impl core::cmp::PartialOrd for oso_platform::text::GlyphId
+pub fn oso_platform::text::GlyphId::partial_cmp(&self, &oso_platform::text::GlyphId) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_platform::text::GlyphId
+pub fn oso_platform::text::GlyphId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_platform::text::GlyphId
+pub fn oso_platform::text::GlyphId::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_platform::text::GlyphId
+impl core::marker::StructuralPartialEq for oso_platform::text::GlyphId
+pub struct oso_platform::text::GlyphKey
+pub oso_platform::text::GlyphKey::font: oso_platform::text::FontId
+pub oso_platform::text::GlyphKey::glyph: oso_platform::text::GlyphId
+impl core::clone::Clone for oso_platform::text::GlyphKey
+pub fn oso_platform::text::GlyphKey::clone(&self) -> oso_platform::text::GlyphKey
+impl core::cmp::Eq for oso_platform::text::GlyphKey
+impl core::cmp::Ord for oso_platform::text::GlyphKey
+pub fn oso_platform::text::GlyphKey::cmp(&self, &oso_platform::text::GlyphKey) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_platform::text::GlyphKey
+pub fn oso_platform::text::GlyphKey::eq(&self, &oso_platform::text::GlyphKey) -> bool
+impl core::cmp::PartialOrd for oso_platform::text::GlyphKey
+pub fn oso_platform::text::GlyphKey::partial_cmp(&self, &oso_platform::text::GlyphKey) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_platform::text::GlyphKey
+pub fn oso_platform::text::GlyphKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_platform::text::GlyphKey
+pub fn oso_platform::text::GlyphKey::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_platform::text::GlyphKey
+impl core::marker::StructuralPartialEq for oso_platform::text::GlyphKey
+pub struct oso_platform::text::NullTextSystem
+impl oso_platform::text::NullTextSystem
+pub fn oso_platform::text::NullTextSystem::new(f32, f64) -> Self
+impl core::clone::Clone for oso_platform::text::NullTextSystem
+pub fn oso_platform::text::NullTextSystem::clone(&self) -> oso_platform::text::NullTextSystem
+impl core::fmt::Debug for oso_platform::text::NullTextSystem
+pub fn oso_platform::text::NullTextSystem::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::text::NullTextSystem
+impl oso_platform::text::TextSystem for oso_platform::text::NullTextSystem
+pub fn oso_platform::text::NullTextSystem::metrics(&self) -> oso_platform::text::CellMetrics
+pub fn oso_platform::text::NullTextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
+pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
+pub struct oso_platform::text::ShapedGlyph
+pub oso_platform::text::ShapedGlyph::advance: f32
+pub oso_platform::text::ShapedGlyph::cluster: u32
+pub oso_platform::text::ShapedGlyph::key: oso_platform::text::GlyphKey
+pub oso_platform::text::ShapedGlyph::x: f32
+pub oso_platform::text::ShapedGlyph::y: f32
+impl core::clone::Clone for oso_platform::text::ShapedGlyph
+pub fn oso_platform::text::ShapedGlyph::clone(&self) -> oso_platform::text::ShapedGlyph
+impl core::cmp::PartialEq for oso_platform::text::ShapedGlyph
+pub fn oso_platform::text::ShapedGlyph::eq(&self, &oso_platform::text::ShapedGlyph) -> bool
+impl core::fmt::Debug for oso_platform::text::ShapedGlyph
+pub fn oso_platform::text::ShapedGlyph::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::text::ShapedGlyph
+impl core::marker::StructuralPartialEq for oso_platform::text::ShapedGlyph
+pub const oso_platform::text::FONT_SIZES: core::ops::range::RangeInclusive<f32>
+pub trait oso_platform::text::TextSystem
+pub fn oso_platform::text::TextSystem::metrics(&self) -> oso_platform::text::CellMetrics
+pub fn oso_platform::text::TextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
+pub fn oso_platform::text::TextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
+impl oso_platform::text::TextSystem for oso_platform::text::NullTextSystem
+pub fn oso_platform::text::NullTextSystem::metrics(&self) -> oso_platform::text::CellMetrics
+pub fn oso_platform::text::NullTextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
+pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
+pub fn oso_platform::text::load(&oso_platform::text::FontRequest<'_>, f64) -> core::result::Result<alloc::boxed::Box<dyn oso_platform::text::TextSystem>, oso_platform::text::TextError>

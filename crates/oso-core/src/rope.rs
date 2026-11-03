@@ -461,6 +461,10 @@ impl Rope {
     ///
     /// The range is clamped as in [`Rope::slice`]. The returned edit gives
     /// the replaced chunks, for display layers to follow.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "predates the 80-line limit (ADR 0038); split it when it next changes"
+    )]
     pub fn replace(&mut self, range: Range<usize>, text: &str) -> RopeEdit {
         let (start, end) = self.clip_range(range);
         if start == end && text.is_empty() {

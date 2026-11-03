@@ -22,8 +22,7 @@ fn main() {
     // Without the control socket, `oso ctl` must not open the editor.
     #[cfg(not(feature = "dev"))]
     if std::env::args_os().nth(1).is_some_and(|arg| arg == "ctl") {
-        eprintln!("oso ctl needs a dev build (cargo run -p oso --features dev)");
-        std::process::exit(2);
+        refuse_ctl();
     }
 
     env_logger::init();
@@ -39,4 +38,15 @@ fn main() {
     #[cfg(not(feature = "dev"))]
     let mut app = App::new();
     event_loop.run_app(&mut app).unwrap();
+}
+
+/// Exits with an error: `oso ctl` needs the control socket of a dev build.
+#[cfg(not(feature = "dev"))]
+#[expect(
+    clippy::disallowed_macros,
+    reason = "a command-line error, printed before logging starts"
+)]
+fn refuse_ctl() -> ! {
+    eprintln!("oso ctl needs a dev build (cargo run -p oso --features dev)");
+    std::process::exit(2);
 }
