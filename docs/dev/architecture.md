@@ -76,11 +76,14 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 
 ### Text core
 
-- **Rope buffer** built on oso's own `SumTree`, the same tree the display
-  model uses. Offset and line conversions take O(log n), byte offsets are the
-  primary coordinate, and snapshots are cheap to clone and share with
-  background threads. Text is UTF-8 for now. See
-  [ADR 0022](adr/0022-text-buffer-and-file-loading.md).
+- **Rope buffer** built on oso's own `SumTree` (`oso_core::sum_tree`), the
+  same tree the display model uses. The rope (`oso_core::rope`) holds UTF-8
+  chunks of up to 1 KB that end on grapheme cluster boundaries. Offset and
+  line conversions take O(log n), byte offsets are the primary coordinate,
+  and snapshots are cheap to clone and share with background threads. Text
+  is UTF-8 for now. See
+  [ADR 0022](adr/0022-text-buffer-and-file-loading.md) and
+  [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md).
 - **Selections** are per window and support multiple cursors. Each selection
   has its own mark. See [ADR 0007](adr/0007-multi-cursor.md).
 - **Undo** groups one command's edits across all cursors. Undo history is not
@@ -101,9 +104,12 @@ error and keeps running ([ADR 0014](adr/0014-panic-strategy.md)).
 
 The display model maps buffer positions to screen rows and back, in O(log n),
 through a stack of transforms. It supports folding, virtual text, soft wrap
-(off by default), block decorations and variable row heights. See
-[`display-model.md`](display-model.md) and
-[ADR 0006](adr/0006-display-model.md). The M2 screen layout is in
+(off by default), block decorations and variable row heights. Today only
+the TabMap exists (`oso_core::display_map`): it expands tabs and measures
+grapheme clusters on the cell grid, and rows are buffer lines. See
+[`display-model.md`](display-model.md),
+[ADR 0006](adr/0006-display-model.md) and
+[ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md). The M2 screen layout is in
 [`ui.md`](ui.md).
 
 ### Text rendering
