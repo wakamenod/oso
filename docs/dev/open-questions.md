@@ -34,6 +34,11 @@ item notes when it must be settled.
 - Initial set of tree-sitter grammars, beyond Rust, Markdown and TOML.
 - Fuzzing targets and how long they run.
 - URL-opening policy: which schemes, and what confirmation.
+- Migemo dictionary source and licensing. Common dictionaries derive from GPL
+  SKK dictionaries and cannot be bundled under MIT OR Apache-2.0
+  ([ADR 0020](adr/0020-license.md)). Options: the user supplies the
+  dictionary, a permissively licensed dictionary, or generating one from
+  permissive data.
 
 ## M4
 

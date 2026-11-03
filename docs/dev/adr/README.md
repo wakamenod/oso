@@ -26,6 +26,7 @@ old one's status.
 | 0017 | [Documentation and language policy](0017-docs-and-language.md) | Accepted |
 | 0018 | [Development process](0018-development-process.md) | Accepted |
 | 0019 | [Configuration](0019-configuration.md) | Accepted |
+| 0020 | [License](0020-license.md) | Accepted |
 
 ## Template
 
