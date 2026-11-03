@@ -28,6 +28,10 @@ old one's status.
 | 0019 | [Configuration](0019-configuration.md) | Accepted |
 | 0020 | [License](0020-license.md) | Accepted |
 | 0021 | [Development tooling](0021-development-tooling.md) | Accepted |
+| 0022 | [Text buffer and file loading](0022-text-buffer-and-file-loading.md) | Accepted |
+| 0023 | [Control socket protocol and restart-and-restore](0023-control-socket-protocol-and-restart.md) | Accepted |
+| 0024 | [Dev build profile and build-time budget](0024-dev-build-profile.md) | Accepted |
+| 0025 | [Key-to-photon latency measurement](0025-latency-measurement.md) | Accepted |
 
 ## Template
 

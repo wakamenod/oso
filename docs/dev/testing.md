@@ -56,8 +56,14 @@
   - editing very long lines
 - CI compares results against the budgets in
   [`roadmap.md`](roadmap.md#performance-budgets).
-- The dev incremental build time of the tip crate is measured against its
-  2 s budget.
+- Key-to-photon latency is measured inside the app, from receiving a key
+  event to presenting the frame that reflects it. CI fails on a regression
+  against `main`, and on p99 over 8 ms where a hardware GPU is available.
+  Real photon latency is checked by hand from time to time
+  ([ADR 0025](adr/0025-latency-measurement.md)).
+- The dev incremental build time of the tip crate is measured with
+  `just build-time`. The author's Mac decides the 2 s budget, and CI fails
+  only on a large regression ([ADR 0024](adr/0024-dev-build-profile.md)).
 
 ## Fuzzing
 

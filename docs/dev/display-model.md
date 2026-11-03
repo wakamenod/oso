@@ -26,7 +26,9 @@ Display rows
 ```
 
 - Each layer converts positions in both directions in O(log n), using
-  summarized trees in the style of Zed's `SumTree`.
+  summarized trees in the style of Zed's `SumTree`. oso implements its own
+  `SumTree` in `oso-core`, and the buffer's rope is built on it too
+  ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
 - Layers update incrementally. An edit invalidates only the affected range.
 - Only visible rows are laid out and rendered.
 - The whole pipeline lives in `oso-core`. It has no GPU dependency and is

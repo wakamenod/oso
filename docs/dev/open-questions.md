@@ -15,13 +15,6 @@ item notes when it must be settled.
 
 ## M1
 
-- Large-file loading: chunking, progressive display, encoding detection.
-- Dev control socket protocol (`send-keys`, `run-command`, `get-state`,
-  `screenshot`) and the hot-reload state handoff format.
-- Session-restore scope: which state survives a dev restart.
-- Dev profile tuning, linker choice, optional cranelift backend, and how to
-  measure the 2 s build budget.
-- How to measure key-to-photon latency in CI.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
@@ -31,6 +24,9 @@ item notes when it must be settled.
 - Default secret-file patterns, used by emergency save.
 - Clipboard and crash-dump handling of secrets.
 - How bidirectional and invisible characters are rendered.
+- Whether a buffer can be edited while it is still loading. In M1 it is
+  read-only until loading finishes ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
+- Detecting a file that changes on disk while it is open or loading.
 
 ## M3
 
@@ -62,3 +58,6 @@ item notes when it must be settled.
 - OS-level sandboxing of child processes such as language servers.
 - `subsecond` hot-patching proof of concept with a plain winit app.
 - Generated command reference and the Japanese edition workflow.
+- Encodings other than UTF-8 (Shift_JIS, EUC-JP), when they are needed:
+  detection, and conversion at the load and save boundary
+  ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)).

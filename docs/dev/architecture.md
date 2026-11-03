@@ -69,8 +69,11 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 
 ### Text core
 
-- **Rope buffer** (ropey or similar) with O(log n) offset and line
-  conversions.
+- **Rope buffer** built on oso's own `SumTree`, the same tree the display
+  model uses. Offset and line conversions take O(log n), byte offsets are the
+  primary coordinate, and snapshots are cheap to clone and share with
+  background threads. Text is UTF-8 for now. See
+  [ADR 0022](adr/0022-text-buffer-and-file-loading.md).
 - **Selections** are per window and support multiple cursors. Each selection
   has its own mark. See [ADR 0007](adr/0007-multi-cursor.md).
 - **Undo** groups one command's edits across all cursors. Undo history is not
@@ -138,7 +141,9 @@ inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md).
 The UI thread never blocks on I/O or parsing:
 
 - Files load on a background thread. The first screen is shown as soon as it
-  is available.
+  is available, and the buffer stays read-only until loading finishes.
+  Invalid UTF-8 and binary files open read-only, with escapes for invalid
+  bytes ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in
@@ -174,9 +179,16 @@ Full details are in [`security.md`](security.md).
 
 - **Hot reload:** config and shader reload on file change. Code changes
   trigger an incremental build, then a restart with in-memory state handoff
-  ([ADR 0002](adr/0002-dev-hot-reload.md)).
+  ([ADR 0002](adr/0002-dev-hot-reload.md)). The `oso dev` supervisor
+  (`just dev`) drives the build and restart, and the old instance exits only
+  after the new one has imported its state
+  ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
 - **Control socket:** agents can send keys, run commands, read state and take
-  screenshots ([ADR 0016](adr/0016-dev-control-socket.md)).
+  screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
+  JSON Lines, and `oso ctl` is the client
+  ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
+- **Dev profile:** dependencies are optimized and oso is not, to keep the
+  tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 
 Both are behind cargo features that release builds never enable, and CI
 checks this.
