@@ -69,12 +69,11 @@ M1 is built in this order. Each step is one PR.
   preedit, visual aids, and the dark/light theme
   ([ADR 0026](adr/0026-m2-ui-layout.md), [ADR 0027](adr/0027-theme.md)).
 - Reloading files changed on disk ([ADR 0029](adr/0029-file-changes-on-disk.md)).
-- The author's key customizations:
-  - `C-z` undo
-  - `C-w` kills the region, or the previous word when there is no region
-  - `M-,`/`M-/` switch buffers
-  - `C-a`/`C-e` toggle between code and line start/end
-  - Command = Meta, Option = Super
+- Editing command semantics from [ADR 0030](adr/0030-m2-editing-commands.md):
+  the author's key customizations, linear undo/redo (`C-z`/`C-M-z`), `M-y`
+  from the kill ring, Japanese word motion, multiple-cursor keys,
+  path-segment file completion and smart-case isearch.
+- Command = Meta, Option = Super.
 
 ### M3 — Coding
 
@@ -83,7 +82,9 @@ M1 is built in this order. Each step is one PR.
 - Project file finding and asynchronous ripgrep search.
 - Migemo-style romaji search for Japanese text, and avy-style jumps.
 - The menu component, porting the author's hydra menus.
-- Visible bidirectional and invisible characters.
+- query-replace (`M-%`), keyboard macros, whitespace cleanup on save.
+- Comment-aware `C-e` using tree-sitter
+  ([ADR 0030](adr/0030-m2-editing-commands.md)).
 
 ### M4 — Self-hosting (develop oso in oso)
 
