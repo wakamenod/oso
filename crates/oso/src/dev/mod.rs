@@ -43,6 +43,12 @@ where
         let socket = listener.socket_path();
         let cleanup = listener.cleanup_guard();
         server::spawn(listener, send)?;
+        // Probing other instances' sockets may block, so it runs on its own
+        // thread rather than delaying the first frame.
+        let stale = dir.clone();
+        thread::Builder::new()
+            .name("oso-control-cleanup".into())
+            .spawn(move || stale.remove_stale())?;
         Ok::<_, std::io::Error>((dir, cleanup, socket))
     })();
     match started {

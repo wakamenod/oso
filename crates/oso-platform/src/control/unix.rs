@@ -3,13 +3,13 @@
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::{check_dir, is_plain_name, owner_pid, socket_pid};
+use super::{check_dir, is_plain_name, owner_pid, parent_is_safe, socket_pid};
 
 /// The private directory that holds control sockets and the files they
 /// write. Every way to get one checks the directory first.
@@ -25,7 +25,7 @@ impl ControlDir {
             std::env::var_os("XDG_RUNTIME_DIR"),
             std::env::temp_dir(),
             euid(),
-        ))
+        )?)
     }
 
     /// The default directory, which must already exist. For clients, which
@@ -35,20 +35,43 @@ impl ControlDir {
             std::env::var_os("XDG_RUNTIME_DIR"),
             std::env::temp_dir(),
             euid(),
-        );
+        )?;
+        Self::check_parent(&path)?;
         Self::checked(path)
     }
 
     /// The directory at `path`, created with mode `0700` if missing. Its
-    /// parent must exist.
+    /// parent must exist, and must not let other users replace the
+    /// directory: not writable by group or others, or sticky like `/tmp`.
     pub fn at(path: impl Into<PathBuf>) -> io::Result<Self> {
         let path = path.into();
+        Self::check_parent(&path)?;
         match DirBuilder::new().mode(0o700).create(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
             Err(e) => return Err(with_path(e, "cannot create", &path)),
         }
         Self::checked(path)
+    }
+
+    /// Refuses a parent where other users could rename the directory away
+    /// and put their own in its place after it is checked.
+    fn check_parent(path: &Path) -> io::Result<()> {
+        let parent = path
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        let meta = fs::metadata(parent).map_err(|e| with_path(e, "cannot inspect", parent))?;
+        if !parent_is_safe(meta.mode()) {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "refusing to use {} for the control socket: other users can write to it",
+                    parent.display()
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Checks the directory without following a symlink at `path` itself.
@@ -80,11 +103,15 @@ impl ControlDir {
         &self.path
     }
 
-    /// Listens on `<pid>.sock` for this process. Stale sockets and their
-    /// files are removed first.
+    /// Listens on `<pid>.sock` for this process. Files left by an earlier
+    /// process with the same ID are removed first; other stale files are
+    /// left to [`Self::remove_stale`], which may block.
     pub fn bind(&self) -> io::Result<ControlListener> {
         let pid = std::process::id();
-        self.remove_stale(pid);
+        drop(CleanupGuard {
+            dir: self.path.clone(),
+            pid,
+        });
         let socket = self.path.join(format!("{pid}.sock"));
         let listener =
             UnixListener::bind(&socket).map_err(|e| with_path(e, "cannot bind", &socket))?;
@@ -177,22 +204,28 @@ impl ControlDir {
             .collect())
     }
 
-    /// Removes the files of instances that are gone: their sockets refuse
-    /// connections, or they have no socket at all. Files of `own_pid` are
-    /// left over from an earlier process with the same ID. Errors are
-    /// ignored; a file that cannot be removed does no harm.
-    fn remove_stale(&self, own_pid: u32) {
+    /// Removes the files of other instances that are gone: their sockets
+    /// refuse connections, or they have no socket at all. This process's
+    /// files are kept. Errors are ignored; a file that cannot be removed does
+    /// no harm.
+    ///
+    /// Probing a socket may block (on Linux, while a stopped instance's
+    /// backlog is full), so call this away from the UI thread.
+    pub fn remove_stale(&self) {
+        let own_pid = std::process::id();
         let Ok(names) = self.file_names() else {
             return;
         };
         let live: Vec<u32> = names
             .iter()
             .filter_map(|name| socket_pid(name))
-            .filter(|&pid| pid != own_pid)
-            .filter(|pid| UnixStream::connect(self.path.join(format!("{pid}.sock"))).is_ok())
+            .filter(|&pid| {
+                pid == own_pid || UnixStream::connect(self.path.join(format!("{pid}.sock"))).is_ok()
+            })
             .collect();
         for name in &names {
             if let Some(pid) = owner_pid(name)
+                && pid != own_pid
                 && !live.contains(&pid)
             {
                 let _ = fs::remove_file(self.path.join(name));
@@ -202,12 +235,23 @@ impl ControlDir {
 }
 
 /// `$XDG_RUNTIME_DIR/oso` if that is an absolute path, otherwise
-/// `oso-<euid>` in `temp_dir`. The user ID keeps users apart in a shared
-/// `/tmp`.
-fn default_path(xdg_runtime_dir: Option<OsString>, temp_dir: PathBuf, euid: u32) -> PathBuf {
+/// `oso-<euid>` in `temp_dir`, which must be absolute too. The user ID keeps
+/// users apart in a shared `/tmp`.
+fn default_path(
+    xdg_runtime_dir: Option<OsString>,
+    temp_dir: PathBuf,
+    euid: u32,
+) -> io::Result<PathBuf> {
     match xdg_runtime_dir.map(PathBuf::from) {
-        Some(dir) if dir.is_absolute() => dir.join("oso"),
-        _ => temp_dir.join(format!("oso-{euid}")),
+        Some(dir) if dir.is_absolute() => Ok(dir.join("oso")),
+        _ if temp_dir.is_absolute() => Ok(temp_dir.join(format!("oso-{euid}"))),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "the temporary directory {} is not an absolute path",
+                temp_dir.display()
+            ),
+        )),
     }
 }
 
@@ -272,14 +316,7 @@ pub struct ControlStream(UnixStream);
 
 impl ControlStream {
     fn verified(stream: UnixStream) -> io::Result<Self> {
-        let peer = peer_uid(stream.as_raw_fd())?;
-        let own = euid();
-        if peer != own {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!("refused a control socket peer running as uid {peer} (expected {own})"),
-            ));
-        }
+        check_peer(peer_uid(&stream)?, euid())?;
         Ok(Self(stream))
     }
 
@@ -322,6 +359,19 @@ impl Write for ControlStream {
     }
 }
 
+/// Accepts a peer only if it runs as `own`, the effective user ID of this
+/// process. A root peer is refused unless this process runs as root.
+fn check_peer(peer: u32, own: u32) -> io::Result<()> {
+    if peer == own {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("refused a control socket peer running as uid {peer} (expected {own})"),
+        ))
+    }
+}
+
 /// The effective user ID of this process.
 fn euid() -> u32 {
     // SAFETY: geteuid has no preconditions, cannot fail and touches no
@@ -331,7 +381,8 @@ fn euid() -> u32 {
 
 /// The user ID of the process at the other end of the Unix socket `fd`.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn peer_uid(fd: RawFd) -> io::Result<u32> {
+fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
+    let fd = stream.as_raw_fd();
     let mut cred = libc::ucred {
         pid: 0,
         uid: 0,
@@ -339,7 +390,7 @@ fn peer_uid(fd: RawFd) -> io::Result<u32> {
     };
     let size = std::mem::size_of::<libc::ucred>();
     let mut len = libc::socklen_t::try_from(size).expect("ucred fits in socklen_t");
-    // SAFETY: `fd` is a socket owned by the caller's live UnixStream.
+    // SAFETY: `fd` belongs to `stream`, which is borrowed for the call.
     // `cred` and `len` are initialized locals that outlive the call, and
     // `len` holds the size of `cred`, so the kernel writes within it.
     let ret = unsafe {
@@ -369,10 +420,11 @@ fn peer_uid(fd: RawFd) -> io::Result<u32> {
     target_os = "netbsd",
     target_os = "dragonfly"
 ))]
-fn peer_uid(fd: RawFd) -> io::Result<u32> {
+fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
+    let fd = stream.as_raw_fd();
     let mut uid: libc::uid_t = 0;
     let mut gid: libc::gid_t = 0;
-    // SAFETY: `fd` is a socket owned by the caller's live UnixStream, and
+    // SAFETY: `fd` belongs to `stream`, which is borrowed for the call, and
     // `uid` and `gid` are initialized locals that outlive the call.
     let ret = unsafe { libc::getpeereid(fd, &raw mut uid, &raw mut gid) };
     if ret != 0 {
@@ -393,7 +445,7 @@ fn peer_uid(fd: RawFd) -> io::Result<u32> {
     target_os = "netbsd",
     target_os = "dragonfly"
 )))]
-fn peer_uid(_fd: RawFd) -> io::Result<u32> {
+fn peer_uid(_stream: &UnixStream) -> io::Result<u32> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "the control socket cannot check peers on this system",
@@ -402,12 +454,11 @@ fn peer_uid(_fd: RawFd) -> io::Result<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ControlDir, ControlStream, default_path, euid, peer_uid};
+    use super::{ControlDir, ControlStream, check_peer, default_path, euid, peer_uid};
     use std::ffi::OsString;
     use std::fs::{self, Permissions};
     use std::io::{BufRead, BufReader, ErrorKind, Write};
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
     use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -507,14 +558,62 @@ mod tests {
     fn default_path_prefers_an_absolute_xdg_runtime_dir() {
         let tmp = PathBuf::from("/tmp");
         assert_eq!(
-            default_path(Some(OsString::from("/run/user/501")), tmp.clone(), 501),
+            default_path(Some(OsString::from("/run/user/501")), tmp.clone(), 501).unwrap(),
             PathBuf::from("/run/user/501/oso")
         );
         assert_eq!(
-            default_path(Some(OsString::from("relative")), tmp.clone(), 501),
+            default_path(Some(OsString::from("relative")), tmp.clone(), 501).unwrap(),
             PathBuf::from("/tmp/oso-501")
         );
-        assert_eq!(default_path(None, tmp, 501), PathBuf::from("/tmp/oso-501"));
+        assert_eq!(
+            default_path(None, tmp, 501).unwrap(),
+            PathBuf::from("/tmp/oso-501")
+        );
+    }
+
+    #[test]
+    fn default_path_refuses_a_relative_temp_dir() {
+        let err = default_path(None, PathBuf::from("tmp"), 501).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn refuses_a_parent_other_users_can_write() {
+        let scratch = Scratch::new();
+        let parent = scratch.join("shared");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, Permissions::from_mode(0o777)).unwrap();
+        let err = ControlDir::at(parent.join("c")).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+        assert!(err.to_string().contains("other users can write"), "{err}");
+        assert!(!parent.join("c").exists(), "nothing is created");
+        // A sticky one, like /tmp, is fine.
+        fs::set_permissions(&parent, Permissions::from_mode(0o1777)).unwrap();
+        ControlDir::at(parent.join("c")).unwrap();
+    }
+
+    #[test]
+    fn only_peers_of_the_same_user_are_accepted() {
+        assert!(check_peer(501, 501).is_ok());
+        assert!(check_peer(0, 0).is_ok());
+        for (peer, own) in [(502, 501), (0, 501), (501, 0)] {
+            let err = check_peer(peer, own).unwrap_err();
+            assert_eq!(err.kind(), ErrorKind::PermissionDenied, "{peer} {own}");
+        }
+    }
+
+    #[test]
+    fn bind_replaces_a_symlink_planted_at_its_socket_path() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        let target = scratch.join("target");
+        fs::write(&target, b"keep").unwrap();
+        let own = dir.path().join(format!("{}.sock", std::process::id()));
+        std::os::unix::fs::symlink(&target, &own).unwrap();
+        let listener = dir.bind().unwrap();
+        assert!(fs::symlink_metadata(&own).unwrap().file_type().is_socket());
+        assert_eq!(fs::read(&target).unwrap(), b"keep");
+        drop(listener);
     }
 
     #[test]
@@ -537,7 +636,7 @@ mod tests {
     #[test]
     fn peer_uid_is_our_own() {
         let (a, _b) = UnixStream::pair().unwrap();
-        assert_eq!(peer_uid(a.as_raw_fd()).unwrap(), euid());
+        assert_eq!(peer_uid(&a).unwrap(), euid());
         assert!(ControlStream::pair().is_ok());
     }
 
@@ -575,6 +674,7 @@ mod tests {
         fs::write(dir.path().join("notes.txt"), b"").unwrap();
 
         let _listener = dir.bind().unwrap();
+        dir.remove_stale();
         let mut names = dir.file_names().unwrap();
         names.sort();
         let own = format!("{}.sock", std::process::id());

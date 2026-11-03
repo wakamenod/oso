@@ -158,11 +158,12 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
 - The control socket ([ADR 0031](adr/0031-control-socket-transport.md)):
   - lives in a private directory (`$XDG_RUNTIME_DIR/oso`, or `oso-<uid>` in
     the temporary directory), created `0700` and refused if it is a symlink,
-    owned by another user or has a looser mode
+    owned by another user or has a looser mode, or if other users can
+    write to its parent and it is not sticky
   - checks on both ends that the peer runs as the same user (`getpeereid`,
     `SO_PEERCRED`)
-  - limits lines to 1 MiB, clients to 4 and `send-keys` to 4096 keys, and
-    never blocks the UI thread
+  - limits request lines to 1 MiB, clients to 4 and `send-keys` to 4096
+    keys, and never blocks the UI thread
   - is not available on Windows yet
 - Screenshots are a dev-only exception to keeping screen and buffer
   contents off disk. They are written `0600`, without following symlinks,

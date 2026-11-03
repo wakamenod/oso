@@ -279,14 +279,24 @@ impl fmt::Display for ParseKeyError {
 
 impl std::error::Error for ParseKeyError {}
 
+/// The most characters of a bad token that a [`ParseKeyError`] keeps, so
+/// that errors stay short whatever the input.
+const MAX_ERROR_TOKEN: usize = 32;
+
 impl FromStr for KeyPress {
     type Err = ParseKeyError;
 
     /// Parses one key, such as `C-x`, `M-S-<left>` or `SPC`.
     fn from_str(token: &str) -> Result<Self, ParseKeyError> {
-        let error = |reason| ParseKeyError {
-            token: token.to_owned(),
-            reason,
+        let error = |reason| {
+            let mut shown: String = token.chars().take(MAX_ERROR_TOKEN).collect();
+            if shown.len() < token.len() {
+                shown.push('…');
+            }
+            ParseKeyError {
+                token: shown,
+                reason,
+            }
         };
         let mut modifiers = Modifiers::NONE;
         let mut rest = token;
@@ -467,6 +477,14 @@ mod tests {
     fn parse_errors_name_the_token() {
         let err = "C-foo".parse::<KeyPress>().unwrap_err();
         assert_eq!(err.to_string(), "invalid key \"C-foo\": unknown key name");
+    }
+
+    #[test]
+    fn parse_errors_shorten_long_tokens() {
+        let long = "x".repeat(10_000);
+        let err = long.parse::<KeyPress>().unwrap_err().to_string();
+        assert!(err.len() < 100, "{err}");
+        assert!(err.contains(&format!("{}…", "x".repeat(32))), "{err}");
     }
 
     #[test]

@@ -72,6 +72,12 @@ pub(crate) fn check_dir(
     }
 }
 
+/// Whether a parent directory with `mode` keeps other users from replacing
+/// what is in it: not writable by group or others, or sticky.
+pub(crate) fn parent_is_safe(mode: u32) -> bool {
+    mode & 0o022 == 0 || mode & 0o1000 != 0
+}
+
 /// The process ID in a socket file name, `<pid>.sock`.
 pub(crate) fn socket_pid(name: &str) -> Option<u32> {
     parse_pid(name.strip_suffix(".sock")?)
@@ -101,7 +107,17 @@ pub(crate) fn is_plain_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DirProblem, check_dir, is_plain_name, owner_pid, socket_pid};
+    use super::{DirProblem, check_dir, is_plain_name, owner_pid, parent_is_safe, socket_pid};
+
+    #[test]
+    fn parents_must_be_private_or_sticky() {
+        assert!(parent_is_safe(0o700));
+        assert!(parent_is_safe(0o755));
+        assert!(parent_is_safe(0o1777));
+        assert!(!parent_is_safe(0o777));
+        assert!(!parent_is_safe(0o775));
+        assert!(!parent_is_safe(0o757));
+    }
 
     #[test]
     fn accepts_a_private_directory() {

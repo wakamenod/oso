@@ -52,6 +52,11 @@ impl ControlDir {
     }
 
     /// Unreachable: no `ControlDir` exists.
+    pub fn remove_stale(&self) {
+        match self.never {}
+    }
+
+    /// Unreachable: no `ControlDir` exists.
     pub fn write_private_file(&self, _name: &str, _bytes: &[u8]) -> io::Result<PathBuf> {
         match self.never {}
     }

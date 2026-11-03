@@ -18,28 +18,36 @@ release check works. A named pipe on Windows needs `windows-sys` and
 
 - **Directory:** `$XDG_RUNTIME_DIR/oso` when `$XDG_RUNTIME_DIR` is an
   absolute path, otherwise `oso-<uid>` in the temporary directory (per user
-  on macOS; the user ID keeps users apart in a shared `/tmp`).
+  on macOS; the user ID keeps users apart in a shared `/tmp`). The temporary
+  directory must be an absolute path.
+  - Its parent must not let other users replace it: it is refused if group
+    or others can write to it, unless it is sticky like `/tmp`.
   - It is created with mode `0700`. An existing one is checked with `lstat`
     and refused, never repaired, if it is a symlink, is not a directory, is
     owned by another user or grants any permission to group or others.
   - The server and `oso ctl` both check it.
-- **Socket:** `<pid>.sock`, mode `0600`. Binding removes sockets that refuse
-  connections, and files of instances with no live socket. A clean exit
-  removes the instance's own socket and files.
+- **Socket:** `<pid>.sock`, mode `0600`. Binding first removes files left
+  by an earlier process with the same ID. A background thread then removes
+  sockets that refuse connections, and files of instances with no live
+  socket; probing a socket can block, so this never delays startup. A clean
+  exit removes the instance's own socket and files.
 - **Peer check:** both ends compare the peer's user ID with their effective
   user ID: `getpeereid` on macOS and the BSDs, `SO_PEERCRED` on Linux,
   through `libc`. Other Unix systems refuse every peer. A peer running as
   root is refused too, unless oso itself runs as root.
-- **Limits:** request and response lines of at most 1 MiB, at most 4
-  clients at once, at most 4096 keys per `send-keys`, and 10 s for the UI to
-  reply.
+- **Limits:** request lines of at most 1 MiB, string ids of at most 256
+  bytes, at most 4 clients at once, at most 4096 keys per `send-keys`, and
+  10 s for the UI to reply. Errors quote at most a short prefix of the bad
+  input, so responses stay small; `oso ctl` reads at most 1 MiB.
 - **Threads:** one thread accepts and one thread per client reads, parses
   JSON and key notation, and waits for the reply. Requests reach the UI
   thread as winit user events, and replies return over a channel. The UI
   thread never touches the socket.
 - **Screenshots:** the UI thread only submits an offscreen render and a copy
   to a buffer. Waiting for the GPU, PNG encoding and writing run on a
-  background thread. The PNG is written as `<pid>-screenshot-<n>.png`, mode
+  background thread, which polls the device without blocking so that it
+  never holds wgpu's device locks while the UI thread submits or presents.
+  The PNG is written as `<pid>-screenshot-<n>.png`, mode
   `0600`, with `create_new`, so a planted symlink is never followed. The PNG
   container is written by oso; only deflate comes from `miniz_oxide`.
 - **Windows is deferred.** The `dev` feature compiles on Windows, and every

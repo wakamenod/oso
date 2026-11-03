@@ -19,6 +19,13 @@ pub const MAX_LINE: usize = 1 << 20;
 /// The most keys one `send-keys` request may send.
 pub const MAX_KEYS: usize = 4096;
 
+/// The longest string `id`, in bytes. Ids are echoed, so this keeps
+/// responses small.
+pub const MAX_ID: usize = 256;
+
+/// The most characters of a method name echoed in an error.
+const MAX_ECHO: usize = 64;
+
 /// A method and its parsed parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
@@ -61,6 +68,12 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
     };
     let id = match request.get("id") {
         None => Value::Null,
+        Some(Value::String(id)) if id.len() > MAX_ID => {
+            return Err(bad(
+                &Value::Null,
+                format!("id is longer than {MAX_ID} bytes"),
+            ));
+        }
         Some(id @ (Value::Null | Value::Number(_) | Value::String(_))) => id.clone(),
         Some(_) => {
             return Err(bad(
@@ -83,7 +96,13 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "screenshot" => Method::Screenshot,
         "get-state" => Method::GetState,
         "send-keys" => Method::SendKeys(parse_keys(params).map_err(|m| bad(&id, m))?),
-        other => return Err(bad(&id, format!("unknown method {other:?}"))),
+        other => {
+            let mut shown: String = other.chars().take(MAX_ECHO).collect();
+            if shown.len() < other.len() {
+                shown.push('…');
+            }
+            return Err(bad(&id, format!("unknown method {shown:?}")));
+        }
     };
     Ok(Request { id, method })
 }
@@ -124,7 +143,7 @@ pub fn request(id: u64, method: &str, params: Option<Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_KEYS, Method, Request, failure, parse, request, success};
+    use super::{MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, failure, parse, request, success};
     use serde_json::{Value, json};
 
     fn parsed(line: &str) -> Request {
@@ -188,6 +207,28 @@ mod tests {
             error(r#"{"id": 7, "method": "run-command"}"#),
             (json!(7), "unknown method \"run-command\"".into())
         );
+    }
+
+    #[test]
+    fn errors_stay_short_whatever_the_request() {
+        // JSON escapes for U+0001, which errors print as `\u{1}`.
+        let long = "\\u0001".repeat(MAX_LINE / 8);
+        let method = error(&format!(r#"{{"id": 1, "method": "{long}"}}"#)).1;
+        assert!(method.starts_with("unknown method"), "{method}");
+        assert!(method.len() < 600, "{} bytes", method.len());
+        let keys = error(&format!(
+            r#"{{"id": 1, "method": "send-keys", "params": {{"keys": "{long}"}}}}"#
+        ))
+        .1;
+        assert!(keys.starts_with("invalid key"), "{keys}");
+        assert!(keys.len() < 400, "{} bytes", keys.len());
+        let id = "a".repeat(MAX_ID + 1);
+        assert_eq!(
+            error(&format!(r#"{{"id": "{id}", "method": "version"}}"#)),
+            (json!(null), format!("id is longer than {MAX_ID} bytes"))
+        );
+        let id = "a".repeat(MAX_ID);
+        assert!(parse(&format!(r#"{{"id": "{id}", "method": "version"}}"#)).is_ok());
     }
 
     #[test]
