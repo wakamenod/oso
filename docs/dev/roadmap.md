@@ -59,8 +59,15 @@ M1 is built in this order. Each step is one PR.
     the text-system trait, a glyph atlas and pass 2, and a box cursor on
     the cell grid. Linux and Windows draw no text until their backends
     exist. A temporary sample is drawn until M1-6.
-- **M1-6**: asynchronous, progressive file loading; scrolling and cursor
-  motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`.
+- **M1-6** (done): asynchronous, progressive file loading; scrolling and
+  cursor motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`
+  ([ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md)):
+  - `oso [FILE]`; buffers, windows and selection sets in `oso-core`
+  - a loading thread that decodes and builds the rope and display map,
+    with `\xNN` for invalid bytes
+  - motion by display cluster, conservative scrolling, the mouse wheel
+  - buffer text drawn through the display model; the temporary sample is
+    gone
 - **M1-7b**: the rest of the control socket (`run-command`, the full
   `get-state`, `export-state` and `import-state`) and the restart-and-restore
   loop (`oso dev`).

@@ -13,38 +13,35 @@ item notes when it must be settled.
 
 ## M1
 
-- Control socket, before M1-7b: once `get-state` returns buffer text and
-  screenshots show buffers, decide whether secret-pattern files
-  ([ADR 0028](adr/0028-secrets-handling.md)) are masked in both. Also, any
+- Control socket, before M1-7b: once `get-state` returns buffer text,
+  decide whether secret-pattern files
+  ([ADR 0028](adr/0028-secrets-handling.md)) are masked there and in
+  screenshots. Screenshots show buffer text since M1-6; `get-state` shows a
+  buffer's name and path but no text. Also, any
   process running as the same user can run editor commands: already every
   bound command through `send-keys`, which shares the keymaps with the
   window ([ADR 0034](adr/0034-command-registry-and-keymaps.md)), and any
   command once `run-command` exists. ADR 0016 accepts same-user trust, and
   this consequence should be stated there, with commands that spawn
   processes in mind.
-- Before M1-6: how invalid UTF-8 bytes and binary files are held in the
-  rope, which holds only UTF-8, so that they show as `\xNN` escapes and are
-  never saved ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)). The
-  cell grid already escapes control characters
-  ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)).
-- M1-6 rendering of buffer text through the text system
-  ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)):
-  - shape only the visible column window of a row, so a 10 MB line does not
-    block the UI thread
-  - key the shaping cache by buffer line rather than screen row, so
-    scrolling does not reshape every row
-  - cap new rasterizations per frame and batch atlas uploads
-  - draw boxed code points and control escapes from the display model
-    instead of shaping the raw characters (T3 in `security.md`)
-  - measure startup from process start in a release build, cold (fonts not
-    cached), and the p99 frame time with a full screen of mixed text
+- Startup misses its budget, in M1-8: the first presented frame comes
+  about 175 ms after process start (release, warm), against 100 ms.
+  winit's event loop takes 30 to 45 ms to build, `resumed` arrives at
+  about 65 ms, the window and GPU take about 50 ms, and the first frame is
+  skipped as occluded until macOS shows the window, about 65 ms later. The
+  "50 ms after window creation" in ADR 0036 counted that skipped frame.
+  Candidates: requesting the GPU adapter and device while the event loop
+  builds, and showing the window only once the first frame is ready.
 - Text gamma: text is blended in linear space on the sRGB surface, so light
   text on dark looks heavier than in native apps. Decide with the theme.
-- M1-6 rendering: a multi-row cluster iterator that keeps one cursor across
-  rows, instead of a seek per row (about 25 µs per 60-row frame today).
+- Rendering: a multi-row cluster iterator that keeps one cursor across
+  rows, instead of a seek per row. M1-6 seeks three times per visible row
+  each frame (two to check the shaping cache, one for the clusters of a
+  row it shapes); a frame costs 0.2 to 0.6 ms of CPU (p50 to p99), so this
+  waits until a profile shows it.
 - Horizontal scroll extent needs the widest row, and the bidi-control
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
-  summary tracks neither yet; add them when M1-6 or M2 needs them.
+  summary tracks neither yet; add them when M2 needs them.
 - Large deletions free their chunks on the calling thread. Measure when M2
   editing lands, and drop big subtrees in the background if needed.
 - `unicode-width` 0.2 and 0.1 (through naga) are both in the build.
@@ -54,6 +51,18 @@ item notes when it must be settled.
   upgraded.
 
 ## M2
+
+- Editing must invalidate shaped rows by edit range
+  ([ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md)). The
+  shaping cache checks only the buffer offsets a row covers, which an edit
+  that keeps the row's length does not change.
+- isearch must not match the U+FFFD of an invalid byte
+  (`InvalidBytes`, ADR 0037).
+- Horizontal mouse wheel and trackpad scrolling: the view scrolls only
+  vertically, and auto-hscroll keeps the cursor in view.
+- Memory of very large files: a 1 GB file takes about 1.7 GB, and a binary
+  file of random bytes about 3 bytes in the rope and 4 in the invalid-byte
+  table per invalid byte. Revisit if it matters in daily use.
 
 - The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
   Rust's default hook prints panic messages, which may quote buffer text,

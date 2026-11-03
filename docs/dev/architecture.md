@@ -85,8 +85,20 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   is UTF-8 for now. See
   [ADR 0022](adr/0022-text-buffer-and-file-loading.md) and
   [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md).
-- **Selections** are per window and support multiple cursors. Each selection
-  has its own mark. See [ADR 0007](adr/0007-multi-cursor.md).
+- **Buffers and windows** live in `oso_core::editor::Editor`. A buffer
+  (`oso_core::buffer`) holds the rope, its display map, its invalid bytes,
+  its file information and its loading progress. A window
+  (`oso_core::window`) shows one buffer with its own selection set and
+  scroll position. There is one window until splits (M3). See
+  [ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md).
+- **Selections** are per window and support multiple cursors
+  (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
+  goal column for vertical motion and, from M2, its own mark. See
+  [ADR 0007](adr/0007-multi-cursor.md).
+- **Motion and scrolling** are pure functions in `oso_core::motion` and
+  `oso_core::window`. Motion steps over display clusters. After every
+  command the dispatcher scrolls the window by the fewest rows and columns
+  that show the cursor (`scroll-conservatively` 101).
 - **Undo** groups one command's edits across all cursors. Undo history is not
   persisted to disk.
 
@@ -132,8 +144,9 @@ A panicking command is caught at the command boundary
 The display model maps buffer positions to screen rows and back, in O(log n),
 through a stack of transforms. It supports folding, virtual text, soft wrap
 (off by default), block decorations and variable row heights. Today only
-the TabMap exists (`oso_core::display_map`): it expands tabs and measures
-grapheme clusters on the cell grid, and rows are buffer lines. See
+the TabMap exists (`oso_core::display_map`): it expands tabs, measures
+grapheme clusters on the cell grid and shows invalid bytes as `\xNN`, and
+rows are buffer lines. See
 [`display-model.md`](display-model.md),
 [ADR 0006](adr/0006-display-model.md) and
 [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md). The M2 screen layout is in
@@ -161,8 +174,18 @@ null text system: the cursor is drawn on the grid, and no text. See
   color emoji. They are cached in a glyph atlas (one texture per format,
   packed in shelves, doubling when full), so a glyph is rasterized once
   while its font is loaded.
-- **Per frame**, only visible rows are shaped (once, then cached) and only
-  glyphs inside the viewport become quads.
+- **Per frame**, only visible rows are drawn, and of each only the visible
+  columns, widened to 64-column steps, are shaped. Shaping is cached by
+  display row and checked against the buffer offsets it covers, so
+  scrolling reshapes only rows that come into view and a 10 MB line costs
+  one screen. Only glyphs inside the viewport become quads.
+- **Escapes** for control characters, invalid bytes and invisible
+  characters come from the display model and are shaped as ASCII labels
+  in an escape color; the raw characters never reach the shaper
+  (security.md, T3). Invisible characters also get a box.
+- **New glyphs** are rasterized at most 64 per frame, and the frame asks
+  for another; uploads are batched per run of neighbors on an atlas
+  shelf. See [ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md).
 
 ### GPU rendering
 
@@ -212,10 +235,19 @@ inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md).
 
 The UI thread never blocks on I/O or parsing:
 
-- Files load on a background thread. The first screen is shown as soon as it
-  is available, and the buffer stays read-only until loading finishes.
-  Invalid UTF-8 and binary files open read-only, with escapes for invalid
-  bytes ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
+- Files load on a background thread (`crates/oso/src/loader.rs`). It reads
+  64 KB at a time and builds the rope, the display map and the
+  invalid-byte table there (`oso_core::load::Builder`), so the UI does no
+  O(n) work. O(1) snapshots go to a one-entry slot: the first after the
+  first read, then at most one per 50 ms, then the complete one. The thread
+  wakes the UI with a user event, and the UI takes the latest snapshot
+  when woken and before each frame. The buffer stays read-only until
+  loading finishes. Invalid UTF-8 and binary files stay read-only, with
+  `\xNN` for invalid bytes
+  ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
+  [ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md)).
+- The event loop's user event is an enum: loader wake-ups in every build,
+  and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in

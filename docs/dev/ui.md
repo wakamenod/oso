@@ -69,7 +69,9 @@ with hydra-posframe today.
 
 ## Cursor
 
-- A **box** cursor that does **not blink**.
+- A **box** cursor that does **not blink**. It covers its character's
+  cells: two for a full-width character, the whole escape for `\xFF`, one
+  on a tab (built in M1-6).
 - With multiple cursors, secondary cursors use a dimmer color.
 - After a large jump or scroll, the cursor position flashes briefly
   (beacon-style).

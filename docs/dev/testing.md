@@ -25,6 +25,9 @@
 - Run in `cargo test` and `just ci`.
 - Cover:
   - cursor and selection motion, including multiple cursors
+  - scrolling rules as pure functions (`oso_core::window`)
+  - streaming file decoding against a whole-file reference, with every
+    split (`oso_core::decode`)
   - buffer edits on Japanese text and emoji
   - display-model mappings in both directions, with folds, inlays and wraps
   - keymap resolution and command dispatch
@@ -40,15 +43,19 @@
   [ADR 0032](adr/0032-control-socket-transport.md)):
   - `send-keys` sends input in Emacs notation, through the same path as
     keys from the window ([ADR 0033](adr/0033-key-presses-and-notation.md))
-  - `get-state` reads the state as JSON. Today this is the cursor position,
-    the keys of a pending prefix and the surface size; buffers, cursors and
-    the modeline come in M1-7b.
+  - `get-state` reads the state as JSON: the selected window's buffer
+    (name, path, read-only reason, line ending, BOM, invalid-byte count,
+    loading progress, size), the cursor as an offset and a display point,
+    the scroll position, the keys of a pending prefix and the surface size.
+    It never returns buffer text; that and the modeline come in M1-7b.
+  - `oso [FILE]` opens a file, so test files (generated in a scratch
+    directory, never committed) can be driven this way.
   - `screenshot` writes a PNG of the current frame and returns its path
 - Agents use these checks to verify behavior in the real app, following the
   `verify-in-app` skill. A Claude Code agent reads the screenshots to check
   visuals.
-- Not covered yet: resizing the window and real OS key events. These are
-  still checked by hand.
+- Not covered yet: resizing the window, the mouse wheel and real OS key
+  events. These are still checked by hand.
 - The transport and protocol themselves are tested without a window or GPU
   (`oso-platform` control tests, the server tests in the tip crate), so CI
   runs them on Linux and macOS. Windows is not supported yet (ADR 0032).

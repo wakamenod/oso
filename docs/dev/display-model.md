@@ -51,6 +51,13 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   clusters, row widths, and the clusters of a row from any column, for
   rendering. A snapshot is O(1) to take and can go to another thread.
 - **Rows are buffer lines**, because soft wrap is off by default.
+- **Invalid bytes.** The TabMap holds the buffer's invalid-byte table
+  (`oso_core::decode::InvalidBytes`). The U+FFFD of an invalid byte is a
+  display cluster of its own, `\xNN` in 4 cells, even where a grapheme
+  cluster would join it to a neighbor
+  ([ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md)).
+- **Cursor stops** are display clusters (`oso_core::motion`), so motion,
+  hit testing and drawing agree on every cluster.
 - FoldMap and InlayMap will go below the TabMap; its items then mirror
   InlayMap chunks. WrapMap and BlockMap will go above it; a display point
   then differs from a TabMap point. There are no placeholder layers.
@@ -76,6 +83,8 @@ The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
   visible.
 - Control characters are shown as escapes, as in Emacs: `^@` to `^_`, `^?`
   (2 cells) and `\200` to `\237` (4 cells). A lone `\r` is shown as `^M`.
+- An invalid byte of the file is shown as `\xNN` in 4 cells, in the escape
+  color, so it is not mistaken for text that reads `\x41`.
 - A tab advances to the next tab stop. `\n` and `\r\n` end the row.
 
 ## Row heights
