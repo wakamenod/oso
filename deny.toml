@@ -1,0 +1,53 @@
+# cargo-deny configuration. Policy: ADR 0010 (dependencies, network, regex)
+# and ADR 0020 (license). Changes to this file need human approval.
+
+[advisories]
+yanked = "deny"
+ignore = [
+    # ttf-parser is unmaintained. It is pulled in only by winit's Wayland
+    # client-side decorations (sctk-adwaita -> ab_glyph), which read system
+    # fonts for title bars, not file content. Revisit when winit is upgraded.
+    { id = "RUSTSEC-2026-0192", reason = "transitive via winit/sctk-adwaita; no replacement yet" },
+]
+
+[licenses]
+# Permissive licenses compatible with MIT OR Apache-2.0 (ADR 0020). Keep this
+# list minimal: add a license only when a dependency needs it.
+allow = [
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "ISC",
+    "MIT",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[sources]
+# crates.io only.
+unknown-registry = "deny"
+unknown-git = "deny"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    # No network code in oso (ADR 0010).
+    { crate = "reqwest", reason = "no network code in oso (ADR 0010)" },
+    { crate = "hyper", reason = "no network code in oso (ADR 0010)" },
+    { crate = "h2", reason = "no network code in oso (ADR 0010)" },
+    { crate = "ureq", reason = "no network code in oso (ADR 0010)" },
+    { crate = "curl", reason = "no network code in oso (ADR 0010)" },
+    { crate = "isahc", reason = "no network code in oso (ADR 0010)" },
+    { crate = "surf", reason = "no network code in oso (ADR 0010)" },
+    { crate = "attohttpc", reason = "no network code in oso (ADR 0010)" },
+    { crate = "tungstenite", reason = "no network code in oso (ADR 0010)" },
+    { crate = "native-tls", reason = "no network code in oso (ADR 0010)" },
+    { crate = "openssl", reason = "no network code in oso (ADR 0010)" },
+    { crate = "rustls", reason = "no network code in oso (ADR 0010)" },
+    # Only the linear-time regex crate (ADR 0010).
+    { crate = "fancy-regex", reason = "backtracking regex engine; use regex (ADR 0010)" },
+    { crate = "onig", reason = "backtracking regex engine; use regex (ADR 0010)" },
+    { crate = "pcre2", reason = "backtracking regex engine; use regex (ADR 0010)" },
+]
