@@ -126,8 +126,10 @@ requested with low power preference, which keeps dual-GPU machines on the
 integrated GPU.
 
 Surface errors are mapped to typed recovery actions: an outdated surface is
-reconfigured, a lost one is recreated, and timeouts and occlusion skip the
-frame. Render errors are logged and are never fatal.
+reconfigured, a lost one is recreated, a timeout retries the frame, and an
+occluded window skips it until it is visible again. At most three failed frames
+in a row are retried, so a surface that does not recover cannot spin the event
+loop. Render errors are logged and are never fatal.
 
 ### Views and buffers
 
