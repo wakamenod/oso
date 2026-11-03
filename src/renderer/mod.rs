@@ -73,9 +73,13 @@ pub(crate) fn count_failed_frame(failed_frames: u8) -> (u8, bool) {
 }
 
 /// Maps the result of `Surface::get_current_texture` to the recovery that
-/// wgpu documents for it.
-pub(crate) fn surface_action(status: &wgpu::CurrentSurfaceTexture) -> SurfaceAction {
+/// wgpu documents for it. `None` means there is no surface, because creating
+/// it again failed, so it is created again.
+pub(crate) fn surface_action(status: Option<&wgpu::CurrentSurfaceTexture>) -> SurfaceAction {
     use wgpu::CurrentSurfaceTexture as S;
+    let Some(status) = status else {
+        return SurfaceAction::Recreate;
+    };
     match status {
         S::Success(_) => SurfaceAction::Draw,
         S::Suboptimal(_) => SurfaceAction::DrawThenReconfigure,
@@ -125,7 +129,8 @@ impl std::error::Error for RenderError {}
 pub struct RenderState {
     pub window: Arc<Window>,
     instance: wgpu::Instance,
-    surface: wgpu::Surface<'static>,
+    /// `None` only after creating a lost surface again failed.
+    surface: Option<wgpu::Surface<'static>>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -221,7 +226,7 @@ impl RenderState {
         Self {
             window,
             instance,
-            surface,
+            surface: Some(surface),
             device,
             queue,
             config,
@@ -245,7 +250,9 @@ impl RenderState {
         }
         self.config.width = size.width;
         self.config.height = size.height;
-        self.surface.configure(&self.device, &self.config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
         self.shape_renderer
             .resize(&self.queue, size.width as f32, size.height as f32);
         true
@@ -259,11 +266,16 @@ impl RenderState {
                 self.configure(self.window.inner_size());
             }
             SurfaceAction::Recreate => {
-                self.surface = self
+                // Drop the old surface first. DXGI allows one swapchain per
+                // window and Vulkan fails with NATIVE_WINDOW_IN_USE, and the
+                // failed configure would panic in wgpu's default error handler.
+                self.surface = None;
+                let surface = self
                     .instance
                     .create_surface(self.window.clone())
                     .map_err(RenderError::RecreateSurface)?;
-                self.surface.configure(&self.device, &self.config);
+                surface.configure(&self.device, &self.config);
+                self.surface = Some(surface);
             }
             SurfaceAction::Retry => {}
             SurfaceAction::Fail => return Err(RenderError::SurfaceValidation),
@@ -293,11 +305,16 @@ impl RenderState {
         let cursor_y = MARGIN_Y;
 
         // Acquire the next surface texture, or recover as wgpu documents.
-        let current = self.surface.get_current_texture();
-        let action = surface_action(&current);
+        let current = self
+            .surface
+            .as_ref()
+            .map(wgpu::Surface::get_current_texture);
+        let action = surface_action(current.as_ref());
         let output = match current {
-            wgpu::CurrentSurfaceTexture::Success(tex)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+            Some(
+                wgpu::CurrentSurfaceTexture::Success(tex)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(tex),
+            ) => tex,
             other => {
                 log::debug!("no surface texture: {other:?}");
                 return self.recover(action);
@@ -374,27 +391,35 @@ mod tests {
 
     #[test]
     fn outdated_reconfigures() {
-        assert_eq!(surface_action(&S::Outdated), SurfaceAction::Reconfigure);
+        assert_eq!(
+            surface_action(Some(&S::Outdated)),
+            SurfaceAction::Reconfigure
+        );
+    }
+
+    #[test]
+    fn missing_surface_is_created_again() {
+        assert_eq!(surface_action(None), SurfaceAction::Recreate);
     }
 
     #[test]
     fn lost_recreates_the_surface() {
-        assert_eq!(surface_action(&S::Lost), SurfaceAction::Recreate);
+        assert_eq!(surface_action(Some(&S::Lost)), SurfaceAction::Recreate);
     }
 
     #[test]
     fn timeout_retries_the_frame() {
-        assert_eq!(surface_action(&S::Timeout), SurfaceAction::Retry);
+        assert_eq!(surface_action(Some(&S::Timeout)), SurfaceAction::Retry);
     }
 
     #[test]
     fn occluded_skips_the_frame() {
-        assert_eq!(surface_action(&S::Occluded), SurfaceAction::Skip);
+        assert_eq!(surface_action(Some(&S::Occluded)), SurfaceAction::Skip);
     }
 
     #[test]
     fn validation_fails_the_frame() {
-        assert_eq!(surface_action(&S::Validation), SurfaceAction::Fail);
+        assert_eq!(surface_action(Some(&S::Validation)), SurfaceAction::Fail);
     }
 
     // --- Retry limit ---
