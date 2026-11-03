@@ -23,6 +23,11 @@ wgpu = { workspace = true, features = ["dx12"] }
 [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
 wgpu = { workspace = true, features = ["vulkan"] }
 
+[features]
+# Frame capture for the dev control socket's `screenshot` (ADR 0016).
+# Enabled only by `oso/dev`.
+dev = []
+
 [dev-dependencies]
 proptest.workspace = true
 
