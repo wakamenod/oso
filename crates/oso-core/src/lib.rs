@@ -6,3 +6,4 @@
 
 pub mod cursor;
 pub mod key;
+pub mod sum_tree;
