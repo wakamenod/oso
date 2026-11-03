@@ -325,7 +325,7 @@ pub struct ControlStream(UnixStream);
 
 impl ControlStream {
     fn verified(stream: UnixStream) -> io::Result<Self> {
-        check_peer(peer_uid(&stream)?, euid())?;
+        check_peer(peer_owner(&stream)?, euid())?;
         Ok(Self(stream))
     }
 
@@ -389,9 +389,9 @@ fn euid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-/// The user ID of the process at the other end of the Unix socket `fd`.
+/// The user that owns the process at the other end of `stream`.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
+fn peer_owner(stream: &UnixStream) -> io::Result<u32> {
     let fd = stream.as_raw_fd();
     let mut cred = libc::ucred {
         pid: 0,
@@ -421,7 +421,7 @@ fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     Ok(cred.uid)
 }
 
-/// The user ID of the process at the other end of the Unix socket `fd`.
+/// The user that owns the process at the other end of `stream`.
 #[cfg(any(
     target_os = "macos",
     target_os = "ios",
@@ -430,7 +430,7 @@ fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     target_os = "netbsd",
     target_os = "dragonfly"
 ))]
-fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
+fn peer_owner(stream: &UnixStream) -> io::Result<u32> {
     let fd = stream.as_raw_fd();
     let mut uid: libc::uid_t = 0;
     let mut gid: libc::gid_t = 0;
@@ -455,7 +455,7 @@ fn peer_uid(stream: &UnixStream) -> io::Result<u32> {
     target_os = "netbsd",
     target_os = "dragonfly"
 )))]
-fn peer_uid(_stream: &UnixStream) -> io::Result<u32> {
+fn peer_owner(_stream: &UnixStream) -> io::Result<u32> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "the control socket cannot check peers on this system",
@@ -464,7 +464,7 @@ fn peer_uid(_stream: &UnixStream) -> io::Result<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ControlDir, ControlStream, check_peer, default_path, euid, peer_uid};
+    use super::{ControlDir, ControlStream, check_peer, default_path, euid, peer_owner};
     use std::ffi::OsString;
     use std::fs::{self, Permissions};
     use std::io::{BufRead, BufReader, ErrorKind, Write};
@@ -646,7 +646,7 @@ mod tests {
     #[test]
     fn peer_uid_is_our_own() {
         let (a, _b) = UnixStream::pair().unwrap();
-        assert_eq!(peer_uid(&a).unwrap(), euid());
+        assert_eq!(peer_owner(&a).unwrap(), euid());
         assert!(ControlStream::pair().is_ok());
     }
 
