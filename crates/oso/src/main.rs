@@ -3,8 +3,11 @@
 //! (ADR 0004).
 
 mod app;
+mod bindings;
+mod commands;
 #[cfg(feature = "dev")]
 mod dev;
+mod dispatch;
 mod keys;
 
 use app::{App, UserEvent};
@@ -33,6 +36,6 @@ fn main() {
         App::with_dev(dev::start(move |request| proxy.send_event(request).is_ok()))
     };
     #[cfg(not(feature = "dev"))]
-    let mut app = App::default();
+    let mut app = App::new();
     event_loop.run_app(&mut app).unwrap();
 }
