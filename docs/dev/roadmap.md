@@ -48,7 +48,8 @@ M1 is built in this order. Each step is one PR.
   - Windows is deferred: `oso ctl` reports that it is not supported there
     yet.
 - **In parallel** after M1-7a:
-  - **M1-3**: command registry and keymaps with prefix keys.
+  - **M1-3** (done): command registry and keymaps with prefix keys
+    ([ADR 0034](adr/0034-command-registry-and-keymaps.md)).
   - **M1-4** (done): `SumTree`, rope and display model skeleton
     ([`display-model.md`](display-model.md),
     [ADR 0022](adr/0022-text-buffer-and-file-loading.md),
