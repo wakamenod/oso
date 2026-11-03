@@ -70,6 +70,32 @@ fn per_query(total: Duration) -> String {
     format!("{:>7.0} ns/query", total.as_nanos() as f64 / QUERIES as f64)
 }
 
+/// p50 and p99 of single-character edits plus the display map sync, while
+/// a snapshot is held, so every edit copies its path.
+fn edit_costs(name: &str, mut rope: Rope, map: &mut DisplayMap, rng: &mut Lcg) {
+    let snapshot = (rope.clone(), map.snapshot());
+    let mut samples = Vec::with_capacity(QUERIES);
+    for index in 0..QUERIES {
+        let offset = rope.clip_offset(rng.below(rope.len()), Bias::Left);
+        let start = Instant::now();
+        let edit = if index % 2 == 0 {
+            rope.insert(offset, "x")
+        } else {
+            let end = rope.clip_offset(offset + 1, Bias::Right);
+            rope.delete(offset..end)
+        };
+        map.sync(&rope, &edit);
+        samples.push(start.elapsed());
+    }
+    samples.sort();
+    println!(
+        "{name:<27} p50 {:>7.2?}  p99 {:>7.2?}",
+        samples[samples.len() / 2],
+        samples[samples.len() * 99 / 100]
+    );
+    drop(snapshot);
+}
+
 fn main() {
     println!("== Building (100 MB, source-like text)");
     let text = file_text(100 * MB);
@@ -95,12 +121,22 @@ fn main() {
     let first = &text[..floor_boundary(&text, 64 * 1024)];
     let (_, elapsed) = time(|| {
         let rope = Rope::from(first);
-        DisplayMap::new(&rope, TabWidth::default()).snapshot()
+        let snapshot = DisplayMap::new(&rope, TabWidth::default()).snapshot();
+        for row in 0..60 {
+            black_box(
+                snapshot
+                    .clusters(DisplayPoint::new(row, 0))
+                    .take(200)
+                    .count(),
+            );
+        }
     });
-    println!("first 64 KB: rope + display {elapsed:>10.2?}");
+    println!("first screen (64 KB, 60 rows) {elapsed:>8.2?}");
 
-    let (map, elapsed) = time(|| DisplayMap::new(&rope, TabWidth::default()));
+    let (mut map, elapsed) = time(|| DisplayMap::new(&rope, TabWidth::default()));
     println!("DisplayMap::new (100 MB)    {elapsed:>10.2?}");
+    let (_, elapsed) = time(|| map.set_tab_width(&rope, TabWidth::new(4)));
+    println!("set_tab_width (100 MB)      {elapsed:>10.2?}");
 
     let (snapshot, elapsed) = time(|| (rope.clone(), map.snapshot()));
     println!("clone rope + snapshot       {elapsed:>10.2?}");
@@ -132,6 +168,76 @@ fn main() {
             per_query(to_point),
             per_query(to_offset)
         );
+    }
+
+    println!();
+    println!("== Rendering 60 rows x 200 clusters from random scroll positions");
+    let snapshot = map.snapshot();
+    let mut rng = Lcg(5);
+    let frames = 1000;
+    let (_, elapsed) = time(|| {
+        for _ in 0..frames {
+            let top = rng.below(snapshot.row_count());
+            for row in top..top + 60 {
+                black_box(
+                    snapshot
+                        .clusters(DisplayPoint::new(row, 0))
+                        .take(200)
+                        .count(),
+                );
+            }
+        }
+    });
+    println!(
+        "100 MB file                 {:>7.0} µs/frame",
+        elapsed.as_secs_f64() * 1e6 / f64::from(frames)
+    );
+
+    println!();
+    println!("== Edits: insert or delete one char, then sync the display map");
+    edit_costs("100 MB file", rope.clone(), &mut map, &mut Lcg(3));
+    let line = single_line(10 * MB);
+    let line_rope = Rope::from(line.as_str());
+    let mut line_map = DisplayMap::new(&line_rope, TabWidth::new(4));
+    edit_costs("10 MB line", line_rope, &mut line_map, &mut Lcg(4));
+    let paste = file_text(10 * MB);
+    let mut target = rope.clone();
+    let (edit, elapsed) = time(|| target.insert(rope.len() / 2, &paste));
+    let (_, synced) = time(|| map.sync(&target, &edit));
+    println!("10 MB paste into 100 MB     {elapsed:>10.2?} + sync {synced:.2?}");
+    drop((target, map));
+
+    println!();
+    println!("== Adversarial text: building at 1 MB and 10 MB (should scale ~10x)");
+    let flag_run = |bytes: usize| "🇯🇵".repeat(bytes / 8);
+    let zalgo = |bytes: usize| "e".to_owned() + &"\u{301}".repeat(bytes / 2);
+    let cjk = |bytes: usize| "日本語の文章です。".repeat(bytes / 27);
+    let tabs = |bytes: usize| "\t".repeat(bytes);
+    let inputs: [(&str, &dyn Fn(usize) -> String); 4] = [
+        ("flags", &flag_run),
+        ("one huge cluster", &zalgo),
+        ("CJK only", &cjk),
+        ("tabs only", &tabs),
+    ];
+    for (name, make) in inputs {
+        for size in [MB, 10 * MB] {
+            let text = make(size);
+            let (rope, built) = time(|| Rope::from(text.as_str()));
+            let (_, pushed) = time(|| {
+                let mut rope = Rope::new();
+                let mut start = 0;
+                while start < text.len() {
+                    let end = floor_boundary(&text, start + 64 * 1024);
+                    rope.push_str(&text[start..end]);
+                    start = end;
+                }
+            });
+            let (_, mapped) = time(|| DisplayMap::new(&rope, TabWidth::default()));
+            println!(
+                "{name:>16} {:>3} MB  from {built:>9.2?}  push_str {pushed:>9.2?}  display {mapped:>9.2?}",
+                size / MB
+            );
+        }
     }
 
     println!();
