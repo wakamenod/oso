@@ -1,4 +1,4 @@
-# 0037. Buffers, file loading, cursor motion and scrolling
+# 0039. Buffers, file loading, cursor motion and scrolling
 
 - Status: Proposed
 - Date: 2026-11-03
@@ -50,6 +50,21 @@ ADR records the decisions the implementation needed beyond those.
   cursor that hits a buffer edge moves as far as it can, as in Emacs.
 - Commands keep `fn(&mut Ctx, Args)` and reach the state through
   `ctx.editor.current_mut()`: the selected window and its buffer.
+
+### Module layout
+
+These are new public modules of `oso-core`, a structural change under
+[ADR 0038](0038-architecture-guardrails.md):
+
+- `buffer`, `selection`, `window` and `editor` (rewritten): the state
+  above. `cursor` is removed.
+- `decode` and `load`: decoding and building a buffer's content, with no
+  I/O; the loading thread and file access are in the tip crate.
+- `motion`: motion over a display snapshot.
+
+They depend on `rope`, `display_map` and `sum_tree`, never on `command`
+or `keymap`. `oso-render` gains a private `rows` module, the shaping
+cache. No crate edge changes.
 
 ### Invalid bytes
 

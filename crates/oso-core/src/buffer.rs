@@ -1,5 +1,5 @@
 //! Buffers: the text of a file, with its display model (ADR 0022,
-//! ADR 0037).
+//! ADR 0039).
 //!
 //! A file buffer starts empty and read-only, and fills in as the loading
 //! thread hands over snapshots ([`Buffer::apply_load`]). Buffers with

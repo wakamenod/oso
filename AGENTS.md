@@ -29,6 +29,9 @@ one. Open topics are in `docs/dev/open-questions.md`.
   define the checks (`Justfile`, `clippy.toml`, `rust-toolchain.toml`,
   `.cargo/`, `.github/`, gitleaks config).
 - Dev-only code (control socket, hot reload) stays behind dev cargo features.
+- Respect the dependency direction and layer rules (ADR 0038). A new crate,
+  a new crate edge, a new public trait or module in a library crate, or a
+  change to the layer rules needs an ADR.
 
 ## Workflow
 

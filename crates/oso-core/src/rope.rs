@@ -28,7 +28,7 @@ use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
 
 /// The most bytes in one chunk: 1 KB less the 16 bytes of an `Arc`'s
 /// counts, so a chunk's allocation fits a 1 KB size class. At 1024, each
-/// chunk took a 1.5 KB allocation on macOS (ADR 0037).
+/// chunk took a 1.5 KB allocation on macOS (ADR 0039).
 #[cfg(not(test))]
 pub const MAX_CHUNK_BYTES: usize = 1008;
 /// Small in tests, so that chunk boundaries are everywhere.

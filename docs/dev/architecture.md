@@ -90,7 +90,7 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   its file information and its loading progress. A window
   (`oso_core::window`) shows one buffer with its own selection set and
   scroll position. There is one window until splits (M3). See
-  [ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md).
+  [ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
   goal column for vertical motion and, from M2, its own mark. See
@@ -186,7 +186,7 @@ null text system: the cursor is drawn on the grid, and no text. See
   (security.md, T3). Invisible characters also get a box.
 - **New glyphs** are rasterized at most 64 per frame, and the frame asks
   for another; uploads are batched per run of neighbors on an atlas
-  shelf. See [ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md).
+  shelf. See [ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md).
 
 ### GPU rendering
 
@@ -246,7 +246,7 @@ The UI thread never blocks on I/O or parsing:
   loading finishes. Invalid UTF-8 and binary files stay read-only, with
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
-  [ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md)).
+  [ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md)).
 - The event loop's user event is an enum: loader wake-ups in every build,
   and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and

@@ -61,7 +61,7 @@ M1 is built in this order. Each step is one PR.
     exist. A temporary sample is drawn until M1-6.
 - **M1-6** (done): asynchronous, progressive file loading; scrolling and
   cursor motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`
-  ([ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md)):
+  ([ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md)):
   - `oso [FILE]`; buffers, windows and selection sets in `oso-core`
   - a loading thread that decodes and builds the rope and display map,
     with `\xNN` for invalid bytes
@@ -74,6 +74,29 @@ M1 is built in this order. Each step is one PR.
 - **M1-8**: performance measurement in CI
   ([ADR 0024](adr/0024-dev-build-profile.md),
   [ADR 0025](adr/0025-latency-measurement.md)).
+- **M1-9**: test infrastructure from the test pyramid
+  ([ADR 0037](adr/0037-test-pyramid.md)), in three steps, each started as
+  soon as its prerequisite merges:
+  - **M1-9a** (right after M1-10a merges, since both change CI and the
+    `Justfile`): weekly mutation testing, coverage reports and the 30 s test
+    time budget.
+  - **M1-9b** (right after M1-6 merges, since it snapshots real buffer
+    views): the text-grid snapshot harness.
+  - **M1-9c** (after M1-7b, which completes `get-state`): automated
+    end-to-end tests over the control socket (`just e2e`, and Linux CI with
+    lavapipe).
+- **M1-10a** (now, in parallel with M1-6; merge before M1-7b): architecture
+  guardrails ([ADR 0038](adr/0038-architecture-guardrails.md)):
+  - dependency-direction rules between crates and modules
+  - public API snapshots
+  - size limits with a ratchet allowlist
+  - design-rule lints
+  - the `arch-reviewer` subagent and the PR template with the ADR check
+  - crate `AGENTS.md` files
+  - the weekly design health check
+- **M1-10b** (right after M1-6 merges): module responsibility headers in
+  every source file and the test that requires them. This step touches
+  every file, so it waits for M1-6 to avoid conflicts.
 
 ### M2 — Editor (start using oso for text and notes)
 

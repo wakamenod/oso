@@ -1,4 +1,4 @@
-//! Windows and scrolling (ADR 0007, ADR 0037).
+//! Windows and scrolling (ADR 0007, ADR 0039).
 //!
 //! A window shows one buffer, with its own selections and scroll position.
 //! Scrolling follows Emacs with `scroll-conservatively` at 101: when the

@@ -8,6 +8,53 @@
   coordinate mappings, where boundary cases are easy to miss.
 - `just ci` (check, lint, fmt-check, test) must pass before every commit.
 
+## Test pyramid
+
+Decided in [ADR 0037](adr/0037-test-pyramid.md). Lower layers have many fast
+tests; higher layers have few.
+
+```
+              manual checks (IME, real keys, look on macOS)
+            E2E over the control socket       few
+          pixel snapshots (lavapipe)          few
+        text-grid snapshots                   every visible feature
+      command scenario tests                  every command
+    unit, property, reference-model tests     most
+  alongside: fuzzing, performance budgets, mutation testing, coverage
+```
+
+### Rules
+
+- A bug fix adds a test at the lowest layer that reproduces the bug.
+- Every command gets scenario tests (`add-command` skill).
+- Every feature that changes what is drawn gets text-grid snapshots.
+- Pixel snapshots and E2E tests cover seams between components and critical
+  flows only, never logic a lower layer can test.
+- Snapshot updates are reviewed like code.
+
+### Text-grid snapshots
+
+The screen is rendered as a grid of characters and compared as text with
+`insta`. Buffer text, cursors, the modeline, the minibuffer and decorations
+all show up. For example:
+
+```
+│fn main() {               │
+│    let x = 1;█           │
+│-:--  main.rs  L2 C14  Rust│
+```
+
+They need no GPU, so they run on every OS in `just ci`, and both people and
+agents can read the diffs.
+
+### Test quality
+
+- Mutation testing (`cargo-mutants`) runs weekly in CI. Surviving mutants in
+  `oso-core` get a test or a note explaining why they are equivalent.
+- Coverage (`cargo-llvm-cov`) is reported on pull requests. It never fails
+  the build.
+- The whole `cargo test` run stays within 30 seconds on the author's Mac.
+
 ## Testability by layer
 
 | Testability | Layer | Strategy |

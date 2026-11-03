@@ -1,5 +1,5 @@
 //! Decoding a file into the rope's UTF-8, piece by piece as it is read
-//! (ADR 0022, ADR 0037).
+//! (ADR 0022, ADR 0039).
 //!
 //! - Each invalid byte becomes one U+FFFD in the text, and its value is kept
 //!   in [`InvalidBytes`], so the display can show it as `\xNN` and the

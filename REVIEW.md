@@ -48,10 +48,18 @@ need the author's explicit approval.
 - [ ] Panics cannot corrupt state beyond the failing command.
 - [ ] Platform-specific code is behind `oso-platform` traits.
 - [ ] Consistent with accepted ADRs, or a new ADR is proposed.
+- [ ] Dependencies point the allowed way, and each module stays within the
+  responsibility in its `//!` header (ADR 0038).
+- [ ] No new global state, and no file or function grows past the size
+  limits without an ADR.
+- [ ] Public API changes are intended and visible in the API snapshot.
 
 ## Tests and docs
 
-- [ ] Unit or property tests for new logic. End-to-end tests over the control
-  socket for user-visible behavior, once available.
+- [ ] Tests follow the pyramid (ADR 0037): unit or property tests for new
+  logic, scenario tests for every command, text-grid snapshots for anything
+  drawn. End-to-end tests only for seams and critical flows.
+- [ ] A bug fix comes with a test at the lowest layer that reproduces it.
+- [ ] Snapshot changes are explained.
 - [ ] Docs, ADRs and `open-questions.md` updated where affected.
 - [ ] English only.

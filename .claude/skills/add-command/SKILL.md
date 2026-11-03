@@ -88,6 +88,10 @@ Add rows to `GLOBAL` in `crates/oso/src/bindings.rs`, in Emacs notation
 - In `dispatch.rs`: feed the key sequence to a `Dispatcher` and check the
   result, as `char_motion_through_the_keymap` does.
 - Use `proptest` where positions or offsets are involved.
+- If the command changes what is drawn, add a text-grid snapshot once the
+  harness exists (M1-9, ADR 0037).
+- Tests follow the test pyramid (ADR 0037): put each check in the lowest
+  layer that can express it.
 - Run `just ci`.
 
 ## 5. Check it in the app

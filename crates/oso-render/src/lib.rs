@@ -8,13 +8,15 @@ mod atlas;
 #[cfg(feature = "dev")]
 mod capture;
 mod grid;
+mod rows;
 mod shape;
 mod text;
 use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, Image};
+use rows::Rows;
 use shape::{Rect, ShapeRenderer};
-use text::{Layout, Rows, TextRenderer};
+use text::{Layout, TextRenderer};
 
 use std::sync::Arc;
 
@@ -40,7 +42,7 @@ const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
 
 /// New glyphs a frame rasterizes at most. Each takes tens of
 /// microseconds, so a screen of new CJK text fills in over a few frames
-/// instead of stalling one (ADR 0037).
+/// instead of stalling one (ADR 0039).
 const GLYPHS_PER_FRAME: usize = 64;
 
 /// What to draw: a window's view of a buffer.

@@ -63,11 +63,11 @@ item notes when it must be settled.
 ## M2
 
 - Editing must invalidate shaped rows by edit range
-  ([ADR 0037](adr/0037-buffers-loading-motion-and-scrolling.md)). The
+  ([ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md)). The
   shaping cache checks only the buffer offsets a row covers, which an edit
   that keeps the row's length does not change.
 - isearch must not match the U+FFFD of an invalid byte
-  (`InvalidBytes`, ADR 0037).
+  (`InvalidBytes`, ADR 0039).
 - Horizontal mouse wheel and trackpad scrolling: the view scrolls only
   vertically, and auto-hscroll keeps the cursor in view.
 - Memory of very large files: a 1 GB file takes about 1.4 GB, and a binary

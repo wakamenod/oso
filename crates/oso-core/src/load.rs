@@ -1,5 +1,5 @@
 //! Building a buffer's text and display model from a file's bytes, as they
-//! are read (ADR 0022, ADR 0037).
+//! are read (ADR 0022, ADR 0039).
 //!
 //! A [`Builder`] runs on the loading thread: it decodes each piece, appends
 //! it to the rope and brings the display map along, so the UI thread never
