@@ -154,8 +154,8 @@ impl ControlDir {
             .mode(0o600)
             .open(&path)
             .map_err(|e| with_path(e, "cannot create", &path))?;
+        // No fsync: the file is a short-lived dev artifact read right away.
         file.write_all(bytes)?;
-        file.sync_all()?;
         Ok(path)
     }
 

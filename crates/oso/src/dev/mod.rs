@@ -36,6 +36,7 @@ pub fn start<S>(send: S) -> Option<DevState>
 where
     S: Fn(UiRequest) -> bool + Clone + Send + 'static,
 {
+    let since = std::time::Instant::now();
     let started = (|| {
         let dir = ControlDir::open()?;
         let listener = dir.bind()?;
@@ -46,7 +47,11 @@ where
     })();
     match started {
         Ok((dir, cleanup, socket)) => {
-            log::info!("{DEV_BUILD_MARKER}: listening on {}", socket.display());
+            log::info!(
+                "{DEV_BUILD_MARKER}: listening on {} (started in {:?})",
+                socket.display(),
+                since.elapsed()
+            );
             Some(DevState {
                 dir,
                 _cleanup: cleanup,

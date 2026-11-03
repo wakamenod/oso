@@ -6,7 +6,7 @@
 
 use std::fmt;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use oso_core::cursor::Cursor;
 
@@ -14,6 +14,9 @@ use crate::RenderState;
 
 /// How long [`Capture::wait`] waits for the GPU.
 const GPU_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How often [`Capture::wait`] polls the device.
+const POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 /// Bytes per pixel of the formats a capture supports.
 const BYTES_PER_PIXEL: u32 = 4;
@@ -34,7 +37,6 @@ pub struct Image {
 pub struct Capture {
     device: wgpu::Device,
     buffer: wgpu::Buffer,
-    submission: wgpu::SubmissionIndex,
     mapped: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
     layout: Layout,
 }
@@ -170,7 +172,7 @@ impl RenderState {
             },
             size,
         );
-        let submission = self.queue.submit(std::iter::once(encoder.finish()));
+        self.queue.submit(std::iter::once(encoder.finish()));
 
         let (sender, mapped) = mpsc::channel();
         buffer.map_async(wgpu::MapMode::Read, .., move |result| {
@@ -179,7 +181,6 @@ impl RenderState {
         Ok(Capture {
             device: self.device.clone(),
             buffer,
-            submission,
             mapped,
             layout,
         })
@@ -190,16 +191,21 @@ impl Capture {
     /// Waits for the GPU and reads the frame back. Blocks: call it away from
     /// the UI thread.
     pub fn wait(self) -> Result<Image, CaptureError> {
-        self.device
-            .poll(wgpu::PollType::Wait {
-                submission_index: Some(self.submission),
-                timeout: Some(GPU_TIMEOUT),
-            })
-            .map_err(|e| CaptureError::Gpu(e.to_string()))?;
-        self.mapped
-            .recv_timeout(GPU_TIMEOUT)
-            .map_err(|e| CaptureError::Gpu(e.to_string()))?
-            .map_err(|e| CaptureError::Gpu(e.to_string()))?;
+        // `PollType::Wait` would hold the device's locks for the whole GPU
+        // wait, stalling the UI thread's submit and present. Short
+        // non-blocking polls hold them only for microseconds.
+        let deadline = Instant::now() + GPU_TIMEOUT;
+        let mapped = loop {
+            self.device
+                .poll(wgpu::PollType::Poll)
+                .map_err(|e| CaptureError::Gpu(e.to_string()))?;
+            match self.mapped.recv_timeout(POLL_INTERVAL) {
+                Ok(result) => break result,
+                Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => {}
+                Err(e) => return Err(CaptureError::Gpu(e.to_string())),
+            }
+        };
+        mapped.map_err(|e| CaptureError::Gpu(e.to_string()))?;
         let rgba = self.layout.to_rgba(&self.buffer.get_mapped_range(..));
         self.buffer.unmap();
         Ok(Image {

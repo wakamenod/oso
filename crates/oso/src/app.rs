@@ -104,7 +104,13 @@ impl App {
                     let _ = reply.send(Err("there is no window yet".into()));
                     return;
                 };
-                match view.render_state.capture(&self.cursor) {
+                let started = std::time::Instant::now();
+                let capture = view.render_state.capture(&self.cursor);
+                log::debug!(
+                    "screenshot submitted on the UI thread in {:?}",
+                    started.elapsed()
+                );
+                match capture {
                     Ok(capture) => dev.finish_screenshot(capture, reply),
                     Err(e) => {
                         let _ = reply.send(Err(e.to_string()));
