@@ -39,6 +39,61 @@ pub(crate) fn platform_backend() -> wgpu::Backends {
     }
 }
 
+/// What to do after asking the surface for the next texture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SurfaceAction {
+    /// Draw and present the frame.
+    Draw,
+    /// Draw and present the frame, then configure the surface again.
+    DrawThenReconfigure,
+    /// Configure the surface again and redraw.
+    Reconfigure,
+    /// Create the surface again, configure it and redraw.
+    Recreate,
+    /// Skip this frame. A later event requests the next one.
+    Skip,
+    /// Skip this frame and report an error.
+    Fail,
+}
+
+/// Maps the result of `Surface::get_current_texture` to the recovery that
+/// wgpu documents for it.
+pub(crate) fn surface_action(status: &wgpu::CurrentSurfaceTexture) -> SurfaceAction {
+    use wgpu::CurrentSurfaceTexture as S;
+    match status {
+        S::Success(_) => SurfaceAction::Draw,
+        S::Suboptimal(_) => SurfaceAction::DrawThenReconfigure,
+        S::Outdated => SurfaceAction::Reconfigure,
+        S::Lost => SurfaceAction::Recreate,
+        // Occluded windows get `WindowEvent::Occluded(false)` when visible again.
+        S::Timeout | S::Occluded => SurfaceAction::Skip,
+        S::Validation => SurfaceAction::Fail,
+    }
+}
+
+/// A frame that could not be drawn. None of these are fatal: the frame is
+/// skipped, and the next requested frame tries again.
+#[derive(Debug)]
+pub enum RenderError {
+    /// Acquiring the surface texture raised a validation error.
+    SurfaceValidation,
+    /// Creating the surface again after it was lost failed.
+    RecreateSurface(wgpu::CreateSurfaceError),
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SurfaceValidation => {
+                f.write_str("validation error acquiring the surface texture")
+            }
+            Self::RecreateSurface(e) => write!(f, "could not recreate the lost surface: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for RenderError {}
+
 /// Manages the wgpu device, queue, and surface; issues frame draws.
 ///
 /// Render pass layout (§5.6 — separated pass design):
@@ -46,6 +101,7 @@ pub(crate) fn platform_backend() -> wgpu::Backends {
 ///   Pass 2: TextRenderer   — (added in a future milestone)
 pub struct RenderState {
     pub window: Arc<Window>,
+    instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -138,6 +194,7 @@ impl RenderState {
 
         Self {
             window,
+            instance,
             surface,
             device,
             queue,
@@ -158,20 +215,49 @@ impl RenderState {
         }
     }
 
+    /// Creates the surface again after it was lost, configures it and
+    /// requests a redraw. A size change since then arrives as a resize.
+    fn recreate_surface(&mut self) -> Result<(), RenderError> {
+        self.surface = self
+            .instance
+            .create_surface(self.window.clone())
+            .map_err(RenderError::RecreateSurface)?;
+        self.surface.configure(&self.device, &self.config);
+        self.window.request_redraw();
+        Ok(())
+    }
+
     /// Renders a single frame.
     ///
     /// Converting `Cursor.position` to pixel coordinates is the renderer's
     /// responsibility (§7.1); the `Cursor` struct itself stays free of pixel data.
-    pub fn render(&mut self, cursor: &Cursor) -> Result<(), String> {
+    pub fn render(&mut self, cursor: &Cursor) -> Result<(), RenderError> {
         // Translate cursor.position → screen X via the pure coordinate function.
         let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
         let cursor_y = MARGIN_Y;
 
-        // Acquire the next surface texture.
-        let output = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(tex) => tex,
-            wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
-            other => return Err(format!("{other:?}")),
+        // Acquire the next surface texture, or recover as wgpu documents.
+        let current = self.surface.get_current_texture();
+        let action = surface_action(&current);
+        let output = match current {
+            wgpu::CurrentSurfaceTexture::Success(tex)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+            other => {
+                return match action {
+                    SurfaceAction::Reconfigure => {
+                        self.resize(self.window.inner_size());
+                        Ok(())
+                    }
+                    SurfaceAction::Recreate => self.recreate_surface(),
+                    SurfaceAction::Fail => Err(RenderError::SurfaceValidation),
+                    SurfaceAction::Skip
+                    | SurfaceAction::Draw
+                    | SurfaceAction::DrawThenReconfigure => {
+                        log::debug!("skipping frame: {other:?}");
+                        Ok(())
+                    }
+                };
+            }
         };
         let view = output
             .texture
@@ -214,14 +300,44 @@ impl RenderState {
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
+        // Configure only after presenting: no surface texture may be alive.
+        if action == SurfaceAction::DrawThenReconfigure {
+            self.surface.configure(&self.device, &self.config);
+        }
+
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{cursor_pixel_x, platform_backend};
+    use super::{cursor_pixel_x, platform_backend, surface_action, SurfaceAction};
     use proptest::prelude::*;
+    use wgpu::CurrentSurfaceTexture as S;
+
+    // --- Surface status mapping ---
+    // `Success` and `Suboptimal` carry a texture and need a GPU to construct.
+
+    #[test]
+    fn outdated_reconfigures() {
+        assert_eq!(surface_action(&S::Outdated), SurfaceAction::Reconfigure);
+    }
+
+    #[test]
+    fn lost_recreates_the_surface() {
+        assert_eq!(surface_action(&S::Lost), SurfaceAction::Recreate);
+    }
+
+    #[test]
+    fn timeout_and_occluded_skip_the_frame() {
+        assert_eq!(surface_action(&S::Timeout), SurfaceAction::Skip);
+        assert_eq!(surface_action(&S::Occluded), SurfaceAction::Skip);
+    }
+
+    #[test]
+    fn validation_fails_the_frame() {
+        assert_eq!(surface_action(&S::Validation), SurfaceAction::Fail);
+    }
 
     // --- Backend selection ---
 

@@ -60,14 +60,9 @@ impl ApplicationHandler for App {
 
             // ---- Redraw ----
             WindowEvent::RedrawRequested => {
-                match state.render(&self.cursor) {
-                    Ok(_) => {}
-                    // Reconfigure if the surface is lost or outdated.
-                    Err(e) if e.contains("Lost") || e.contains("Outdated") => {
-                        let size = state.window.inner_size();
-                        state.resize(size);
-                    }
-                    Err(e) => eprintln!("render error: {e}"),
+                // Not fatal: the frame is skipped and the next one retries.
+                if let Err(e) = state.render(&self.cursor) {
+                    log::error!("render error: {e}");
                 }
             }
 
