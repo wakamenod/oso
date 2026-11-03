@@ -32,7 +32,7 @@ pub mod tab_map;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
-pub use cell::{CellKind, ControlEscape, TabWidth, control_escape};
+pub use cell::{CellKind, Escape, TabWidth, escape};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.
@@ -74,7 +74,10 @@ pub struct DisplayCluster<'a> {
     pub cells: usize,
     /// The cluster's text in the buffer.
     pub text: &'a str,
-    /// What to draw: the text, blank cells for a tab, or a control escape.
+    /// What to draw: the text, blank cells for a tab, or an escape (boxed
+    /// for an invisible character). The renderer clips each cluster's glyphs
+    /// to its cells, so stacked combining marks cannot paint over other
+    /// rows.
     pub kind: CellKind,
 }
 
@@ -106,7 +109,8 @@ impl DisplayMap {
         self.tab_map.tab_width()
     }
 
-    /// Changes the tab width. O(n), like [`DisplayMap::new`].
+    /// Changes the tab width. O(n), like [`DisplayMap::new`] (about 25 ms
+    /// per 100 MB), so large buffers do it off the UI thread.
     pub fn set_tab_width(&mut self, buffer: &Rope, tab_width: TabWidth) {
         self.tab_map = TabMap::new(buffer, tab_width);
     }
@@ -213,7 +217,10 @@ mod tests {
             }
             let mut column = 0;
             let mut clusters = Vec::new();
-            for (index, cluster) in text[line_start..content_end].grapheme_indices(true) {
+            let pieces = text[line_start..content_end]
+                .grapheme_indices(true)
+                .flat_map(|(index, cluster)| display_pieces(cluster, index));
+            for (index, cluster) in pieces {
                 let (kind, cells) = cell::classify(cluster);
                 let cells = match kind {
                     CellKind::Tab => tab_width.next_stop(column) - column,
@@ -239,6 +246,18 @@ mod tests {
                 None => return rows,
             }
         }
+    }
+
+    /// A grapheme cluster split into display clusters, with offsets.
+    fn display_pieces(cluster: &str, offset: usize) -> Vec<(usize, &str)> {
+        let mut pieces = Vec::new();
+        let mut start = 0;
+        while start < cluster.len() {
+            let len = cell::first_display_cluster(&cluster[start..]);
+            pieces.push((offset + start, &cluster[start..start + len]));
+            start += len;
+        }
+        pieces
     }
 
     fn naive_to_point(text: &str, rows: &[NaiveRow], offset: usize) -> DisplayPoint {
@@ -451,6 +470,42 @@ mod tests {
                 check_against(&map.snapshot(), &model, tab_width);
                 check_against(&before, &before_text, tab_width);
             }
+        }
+
+        /// Arbitrary Unicode and arbitrary positions, including ones inside
+        /// characters and far out of range: nothing panics, and every
+        /// result stays in range.
+        #[test]
+        fn arbitrary_input_never_panics(
+            text in any::<String>(),
+            insert in any::<String>(),
+            positions in prop::collection::vec(prop_oneof![0usize..64, Just(usize::MAX)], 6),
+            tab_width in any::<u32>(),
+        ) {
+            let tab_width = TabWidth::new(tab_width);
+            let mut rope = Rope::from(text.as_str());
+            let mut map = DisplayMap::new(&rope, tab_width);
+            let [a, b, c, d, e, f] = positions[..] else { unreachable!() };
+            let edit = rope.replace(a..b, &insert);
+            map.sync(&rope, &edit);
+            let _ = rope.slice(c..d).to_string();
+            let _ = rope.chunks_in_range(d..c).count();
+            let _ = rope.lines().count();
+            let point = rope.offset_to_point(e);
+            prop_assert!(rope.point_to_offset(point) <= rope.len());
+            prop_assert!(rope.point_to_offset(crate::rope::Point::new(e, f)) <= rope.len());
+            prop_assert!(rope.line_end(f) <= rope.len());
+            let snapshot = map.snapshot();
+            let display = snapshot.offset_to_display_point(e);
+            prop_assert!(display <= snapshot.max_point());
+            for bias in [Bias::Left, Bias::Right] {
+                let offset = snapshot.display_point_to_offset(DisplayPoint::new(e, f), bias);
+                prop_assert!(offset <= rope.len());
+                let _ = snapshot.clip_point(DisplayPoint::new(f, e), bias);
+            }
+            let _ = snapshot.row_cells(e);
+            let _ = snapshot.clusters(DisplayPoint::new(c, d)).take(64).count();
+            check_against(&snapshot, &rope.to_string(), tab_width);
         }
 
         #[test]

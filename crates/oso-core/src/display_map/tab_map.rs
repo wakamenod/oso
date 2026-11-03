@@ -110,17 +110,17 @@ pub struct TabSummary {
 
 impl TabSummary {
     /// Summarizes `text`, which starts and ends on cluster boundaries.
+    ///
+    /// Only the text after the last line break is measured: `\r\n` holds
+    /// exactly one `\n`, and a cluster always starts after `\n`.
     fn from_text(text: &str, tab_width: TabWidth) -> Self {
-        let mut lines = 0;
+        let lines = text.bytes().filter(|&byte| byte == b'\n').count();
+        let tail = text.rfind('\n').map_or(text, |index| &text[index + 1..]);
         let mut last_line = ColumnFn::default();
-        for (_, _, kind, cells) in Clusters::new(text) {
+        for (_, _, kind, cells) in Clusters::new(tail) {
             last_line = match kind {
-                CellKind::LineBreak => {
-                    lines += 1;
-                    ColumnFn::default()
-                }
                 CellKind::Tab => last_line.then_tab(tab_width),
-                CellKind::Text | CellKind::Control(_) => last_line.then_cells(cells),
+                _ => last_line.then_cells(cells),
             };
         }
         Self {
@@ -243,8 +243,16 @@ impl TabMap {
         let Some(item) = cursor.item() else {
             return point;
         };
-        for (index, cluster, kind, cells) in Clusters::new(&item.text) {
-            if start + index + cluster.len() > offset {
+        // Skip to the line of `offset` within the chunk.
+        let bytes = &item.text.as_bytes()[..offset - start];
+        let mut from = 0;
+        if let Some(newline) = bytes.iter().rposition(|&byte| byte == b'\n') {
+            point.row += bytes.iter().filter(|&&byte| byte == b'\n').count();
+            point.column = 0;
+            from = newline + 1;
+        }
+        for (index, cluster, kind, cells) in Clusters::new(&item.text[from..]) {
+            if start + from + index + cluster.len() > offset {
                 break;
             }
             self.advance(&mut point, kind, cells);
@@ -258,30 +266,44 @@ impl TabMap {
     /// cells (a wide character, a tab, an escape) gives the cluster's start
     /// with `Bias::Left` and its end with `Bias::Right`.
     pub fn to_offset(&self, target: TabPoint, bias: Bias) -> usize {
+        self.locate(target, bias).0
+    }
+
+    /// [`TabMap::to_offset`], and the point of the offset it returns.
+    fn locate(&self, target: TabPoint, bias: Bias) -> (usize, TabPoint) {
         let mut cursor = self.tree.cursor::<(TabPoint, usize)>();
         cursor.seek(&target, Bias::Right);
         let (mut point, start) = *cursor.start();
         let Some(item) = cursor.item() else {
-            return start;
+            return (start, point);
         };
-        for (index, cluster, kind, cells) in Clusters::new(&item.text) {
-            let offset = start + index;
+        // Skip to the start of the target row within the chunk.
+        let text = &*item.text;
+        let mut from = 0;
+        if target.row > point.row
+            && let Some((newline, _)) = text.match_indices('\n').nth(target.row - point.row - 1)
+        {
+            from = newline + 1;
+            point = TabPoint::new(target.row, 0);
+        }
+        for (index, cluster, kind, cells) in Clusters::new(&text[from..]) {
+            let offset = start + from + index;
             if point.row == target.row {
                 if kind == CellKind::LineBreak || point.column >= target.column {
-                    return offset;
+                    return (offset, point);
                 }
                 let mut next = point;
                 self.advance(&mut next, kind, cells);
                 if next.column > target.column {
                     return match bias {
-                        Bias::Left => offset,
-                        Bias::Right => offset + cluster.len(),
+                        Bias::Left => (offset, point),
+                        Bias::Right => (offset + cluster.len(), next),
                     };
                 }
             }
             self.advance(&mut point, kind, cells);
         }
-        start + item.text.len()
+        (start + text.len(), point)
     }
 
     /// Moves `point` past one cluster.
@@ -292,7 +314,7 @@ impl TabMap {
                 point.column = 0;
             }
             CellKind::Tab => point.column = self.tab_width.next_stop(point.column),
-            CellKind::Text | CellKind::Control(_) => {
+            CellKind::Text | CellKind::Control(_) | CellKind::Invisible(_) => {
                 point.column = point.column.saturating_add(cells);
             }
         }
@@ -301,8 +323,7 @@ impl TabMap {
     /// The clusters of `start.row`, from the one at `start.column` to the
     /// end of the row.
     pub fn clusters(&self, start: TabPoint) -> RowClusters<'_> {
-        let offset = self.to_offset(start, Bias::Left);
-        let column = self.to_tab_point(offset).column;
+        let (offset, point) = self.locate(start, Bias::Left);
         let mut cursor = self.tree.cursor::<usize>();
         cursor.seek(&offset, Bias::Right);
         let clusters = match cursor.item() {
@@ -313,7 +334,7 @@ impl TabMap {
             cursor,
             clusters,
             base: offset,
-            column,
+            column: point.column,
             tab_width: self.tab_width,
             done: false,
         }
@@ -346,7 +367,7 @@ impl<'a> Iterator for RowClusters<'a> {
                         return None;
                     }
                     CellKind::Tab => self.tab_width.next_stop(self.column) - self.column,
-                    CellKind::Text | CellKind::Control(_) => cells,
+                    CellKind::Text | CellKind::Control(_) | CellKind::Invisible(_) => cells,
                 };
                 let cluster = DisplayCluster {
                     offset: self.base + index,
