@@ -21,21 +21,25 @@ release:
 # Run
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# Run with standard logging (wgpu warnings only / oso at debug level)
-run:
-    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked -p oso
+# Run with standard logging (wgpu warnings, oso at debug level); `just run FILE` opens FILE
+[positional-arguments]
+run *args:
+    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked -p oso -- "$@"
 
 # Run with verbose logging (includes wgpu GPU init logs / backtraces enabled)
-run-verbose:
-    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run --locked -p oso
+[positional-arguments]
+run-verbose *args:
+    RUST_LOG="wgpu=debug,oso=debug" RUST_BACKTRACE=1 cargo run --locked -p oso -- "$@"
 
 # Run a dev build with the control socket; drive it with `oso ctl` (ADR 0023)
-run-dev:
-    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked -p oso --features dev
+[positional-arguments]
+run-dev *args:
+    RUST_LOG="wgpu=warn,oso=debug" cargo run --locked -p oso --features dev -- "$@"
 
 # Run the release build
-run-release:
-    RUST_LOG="wgpu=warn,oso=info" cargo run --locked -p oso --release
+[positional-arguments]
+run-release *args:
+    RUST_LOG="wgpu=warn,oso=info" cargo run --locked -p oso --release -- "$@"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Verify
