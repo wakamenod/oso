@@ -19,6 +19,20 @@ item notes when it must be settled.
   `run-command` exists, any process running as the same user can run
   editor commands; ADR 0016 accepts same-user trust, and this consequence
   should be stated there, with commands that spawn processes in mind.
+- Before M1-6: how invalid UTF-8 bytes and binary files are held in the
+  rope, which holds only UTF-8, so that they show as `\xNN` escapes and are
+  never saved ([ADR 0022](adr/0022-text-buffer-and-file-loading.md)). The
+  cell grid already escapes control characters
+  ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)).
+- M1-6 rendering: a multi-row cluster iterator that keeps one cursor across
+  rows, instead of a seek per row (about 25 µs per 60-row frame today).
+- Horizontal scroll extent needs the widest row, and the bidi-control
+  modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
+  summary tracks neither yet; add them when M1-6 or M2 needs them.
+- Large deletions free their chunks on the calling thread. Measure when M2
+  editing lands, and drop big subtrees in the background if needed.
+- `unicode-width` 0.2 and 0.1 (through naga) are both in the build.
+  Re-check when wgpu is upgraded.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
@@ -26,7 +40,8 @@ item notes when it must be settled.
 ## M3
 
 - Initial set of tree-sitter grammars, beyond Rust, Markdown and TOML.
-- Fuzzing targets and how long they run.
+- Fuzzing targets and how long they run. The `SumTree`, the rope and the
+  display model under random edits are the first candidates.
 - URL-opening policy: which schemes, and what confirmation.
 - Migemo dictionary source and licensing. Common dictionaries derive from GPL
   SKK dictionaries and cannot be bundled under MIT OR Apache-2.0
@@ -53,6 +68,10 @@ item notes when it must be settled.
 - Exact list of git-porcelain commands to implement.
 
 ## Later
+
+- An option for East Asian Ambiguous characters to take 2 cells
+  ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
+  `cjk` feature of `unicode-width`.
 
 - Dev control socket on Windows: a named pipe restricted to the current
   user ([ADR 0032](adr/0032-control-socket-transport.md)). Needed when

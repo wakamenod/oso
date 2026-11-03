@@ -49,9 +49,10 @@ M1 is built in this order. Each step is one PR.
     yet.
 - **In parallel** after M1-7a:
   - **M1-3**: command registry and keymaps with prefix keys.
-  - **M1-4**: `SumTree`, rope and display model skeleton
+  - **M1-4** (done): `SumTree`, rope and display model skeleton
     ([`display-model.md`](display-model.md),
-    [ADR 0022](adr/0022-text-buffer-and-file-loading.md)).
+    [ADR 0022](adr/0022-text-buffer-and-file-loading.md),
+    [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)).
   - **M1-5**: OS-native text rendering on macOS.
 - **M1-6**: asynchronous, progressive file loading; scrolling and cursor
   motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`.
