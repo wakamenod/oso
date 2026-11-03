@@ -10,7 +10,9 @@ mod server;
 use std::sync::mpsc;
 use std::thread;
 
-use oso_core::cursor::Cursor;
+use oso_core::editor::Editor;
+use oso_core::key::KeyPress;
+use oso_core::keymap::display_keys;
 use oso_platform::control::{CleanupGuard, ControlDir};
 use oso_render::Capture;
 use serde_json::{Value, json};
@@ -105,11 +107,13 @@ fn write_screenshot(capture: Capture, dir: &ControlDir, name: &str) -> Reply {
     Ok(json!({ "path": path, "width": image.width, "height": image.height }))
 }
 
-/// The result of `get-state`: the cursor and the surface size, if there is
-/// a window. M1-7b extends it to buffers and windows.
-pub fn state(cursor: &Cursor, surface_size: Option<(u32, u32)>) -> Value {
+/// The result of `get-state`: the cursor, the keys of a pending prefix,
+/// and the surface size, if there is a window. M1-7b extends it to buffers
+/// and windows.
+pub fn state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     json!({
-        "cursor": { "position": cursor.position },
+        "cursor": { "position": editor.cursor.position },
+        "keys": { "pending": display_keys(pending).to_string() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     })
 }
@@ -118,18 +122,31 @@ pub fn state(cursor: &Cursor, surface_size: Option<(u32, u32)>) -> Value {
 mod tests {
     use super::state;
     use oso_core::cursor::Cursor;
+    use oso_core::editor::Editor;
+    use oso_core::key::KeySequence;
     use serde_json::json;
 
     #[test]
-    fn state_reports_the_cursor_and_surface() {
-        let cursor = Cursor { position: 2 };
+    fn state_reports_the_cursor_pending_keys_and_surface() {
+        let editor = Editor {
+            cursor: Cursor { position: 2 },
+        };
         assert_eq!(
-            state(&cursor, Some((800, 600))),
-            json!({ "cursor": { "position": 2 }, "surface": { "width": 800, "height": 600 } })
+            state(&editor, &[], Some((800, 600))),
+            json!({
+                "cursor": { "position": 2 },
+                "keys": { "pending": "" },
+                "surface": { "width": 800, "height": 600 },
+            })
         );
+        let pending: KeySequence = "C-x 4".parse().unwrap();
         assert_eq!(
-            state(&cursor, None),
-            json!({ "cursor": { "position": 2 }, "surface": null })
+            state(&editor, &pending.0, None),
+            json!({
+                "cursor": { "position": 2 },
+                "keys": { "pending": "C-x 4" },
+                "surface": null,
+            })
         );
     }
 }

@@ -28,7 +28,9 @@
   - buffer edits on Japanese text and emoji
   - display-model mappings in both directions, with folds, inlays and wraps
   - keymap resolution and command dispatch
-- Reach every command through the registry, as a user would.
+- Reach every command through the registry, as a user would. Key
+  sequences run through the tip crate's `Dispatcher` with no window, for
+  example `C-f C-f C-b` to a cursor position (`crates/oso/src/dispatch.rs`).
 
 ### Level 2: end-to-end tests over the control socket (from M1-7a)
 
@@ -38,8 +40,9 @@
   [ADR 0032](adr/0032-control-socket-transport.md)):
   - `send-keys` sends input in Emacs notation, through the same path as
     keys from the window ([ADR 0033](adr/0033-key-presses-and-notation.md))
-  - `get-state` reads the state as JSON. Today this is the cursor position
-    and the surface size; buffers, cursors and the modeline come in M1-7b.
+  - `get-state` reads the state as JSON. Today this is the cursor position,
+    the keys of a pending prefix and the surface size; buffers, cursors and
+    the modeline come in M1-7b.
   - `screenshot` writes a PNG of the current frame and returns its path
 - Agents use these checks to verify behavior in the real app, following the
   `verify-in-app` skill. A Claude Code agent reads the screenshots to check

@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use oso_core::cursor::Cursor;
-use oso_core::key::{Key, KeyPress, NamedKey};
+use oso_core::command::Effects;
+use oso_core::editor::Editor;
+use oso_core::key::KeyPress;
 use oso_render::{Redraw, RenderState};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
@@ -11,6 +12,7 @@ use winit::window::{Window, WindowId};
 
 #[cfg(feature = "dev")]
 use crate::dev;
+use crate::dispatch::Dispatcher;
 use crate::keys;
 
 /// Events sent to the event loop from other threads: control socket
@@ -25,41 +27,55 @@ pub type UserEvent = ();
 /// Top-level application state.
 ///
 /// - `view`: the window and what draws into it.
-/// - `cursor`: logical cursor position in the editor (data layer).
+/// - `editor`: the editor state that commands operate on.
+/// - `dispatcher`: keymaps and commands, which turn keys into changes.
 /// - `modifiers`: the modifier keys held, as winit last reported them.
 /// - `dev`: the control socket, in dev builds where it started.
-#[derive(Default)]
 pub struct App {
     view: Option<View>,
-    cursor: Cursor,
+    editor: Editor,
+    dispatcher: Dispatcher,
     modifiers: ModifiersState,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
 }
 
 impl App {
-    /// An app that answers control socket requests through `dev`.
-    #[cfg(feature = "dev")]
-    pub fn with_dev(dev: Option<dev::DevState>) -> Self {
+    /// An app with no window yet.
+    pub fn new() -> Self {
         Self {
-            dev,
-            ..Self::default()
+            view: None,
+            editor: Editor::default(),
+            dispatcher: Dispatcher::new(),
+            modifiers: ModifiersState::default(),
+            #[cfg(feature = "dev")]
+            dev: None,
         }
     }
 
-    /// Handles one key press, from the window or from the dev control
-    /// socket.
-    ///
-    /// Until the keymaps of M1-3, only the arrow keys do anything, and
-    /// modifiers are ignored.
-    fn handle_key(&mut self, key: KeyPress) {
-        match key.key {
-            Key::Named(NamedKey::Right) => self.cursor.move_right(),
-            Key::Named(NamedKey::Left) => self.cursor.move_left(),
-            _ => return,
-        }
-        if let Some(view) = &self.view {
+    /// An app that answers control socket requests through `dev`.
+    #[cfg(feature = "dev")]
+    pub fn with_dev(dev: Option<dev::DevState>) -> Self {
+        Self { dev, ..Self::new() }
+    }
+
+    /// Handles one key press from the window, through the keymaps and the
+    /// command registry. Keys from the dev control socket take the same
+    /// path, through [`Dispatcher::handle_keys`].
+    fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyPress) {
+        let effects = self.dispatcher.handle_key(&mut self.editor, key);
+        self.apply(event_loop, effects);
+    }
+
+    /// Does what commands asked for.
+    fn apply(&self, event_loop: &ActiveEventLoop, effects: Effects) {
+        if effects.redraw
+            && let Some(view) = &self.view
+        {
             view.window.request_redraw();
+        }
+        if effects.exit {
+            event_loop.exit();
         }
     }
 }
@@ -83,19 +99,18 @@ impl View {
 #[cfg(feature = "dev")]
 impl App {
     /// Answers a control socket request on the UI thread.
-    fn handle_control(&mut self, request: dev::UiRequest) {
+    fn handle_control(&mut self, event_loop: &ActiveEventLoop, request: dev::UiRequest) {
         let dev::UiRequest { op, reply } = request;
         let result = match op {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
-                for key in keys {
-                    self.handle_key(key);
-                }
+                let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
+                self.apply(event_loop, effects);
                 Ok(serde_json::json!({ "keys": count }))
             }
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
-                Ok(dev::state(&self.cursor, surface))
+                Ok(dev::state(&self.editor, self.dispatcher.pending(), surface))
             }
             dev::UiOp::Screenshot => {
                 // Only the GPU submission happens here; the rest runs on a
@@ -105,7 +120,7 @@ impl App {
                     return;
                 };
                 let started = std::time::Instant::now();
-                let capture = view.render_state.capture(&self.cursor);
+                let capture = view.render_state.capture(&self.editor.cursor);
                 log::debug!(
                     "screenshot submitted on the UI thread in {:?}",
                     started.elapsed()
@@ -143,8 +158,8 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     #[cfg(feature = "dev")]
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, request: UserEvent) {
-        self.handle_control(request);
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, request: UserEvent) {
+        self.handle_control(event_loop, request);
     }
 
     fn window_event(
@@ -183,7 +198,7 @@ impl ApplicationHandler<UserEvent> for App {
                     let size = window.inner_size();
                     (size.width, size.height)
                 };
-                match view.render_state.render(&self.cursor, &window_size) {
+                match view.render_state.render(&self.editor.cursor, &window_size) {
                     Ok(redraw) => view.redraw_if(redraw),
                     // Not fatal: the frame is skipped and the next one retries.
                     Err(e) => log::error!("render error: {e}"),
@@ -202,7 +217,7 @@ impl ApplicationHandler<UserEvent> for App {
                     return;
                 }
                 if let Some(key) = keys::from_event(&key_event, self.modifiers) {
-                    self.handle_key(key);
+                    self.handle_key(event_loop, key);
                 }
             }
 
