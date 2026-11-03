@@ -154,7 +154,9 @@ visibly.
     files that define the checks (`Justfile`, `clippy.toml`,
     `rust-toolchain.toml`, `.cargo/`, `.github/`, gitleaks config).
     `.claude/settings.json` asks before agents edit them, and the pre-commit
-    hook asks again before a commit that touches them.
+    hook asks again before a commit that touches them. In auto mode these
+    prompts do not reach a human, so agents must ask in the conversation and
+    PR review is the backstop.
   - new `unsafe`
   - changes to process, file-writing or trust code
 - Secret scanning runs through GitHub push protection, a gitleaks scan in the

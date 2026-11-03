@@ -76,8 +76,11 @@ up. See [`agentic-workflow.md`](../agentic-workflow.md).
   - It does not see commits made through git aliases, scripts,
     `cd <other checkout> && git commit`, plumbing (`commit-tree`), or
     `merge`, `cherry-pick`, `revert` and `am`.
-- In auto mode, Bash can edit files that need approval without the Edit
-  prompt. The commit-time ask catches this before the change is committed.
+- The approval prompts (Edit ask rules and the commit-time ask) reach a
+  human only in the default permission mode. In auto mode, Bash can edit
+  these files without the Edit prompt, and the commit-time ask was observed
+  to pass without a prompt. There, the agent must ask in the conversation
+  before editing them, and PR review is the last line of defense.
 - The format hook runs `cargo` in the checkout being edited, which honors that
   checkout's `rust-toolchain.toml`. Do not edit untrusted checkouts with these
   hooks enabled.
