@@ -12,6 +12,12 @@ rust-version.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true, optional = true }
 
+# The CoreText text system (ADR 0005, ADR 0036). Only the bindings it uses.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation.workspace = true
+objc2-core-graphics.workspace = true
+objc2-core-text.workspace = true
+
 [features]
 # The dev control socket transport (ADR 0016). Enabled only by `oso/dev`.
 dev = ["dep:libc"]

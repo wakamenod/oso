@@ -22,6 +22,11 @@ pollster = "0.3"
 log = "0.4"
 env_logger = "0.11"
 bytemuck = { version = "1", features = ["derive"] }
+# CoreText and CoreGraphics bindings for the macOS text system (ADR 0036).
+# The objc2 family is already in the tree through wgpu's Metal backend.
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFString", "CFAttributedString", "CFDictionary", "CFArray", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGContext", "CGBitmapContext", "CGColorSpace", "CGImage"] }
+objc2-core-text = { version = "0.3.2", default-features = false, features = ["std", "CTFont", "CTFontDescriptor", "CTFontTraits", "CTLine", "CTRun", "CTStringAttributes", "objc2-core-graphics"] }
 # Property-based testing: automatically explores boundary values (e.g. usize::MAX).
 proptest = "1"
 
