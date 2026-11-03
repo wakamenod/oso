@@ -199,7 +199,7 @@ impl TabWidth {
     }
 
     /// The column of the first tab stop after `column`.
-    pub(crate) fn next_stop(self, column: usize) -> usize {
+    pub fn next_stop(self, column: usize) -> usize {
         let width = self.0.get() as usize;
         (column / width).saturating_add(1).saturating_mul(width)
     }
@@ -221,14 +221,14 @@ impl Default for TabWidth {
 /// Only clusters that touch non-ASCII text go through full segmentation,
 /// with one cursor for the whole text, so that runs of regional indicators
 /// (flags) are not rescanned for every cluster.
-pub(crate) struct Clusters<'a> {
+pub struct Clusters<'a> {
     text: &'a str,
     position: usize,
     cursor: GraphemeCursor,
 }
 
 impl<'a> Clusters<'a> {
-    pub(crate) fn new(text: &'a str) -> Self {
+    pub fn new(text: &'a str) -> Self {
         Self {
             text,
             position: 0,

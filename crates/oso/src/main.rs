@@ -9,6 +9,7 @@ mod commands;
 mod dev;
 mod dispatch;
 mod keys;
+mod text;
 
 use app::{App, UserEvent};
 use winit::event_loop::{ControlFlow, EventLoop};

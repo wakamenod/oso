@@ -32,7 +32,7 @@ pub mod tab_map;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
-pub use cell::{CellKind, Escape, TabWidth, escape};
+pub use cell::{CellKind, Clusters, Escape, TabWidth, escape};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.

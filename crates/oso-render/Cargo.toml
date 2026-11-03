@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 oso-core.workspace = true
+oso-platform.workspace = true
 wgpu.workspace = true
 bytemuck.workspace = true
 log.workspace = true

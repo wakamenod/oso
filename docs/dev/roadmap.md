@@ -54,7 +54,11 @@ M1 is built in this order. Each step is one PR.
     ([`display-model.md`](display-model.md),
     [ADR 0022](adr/0022-text-buffer-and-file-loading.md),
     [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)).
-  - **M1-5**: OS-native text rendering on macOS.
+  - **M1-5** (done): OS-native text rendering on macOS
+    ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)): CoreText behind
+    the text-system trait, a glyph atlas and pass 2, and a box cursor on
+    the cell grid. Linux and Windows draw no text until their backends
+    exist. A temporary sample is drawn until M1-6.
 - **M1-6**: asynchronous, progressive file loading; scrolling and cursor
   motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`.
 - **M1-7b**: the rest of the control socket (`run-command`, the full

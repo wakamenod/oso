@@ -42,6 +42,7 @@ old one's status.
 | 0033 | [Key presses and Emacs key notation](0033-key-presses-and-notation.md) | Accepted |
 | 0034 | [Command registry, keymaps and key resolution](0034-command-registry-and-keymaps.md) | Accepted |
 | 0035 | [SumTree, rope chunks and the cell grid](0035-sumtree-rope-and-cell-grid.md) | Accepted |
+| 0036 | [Text system, glyph atlas and the default font](0036-text-system-and-glyph-atlas.md) | Accepted |
 
 ## Template
 

@@ -141,10 +141,28 @@ grapheme clusters on the cell grid, and rows are buffer lines. See
 
 ### Text rendering
 
-Text shaping and rasterization use OS-native APIs behind a trait: CoreText on
-macOS and DirectWrite on Windows. The Linux backend is still open. Layout uses
-a monospace cell grid: half-width characters take one cell and full-width
-characters take two. See [ADR 0005](adr/0005-text-rendering.md).
+Text shaping and rasterization use OS-native APIs behind the `TextSystem`
+trait in `oso-platform`: CoreText on macOS, DirectWrite on Windows later. The
+Linux backend is still open. Until a backend exists, Linux and Windows use a
+null text system: the cursor is drawn on the grid, and no text. See
+[ADR 0005](adr/0005-text-rendering.md) and
+[ADR 0036](adr/0036-text-system-and-glyph-atlas.md).
+
+- **Fonts** are loaded at the window's scale factor, so sizes are physical
+  pixels; a scale change loads them again. Fallback for CJK and emoji is the
+  OS's cascade list. The default font is SF Mono, then Menlo, at 13 pt,
+  until configuration exists.
+- **Shaping** returns glyphs with their cluster's byte offset and pen
+  position. `oso-render` places them on the cell grid with the display
+  model's cluster widths, so drawing and cursor motion agree: half-width
+  clusters take one cell, full-width two, and a column's x is
+  `column × cell_width`. Cells are whole pixels.
+- **Rasterizing** gives coverage bitmaps for text and premultiplied RGBA for
+  color emoji. They are cached in a glyph atlas (one texture per format,
+  packed in shelves, doubling when full), so a glyph is rasterized once
+  while its font is loaded.
+- **Per frame**, only visible rows are shaped (once, then cached) and only
+  glyphs inside the viewport become quads.
 
 ### GPU rendering
 
