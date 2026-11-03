@@ -84,11 +84,12 @@ impl ApplicationHandler for App {
 
             // ---- Redraw ----
             WindowEvent::RedrawRequested => {
-                let size = view.window.inner_size();
-                match view
-                    .render_state
-                    .render(&self.cursor, size.width, size.height)
-                {
+                let window = &view.window;
+                let window_size = || {
+                    let size = window.inner_size();
+                    (size.width, size.height)
+                };
+                match view.render_state.render(&self.cursor, &window_size) {
                     Ok(redraw) => view.redraw_if(redraw),
                     // Not fatal: the frame is skipped and the next one retries.
                     Err(e) => log::error!("render error: {e}"),

@@ -280,16 +280,16 @@ impl RenderState {
     }
 
     /// Recovers from a surface that gave no texture, and asks for a redraw
-    /// to retry the frame unless retries are exhausted. `width` and `height`
-    /// are the window's current size.
+    /// to retry the frame unless retries are exhausted. `window_size` is as
+    /// in [`Self::render`].
     fn recover(
         &mut self,
         action: SurfaceAction,
-        width: u32,
-        height: u32,
+        window_size: &dyn Fn() -> (u32, u32),
     ) -> Result<Redraw, RenderError> {
         match action {
             SurfaceAction::Reconfigure => {
+                let (width, height) = window_size();
                 self.configure(width, height);
             }
             SurfaceAction::Recreate => {
@@ -321,17 +321,19 @@ impl RenderState {
         }
     }
 
-    /// Renders a single frame. `width` and `height` are the window's current
-    /// size in physical pixels, used when the surface must be configured
-    /// again.
+    /// Renders a single frame.
+    ///
+    /// `window_size` returns the window's current size in physical pixels.
+    /// It is called only when the surface must be configured again, since
+    /// asking the window can be a blocking round trip (for example to the X
+    /// server).
     ///
     /// Converting `Cursor.position` to pixel coordinates is the renderer's
     /// responsibility (§7.1); the `Cursor` struct itself stays free of pixel data.
     pub fn render(
         &mut self,
         cursor: &Cursor,
-        width: u32,
-        height: u32,
+        window_size: &dyn Fn() -> (u32, u32),
     ) -> Result<Redraw, RenderError> {
         // Translate cursor.position → screen X via the pure coordinate function.
         let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
@@ -350,7 +352,7 @@ impl RenderState {
             ) => tex,
             other => {
                 log::debug!("no surface texture: {other:?}");
-                return self.recover(action, width, height);
+                return self.recover(action, window_size);
             }
         };
         let view = output
@@ -399,10 +401,11 @@ impl RenderState {
         // Configure only after presenting: no surface texture may be alive.
         // Only a size change is fixed here; reconfiguring with the same size
         // would cost a GPU wait on every frame without clearing the status.
-        if action == SurfaceAction::DrawThenReconfigure
-            && (width != self.config.width || height != self.config.height)
-        {
-            self.configure(width, height);
+        if action == SurfaceAction::DrawThenReconfigure {
+            let (width, height) = window_size();
+            if width != self.config.width || height != self.config.height {
+                self.configure(width, height);
+            }
         }
 
         Ok(Redraw::NotNeeded)
