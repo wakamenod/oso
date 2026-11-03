@@ -14,4 +14,32 @@ disallowed-types = [
     { path = "std::os::unix::net::UnixListener", reason = "local sockets only in the dev control socket (ADR 0032)" },
     { path = "std::os::unix::net::UnixStream", reason = "local sockets only in the dev control socket (ADR 0032)" },
     { path = "std::os::unix::net::UnixDatagram", reason = "local sockets only in the dev control socket (ADR 0032)" },
+    # No global state: commands work on host-owned state (ADR 0038). An
+    # exception needs `#[expect(clippy::disallowed_types, reason = "...")]`.
+    { path = "std::sync::OnceLock", reason = "no global state; keep state host-owned (ADR 0038)" },
+    { path = "std::sync::LazyLock", reason = "no global state; keep state host-owned (ADR 0038)" },
+    { path = "once_cell::sync::OnceCell", reason = "no global state; keep state host-owned (ADR 0038)" },
+    { path = "once_cell::sync::Lazy", reason = "no global state; keep state host-owned (ADR 0038)" },
 ]
+disallowed-macros = [
+    { path = "std::thread_local", reason = "no global state; keep state host-owned (ADR 0038)" },
+    { path = "lazy_static::lazy_static", reason = "no global state; keep state host-owned (ADR 0038)" },
+    # Output goes through `log`, and unfinished code is a real error (ADR 0038).
+    { path = "std::println", reason = "use `log` (ADR 0038)" },
+    { path = "std::print", reason = "use `log` (ADR 0038)" },
+    { path = "std::eprintln", reason = "use `log` (ADR 0038)" },
+    { path = "std::eprint", reason = "use `log` (ADR 0038)" },
+    { path = "std::dbg", reason = "remove debugging output, or use `log` (ADR 0038)" },
+    { path = "std::todo", reason = "return a real error instead (ADR 0038)" },
+    { path = "std::unimplemented", reason = "return a real error instead (ADR 0038)" },
+]
+
+# Size limits (ADR 0038). Changing them needs a new ADR. A function over the
+# limit needs `#[expect(clippy::too_many_lines, reason = "...")]`.
+too-many-lines-threshold = 80
+cognitive-complexity-threshold = 25
+
+# `unwrap_used` and `expect_used` are denied in oso-core (ADR 0038). Tests may
+# unwrap.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

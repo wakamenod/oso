@@ -164,6 +164,10 @@ impl NamedKey {
 }
 
 impl fmt::Display for NamedKey {
+    #[expect(
+        clippy::expect_used,
+        reason = "NAMES lists every named key except F, which returns above"
+    )]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Self::F(n) = self {
             return write!(f, "<f{n}>");

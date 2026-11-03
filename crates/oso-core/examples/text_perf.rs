@@ -4,6 +4,9 @@
 //! per-query costs do not grow with file size or line length. CI benchmarks
 //! against the budgets arrive in M1-8.
 
+// A benchmark that reports to stdout, not editor code (ADR 0038).
+#![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
+
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
@@ -96,6 +99,10 @@ fn edit_costs(name: &str, mut rope: Rope, map: &mut DisplayMap, rng: &mut Lcg) {
     drop(snapshot);
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "a linear script of timed sections, one after another"
+)]
 fn main() {
     println!("== Building (100 MB, source-like text)");
     let text = file_text(100 * MB);

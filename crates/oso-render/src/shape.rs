@@ -85,6 +85,10 @@ pub struct ShapeRenderer {
 }
 
 impl ShapeRenderer {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "predates the 80-line limit (ADR 0038); split it when it next changes"
+    )]
     pub fn new(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
