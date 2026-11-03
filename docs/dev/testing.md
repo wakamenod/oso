@@ -157,6 +157,11 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
+- `just public-api-check` on Linux: the public API matches
+  `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md))
+- the structure workflow (`structure.yml`): a structural change needs an
+  ADR cited in the pull request description
+- weekly, the design health report (`design-health.yml`) as a GitHub issue
 
 Planned:
 

@@ -81,7 +81,7 @@ xargs -r -0 -I{} gitleaks dir --redact --no-banner --ignore-gitleaks-allow \
 
 # Files that need human approval (AGENTS.md). Edit rules in settings.json do
 # not see edits made through Bash, so ask again here.
-protected='(^|/)(Cargo\.(toml|lock)|deny\.toml|\.?clippy\.toml|rust-toolchain(\.toml)?|[Jj]ustfile|\.gitleaks[^/]*)$|(^|/)\.cargo/|^\.github/|^guardrails/|^\.claude/(settings[^/]*\.json|hooks/|skills/|agents/|commands/)'
+protected='(^|/)(Cargo\.(toml|lock)|deny\.toml|\.?clippy\.toml|rust-toolchain(\.toml)?|[Jj]ustfile|\.gitleaks[^/]*)$|(^|/)\.cargo/|^\.github/|^guardrails/|^crates/oso/tests/(architecture/|workspace_lints\.rs$)|^\.claude/(settings[^/]*\.json|hooks/|skills/|agents/|commands/)'
 {
     git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached
     git ls-files --others --exclude-standard

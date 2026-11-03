@@ -20,6 +20,8 @@
       "Edit(/.claude/agents/**)",
       "Edit(/.claude/commands/**)",
       "Edit(/guardrails/**)",
+      "Edit(/crates/oso/tests/architecture/**)",
+      "Edit(/crates/oso/tests/workspace_lints.rs)",
       "Bash(cargo add:*)",
       "Bash(cargo remove:*)",
       "Bash(cargo update:*)",

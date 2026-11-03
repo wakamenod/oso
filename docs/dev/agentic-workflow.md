@@ -81,8 +81,9 @@ The setup is recorded in
   - `just public-api-check` (CI only; it needs nightly) compares the
     public API with `guardrails/public-api`. `just public-api` updates it.
   - The structure workflow fails a pull request that changes the layer
-    rules, the crate graph or the API, or grows the allowlist, unless its
-    description cites an ADR.
+    rules, the crate graph, the checks or the size thresholds, adds a
+    public module or trait, or grows the allowlist, unless its description
+    cites an ADR.
   - A weekly workflow writes `just health-report` (largest files and
     functions, new dependencies, API growth, size exceptions) into a
     GitHub issue.

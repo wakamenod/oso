@@ -27,7 +27,8 @@ one. Open topics are in `docs/dev/open-questions.md`.
 - Ask before adding or upgrading dependencies, or before editing
   `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.claude/` or the files that
   define the checks (`Justfile`, `clippy.toml`, `rust-toolchain.toml`,
-  `.cargo/`, `.github/`, `guardrails/`, gitleaks config).
+  `.cargo/`, `.github/`, `guardrails/`, the guard tests in
+  `crates/oso/tests/`, gitleaks config).
 - Dev-only code (control socket, hot reload) stays behind dev cargo features.
 - Respect the dependency direction and layer rules (ADR 0038,
   `guardrails/layers.txt`). A new crate, a new crate edge, a new public

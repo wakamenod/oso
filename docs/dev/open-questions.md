@@ -59,6 +59,10 @@ item notes when it must be settled.
     architecture test rejects them, and how an exception is granted.
   - when to move the pinned nightly and `cargo-public-api`, which must be
     upgraded together.
+  - `oso-render` exposes wgpu types in `RenderError::RecreateSurface` and
+    `CaptureError::UnsupportedFormat`. The tip crate cannot match on them
+    without wgpu, which only `oso-render` may use. Carry oso-owned payloads
+    instead, after M1-6, which also changes `oso-render`.
   - the public API snapshots are Linux-only. On Windows the dev control
     socket stub differs (`ControlStream` has no field, `CleanupGuard` has
     no `Drop`). Revisit when the Windows transport lands.

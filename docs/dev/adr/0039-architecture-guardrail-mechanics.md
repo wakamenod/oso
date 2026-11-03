@@ -26,10 +26,11 @@ dependents and matches **exact** names. `libc`, the `objc2` family and the
   - `layers.txt`: the layer rules
   - `size-allowlist.txt`: the size ratchet
   - `public-api/<crate>.txt`: the API snapshots
-- Editing it needs the author's approval, like `clippy.toml`.
 - The checks are one integration test, `crates/oso/tests/architecture`. It
   reads source text and manifests with a small lexer. It has no
   dependencies and spawns no processes.
+- Editing `guardrails/` or the test code needs the author's approval, like
+  `clippy.toml`.
 
 ### Layer rules
 
@@ -47,6 +48,10 @@ dependents and matches **exact** names. `libc`, the `objc2` family and the
   - Its `mod` declarations and `pub use` re-exports are wiring, not uses.
   - Its other code uses modules like any module.
   - If `crate` is not listed, it sits above every layer.
+- A use of something that is neither a listed module nor the root fails
+  the check.
+- The initial `[oso-core]` layers follow `architecture.md`: editor state
+  and cursors sit above the display model, which sits above the rope.
 
 ### External crates
 
@@ -57,6 +62,9 @@ dependents and matches **exact** names. `libc`, the `objc2` family and the
   matching a binding name or family, for example `objc2*`,
   `core-foundation*`, `libc` or `windows*`. Transitive use through `wgpu`
   or `winit` is allowed.
+- The test resolves every rename form (`package =` inline, dotted, in a
+  `[dependencies.<key>]` table, or inherited from
+  `[workspace.dependencies]`). A rename it cannot read fails the test.
 
 ### Size limits
 
@@ -79,6 +87,10 @@ dependents and matches **exact** names. `libc`, the `objc2` family and the
 - `static mut` items are rejected by the architecture test, because no
   lint flags the declaration. rustc's `static_mut_refs` is denied as well.
   There is no `#[expect]` exception. A real need gets an ADR.
+- A cache that a lazy static would have held (a compiled regex, a lookup
+  table, a scratch buffer) belongs in host-owned state, such as a field of
+  `Editor` or the renderer. Rebuilding it on every call or frame is not the
+  alternative.
 - In `oso-core`, `#![deny(clippy::unwrap_used, clippy::expect_used)]`.
   Tests are exempt through `clippy.toml`.
 
@@ -95,12 +107,24 @@ dependents and matches **exact** names. `libc`, the `objc2` family and the
 The structure workflow requires `ADR NNNN` in the pull request description
 when a change:
 
-- changes `layers.txt` or a snapshot
-- adds or removes a crate
-- changes a dependency line naming a workspace crate
+- changes `layers.txt`
+- adds a `pub mod` or `pub trait` line to a snapshot (other API changes
+  are reviewed in the snapshot diff, without an ADR)
+- adds or removes a crate, changes the workspace members, or changes a
+  dependency line naming a workspace crate
 - adds or raises an allowlist entry
+- changes the architecture checks or the size thresholds in `clippy.toml`
 
-Removing or lowering an entry is free.
+Removing or lowering an entry is free. Allowlist entries must start at the
+beginning of the line, so the check sees each one.
+
+### Staging
+
+- M1-10a implements everything except the `//!` responsibility headers
+  (ADR 0038, point 7). They touch every source file, so they follow in
+  M1-10b, after M1-6 merges.
+- The health report compares file sizes and dependency edges with the
+  checkout from 7 days ago. Surviving mutants are added by M1-9a.
 
 ## Consequences
 
@@ -108,8 +132,9 @@ Removing or lowering an entry is free.
   approval and an ADR citation.
 - New modules carry a small cost: one line in `layers.txt` and an ADR
   citation. This is intended.
-- The lexer is approximate (no macro expansion, no `#[path]`). A use hidden
-  in a macro is not seen; review covers it.
+- The lexer is approximate: no macro expansion and no `#[path]`, and bare
+  paths in a module that glob-imports the crate root (`use super::*;` in a
+  top-level file) are not seen. Review covers these.
 - Statics with interior mutability, such as `static X: Mutex<…>`, are not
   yet caught mechanically. They are listed in the open questions.
 - Contributors who update snapshots need the pinned nightly and
