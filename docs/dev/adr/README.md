@@ -41,7 +41,7 @@ old one's status.
 | 0032 | [Control socket transport, limits and release check](0032-control-socket-transport.md) | Accepted |
 | 0033 | [Key presses and Emacs key notation](0033-key-presses-and-notation.md) | Accepted |
 | 0035 | [SumTree, rope chunks and the cell grid](0035-sumtree-rope-and-cell-grid.md) | Accepted |
-| 0036 | [Text system, glyph atlas and the default font](0036-text-system-and-glyph-atlas.md) | Proposed |
+| 0036 | [Text system, glyph atlas and the default font](0036-text-system-and-glyph-atlas.md) | Accepted |
 
 ## Template
 
