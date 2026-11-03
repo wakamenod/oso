@@ -209,5 +209,5 @@ Full details are in [`security.md`](security.md).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 
-Both are behind cargo features that release builds never enable, and CI
-checks this.
+Hot reload and the control socket are behind cargo features that release
+builds never enable. CI will check this once the features exist (M1-7a).

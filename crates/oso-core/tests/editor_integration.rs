@@ -5,6 +5,9 @@
 //! wgpu or winit dependency. They can always run in headless / CI
 //! environments.
 
+// Integration tests are their own crate; keep oso-core free of `unsafe`.
+#![forbid(unsafe_code)]
+
 use oso_core::cursor::Cursor;
 
 // ---------------------------------------------------------------------------
