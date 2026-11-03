@@ -116,8 +116,18 @@ Pass 2: glyphs from the atlas                          (text renderer)
 Pass 3: images and other content                       (added when needed)
 ```
 
-The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand with
-a frame latency of 1.
+The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
+on input that changes the view, on resize, and when the window becomes visible.
+The surface presents with `Fifo` and a frame latency of 1. Fifo is always
+supported and never tears, and on-demand drawing means it costs nothing while
+idle. Mailbox or Immediate can be revisited once key-to-photon latency is
+measured ([ADR 0025](adr/0025-latency-measurement.md)). The adapter is
+requested with low power preference, which keeps dual-GPU machines on the
+integrated GPU.
+
+Surface errors are mapped to typed recovery actions: an outdated surface is
+reconfigured, a lost one is recreated, and timeouts and occlusion skip the
+frame. Render errors are logged and are never fatal.
 
 ### Views and buffers
 
