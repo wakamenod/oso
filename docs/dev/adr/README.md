@@ -37,6 +37,7 @@ old one's status.
 | 0028 | [Handling secrets in memory and on disk](0028-secrets-handling.md) | Accepted |
 | 0029 | [File changes on disk and editing while loading](0029-file-changes-on-disk.md) | Accepted |
 | 0030 | [M2 editing command semantics](0030-m2-editing-commands.md) | Accepted |
+| 0031 | [Claude Code integration: host the official TUI](0031-claude-code-integration.md) | Accepted |
 
 ## Template
 

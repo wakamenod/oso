@@ -6,9 +6,6 @@ item notes when it must be settled.
 
 ## Needs a dedicated discussion
 
-- **Claude Code client design** (before M4). Revisit whether a
-  `claude -p`-based design is right. Also decide whether a wiki/GTD client
-  belongs in oso, and if so when.
 - **UI of each later feature** (before building it). The M2 UI is decided
   ([`ui.md`](ui.md), [ADR 0026](adr/0026-m2-ui-layout.md)); M3 and later
   features (avy, ripgrep results, the menu contents, the git status buffer,
@@ -33,6 +30,16 @@ item notes when it must be settled.
 
 ## M4
 
+- Claude Code hooks: which events map to which states, and how
+  `oso integration install claude` merges with existing user settings
+  ([ADR 0031](adr/0031-claude-code-integration.md)).
+- Whether to add native permission dialogs (PermissionRequest hook), a
+  read-only transcript viewer, or `claude -p` one-shot features later.
+- OSC 7501 is a draft; track its revisions.
+- Terminal: PTY implementation per OS (ConPTY on Windows) and the full list of
+  allowed and blocked escape sequences.
+- If oso is published with the Claude Code integration, check Anthropic's
+  terms for third-party clients that launch the user's own `claude`.
 - Verify that `gix` can be forced to skip `core.fsmonitor`, filters,
   textconv and external diff drivers.
 - Passphrase/credential prompts via `GIT_ASKPASS`: keep the input out of
@@ -42,8 +49,6 @@ item notes when it must be settled.
 ## Later
 
 - Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz.
-- Terminal: PTY implementation per OS (ConPTY on Windows) and the full list of
-  allowed and blocked escape sequences.
 - Exact command subsets for the directory editor and org.
 - PDF engine and isolation (pdfium, a pure-Rust renderer, a separate
   process); image decoders.

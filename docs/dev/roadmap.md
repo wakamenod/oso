@@ -92,14 +92,19 @@ M1 is built in this order. Each step is one PR.
 - A git-porcelain subset: status, staging hunks, commit, push/pull, log,
   conflict resolution.
 - Compile buffer (running `just ci`), format on save.
-- A minimal Claude Code client and an MCP server for reviewing agent changes.
-  The client design will be revisited; see
-  [`open-questions.md`](open-questions.md).
+- Terminal view for hosting agents: PTY, `alacritty_terminal` rendering,
+  input, searchable text, escape-sequence policy, OSC 7501 status
+  ([ADR 0015](adr/0015-terminal.md)).
+- Claude Code integration ([ADR 0031](adr/0031-claude-code-integration.md)):
+  the official `claude` TUI in a terminal view, hooks for session identity
+  and state, the `oso mcp` bridge for review and worktree tools, session
+  list, notifications, worktree sessions, and restore via `--resume`.
 
 ### After M4
 
-- Directory editor (dired-like), org subset, terminal (`alacritty_terminal`),
-  also usable as the backend for compile.
+- Directory editor (dired-like), org subset.
+- Pop-up terminal and the terminal as the backend for compile.
+- A wiki/GTD client, to be considered.
 - Tabs and multiple frames.
 - Inline images and a PDF viewer.
 - Each of these includes only the commands the author actually uses.

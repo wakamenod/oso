@@ -134,6 +134,16 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
 - Sequences that echo data back, such as title reporting, are disabled.
 - OSC 8 hyperlinks show the real target before opening.
 
+### Agent integration (T7, T9)
+
+- Claude Code runs as its official TUI in a terminal view
+  ([ADR 0031](adr/0031-claude-code-integration.md)).
+- Its MCP tools reach oso only through the `oso mcp` stdio bridge and a Unix
+  socket with a peer user check; no TCP port is opened. Tools follow the
+  trust model, and there is no code-execution tool.
+- Hooks are installed only by an explicit command that shows the settings
+  change first.
+
 ### Denial of service (T8)
 
 - Files load in the background, and the UI stays responsive on huge files and
