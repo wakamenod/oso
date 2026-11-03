@@ -1,6 +1,15 @@
 # oso Editor — Justfile
 # Usage: just <recipe>  /  List all recipes: just (no arguments)
 
+# Nightly toolchain for rustdoc JSON, used only by the public API snapshots
+# (ADR 0038). cargo-public-api 0.52 needs nightly-2025-11-22 or later; CI
+# pins both. `just ci` never needs nightly.
+nightly := "nightly-2026-05-25"
+cargo_public_api := "0.52.0"
+# Snapshots are taken for one target so that they read the same on every OS.
+api_target := "x86_64-unknown-linux-gnu"
+api_crates := "oso-core oso-platform oso-render"
+
 # Default: show the recipe list
 default:
     @just --list --unsorted
@@ -115,6 +124,121 @@ release-safety:
 
     if [ "$fail" -eq 0 ]; then echo "release safety: ok ($release_bin)"; fi
     exit "$fail"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Architecture guardrails (ADR 0038)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Update the public API snapshots in guardrails/public-api
+# (needs `rustup toolchain install <nightly>`, `rustup target add` for
+# api_target, and `cargo install --locked cargo-public-api@<version>`)
+public-api:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have=$(cargo public-api --version 2>/dev/null || true)
+    [ "$have" = "cargo-public-api {{cargo_public_api}}" ] \
+        || { echo "error: need cargo-public-api {{cargo_public_api}}, found '${have:-none}'"; exit 1; }
+    for crate in {{api_crates}}; do
+        cargo +{{nightly}} public-api --color never -p "$crate" --all-features -ss \
+            --target {{api_target}} > "guardrails/public-api/$crate.txt"
+    done
+    git diff --quiet -- Cargo.lock \
+        || { echo "error: generating the snapshots changed Cargo.lock"; exit 1; }
+
+# Fail if the public API differs from the committed snapshots
+public-api-check: public-api
+    #!/usr/bin/env bash
+    set -euo pipefail
+    untracked=$(git ls-files --others --exclude-standard -- guardrails/public-api)
+    if ! git diff --exit-code -- guardrails/public-api || [ -n "$untracked" ]; then
+        echo "error: the public API differs from guardrails/public-api (above)."
+        echo "Run 'just public-api' and commit the snapshots. A new public trait or"
+        echo "module is a structural change and needs an ADR (ADR 0038)."
+        exit 1
+    fi
+    echo "public API: matches the snapshots"
+
+# Write the design health report (ADR 0038) as Markdown
+health-report out="target/design-health.md":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{out}}"
+    mkdir -p "$(dirname "$out")"
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    since=$(git rev-list -1 --before="7 days ago" HEAD || true)
+    OSO_HEALTH_REPORT="$tmp/tests.md" cargo test --locked -q -p oso --test architecture \
+        -- --ignored --exact design_health_report >/dev/null
+    # Clippy lists every function over 40 lines. Functions with an
+    # #[expect(clippy::too_many_lines)] are listed separately below.
+    sed 's/^too-many-lines-threshold = .*/too-many-lines-threshold = 40/' clippy.toml >"$tmp/clippy.toml"
+    { CLIPPY_CONF_DIR="$tmp" cargo clippy --locked --workspace --all-targets --all-features \
+        --message-format=short -- -W clippy::too_many_lines 2>&1 || true; } \
+        | sed -n 's|^\([^:]*:[0-9]*\):[0-9]*: .*too many lines (\([0-9]*\)/40).*|\2 \1|p' \
+        | sort -rn | head -n 15 >"$tmp/functions"
+    {
+        echo "# Design health report"
+        echo
+        echo "Commit $(git rev-parse --short HEAD). Compared with ${since:+$(git rev-parse --short "$since"), }the state 7 days ago."
+        echo
+        cat "$tmp/tests.md"
+        echo
+        echo "## Largest functions (over 40 lines; the limit is 80)"
+        echo
+        echo "| Lines | Function at |"
+        echo "|---:|---|"
+        while read -r lines at; do echo "| $lines | \`$at\` |"; done <"$tmp/functions"
+        echo
+        echo "## Size exceptions"
+        echo
+        echo "Allowlisted files (guardrails/size-allowlist.txt):"
+        echo
+        grep -Ev '^[[:space:]]*(#|$)' guardrails/size-allowlist.txt | sed 's/^/- /' || echo "- none"
+        echo
+        echo "Functions with an \`#[expect]\` for a size or complexity lint:"
+        echo
+        grep -rnE 'clippy::(too_many_lines|cognitive_complexity)' crates --include='*.rs' \
+            | grep -v '^crates/oso/tests/architecture' | cut -d: -f1,2 | sed 's/^/- /' || echo "- none"
+        echo
+        echo "## Changes in the last 7 days"
+        echo
+        if [ -z "$since" ]; then
+            echo "No history from 7 days ago."
+        else
+            echo "Commits touching the crate graph or the guardrails:"
+            echo
+            git log --format='- %h %s' "$since"..HEAD -- Cargo.toml 'crates/*/Cargo.toml' guardrails/ \
+                | grep . || echo "- none"
+            echo
+            echo "New packages in Cargo.lock:"
+            echo
+            comm -13 <(git show "$since:Cargo.lock" | grep '^name = ' | sort -u) \
+                <(grep '^name = ' Cargo.lock | sort -u) | sed 's/^name = /- /' | grep . || echo "- none"
+            echo
+            echo "Public API size (lines in guardrails/public-api):"
+            echo
+            for crate in {{api_crates}}; do
+                f="guardrails/public-api/$crate.txt"
+                now=$(wc -l <"$f" | tr -d ' ')
+                if git cat-file -e "$since:$f" 2>/dev/null; then
+                    echo "- $crate: $now (was $(git show "$since:$f" | wc -l | tr -d ' '))"
+                else
+                    echo "- $crate: $now (new)"
+                fi
+            done
+        fi
+        echo
+        echo "## Surviving mutants"
+        echo
+        # Hook for mutation testing (M1-9, ADR 0037): cargo-mutants writes
+        # mutants.out/missed.txt.
+        if [ -f mutants.out/missed.txt ]; then
+            sed 's/^/- /' mutants.out/missed.txt
+        else
+            echo "Not collected yet: mutation testing arrives with M1-9 (ADR 0037)."
+        fi
+    } >"$out"
+    echo "design health report: $out"
 
 # Check dependencies against deny.toml (advisories, licenses, sources, bans)
 deny:
