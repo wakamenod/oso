@@ -29,10 +29,11 @@
 pub mod cell;
 pub mod tab_map;
 
+use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
-pub use cell::{CellKind, Clusters, Escape, TabWidth, escape};
+pub use cell::{CellKind, Clusters, Escape, INVALID_BYTE_CELLS, TabWidth, escape};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.
@@ -92,8 +93,14 @@ impl DisplayMap {
     /// cluster, so large buffers build it off the UI thread, chunk by chunk
     /// as they load (see [`DisplayMap::sync`]).
     pub fn new(buffer: &Rope, tab_width: TabWidth) -> Self {
+        Self::with_invalid(buffer, &InvalidBytes::new(), tab_width)
+    }
+
+    /// [`DisplayMap::new`] for a buffer with invalid bytes, each shown as
+    /// `\xNN` (ADR 0037).
+    pub fn with_invalid(buffer: &Rope, invalid: &InvalidBytes, tab_width: TabWidth) -> Self {
         Self {
-            tab_map: TabMap::new(buffer, tab_width),
+            tab_map: TabMap::new(buffer, invalid, tab_width),
         }
     }
 
@@ -101,7 +108,14 @@ impl DisplayMap {
     /// `buffer` is the rope right after that edit; call this once per edit,
     /// in order. Costs O(log n) plus the size of the edited chunks.
     pub fn sync(&mut self, buffer: &Rope, edit: &RopeEdit) {
-        self.tab_map.sync(buffer, edit);
+        let invalid = self.tab_map.invalid().clone();
+        self.tab_map.sync(buffer, &invalid, edit);
+    }
+
+    /// [`DisplayMap::sync`] for an append that brought invalid bytes:
+    /// `invalid` holds all of the buffer's, including the new ones.
+    pub fn sync_with_invalid(&mut self, buffer: &Rope, invalid: &InvalidBytes, edit: &RopeEdit) {
+        self.tab_map.sync(buffer, invalid, edit);
     }
 
     /// The tab width.
@@ -112,7 +126,8 @@ impl DisplayMap {
     /// Changes the tab width. O(n), like [`DisplayMap::new`] (about 25 ms
     /// per 100 MB), so large buffers do it off the UI thread.
     pub fn set_tab_width(&mut self, buffer: &Rope, tab_width: TabWidth) {
-        self.tab_map = TabMap::new(buffer, tab_width);
+        let invalid = self.tab_map.invalid().clone();
+        self.tab_map = TabMap::new(buffer, &invalid, tab_width);
     }
 
     /// An immutable snapshot. O(1); it can be sent to another thread.
@@ -131,6 +146,11 @@ pub struct DisplaySnapshot {
 }
 
 impl DisplaySnapshot {
+    /// The buffer's invalid bytes.
+    pub fn invalid_bytes(&self) -> &InvalidBytes {
+        self.tab_map.invalid()
+    }
+
     /// The number of display rows.
     pub fn row_count(&self) -> usize {
         self.tab_map.summary().lines + 1

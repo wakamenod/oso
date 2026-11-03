@@ -14,6 +14,8 @@
 //!   out of the cluster it would extend, except where it is part of an emoji
 //!   or a script (see `is_hidden_extend`), so `a` followed by tag
 //!   characters or a ZWNJ shows every hidden code point.
+//! - An invalid byte of the file, held as U+FFFD with its value in
+//!   [`InvalidBytes`], is shown as `\xNN` in 4 cells (ADR 0037).
 //! - A tab advances to the next tab stop. `\n` and `\r\n` end the row and
 //!   take no cells.
 
@@ -21,6 +23,8 @@ use std::num::NonZeroU32;
 
 use unicode_segmentation::GraphemeCursor;
 use unicode_width::UnicodeWidthStr;
+
+use crate::decode::{InvalidBytes, InvalidIter, REPLACEMENT};
 
 /// What a grapheme cluster is on the cell grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -34,6 +38,9 @@ pub enum CellKind {
     /// A bidi control or invisible character, drawn as its [`escape`] in a
     /// box.
     Invisible(char),
+    /// An invalid byte of the file, drawn as `\xNN` ([`Escape::byte`]). Its
+    /// text in the buffer is U+FFFD.
+    InvalidByte(u8),
     /// `\n` or `\r\n`. Ends the row and takes no cells.
     LineBreak,
 }
@@ -130,6 +137,21 @@ fn classify_ascii(byte: u8) -> (CellKind, usize) {
     }
 }
 
+impl CellKind {
+    /// The escape this cluster is drawn as, instead of its text: for
+    /// control and invisible characters and invalid bytes.
+    pub fn escape(self) -> Option<Escape> {
+        match self {
+            Self::Control(c) | Self::Invisible(c) => escape(c),
+            Self::InvalidByte(byte) => Some(Escape::byte(byte)),
+            Self::Text | Self::Tab | Self::LineBreak => None,
+        }
+    }
+}
+
+/// The cells an invalid byte takes: `\xNN`.
+pub const INVALID_BYTE_CELLS: usize = 4;
+
 /// The text a control or invisible character is drawn as: `^@` to `^_`
 /// and `^?` for C0 and DEL, `\200` to `\237` for C1, and the code point
 /// (`U+202E`) for an [invisible](is_invisible) character. `None` for other
@@ -174,6 +196,19 @@ pub struct Escape {
 }
 
 impl Escape {
+    /// The escape of an invalid byte: `\xNN`, in upper-case hex.
+    pub fn byte(byte: u8) -> Self {
+        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+        let mut bytes = [0; 8];
+        bytes[..2].copy_from_slice(b"\\x");
+        bytes[2] = HEX[usize::from(byte >> 4)];
+        bytes[3] = HEX[usize::from(byte & 0xf)];
+        Self {
+            bytes,
+            len: INVALID_BYTE_CELLS,
+        }
+    }
+
     /// The escape as text, for example `^M` or `U+202E`.
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.bytes[..self.len]).unwrap_or_default()
@@ -221,19 +256,69 @@ impl Default for TabWidth {
 /// Only clusters that touch non-ASCII text go through full segmentation,
 /// with one cursor for the whole text, so that runs of regional indicators
 /// (flags) are not rescanned for every cluster.
+///
+/// With [`Clusters::with_invalid`], the U+FFFD of an invalid byte is a
+/// cluster of its own, [`CellKind::InvalidByte`], even where a grapheme
+/// cluster would join it to its neighbors.
 pub struct Clusters<'a> {
     text: &'a str,
     position: usize,
     cursor: GraphemeCursor,
+    /// The invalid bytes after `position`, and where the text starts in
+    /// the buffer.
+    invalid: Option<InvalidIter<'a>>,
+    base: usize,
+    /// The next invalid byte, relative to the text.
+    next_invalid: Option<(usize, u8)>,
 }
 
 impl<'a> Clusters<'a> {
+    /// The clusters of `text`, with no invalid bytes.
     pub fn new(text: &'a str) -> Self {
         Self {
             text,
             position: 0,
             cursor: GraphemeCursor::new(0, text.len(), true),
+            invalid: None,
+            base: 0,
+            next_invalid: None,
         }
+    }
+
+    /// The clusters of `text`, which starts at `base` in a buffer whose
+    /// invalid bytes are `invalid`.
+    pub fn with_invalid(text: &'a str, base: usize, invalid: &'a InvalidBytes) -> Self {
+        let mut clusters = Self::new(text);
+        if !invalid.is_empty() {
+            clusters.invalid = Some(invalid.range(base..base + text.len()));
+            clusters.base = base;
+            clusters.advance_invalid();
+        }
+        clusters
+    }
+
+    fn advance_invalid(&mut self) {
+        let base = self.base;
+        self.next_invalid = self
+            .invalid
+            .as_mut()
+            .and_then(Iterator::next)
+            .map(|(offset, byte)| (offset - base, byte));
+    }
+
+    /// The invalid byte at `start`, if its U+FFFD is there. Skips entries
+    /// before `start`, which a consistent table never has.
+    fn invalid_at(&mut self, start: usize) -> Option<u8> {
+        while let Some((at, byte)) = self.next_invalid {
+            if at > start {
+                return None;
+            }
+            self.advance_invalid();
+            if at == start && self.text[start..].starts_with(REPLACEMENT) {
+                return Some(byte);
+            }
+        }
+        None
     }
 
     /// The end of the grapheme cluster that starts (or continues) at
@@ -262,6 +347,14 @@ impl<'a> Iterator for Clusters<'a> {
         let (text, start) = (self.text, self.position);
         let bytes = text.as_bytes();
         let byte = *bytes.get(start)?;
+        if self.next_invalid.is_some()
+            && let Some(invalid) = self.invalid_at(start)
+        {
+            let end = start + REPLACEMENT.len_utf8();
+            self.position = end;
+            let kind = CellKind::InvalidByte(invalid);
+            return Some((start, &text[start..end], kind, INVALID_BYTE_CELLS));
+        }
         let next = bytes.get(start + 1).copied();
         let (end, kind, cells) = if byte == b'\r' && next == Some(b'\n') {
             (start + 2, CellKind::LineBreak, 0)
@@ -269,7 +362,13 @@ impl<'a> Iterator for Clusters<'a> {
             let (kind, cells) = classify_ascii(byte);
             (start + 1, kind, cells)
         } else {
-            let cluster_end = self.cluster_end(start);
+            let mut cluster_end = self.cluster_end(start);
+            // An invalid byte's U+FFFD is never part of a larger cluster.
+            if let Some((at, _)) = self.next_invalid
+                && at < cluster_end
+            {
+                cluster_end = at;
+            }
             let end = start + first_display_cluster(&text[start..cluster_end]);
             let (kind, cells) = classify(&text[start..end]);
             (end, kind, cells)

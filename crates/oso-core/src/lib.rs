@@ -5,10 +5,12 @@
 #![forbid(unsafe_code)]
 
 pub mod command;
+pub mod decode;
 pub mod cursor;
 pub mod display_map;
 pub mod editor;
 pub mod key;
 pub mod keymap;
+pub mod load;
 pub mod rope;
 pub mod sum_tree;
