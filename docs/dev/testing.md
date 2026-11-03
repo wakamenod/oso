@@ -30,14 +30,25 @@
   - keymap resolution and command dispatch
 - Reach every command through the registry, as a user would.
 
-### Level 2: end-to-end tests over the control socket (from M1)
+### Level 2: end-to-end tests over the control socket (from M1-7a)
 
-- Start a dev build and drive it over the dev control socket:
-  - `send-keys` sends input
-  - `get-state` reads buffer text, cursors and the modeline as JSON
-  - `screenshot` captures a frame
-- Agents use these tests to check behavior in the real app. A Claude Code
-  agent can read the screenshots to check visuals.
+- Start a dev build (`just run-dev`, or `cargo build -p oso --features dev`)
+  and drive it with `oso ctl` over the dev control socket
+  ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
+  [ADR 0032](adr/0032-control-socket-transport.md)):
+  - `send-keys` sends input in Emacs notation, through the same path as
+    keys from the window ([ADR 0033](adr/0033-key-presses-and-notation.md))
+  - `get-state` reads the state as JSON. Today this is the cursor position
+    and the surface size; buffers, cursors and the modeline come in M1-7b.
+  - `screenshot` writes a PNG of the current frame and returns its path
+- Agents use these checks to verify behavior in the real app, following the
+  `verify-in-app` skill. A Claude Code agent reads the screenshots to check
+  visuals.
+- Not covered yet: resizing the window and real OS key events. These are
+  still checked by hand.
+- The transport and protocol themselves are tested without a window or GPU
+  (`oso-platform` control tests, the server tests in the tip crate), so CI
+  runs them on Linux and macOS. Windows is not supported yet (ADR 0032).
 
 ### Level 3: snapshot tests (after text rendering lands)
 
@@ -76,12 +87,14 @@ run them for long periods.
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
-- `just ci` on Linux, macOS and Windows
+- `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
+  the dev features too (`--all-features`).
+- `just release-safety` on Linux: release builds contain no dev-only
+  features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
 
 Planned:
 
-- a check that release builds contain no dev-only features (M1-7a)
 - performance and build-time budgets
 - snapshot tests on Linux with lavapipe, once they exist

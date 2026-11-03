@@ -58,12 +58,14 @@ The setup is recorded in
 ### Mechanical checks
 
 - Clippy denies undocumented `unsafe` blocks, `allow` attributes without a
-  reason, process spawning outside `oso-platform::process` and `std::net`
-  sockets (`Cargo.toml` `[lints]`, `clippy.toml`).
+  reason, process spawning outside `oso-platform::process`, `std::net`
+  sockets, and Unix domain sockets outside the dev control socket
+  (`Cargo.toml` `[lints]`, `clippy.toml`).
 - `just deny` and `just audit` check dependencies against `deny.toml` and
   the RustSec database. `just secrets` scans the git history.
-- CI runs `just ci` on all three platforms, plus `cargo-deny`, `cargo-audit`
-  and gitleaks.
+- CI runs `just ci` on all three platforms, plus `just release-safety`
+  (no dev-only code in release builds), `cargo-deny`, `cargo-audit` and
+  gitleaks.
 
 ### Skills
 
@@ -72,14 +74,15 @@ The setup is recorded in
 - `add-dependency`: research maintenance, `unsafe` usage, transitive
   dependencies, license and `cargo-deny` results, report back, and wait for
   approval.
+- `verify-in-app`: start a dev build, drive it with `oso ctl` over the
+  control socket (`send-keys`, `get-state`, `screenshot`), read the
+  screenshots, and stop the app.
 
 Planned:
 
 - `add-command` (M1-3): implement the function, register it with a docstring
   and argument spec, add a key binding, write unit tests and an end-to-end
   test, and regenerate the command reference.
-- `verify-in-app` (M1-7a): start a dev build, drive it over the control socket
-  and check screenshots.
 
 ### Reviewer subagents
 

@@ -10,10 +10,18 @@ rust-version.workspace = true
 [dependencies]
 oso-core.workspace = true
 oso-render.workspace = true
+oso-platform.workspace = true
 winit.workspace = true
 pollster.workspace = true
 log.workspace = true
 env_logger.workspace = true
+serde_json = { workspace = true, optional = true }
+miniz_oxide = { workspace = true, optional = true }
+
+[features]
+# Dev-only tooling: the control socket and `oso ctl` (ADR 0016, ADR 0023).
+# Never a default feature. CI checks that release builds contain none of it.
+dev = ["dep:serde_json", "dep:miniz_oxide", "oso-platform/dev", "oso-render/dev"]
 
 [lints]
 workspace = true

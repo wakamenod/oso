@@ -78,7 +78,8 @@ network features.
 - Only `oso-platform::process` may create processes. Clippy
   `disallowed_methods` bans `std::process::Command::new` (and its async
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
-  helper crates. Clippy `disallowed_types` bans `std::net` sockets.
+  helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
+  Unix domain sockets outside the dev control socket.
 - Executables resolve from absolute paths in user config, or from `PATH` with
   the current directory and the project directory removed.
 - The environment is sanitized and every spawn is logged in a visible buffer.
@@ -126,7 +127,8 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
 - Saving writes a temporary file in the same directory, fsyncs it, renames it
   over the target and preserves permissions.
 - Dev state handoff for hot reload goes process-to-process in memory, never
-  through files.
+  through files. Dev screenshots are the only dev-only files; see
+  [Development](#development-t9).
 
 ### Terminal (T7)
 
@@ -160,10 +162,24 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
 ### Development (T9)
 
 - The dev control socket and hot reload exist only behind cargo features that
-  release builds never enable. CI will verify this once the features exist
-  (M1-7a).
-- The control socket lives in a `0700` directory and checks the peer's user
-  ID.
+  release builds never enable. `just release-safety` runs in CI and fails if
+  a release build enables a `dev` feature, depends on a dev-only crate or
+  contains the dev marker string. Each check first proves it can see the dev
+  code in a dev build ([ADR 0032](adr/0032-control-socket-transport.md)).
+- The control socket ([ADR 0032](adr/0032-control-socket-transport.md)):
+  - lives in a private directory (`$XDG_RUNTIME_DIR/oso`, or `oso-<uid>` in
+    the temporary directory), created `0700` and refused if it is a symlink,
+    owned by another user or has a looser mode, or if other users can
+    write to its parent and it is not sticky
+  - checks on both ends that the peer runs as the same user (`getpeereid`,
+    `SO_PEERCRED`)
+  - limits request lines to 1 MiB, clients to 4 (each disconnected after
+    60 s idle) and `send-keys` to 4096 keys, and never blocks the UI thread
+  - is not available on Windows yet
+- Screenshots are a dev-only exception to keeping screen and buffer
+  contents off disk. They are written `0600`, without following symlinks,
+  into the private directory, and removed on a clean exit or by the next
+  dev instance.
 - Human approval is required for:
   - changes to `Cargo.toml`, `Cargo.lock`, `deny.toml`, `.claude/` and the
     files that define the checks (`Justfile`, `clippy.toml`,

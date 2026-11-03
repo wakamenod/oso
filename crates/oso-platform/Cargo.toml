@@ -9,5 +9,12 @@ rust-version.workspace = true
 
 [dependencies]
 
+[target.'cfg(unix)'.dependencies]
+libc = { workspace = true, optional = true }
+
+[features]
+# The dev control socket transport (ADR 0016). Enabled only by `oso/dev`.
+dev = ["dep:libc"]
+
 [lints]
 workspace = true

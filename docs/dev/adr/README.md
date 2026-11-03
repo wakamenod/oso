@@ -38,6 +38,8 @@ old one's status.
 | 0029 | [File changes on disk and editing while loading](0029-file-changes-on-disk.md) | Accepted |
 | 0030 | [M2 editing command semantics](0030-m2-editing-commands.md) | Accepted |
 | 0031 | [Claude Code integration: host the official TUI](0031-claude-code-integration.md) | Accepted |
+| 0032 | [Control socket transport, limits and release check](0032-control-socket-transport.md) | Accepted |
+| 0033 | [Key presses and Emacs key notation](0033-key-presses-and-notation.md) | Accepted |
 
 ## Template
 

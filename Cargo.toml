@@ -25,6 +25,15 @@ bytemuck = { version = "1", features = ["derive"] }
 # Property-based testing: automatically explores boundary values (e.g. usize::MAX).
 proptest = "1"
 
+# Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
+# JSON Lines for the control socket (ADR 0023); used through `Value` only, so
+# without serde's derive macros.
+serde_json = "1"
+# Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
+miniz_oxide = "0.9"
+# Peer credentials and the effective user ID for the control socket.
+libc = "0.2"
+
 [workspace.lints.clippy]
 undocumented_unsafe_blocks = "deny"
 disallowed_methods = "deny"

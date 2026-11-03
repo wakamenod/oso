@@ -13,6 +13,12 @@ item notes when it must be settled.
 
 ## M1
 
+- Control socket, before M1-7b: once `get-state` returns buffer text and
+  screenshots show buffers, decide whether secret-pattern files
+  ([ADR 0028](adr/0028-secrets-handling.md)) are masked in both. Also, once
+  `run-command` exists, any process running as the same user can run
+  editor commands; ADR 0016 accepts same-user trust, and this consequence
+  should be stated there, with commands that spawn processes in mind.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
@@ -48,6 +54,9 @@ item notes when it must be settled.
 
 ## Later
 
+- Dev control socket on Windows: a named pipe restricted to the current
+  user ([ADR 0032](adr/0032-control-socket-transport.md)). Needed when
+  agents test on Windows.
 - Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz.
 - Exact command subsets for the directory editor and org.
 - PDF engine and isolation (pdfium, a pure-Rust renderer, a separate
