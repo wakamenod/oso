@@ -4,37 +4,30 @@
 //! in as a [`wgpu::DisplayAndWindowHandle`] and its size as plain pixels, and
 //! requests redraws when told to through [`Redraw`].
 
+mod atlas;
 #[cfg(feature = "dev")]
 mod capture;
 mod shape;
+mod text;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, Image};
 use shape::ShapeRenderer;
+use text::{Layout, Rows, TextRenderer};
 
 use std::sync::Arc;
 
 use oso_core::cursor::Cursor;
+use oso_platform::text::{CellMetrics, TextSystem};
 
-// Top-left margin (will become the line-number gutter offset in the future).
+// Top-left margin, in physical pixels (will become the line-number gutter
+// offset in the future).
 const MARGIN_X: f32 = 8.0;
 const MARGIN_Y: f32 = 8.0;
 
-// Pixel width per cursor position unit (placeholder until cosmic-text is integrated).
-// Validation test per §7.3: each key press shifts the cursor by +10 px.
-const CHAR_WIDTH_PX: f32 = 10.0;
-
-/// Calculates the pixel X coordinate of the cursor from its logical position.
-///
-/// This is a pure function with no GPU dependency, enabling straightforward
-/// unit testing independent of the wgpu context.
-///
-/// # Arguments
-/// - `position`   – byte offset of the cursor in the text buffer
-/// - `char_width` – pixel width per character position (current placeholder: 10.0)
-/// - `margin_x`   – left margin in pixels (current placeholder: 8.0)
-pub(crate) fn cursor_pixel_x(position: usize, char_width: f32, margin_x: f32) -> f32 {
-    position as f32 * char_width + margin_x
-}
+// Colors in linear RGB, until the theme of ADR 0027.
+const BACKGROUND: [f32; 4] = [0.05, 0.05, 0.07, 1.0];
+const FOREGROUND: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
+const CURSOR: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
 
 /// The single wgpu backend used on this OS (ADR 0003). There is no GL fallback.
 ///
@@ -144,9 +137,9 @@ pub enum Redraw {
 
 /// Manages the wgpu device, queue, and surface; issues frame draws.
 ///
-/// Render pass layout (§5.6 — separated pass design):
-///   Pass 1: ShapeRenderer  — clear background + cursor rectangle
-///   Pass 2: TextRenderer   — (added in a future milestone)
+/// Render passes (architecture.md, "GPU rendering"):
+///   Pass 1: ShapeRenderer — clear background + cursor box
+///   Pass 2: TextRenderer  — glyph quads from the atlas
 pub struct RenderState {
     /// The window the surface draws to, kept to create the surface again
     /// after it is lost.
@@ -158,17 +151,24 @@ pub struct RenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     shape_renderer: ShapeRenderer,
+    text_renderer: TextRenderer,
+    /// Shapes and rasterizes text; see `oso_platform::text`.
+    text_system: Box<dyn TextSystem>,
+    /// The rows of text shown from the top-left corner.
+    rows: Rows,
     /// Frames in a row that failed to draw; see `count_failed_frame`.
     failed_frames: u8,
 }
 
 impl RenderState {
     /// Sets up the GPU for `target`, whose drawable area is `width` x
-    /// `height` physical pixels.
+    /// `height` physical pixels. Text is drawn with `text_system`, whose
+    /// fonts are loaded for the window's scale factor.
     pub async fn new(
         target: Arc<dyn wgpu::DisplayAndWindowHandle>,
         width: u32,
         height: u32,
+        text_system: Box<dyn TextSystem>,
     ) -> Self {
         // 1. Create a wgpu instance for this OS's backend.
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -241,9 +241,10 @@ impl RenderState {
             config.desired_maximum_frame_latency,
         );
 
-        // 6. Initialize the shape renderer.
+        // 6. Initialize the shape and text renderers.
         let shape_renderer =
             ShapeRenderer::new(&device, surface_format, width as f32, height as f32);
+        let text_renderer = TextRenderer::new(&device, surface_format, width as f32, height as f32);
 
         Self {
             target,
@@ -253,8 +254,33 @@ impl RenderState {
             queue,
             config,
             shape_renderer,
+            text_renderer,
+            text_system,
+            rows: Rows::default(),
             failed_frames: 0,
         }
+    }
+
+    /// The cell grid text is drawn on, in physical pixels.
+    pub fn cell_metrics(&self) -> CellMetrics {
+        self.text_system.metrics()
+    }
+
+    /// Replaces the text system, for example after the scale factor
+    /// changed. Cached shaping and glyphs are dropped and redone on the
+    /// next frame.
+    pub fn set_text_system(&mut self, text_system: Box<dyn TextSystem>) -> Redraw {
+        self.text_system = text_system;
+        self.text_renderer.atlas.clear();
+        self.rows.invalidate();
+        Redraw::Needed
+    }
+
+    /// Sets the rows of text drawn from the top-left corner. Rows whose
+    /// text did not change keep their shaping.
+    pub fn set_rows<S: AsRef<str>>(&mut self, rows: &[S]) -> Redraw {
+        self.rows.set(rows);
+        Redraw::Needed
     }
 
     /// The size of the surface in physical pixels, as last configured.
@@ -284,6 +310,8 @@ impl RenderState {
             surface.configure(&self.device, &self.config);
         }
         self.shape_renderer
+            .resize(&self.queue, width as f32, height as f32);
+        self.text_renderer
             .resize(&self.queue, width as f32, height as f32);
         true
     }
@@ -389,18 +417,52 @@ impl RenderState {
     }
 
     /// Records the passes that draw one frame into `view`.
+    ///
+    /// Until buffers arrive (M1-6), the cursor's position is a column on the
+    /// first row.
     fn encode_frame(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         view: &wgpu::TextureView,
         cursor: &Cursor,
     ) {
-        // Translate cursor.position → screen X via the pure coordinate function.
-        let cursor_x = cursor_pixel_x(cursor.position, CHAR_WIDTH_PX, MARGIN_X);
-        let cursor_y = MARGIN_Y;
+        let metrics = self.text_system.metrics();
+        let column = u32::try_from(cursor.position).unwrap_or(u32::MAX);
+        let layout = Layout {
+            origin: [MARGIN_X, MARGIN_Y],
+            viewport: [self.config.width as f32, self.config.height as f32],
+            metrics,
+            cursor: (0, column),
+            color: FOREGROUND,
+            cursor_color: BACKGROUND,
+        };
 
-        // --- Pass 1: clear background + cursor rectangle (ShapeRenderer) ---
-        self.shape_renderer.prepare(&self.queue, cursor_x, cursor_y);
+        let rasterized = self.text_renderer.atlas.rasterized();
+        let started = std::time::Instant::now();
+        self.text_renderer.prepare(
+            &self.device,
+            &self.queue,
+            &mut *self.text_system,
+            &mut self.rows,
+            &layout,
+        );
+        let new_glyphs = self.text_renderer.atlas.rasterized() - rasterized;
+        if new_glyphs > 0 {
+            log::debug!(
+                "rasterized {new_glyphs} glyphs into the atlas; text prepared in {:?}",
+                started.elapsed()
+            );
+        }
+
+        // The box cursor covers the whole character under it, two cells for
+        // a full-width one (ADR 0026).
+        let (first, cells) = self.rows.cluster_at(0, column);
+        let [x, y] = layout.cell(0, first);
+        let box_ = [x, y, metrics.width * cells as f32, metrics.height];
+        self.shape_renderer.prepare(&self.queue, box_, CURSOR);
+
+        // --- Pass 1: clear background + cursor box (ShapeRenderer) ---
+        let [r, g, b, a] = BACKGROUND.map(f64::from);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Pass 1: Shape"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -409,12 +471,7 @@ impl RenderState {
                 resolve_target: None,
                 ops: wgpu::Operations {
                     // Clear with the editor background color.
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: 0.05,
-                        g: 0.05,
-                        b: 0.07,
-                        a: 1.0,
-                    }),
+                    load: wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a }),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -426,17 +483,30 @@ impl RenderState {
         self.shape_renderer.render(&mut pass);
         drop(pass);
 
-        // --- Pass 2+: text rendering (added in a future milestone) ---
+        // --- Pass 2: glyphs from the atlas (TextRenderer) ---
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Pass 2: Text"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+        self.text_renderer.render(&mut pass);
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        MAX_RETRIES, SurfaceAction, count_failed_frame, cursor_pixel_x, platform_backend,
-        surface_action,
-    };
-    use proptest::prelude::*;
+    use super::{MAX_RETRIES, SurfaceAction, count_failed_frame, platform_backend, surface_action};
     use wgpu::CurrentSurfaceTexture as S;
 
     // --- Surface status mapping ---
@@ -527,55 +597,5 @@ mod tests {
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     fn other_systems_use_vulkan() {
         assert_eq!(platform_backend(), wgpu::Backends::VULKAN);
-    }
-
-    // --- Deterministic unit tests ---
-
-    #[test]
-    fn pixel_x_at_position_zero_equals_margin() {
-        assert_eq!(cursor_pixel_x(0, 10.0, 8.0), 8.0);
-    }
-
-    #[test]
-    fn pixel_x_at_position_one() {
-        assert_eq!(cursor_pixel_x(1, 10.0, 8.0), 18.0);
-    }
-
-    #[test]
-    fn pixel_x_at_position_ten() {
-        assert_eq!(cursor_pixel_x(10, 10.0, 8.0), 108.0);
-    }
-
-    #[test]
-    fn pixel_x_scales_linearly() {
-        let base = cursor_pixel_x(0, 10.0, 8.0);
-        let next = cursor_pixel_x(1, 10.0, 8.0);
-        assert_eq!(next - base, 10.0);
-    }
-
-    // --- Property-based tests (proptest) ---
-
-    proptest! {
-        /// The pixel X coordinate must always be >= margin_x for any position.
-        #[test]
-        fn prop_pixel_x_never_less_than_margin(pos in 0usize..10_000usize) {
-            let margin = 8.0_f32;
-            let x = cursor_pixel_x(pos, 10.0, margin);
-            prop_assert!(x >= margin, "x={x} was less than margin={margin}");
-        }
-
-        /// Pixel X must increase monotonically as position increases.
-        #[test]
-        fn prop_pixel_x_is_monotone(a in 0usize..10_000usize, b in 0usize..10_000usize) {
-            let xa = cursor_pixel_x(a, 10.0, 8.0);
-            let xb = cursor_pixel_x(b, 10.0, 8.0);
-            if a < b {
-                prop_assert!(xa < xb);
-            } else if a > b {
-                prop_assert!(xa > xb);
-            } else {
-                prop_assert_eq!(xa, xb);
-            }
-        }
     }
 }

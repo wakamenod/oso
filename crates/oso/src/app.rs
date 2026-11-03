@@ -11,7 +11,7 @@ use winit::window::{Window, WindowId};
 
 #[cfg(feature = "dev")]
 use crate::dev;
-use crate::keys;
+use crate::{keys, text};
 
 /// Events sent to the event loop from other threads: control socket
 /// requests in dev builds, nothing otherwise.
@@ -69,6 +69,8 @@ impl App {
 struct View {
     window: Arc<Window>,
     render_state: RenderState,
+    /// When the window was requested, until the first frame is presented.
+    started: Option<std::time::Instant>,
 }
 
 impl View {
@@ -127,17 +129,25 @@ impl ApplicationHandler<UserEvent> for App {
     /// Called when the OS signals that the window is ready to be created (or resumed).
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.view.is_none() {
+            let started = std::time::Instant::now();
             let window_attributes = Window::default_attributes().with_title("oso Editor");
             let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
             let size = window.inner_size();
-            let render_state =
-                pollster::block_on(RenderState::new(window.clone(), size.width, size.height));
+            let text_system = text::load(window.scale_factor());
+            let mut render_state = pollster::block_on(RenderState::new(
+                window.clone(),
+                size.width,
+                size.height,
+                text_system,
+            ));
+            let _ = render_state.set_rows(text::SAMPLE_ROWS);
             // Under `ControlFlow::Wait` nothing is drawn until requested, and
             // not every platform sends an initial resize or redraw.
             window.request_redraw();
             self.view = Some(View {
                 window,
                 render_state,
+                started: Some(started),
             });
         }
     }
@@ -171,6 +181,12 @@ impl ApplicationHandler<UserEvent> for App {
                 view.redraw_if(redraw);
             }
 
+            // ---- Moved to a display with another scale: reload the font ----
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                let redraw = view.render_state.set_text_system(text::load(scale_factor));
+                view.redraw_if(redraw);
+            }
+
             // ---- Visible again: frames skipped while occluded need a redraw ----
             WindowEvent::Occluded(false) => {
                 view.window.request_redraw();
@@ -184,7 +200,12 @@ impl ApplicationHandler<UserEvent> for App {
                     (size.width, size.height)
                 };
                 match view.render_state.render(&self.cursor, &window_size) {
-                    Ok(redraw) => view.redraw_if(redraw),
+                    Ok(redraw) => {
+                        if let Some(started) = view.started.take() {
+                            log::debug!("first frame {:?} after the window", started.elapsed());
+                        }
+                        view.redraw_if(redraw);
+                    }
                     // Not fatal: the frame is skipped and the next one retries.
                     Err(e) => log::error!("render error: {e}"),
                 }

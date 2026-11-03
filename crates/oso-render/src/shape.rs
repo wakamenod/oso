@@ -1,10 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-// Cursor size constants.
-pub const CURSOR_W: f32 = 2.0;
-pub const CURSOR_H: f32 = 20.0;
-
 // ---- Vertex ----------------------------------------------------------------
 
 /// Per-vertex data sent to the GPU: position + color.
@@ -45,7 +41,7 @@ impl Vertex {
 /// CPU-side mirror of the WGSL `Uniforms` struct.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
-struct Uniforms {
+pub(crate) struct Uniforms {
     /// Column-major 4×4 orthographic projection matrix.
     ortho: [[f32; 4]; 4],
 }
@@ -62,7 +58,7 @@ impl Uniforms {
     ///   col 1: [  0, -2/h,  0, 0]
     ///   col 2: [  0,    0,  1, 0]
     ///   col 3: [ -1,    1,  0, 1]
-    fn new(width: f32, height: f32) -> Self {
+    pub(crate) fn new(width: f32, height: f32) -> Self {
         let w = width;
         let h = height;
         Self {
@@ -207,19 +203,13 @@ impl ShapeRenderer {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// Writes the cursor quad vertices to the vertex buffer.
-    /// Must be called before the render pass begins.
-    pub fn prepare(&self, queue: &wgpu::Queue, cursor_x: f32, cursor_y: f32) {
-        // Near-white cursor color.
-        let color = [0.90_f32, 0.90, 0.92, 1.0];
-
+    /// Writes the cursor quad vertices to the vertex buffer: a box with its
+    /// top-left corner at `(x, y)`, `w` x `h` pixels. Must be called before
+    /// the render pass begins.
+    pub fn prepare(&self, queue: &wgpu::Queue, [x, y, w, h]: [f32; 4], color: [f32; 4]) {
         //  3(x, y+h) --- 2(x+w, y+h)
         //  |                         |
         //  0(x,   y) --- 1(x+w,   y)
-        let x = cursor_x;
-        let y = cursor_y;
-        let w = CURSOR_W;
-        let h = CURSOR_H;
 
         let vertices = [
             Vertex {

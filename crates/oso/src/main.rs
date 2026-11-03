@@ -6,6 +6,7 @@ mod app;
 #[cfg(feature = "dev")]
 mod dev;
 mod keys;
+mod text;
 
 use app::{App, UserEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
