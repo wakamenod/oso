@@ -117,6 +117,9 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)). Control characters
 and invalid bytes are shown as escapes (`^M`, `\xFF`) in an escape color.
 None of these characters reach the text shaper: their labels are shaped as
 ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+A glyph paints only the cells of its cluster, in its row and in narrow bands above
+and below the row, and a label's glyphs keep their own cells
+([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
 
 ### Persistence (T4, T5)
 
