@@ -107,3 +107,5 @@ Off by default: line numbers.
   rendered invisibly.
 - A buffer containing bidirectional control characters shows a warning in its
   modeline (Trojan Source, CVE-2021-42574).
+
+Trial: not for merge.
