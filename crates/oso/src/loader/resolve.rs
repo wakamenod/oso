@@ -40,13 +40,19 @@ pub fn resolve(path: &Path) -> Resolved {
     let walked = std::path::absolute(path)
         .ok()
         .and_then(|path| walk.follow(&path, true));
-    match walked {
-        Some(()) => {
-            walk.visited.push(walk.current);
-            Resolved::Paths(walk.visited)
-        }
-        None => Resolved::Unknown,
+    if walked.is_none() {
+        return Resolved::Unknown;
     }
+    walk.visited.push(walk.current);
+    // The system's own answer too: on Windows it also expands short names
+    // such as `SSH~1`, which a walk along links never sees.
+    match fs::canonicalize(path) {
+        Ok(canonical) if walk.visited.last() != Some(&canonical) => walk.visited.push(canonical),
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => return Resolved::Unknown,
+    }
+    Resolved::Paths(walk.visited)
 }
 
 /// A walk along a path, one name at a time, following links. It is the same
@@ -125,12 +131,16 @@ mod tests {
             Resolved::Unknown,
             "fails closed"
         );
-        fs::write(&new, b"x").unwrap();
-        assert_eq!(
-            resolve(&new.join("file")),
-            Resolved::Unknown,
-            "a file is not a directory"
-        );
+        // Windows reports this as a missing file, which a new file may be.
+        #[cfg(unix)]
+        {
+            fs::write(&new, b"x").unwrap();
+            assert_eq!(
+                resolve(&new.join("file")),
+                Resolved::Unknown,
+                "a file is not a directory"
+            );
+        }
         fs::remove_dir_all(directory).unwrap();
     }
 
