@@ -289,9 +289,13 @@ pub fn show_buffer(editor: &mut Editor, buffer: u64) -> Reply {
 /// Inserts `text` at the selected window's primary cursor, as one edit. It
 /// exists so that unsaved text can be tested before typing does (ADR 0055), and
 /// goes away with M2-4. So it leaves other cursors alone, and the request's line
-/// limit bounds it. The reply gives the length, and never the text.
+/// limit bounds it. The reply gives the length, and never the text. No test needs
+/// it in a buffer that may hold secrets, so it stays out of those.
 pub fn insert_text(editor: &mut Editor, text: &str) -> Reply {
-    let (window, _) = editor.current();
+    let (window, buffer) = editor.current();
+    if buffer.is_secret() {
+        return Err("insert-text does not edit a buffer that may hold secrets".into());
+    }
     let (buffer, cursor) = (window.buffer(), window.selections.primary().cursor);
     let edit = Replacement {
         range: cursor..cursor,
@@ -338,6 +342,14 @@ mod tests {
         assert!(editor.current().1.read_only().is_some());
         let message = insert_text(&mut editor, "SECRET-TEXT").unwrap_err();
         assert!(!message.contains("SECRET-TEXT"), "{message}");
+        assert!(!editor.current().1.is_modified());
+    }
+
+    #[test]
+    fn insert_text_stays_out_of_a_secret_buffer() {
+        let mut editor = Editor::with_buffer(Buffer::visiting(PathBuf::from("/p/.env")));
+        let message = insert_text(&mut editor, "TEXT").unwrap_err();
+        assert!(message.contains("secrets"), "{message}");
         assert!(!editor.current().1.is_modified());
     }
 

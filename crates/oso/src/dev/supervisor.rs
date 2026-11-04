@@ -206,10 +206,12 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
         let build_time = started.elapsed();
         let start = || Running::start(&binary, &[], &root, &dir).map_err(|e| e.to_string());
         retry = !restart(&mut current, &mut beside, start);
-        log::info!(
-            "oso dev: restart took {:?} since the change was seen: build {build_time:?}",
-            changed.elapsed(),
-        );
+        if !retry {
+            log::info!(
+                "oso dev: restart took {:?} since the change was seen: build {build_time:?}",
+                changed.elapsed(),
+            );
+        }
     }
 }
 
@@ -549,6 +551,7 @@ mod tests {
                 matches!(&stopped, Err(NotStopped::Unknown(_))),
                 "{stopped:?}"
             );
+            assert!(!running.gone(), "it runs on");
             clean_up(running, scratch);
         }
 

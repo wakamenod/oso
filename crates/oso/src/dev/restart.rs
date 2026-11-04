@@ -24,7 +24,7 @@ const CHECK: &str = "check-handover";
 pub enum Handover<I> {
     /// The new instance has the state, and the old one was stopped.
     Replaced(I),
-    /// A new instance runs beside the old one, which is untouched.
+    /// A new instance runs beside the old one, which has not been replaced.
     Beside { new: I, reason: String },
     /// There is no new instance. The old one is untouched.
     Failed(String),
@@ -79,6 +79,18 @@ fn close<I: Instance>(instance: &mut I) -> Result<(), String> {
     instance.stop(generation).map_err(NotStopped::into_reason)
 }
 
+/// Closes a new instance that never got a window. It cannot have been typed
+/// into, and one that does not answer is left running and forgotten, so that it
+/// does not hold every later restart. It may be a bug the next build fixes.
+fn abandon<I: Instance>(mut new: I) {
+    if let Err(why) = close(&mut new) {
+        log::warn!(
+            "oso dev: instance {} is left running, and needs ending by hand: {why:?}",
+            new.pid()
+        );
+    }
+}
+
 /// Gives up on a new instance, which the user may have typed into by now, so it
 /// stays if it has been edited.
 fn give_up<I: Instance>(mut new: I, reason: String) -> Handover<I> {
@@ -103,6 +115,7 @@ pub fn hand_over<I: Instance>(
     beside: &mut Option<I>,
     start: impl FnOnce() -> Result<I, String>,
 ) -> Handover<I> {
+    let started = Instant::now();
     if let Err(reason) = old.call(CHECK, None) {
         return Handover::Failed(reason);
     }
@@ -115,13 +128,14 @@ pub fn hand_over<I: Instance>(
         }
         *beside = None;
     }
-    let started = Instant::now();
+    let checked = started.elapsed();
     let mut new = match start() {
         Ok(new) => new,
         Err(reason) => return Handover::Failed(format!("the new build did not start: {reason}")),
     };
     if let Err(reason) = new.wait_until_ready() {
-        return give_up(new, format!("the new build did not start: {reason}"));
+        abandon(new);
+        return Handover::Failed(format!("the new build did not start: {reason}"));
     }
     let ready = started.elapsed();
     let (state, generation) = match old
@@ -142,7 +156,9 @@ pub fn hand_over<I: Instance>(
     match old.stop(generation) {
         Ok(()) => {
             log::info!(
-                "oso dev: new window {ready:?}, export {:?}, import {:?}, old instance gone {:?}",
+                "oso dev: checked {checked:?}, new window {:?}, export {:?}, import {:?}, \
+                 old instance gone {:?}",
+                ready - checked,
                 exported - ready,
                 imported - exported,
                 started.elapsed() - imported,
@@ -157,8 +173,9 @@ pub fn hand_over<I: Instance>(
 }
 
 /// Moves on to a new binary, keeping what `current` holds if there is one.
-/// Returns whether a new instance runs. Reasons are logged escaped, since they
-/// can quote a file name and this is a terminal.
+/// Returns whether the new binary is now the current instance, so that the next
+/// build knows to try again if not. Reasons are logged escaped, since they can
+/// quote a file name and this is a terminal.
 pub fn restart<I, S>(current: &mut Option<I>, beside: &mut Option<I>, start: S) -> bool
 where
     I: Instance,
@@ -174,11 +191,11 @@ where
         }
         Handover::Beside { new, reason } => {
             log::warn!(
-                "oso dev: new instance {} runs beside the old one, which stays: {reason:?}",
+                "oso dev: new instance {} runs beside the old one: {reason:?}",
                 new.pid()
             );
             *beside = Some(new);
-            true
+            false
         }
         Handover::Failed(reason) => {
             log::warn!("oso dev: the old instance stays: {reason:?}");
@@ -187,8 +204,7 @@ where
     }
 }
 
-/// Starts an instance with nothing to take over from. One that does not get a
-/// window and cannot be closed is still kept, so that its exit is noticed.
+/// Starts an instance with nothing to take over from.
 fn start_first<I, S>(current: &mut Option<I>, start: S) -> bool
 where
     I: Instance,
@@ -201,16 +217,13 @@ where
             return false;
         }
     };
-    let ready = new.wait_until_ready();
-    if let Err(reason) = &ready {
+    if let Err(reason) = new.wait_until_ready() {
         log::warn!("oso dev: the new build did not start: {reason:?}");
-        let Err(why) = close(&mut new) else {
-            return false;
-        };
-        log::warn!("oso dev: instance {} stays: {why:?}", new.pid());
+        abandon(new);
+        return false;
     }
     *current = Some(new);
-    ready.is_ok()
+    true
 }
 
 #[cfg(test)]
@@ -223,8 +236,10 @@ mod tests {
     /// What the fake instances were asked to do, in order.
     type Log = Rc<RefCell<Vec<String>>>;
 
-    /// The generation every fake reports.
-    const GENERATION: u64 = 7;
+    /// The generation a fake's `check-handover` reports, and its export's, which
+    /// tell apart which one reached `stop`.
+    const CHECKED: u64 = 7;
+    const EXPORTED: u64 = 8;
 
     struct Fake {
         name: &'static str,
@@ -244,9 +259,9 @@ mod tests {
                 log: Rc::clone(log),
                 ready: true,
                 exited: false,
-                check: Ok(json!({ "generation": GENERATION })),
+                check: Ok(json!({ "generation": CHECKED })),
                 import: Ok(json!({})),
-                export: Ok(json!({ "version": 1, "generation": GENERATION })),
+                export: Ok(json!({ "version": 1, "generation": EXPORTED })),
                 stop: Ok(()),
             }
         }
@@ -304,8 +319,7 @@ mod tests {
         }
 
         fn stop(&mut self, generation: u64) -> Result<(), NotStopped> {
-            assert_eq!(generation, GENERATION, "the generation it reported");
-            self.note("stop");
+            self.note(&format!("stop {generation}"));
             match &self.stop {
                 Ok(()) => Ok(()),
                 Err(NotStopped::Refused(reason)) => Err(NotStopped::Refused(reason.clone())),
@@ -336,7 +350,7 @@ mod tests {
                 "new ready?",
                 "old export-state",
                 "new import-state",
-                "old stop"
+                "old stop 8"
             ]
         );
     }
@@ -365,7 +379,7 @@ mod tests {
         assert!(reason.contains("exit refused"), "{reason}");
         assert_eq!(
             log.borrow()[4..],
-            ["old stop", "new check-handover", "new stop"],
+            ["old stop 8", "new check-handover", "new stop 7"],
             "the new one goes only once the old one has refused, and if it agrees"
         );
     }
@@ -374,25 +388,29 @@ mod tests {
     fn a_change_after_the_export_with_input_in_the_new_one_keeps_both() {
         let log = log();
         let mut old = Fake::refusing("old", &log);
-        let new = Fake {
-            check: Ok(json!({ "generation": GENERATION })),
-            ..Fake::new("new", &log)
-        };
         // The new one takes input once it has imported, as its window is up.
-        let edited = Fake {
-            check: Err("cannot hand over notes: it has unsaved edits".into()),
-            ..new
-        };
-        let Handover::Beside { reason, .. } = handed_over(&mut old, edited) else {
+        let new = Fake::edited("new", &log);
+        let Handover::Beside { reason, .. } = handed_over(&mut old, new) else {
             panic!("{}", "an instance holding text was closed");
         };
         assert!(reason.contains("exit refused"), "{reason}");
         assert!(reason.contains("unsaved edits"), "{reason}");
         assert_eq!(
-            log.borrow().iter().filter(|l| l.ends_with("stop")).count(),
+            log.borrow().iter().filter(|l| l.contains(" stop ")).count(),
             1,
             "only the old one was asked, and it refused"
         );
+    }
+
+    #[test]
+    fn the_old_instance_is_held_to_the_export_and_others_to_what_they_just_reported() {
+        let log = log();
+        let mut old = Fake::refusing("old", &log);
+        let new = Fake::new("new", &log);
+        handed_over(&mut old, new);
+        let log = log.borrow();
+        assert!(log.contains(&format!("old stop {EXPORTED}")), "{log:?}");
+        assert!(log.contains(&format!("new stop {CHECKED}")), "{log:?}");
     }
 
     #[test]
@@ -420,7 +438,10 @@ mod tests {
             Handover::Beside { .. }
         ));
         assert_eq!(
-            log.borrow().iter().filter(|l| *l == "new stop").count(),
+            log.borrow()
+                .iter()
+                .filter(|l| l.starts_with("new stop"))
+                .count(),
             0,
             "it may be on its way out, so the new one must stay"
         );
@@ -438,7 +459,7 @@ mod tests {
         };
         assert!(reason.contains("refused the state"));
         assert!(reason.contains("version"));
-        assert!(!log.borrow().iter().any(|line| line.ends_with("stop")));
+        assert!(!log.borrow().iter().any(|line| line.contains(" stop ")));
     }
 
     #[test]
@@ -454,7 +475,7 @@ mod tests {
                 "old check-handover",
                 "new ready?",
                 "new check-handover",
-                "new stop"
+                "new stop 7"
             ],
             "nothing exported"
         );
@@ -495,7 +516,7 @@ mod tests {
                 "new ready?",
                 "old export-state",
                 "new check-handover",
-                "new stop"
+                "new stop 7"
             ]
         );
     }
@@ -510,7 +531,7 @@ mod tests {
             handed_over(&mut old, new),
             Handover::Beside { .. }
         ));
-        assert!(!log.borrow().iter().any(|line| line.ends_with("stop")));
+        assert!(!log.borrow().iter().any(|line| line.contains(" stop ")));
     }
 
     #[test]
@@ -521,7 +542,7 @@ mod tests {
         let new = Fake::new("new", &log);
         assert!(matches!(handed_over(&mut old, new), Handover::Failed(_)));
         assert!(
-            !log.borrow().contains(&"old stop".to_owned()),
+            !log.borrow().contains(&"old stop 8".to_owned()),
             "{:?}",
             log.borrow()
         );
@@ -538,7 +559,7 @@ mod tests {
         };
         assert!(reason.contains("unsaved edits"), "{reason}");
         assert!(beside.is_some(), "it is still looked after");
-        assert!(!log.borrow().iter().any(|line| line.ends_with("stop")));
+        assert!(!log.borrow().iter().any(|line| line.contains(" stop ")));
     }
 
     #[test]
@@ -557,7 +578,7 @@ mod tests {
             [
                 "old check-handover",
                 "beside check-handover",
-                "beside stop",
+                "beside stop 7",
                 "new ready?"
             ]
         );
@@ -585,11 +606,12 @@ mod tests {
         assert!(restart(&mut current, &mut beside, || Ok(new)));
         assert_eq!(current.as_ref().map(|i| i.name), Some("new"));
 
-        // Refused: both stay, and the old one is still the current one.
+        // Refused: both stay, the old one is still the current one, and the next
+        // build tries again.
         let mut current = Some(Fake::new("old", &log));
         let mut new = Fake::new("new", &log);
         new.import = Err("no".into());
-        assert!(restart(&mut current, &mut beside, || Ok(new)));
+        assert!(!restart(&mut current, &mut beside, || Ok(new)));
         assert_eq!(current.as_ref().map(|i| i.name), Some("old"));
         assert_eq!(beside.as_ref().map(|i| i.name), Some("new"));
         beside = None;
@@ -614,21 +636,26 @@ mod tests {
     }
 
     #[test]
-    fn with_no_instance_one_that_gets_no_window_is_closed_or_kept() {
+    fn a_new_instance_with_no_window_never_holds_later_restarts() {
         let log = log();
-        let (mut current, mut beside) = (None, None);
-        let new = Fake {
+        // No answer, as when a bad build loops before its first frame.
+        let wedged = || Fake {
             ready: false,
+            check: Err("the editor did not reply in time".into()),
             ..Fake::new("new", &log)
         };
-        assert!(!restart(&mut current, &mut beside, || Ok(new)));
-        assert!(current.is_none(), "it agreed to go");
 
-        let new = Fake {
-            ready: false,
-            ..Fake::refusing("new", &log)
-        };
-        assert!(!restart(&mut current, &mut beside, || Ok(new)));
-        assert!(current.is_some(), "it did not, so it is still looked after");
+        let (mut current, mut beside) = (None, None);
+        assert!(!restart(&mut current, &mut beside, || Ok(wedged())));
+        assert!(current.is_none(), "the next build starts another");
+
+        let mut current = Some(Fake::new("old", &log));
+        assert!(!restart(&mut current, &mut beside, || Ok(wedged())));
+        assert!(beside.is_none(), "the next build is not held");
+        assert_eq!(current.as_ref().map(|i| i.name), Some("old"));
+        assert!(
+            !log.borrow().iter().any(|line| line.contains(" stop ")),
+            "and it was not stopped, let alone killed"
+        );
     }
 }

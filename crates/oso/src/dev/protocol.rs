@@ -174,7 +174,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         }
         "insert-text" => UiOp::InsertText(parse_text(params).map_err(|m| bad(&id, m))?),
         "exit" => UiOp::Exit {
-            generation: parse_generation(params).map_err(|m| bad(&id, m))?,
+            generation: parse_generation(&request, params).map_err(|m| bad(&id, m))?,
         },
         other => {
             let mut shown: String = other.chars().take(MAX_ECHO).collect();
@@ -230,9 +230,16 @@ fn parse_text(params: &Map<String, Value>) -> Result<String, String> {
 }
 
 /// The optional `generation` parameter of `exit`. Anything but a number is an
-/// error, null included, so that a caller who lost track of its generation
-/// never gets the unconditional exit by accident.
-fn parse_generation(params: &Map<String, Value>) -> Result<Option<u64>, String> {
+/// error, null included, and so is a misspelled parameter or one outside
+/// `params`, so that a caller who lost track of its generation never gets the
+/// unconditional exit by accident.
+fn parse_generation(
+    request: &Map<String, Value>,
+    params: &Map<String, Value>,
+) -> Result<Option<u64>, String> {
+    if request.contains_key("generation") || params.keys().any(|name| name != "generation") {
+        return Err("exit takes one parameter, \"generation\", inside \"params\"".into());
+    }
     params
         .get("generation")
         .map(|generation| {
@@ -614,6 +621,18 @@ mod tests {
             let line = request(1, "exit", Some(json!({ "generation": bad })));
             assert!(error(&line).1.contains("generation"), "{line}");
         }
+        for misplaced in [
+            r#"{"method": "exit", "params": {"generaton": 5}}"#,
+            r#"{"method": "exit", "generation": 5}"#,
+            r#"{"method": "exit", "generation": 5, "params": {"generation": 5}}"#,
+        ] {
+            assert!(error(misplaced).1.contains("generation"), "{misplaced}");
+        }
+        assert_eq!(
+            parsed(r#"{"method": "exit", "params": null}"#).method,
+            Method::Ui(UiOp::Exit { generation: None }),
+            "as for any method, null params are none"
+        );
     }
 
     #[test]

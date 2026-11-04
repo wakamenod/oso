@@ -328,7 +328,7 @@ fn the_state_moves_to_a_new_instance_and_a_wrong_version_changes_nothing() {
     assert_eq!(new.state()["cursor"]["offset"], offset);
 }
 
-/// A text that must not appear in a message, so that the checks below mean it.
+/// Text no response may quote.
 const UNSAVED: &str = "UNSAVED-E2E-TEXT";
 
 #[test]
@@ -365,9 +365,11 @@ fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
     assert_eq!(app.state()["buffer"]["path"].as_str(), file.to_str());
     assert!(process_exists(app.pid()), "the instance is gone");
 
-    // With a generation it has, or none at all, it goes, unsaved text or not.
-    let generation = app.call("get-state", None);
-    assert!(generation["buffer"]["bytes"].as_u64() > Some(8), "the edit");
+    // An ordinary `exit`, as people and agents send it, still goes.
+    assert!(
+        app.state()["buffer"]["bytes"].as_u64() > Some(8),
+        "the edit"
+    );
     let _ = app.exchange("exit", None);
     assert_eq!(app.wait_for_exit().code(), Some(0));
 
@@ -391,6 +393,31 @@ fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
     assert!(!line.contains(UNSAVED), "import-state quotes the text");
     assert!(line.contains("*scratch*"), "import-state was not refused");
     assert_eq!(new.state()["buffers"].as_array().map(Vec::len), Some(1));
+
+    let log = new.stop_and_read_log();
+    assert!(!log.contains(UNSAVED), "the log quotes the text");
+    assert!(log.contains("listening on"), "no log to check");
+}
+
+/// The event loop goes on delivering what is queued after an exit, so this can
+/// only fail when the two land together, which a few tries make likely.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_edit_is_never_confirmed_and_then_lost_with_an_exit() {
+    let scratch = Scratch::new("exit-race");
+    for _ in 0..4 {
+        let mut app = App::start(None, scratch.path());
+        app.wait_until_ready();
+        let generation = app.call("check-handover", None)["generation"].clone();
+        let (exit, edit) = app.race(
+            &json!({ "id": 1, "method": "exit", "params": { "generation": generation } }),
+            &json!({ "id": 2, "method": "insert-text", "params": { "text": UNSAVED } }),
+        );
+        assert!(
+            !(exit.contains("\"exiting\":true") && edit.contains("\"bytes\"")),
+            "the instance agreed to exit and also confirmed an edit",
+        );
+    }
 }
 
 #[test]

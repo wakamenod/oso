@@ -32,7 +32,7 @@ methods:
   run-command NAME [ARG]
                     runs a command by name, with a numeric argument if it takes one
   show-buffer ID    shows a buffer, by the id get-state reports
-  insert-text TEXT  inserts text at the primary cursor, until typing exists
+  insert-text TEXT  inserts test text at the primary cursor, until typing exists
   check-handover    the generation, or why a restart would lose text
   export-state      what a new instance needs to take over: paths and positions,
                     and the generation

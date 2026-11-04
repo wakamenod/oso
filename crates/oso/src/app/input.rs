@@ -38,6 +38,10 @@ impl App {
     /// command registry. Keys from the dev control socket take the same
     /// path, through [`crate::dispatch::Dispatcher::handle_keys`].
     fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyPress) {
+        // An exit only sets a flag, so an edit from here on would be lost.
+        if event_loop.exiting() {
+            return;
+        }
         let started = Instant::now();
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
         log::trace!("key handled in {:?}", started.elapsed());

@@ -214,7 +214,7 @@ the keyboard and mouse alone while it runs: real input reaches its windows too.
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
 | secret files | path judgment to every way out: `get-state`, `get-text`, `screenshot`, `export-state` and the log, also through a symlink, and `show-buffer` allows them again |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
-| unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes |
+| unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 

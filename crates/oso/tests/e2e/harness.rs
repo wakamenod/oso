@@ -259,6 +259,27 @@ impl App {
         (child.wait().expect("cannot wait for oso ctl"), output)
     }
 
+    /// Sends `first` on this connection and at once `second` on a new one, so that
+    /// both are likely to be queued together, and returns each response line. A
+    /// line is empty if the instance hung up first.
+    pub fn race(&mut self, first: &Value, second: &Value) -> (String, String) {
+        let (_, other) = self
+            .dir
+            .connect(Some(self.pid()))
+            .expect("cannot make a second connection");
+        other
+            .set_read_timeout(Some(TIMEOUT))
+            .expect("cannot set a timeout");
+        let mut reader = BufReader::new(other.try_clone().expect("cannot use the socket"));
+        let mut writer = other;
+        let _ = self.writer.write_all(format!("{first}\n").as_bytes());
+        let _ = writer.write_all(format!("{second}\n").as_bytes());
+        let (mut first_line, mut second_line) = (String::new(), String::new());
+        let _ = self.reader.read_line(&mut first_line);
+        let _ = reader.read_line(&mut second_line);
+        (first_line, second_line)
+    }
+
     /// Stops the instance and returns the end of its log, whole and raw. For
     /// looking at, not for quoting in a failure message.
     pub fn stop_and_read_log(&mut self) -> String {

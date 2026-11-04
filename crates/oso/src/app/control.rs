@@ -25,6 +25,12 @@ impl App {
             received,
             reply,
         } = request;
+        // `exit` only sets a flag, and winit still delivers what is queued. An
+        // edit run now would be confirmed and then lost with the process.
+        if event_loop.exiting() {
+            let _ = reply.send(Err("the editor is shutting down".into()));
+            return;
+        }
         let result = match op {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
@@ -85,8 +91,8 @@ impl App {
                 self.request_redraw();
                 result
             }
-            // Checked here on the UI thread, so that no edit can come between
-            // the check and the event loop's end.
+            // Checked here on the UI thread, and nothing runs after it (see the
+            // top), so no edit can come between the check and the exit.
             dev::UiOp::Exit { generation } => {
                 handoff::exit_allowed(&self.editor, generation).map(|()| {
                     event_loop.exit();

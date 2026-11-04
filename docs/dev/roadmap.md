@@ -152,7 +152,9 @@ throughout.
 - **M2-6** (after M2-5, and after the work in progress in the renderer's text pass
   merges): a list of panes drawn with clipping and layers, the base of everything
   below that draws ([ADR 0008](adr/0008-floating-ui.md)).
-- **M2-7** (after M2-6): modeline, echo area, `*Messages*` and internal buffers.
+- **M2-7** (after M2-6): modeline, echo area, `*Messages*` and internal buffers,
+  which `oso dev`'s check, generation and import must skip
+  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - **M2-10** (after M2-8): emergency save on a panic or an OS-initiated exit, the
   panic hook, and no core dumps ([ADR 0013](adr/0013-persistence.md),
   [ADR 0014](adr/0014-panic-strategy.md), [ADR 0028](adr/0028-secrets-handling.md)).

@@ -61,10 +61,17 @@ item notes when it must be settled.
 
 ## M2
 
+- By M2-4: Ctrl-C in `just dev`, or closing the terminal, ends instances that hold
+  unsaved text, since they share the supervisor's process group
+  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Starting them in their own
+  group would keep them, and their windows would then outlive the supervisor. This
+  changes `oso_platform::process`, so it needs the author's decision.
+- By M2-8: once a buffer can be saved, `send-keys` can edit and write any file a client
+  opens, secret or not. The trust statement in `security.md` speaks only of reading.
 - By M2-15: the generation that guards `exit` does not change on a save between the
-  export and the exit ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). That
-  text is on the disk today. Decide whether this still holds once the state carries
-  text, since the new instance would then show an unsaved copy of what was just saved.
+  export and the exit, and does not cover marks, the kill ring or file information
+  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
+  once the state carries them.
 - Motion functions take display rows (`motion::line_start(display, row)`),
   which are buffer lines while there is no soft wrap. When the WrapMap
   lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines

@@ -1,5 +1,6 @@
-//! The state one instance hands to the next on a restart: `export-state` and
-//! `import-state` (ADR 0023, ADR 0047).
+//! The state one instance hands to the next on a restart, and whether it may
+//! hand over and go: `export-state`, `import-state`, `check-handover` and the
+//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055).
 //!
 //! Must not depend on: `app`, `server`, winit or sockets; these are plain
 //! functions of the editor state, and the caller opens the files.
@@ -143,8 +144,9 @@ fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
 }
 
 /// The result of `check-handover`: the instance's generation, or why its text
-/// would not survive a restart. This is what `export` would refuse, without
-/// building a state, so that the supervisor can ask before it opens a new window.
+/// would not survive a restart. These are the buffers `export` would refuse,
+/// without building a state, so that the supervisor can ask before it opens a new
+/// window.
 pub fn check(editor: &Editor) -> Reply {
     for (_, buffer) in editor.buffers() {
         file_to_read_again(buffer)?;
@@ -153,8 +155,8 @@ pub fn check(editor: &Editor) -> Reply {
 }
 
 /// Names what an instance holds that a file does not: which buffers exist, and
-/// the content of each modified one. It says nothing about the text itself, and
-/// is meaningful only to the instance that made it.
+/// the content of each modified one. It is not a counter, as undoing an edit
+/// brings the old value back, and only the instance that made it compares it.
 ///
 /// A buffer that is not modified counts only by its id, since each piece of a
 /// load gets a new content id and a large file may still be arriving. So a save
