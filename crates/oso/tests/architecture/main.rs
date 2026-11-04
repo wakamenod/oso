@@ -121,6 +121,27 @@ fn there_are_no_statics() {
 }
 
 #[test]
+fn only_the_process_module_may_silence_the_ban_on_spawning() {
+    let workspace = Workspace::current();
+    let mut problems = Vec::new();
+    for path in workspace.rust_files() {
+        let at = workspace.relative_path(&path);
+        if at == "crates/oso-platform/src/process.rs" {
+            continue;
+        }
+        for token in tokenize(&read(&path)) {
+            if token.is_ident("disallowed_methods") {
+                problems.push(format!(
+                    "{at}:{}: spawn only through oso-platform::process (ADR 0010, ADR 0045)",
+                    token.line
+                ));
+            }
+        }
+    }
+    assert_none(&problems);
+}
+
+#[test]
 fn every_file_states_its_responsibility_and_boundary() {
     let workspace = Workspace::current();
     let rules = rules(&workspace);
