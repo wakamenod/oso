@@ -20,6 +20,7 @@ pub mod keymap;
 pub mod load;
 pub mod motion;
 pub mod rope;
+mod secret;
 pub mod selection;
 pub mod sum_tree;
 pub mod window;

@@ -8,19 +8,18 @@
 //! and each client gets its own thread, which parses requests and waits for
 //! the UI's reply on a channel.
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use oso_core::key::KeyPress;
 use oso_platform::control::{ControlListener, ControlStream};
 use serde_json::{Value, json};
 
 use super::DEV_BUILD_MARKER;
-use super::protocol::{self, MAX_LINE, Method};
+use super::protocol::{self, MAX_LINE, Method, Reply, UiOp};
 
 /// The most clients connected at once.
 pub const MAX_CLIENTS: usize = 4;
@@ -38,20 +37,6 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the accept loop pauses after an unexpected error, so that a
 /// persistent one (out of file descriptors) cannot spin.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
-
-/// The UI's answer to a request: a JSON result or an error message.
-pub type Reply = Result<Value, String>;
-
-/// Work for the UI thread.
-#[derive(Debug)]
-pub enum UiOp {
-    /// Handle these key presses, in order.
-    SendKeys(Vec<KeyPress>),
-    /// Capture the current frame.
-    Screenshot,
-    /// Report the editor state.
-    GetState,
-}
 
 /// A request for the UI thread, with the channel for its reply. Dropping
 /// the sender without replying is reported to the client as an error.
@@ -145,20 +130,18 @@ fn refuse(mut stream: ControlStream, message: &str) {
 }
 
 /// Serves one client until it hangs up, sends a line that is too long, or
-/// sends nothing for `idle`.
+/// does not finish a request within `idle`.
 pub fn serve<S>(stream: ControlStream, send: &S, idle: Duration) -> io::Result<()>
 where
     S: Fn(UiRequest) -> bool,
 {
     stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
-    stream.set_read_timeout(Some(idle))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     let mut line = Vec::new();
     loop {
         line.clear();
-        let limit = u64::try_from(MAX_LINE + 1).expect("the limit fits in u64");
-        let n = match (&mut reader).take(limit).read_until(b'\n', &mut line) {
+        let n = match read_line_within(&mut reader, &mut line, idle) {
             Ok(n) => n,
             // Idle for too long: a normal end, not an error.
             Err(e)
@@ -192,6 +175,41 @@ where
     }
 }
 
+/// Reads up to a newline into `line`, at most [`MAX_LINE`] + 1 bytes, and
+/// returns how many. Times out if the whole line takes longer than `idle`, so
+/// a client cannot hold its slot by sending a byte now and then.
+fn read_line_within(
+    reader: &mut BufReader<ControlStream>,
+    line: &mut Vec<u8>,
+    idle: Duration,
+) -> io::Result<usize> {
+    let started = Instant::now();
+    loop {
+        let remaining = idle
+            .checked_sub(started.elapsed())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or(io::ErrorKind::TimedOut)?;
+        reader.get_ref().set_read_timeout(Some(remaining))?;
+        let available = match reader.fill_buf() {
+            Ok(available) => available,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        if available.is_empty() {
+            return Ok(line.len());
+        }
+        let room = MAX_LINE + 1 - line.len();
+        let window = &available[..available.len().min(room)];
+        let newline = window.iter().position(|&byte| byte == b'\n');
+        let used = newline.map_or(window.len(), |at| at + 1);
+        line.extend_from_slice(&window[..used]);
+        reader.consume(used);
+        if newline.is_some() || line.len() > MAX_LINE {
+            return Ok(line.len());
+        }
+    }
+}
+
 /// The response line for one request line.
 fn respond<S>(line: &str, send: &S) -> String
 where
@@ -202,19 +220,15 @@ where
         Err(bad) => return protocol::failure(&bad.id, &bad.message),
     };
     let op = match request.method {
-        Method::Version => {
-            return protocol::success(&request.id, version());
-        }
-        Method::SendKeys(keys) => UiOp::SendKeys(keys),
-        Method::Screenshot => UiOp::Screenshot,
-        Method::GetState => UiOp::GetState,
+        Method::Version => return protocol::success(&request.id, version()),
+        Method::Ui(op) => op,
     };
     let (reply, replied) = mpsc::channel();
     if !send(UiRequest { op, reply }) {
         return protocol::failure(&request.id, "the editor is shutting down");
     }
     match replied.recv_timeout(REPLY_TIMEOUT) {
-        Ok(Ok(result)) => protocol::success(&request.id, result),
+        Ok(Ok(result)) => bounded(&request.id, protocol::success(&request.id, result)),
         Ok(Err(message)) => protocol::failure(&request.id, &message),
         Err(mpsc::RecvTimeoutError::Timeout) => {
             protocol::failure(&request.id, "the editor did not reply in time")
@@ -223,6 +237,19 @@ where
             protocol::failure(&request.id, "the editor dropped the request")
         }
     }
+}
+
+/// `line`, or an error in its place if a client could not read it: `oso
+/// ctl` and the protocol stop at [`MAX_LINE`] (ADR 0032).
+fn bounded(id: &Value, line: String) -> String {
+    if line.len() > MAX_LINE {
+        let message = format!(
+            "the response takes {} bytes, more than the {MAX_LINE} a line may hold; ask for less",
+            line.len()
+        );
+        return protocol::failure(id, &message);
+    }
+    line
 }
 
 /// The result of `version`.
@@ -237,10 +264,8 @@ fn version() -> Value {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{
-        IDLE_TIMEOUT, MAX_CLIENTS, UiOp, UiRequest, serve, spawn, spawn_with_idle_timeout,
-    };
-    use crate::dev::protocol::{self, MAX_LINE};
+    use super::{IDLE_TIMEOUT, MAX_CLIENTS, UiRequest, serve, spawn, spawn_with_idle_timeout};
+    use crate::dev::protocol::{self, MAX_LINE, UiOp};
     use oso_platform::control::{ControlDir, ControlStream};
     use serde_json::{Value, json};
     use std::fs::{self, Permissions};
@@ -251,12 +276,18 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    /// A fake UI thread: answers keys with their count and state with a
-    /// fixed value, and drops screenshots without replying.
+    /// A fake UI thread: answers keys with their count, state with a fixed
+    /// value, commands with an error or their name, and text with as many
+    /// bytes as `rows` asks for, whatever the limits. Drops screenshots
+    /// without replying.
     fn fake_ui(request: UiRequest) -> bool {
         let result = match request.op {
             UiOp::SendKeys(keys) => Ok(json!({ "keys": keys.len() })),
             UiOp::GetState => Ok(json!({ "cursor": { "position": 3 } })),
+            UiOp::GetText { rows, .. } => Ok(json!({ "text": "x".repeat(rows) })),
+            UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
+            UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),
+            UiOp::ShowBuffer(buffer) => Ok(json!({ "buffer": buffer })),
             UiOp::Screenshot => return true,
         };
         let _ = request.reply.send(result);
@@ -346,6 +377,40 @@ mod tests {
     }
 
     #[test]
+    fn commands_reach_the_ui_and_their_errors_come_back() {
+        let (mut reader, mut writer) = connected();
+        let run = |name: &str, arg: Value| {
+            protocol::request(1, "run-command", Some(json!({ "name": name, "arg": arg })))
+        };
+        let ok = call(&mut reader, &mut writer, &run("forward-char", json!(2)));
+        assert_eq!(ok["result"], json!({ "command": "forward-char", "arg": 2 }));
+        let failed = call(&mut reader, &mut writer, &run("fail", json!(null)));
+        assert_eq!(failed["error"]["message"], "fail panicked");
+    }
+
+    #[test]
+    fn a_response_past_the_line_limit_becomes_an_error() {
+        let (mut reader, mut writer) = connected();
+        let text = |rows: usize| {
+            protocol::request(1, "get-text", Some(json!({ "start_row": 0, "rows": rows })))
+        };
+        let fits = MAX_LINE - 100;
+        let ok = call(&mut reader, &mut writer, &text(fits));
+        assert_eq!(ok["result"]["text"].as_str().unwrap().len(), fits);
+        let too_long = call(&mut reader, &mut writer, &text(MAX_LINE));
+        assert_eq!(too_long["id"], 1);
+        let message = too_long["error"]["message"].as_str().unwrap();
+        assert!(message.contains("ask for less"), "{message}");
+        // The connection survives it.
+        let still = call(
+            &mut reader,
+            &mut writer,
+            &protocol::request(2, "version", None),
+        );
+        assert_eq!(still["id"], 2);
+    }
+
+    #[test]
     fn a_closed_ui_is_reported() {
         let (client, server) = ControlStream::pair().unwrap();
         thread::spawn(move || serve(server, &|_| false, IDLE_TIMEOUT));
@@ -410,6 +475,26 @@ mod tests {
             served.join().unwrap().is_ok(),
             "an idle client is a normal end"
         );
+    }
+
+    #[test]
+    fn disconnects_a_client_that_never_finishes_a_request() {
+        let (client, server) = ControlStream::pair().unwrap();
+        let served = thread::spawn(move || serve(server, &fake_ui, Duration::from_millis(200)));
+        let mut writer = client.try_clone().unwrap();
+        // A byte now and then, sooner than the limit, and never a newline.
+        thread::spawn(move || {
+            while writer.write_all(b"x").is_ok() {
+                thread::sleep(Duration::from_millis(50));
+            }
+        });
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut rest = Vec::new();
+        BufReader::new(client).read_to_end(&mut rest).unwrap();
+        assert!(rest.is_empty());
+        assert!(served.join().unwrap().is_ok());
     }
 
     #[test]

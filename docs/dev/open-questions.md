@@ -13,17 +13,6 @@ item notes when it must be settled.
 
 ## M1
 
-- Control socket, before M1-7b: once `get-state` returns buffer text,
-  decide whether secret-pattern files
-  ([ADR 0028](adr/0028-secrets-handling.md)) are masked there and in
-  screenshots. Screenshots show buffer text since M1-6; `get-state` shows a
-  buffer's name and path but no text. Also, any
-  process running as the same user can run editor commands: already every
-  bound command through `send-keys`, which shares the keymaps with the
-  window ([ADR 0034](adr/0034-command-registry-and-keymaps.md)), and any
-  command once `run-command` exists. ADR 0016 accepts same-user trust, and
-  this consequence should be stated there, with commands that spawn
-  processes in mind.
 - Startup misses its budget, in M1-8: the first presented frame comes
   about 175 ms after process start (release, warm), against 100 ms.
   winit's event loop takes 30 to 45 ms to build, `resumed` arrives at
@@ -96,12 +85,18 @@ item notes when it must be settled.
   on a threshold that asks first, as Emacs's `large-file-warning-threshold`
   does, once the minibuffer exists. Running out of memory aborts, so
   emergency save would not run.
-- Emergency save must match secret patterns against a file's resolved
-  path too: a buffer is named after the symlink it was opened through
-  ([ADR 0028](adr/0028-secrets-handling.md)).
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
+
+- Secret-pattern buffers in M2
+  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)): their
+  unsaved edits cannot pass through `export-state`, so decide how `oso dev`
+  keeps them (for example, keep the old instance). The emergency save skips
+  them too, which loses unsaved work in a file that only could not be
+  resolved, so decide whether to tell that case apart. User-defined patterns
+  ([ADR 0028](adr/0028-secrets-handling.md)) need the resolved paths kept, or
+  resolving again, so config reload can judge open buffers again.
 
 - The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
   Rust's default hook prints panic messages, which may quote buffer text,

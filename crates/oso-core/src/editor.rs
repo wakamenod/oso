@@ -104,6 +104,23 @@ impl Editor {
         }
     }
 
+    /// Every window.
+    pub fn windows(&self) -> impl ExactSizeIterator<Item = &Window> {
+        self.windows.iter()
+    }
+
+    /// The position of the selected window in [`Editor::windows`].
+    pub fn selected_window(&self) -> usize {
+        self.selected
+    }
+
+    /// Whether any window shows a buffer that may hold secrets (ADR 0044).
+    pub fn shows_secret(&self) -> bool {
+        self.windows
+            .iter()
+            .any(|window| self.shown(window).is_secret())
+    }
+
     /// The selected window.
     pub fn window(&self) -> &Window {
         &self.windows[self.selected]
@@ -131,11 +148,12 @@ impl Editor {
         (window, buffer)
     }
 
+    /// The buffer `window` shows.
     #[expect(
         clippy::expect_used,
         reason = "every window shows a buffer that exists: kill_buffer moves windows off a buffer before it goes"
     )]
-    fn shown(&self, window: &Window) -> &Buffer {
+    pub fn shown(&self, window: &Window) -> &Buffer {
         self.buffer(window.buffer())
             .expect("every window shows a buffer that exists")
     }
@@ -206,6 +224,19 @@ mod tests {
         let (scratch, _) = editor.buffers().next().unwrap();
         editor.kill_buffer(scratch);
         assert_eq!(editor.current().1.name(), SCRATCH);
+    }
+
+    #[test]
+    fn shows_secret_follows_what_the_windows_show() {
+        let mut editor = Editor::default();
+        assert!(!editor.shows_secret());
+        let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/.env")));
+        assert!(!editor.shows_secret(), "not shown yet");
+        editor.show(file);
+        assert!(editor.shows_secret());
+        let (scratch, _) = editor.buffers().next().unwrap();
+        editor.show(scratch);
+        assert!(!editor.shows_secret(), "switched away");
     }
 
     #[test]
