@@ -50,6 +50,9 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
   clusters, row widths, and the clusters of a row from any column, for
   rendering. A snapshot is O(1) to take and can go to another thread.
+- **`DisplayCluster::for_each_run`** says what a cluster puts on the grid. The
+  renderer and the text-grid snapshots both draw through it
+  ([ADR 0045](adr/0045-text-grid-snapshots.md)).
 - **Rows are buffer lines**, because soft wrap is off by default.
 - **Invalid bytes.** The TabMap holds the buffer's invalid-byte table
   (`oso_core::decode::InvalidBytes`), its only copy: the buffer reads it
