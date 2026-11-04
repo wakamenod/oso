@@ -9,6 +9,7 @@ pub mod ctl;
 mod png;
 mod protocol;
 mod server;
+mod timing;
 
 use std::sync::mpsc;
 use std::thread;
@@ -22,6 +23,7 @@ use oso_render::Capture;
 use serde_json::{Value, json};
 
 pub use server::{Reply, UiOp, UiRequest};
+pub use timing::Timings;
 
 /// Appears in every binary built with the `dev` feature, and in no other.
 /// `just release-safety` looks for it in release binaries.

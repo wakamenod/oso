@@ -62,6 +62,9 @@ pub struct App {
     wheel_pixels: f64,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
+    /// Key latency, startup and load times, for benchmarks (ADR 0025).
+    #[cfg(feature = "dev")]
+    timings: dev::Timings,
 }
 
 /// A file loading into a buffer.
@@ -88,6 +91,8 @@ impl App {
             wheel_pixels: 0.0,
             #[cfg(feature = "dev")]
             dev: None,
+            #[cfg(feature = "dev")]
+            timings: dev::Timings::new(started),
         }
     }
 
@@ -130,6 +135,8 @@ impl App {
         let started = Instant::now();
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
         log::trace!("key handled in {:?}", started.elapsed());
+        #[cfg(feature = "dev")]
+        self.timings.keys_handled(started, 1, effects.redraw);
         self.apply(event_loop, effects);
     }
 
@@ -178,9 +185,13 @@ impl App {
                 let load = &mut self.loads[index];
                 if first {
                     load.first_screen = Some(load.started);
+                    #[cfg(feature = "dev")]
+                    self.timings.load_first_content(load.started);
                 }
                 if done {
                     log::debug!("{} loaded in {:?}", buffer.name(), load.started.elapsed());
+                    #[cfg(feature = "dev")]
+                    self.timings.load_done(load.started);
                 }
                 let window = self.editor.window();
                 shown && window::reaches(window.scroll.top, window.size(), old_rows - 1)
@@ -292,8 +303,18 @@ impl App {
                 let started = Instant::now();
                 let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
                 log::trace!("key handled in {:?}", started.elapsed());
+                self.timings.keys_handled(started, count, effects.redraw);
                 self.apply(event_loop, effects);
                 Ok(serde_json::json!({ "keys": count }))
+            }
+            dev::UiOp::OpenFile(path) => {
+                self.open(path);
+                Ok(serde_json::json!({ "opened": true }))
+            }
+            dev::UiOp::TakeTimings => {
+                let gpu = self.view.as_ref().map(|v| v.render_state.gpu_info());
+                let gpu = gpu.as_ref().map(|g| (g.name.as_str(), g.kind.as_str()));
+                Ok(self.timings.take(gpu))
             }
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
@@ -425,9 +446,16 @@ impl ApplicationHandler<UserEvent> for App {
                     (size.width, size.height)
                 };
                 let text = text_view(&self.editor);
+                #[cfg(feature = "dev")]
+                let presented = view.render_state.presented_frames();
                 match view.render_state.render(&text, &window_size) {
                     Ok(redraw) => {
                         view.redraw_if(redraw);
+                        #[cfg(feature = "dev")]
+                        if view.render_state.presented_frames() > presented {
+                            let complete = redraw == Redraw::NotNeeded;
+                            self.timings.frame_presented(complete);
+                        }
                         // A frame skipped while the window is hidden draws
                         // nothing yet.
                         if view.render_state.presented_frames() == 0 {

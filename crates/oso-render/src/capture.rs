@@ -221,6 +221,26 @@ impl Capture {
     }
 }
 
+/// The GPU in use, for benchmarks to tell hardware from software rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GpuInfo {
+    /// The adapter's name.
+    pub name: String,
+    /// The kind of adapter: `IntegratedGpu`, `DiscreteGpu`, `VirtualGpu`,
+    /// `Cpu` or `Other`.
+    pub kind: String,
+}
+
+impl RenderState {
+    /// The GPU in use.
+    pub fn gpu_info(&self) -> GpuInfo {
+        GpuInfo {
+            name: self.adapter.name.clone(),
+            kind: format!("{:?}", self.adapter.device_type),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Layout;

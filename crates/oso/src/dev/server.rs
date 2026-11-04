@@ -9,6 +9,7 @@
 //! the UI's reply on a channel.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -51,6 +52,10 @@ pub enum UiOp {
     Screenshot,
     /// Report the editor state.
     GetState,
+    /// Report the performance samples, handing over the key latencies.
+    TakeTimings,
+    /// Visit this file in the selected window.
+    OpenFile(PathBuf),
 }
 
 /// A request for the UI thread, with the channel for its reply. Dropping
@@ -208,6 +213,8 @@ where
         Method::SendKeys(keys) => UiOp::SendKeys(keys),
         Method::Screenshot => UiOp::Screenshot,
         Method::GetState => UiOp::GetState,
+        Method::TakeTimings => UiOp::TakeTimings,
+        Method::OpenFile(path) => UiOp::OpenFile(path),
     };
     let (reply, replied) = mpsc::channel();
     if !send(UiRequest { op, reply }) {
@@ -257,6 +264,8 @@ mod tests {
         let result = match request.op {
             UiOp::SendKeys(keys) => Ok(json!({ "keys": keys.len() })),
             UiOp::GetState => Ok(json!({ "cursor": { "position": 3 } })),
+            UiOp::TakeTimings => Ok(json!({ "key_latency_us": [] })),
+            UiOp::OpenFile(_) => Ok(json!({ "opened": true })),
             UiOp::Screenshot => return true,
         };
         let _ = request.reply.send(result);

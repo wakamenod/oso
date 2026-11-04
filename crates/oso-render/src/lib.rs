@@ -13,7 +13,7 @@ mod shape;
 mod text;
 use atlas::RasterBudget;
 #[cfg(feature = "dev")]
-pub use capture::{Capture, CaptureError, Image};
+pub use capture::{Capture, CaptureError, GpuInfo, Image};
 use rows::Rows;
 use shape::{Rect, ShapeRenderer};
 use text::{Layout, TextRenderer};
@@ -195,6 +195,8 @@ pub struct RenderState {
     failed_frames: u8,
     /// Frames presented so far.
     presented: u64,
+    #[cfg(feature = "dev")]
+    adapter: wgpu::AdapterInfo,
 }
 
 impl RenderState {
@@ -298,6 +300,8 @@ impl RenderState {
             rects: Vec::new(),
             failed_frames: 0,
             presented: 0,
+            #[cfg(feature = "dev")]
+            adapter: info,
         }
     }
 

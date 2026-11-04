@@ -24,6 +24,8 @@ methods:
   get-state         the buffer, cursor, scroll position and surface size
   screenshot        writes a PNG of the current frame and prints its path
   send-keys KEYS    sends keys in Emacs notation, such as \"C-x C-f\" or \"<right>\"
+  take-timings      key latencies since the last call, startup and load times
+  open-file PATH    visits a file in the selected window; nothing in it runs
 
 exit status: 0 on a result, 1 on an error response, 2 if no request was made";
 
@@ -115,6 +117,10 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
             let keys = positional.next().ok_or("send-keys needs KEYS")?;
             Some(json!({ "keys": keys }))
         }
+        "open-file" => {
+            let path = positional.next().ok_or("open-file needs PATH")?;
+            Some(json!({ "path": path }))
+        }
         _ => None,
     };
     if let Some(extra) = positional.next() {
@@ -184,6 +190,10 @@ mod tests {
             }))
         );
         assert_eq!(
+            parse(&["open-file", "/tmp/a"]).unwrap().unwrap().params,
+            Some(json!({ "path": "/tmp/a" }))
+        );
+        assert_eq!(
             parse(&["screenshot", "--pid=7"]).unwrap().unwrap().pid,
             Some(7)
         );
@@ -206,6 +216,7 @@ mod tests {
     fn rejects_bad_command_lines() {
         assert_eq!(parse(&[]), Err("no method given".into()));
         assert_eq!(parse(&["send-keys"]), Err("send-keys needs KEYS".into()));
+        assert_eq!(parse(&["open-file"]), Err("open-file needs PATH".into()));
         assert_eq!(parse(&["--pid"]), Err("--pid needs a process ID".into()));
         assert!(
             parse(&["--pid", "x", "version"])

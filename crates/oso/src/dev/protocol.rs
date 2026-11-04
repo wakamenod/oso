@@ -9,6 +9,8 @@
 //! - Response: `{"id": 1, "result": ...}` or
 //!   `{"id": 1, "error": {"message": "..."}}`, echoing the request's `id`.
 
+use std::path::PathBuf;
+
 use oso_core::key::{KeyPress, KeySequence};
 use serde_json::{Map, Value, json};
 
@@ -40,6 +42,11 @@ pub enum Method {
     Screenshot,
     /// A minimal view of the editor state (M1-7b extends it).
     GetState,
+    /// Performance samples for benchmarks (ADR 0025).
+    TakeTimings,
+    /// Visits a file in the selected window, as `oso FILE` does at startup,
+    /// so that a benchmark can time it with the window up.
+    OpenFile(PathBuf),
 }
 
 /// A parsed request.
@@ -98,6 +105,8 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "version" => Method::Version,
         "screenshot" => Method::Screenshot,
         "get-state" => Method::GetState,
+        "take-timings" => Method::TakeTimings,
+        "open-file" => Method::OpenFile(parse_path(params).map_err(|m| bad(&id, m))?),
         "send-keys" => Method::SendKeys(parse_keys(params).map_err(|m| bad(&id, m))?),
         other => {
             let mut shown: String = other.chars().take(MAX_ECHO).collect();
@@ -123,6 +132,14 @@ fn parse_keys(params: &Map<String, Value>) -> Result<Vec<KeyPress>, String> {
         return Err(format!("send-keys takes at most {MAX_KEYS} keys"));
     }
     Ok(keys)
+}
+
+/// The `path` parameter of `open-file`.
+fn parse_path(params: &Map<String, Value>) -> Result<PathBuf, String> {
+    match params.get("path") {
+        Some(Value::String(path)) if !path.is_empty() => Ok(PathBuf::from(path)),
+        _ => Err("open-file needs a string parameter \"path\"".into()),
+    }
 }
 
 /// A success response line, without the newline.
@@ -172,11 +189,27 @@ mod tests {
             parsed(r#"{"id": 3, "method": "get-state", "params": null}"#).method,
             Method::GetState
         );
+        assert_eq!(
+            parsed(r#"{"id": 5, "method": "take-timings"}"#).method,
+            Method::TakeTimings
+        );
         let keys = parsed(r#"{"id": 4, "method": "send-keys", "params": {"keys": "C-x <right>"}}"#);
         assert_eq!(
             keys.method,
             Method::SendKeys(vec!["C-x".parse().unwrap(), "<right>".parse().unwrap()])
         );
+    }
+
+    #[test]
+    fn open_file_needs_a_path() {
+        assert_eq!(
+            parsed(r#"{"method": "open-file", "params": {"path": "/tmp/a"}}"#).method,
+            Method::OpenFile("/tmp/a".into())
+        );
+        for params in [r#"{}"#, r#"{"path": 1}"#, r#"{"path": ""}"#] {
+            let line = format!(r#"{{"method": "open-file", "params": {params}}}"#);
+            assert!(error(&line).1.contains("\"path\""), "{params}");
+        }
     }
 
     #[test]
