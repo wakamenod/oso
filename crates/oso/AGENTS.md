@@ -10,8 +10,8 @@ often, so it must rebuild within 2 s.
   spec (`add-command` skill). They keep no state of their own.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
-- Dev-only code (the control socket, `oso ctl`, timings) stays behind the
-  `dev` feature; `just release-safety` checks it.
+- Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays
+  behind the `dev` feature; `just release-safety` checks it.
 - Module layers are in `guardrails/layers.txt` (`[oso]`).
 - Every Rust file opens with its responsibility and a `Must not depend on:`
   paragraph (ADR 0041). The test checks names in backticks against the layers.

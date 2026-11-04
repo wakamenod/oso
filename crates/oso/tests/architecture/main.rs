@@ -1,7 +1,7 @@
 //! Architecture guardrails (ADR 0038, ADR 0039): the dependency direction
 //! between crates and between modules, external crates confined to their
-//! owner, the file-size ratchet, the ban on `static` items and the module
-//! headers. The rules live in `guardrails/`; the format is described at the
+//! owner, the file-size ratchet, the ban on `static` items, the ban on
+//! spawning outside one module and the module headers. The rules live in `guardrails/`; the format is described at the
 //! top of each file there.
 //!
 //! Must not depend on: any crate outside `std`, spawned processes or the
@@ -18,6 +18,7 @@ mod modules;
 mod report;
 mod rules;
 mod size;
+mod spawning;
 mod statics;
 mod workspace;
 
@@ -117,6 +118,18 @@ fn there_are_no_statics() {
             ));
         }
     }
+    assert_none(&problems);
+}
+
+#[test]
+fn only_the_allowed_files_may_silence_the_ban_on_spawning() {
+    let workspace = Workspace::current();
+    let files: Vec<(String, String)> = workspace
+        .rust_files()
+        .into_iter()
+        .map(|path| (workspace.relative_path(&path), read(&path)))
+        .collect();
+    let problems = spawning::problems(&files);
     assert_none(&problems);
 }
 

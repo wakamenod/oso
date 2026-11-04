@@ -26,13 +26,17 @@ const USAGE: &str = "usage: oso [FILE]";
 fn main() {
     let started = std::time::Instant::now();
     #[cfg(feature = "dev")]
-    if let Some(status) = dev::ctl::main_if_requested() {
+    if let Some(status) = dev::ctl::main_if_requested().or_else(dev::supervisor::main_if_requested)
+    {
         std::process::exit(status);
     }
-    // Without the control socket, `oso ctl` must not open the editor.
+    // Without the dev tools, `oso ctl` and `oso dev` must not open the editor.
     #[cfg(not(feature = "dev"))]
-    if std::env::args_os().nth(1).is_some_and(|arg| arg == "ctl") {
-        refuse_ctl();
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "ctl" || arg == "dev")
+    {
+        refuse_dev_tool();
     }
     let file = match parse_args(std::env::args_os().skip(1)) {
         Ok(Invocation::Help) => exit_with_usage(None),
@@ -66,20 +70,19 @@ fn main() {
     // Loading starts before the window exists, so the file is read while
     // the GPU starts up.
     if let Some(file) = file {
-        // Logged; the window opens with no file.
-        let _ = app.open(file);
+        app.open(file);
     }
     event_loop.run_app(&mut app).unwrap();
 }
 
-/// Exits with an error: `oso ctl` needs the control socket of a dev build.
+/// Exits with an error: `oso ctl` and `oso dev` need a dev build.
 #[cfg(not(feature = "dev"))]
 #[expect(
     clippy::disallowed_macros,
     reason = "a command-line error, printed before logging starts"
 )]
-fn refuse_ctl() -> ! {
-    eprintln!("oso ctl needs a dev build (cargo run -p oso --features dev)");
+fn refuse_dev_tool() -> ! {
+    eprintln!("oso ctl and oso dev need a dev build (cargo run -p oso --features dev)");
     std::process::exit(2);
 }
 

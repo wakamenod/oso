@@ -53,6 +53,7 @@ old one's status.
 | 0044 | [Control socket trust and secret-pattern buffers](0044-control-socket-trust-and-secret-buffers.md) | Accepted |
 | 0045 | [Text-grid snapshots](0045-text-grid-snapshots.md) | Accepted |
 | 0046 | [Performance regression checks](0046-performance-regression-checks.md) | Accepted |
+| 0047 | [Process spawning and the restart handoff](0047-process-spawning-and-restart-handoff.md) | Accepted |
 
 ## Template
 

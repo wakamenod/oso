@@ -119,8 +119,9 @@ up to 3 times on Linux and 3.7 times on macOS, between runs of one job.
   [ADR 0010](0010-process-and-network-policy.md). The harness starts the app
   under test, `cargo` and `git`, from `PATH`, with no sanitized environment and
   no spawn log. It is an example behind `required-features = ["dev"]`, and never
-  ships. This does not extend to anything else, including the `oso dev`
-  supervisor.
+  ships. This does not extend to anything else: the `oso dev` supervisor uses
+  `oso_platform::process` ([ADR 0047](0047-process-spawning-and-restart-handoff.md)),
+  and the architecture test allows only this file besides that module.
 
 ## Consequences
 
@@ -158,5 +159,6 @@ up to 3 times on Linux and 3.7 times on macOS, between runs of one job.
 - **Building the GPU device in the background, showing the window after the
   first frame, starting from an app bundle:** measured, with no gain. The GPU
   takes about 3.5 ms, and wgpu will not present to a hidden window.
-- **`oso-platform::process` first:** follows ADR 0010 to the letter, but brings a
-  public module and its policy into a change about measuring.
+- **`oso-platform::process`:** follows ADR 0010 to the letter. It did not exist
+  when this was built, and it arrived with ADR 0047. Moving the harness to it
+  is left for later.
