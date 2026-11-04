@@ -136,7 +136,7 @@ pub enum RenderError {
     /// The surface still failed after `MAX_RETRIES` retries in a row.
     RetriesExhausted,
     /// Creating the surface again after it was lost failed.
-    RecreateSurface(wgpu::CreateSurfaceError),
+    RecreateSurface(String),
 }
 
 impl std::fmt::Display for RenderError {
@@ -385,7 +385,7 @@ impl RenderState {
                 let surface = self
                     .instance
                     .create_surface(self.target.clone())
-                    .map_err(RenderError::RecreateSurface)?;
+                    .map_err(|e| RenderError::RecreateSurface(e.to_string()))?;
                 surface.configure(&self.device, &self.config);
                 self.surface = Some(surface);
             }

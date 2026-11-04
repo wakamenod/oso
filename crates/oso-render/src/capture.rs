@@ -46,8 +46,9 @@ pub struct Capture {
 /// Why a capture failed.
 #[derive(Debug)]
 pub enum CaptureError {
-    /// The surface uses a pixel format that capture cannot convert.
-    UnsupportedFormat(wgpu::TextureFormat),
+    /// The surface uses a pixel format that capture cannot convert, named
+    /// here.
+    UnsupportedFormat(String),
     /// The GPU did not finish in time, or reported an error.
     Gpu(String),
 }
@@ -56,7 +57,7 @@ impl fmt::Display for CaptureError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnsupportedFormat(format) => {
-                write!(f, "cannot capture the surface format {format:?}")
+                write!(f, "cannot capture the surface format {format}")
             }
             Self::Gpu(e) => write!(f, "capture failed on the GPU: {e}"),
         }
@@ -126,8 +127,8 @@ impl RenderState {
     pub fn capture(&mut self, text: &TextView) -> Result<Capture, CaptureError> {
         let (width, height) = (self.config.width, self.config.height);
         let format = self.config.format;
-        let layout =
-            Layout::new(format, width, height).ok_or(CaptureError::UnsupportedFormat(format))?;
+        let layout = Layout::new(format, width, height)
+            .ok_or_else(|| CaptureError::UnsupportedFormat(format!("{format:?}")))?;
 
         let size = wgpu::Extent3d {
             width,
