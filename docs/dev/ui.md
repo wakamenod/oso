@@ -84,8 +84,10 @@ with hydra-posframe today.
 
 ## Input method (IME)
 
-- Preedit text is drawn **inline at the cursor, underlined**. The OS
-  candidate window is placed just below the cursor, as in other macOS apps.
+- Preedit text is drawn **inline at the cursor, underlined**, and pushes the
+  text after it along its row. It is never written to the buffer
+  ([ADR 0051](adr/0051-m2-plan-decisions.md)). The OS candidate window is placed
+  just below the cursor, as in other macOS apps.
 - The IME is switched off automatically when entering the minibuffer,
   isearch or a menu, since those use single keys.
 
@@ -104,6 +106,7 @@ Off by default: line numbers.
 
 - Bidirectional control characters and invisible characters are drawn as
   their code point in a colored box (for example `U+202E`). They are never
-  rendered invisibly.
+  rendered invisibly. A 1-pixel gap separates neighboring boxes
+  ([ADR 0051](adr/0051-m2-plan-decisions.md)).
 - A buffer containing bidirectional control characters shows a warning in its
   modeline (Trojan Source, CVE-2021-42574).
