@@ -23,7 +23,8 @@ pub(crate) struct PlacedGlyph {
     /// The first cell of the glyph's cluster, counted from the row start.
     pub(crate) column: usize,
     /// The cells the cluster takes: 1 for half-width, 2 for full-width,
-    /// more for a ligature over several clusters.
+    /// more for a ligature over several clusters. The glyph paints only
+    /// these cells.
     pub(crate) cells: u32,
     /// Pen position relative to the cluster's first cell, at the baseline,
     /// in whole pixels; y grows downwards. Centers glyphs whose advance is
