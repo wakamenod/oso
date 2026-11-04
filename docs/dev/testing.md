@@ -58,7 +58,8 @@ line between `:` marks its cells:
 | `#` | a cell of a boxed invisible character (`U+202E`) |
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
-Text that reads like an escape has no mark, which is how the two differ. The
+Text that reads like an escape has no mark, which is how the two differ. `#`
+does not show where one box ends and the next begins. The
 padding before the closing `│` shows the row's width whatever font the diff is
 read in.
 

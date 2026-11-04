@@ -164,12 +164,12 @@ impl Rows {
                 1
             };
             cluster.for_each_run(|run| {
+                // One box per invisible character, across its label's runs.
                 if run.style == CellStyle::Boxed {
-                    match out.boxes.last_mut() {
-                        Some((column, cells)) if *column + *cells == run.column => {
-                            *cells += run.cells;
-                        }
-                        _ => out.boxes.push((run.column, run.cells)),
+                    if run.column == cluster.column {
+                        out.boxes.push((run.column, run.cells));
+                    } else if let Some((_, cells)) = out.boxes.last_mut() {
+                        *cells += run.cells;
                     }
                 }
                 self.graphemes.push(Grapheme {
@@ -255,12 +255,12 @@ mod tests {
     }
 
     #[test]
-    fn neighboring_invisible_characters_share_a_box() {
+    fn each_invisible_character_gets_its_own_box() {
         let buffer = Buffer::from_text("t", "\u{202e}\u{202e}a\u{200b}");
         let mut rows = Rows::default();
         let mut system = Recorder::default();
         let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
-        assert_eq!(shaped.boxes, [(0, 12), (13, 6)]);
+        assert_eq!(shaped.boxes, [(0, 6), (6, 6), (13, 6)]);
     }
 
     #[test]
