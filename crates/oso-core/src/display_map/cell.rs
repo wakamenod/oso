@@ -167,38 +167,52 @@ pub(crate) struct FirstCluster {
     pub(crate) at_limit: bool,
 }
 
+/// Where `piece`, with no hidden characters in it, reaches a display cluster's
+/// limits, if it does. Telling a mark costs more than scanning, and real clusters
+/// are too short to reach the limit on marks, so the marks are only looked at in
+/// a piece long enough to hold too many.
+fn limit_in(piece: &str) -> Option<usize> {
+    if piece.len() <= MAX_CLUSTER_MARKS + 1 || piece.chars().count() <= MAX_CLUSTER_MARKS + 1 {
+        return None;
+    }
+    let mut marks = 0;
+    for (held, (index, c)) in (0..).zip(piece.char_indices()).skip(1) {
+        marks += usize::from(is_mark(c));
+        if marks > MAX_CLUSTER_MARKS || held == MAX_CLUSTER_CHARS {
+            return Some(index);
+        }
+    }
+    None
+}
+
 /// Finds the first display cluster in a grapheme cluster.
 pub(crate) fn first_display_cluster(cluster: &str) -> FirstCluster {
-    let stop = |len, at_limit| FirstCluster { len, at_limit };
     let mut chars = cluster.char_indices();
     let Some((_, base)) = chars.next() else {
-        return stop(0, false);
+        return FirstCluster {
+            len: 0,
+            at_limit: false,
+        };
     };
     if is_invisible(base) {
-        return stop(base.len_utf8(), false);
+        return FirstCluster {
+            len: base.len_utf8(),
+            at_limit: false,
+        };
     }
-    let rest = base.len_utf8();
-    // Real clusters are too short to reach the limit on marks, and telling a
-    // mark costs more than the scan, so marks are only counted once it can
-    // matter.
-    let mut marks = 0;
-    for (held, (index, c)) in (1..).zip(chars) {
-        if is_hidden_extend(c, base) {
-            return stop(index, false);
-        }
-        if held == MAX_CLUSTER_MARKS + 1 {
-            marks = cluster[rest..index + c.len_utf8()]
-                .chars()
-                .filter(|&c| is_mark(c))
-                .count();
-        } else if held > MAX_CLUSTER_MARKS + 1 {
-            marks += usize::from(is_mark(c));
-        }
-        if marks > MAX_CLUSTER_MARKS || held == MAX_CLUSTER_CHARS {
-            return stop(index, true);
-        }
+    let end = chars
+        .find(|&(_, c)| is_hidden_extend(c, base))
+        .map_or(cluster.len(), |(index, _)| index);
+    match limit_in(&cluster[..end]) {
+        Some(len) => FirstCluster {
+            len,
+            at_limit: true,
+        },
+        None => FirstCluster {
+            len: end,
+            at_limit: false,
+        },
     }
-    stop(cluster.len(), false)
 }
 
 /// What a character past a display cluster's limits is on the cell grid. ASCII

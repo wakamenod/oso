@@ -59,9 +59,9 @@ These ADRs stay as they are; this one changes the following:
   Hindi, Kannada, Khmer, Hebrew with marks, a long Tibetan stack (8 marks), an emoji
   sequence of 10 characters and 6 marks, and a tag flag (6 marks).
 - Rare text can go past a limit, such as stacks written to test fonts.
-- Real text costs the same from column 0. On long lines scrolled sideways, reading
-  a screen costs 3 to 7% more, up to about 20 µs, and a cursor step about 0.5 µs
-  more.
+- Reading a screen of real text costs about the same: up to 4% more on ASCII and 3%
+  on Hindi, up to about 13 µs, and no change beyond noise on Japanese and emoji. A
+  cursor step costs up to about 0.2 µs more.
 - `CellKind` has a new variant, which is visible in the API snapshot.
 
 ## Alternatives considered
