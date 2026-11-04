@@ -156,7 +156,9 @@ throughout.
   which `oso dev`'s check, generation and import must skip
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - **M2-10** (after M2-8): emergency save on a panic or an OS-initiated exit, the
-  panic hook, and no core dumps ([ADR 0013](adr/0013-persistence.md),
+  panic hook, which must ignore a failed write since `oso dev`'s instances can outlive
+  their terminal ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)), and no core
+  dumps ([ADR 0013](adr/0013-persistence.md),
   [ADR 0014](adr/0014-panic-strategy.md), [ADR 0028](adr/0028-secrets-handling.md)).
 - **M2-11** (after M2-7 and M2-10): recovering an emergency copy.
 - **M2-12** (after M2-4 and M2-6): the macOS IME: inline preedit that pushes the

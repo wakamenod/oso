@@ -185,16 +185,16 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
 }
 
 /// Whether this instance may take over from another. It may only if it has
-/// opened nothing and has no edits in its `*scratch*`, which the imported
-/// buffers would hide.
+/// opened nothing and its `*scratch*` is empty, as the imported buffers would hide
+/// any text there.
 pub fn import_allowed(editor: &Editor) -> Result<(), String> {
     let (_, scratch) = editor.current();
     if editor.buffers().count() > 1 || scratch.name() != SCRATCH {
         return Err("this instance has already opened something".into());
     }
-    if scratch.is_modified() {
+    if !scratch.text().is_empty() {
         return Err(format!(
-            "this instance has unsaved edits in {SCRATCH}, which the import would hide"
+            "this instance has text in {SCRATCH}, which the import would hide"
         ));
     }
     Ok(())

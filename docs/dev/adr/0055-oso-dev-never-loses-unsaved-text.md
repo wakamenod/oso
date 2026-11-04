@@ -1,6 +1,6 @@
 # 0055. `oso dev` never loses unsaved text
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-05
 
 ## Context
@@ -65,16 +65,18 @@ as what is typed into the old one.
     with an error starting `exit refused`.
   - An exit only sets a flag, and winit goes on delivering what is queued until the
     loop ends. So once the flag is set, every control request is refused, as is any
-    key, and no edit can come between the check and the exit. A race on a real
+    window event, and no edit can come between the check and the exit. A race on a real
     instance lost an accepted edit in 46 of 60 runs before this rule, and in none of 60
     after it.
   - Anything else in `generation`, null included, is an error, and so is a misspelled
     parameter or one outside `params`. A caller that lost track of its generation
     never gets the unconditional exit by accident.
 - **The order of a restart:**
-  1. `check-handover` on the old instance. If it refuses, nothing else happens.
+  1. Try again to close any instance that got no window (below), which holds nothing
+     up. Then `check-handover` on the old instance. If it refuses, nothing else happens.
   2. Close the instance beside it, if any. If that cannot be closed, nothing else
-     happens, so there are never more than two.
+     happens, so there are never more than two with a state to hand on: the current one
+     and the one beside it. Those that got no window come on top of those.
   3. Start the new binary and wait for its window.
   4. Export, and import.
   5. `exit` on the old instance with the generation of the export.
@@ -82,9 +84,20 @@ as what is typed into the old one.
   generation just reported. One that has been edited refuses at the first step, and
   one edited in between refuses at the second. A new instance is closed this way
   whenever a restart gives up on it.
-- **A new instance that never got a window, and does not answer,** is left running
-  and forgotten, with its process ID in the log. It cannot have been typed into, and
-  it is often a bug the next build fixes, so it must not hold later restarts.
+- **A new instance that gets no window in 10 s, and does not answer,** is kept track of
+  but holds nothing up, since it is often a bug the next build fixes. It may yet show a
+  window and be typed into, so it is not forgotten. Every later restart tries to close
+  it, waiting 500 ms for an answer, and leaves it if it has been edited or still does
+  not answer, saying so in the log with its process ID. One that exits is forgotten.
+- **If the export fails because the old instance has gone,** the new one stays, as it
+  is all there is, and becomes the current one.
+- **Instances run in process groups of their own,** through a new `own_process_group`
+  on `oso_platform::process::Spawn`, which `oso dev` sets for instances and not for
+  cargo. It uses `CommandExt::process_group`, so no `unsafe`. Ctrl-C in `just dev`, or
+  closing the terminal, ends the supervisor and the build, and leaves the instances
+  and their windows for the user to close. This replaces ADR 0047's note that Ctrl-C
+  ends the instance. The option does nothing on Windows, where `oso dev` stops at the
+  control socket, which is not supported ([ADR 0032](0032-control-socket-transport.md)).
 - **The rule when the old instance refuses the exit:** the old one stays, and the new
   one goes, unless it has been edited too. Then both stay, each with its own text,
   and the next build waits. The old one is asked first because it holds what the user
@@ -98,10 +111,10 @@ as what is typed into the old one.
   about what the instance will do.
 - **`import-state` also refuses a modified `*scratch*`,** whose text the imported
   buffers would hide. That leaves the new instance beside the old one, and the next
-  build holds until the user has dealt with it. The exception is a `*scratch*` typed
-  in and emptied again: it refuses the import too, which costs nothing, but it holds no
-  text, so the next build closes it. Strictly, that differs from ADR 0051's "never
-  closes an instance that has been edited".
+  build holds until the user has dealt with it. A `*scratch*` typed in and emptied again
+  holds no text, so it imports, hands over and can be closed like an untouched one.
+  Strictly, that differs from ADR 0051's "never closes an instance that has been edited",
+  and the author accepts it, since undo history is not carried anyway.
 - **`insert-text` is a new dev method,** inserting text at the primary cursor as one
   edit. It exists because a held restart has to be testable over the real socket
   before anything can be typed, as `show-buffer` did for switching buffers. Its reply
@@ -111,8 +124,8 @@ as what is typed into the old one.
   can be driven by hand.
 - **What this replaces in ADR 0047:** the order of a restart, "a new binary that cannot
   start is stopped" and "a failed export stops the new one", which now hold only if
-  that instance agrees, the next good build closing the clean instance, and the
-  consequence that about 30 ms of input is lost.
+  that instance agrees, the next good build closing the clean instance, the consequence
+  that about 30 ms of input is lost, and that Ctrl-C ends the instance.
 - **What this changes in [ADR 0023](0023-control-socket-protocol-and-restart.md):** its
   list of methods grows. "If the new instance fails, the old one keeps running" stays
   true, but a failed new instance may now keep running too. "The new instance starts
@@ -128,9 +141,24 @@ as what is typed into the old one.
 - A clean build after the user saves does not restart by itself. It takes the next
   source change, as after any failed try.
 - An instance that cannot be stopped stays until someone ends it, and nothing does so
-  for them. A new build that hangs before its window leaves a process behind each time.
-  One that hangs after its window holds later restarts, and each of those builds waits
-  10 s for it to answer, or 30 s if its whole process is stopped, before the log says so.
+  for them. A new build that hangs before its window leaves a process behind each time,
+  and each one adds up to 500 ms to later restarts, as well as making `oso ctl` without
+  `--pid` report several instances. One that hangs after its window holds later
+  restarts, and each of those builds waits 10 s for it to answer, or 30 s if its whole
+  process is stopped, before the log says so.
+- **After Ctrl-C the window outlives the supervisor,** and the user closes it by hand.
+  The new `oso dev` is a new supervisor: it does not know that window, so the two run
+  side by side, and `oso ctl` needs `--pid`.
+- An instance's log still goes to the terminal, in the terminal's background. After
+  Ctrl-C its lines mix with the shell's. Once the terminal has closed, writing fails and
+  `env_logger` ignores that. A kernel signals a hangup only to the session leader and the
+  foreground group, and a shell only to its own jobs, so an instance gets neither. This
+  was exercised on macOS through a pseudo-terminal, and follows from POSIX on Linux,
+  where it has not been run. A panic hook (ADR 0051) must ignore a failed write too, or
+  it would turn a caught panic into an abort once the terminal has gone. With `stty
+  tostop` set, a background write stops the process until the terminal lets it go, and
+  while a terminal does not read, as under Ctrl-S, a log line blocks the UI thread, as it
+  always has.
 - Keys the window system still holds for the old window when it exits are lost, as on
   any close. They never reached a buffer. That is a matter of milliseconds of keys
   behind the exit, while the new window usually has the focus.
@@ -138,9 +166,8 @@ as what is typed into the old one.
   run once it wakes. The server has by then answered that it did not reply in time, so
   both instances stay until then, and the guard still applies when it runs.
 - **Other ways out remain, and are not this ADR's.** A bare `exit`, `C-x C-c` and closing
-  the window end an instance with unsaved text until M2-8 asks first. Ctrl-C in `just
-  dev`, or closing the terminal, ends every instance without asking, as ADR 0047 noted,
-  because they share a process group. See [`open-questions.md`](../open-questions.md).
+  the window end an instance with unsaved text until M2-8 asks first. A kill signal sent
+  to the process itself still loses it (ADR 0051).
 - A clean buffer whose file has since been deleted is text only that instance holds, and
   the generation does not see it. A `git checkout` can do this and also start a build.
   The new instance shows an empty new file. M2-22, which reloads files, should cover it.
@@ -178,7 +205,11 @@ as what is typed into the old one.
 - **Killing an instance that never showed a window:** it can hold nothing typed, but a
   same-user client may have reached its socket, and a supervisor that cannot kill is
   easier to trust.
-- **Keeping a windowless instance that does not answer, until someone ends it:** no
-  process is forgotten, but fixing the bug that hung it would not reach the screen.
+- **Holding restarts for a windowless instance that does not answer:** no special case,
+  but fixing the bug that hung it would not reach the screen.
+- **Forgetting such an instance:** simple, but it can still show a window and be typed
+  into, with nothing to close it, and it stays a zombie after it exits.
+- **Leaving instances in the supervisor's group:** the window goes with `just dev`, as
+  one expects of a foreground job, but Ctrl-C would lose unsaved text.
 - **A third slot, so that an edited instance beside the old one does not hold the
   restart:** restarts continue, but windows pile up and each holds different text.

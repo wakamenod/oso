@@ -235,7 +235,8 @@ quote buffer text, so use `assert_visible_row`, and do not `assert_eq!` on a sta
 that holds text.
 
 **What is still manual,** through the `verify-in-app` skill or by hand: resizing
-the window, the mouse wheel, real OS key events, IME, and `oso dev`'s build loop.
+the window, the mouse wheel, real OS key events, IME, and `oso dev`'s build loop,
+with Ctrl-C and closing the terminal.
 
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),

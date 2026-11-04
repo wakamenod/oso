@@ -247,6 +247,7 @@ impl App {
             inherit: &["XDG_RUNTIME_DIR"],
             stdout: Sink::Piped,
             stderr: Sink::Null,
+            own_process_group: false,
         })
         .expect("cannot start oso ctl");
         let mut output = String::new();
@@ -328,6 +329,7 @@ impl Process {
             inherit: &INSTANCE_ENV,
             stdout: Sink::Null,
             stderr: Sink::Piped,
+            own_process_group: false,
         })
         .expect("cannot start the instance");
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -503,6 +505,7 @@ pub fn process_exists(pid: u32) -> bool {
         inherit: &[],
         stdout: Sink::Null,
         stderr: Sink::Null,
+        own_process_group: false,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run ps");

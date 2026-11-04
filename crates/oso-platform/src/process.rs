@@ -9,6 +9,7 @@
 //! - A child gets an environment built from an allowlist. Anything else,
 //!   such as `LD_PRELOAD`, `DYLD_*` or an API token, stays behind.
 //! - Standard input is closed.
+//! - A caller can ask for a process group of its own, so that Ctrl-C leaves it.
 //! - Every spawn is logged, with the names of the variables but not their
 //!   values.
 //!
@@ -131,6 +132,11 @@ pub struct Spawn<'a> {
     pub inherit: &'a [&'a str],
     pub stdout: Sink,
     pub stderr: Sink,
+    /// Starts it in a process group of its own, so that what a terminal signals to
+    /// its foreground group, such as Ctrl-C, does not reach it. It then outlives
+    /// this process. Only Unix has this: the one caller needs the control socket,
+    /// which is not supported elsewhere (ADR 0032, ADR 0055).
+    pub own_process_group: bool,
 }
 
 /// Starts a process.
@@ -162,6 +168,11 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
         .stderr(request.stderr);
     if let Some(cwd) = request.cwd {
         command.current_dir(cwd);
+    }
+    #[cfg(unix)]
+    if request.own_process_group {
+        use std::os::unix::process::CommandExt;
+        command.process_group(0);
     }
     command.spawn()
 }
@@ -250,6 +261,54 @@ mod tests {
 
     fn path_of(dirs: &[&Path]) -> OsString {
         env::join_paths(dirs).unwrap()
+    }
+
+    /// The process group of a long `sleep`, started with or without its own.
+    #[cfg(unix)]
+    fn group_of_a_child(own_process_group: bool) -> (u32, u32) {
+        use super::{Sink, Spawn, spawn};
+        use std::io::Read;
+        let start = |name: &str, args: &[OsString], stdout: Sink| {
+            spawn(&Spawn {
+                executable: &Executable::from_path(name, None).unwrap(),
+                args,
+                cwd: None,
+                project: None,
+                inherit: &[],
+                stdout,
+                stderr: Sink::Null,
+                own_process_group: name == "sleep" && own_process_group,
+            })
+            .unwrap()
+        };
+        let mut child = start("sleep", &["60".into()], Sink::Null);
+        let args = [
+            "-o".into(),
+            "pgid=".into(),
+            "-p".into(),
+            child.id().to_string().into(),
+        ];
+        let mut ps = start("ps", &args, Sink::Piped);
+        let mut output = String::new();
+        ps.stdout
+            .take()
+            .unwrap()
+            .read_to_string(&mut output)
+            .unwrap();
+        ps.wait().unwrap();
+        let pid = child.id();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        (pid, output.trim().parse().unwrap())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_child_has_its_own_process_group_only_if_asked() {
+        let (pid, group) = group_of_a_child(true);
+        assert_eq!(group, pid, "it leads a group of its own");
+        let (pid, group) = group_of_a_child(false);
+        assert_ne!(group, pid, "it stays in this process's group");
     }
 
     #[test]
@@ -365,6 +424,7 @@ mod tests {
             inherit: &[],
             stdout: Sink::Piped,
             stderr: Sink::Null,
+            own_process_group: false,
         })
         .unwrap();
         let mut output = String::new();

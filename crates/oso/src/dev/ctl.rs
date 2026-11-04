@@ -228,9 +228,20 @@ pub fn exchange(
     method: &str,
     params: Option<Value>,
 ) -> io::Result<String> {
+    exchange_within(dir, pid, method, params, RESPONSE_TIMEOUT)
+}
+
+/// [`exchange`], giving up on a response after `patience`.
+pub fn exchange_within(
+    dir: &ControlDir,
+    pid: Option<u32>,
+    method: &str,
+    params: Option<Value>,
+    patience: Duration,
+) -> io::Result<String> {
     let (_, stream) = dir.connect(pid)?;
-    stream.set_read_timeout(Some(RESPONSE_TIMEOUT))?;
-    stream.set_write_timeout(Some(RESPONSE_TIMEOUT))?;
+    stream.set_read_timeout(Some(patience))?;
+    stream.set_write_timeout(Some(patience))?;
     let mut writer = stream.try_clone()?;
     let request = protocol::request(1, method, params);
     writeln!(writer, "{request}")?;

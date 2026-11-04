@@ -74,6 +74,7 @@ pub oso_platform::process::Spawn::args: &'a [std::ffi::os_str::OsString]
 pub oso_platform::process::Spawn::cwd: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::executable: &'a oso_platform::process::Executable
 pub oso_platform::process::Spawn::inherit: &'a [&'a str]
+pub oso_platform::process::Spawn::own_process_group: bool
 pub oso_platform::process::Spawn::project: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::stderr: oso_platform::process::Sink
 pub oso_platform::process::Spawn::stdout: oso_platform::process::Sink

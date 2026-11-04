@@ -283,15 +283,21 @@ fn exit_needs_the_generation_if_it_is_given_one() {
 }
 
 #[test]
-fn an_import_needs_an_untouched_scratch() {
+fn an_import_needs_an_empty_scratch() {
     let mut editor = Editor::default();
     assert_eq!(import_allowed(&editor), Ok(()));
     type_text(&mut editor);
     let message = import_allowed(&editor).unwrap_err();
     assert!(message.contains(SCRATCH), "{message}");
     assert!(!message.contains(TYPED), "{message}");
-    // Back where it started, it holds nothing to hide.
-    editor.undo().unwrap();
+    // Emptied again, it holds nothing to hide, as for a handover.
+    let id = editor.window().buffer();
+    let all = Replacement {
+        range: 0..TYPED.len(),
+        text: "",
+    };
+    editor.apply_edits(id, &[all]).unwrap();
+    assert!(editor.current().1.is_modified());
     assert_eq!(import_allowed(&editor), Ok(()));
 
     let editor = visiting(&absolute("/p/a.txt"), "abc\n");

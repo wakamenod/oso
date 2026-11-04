@@ -17,7 +17,29 @@ use serde_json::{Value, json};
 
 /// The method that reports an instance's generation, or why its text would not
 /// survive a restart.
-const CHECK: &str = "check-handover";
+pub const CHECK: &str = "check-handover";
+
+/// The instances a supervisor looks after.
+#[derive(Debug)]
+pub struct Instances<I> {
+    /// The one that hands over at the next restart.
+    pub current: Option<I>,
+    /// A new one that stays beside it, and holds the next restart if it has to stay.
+    pub beside: Option<I>,
+    /// New ones that got no window in time and did not answer. Each may yet show
+    /// one and be typed into, so they are kept track of, but they hold nothing up.
+    pub strays: Vec<I>,
+}
+
+impl<I> Instances<I> {
+    pub fn new(current: I) -> Self {
+        Self {
+            current: Some(current),
+            beside: None,
+            strays: Vec::new(),
+        }
+    }
+}
 
 /// How a handover ended.
 #[derive(Debug)]
@@ -26,6 +48,8 @@ pub enum Handover<I> {
     Replaced(I),
     /// A new instance runs beside the old one, which has not been replaced.
     Beside { new: I, reason: String },
+    /// A new instance got no window, and did not answer when asked to go.
+    NoWindow { new: I, reason: String },
     /// There is no new instance. The old one is untouched.
     Failed(String),
 }
@@ -53,6 +77,8 @@ pub trait Instance {
     fn pid(&self) -> u32;
     /// Makes one control socket request.
     fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String>;
+    /// [`CHECK`], giving up soon, as this is for one that may never answer.
+    fn check_briefly(&mut self) -> Result<Value, String>;
     /// Waits for its window to exist.
     fn wait_until_ready(&mut self) -> Result<(), String>;
     /// Whether it has exited.
@@ -75,20 +101,46 @@ fn close<I: Instance>(instance: &mut I) -> Result<(), String> {
     if instance.gone() {
         return Ok(());
     }
-    let generation = generation_in(&instance.call(CHECK, None)?)?;
+    let answer = instance.call(CHECK, None)?;
+    let generation = generation_in(&answer)?;
     instance.stop(generation).map_err(NotStopped::into_reason)
 }
 
-/// Closes a new instance that never got a window. It cannot have been typed
-/// into, and one that does not answer is left running and forgotten, so that it
-/// does not hold every later restart. It may be a bug the next build fixes.
-fn abandon<I: Instance>(mut new: I) {
-    if let Err(why) = close(&mut new) {
-        log::warn!(
-            "oso dev: instance {} is left running, and needs ending by hand: {why:?}",
-            new.pid()
-        );
+/// [`close`], for an instance that may never answer.
+fn close_briefly<I: Instance>(instance: &mut I) -> Result<(), String> {
+    if instance.gone() {
+        return Ok(());
     }
+    let answer = instance.check_briefly()?;
+    let generation = generation_in(&answer)?;
+    instance.stop(generation).map_err(NotStopped::into_reason)
+}
+
+/// Gives up on a new instance that got no window.
+fn no_window<I: Instance>(mut new: I, reason: String) -> Handover<I> {
+    let reason = format!("the new build did not start: {reason}");
+    match close_briefly(&mut new) {
+        Ok(()) => Handover::Failed(reason),
+        Err(why) => Handover::NoWindow {
+            new,
+            reason: format!("{reason}: {why}"),
+        },
+    }
+}
+
+/// Tries again to close the instances that got no window, whatever they are up to
+/// by now, keeping any that has been edited or still does not answer.
+fn sweep<I: Instance>(strays: &mut Vec<I>) {
+    strays.retain_mut(|stray| match close_briefly(stray) {
+        Ok(()) => false,
+        Err(why) => {
+            log::warn!(
+                "oso dev: instance {} stays, and is yours to close: {why:?}",
+                stray.pid()
+            );
+            true
+        }
+    });
 }
 
 /// Gives up on a new instance, which the user may have typed into by now, so it
@@ -134,8 +186,7 @@ pub fn hand_over<I: Instance>(
         Err(reason) => return Handover::Failed(format!("the new build did not start: {reason}")),
     };
     if let Err(reason) = new.wait_until_ready() {
-        abandon(new);
-        return Handover::Failed(format!("the new build did not start: {reason}"));
+        return no_window(new, reason);
     }
     let ready = started.elapsed();
     let (state, generation) = match old
@@ -143,6 +194,13 @@ pub fn hand_over<I: Instance>(
         .and_then(|state| generation_in(&state).map(|generation| (state, generation)))
     {
         Ok(exported) => exported,
+        // Gone since the check, so the new one is all there is.
+        Err(reason) if old.gone() => {
+            return Handover::Beside {
+                new,
+                reason: format!("the old instance has gone: {reason}"),
+            };
+        }
         Err(reason) => return give_up(new, format!("export failed: {reason}")),
     };
     let exported = started.elapsed();
@@ -172,21 +230,22 @@ pub fn hand_over<I: Instance>(
     }
 }
 
-/// Moves on to a new binary, keeping what `current` holds if there is one.
-/// Returns whether the new binary is now the current instance, so that the next
-/// build knows to try again if not. Reasons are logged escaped, since they can
+/// Moves on to a new binary, keeping what the current instance holds if there is
+/// one. Returns whether the new binary is now the current instance, so that the
+/// next build knows to try again if not. Reasons are logged escaped, since they can
 /// quote a file name and this is a terminal.
-pub fn restart<I, S>(current: &mut Option<I>, beside: &mut Option<I>, start: S) -> bool
+pub fn restart<I, S>(instances: &mut Instances<I>, start: S) -> bool
 where
     I: Instance,
     S: FnOnce() -> Result<I, String>,
 {
-    let Some(old) = current.as_mut() else {
-        return start_first(current, start);
+    sweep(&mut instances.strays);
+    let Some(old) = instances.current.as_mut() else {
+        return start_first(instances, start);
     };
-    match hand_over(old, beside, start) {
+    match hand_over(old, &mut instances.beside, start) {
         Handover::Replaced(new) => {
-            *current = Some(new);
+            instances.current = Some(new);
             true
         }
         Handover::Beside { new, reason } => {
@@ -194,7 +253,15 @@ where
                 "oso dev: new instance {} runs beside the old one: {reason:?}",
                 new.pid()
             );
-            *beside = Some(new);
+            instances.beside = Some(new);
+            false
+        }
+        Handover::NoWindow { new, reason } => {
+            keep_stray(&mut instances.strays, new, &reason);
+            false
+        }
+        Handover::Failed(reason) if old.gone() => {
+            log::warn!("oso dev: the old instance has gone: {reason:?}");
             false
         }
         Handover::Failed(reason) => {
@@ -204,8 +271,16 @@ where
     }
 }
 
+fn keep_stray<I: Instance>(strays: &mut Vec<I>, new: I, reason: &str) {
+    log::warn!(
+        "oso dev: instance {} stays until it answers or is ended by hand: {reason:?}",
+        new.pid()
+    );
+    strays.push(new);
+}
+
 /// Starts an instance with nothing to take over from.
-fn start_first<I, S>(current: &mut Option<I>, start: S) -> bool
+fn start_first<I, S>(instances: &mut Instances<I>, start: S) -> bool
 where
     I: Instance,
     S: FnOnce() -> Result<I, String>,
@@ -218,17 +293,22 @@ where
         }
     };
     if let Err(reason) = new.wait_until_ready() {
-        log::warn!("oso dev: the new build did not start: {reason:?}");
-        abandon(new);
+        match no_window(new, reason) {
+            Handover::NoWindow { new, reason } => {
+                keep_stray(&mut instances.strays, new, &reason);
+            }
+            Handover::Failed(reason) => log::warn!("oso dev: {reason:?}"),
+            Handover::Replaced(_) | Handover::Beside { .. } => {}
+        }
         return false;
     }
-    *current = Some(new);
+    instances.current = Some(new);
     true
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Handover, Instance, NotStopped, hand_over, restart};
+    use super::{Handover, Instance, Instances, NotStopped, hand_over, restart};
     use serde_json::{Value, json};
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -303,6 +383,11 @@ mod tests {
                 }
                 other => panic!("{other}"),
             }
+        }
+
+        fn check_briefly(&mut self) -> Result<Value, String> {
+            self.note("check-briefly");
+            self.check.clone()
         }
 
         fn wait_until_ready(&mut self) -> Result<(), String> {
@@ -474,7 +559,7 @@ mod tests {
             [
                 "old check-handover",
                 "new ready?",
-                "new check-handover",
+                "new check-briefly",
                 "new stop 7"
             ],
             "nothing exported"
@@ -522,6 +607,22 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_export_keeps_the_new_instance_if_the_old_one_has_gone() {
+        let log = log();
+        let mut old = Fake {
+            export: Err("cannot connect".into()),
+            exited: true,
+            ..Fake::new("old", &log)
+        };
+        let new = Fake::new("new", &log);
+        let Handover::Beside { reason, .. } = handed_over(&mut old, new) else {
+            panic!("{}", "the only instance left was closed");
+        };
+        assert!(reason.contains("has gone"), "{reason}");
+        assert!(!log.borrow().iter().any(|line| line.contains(" stop ")));
+    }
+
+    #[test]
     fn a_failed_export_keeps_a_new_instance_that_has_been_edited() {
         let log = log();
         let mut old = Fake::new("old", &log);
@@ -542,7 +643,7 @@ mod tests {
         let new = Fake::new("new", &log);
         assert!(matches!(handed_over(&mut old, new), Handover::Failed(_)));
         assert!(
-            !log.borrow().contains(&"old stop 8".to_owned()),
+            !log.borrow().iter().any(|line| line.starts_with("old stop")),
             "{:?}",
             log.borrow()
         );
@@ -595,67 +696,118 @@ mod tests {
         assert_eq!(*log.borrow(), ["old check-handover"]);
     }
 
+    /// The instances with `current` as the current one.
+    fn with_current(current: Fake) -> Instances<Fake> {
+        Instances::new(current)
+    }
+
+    fn nothing_running() -> Instances<Fake> {
+        Instances {
+            current: None,
+            beside: None,
+            strays: Vec::new(),
+        }
+    }
+
+    /// A new instance that gets no window and does not answer, as when a bad build
+    /// loops before its first frame.
+    fn wedged(log: &Log) -> Fake {
+        Fake {
+            ready: false,
+            check: Err("no answer".into()),
+            ..Fake::new("wedged", log)
+        }
+    }
+
     #[test]
     fn restart_keeps_every_instance_that_runs() {
         let log = log();
 
         // Replaced: the new one takes over.
-        let mut current = Some(Fake::new("old", &log));
-        let mut beside = None;
+        let mut instances = with_current(Fake::new("old", &log));
         let new = Fake::new("new", &log);
-        assert!(restart(&mut current, &mut beside, || Ok(new)));
-        assert_eq!(current.as_ref().map(|i| i.name), Some("new"));
+        assert!(restart(&mut instances, || Ok(new)));
+        assert_eq!(instances.current.as_ref().map(|i| i.name), Some("new"));
 
         // Refused: both stay, the old one is still the current one, and the next
         // build tries again.
-        let mut current = Some(Fake::new("old", &log));
+        let mut instances = with_current(Fake::new("old", &log));
         let mut new = Fake::new("new", &log);
         new.import = Err("no".into());
-        assert!(!restart(&mut current, &mut beside, || Ok(new)));
-        assert_eq!(current.as_ref().map(|i| i.name), Some("old"));
-        assert_eq!(beside.as_ref().map(|i| i.name), Some("new"));
-        beside = None;
+        assert!(!restart(&mut instances, || Ok(new)));
+        assert_eq!(instances.current.as_ref().map(|i| i.name), Some("old"));
+        assert_eq!(instances.beside.as_ref().map(|i| i.name), Some("new"));
 
         // Held: nothing starts, and the next build tries again.
-        let mut current = Some(Fake::edited("old", &log));
-        assert!(!restart::<Fake, _>(&mut current, &mut beside, || {
+        let mut instances = with_current(Fake::edited("old", &log));
+        assert!(!restart(&mut instances, || -> Result<Fake, String> {
             panic!("a new window opened")
         }));
-        assert_eq!(current.as_ref().map(|i| i.name), Some("old"));
-        assert!(beside.is_none());
+        assert_eq!(instances.current.as_ref().map(|i| i.name), Some("old"));
+        assert!(instances.beside.is_none());
     }
 
     #[test]
     fn with_no_instance_a_new_one_just_starts() {
         let log = log();
-        let (mut current, mut beside) = (None, None);
+        let mut instances = nothing_running();
         let new = Fake::new("new", &log);
-        assert!(restart(&mut current, &mut beside, || Ok(new)));
-        assert_eq!(current.as_ref().map(|i| i.name), Some("new"));
+        assert!(restart(&mut instances, || Ok(new)));
+        assert_eq!(instances.current.as_ref().map(|i| i.name), Some("new"));
         assert_eq!(*log.borrow(), ["new ready?"]);
     }
 
     #[test]
-    fn a_new_instance_with_no_window_never_holds_later_restarts() {
+    fn a_new_instance_with_no_window_is_kept_track_of_and_holds_nothing() {
         let log = log();
-        // No answer, as when a bad build loops before its first frame.
-        let wedged = || Fake {
-            ready: false,
-            check: Err("the editor did not reply in time".into()),
-            ..Fake::new("new", &log)
-        };
 
-        let (mut current, mut beside) = (None, None);
-        assert!(!restart(&mut current, &mut beside, || Ok(wedged())));
-        assert!(current.is_none(), "the next build starts another");
+        let mut instances = nothing_running();
+        assert!(!restart(&mut instances, || Ok(wedged(&log))));
+        assert!(instances.current.is_none(), "the next build starts another");
+        assert_eq!(instances.strays.len(), 1);
 
-        let mut current = Some(Fake::new("old", &log));
-        assert!(!restart(&mut current, &mut beside, || Ok(wedged())));
-        assert!(beside.is_none(), "the next build is not held");
-        assert_eq!(current.as_ref().map(|i| i.name), Some("old"));
+        let mut instances = with_current(Fake::new("old", &log));
+        assert!(!restart(&mut instances, || Ok(wedged(&log))));
+        assert!(instances.beside.is_none(), "the next build is not held");
+        assert_eq!(instances.strays.len(), 1);
+
+        log.borrow_mut().clear();
+        let new = Fake::new("new", &log);
+        assert!(restart(&mut instances, || Ok(new)), "and it is not");
+        assert_eq!(instances.current.as_ref().map(|i| i.name), Some("new"));
+        assert_eq!(instances.strays.len(), 1, "it is still looked after");
+        assert_eq!(log.borrow()[0], "wedged check-briefly", "asked first");
         assert!(
-            !log.borrow().iter().any(|line| line.contains(" stop ")),
-            "and it was not stopped, let alone killed"
+            !log.borrow().iter().any(|l| l.starts_with("wedged stop")),
+            "and not stopped, let alone killed"
         );
+    }
+
+    #[test]
+    fn a_stray_goes_once_it_answers_and_stays_if_it_has_been_edited() {
+        let log = log();
+        let mut instances = with_current(Fake::new("old", &log));
+
+        // It got its window in the end, with nothing typed in.
+        instances.strays.push(Fake::new("late", &log));
+        // It got its window, and someone typed in it.
+        instances.strays.push(Fake::edited("typed-in", &log));
+        // It has ended.
+        instances.strays.push(Fake {
+            exited: true,
+            ..Fake::new("ended", &log)
+        });
+
+        let new = Fake::new("new", &log);
+        assert!(restart(&mut instances, || Ok(new)), "none of them holds it");
+        let left: Vec<_> = instances.strays.iter().map(|i| i.name).collect();
+        assert_eq!(left, ["typed-in"]);
+        let log = log.borrow();
+        assert!(log.contains(&"late stop 7".to_owned()), "{log:?}");
+        assert!(
+            !log.iter().any(|l| l.starts_with("typed-in stop")),
+            "{log:?}"
+        );
+        assert!(!log.iter().any(|l| l.starts_with("ended")), "{log:?}");
     }
 }
