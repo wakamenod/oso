@@ -119,8 +119,8 @@ throughout.
 **The base.** Text can change only once all of this holds.
 
 - **In parallel:**
-  - **M2-0**: make room, with no change in behavior. Commands and bindings in one
-    module per feature, `app.rs` split into input, drawing and events, and
+  - **M2-0** (done): make room, with no change in behavior. Commands and bindings
+    in one module per feature, `app.rs` split into input, drawing and events, and
     `Window::scroll` private.
   - **M2-1**: the edit core in `oso-core`: edits applied atomically across all
     cursors, selections mapped in every window, the modified flag, linear

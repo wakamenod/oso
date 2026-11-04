@@ -7,7 +7,10 @@ often, so it must rebuild within 2 s.
 - May depend on every library crate; nothing depends on it. It is the only
   crate that may use winit.
 - Commands are plain functions registered with a docstring and argument
-  spec (`add-command` skill). They keep no state of their own.
+  spec (`add-command` skill). They keep no state of their own. Each feature has
+  a module in `src/commands/` and one of the same name in `src/bindings/`.
+- `src/app.rs` holds the app's state, and `src/app/` its concerns: `events`
+  routes, and `input`, `draw` and `loads` do the work.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

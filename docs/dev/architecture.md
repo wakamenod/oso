@@ -131,8 +131,9 @@ See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 - `oso_core::command`: `Command`, `Registry`, and `Ctx`, which lends a
   command the host's `Editor` and collects its requests to the host
   (redraw, exit). `Args` carries the numeric prefix argument.
-- Commands live in the tip crate (`crates/oso/src/commands.rs`) as a
-  `const` table. Registering a name twice is an error, and the tests build
+- Commands live in the tip crate, one module per feature under
+  `crates/oso/src/commands/`, each with a `const` table. `TABLES` in `mod.rs`
+  lists the tables. Registering a name twice is an error, and the tests build
   the full registry.
 - A command asks for a redraw only when it changed something visible.
 
@@ -146,7 +147,7 @@ A panicking command is caught at the command boundary
   prefix keymap. Bindings refer to commands by id, resolved from names
   once, when a keymap is built from a table in Emacs notation
   ([ADR 0033](adr/0033-key-presses-and-notation.md)). Default bindings are
-  in `crates/oso/src/bindings.rs`.
+  in `crates/oso/src/bindings/`, with a table for each module of commands.
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. Only the global layer exists so far.

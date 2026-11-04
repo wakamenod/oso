@@ -12,9 +12,9 @@ which rebuilds fastest. Read `docs/dev/architecture.md` ("Command registry",
 
 ## 1. Write the function
 
-In `crates/oso/src/commands.rs` (or a module next to it, once the file
-grows; a new file opens with its responsibility and a `Must not depend on:`
-paragraph, ADR 0041):
+In the feature's module under `crates/oso/src/commands/`, such as
+`motion.rs`. A new feature gets a new module; its file opens with its
+responsibility and a `Must not depend on:` paragraph (ADR 0041):
 
 ```rust
 fn forward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -43,7 +43,8 @@ fn forward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 
 ## 2. Register it
 
-Add an entry to `COMMANDS` in `crates/oso/src/commands.rs`:
+Add an entry to the `COMMANDS` table of that module. A new module also adds
+one line to `TABLES` in `crates/oso/src/commands/mod.rs`, in alphabetical order:
 
 ```rust
 Command {
@@ -64,8 +65,9 @@ Command {
 
 ## 3. Bind keys
 
-Add rows to `GLOBAL` in `crates/oso/src/bindings.rs`, in Emacs notation
-(ADR 0033):
+Add rows to the `BINDINGS` table of the module with the same name under
+`crates/oso/src/bindings/`, in Emacs notation (ADR 0033). A new module also adds
+one line to `TABLES` in `crates/oso/src/bindings/mod.rs`, in alphabetical order:
 
 ```rust
 ("C-f", "forward-char"),
@@ -82,7 +84,7 @@ Add rows to `GLOBAL` in `crates/oso/src/bindings.rs`, in Emacs notation
 
 ## 4. Unit tests
 
-- In `commands.rs`: run the command through the registry on an `Editor`
+- In the command's module: run the command through the registry on an `Editor`
   and check the state and the `Effects` (redraw only when something
   changed). Cover the boundaries: start and end, a count of 0, negative
   counts, `isize::MIN`.

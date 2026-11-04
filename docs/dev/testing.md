@@ -154,9 +154,10 @@ pull request that changes more than docs: lines, functions and regions per
 crate, then per file. Use it to find code no test reaches, not as a target. It measures `cargo test`
 on Linux with the dev features, so:
 
-- The window, the event loop and the GPU do not run: `crates/oso/src/app.rs` and
-  much of `oso-render` read at or near 0%. That is expected. The end-to-end tests
-  and checks by hand cover them, and this does not count those.
+- The window, the event loop and the GPU do not run: `crates/oso/src/app.rs`,
+  `crates/oso/src/app/` and much of `oso-render` read at or near 0%. That is
+  expected. The end-to-end tests and checks by hand cover them, and this does not
+  count those.
 - Code for other OSes, such as CoreText on macOS, is not compiled and so not
   counted at all.
 - `crates/oso-core` is the number that means the most. It holds the logic, and
