@@ -16,17 +16,7 @@ use oso_platform::text::{GlyphKey, ShapedGlyph};
 const MAX_GLYPHS_PER_SPAN: u32 = 32;
 
 /// How a glyph is drawn.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub(crate) enum Style {
-    /// Buffer text.
-    #[default]
-    Text,
-    /// The label of an escape: a control character (`^M`) or an invalid
-    /// byte (`\xFF`), drawn in the escape color.
-    Escape,
-    /// The label of a boxed invisible character (`U+202E`).
-    Boxed,
-}
+pub(crate) use oso_core::display_map::CellStyle as Style;
 
 /// A glyph placed on the grid.
 #[derive(Debug, Clone, Copy, PartialEq)]

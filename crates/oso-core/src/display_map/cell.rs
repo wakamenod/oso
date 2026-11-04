@@ -48,6 +48,19 @@ pub enum CellKind {
     LineBreak,
 }
 
+/// How the cells of a cluster are drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CellStyle {
+    /// Buffer text.
+    #[default]
+    Text,
+    /// The label of an escape: a control character (`^M`) or an invalid
+    /// byte (`\xFF`), drawn in the escape color.
+    Escape,
+    /// The label of a boxed invisible character (`U+202E`).
+    Boxed,
+}
+
 /// Classifies a grapheme cluster and gives its width in cells. A tab's width
 /// depends on its column and is given as 0 here.
 pub fn classify(cluster: &str) -> (CellKind, usize) {

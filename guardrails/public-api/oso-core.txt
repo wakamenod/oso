@@ -260,6 +260,23 @@ impl core::hash::Hash for oso_core::display_map::cell::CellKind
 pub fn oso_core::display_map::cell::CellKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::display_map::cell::CellKind
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellKind
+pub enum oso_core::display_map::cell::CellStyle
+pub oso_core::display_map::cell::CellStyle::Boxed
+pub oso_core::display_map::cell::CellStyle::Escape
+pub oso_core::display_map::cell::CellStyle::Text
+impl core::clone::Clone for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::clone(&self) -> oso_core::display_map::cell::CellStyle
+impl core::cmp::Eq for oso_core::display_map::cell::CellStyle
+impl core::cmp::PartialEq for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::eq(&self, &oso_core::display_map::cell::CellStyle) -> bool
+impl core::default::Default for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::default() -> oso_core::display_map::cell::CellStyle
+impl core::fmt::Debug for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::cell::CellStyle
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellStyle
 pub struct oso_core::display_map::cell::Clusters<'a>
 impl<'a> oso_core::display_map::cell::Clusters<'a>
 pub fn oso_core::display_map::cell::Clusters<'a>::new(&'a str) -> Self
@@ -388,6 +405,37 @@ impl core::hash::Hash for oso_core::display_map::cell::CellKind
 pub fn oso_core::display_map::cell::CellKind::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::display_map::cell::CellKind
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellKind
+pub enum oso_core::display_map::CellStyle
+pub oso_core::display_map::CellStyle::Boxed
+pub oso_core::display_map::CellStyle::Escape
+pub oso_core::display_map::CellStyle::Text
+impl core::clone::Clone for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::clone(&self) -> oso_core::display_map::cell::CellStyle
+impl core::cmp::Eq for oso_core::display_map::cell::CellStyle
+impl core::cmp::PartialEq for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::eq(&self, &oso_core::display_map::cell::CellStyle) -> bool
+impl core::default::Default for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::default() -> oso_core::display_map::cell::CellStyle
+impl core::fmt::Debug for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::display_map::cell::CellStyle
+pub fn oso_core::display_map::cell::CellStyle::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::display_map::cell::CellStyle
+impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellStyle
+pub struct oso_core::display_map::CellRun<'a>
+pub oso_core::display_map::CellRun::cells: usize
+pub oso_core::display_map::CellRun::column: usize
+pub oso_core::display_map::CellRun::style: oso_core::display_map::cell::CellStyle
+pub oso_core::display_map::CellRun::text: &'a str
+impl<'a> core::clone::Clone for oso_core::display_map::CellRun<'a>
+pub fn oso_core::display_map::CellRun<'a>::clone(&self) -> oso_core::display_map::CellRun<'a>
+impl<'a> core::cmp::Eq for oso_core::display_map::CellRun<'a>
+impl<'a> core::cmp::PartialEq for oso_core::display_map::CellRun<'a>
+pub fn oso_core::display_map::CellRun<'a>::eq(&self, &oso_core::display_map::CellRun<'a>) -> bool
+impl<'a> core::fmt::Debug for oso_core::display_map::CellRun<'a>
+pub fn oso_core::display_map::CellRun<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_core::display_map::CellRun<'a>
+impl<'a> core::marker::StructuralPartialEq for oso_core::display_map::CellRun<'a>
 pub struct oso_core::display_map::Clusters<'a>
 impl<'a> oso_core::display_map::cell::Clusters<'a>
 pub fn oso_core::display_map::cell::Clusters<'a>::new(&'a str) -> Self
@@ -400,6 +448,8 @@ pub oso_core::display_map::DisplayCluster::column: usize
 pub oso_core::display_map::DisplayCluster::kind: oso_core::display_map::cell::CellKind
 pub oso_core::display_map::DisplayCluster::offset: usize
 pub oso_core::display_map::DisplayCluster::text: &'a str
+impl oso_core::display_map::DisplayCluster<'_>
+pub fn oso_core::display_map::DisplayCluster<'_>::draw(&self, impl core::ops::function::FnMut(oso_core::display_map::CellRun<'_>))
 impl<'a> core::clone::Clone for oso_core::display_map::DisplayCluster<'a>
 pub fn oso_core::display_map::DisplayCluster<'a>::clone(&self) -> oso_core::display_map::DisplayCluster<'a>
 impl<'a> core::cmp::Eq for oso_core::display_map::DisplayCluster<'a>

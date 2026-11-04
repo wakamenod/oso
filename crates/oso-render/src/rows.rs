@@ -21,7 +21,7 @@ use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot};
 use oso_core::sum_tree::Bias;
 use oso_platform::text::{ShapedGlyph, TextSystem};
 
-use crate::grid::{Grapheme, PlacedGlyph, Placer, Style};
+use crate::grid::{Grapheme, PlacedGlyph, Placer};
 
 /// The most characters of one cluster passed to the shaper: enough for
 /// the longest emoji sequences and Indic clusters. A cluster of a base and
@@ -158,55 +158,23 @@ impl Rows {
             if cluster.column >= columns.end {
                 break;
             }
-            let mut push = |text: &mut String, piece: &str, column, cells, style| {
-                self.graphemes.push(Grapheme {
-                    byte: text.len() as u32,
-                    column,
-                    cells,
-                    style,
-                });
-                text.push_str(piece);
-            };
-            let cells = u32::try_from(cluster.cells).unwrap_or(u32::MAX);
             let chars = if self.text.len() < budget {
                 MAX_CLUSTER_CHARS
             } else {
                 1
             };
-            match cluster.kind {
-                CellKind::Text => push(
-                    &mut self.text,
-                    clip_cluster(cluster.text, chars),
-                    cluster.column,
-                    cells,
-                    Style::Text,
-                ),
-                // A space keeps ligatures from forming across the tab, and
-                // draws nothing.
-                CellKind::Tab => push(&mut self.text, " ", cluster.column, cells, Style::Text),
-                CellKind::Control(_) | CellKind::Invisible(_) | CellKind::InvalidByte(_) => {
-                    let style = match cluster.kind {
-                        CellKind::Invisible(_) => {
-                            out.boxes.push((cluster.column, cluster.cells));
-                            Style::Boxed
-                        }
-                        _ => Style::Escape,
-                    };
-                    let escape = cluster.kind.escape();
-                    let label = escape.as_ref().map_or("?", |escape| escape.as_str());
-                    for (i, c) in label.char_indices() {
-                        let mut buf = [0; 4];
-                        push(
-                            &mut self.text,
-                            c.encode_utf8(&mut buf),
-                            cluster.column + i,
-                            1,
-                            style,
-                        );
-                    }
-                }
-                CellKind::LineBreak => break,
+            if matches!(cluster.kind, CellKind::Invisible(_)) {
+                out.boxes.push((cluster.column, cluster.cells));
             }
+            cluster.draw(|run| {
+                self.graphemes.push(Grapheme {
+                    byte: self.text.len() as u32,
+                    column: run.column,
+                    cells: u32::try_from(run.cells).unwrap_or(u32::MAX),
+                    style: run.style,
+                });
+                self.text.push_str(clip_cluster(run.text, chars));
+            });
         }
         system.shape(&self.text, &mut self.glyphs);
         self.placer.place(
@@ -221,6 +189,7 @@ impl Rows {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grid::Style;
     use oso_core::buffer::Buffer;
     use oso_platform::text::{CellMetrics, FontId, GlyphBitmap, GlyphId, GlyphKey};
 
