@@ -20,16 +20,16 @@ const fn gate(ratio: f64, floor_ms: f64) -> Threshold {
 }
 
 /// A slowdown this large is a freeze, wherever it is measured. Worst keys on
-/// big files stayed under 13 ms in every run on the runners.
+/// big files stayed under 25 ms in every run on the runners.
 const FREEZE: Threshold = gate(3.0, 100.0);
 
 /// The metrics that can fail, and their thresholds, on each kind of runner.
-/// Anything else is only reported. The same commit ran 5 times on each runner:
+/// Anything else is only reported. The code ran 6 times on each runner:
 /// a threshold is at least twice the spread seen there, as a ratio over 1 and
 /// as a difference (ADR 0046).
 const LINUX: [(&str, Threshold); 13] = [
     ("key_p50_ms", gate(3.5, 0.75)),
-    ("key_p99_ms", gate(3.0, 1.0)),
+    ("key_p99_ms", gate(5.5, 2.5)),
     ("startup_ms", gate(2.25, 55.0)),
     ("open_first_screen_ms", gate(2.0, 4.5)),
     ("open_full_load_ms", gate(3.0, 370.0)),
@@ -37,10 +37,10 @@ const LINUX: [(&str, Threshold); 13] = [
     ("big_keys_p99_ms", gate(4.75, 2.5)),
     ("big_keys_max_ms", FREEZE),
     ("line_load_ms", gate(3.25, 235.0)),
-    ("line_keys_p99_ms", gate(2.75, 1.0)),
+    ("line_keys_p99_ms", gate(4.25, 1.75)),
     ("line_keys_max_ms", FREEZE),
     ("big_trip_max_ms", FREEZE),
-    ("dev_build_ms", gate(1.75, 1250.0)),
+    ("dev_build_ms", gate(2.0, 1400.0)),
 ];
 const MACOS: [(&str, Threshold); 13] = [
     ("key_p50_ms", gate(3.0, 1.5)),
@@ -51,14 +51,14 @@ const MACOS: [(&str, Threshold); 13] = [
     ("big_load_ms", gate(3.5, 5100.0)),
     ("big_keys_p99_ms", gate(4.25, 7.0)),
     ("big_keys_max_ms", FREEZE),
-    ("line_load_ms", gate(1.75, 135.0)),
+    ("line_load_ms", gate(2.25, 235.0)),
     ("line_keys_p99_ms", gate(2.75, 3.5)),
     ("line_keys_max_ms", FREEZE),
     ("big_trip_max_ms", FREEZE),
-    ("dev_build_ms", gate(3.0, 2150.0)),
+    ("dev_build_ms", gate(4.25, 3500.0)),
 ];
 /// Windows has no control socket yet (ADR 0032), so only the build is timed.
-const WINDOWS: [(&str, Threshold); 1] = [("dev_build_ms", gate(1.5, 950.0))];
+const WINDOWS: [(&str, Threshold); 1] = [("dev_build_ms", gate(1.75, 1375.0))];
 
 /// The one budget CI enforces, on a real GPU only (ADR 0025).
 const KEY_P99: &str = "key_p99_ms";
@@ -308,10 +308,10 @@ mod tests {
     #[test]
     fn a_large_regression_fails_and_noise_passes() {
         let base = report(&[("key_p99_ms", 10.0)], LAVAPIPE);
-        let same = report(&[("key_p99_ms", 25.0)], LAVAPIPE);
+        let same = report(&[("key_p99_ms", 50.0)], LAVAPIPE);
         assert_eq!(status(&base, &same, "key_p99_ms"), Status::Ok);
         assert!(!compare(&Baseline::Report(base.clone()), &same).failed());
-        let slow = report(&[("key_p99_ms", 31.0)], LAVAPIPE);
+        let slow = report(&[("key_p99_ms", 56.0)], LAVAPIPE);
         assert_eq!(status(&base, &slow, "key_p99_ms"), Status::Regressed);
         assert!(compare(&Baseline::Report(base.clone()), &slow).failed());
     }
@@ -329,7 +329,7 @@ mod tests {
         assert!(!compare(&Baseline::Report(mac(2.0)), &mac(10.0)).failed());
         assert!(compare(&Baseline::Report(mac(2.0)), &mac(20.0)).failed());
         let linux = |value| report(&[("key_p99_ms", value)], LAVAPIPE);
-        assert!(compare(&Baseline::Report(linux(2.0)), &linux(10.0)).failed());
+        assert!(compare(&Baseline::Report(linux(2.0)), &linux(12.0)).failed());
     }
 
     #[test]

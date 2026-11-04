@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: the app or the control socket.
 
-use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -20,6 +20,19 @@ const MIXED_LINES: [&str; 6] = [
 /// One repeated piece of a very long line.
 const LONG_LINE_PIECE: &str = "abc\tdef 日本語 x\u{301} 👍 ";
 
+/// Creates a fresh, private directory: never one that is already there.
+#[cfg(unix)]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    fs::DirBuilder::new().mode(0o700).create(path)
+}
+
+/// Creates a fresh directory: never one that is already there.
+#[cfg(not(unix))]
+fn create_private_dir(path: &Path) -> io::Result<()> {
+    fs::create_dir(path)
+}
+
 /// A temporary directory, removed when dropped.
 pub struct TempDir(PathBuf);
 
@@ -28,11 +41,7 @@ impl TempDir {
     pub fn new(tag: &str) -> io::Result<Self> {
         let name = format!("oso-perf-{}-{tag}", std::process::id());
         let path = std::env::temp_dir().join(name);
-        // A fresh, private directory only: never write through what is there.
-        let mut builder = DirBuilder::new();
-        #[cfg(unix)]
-        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-        builder.create(&path)?;
+        create_private_dir(&path)?;
         Ok(Self(path))
     }
 

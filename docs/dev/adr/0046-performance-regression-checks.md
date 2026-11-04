@@ -1,6 +1,6 @@
 # 0046. Performance regression checks
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-04
 
 ## Context
@@ -10,8 +10,8 @@
 thresholds, the baseline and the tools to M1-8. Measuring also showed that
 startup misses its budget, for reasons other than the ones first suspected.
 
-GitHub's runners are not one machine. The same commit, run 5 times, varied by
-up to 2 times on Linux and 3.7 times on macOS, between runs of one job.
+GitHub's runners are not one machine. The same code, run 6 times, varied by
+up to 3 times on Linux and 3.7 times on macOS, between runs of one job.
 
 ## Decision
 
@@ -71,24 +71,26 @@ up to 2 times on Linux and 3.7 times on macOS, between runs of one job.
   milliseconds, so noise on tiny numbers cannot fail. A gated metric that stops
   being measured fails too.
 - The thresholds are in `compare.rs`, per runner. Each is at least twice the
-  spread seen over 5 runs of the same commit there: twice the ratio's distance
-  from 1, and twice the difference, rounded up.
+  spread seen over 6 runs of the same code there: twice the ratio's distance
+  from 1, and twice the difference, rounded up. Change them the same way, from
+  new runs. `compare.rs` and `bench.rs` need approval like other check
+  definitions, and the commit hook lists them.
 - Freezes use one threshold everywhere: 3 times and 100 ms, well above the
-  13 ms that was the worst seen.
+  25 ms that was the worst seen.
 
 | Metric | Linux | macOS | Windows |
 |---|---|---|---|
 | `key_p50_ms` | 3.5x, 0.75 ms | 3x, 1.5 ms | |
-| `key_p99_ms` | 3x, 1 ms | 6.5x, 12 ms | |
+| `key_p99_ms` | 5.5x, 2.5 ms | 6.5x, 12 ms | |
 | `startup_ms` | 2.25x, 55 ms | 3.25x, 410 ms | |
 | `open_first_screen_ms` | 2x, 4.5 ms | 4.75x, 44 ms | |
 | `open_full_load_ms` | 3x, 370 ms | 4x, 530 ms | |
 | `big_load_ms` | 3x, 3750 ms | 3.5x, 5100 ms | |
 | `big_keys_p99_ms` | 4.75x, 2.5 ms | 4.25x, 7 ms | |
-| `line_load_ms` | 3.25x, 235 ms | 1.75x, 135 ms | |
-| `line_keys_p99_ms` | 2.75x, 1 ms | 2.75x, 3.5 ms | |
+| `line_load_ms` | 3.25x, 235 ms | 2.25x, 235 ms | |
+| `line_keys_p99_ms` | 4.25x, 1.75 ms | 2.75x, 3.5 ms | |
 | `big_keys_max_ms`, `line_keys_max_ms`, `big_trip_max_ms` | 3x, 100 ms | 3x, 100 ms | |
-| `dev_build_ms` | 1.75x, 1250 ms | 3x, 2150 ms | 1.5x, 950 ms |
+| `dev_build_ms` | 2x, 1400 ms | 4.25x, 3500 ms | 1.75x, 1375 ms |
 
 ### What CI can measure
 
@@ -135,7 +137,8 @@ up to 2 times on Linux and 3.7 times on macOS, between runs of one job.
   affects one sample, and one sample in 400 does not move a p99. The worst-key
   metrics are there for that.
 - The workflow takes about 10 minutes of wall-clock time on each pull request:
-  macOS benchmarks 9 to 10, Linux 5, the build-time jobs 2 to 4.
+  macOS benchmarks 9 to 11, Linux 5, the build-time jobs 2 to 6. It runs on all
+  of them, since macOS is the only runner that draws text.
 - Windows open and take the focus while `just perf` runs on the author's Mac. A
   window hidden by another app fails the run with a clear error.
 - There are no Command-Q or Command-H until oso has a menu.

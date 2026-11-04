@@ -14,8 +14,9 @@ item notes when it must be settled.
 ## M1
 
 - Startup misses its budget: the first presented frame comes 110 to 130 ms
-  after the process starts (optimized, warm, the author's Mac), against
-  100 ms. Removing AppKit's default menu took it down from about 172 ms
+  after the process starts, usually about 118 ms (optimized, warm, the
+  author's Mac), against 100 ms. The budget stays for now. Removing AppKit's
+  default menu took it down from about 172 ms
   ([ADR 0046](adr/0046-performance-regression-checks.md)). What remains is
   mostly AppKit and the window server: about 30 to 48 ms to build the event
   loop, 10 ms to `resumed`, 37 ms for `create_window`, and about 33 ms until
@@ -33,9 +34,6 @@ item notes when it must be settled.
   it in a screenshot. `C-x C-f` over `send-keys` will do the same in M2. ADR
   0044's trust model covers same-user clients; decide whether it should say
   this.
-- The harness's thresholds (`compare.rs`) decide a CI check but are not on the
-  list of files needing approval, nor in the commit hook. Decide whether to add
-  them.
 - Without the default menu there are no Command shortcuts such as Command-Q
   and Command-H. Decide with Command = Meta (M2) whether oso builds its own
   menu, after the first frame.
