@@ -8,8 +8,9 @@
 //! - A shaped row is reused without looking at the buffer while the
 //!   buffer's revision holds. After a change, it is reused if what the
 //!   shaper would be given for its columns is the same as last time, wherever
-//!   that text now is in the buffer (ADR 0051). Rows are kept by their place
-//!   on screen, so a row that moved is shaped again.
+//!   that text now is in the buffer (ADR 0051). Rows are kept by display
+//!   row, so scrolling reuses them and a row that moves to another display
+//!   row is shaped again.
 //! - Control characters, invalid bytes and invisible characters are never
 //!   shaped. Their escapes from the display model (`^M`, `\xFF`,
 //!   `U+202E`) are shaped instead, as plain ASCII labels (security.md, T3),
@@ -30,9 +31,11 @@ use crate::grid::{Grapheme, PlacedGlyph, Placer};
 /// UI thread would let a small file stall a frame.
 const MAX_CLUSTER_CHARS: usize = 16;
 
-/// The characters shaped per row, per column shaped. Real text has one or
-/// two; past this budget, clusters are shaped by their first character
-/// only, so hostile text costs a bounded amount per row.
+/// The characters shaped per row, per column shaped. Real text has at most
+/// three or so; past this budget, clusters are shaped by their first
+/// character only. A row's text then has at most this many characters per
+/// column plus one more, and one cluster: hostile text costs a bounded
+/// amount per row, about 20 bytes per column at worst.
 const CHARS_PER_COLUMN: usize = 4;
 
 /// `text` cut to its first `chars` characters.
@@ -155,15 +158,12 @@ impl Rows {
         self.graphemes.clear();
         self.boxes.clear();
         let budget = columns.len().saturating_mul(CHARS_PER_COLUMN);
+        let mut spent = 0;
         for cluster in display.clusters(DisplayPoint::new(row, columns.start)) {
             if cluster.column >= columns.end {
                 break;
             }
-            let chars = if self.text.len() < budget {
-                MAX_CLUSTER_CHARS
-            } else {
-                1
-            };
+            let chars = if spent < budget { MAX_CLUSTER_CHARS } else { 1 };
             cluster.for_each_run(|run| {
                 // One box per invisible character, across its label's runs.
                 if run.style == CellStyle::Boxed {
@@ -179,7 +179,9 @@ impl Rows {
                     cells: u32::try_from(run.cells).unwrap_or(u32::MAX),
                     style: run.style,
                 });
-                self.text.push_str(clip_cluster(run.text, chars));
+                let text = clip_cluster(run.text, chars);
+                spent += text.chars().count();
+                self.text.push_str(text);
             });
         }
     }
@@ -299,8 +301,54 @@ mod tests {
         // The rope splits the cluster into 1 KB pieces of one cell each,
         // and each piece is cut to a few characters.
         assert!(
-            shaped <= 256 * (CHARS_PER_COLUMN + 1),
+            shaped <= 256 * (CHARS_PER_COLUMN + 1) + MAX_CLUSTER_CHARS,
             "{shaped} characters shaped"
+        );
+    }
+
+    /// `cluster` repeated, shaped in two windows of a row: all of its text
+    /// reaches the shaper.
+    fn assert_shaped_whole(cluster: &str, cells: usize) {
+        let buffer = Buffer::from_text("t", &cluster.repeat(512));
+        for columns in [0..128, 64..192, 128..256] {
+            let mut rows = Rows::default();
+            let mut system = Recorder::default();
+            rows.row(&buffer.display(), 0, columns.clone(), &mut system);
+            let count = columns.len() / cells;
+            assert_eq!(system.shaped[0], cluster.repeat(count), "{columns:?}");
+        }
+    }
+
+    #[test]
+    fn decomposed_text_keeps_its_marks_across_a_row() {
+        // U+1EAD as a base and two marks: three characters in one cell.
+        assert_shaped_whole("a\u{323}\u{302}", 1);
+    }
+
+    #[test]
+    fn emoji_sequences_stay_whole_across_a_row() {
+        assert_shaped_whole("👨\u{200d}👩\u{200d}👧", 2);
+    }
+
+    #[test]
+    fn the_budget_bounds_the_characters_of_a_row() {
+        // Clusters of the longest characters, each over the cluster limit.
+        let cluster = format!("e{}", "\u{1d165}".repeat(MAX_CLUSTER_CHARS * 2));
+        let buffer = Buffer::from_text("t", &cluster.repeat(512));
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let shaped = &system.shaped[0];
+        let bound = 128 * (CHARS_PER_COLUMN + 1) + MAX_CLUSTER_CHARS;
+        assert!(
+            shaped.chars().count() <= bound,
+            "{}",
+            shaped.chars().count()
+        );
+        assert!(shaped.len() <= bound * 4, "{} bytes", shaped.len());
+        assert!(
+            shaped.chars().count() >= 128 * CHARS_PER_COLUMN,
+            "the budget is spent before clusters are cut"
         );
     }
 
@@ -427,8 +475,8 @@ mod tests {
         let mut frames = Frames::new();
         frames.draw(&text, 0..4, 0..128);
         text.replace(4..4, "\n");
-        // Rows are cached by their place on screen, so the rows below show
-        // other text there now, and the row above is left alone.
+        // Rows are cached by display row, so the rows below show other text
+        // there now, and the row above is left alone.
         assert_eq!(frames.draw(&text, 0..5, 0..128), 4);
         assert_eq!(frames.shown(0), columns_from(0, "one"));
         assert!(frames.shown(1).is_empty());
