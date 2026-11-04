@@ -76,6 +76,26 @@ item notes when it must be settled.
 
 ## M2
 
+- Motion functions take display rows (`motion::line_start(display, row)`),
+  which are buffer lines while there is no soft wrap. When the WrapMap
+  lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines
+  (`display-model.md`), so they need line-level conversions then
+  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+- `kill-buffer` must cancel a load at once (ADR 0022). Today the app drops
+  a load's handle only when it next sees the buffer gone; once a command
+  can kill a buffer, the app should reconcile its loads right after
+  commands.
+- Two files with the same name need distinct buffer names (Emacs's
+  uniquify); the editor, which knows the other buffers, should name them.
+- The invalid-byte table lives in the TabMap and is keyed by buffer
+  offsets. When the FoldMap or InlayMap goes below the TabMap, move it to
+  the lowest layer that still sees buffer offsets, or to `DisplayMap`.
+  Its API (`DisplayMap::invalid_bytes`) does not change.
+- `Window::scroll` is a public field, so code can change the top row
+  without `Window::set_top`, which moves cursors into view. Make it
+  private with a getter before recenter (`C-l`), splits or `goto-line`
+  add more writers.
+
 - Editing must invalidate shaped rows by edit range
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)). The
   shaping cache checks only the buffer offsets a row covers, which an edit

@@ -43,6 +43,12 @@ Commands live in the tip crate because it changes most often and rebuilds
 fastest. Stable foundations live in library crates. See
 [ADR 0004](adr/0004-crate-layout.md).
 
+Files are read today with portable `std::fs` calls in the tip crate's
+loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+How file-system code splits between the loader and `oso-platform` is
+settled when the first OS-specific piece (opening with `O_NONBLOCK`)
+arrives; see `open-questions.md`.
+
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
 depends on `oso-core` and `oso-platform`, and neither of those depends on
 another workspace crate. Only `oso-render` uses wgpu, and only
@@ -95,8 +101,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   [ADR 0022](adr/0022-text-buffer-and-file-loading.md) and
   [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md).
 - **Buffers and windows** live in `oso_core::editor::Editor`. A buffer
-  (`oso_core::buffer`) holds the rope, its display map, its invalid bytes,
-  its file information and its loading progress. A window
+  (`oso_core::buffer`) holds the rope, its display map (which holds the
+  invalid bytes), its file information and its loading progress. A window
   (`oso_core::window`) shows one buffer with its own selection set and
   scroll position. There is one window until splits (M3). See
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).
@@ -107,7 +113,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 - **Motion and scrolling** are pure functions in `oso_core::motion` and
   `oso_core::window`. Motion steps over display clusters. After every
   command the dispatcher scrolls the window by the fewest rows and columns
-  that show the cursor (`scroll-conservatively` 101).
+  that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
+  mouse wheel set the window's top row with `Window::set_top`, the one
+  place that moves cursors left behind into view.
 - **Undo** groups one command's edits across all cursors. Undo history is not
   persisted to disk.
 
