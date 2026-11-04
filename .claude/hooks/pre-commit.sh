@@ -26,11 +26,15 @@ if command -v jq >/dev/null 2>&1; then
         block "cannot parse hook input"
     cwd=$(printf '%s' "$input" | jq -r '.cwd // empty') ||
         block "cannot parse hook input"
+    mode=$(printf '%s' "$input" | jq -r '.permission_mode // empty') ||
+        block "cannot parse hook input"
 else
     # Without jq, match against the raw JSON. This errs toward extra runs.
     cmd=$input
     cwd=$(printf '%s' "$input" |
         sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    mode=$(printf '%s' "$input" |
+        sed -n 's/.*"permission_mode"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 fi
 
 # Match loosely, so global options (`git -c k=v commit`), quoting and line
@@ -79,14 +83,17 @@ git ls-files -z --others --exclude-standard >"$list" || fail "git ls-files"
 xargs -r -0 -I{} gitleaks dir --redact --no-banner --ignore-gitleaks-allow \
     ./{} <"$list" >"$log" 2>&1 || fail "gitleaks (untracked)"
 
-# Files that need human approval (AGENTS.md). Edit rules in settings.json do
-# not see edits made through Bash, so ask again here.
-protected='(^|/)(Cargo\.(toml|lock)|deny\.toml|\.?clippy\.toml|rust-toolchain(\.toml)?|[Jj]ustfile|\.gitleaks[^/]*)$|(^|/)\.cargo/|^\.github/|^guardrails/|^crates/oso/tests/(architecture/|workspace_lints\.rs$)|^crates/oso/examples/perf/(compare|bench)\.rs$|^\.claude/(settings[^/]*\.json|hooks/|skills/|agents/|commands/)'
+# Auto mode needs no approval for files (ADR 0043).
+[ "$mode" = auto ] && exit 0
+
+# Files that need human approval (AGENTS.md). The edit hook does not see edits
+# made through Bash, so ask again here.
+. "$(dirname "$0")/gated-paths.sh" || fail "reading the gated paths"
 {
     git diff --name-only HEAD 2>/dev/null || git diff --name-only --cached
     git ls-files --others --exclude-standard
 } >"$log" || fail "git diff"
-touched=$(grep -E "$protected" "$log")
+touched=$(grep -E "$gated_paths" "$log")
 case $? in
     0) ;;
     1) exit 0 ;;

@@ -54,6 +54,7 @@ old one's status.
 | 0045 | [Text-grid snapshots](0045-text-grid-snapshots.md) | Accepted |
 | 0046 | [Performance regression checks](0046-performance-regression-checks.md) | Accepted |
 | 0047 | [Process spawning and the restart handoff](0047-process-spawning-and-restart-handoff.md) | Accepted |
+| 0048 | [Permission prompts depend on the mode](0048-permission-prompts-by-mode.md) | Accepted |
 | 0050 | [Test quality checks](0050-test-quality-checks.md) | Proposed |
 
 ## Template

@@ -45,15 +45,16 @@ The setup is recorded in
 
 ### Permissions and hooks
 
-- `.claude/settings.json` asks for human approval before edits to the files
-  listed in `AGENTS.md`, and before `cargo add`, `remove`, `update` or
-  `install`. In auto mode these prompts do not reach a human, and agents do
-  not ask about file changes either
-  ([ADR 0043](adr/0043-no-edit-approval-in-auto-mode.md)).
+- A hook (`.claude/hooks/gated-edit.sh`) asks for human approval before edits
+  to the files listed in `AGENTS.md`, except in auto mode
+  ([ADR 0043](adr/0043-no-edit-approval-in-auto-mode.md),
+  [ADR 0048](adr/0048-permission-prompts-by-mode.md)).
+- `.claude/settings.json` asks before `cargo add`, `remove`, `update` or
+  `install`, in every mode.
 - Pre-commit hook (`.claude/hooks/pre-commit.sh`): before `git commit`, run
   `just ci` and a gitleaks scan of staged, unstaged and untracked changes.
-  Block the commit if either fails, and ask the human if the commit touches
-  a file that needs approval. The hook fails closed.
+  Block the commit if either fails, and, outside auto mode, ask the human if
+  the commit touches a file that needs approval. The hook fails closed.
 - Post-edit hook (`.claude/hooks/fmt-rs.sh`): run `cargo fmt` after a `.rs`
   file is edited, and nothing heavier.
 - Both hooks check the checkout Claude is working in, so they work in

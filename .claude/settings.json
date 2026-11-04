@@ -2,26 +2,6 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "ask": [
-      "Edit(/**/Cargo.toml)",
-      "Edit(/**/Cargo.lock)",
-      "Edit(/**/deny.toml)",
-      "Edit(/**/clippy.toml)",
-      "Edit(/**/.clippy.toml)",
-      "Edit(/**/rust-toolchain)",
-      "Edit(/**/rust-toolchain.toml)",
-      "Edit(/**/[Jj]ustfile)",
-      "Edit(/**/.cargo/**)",
-      "Edit(/**/.gitleaks*)",
-      "Edit(/.github/**)",
-      "Edit(/.claude/settings.json)",
-      "Edit(/.claude/settings.local.json)",
-      "Edit(/.claude/hooks/**)",
-      "Edit(/.claude/skills/**)",
-      "Edit(/.claude/agents/**)",
-      "Edit(/.claude/commands/**)",
-      "Edit(/guardrails/**)",
-      "Edit(/crates/oso/tests/architecture/**)",
-      "Edit(/crates/oso/tests/workspace_lints.rs)",
       "Bash(cargo add:*)",
       "Bash(cargo remove:*)",
       "Bash(cargo update:*)",
@@ -38,6 +18,16 @@
             "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre-commit.sh\"",
             "timeout": 600,
             "onFailure": "block"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/gated-edit.sh\"",
+            "timeout": 10
           }
         ]
       }
