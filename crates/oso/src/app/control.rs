@@ -12,7 +12,8 @@ use serde_json::json;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 
-use super::{App, text_view};
+use super::App;
+use super::draw::text_view;
 use crate::dev;
 use crate::dev::handoff;
 
@@ -179,24 +180,22 @@ impl App {
             }
             let wanted = PhysicalSize::new(frame.width, frame.height);
             let size = view.window.request_inner_size(wanted).unwrap_or(wanted);
-            let redraw = view.render_state.resize(size.width, size.height);
-            view.redraw_if(redraw);
-            self.update_view_size();
+            self.resize(size.width, size.height);
         }
         self.restore = Some(handoff::Restore {
             buffer: shown,
             selections: state.selections,
             scroll: state.scroll,
         });
-        self.restore_positions();
+        self.try_restore_positions();
         self.dispatcher.restore_pending(&state.pending_keys);
         self.request_redraw();
         Ok(json!({ "buffers": self.editor.buffers().count() }))
     }
 
     /// Applies positions from a handoff if their file has loaded far enough.
-    /// Returns whether it did.
-    pub(super) fn restore_positions(&mut self) -> bool {
+    /// Returns whether this is over: restored, or the window has moved on.
+    pub(super) fn try_restore_positions(&mut self) -> bool {
         let done = self
             .restore
             .as_ref()

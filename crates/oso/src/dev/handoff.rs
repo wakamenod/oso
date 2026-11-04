@@ -74,7 +74,7 @@ pub fn export(
         .map(|window| {
             let (selections, scroll) = match restore.filter(|r| r.buffer == window.buffer()) {
                 Some(restore) => (&restore.selections, restore.scroll),
-                None => (&window.selections, window.scroll),
+                None => (&window.selections, window.scroll()),
             };
             json!({
                 "buffer": window.buffer().get(),
@@ -322,16 +322,9 @@ impl Restore {
                 }
             })
             .collect();
-        if let Some(selections) =
-            SelectionSet::from_parts(selections, self.selections.primary_index())
-        {
-            window.selections = selections;
-        }
-        window.scroll = Scroll {
-            top: self.scroll.top.min(display.row_count() - 1),
-            left: self.scroll.left,
-        };
-        editor.follow_cursor();
+        let selections = SelectionSet::from_parts(selections, self.selections.primary_index())
+            .unwrap_or_else(|| window.selections.clone());
+        editor.restore_positions(selections, self.scroll);
         true
     }
 }
