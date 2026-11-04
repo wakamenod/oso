@@ -10,8 +10,9 @@ often, so it must rebuild within 2 s.
   spec (`add-command` skill). They keep no state of their own. Each feature has
   a module in `src/commands/` and, if it has default keys, one of the same name
   in `src/bindings/`.
-- `src/app.rs` holds the app's state, and `src/app/` its concerns: `events`
-  routes, and `input`, `draw` and `loads` do the work.
+- `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
+  the concerns: `events` routes, `input`, `draw` and `loads` do the work, and
+  `control` answers the dev socket.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

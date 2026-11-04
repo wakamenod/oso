@@ -86,6 +86,10 @@ item notes when it must be settled.
   its command without a real press, and would insert text once typing lands.
 - By M2-9: `MouseScrollDelta::LineDelta` is rounded per event with no accumulator,
   so small wheel deltas are dropped. Only `PixelDelta` adds up.
+- By M2-9: the wheel can leave the cursor out of view sideways. `Window::set_top`
+  moves a cursor left behind to column 0 and keeps `left`, and nothing follows it
+  until the next key. It also does not bound `top`, which its callers do. Have
+  `set_top` follow the primary cursor, and test the wheel with `left` above 0.
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
 - Whether `set_ime_allowed(false)` is enough to switch the IME off on macOS, or

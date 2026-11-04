@@ -194,7 +194,7 @@ impl App {
     }
 
     /// Applies positions from a handoff if their file has loaded far enough.
-    /// Returns whether it did.
+    /// Returns whether this is over: restored, or the window has moved on.
     pub(super) fn try_restore_positions(&mut self) -> bool {
         let done = self
             .restore

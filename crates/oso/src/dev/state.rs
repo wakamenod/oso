@@ -415,8 +415,8 @@ mod tests {
 
     #[test]
     fn visible_text_includes_wide_characters_across_the_edges() {
-        // A view can start inside a wide character only while the cursor is on
-        // another row: the cursor shows a whole cluster.
+        // In 2 columns, a view can start inside a wide character only while the
+        // cursor is on another row: the cursor shows a whole cluster.
         let mut editor = editor("日本語\nabc\n", 2, 2);
         let cursor = SelectionSet::new("日本語\nab".len());
         editor.restore_positions(cursor, Scroll { top: 0, left: 1 });

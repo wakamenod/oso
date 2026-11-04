@@ -115,9 +115,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   command the dispatcher scrolls the window by the fewest rows and columns
   that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
   mouse wheel set the window's top row with `Window::set_top`, the one
-  place that moves cursors left behind into view. The view has one other public
-  writer, `Editor::restore_positions`, which puts back cursors and a view saved
-  together and then follows the cursor.
+  place that moves cursors left behind into view. `Editor::restore_positions`
+  puts back cursors and a view saved together and then follows the cursor. No
+  public method sets the view alone.
 - **Undo** groups one command's edits across all cursors. Undo history is not
   persisted to disk.
 

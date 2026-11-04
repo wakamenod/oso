@@ -104,7 +104,7 @@ impl App {
     }
 
     /// Tells the editor how many rows and columns the window shows.
-    pub(super) fn update_view_size(&mut self) {
+    fn update_view_size(&mut self) {
         if let Some(view) = &self.view {
             let (rows, columns) = view.render_state.text_area();
             self.editor.set_view_size(ViewSize::new(rows, columns));
