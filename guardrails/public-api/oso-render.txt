@@ -31,6 +31,17 @@ pub fn oso_render::RenderError::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 pub struct oso_render::Capture
 impl oso_render::Capture
 pub fn oso_render::Capture::wait(self) -> core::result::Result<oso_render::Image, oso_render::CaptureError>
+pub struct oso_render::GpuInfo
+pub oso_render::GpuInfo::kind: &'static str
+pub oso_render::GpuInfo::name: alloc::string::String
+impl core::clone::Clone for oso_render::GpuInfo
+pub fn oso_render::GpuInfo::clone(&self) -> oso_render::GpuInfo
+impl core::cmp::Eq for oso_render::GpuInfo
+impl core::cmp::PartialEq for oso_render::GpuInfo
+pub fn oso_render::GpuInfo::eq(&self, &oso_render::GpuInfo) -> bool
+impl core::fmt::Debug for oso_render::GpuInfo
+pub fn oso_render::GpuInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_render::GpuInfo
 pub struct oso_render::Image
 pub oso_render::Image::height: u32
 pub oso_render::Image::rgba: alloc::vec::Vec<u8>
@@ -55,6 +66,8 @@ pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redra
 pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
 pub fn oso_render::RenderState::text_area(&self) -> (usize, usize)
+impl oso_render::RenderState
+pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo
 pub struct oso_render::TextView
 pub oso_render::TextView::buffer: oso_core::buffer::BufferId
 pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint

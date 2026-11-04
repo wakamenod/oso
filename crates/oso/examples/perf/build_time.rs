@@ -1,7 +1,8 @@
 //! `just build-time`: changes one file of the tip crate and times the
 //! incremental dev build, several times (ADR 0024).
 //!
-//! Must not depend on: the app or the control socket; it only runs cargo.
+//! Must not depend on: the app or the control socket; it only runs cargo and
+//! git, and edits that one file.
 
 use std::fs;
 use std::path::Path;

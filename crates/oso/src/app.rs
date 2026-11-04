@@ -104,28 +104,33 @@ impl App {
 
     /// Visits `path` in the selected window: a buffer named after the file
     /// shows at once, read-only, and fills in as a background thread loads
-    /// it. Nothing in the file is run (security.md, T1).
-    pub fn open(&mut self, path: PathBuf) {
+    /// it. Nothing in the file is run (security.md, T1). Fails, with the
+    /// failure logged, if the loading thread cannot start.
+    pub fn open(&mut self, path: PathBuf) -> std::io::Result<()> {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
         self.editor.show(buffer);
         let proxy = self.proxy.clone();
+        let started = Instant::now();
         let spawned = loader::spawn(buffer, path, move |buffer| {
             proxy.send_event(UserEvent::Load(buffer)).is_ok()
         });
         match spawned {
             Ok(handle) => self.loads.push(Load {
                 handle,
-                started: Instant::now(),
+                started,
                 first_screen: None,
             }),
             Err(e) => {
                 log::warn!("cannot start loading: {e}");
                 self.editor.kill_buffer(buffer);
+                self.request_redraw();
+                return Err(e);
             }
         }
         self.request_redraw();
+        Ok(())
     }
 
     /// Handles one key press from the window, through the keymaps and the
@@ -220,7 +225,7 @@ impl App {
         self.loads.retain_mut(|load| {
             if let Some(started) = load.first_screen.take() {
                 log::debug!(
-                    "first screen drawn {:?} after loading started",
+                    "first frame of the file drawn {:?} after loading started",
                     started.elapsed()
                 );
             }
@@ -298,23 +303,27 @@ impl App {
     fn handle_control(&mut self, event_loop: &ActiveEventLoop, request: dev::UiRequest) {
         let dev::UiRequest { op, reply } = request;
         let result = match op {
-            dev::UiOp::SendKeys(keys) => {
+            dev::UiOp::SendKeys { keys, received } => {
                 let count = keys.len();
                 let started = Instant::now();
                 let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
                 log::trace!("key handled in {:?}", started.elapsed());
-                self.timings.keys_handled(started, count, effects.redraw);
+                self.timings.keys_handled(received, count, effects.redraw);
                 self.apply(event_loop, effects);
                 Ok(serde_json::json!({ "keys": count }))
             }
-            dev::UiOp::OpenFile(path) => {
-                self.open(path);
-                Ok(serde_json::json!({ "opened": true }))
-            }
+            dev::UiOp::OpenFile(path) => self
+                .open(path)
+                .map(|()| serde_json::json!({ "opened": true }))
+                .map_err(|e| format!("cannot start loading: {e}")),
             dev::UiOp::TakeTimings => {
+                let mut timings = self.timings.take();
                 let gpu = self.view.as_ref().map(|v| v.render_state.gpu_info());
-                let gpu = gpu.as_ref().map(|g| (g.name.as_str(), g.kind.as_str()));
-                Ok(self.timings.take(gpu))
+                timings["gpu"] = gpu.map_or(
+                    serde_json::Value::Null,
+                    |gpu| serde_json::json!({ "name": gpu.name, "kind": gpu.kind }),
+                );
+                Ok(timings)
             }
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());

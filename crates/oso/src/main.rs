@@ -66,7 +66,8 @@ fn main() {
     // Loading starts before the window exists, so the file is read while
     // the GPU starts up.
     if let Some(file) = file {
-        app.open(file);
+        // Logged; the window opens with no file.
+        let _ = app.open(file);
     }
     event_loop.run_app(&mut app).unwrap();
 }

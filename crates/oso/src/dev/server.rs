@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use oso_core::key::KeyPress;
 use oso_platform::control::{ControlListener, ControlStream};
@@ -46,8 +46,13 @@ pub type Reply = Result<Value, String>;
 /// Work for the UI thread.
 #[derive(Debug)]
 pub enum UiOp {
-    /// Handle these key presses, in order.
-    SendKeys(Vec<KeyPress>),
+    /// Handle these key presses, in order. `received` is when the socket
+    /// thread read them, so that a key's latency includes any wait for a busy
+    /// UI thread (ADR 0044).
+    SendKeys {
+        keys: Vec<KeyPress>,
+        received: Instant,
+    },
     /// Capture the current frame.
     Screenshot,
     /// Report the editor state.
@@ -202,6 +207,7 @@ fn respond<S>(line: &str, send: &S) -> String
 where
     S: Fn(UiRequest) -> bool,
 {
+    let received = Instant::now();
     let request = match protocol::parse(line) {
         Ok(request) => request,
         Err(bad) => return protocol::failure(&bad.id, &bad.message),
@@ -210,7 +216,7 @@ where
         Method::Version => {
             return protocol::success(&request.id, version());
         }
-        Method::SendKeys(keys) => UiOp::SendKeys(keys),
+        Method::SendKeys(keys) => UiOp::SendKeys { keys, received },
         Method::Screenshot => UiOp::Screenshot,
         Method::GetState => UiOp::GetState,
         Method::TakeTimings => UiOp::TakeTimings,
@@ -262,7 +268,7 @@ mod tests {
     /// fixed value, and drops screenshots without replying.
     fn fake_ui(request: UiRequest) -> bool {
         let result = match request.op {
-            UiOp::SendKeys(keys) => Ok(json!({ "keys": keys.len() })),
+            UiOp::SendKeys { keys, .. } => Ok(json!({ "keys": keys.len() })),
             UiOp::GetState => Ok(json!({ "cursor": { "position": 3 } })),
             UiOp::TakeTimings => Ok(json!({ "key_latency_us": [] })),
             UiOp::OpenFile(_) => Ok(json!({ "opened": true })),

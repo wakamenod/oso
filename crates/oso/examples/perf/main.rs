@@ -4,7 +4,8 @@
 //! `just build-time`.
 //!
 //! Must not depend on: winit or the renderer; it sees the app only from
-//! outside, through its process and the control socket.
+//! outside, through its process and the control socket. It runs the core
+//! text structures itself only to time edits without a window.
 
 // A tool that reports to stdout and stderr, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the harness prints its results")]
@@ -17,7 +18,7 @@ mod files;
 mod process;
 mod report;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
@@ -29,7 +30,8 @@ usage:
 run         benchmarks the app at PATH, an optimized build with the dev feature
 compare     compares two results; a missing BASE passes with a note
 build-time  times the incremental dev build of the tip crate, from the
-            workspace root; refuses to run if the file it edits has changes";
+            workspace root; it edits one source file and puts it back, so it
+            refuses to run if that file has changes, and do not edit it meanwhile";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -90,13 +92,12 @@ fn compare_results(args: &[String]) -> Result<ExitCode, String> {
         return Err("compare needs BASE and NEW".into());
     };
     let new = report::Report::read(Path::new(new))?;
-    let base_path = PathBuf::from(base);
-    let base = if base_path.exists() {
-        Some(report::Report::read(&base_path)?)
-    } else {
-        None
+    let base = match std::fs::read_to_string(base) {
+        Ok(json) => report::Baseline::parse(&json).map_err(|e| format!("{base}: {e}"))?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => report::Baseline::None,
+        Err(e) => return Err(format!("{base}: {e}")),
     };
-    let comparison = compare::compare(base.as_ref(), &new);
+    let comparison = compare::compare(&base, &new);
     let markdown = comparison.markdown(&new);
     println!("{markdown}");
     if let Some(summary) = option(args, "--summary")? {

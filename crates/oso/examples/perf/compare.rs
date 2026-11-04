@@ -4,7 +4,7 @@
 //! Must not depend on: `app` or `bench`; it works on results alone, so it can
 //! be tested with made-up numbers.
 
-use crate::report::{Gpu, Report};
+use crate::report::{BUDGETS, Baseline, Gpu, Report};
 
 /// When a metric counts as regressed: it must grow by this ratio and by this
 /// many milliseconds. The floor keeps noise on very small numbers from
@@ -76,15 +76,15 @@ const GATED: [(&str, Threshold); 8] = [
     ),
 ];
 
-/// The p99 key latency budget, on a real GPU only (ADR 0025).
-const KEY_P99_BUDGET_MS: f64 = 8.0;
+/// The one budget CI enforces, on a real GPU only (ADR 0025).
+const KEY_P99: &str = "key_p99_ms";
 
 /// One line of the comparison.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub name: String,
     pub base: Option<f64>,
-    pub new: f64,
+    pub new: Option<f64>,
     pub status: Status,
 }
 
@@ -96,6 +96,9 @@ pub enum Status {
     Info,
     Regressed,
     OverBudget,
+    /// In the baseline, gated, and no longer measured. A check that stops
+    /// measuring must not look like a check that passes.
+    Missing,
 }
 
 /// The outcome of a comparison.
@@ -108,15 +111,22 @@ pub struct Comparison {
 
 impl Comparison {
     pub fn failed(&self) -> bool {
-        self.rows
-            .iter()
-            .any(|row| matches!(row.status, Status::Regressed | Status::OverBudget))
+        self.rows.iter().any(|row| {
+            matches!(
+                row.status,
+                Status::Regressed | Status::OverBudget | Status::Missing
+            )
+        })
     }
 
     /// The comparison as Markdown, for the job summary.
     pub fn markdown(&self, new: &Report) -> String {
         let gpu = new.gpu.as_ref().map_or("no GPU".to_owned(), describe);
-        let text = if new.text { "" } else { ", no text backend" };
+        let text = if new.has_text_backend {
+            ""
+        } else {
+            ", no text backend"
+        };
         let mut out = format!("### Performance: {} {}, {gpu}{text}\n\n", new.os, new.arch);
         for note in &self.notes {
             out += &format!("> {note}\n\n");
@@ -125,21 +135,25 @@ impl Comparison {
         out += "|---|--:|--:|--:|---|\n";
         for row in &self.rows {
             let base = row.base.map_or("-".to_owned(), |base| format!("{base:.2}"));
+            let value = row.new.map_or("-".to_owned(), |new| format!("{new:.2}"));
             let change = row
                 .base
-                .filter(|base| *base > 0.0)
-                .map_or("-".to_owned(), |base| {
-                    format!("{:+.0}%", (row.new / base - 1.0) * 100.0)
+                .zip(row.new)
+                .filter(|(base, _)| *base > 0.0)
+                .map_or("-".to_owned(), |(base, new)| {
+                    format!("{:+.0}%", (new / base - 1.0) * 100.0)
                 });
             let status = match row.status {
                 Status::Ok => "ok",
                 Status::Info => "",
                 Status::Regressed => "**regressed**",
                 Status::OverBudget => "**over budget**",
+                Status::Missing => "**not measured**",
             };
             out += &format!(
-                "| {} | {base} | {:.2} | {change} | {status} |\n",
-                row.name, row.new
+                "| {} | {base} | {value} | {change} | {status} |
+",
+                row.name
             );
         }
         out
@@ -171,6 +185,9 @@ fn mismatch(base: &Report, new: &Report) -> Option<String> {
             base.os, base.arch, new.os, new.arch
         ));
     }
+    if base.has_text_backend != new.has_text_backend {
+        return Some("The baseline differs in drawing text: not compared.".to_owned());
+    }
     if let (Some(base), Some(new)) = (&base.gpu, &new.gpu)
         && base != new
     {
@@ -183,35 +200,43 @@ fn mismatch(base: &Report, new: &Report) -> Option<String> {
     None
 }
 
-/// Compares `new` with `base`. With no usable baseline nothing can regress,
-/// but the absolute budget still applies.
-pub fn compare(base: Option<&Report>, new: &Report) -> Comparison {
-    let mut notes = Vec::new();
-    let usable = match base {
-        None => {
-            notes.push("No baseline from `main` yet: nothing to compare with.".to_owned());
-            None
-        }
-        Some(base) => match mismatch(base, new) {
-            Some(note) => {
-                notes.push(note);
-                None
-            }
+/// The report to compare with, and a note on it.
+fn usable<'a>(base: &'a Baseline, new: &Report) -> (Option<&'a Report>, String) {
+    match base {
+        Baseline::None => (
+            None,
+            "No baseline from `main` yet: nothing to compare with.".to_owned(),
+        ),
+        Baseline::OtherSchema(schema) => (
+            None,
+            format!("The baseline has schema {schema:?}: not compared."),
+        ),
+        Baseline::Report(base) => match mismatch(base, new) {
+            Some(note) => (None, note),
             None => {
-                if let Some(commit) = &base.commit {
-                    notes.push(format!("Baseline: `main` at {commit}."));
-                }
-                Some(base)
+                let commit = base.commit.as_deref().unwrap_or("an unknown commit");
+                (Some(base), format!("Baseline: `main` at {commit}."))
             }
         },
-    };
+    }
+}
+
+/// Compares `new` with `base`. With no usable baseline nothing can regress,
+/// but the absolute budget still applies.
+pub fn compare(base: &Baseline, new: &Report) -> Comparison {
+    let (usable, note) = usable(base, new);
+    let mut notes = vec![note];
     let hardware = new.gpu.as_ref().is_some_and(Gpu::is_hardware);
-    if !hardware && new.metrics.contains_key("key_p99_ms") {
+    let budget = BUDGETS
+        .iter()
+        .find(|(name, _)| *name == KEY_P99)
+        .map_or(f64::INFINITY, |(_, budget)| *budget);
+    if !hardware && new.metrics.contains_key(KEY_P99) {
         notes.push(format!(
-            "No hardware GPU: the {KEY_P99_BUDGET_MS} ms budget is not checked here."
+            "No hardware GPU: the {budget} ms key latency budget is not checked here."
         ));
     }
-    let rows = new
+    let mut rows: Vec<Row> = new
         .metrics
         .iter()
         .map(|(name, metric)| {
@@ -219,7 +244,7 @@ pub fn compare(base: Option<&Report>, new: &Report) -> Comparison {
                 .and_then(|base| base.metrics.get(name))
                 .map(|m| m.value);
             let gate = threshold(name);
-            let status = if name == "key_p99_ms" && hardware && metric.value > KEY_P99_BUDGET_MS {
+            let status = if name == KEY_P99 && hardware && metric.value > budget {
                 Status::OverBudget
             } else if let (Some(gate), Some(old)) = (gate, old)
                 && regressed(gate, old, metric.value)
@@ -233,18 +258,28 @@ pub fn compare(base: Option<&Report>, new: &Report) -> Comparison {
             Row {
                 name: name.clone(),
                 base: old,
-                new: metric.value,
+                new: Some(metric.value),
                 status,
             }
         })
         .collect();
+    let gone = usable
+        .iter()
+        .flat_map(|base| &base.metrics)
+        .filter(|(name, _)| threshold(name).is_some() && !new.metrics.contains_key(*name));
+    rows.extend(gone.map(|(name, metric)| Row {
+        name: name.clone(),
+        base: Some(metric.value),
+        new: None,
+        status: Status::Missing,
+    }));
     Comparison { rows, notes }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{Status, Threshold, compare, regressed};
-    use crate::report::{Gpu, Report};
+    use crate::report::{Baseline, Gpu, Report};
 
     fn report(metrics: &[(&str, f64)], gpu: (&str, &str)) -> Report {
         let mut report = Report::new();
@@ -258,11 +293,11 @@ mod tests {
         report
     }
 
-    const LAVAPIPE: (&str, &str) = ("llvmpipe", "Cpu");
-    const MAC: (&str, &str) = ("Apple M5 Pro", "IntegratedGpu");
+    const LAVAPIPE: (&str, &str) = ("llvmpipe", "cpu");
+    const MAC: (&str, &str) = ("Some Chip", "integrated");
 
     fn status(base: &Report, new: &Report, name: &str) -> Status {
-        let comparison = compare(Some(base), new);
+        let comparison = compare(&Baseline::Report(base.clone()), new);
         let row = comparison.rows.iter().find(|row| row.name == name);
         row.unwrap().status
     }
@@ -285,10 +320,10 @@ mod tests {
         let base = report(&[("key_p99_ms", 10.0)], LAVAPIPE);
         let same = report(&[("key_p99_ms", 12.0)], LAVAPIPE);
         assert_eq!(status(&base, &same, "key_p99_ms"), Status::Ok);
-        assert!(!compare(Some(&base), &same).failed());
+        assert!(!compare(&Baseline::Report(base.clone()), &same).failed());
         let slow = report(&[("key_p99_ms", 30.0)], LAVAPIPE);
         assert_eq!(status(&base, &slow, "key_p99_ms"), Status::Regressed);
-        assert!(compare(Some(&base), &slow).failed());
+        assert!(compare(&Baseline::Report(base.clone()), &slow).failed());
     }
 
     #[test]
@@ -296,16 +331,45 @@ mod tests {
         let base = report(&[("key_max_ms", 1.0)], LAVAPIPE);
         let new = report(&[("key_max_ms", 500.0)], LAVAPIPE);
         assert_eq!(status(&base, &new, "key_max_ms"), Status::Info);
-        assert!(!compare(Some(&base), &new).failed());
+        assert!(!compare(&Baseline::Report(base.clone()), &new).failed());
     }
 
     #[test]
     fn no_baseline_passes_with_a_note() {
         let new = report(&[("key_p99_ms", 100.0)], LAVAPIPE);
-        let comparison = compare(None, &new);
+        let comparison = compare(&Baseline::None, &new);
         assert!(!comparison.failed());
         assert!(comparison.notes[0].contains("No baseline"));
         assert!(comparison.markdown(&new).contains("No baseline"));
+    }
+
+    #[test]
+    fn a_baseline_of_another_schema_passes_with_a_note() {
+        let new = report(&[("key_p99_ms", 100.0)], LAVAPIPE);
+        let comparison = compare(&Baseline::OtherSchema(Some(9)), &new);
+        assert!(!comparison.failed());
+        assert!(comparison.notes[0].contains("schema"));
+    }
+
+    #[test]
+    fn a_gated_metric_that_stops_being_measured_fails() {
+        let base = report(&[("key_p99_ms", 1.0), ("key_max_ms", 1.0)], LAVAPIPE);
+        let new = report(&[], LAVAPIPE);
+        let comparison = compare(&Baseline::Report(base), &new);
+        assert!(comparison.failed());
+        assert_eq!(comparison.rows.len(), 1, "only gated metrics");
+        assert_eq!(comparison.rows[0].status, Status::Missing);
+        assert!(comparison.markdown(&new).contains("**not measured**"));
+    }
+
+    #[test]
+    fn a_change_in_text_drawing_is_not_compared() {
+        let base = report(&[("key_p99_ms", 1.0)], LAVAPIPE);
+        let mut new = report(&[("key_p99_ms", 50.0)], LAVAPIPE);
+        new.has_text_backend = !base.has_text_backend;
+        let comparison = compare(&Baseline::Report(base), &new);
+        assert!(!comparison.failed());
+        assert!(comparison.notes[0].contains("not compared"));
     }
 
     #[test]
@@ -318,8 +382,8 @@ mod tests {
     #[test]
     fn the_budget_applies_only_on_a_real_gpu() {
         let over = |gpu| report(&[("key_p99_ms", 9.0)], gpu);
-        assert!(compare(None, &over(MAC)).failed());
-        let software = compare(None, &over(LAVAPIPE));
+        assert!(compare(&Baseline::None, &over(MAC)).failed());
+        let software = compare(&Baseline::None, &over(LAVAPIPE));
         assert!(!software.failed());
         assert!(
             software
@@ -327,23 +391,23 @@ mod tests {
                 .iter()
                 .any(|note| note.contains("No hardware GPU"))
         );
-        let virtual_mac = over(("Apple Paravirtual device", "IntegratedGpu"));
-        assert!(!compare(None, &virtual_mac).failed());
-        assert!(!compare(None, &report(&[("key_p99_ms", 8.0)], MAC)).failed());
+        let virtual_mac = over(("Apple Paravirtual device", "integrated"));
+        assert!(!compare(&Baseline::None, &virtual_mac).failed());
+        assert!(!compare(&Baseline::None, &report(&[("key_p99_ms", 8.0)], MAC)).failed());
     }
 
     #[test]
     fn another_machine_type_is_not_compared() {
-        let base = report(&[("key_p99_ms", 1.0)], ("Old GPU", "Cpu"));
+        let base = report(&[("key_p99_ms", 1.0)], ("Old GPU", "cpu"));
         let new = report(&[("key_p99_ms", 50.0)], LAVAPIPE);
-        let comparison = compare(Some(&base), &new);
+        let comparison = compare(&Baseline::Report(base.clone()), &new);
         assert!(!comparison.failed());
         assert!(comparison.notes[0].contains("not compared"));
         assert_eq!(comparison.rows[0].base, None);
 
         let mut other_os = base.clone();
         other_os.os = "plan9".into();
-        let comparison = compare(Some(&other_os), &new);
+        let comparison = compare(&Baseline::Report(other_os.clone()), &new);
         assert!(comparison.notes[0].contains("plan9"));
         assert!(!comparison.failed());
     }
@@ -359,7 +423,7 @@ mod tests {
             ],
             MAC,
         );
-        let markdown = compare(Some(&base), &new).markdown(&new);
+        let markdown = compare(&Baseline::Report(base.clone()), &new).markdown(&new);
         assert!(
             markdown.contains("| key_p50_ms | 1.00 | 9.00 | +800% | **regressed** |"),
             "{markdown}"

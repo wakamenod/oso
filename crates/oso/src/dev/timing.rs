@@ -47,6 +47,8 @@ struct LoadTimes {
     /// From the load's start until the first complete screen of it was
     /// presented, with every glyph drawn.
     first_screen: Option<Duration>,
+    /// From process start until that screen was presented.
+    first_screen_after_start: Option<Duration>,
     /// From the load's start until all of it reached the UI thread.
     done: Option<Duration>,
 }
@@ -117,12 +119,13 @@ impl Timings {
             && let Some(began) = self.load.began
         {
             self.load.first_screen = Some(began.elapsed());
+            self.load.first_screen_after_start = Some(self.started.elapsed());
         }
     }
 
     /// The result of `take-timings`. The key samples are handed over, so
     /// the next call reports only newer ones; everything else stays.
-    pub fn take(&mut self, gpu: Option<(&str, &str)>) -> Value {
+    pub fn take(&mut self) -> Value {
         let keys = std::mem::take(&mut self.key_latency_us);
         let dropped = std::mem::take(&mut self.dropped_keys);
         json!({
@@ -135,9 +138,9 @@ impl Timings {
             "load": {
                 "first_content_us": self.load.first_content.map(micros),
                 "first_screen_us": self.load.first_screen.map(micros),
+                "first_screen_after_start_us": self.load.first_screen_after_start.map(micros),
                 "done_us": self.load.done.map(micros),
             },
-            "gpu": gpu.map(|(name, kind)| json!({ "name": name, "kind": kind })),
         })
     }
 }
@@ -167,10 +170,10 @@ mod tests {
         let mut timings = timings();
         let received = Instant::now();
         timings.keys_handled(received, 1, true);
-        assert_eq!(timings.take(None)["keys_waiting"], 1);
+        assert_eq!(timings.take()["keys_waiting"], 1);
         std::thread::sleep(Duration::from_millis(2));
         timings.frame_presented(true);
-        let result = timings.take(None);
+        let result = timings.take();
         assert_eq!(result["keys_waiting"], 0);
         let samples = result["key_latency_us"].as_array().unwrap();
         assert_eq!(samples.len(), 1);
@@ -184,10 +187,7 @@ mod tests {
         timings.frame_presented(true);
         timings.frame_presented(true);
         assert_eq!(
-            timings.take(None)["key_latency_us"]
-                .as_array()
-                .unwrap()
-                .len(),
+            timings.take()["key_latency_us"].as_array().unwrap().len(),
             1
         );
     }
@@ -197,7 +197,7 @@ mod tests {
         let mut timings = timings();
         timings.keys_handled(Instant::now(), 3, false);
         timings.frame_presented(true);
-        assert_eq!(timings.take(None)["key_latency_us"], json!([]));
+        assert_eq!(timings.take()["key_latency_us"], json!([]));
     }
 
     #[test]
@@ -205,10 +205,9 @@ mod tests {
         let mut timings = timings();
         timings.keys_handled(Instant::now(), 2, true);
         timings.frame_presented(true);
-        let first = timings.take(Some(("Test GPU", "Cpu")));
+        let first = timings.take();
         assert_eq!(first["key_latency_us"].as_array().unwrap().len(), 2);
-        assert_eq!(first["gpu"], json!({ "name": "Test GPU", "kind": "Cpu" }));
-        let second = timings.take(None);
+        let second = timings.take();
         assert_eq!(second["key_latency_us"], json!([]));
         assert_eq!(second["startup_us"], first["startup_us"]);
         assert_eq!(second["frames"], 1);
@@ -217,14 +216,14 @@ mod tests {
     #[test]
     fn startup_waits_for_a_presented_frame() {
         let mut timings = timings();
-        assert_eq!(timings.take(None)["startup_us"], Value::Null);
+        assert_eq!(timings.take()["startup_us"], Value::Null);
         timings.frame_presented(true);
-        let first = timings.take(None);
+        let first = timings.take();
         assert!(first["startup_us"].is_u64());
         assert!(first["first_frame_unix_us"].as_u64().unwrap() > 0);
         std::thread::sleep(Duration::from_millis(2));
         timings.frame_presented(true);
-        let second = timings.take(None);
+        let second = timings.take();
         assert_eq!(second["startup_us"], first["startup_us"], "only the first");
     }
 
@@ -236,13 +235,13 @@ mod tests {
         timings.frame_presented(true);
         timings.keys_handled(Instant::now(), 2, true);
         timings.frame_presented(true);
-        let result = timings.take(None);
+        let result = timings.take();
         assert_eq!(
             result["key_latency_us"].as_array().unwrap().len(),
             MAX_KEY_SAMPLES
         );
         assert_eq!(result["dropped_keys"], 7);
-        assert_eq!(timings.take(None)["dropped_keys"], 0);
+        assert_eq!(timings.take()["dropped_keys"], 0);
         // Even the largest samples fit in a response line.
         let line = json!(vec![u32::MAX; MAX_KEY_SAMPLES]).to_string();
         assert!(
@@ -257,21 +256,22 @@ mod tests {
         let mut timings = timings();
         // A frame before the content arrived is not part of the first screen.
         timings.frame_presented(true);
-        assert_eq!(timings.take(None)["load"]["first_screen_us"], Value::Null);
+        assert_eq!(timings.take()["load"]["first_screen_us"], Value::Null);
         let began = Instant::now();
         timings.load_first_content(began);
         timings.frame_presented(false);
-        assert_eq!(timings.take(None)["load"]["first_screen_us"], Value::Null);
+        assert_eq!(timings.take()["load"]["first_screen_us"], Value::Null);
         std::thread::sleep(Duration::from_millis(2));
         timings.frame_presented(true);
-        let load = timings.take(None)["load"].clone();
+        let load = timings.take()["load"].clone();
         let screen = load["first_screen_us"].clone();
         assert!(screen.as_u64().unwrap() >= 2000, "{load}");
         assert!(screen.as_u64() >= load["first_content_us"].as_u64());
+        assert!(load["first_screen_after_start_us"].as_u64() >= screen.as_u64());
         // Measured once.
         std::thread::sleep(Duration::from_millis(2));
         timings.frame_presented(true);
-        assert_eq!(timings.take(None)["load"]["first_screen_us"], screen);
+        assert_eq!(timings.take()["load"]["first_screen_us"], screen);
     }
 
     #[test]
@@ -283,9 +283,9 @@ mod tests {
         timings.load_first_content(first);
         timings.load_first_content(second);
         timings.load_done(second);
-        assert_eq!(timings.take(None)["load"]["done_us"], Value::Null);
+        assert_eq!(timings.take()["load"]["done_us"], Value::Null);
         timings.load_done(first);
-        let load = timings.take(None)["load"].clone();
+        let load = timings.take()["load"].clone();
         assert!(load["first_content_us"].as_u64().unwrap() >= 2000, "{load}");
         assert!(load["done_us"].as_u64().unwrap() >= 2000, "{load}");
     }

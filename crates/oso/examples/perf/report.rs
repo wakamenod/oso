@@ -52,8 +52,41 @@ impl Gpu {
     /// budget applies (ADR 0025). GitHub's macOS runners report a
     /// paravirtualized device as an integrated GPU.
     pub fn is_hardware(&self) -> bool {
-        matches!(self.kind.as_str(), "IntegratedGpu" | "DiscreteGpu")
+        matches!(self.kind.as_str(), "integrated" | "discrete")
             && !self.name.contains("Paravirtual")
+    }
+}
+
+/// The budgets in `docs/dev/roadmap.md` that have one number. They are read by
+/// hand on the author's Mac; CI runners say nothing about them, apart from
+/// key latency on a real GPU (ADR 0025, ADR 0044).
+pub const BUDGETS: [(&str, f64); 4] = [
+    ("key_p99_ms", 8.0),
+    ("startup_ms", 100.0),
+    ("open_first_screen_ms", 50.0),
+    ("dev_build_ms", 2000.0),
+];
+
+/// A baseline to compare with, as far as there is one.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Baseline {
+    None,
+    /// From an older or newer harness, whose numbers mean something else.
+    /// The next run on `main` sets a new one.
+    OtherSchema(Option<u64>),
+    Report(Report),
+}
+
+impl Baseline {
+    /// Parses a baseline file. Only broken files are errors.
+    pub fn parse(json: &str) -> Result<Self, String> {
+        let value: Value = serde_json::from_str(json).map_err(|e| format!("invalid JSON: {e}"))?;
+        let schema = value["schema"].as_u64();
+        if schema == Some(SCHEMA) {
+            Report::parse(json).map(Self::Report)
+        } else {
+            Ok(Self::OtherSchema(schema))
+        }
     }
 }
 
@@ -64,9 +97,9 @@ pub struct Report {
     pub arch: String,
     pub commit: Option<String>,
     pub gpu: Option<Gpu>,
-    /// Whether this OS draws text. Without a backend, frames have no glyphs
-    /// to draw (ADR 0036).
-    pub text: bool,
+    /// Whether this OS has a text backend. Without one, frames have no
+    /// glyphs to draw (ADR 0036).
+    pub has_text_backend: bool,
     pub metrics: BTreeMap<String, Metric>,
 }
 
@@ -78,7 +111,7 @@ impl Report {
             arch: std::env::consts::ARCH.to_owned(),
             commit: None,
             gpu: None,
-            text: cfg!(target_os = "macos"),
+            has_text_backend: cfg!(target_os = "macos"),
             metrics: BTreeMap::new(),
         }
     }
@@ -107,7 +140,7 @@ impl Report {
             "arch": self.arch,
             "commit": self.commit,
             "gpu": self.gpu.as_ref().map(|gpu| json!({ "name": gpu.name, "kind": gpu.kind })),
-            "text": self.text,
+            "has_text_backend": self.has_text_backend,
             "metrics": metrics,
         });
         format!("{report:#}\n")
@@ -151,7 +184,7 @@ impl Report {
             arch: text("arch")?,
             commit: value["commit"].as_str().map(str::to_owned),
             gpu,
-            text: value["text"].as_bool().unwrap_or(false),
+            has_text_backend: value["has_text_backend"].as_bool().unwrap_or(false),
             metrics,
         })
     }
@@ -168,7 +201,11 @@ impl Report {
         });
         let mut table = format!("{} {}, {gpu}\n", self.os, self.arch);
         for (name, metric) in &self.metrics {
-            table += &format!("{name:<36} {:>10.2} ms\n", metric.value);
+            table += &format!("{name:<36} {:>10.2} ms", metric.value);
+            if let Some((_, budget)) = BUDGETS.iter().find(|(budgeted, _)| budgeted == name) {
+                table += &format!("  (budget {budget} ms)");
+            }
+            table += "\n";
         }
         table
     }
@@ -176,7 +213,7 @@ impl Report {
 
 #[cfg(test)]
 mod tests {
-    use super::{Gpu, Report, SCHEMA, max, median, percentile};
+    use super::{Baseline, Gpu, Report, SCHEMA, max, median, percentile};
 
     #[test]
     fn percentiles_use_the_nearest_rank() {
@@ -201,11 +238,11 @@ mod tests {
             name: name.into(),
             kind: kind.into(),
         };
-        assert!(gpu("Apple M5 Pro", "IntegratedGpu").is_hardware());
-        assert!(gpu("Some Card", "DiscreteGpu").is_hardware());
-        assert!(!gpu("llvmpipe (LLVM 20)", "Cpu").is_hardware());
-        assert!(!gpu("Apple Paravirtual device", "IntegratedGpu").is_hardware());
-        assert!(!gpu("Virtio", "VirtualGpu").is_hardware());
+        assert!(gpu("Some Chip", "integrated").is_hardware());
+        assert!(gpu("Some Card", "discrete").is_hardware());
+        assert!(!gpu("llvmpipe (LLVM 20)", "cpu").is_hardware());
+        assert!(!gpu("Apple Paravirtual device", "integrated").is_hardware());
+        assert!(!gpu("Virtio", "virtual").is_hardware());
     }
 
     #[test]
@@ -214,7 +251,7 @@ mod tests {
         report.commit = Some("abc".into());
         report.gpu = Some(Gpu {
             name: "Test".into(),
-            kind: "Cpu".into(),
+            kind: "cpu".into(),
         });
         report.add("a_ms", vec![1.0, 3.0, 2.0]);
         report.add("empty_ms", vec![]);
@@ -222,6 +259,33 @@ mod tests {
         assert_eq!(parsed, report);
         assert_eq!(parsed.metrics["a_ms"].value, 2.0);
         assert!(!parsed.metrics.contains_key("empty_ms"));
+    }
+
+    #[test]
+    fn a_baseline_of_another_schema_is_not_an_error() {
+        let other = format!(r#"{{"schema": {}}}"#, SCHEMA + 1);
+        assert_eq!(
+            Baseline::parse(&other).unwrap(),
+            Baseline::OtherSchema(Some(SCHEMA + 1))
+        );
+        assert_eq!(Baseline::parse("{}").unwrap(), Baseline::OtherSchema(None));
+        assert!(Baseline::parse("not json").is_err());
+        let report = Report::new();
+        assert_eq!(
+            Baseline::parse(&report.to_json()).unwrap(),
+            Baseline::Report(report)
+        );
+    }
+
+    #[test]
+    fn the_table_shows_budgets() {
+        let mut report = Report::new();
+        report.add("startup_ms", vec![120.0]);
+        report.add("key_max_ms", vec![1.0]);
+        let table = report.table();
+        assert!(table.contains("120.00 ms  (budget 100 ms)"), "{table}");
+        let unbudgeted = table.lines().find(|line| line.starts_with("key_max_ms"));
+        assert!(!unbudgeted.unwrap().contains("budget"), "{table}");
     }
 
     #[test]

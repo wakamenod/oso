@@ -9,6 +9,9 @@ cargo_public_api := "0.52.0"
 # Snapshots are taken for one target so that they read the same on every OS.
 api_target := "x86_64-unknown-linux-gnu"
 api_crates := "oso-core oso-platform oso-render"
+# Benchmarks build with the dev feature, so they keep out of target/release,
+# where the release binary lives (ADR 0044).
+perf_target := "target/perf-build"
 
 # Default: show the recipe list
 default:
@@ -133,20 +136,20 @@ release-safety:
 # Performance (ADR 0024, ADR 0025, ADR 0044)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# Benchmark an optimized build with the dev feature; windows open and take the focus. Pass --quick to try it out
+# Benchmark an optimized build with the dev feature; windows open and take the focus. `just perf OUT --quick` tries it out
 perf out="target/perf/perf.json" *args="":
-    cargo build --locked --release -p oso --features dev --bin oso --example perf
-    target/release/examples/perf run --oso target/release/oso --out "{{out}}" {{args}}
+    cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --bin oso --example perf
+    {{perf_target}}/release/examples/perf run --oso {{perf_target}}/release/oso --out "{{out}}" {{args}}
 
 # Compare a result with a baseline, and fail on a large regression; a missing baseline passes with a note
 perf-compare base new summary="target/perf/summary.md":
-    cargo build --locked --release -p oso --features dev --example perf
-    target/release/examples/perf compare "{{base}}" "{{new}}" --summary "{{summary}}"
+    cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --example perf
+    {{perf_target}}/release/examples/perf compare "{{base}}" "{{new}}" --summary "{{summary}}"
 
 # Time the incremental dev build of the tip crate after changing one file (median of 5)
 build-time out="target/perf/build-time.json":
-    cargo build --locked --release -p oso --features dev --example perf
-    target/release/examples/perf build-time --out "{{out}}"
+    cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --example perf
+    {{perf_target}}/release/examples/perf build-time --out "{{out}}"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Architecture guardrails (ADR 0038)

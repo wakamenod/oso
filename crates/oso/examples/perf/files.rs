@@ -3,7 +3,7 @@
 //!
 //! Must not depend on: the app or the control socket.
 
-use std::fs::{self, File};
+use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
@@ -24,10 +24,15 @@ const LONG_LINE_PIECE: &str = "abc\tdef 日本語 x\u{301} 👍 ";
 pub struct TempDir(PathBuf);
 
 impl TempDir {
-    pub fn new() -> io::Result<Self> {
-        let path = std::env::temp_dir().join(format!("oso-perf-{}", std::process::id()));
-        // A fresh directory only: never write through what is already there.
-        fs::create_dir(&path)?;
+    /// A new directory; `tag` keeps uses in one process apart.
+    pub fn new(tag: &str) -> io::Result<Self> {
+        let name = format!("oso-perf-{}-{tag}", std::process::id());
+        let path = std::env::temp_dir().join(name);
+        // A fresh, private directory only: never write through what is there.
+        let mut builder = DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(&path)?;
         Ok(Self(path))
     }
 
@@ -42,9 +47,15 @@ impl Drop for TempDir {
     }
 }
 
+/// A new file, for writing; never one that is already there.
+fn create_new(path: &Path) -> io::Result<BufWriter<File>> {
+    let file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    Ok(BufWriter::with_capacity(1 << 20, file))
+}
+
 /// Writes about `bytes` of mixed text, at least that many.
 pub fn write_mixed(path: &Path, bytes: u64) -> io::Result<()> {
-    let mut out = BufWriter::with_capacity(1 << 20, File::create(path)?);
+    let mut out = create_new(path)?;
     let mut written = 0;
     for line in MIXED_LINES.iter().cycle() {
         if written >= bytes {
@@ -58,7 +69,7 @@ pub fn write_mixed(path: &Path, bytes: u64) -> io::Result<()> {
 
 /// Writes one line of at least `bytes`, with no newline.
 pub fn write_long_line(path: &Path, bytes: u64) -> io::Result<()> {
-    let mut out = BufWriter::with_capacity(1 << 20, File::create(path)?);
+    let mut out = create_new(path)?;
     let mut written = 0;
     while written < bytes {
         out.write_all(LONG_LINE_PIECE.as_bytes())?;
@@ -74,7 +85,7 @@ mod tests {
 
     #[test]
     fn writes_the_requested_size_of_valid_text() {
-        let dir = TempDir::new().unwrap();
+        let dir = TempDir::new("sizes").unwrap();
         let mixed = dir.file("mixed.txt");
         write_mixed(&mixed, 10_000).unwrap();
         let text = fs::read_to_string(&mixed).unwrap();
@@ -94,5 +105,31 @@ mod tests {
         let path = dir.file("");
         drop(dir);
         assert!(!path.exists(), "the directory is removed");
+    }
+
+    #[test]
+    fn refuses_to_write_over_what_is_there() {
+        let dir = TempDir::new("over").unwrap();
+        let file = dir.file("a.txt");
+        fs::write(&file, "keep").unwrap();
+        assert!(write_mixed(&file, 10).is_err());
+        assert!(write_long_line(&file, 10).is_err());
+        assert_eq!(fs::read_to_string(&file).unwrap(), "keep");
+        assert!(TempDir::new("over").is_err(), "the directory exists");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_planted_symlink_and_keeps_the_directory_private() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let dir = TempDir::new("private").unwrap();
+        let mode = fs::metadata(dir.file("")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+        let target = dir.file("target.txt");
+        fs::write(&target, "keep").unwrap();
+        let link = dir.file("link.txt");
+        symlink(&target, &link).unwrap();
+        assert!(write_mixed(&link, 10).is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "keep");
     }
 }

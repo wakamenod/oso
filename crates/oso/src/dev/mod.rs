@@ -1,6 +1,7 @@
-//! Dev-only tooling behind the `dev` feature: the control socket and
-//! `oso ctl` (ADR 0016, ADR 0023, ADR 0032). Release builds never contain
-//! it, and CI checks this (`just release-safety`).
+//! Dev-only tooling behind the `dev` feature: the control socket, `oso ctl`
+//! and the timings benchmarks read (ADR 0016, ADR 0023, ADR 0032, ADR 0044).
+//! Release builds never contain it, and CI checks this
+//! (`just release-safety`).
 //!
 //! Must not depend on: `app`, `dispatch` or winit; the caller passes in the
 //! `send` function that hands requests to the UI thread.

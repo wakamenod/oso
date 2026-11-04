@@ -26,7 +26,10 @@ const GB: u64 = 1024 * MB;
 const FRAME_TIMEOUT: Duration = Duration::from_secs(20);
 const LOAD_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long a key may wait for its frame once the keys have been sent.
-const SETTLE_TIMEOUT: Duration = Duration::from_secs(3);
+const SETTLE_TIMEOUT: Duration = Duration::from_secs(10);
+const POLL_KEYS: Duration = Duration::from_millis(50);
+/// The least share of keys that must draw a frame.
+const MIN_DRAWN_PERCENT: usize = 95;
 
 /// About the pace of key repeat. Each key finds the app idle.
 const KEY_PACE: Duration = Duration::from_millis(25);
@@ -112,7 +115,8 @@ impl Lcg {
 
 /// Runs every benchmark.
 pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
-    let dir = TempDir::new().map_err(|e| format!("cannot create a temporary directory: {e}"))?;
+    let dir =
+        TempDir::new("files").map_err(|e| format!("cannot create a temporary directory: {e}"))?;
     let mut report = Report::new();
     report.commit = commit();
 
@@ -136,30 +140,14 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     let big = dir.file("big.txt");
     let wrote = files::write_mixed(&big, scale.big_file);
     wrote.map_err(|e| format!("{}: {e}", big.display()))?;
-    big_file(
-        exe,
-        &big,
-        &SCROLL_KEYS,
-        "big",
-        TabWidth::default(),
-        scale,
-        &mut report,
-    )?;
+    big_file(exe, &big, &SCROLL_KEYS, "big", scale, &mut report)?;
     std::fs::remove_file(&big).map_err(|e| format!("{}: {e}", big.display()))?;
 
     log_step("the long line");
     let line = dir.file("line.txt");
     let wrote = files::write_long_line(&line, scale.long_line);
     wrote.map_err(|e| format!("{}: {e}", line.display()))?;
-    big_file(
-        exe,
-        &line,
-        &LINE_KEYS,
-        "line",
-        TabWidth::new(4),
-        scale,
-        &mut report,
-    )?;
+    big_file(exe, &line, &LINE_KEYS, "line", scale, &mut report)?;
     Ok(report)
 }
 
@@ -200,7 +188,8 @@ fn us_to_ms(value: &Value) -> Option<f64> {
 }
 
 /// Launches the app with no file. Startup is the time from just before the
-/// process started to its first presented frame, a window that is really up.
+/// process started to its first presented frame. A frame skipped while the
+/// window is hidden does not count.
 fn startup(exe: &Path, scale: &Scale, report: &mut Report) -> Result<Option<Gpu>, String> {
     let mut gpu = None;
     let mut from_spawn = Vec::new();
@@ -242,25 +231,64 @@ fn paced_keys(
         let jitter = rng.below(KEY_JITTER_MS) as u64;
         thread::sleep(KEY_PACE + Duration::from_millis(jitter));
     }
+    let samples = settle(app)?;
+    // Every one of these keys moves something. Losing the expensive ones
+    // would otherwise look like an improvement.
+    if samples.len() * 100 < count * MIN_DRAWN_PERCENT {
+        return Err(format!(
+            "{} of {count} keys drew a frame; is the window hidden, or a key not bound?",
+            samples.len()
+        ));
+    }
+    Ok(samples)
+}
+
+/// Waits until no key waits for a frame, and returns the key latencies. A
+/// key that never gets a frame, or a dropped sample, would flatter the result,
+/// so both are errors.
+fn settle(app: &mut App) -> Result<Vec<f64>, String> {
     let mut samples = Vec::new();
     let started = Instant::now();
     loop {
         let timings = app.timings()?;
         let new = timings["key_latency_us"].as_array().map(Vec::as_slice);
         samples.extend(new.unwrap_or_default().iter().filter_map(us_to_ms));
-        if timings["keys_waiting"] == 0 || started.elapsed() > SETTLE_TIMEOUT {
-            break;
+        if timings["dropped_keys"] != 0 {
+            return Err(format!("samples were dropped: {}", timings["dropped_keys"]));
         }
-        thread::sleep(Duration::from_millis(50));
+        if timings["keys_waiting"] == 0 {
+            return Ok(samples);
+        }
+        if started.elapsed() > SETTLE_TIMEOUT {
+            return Err(format!(
+                "{} keys got no frame in {SETTLE_TIMEOUT:?}; is the window hidden?",
+                timings["keys_waiting"]
+            ));
+        }
+        thread::sleep(POLL_KEYS);
     }
-    // Most of these keys draw; a key at the end of the file may not.
-    if samples.len() < count / 2 {
-        return Err(format!(
-            "{} of {count} keys drew a frame; is the window hidden?",
-            samples.len()
-        ));
+}
+
+/// Checks that the far jumps the benchmark relies on really arrive, so that it
+/// cannot go on measuring keys that have stopped doing their work.
+fn check_jumps(app: &mut App) -> Result<(), String> {
+    let cursor_and_size = |app: &mut App| -> Result<(u64, u64), String> {
+        let state = app.call("get-state", None)?;
+        let offset = state["cursor"]["offset"].as_u64();
+        let bytes = state["buffer"]["bytes"].as_u64();
+        offset.zip(bytes).ok_or("no cursor in get-state".to_owned())
+    };
+    app.send_keys("M->")?;
+    let (offset, bytes) = cursor_and_size(app)?;
+    if offset != bytes || bytes == 0 {
+        return Err(format!("M-> went to {offset} of {bytes} bytes"));
     }
-    Ok(samples)
+    app.send_keys("M-<")?;
+    let (offset, _) = cursor_and_size(app)?;
+    if offset != 0 {
+        return Err(format!("M-< went to {offset}"));
+    }
+    settle(app).map(|_| ())
 }
 
 /// Key press to presented frame on a screen of mixed text, in new processes.
@@ -289,7 +317,8 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
 /// Opens a large file in a window that is already up, as `C-x C-f` will in
 /// M2, so that the window's own startup is not part of the numbers.
 fn open_file(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> Result<(), String> {
-    let (mut content, mut screen, mut done) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut content, mut screen, mut done, mut launch) =
+        (Vec::new(), Vec::new(), Vec::new(), Vec::new());
     let path = file.to_str().ok_or("the temporary path is not UTF-8")?;
     for _ in 0..scale.opens {
         let mut app = App::start(exe, None)?;
@@ -303,7 +332,16 @@ fn open_file(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> Res
         screen.extend(us_to_ms(&load["first_screen_us"]));
         done.extend(us_to_ms(&load["done_us"]));
         app.stop();
+
+        // The same file from the command line: the window's startup and all.
+        let mut app = App::start(exe, Some(file))?;
+        let timings = app.wait_until("first screen", FRAME_TIMEOUT, |t| {
+            t["load"]["first_screen_after_start_us"].is_u64()
+        })?;
+        launch.extend(us_to_ms(&timings["load"]["first_screen_after_start_us"]));
+        app.stop();
     }
+    report.add("open_from_launch_ms", launch);
     report.add("open_first_content_ms", content);
     report.add("open_first_screen_ms", screen);
     report.add("open_full_load_ms", done);
@@ -323,7 +361,6 @@ fn big_file(
     file: &Path,
     keys: &[&str],
     name: &str,
-    tab: TabWidth,
     scale: &Scale,
     report: &mut Report,
 ) -> Result<(), String> {
@@ -336,7 +373,7 @@ fn big_file(
     for (metric, runs) in metrics {
         report.add(&format!("{name}_{metric}"), runs);
     }
-    edit_costs(file, name, tab, scale, report)
+    edit_costs(file, name, scale, report)
 }
 
 fn big_file_run(
@@ -375,6 +412,7 @@ fn big_file_run(
         t["load"]["done_us"].is_u64()
     })?;
     numbers.extend(us_to_ms(&timings["load"]["done_us"]).map(|load| ("load_ms", load)));
+    check_jumps(&mut app)?;
 
     // Loaded: scrolling.
     let samples = paced_keys(&mut app, keys, scale.big_keys, &mut rng)?;
@@ -396,17 +434,11 @@ fn big_file_run(
 
 /// One-character edits and the display map sync, while a snapshot is held, so
 /// every edit copies its path. No window is involved.
-fn edit_costs(
-    file: &Path,
-    name: &str,
-    tab: TabWidth,
-    scale: &Scale,
-    report: &mut Report,
-) -> Result<(), String> {
+fn edit_costs(file: &Path, name: &str, scale: &Scale, report: &mut Report) -> Result<(), String> {
     let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let mut rope = Rope::from(text.as_str());
     drop(text);
-    let mut map = DisplayMap::new(&rope, tab);
+    let mut map = DisplayMap::new(&rope, TabWidth::default());
     let snapshot = (rope.clone(), map.snapshot());
     let mut rng = Lcg(3);
     let mut samples = Vec::with_capacity(scale.edits);
