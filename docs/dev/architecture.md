@@ -305,6 +305,11 @@ Full details are in [`security.md`](security.md).
   (`just dev`) drives the build and restart, and the old instance exits only
   after the new one has imported its state
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
+  - It polls the sources, and spawns cargo and the new binary through
+    `oso-platform::process`.
+  - The state holds paths and positions and never text, so the new instance
+    reads every file from disk. Unsaved content joins it with M2
+    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - **Control socket:** agents can send keys, run commands, read state and take
   screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
   JSON Lines, and `oso ctl` is the client

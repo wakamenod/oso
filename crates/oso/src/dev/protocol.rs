@@ -14,6 +14,8 @@ use oso_core::key::{KeyPress, KeySequence};
 use serde_json::{Map, Value, json};
 use std::fmt::Write as _;
 
+use super::handoff::{self, State};
+
 /// The protocol version reported by `version`. Bump it on incompatible
 /// changes.
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -67,6 +69,12 @@ pub enum UiOp {
     RunCommand { name: String, arg: Option<isize> },
     /// Show a buffer in the selected window.
     ShowBuffer(u64),
+    /// Report what a new instance needs to take over.
+    ExportState,
+    /// Take over from the instance that exported this state.
+    ImportState(Box<State>),
+    /// Exit, without asking.
+    Exit,
 }
 
 /// A parsed request.
@@ -147,6 +155,14 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                     )
                 })?,
         ),
+        "export-state" => UiOp::ExportState,
+        "import-state" => {
+            let state = params
+                .get("state")
+                .ok_or_else(|| bad(&id, "import-state needs a parameter \"state\"".into()))?;
+            UiOp::ImportState(Box::new(handoff::parse(state).map_err(|m| bad(&id, m))?))
+        }
+        "exit" => UiOp::Exit,
         other => {
             let mut shown: String = other.chars().take(MAX_ECHO).collect();
             if shown.len() < other.len() {
@@ -251,6 +267,20 @@ fn escape_unsafe(line: String) -> String {
         }
     }
     escaped
+}
+
+/// The result in a response line, or its error message. Anything else is an
+/// error too, so that a response this build does not understand never reads as
+/// a confirmation.
+pub fn response_result(line: &str) -> Result<Value, String> {
+    let mut response: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
+    if let Some(message) = response["error"]["message"].as_str() {
+        return Err(message.to_owned());
+    }
+    match response.get_mut("result") {
+        Some(result) => Ok(result.take()),
+        None => Err("a response with no result".to_owned()),
+    }
 }
 
 /// Builds a request line, without the newline. For `oso ctl` and tests.
@@ -456,6 +486,69 @@ mod tests {
             Method::Ui(UiOp::ShowBuffer(3))
         );
         assert!(error(&line("show-buffer", "{}")).1.contains("\"buffer\""));
+    }
+
+    #[test]
+    fn parses_the_handoff_methods() {
+        assert_eq!(
+            parsed(r#"{"method": "export-state"}"#).method,
+            Method::Ui(UiOp::ExportState)
+        );
+        let state = json!({
+            "version": crate::dev::handoff::STATE_VERSION,
+            "buffers": [{ "id": 0, "path": null }],
+            "windows": [{
+                "buffer": 0,
+                "primary": 0,
+                "selections": [{ "cursor": 0, "goal": null }],
+                "scroll": { "top": 0, "left": 0 },
+            }],
+            "selected": 0,
+            "pending_keys": "",
+            "frame": null,
+        });
+        let line = request(1, "import-state", Some(json!({ "state": state })));
+        assert!(matches!(
+            parsed(&line).method,
+            Method::Ui(UiOp::ImportState(_))
+        ));
+        assert!(
+            error(r#"{"method": "import-state", "params": {}}"#)
+                .1
+                .contains("\"state\"")
+        );
+        // A bad state is refused here, off the UI thread.
+        assert!(
+            error(r#"{"method": "import-state", "params": {"state": {"version": 0}}}"#)
+                .1
+                .contains("version")
+        );
+        assert_eq!(
+            parsed(r#"{"method": "exit"}"#).method,
+            Method::Ui(UiOp::Exit)
+        );
+    }
+
+    #[test]
+    fn reads_response_lines() {
+        use super::response_result;
+        assert_eq!(
+            response_result(r#"{"id":1,"result":{"a":1}}"#),
+            Ok(json!({ "a": 1 }))
+        );
+        assert_eq!(
+            response_result(r#"{"id":1,"result":null}"#),
+            Ok(json!(null))
+        );
+        assert_eq!(
+            response_result(r#"{"id":1,"error":{"message":"no"}}"#),
+            Err("no".to_owned())
+        );
+        assert!(
+            response_result(r#"{"id":1}"#).is_err(),
+            "not a confirmation"
+        );
+        assert!(response_result("not json").is_err());
     }
 
     #[test]

@@ -170,7 +170,7 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - The dev control socket and hot reload exist only behind cargo features that
   release builds never enable. `just release-safety` runs in CI and fails if
   a release build enables a `dev` feature, depends on a dev-only crate or
-  contains the dev marker string. Each check first proves it can see the dev
+  contains a dev marker string. Each check first proves it can see the dev
   code in a dev build ([ADR 0032](adr/0032-control-socket-transport.md)).
 - The control socket ([ADR 0032](adr/0032-control-socket-transport.md)):
   - lives in a private directory (`$XDG_RUNTIME_DIR/oso`, or `oso-<uid>` in
@@ -182,6 +182,16 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
   - limits request and response lines to 1 MiB, clients to 4 (each disconnected after
     60 s idle) and `send-keys` to 4096 keys, and never blocks the UI thread
   - is not available on Windows yet
+- Processes spawn only through `oso_platform::process`: executables come from
+  an absolute path or from `PATH` without relative or missing entries, the
+  current directory or the project, children get an allowlisted environment and a closed
+  stdin, and every spawn is logged. It is behind the `dev` feature until a
+  release feature needs it, and only `oso dev` uses it. `oso dev` builds offline,
+  so a changed lock file fetches nothing by itself
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+- The state handoff holds paths and positions, never text, so it cannot carry a
+  secret buffer's content
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this.
   This is reviewed when commands that spawn processes arrive (M3 onward)

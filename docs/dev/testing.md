@@ -170,6 +170,9 @@ violation, so a broken parser cannot pass silently.
     ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). Any
     file counts as secret until its path is resolved, so wait for `loading`
     to become null before reading it.
+  - `export-state` and `import-state` hand the state to a new instance, and
+    `exit` stops one. `just dev` (`oso dev`) drives them on each source change
+    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
   - `oso [FILE]` opens a file, so test files (generated in a scratch
     directory, never committed) can be driven this way.
   - `screenshot` writes a PNG of the current frame and returns its path
@@ -179,8 +182,9 @@ violation, so a broken parser cannot pass silently.
 - Not covered yet: resizing the window, the mouse wheel and real OS key
   events. These are still checked by hand.
 - The transport and protocol themselves are tested without a window or GPU
-  (`oso-platform` control tests, the server tests in the tip crate), so CI
-  runs them on Linux and macOS. Windows is not supported yet (ADR 0032).
+  (`oso-platform` control tests, the server tests in the tip crate), and so
+  are process spawning, the state format, the order of a restart and the
+  source watcher, so CI runs them on Linux and macOS. Windows is not supported yet (ADR 0032).
 
 ### Level 3: snapshot tests (after text rendering lands)
 

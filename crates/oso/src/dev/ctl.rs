@@ -30,6 +30,9 @@ methods:
   run-command NAME [ARG]
                     runs a command by name, with a numeric argument if it takes one
   show-buffer ID    shows a buffer, by the id get-state reports
+  export-state      what a new instance needs to take over: paths and positions
+  import-state JSON takes over from that state, in an instance that opened nothing
+  exit              exits the instance, without asking
 
 Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
 and screenshot fails while one is shown.
@@ -130,6 +133,12 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
     let params = match method.as_str() {
         "get-text" => Some(json!({ "start_row": number("START")?, "rows": number("ROWS")? })),
         "show-buffer" => Some(json!({ "buffer": number("ID")? })),
+        "import-state" => {
+            let state = positional.next().ok_or("import-state needs JSON")?;
+            let state: Value =
+                serde_json::from_str(&state).map_err(|e| format!("import-state: {e}"))?;
+            Some(json!({ "state": state }))
+        }
         "send-keys" => {
             let keys = positional.next().ok_or("send-keys needs KEYS")?;
             Some(json!({ "keys": keys }))
@@ -160,11 +169,27 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
 /// Sends the request and returns the response line.
 fn call(invocation: &Invocation) -> io::Result<String> {
     let dir = ControlDir::open_existing()?;
-    let (_, stream) = dir.connect(invocation.pid)?;
+    exchange(
+        &dir,
+        invocation.pid,
+        &invocation.method,
+        invocation.params.clone(),
+    )
+}
+
+/// Sends one request to the instance `pid`, or the only one, and returns the
+/// response line.
+pub fn exchange(
+    dir: &ControlDir,
+    pid: Option<u32>,
+    method: &str,
+    params: Option<Value>,
+) -> io::Result<String> {
+    let (_, stream) = dir.connect(pid)?;
     stream.set_read_timeout(Some(RESPONSE_TIMEOUT))?;
     stream.set_write_timeout(Some(RESPONSE_TIMEOUT))?;
     let mut writer = stream.try_clone()?;
-    let request = protocol::request(1, &invocation.method, invocation.params.clone());
+    let request = protocol::request(1, method, params);
     writeln!(writer, "{request}")?;
 
     let limit = u64::try_from(MAX_LINE + 1).expect("the limit fits in u64");
@@ -253,6 +278,20 @@ mod tests {
         assert!(parse(&["show-buffer", "x"]).unwrap_err().contains("\"x\""));
     }
 
+    /// The smallest state the server accepts.
+    const STATE: &str = r#"{
+        "version": 1,
+        "buffers": [{ "id": 0 }],
+        "windows": [{
+            "buffer": 0,
+            "primary": 0,
+            "selections": [{ "cursor": 0 }],
+            "scroll": { "top": 0, "left": 0 }
+        }],
+        "selected": 0,
+        "pending_keys": ""
+    }"#;
+
     #[test]
     fn the_server_accepts_what_the_client_sends() {
         for args in [
@@ -264,11 +303,31 @@ mod tests {
             &["send-keys", "C-f"],
             &["run-command", "forward-char"],
             &["run-command", "forward-char", "-2"],
+            &["export-state"],
+            &["import-state", STATE],
+            &["exit"],
         ] {
             let invocation = parse(args).unwrap().unwrap();
             let line = protocol::request(1, &invocation.method, invocation.params);
             assert!(protocol::parse(&line).is_ok(), "{args:?}");
         }
+    }
+
+    #[test]
+    fn import_state_takes_json() {
+        let parsed = parse(&["import-state", r#"{"version":1}"#])
+            .unwrap()
+            .unwrap();
+        assert_eq!(parsed.params, Some(json!({ "state": { "version": 1 } })));
+        assert_eq!(
+            parse(&["import-state"]),
+            Err("import-state needs JSON".into())
+        );
+        assert!(
+            parse(&["import-state", "{nope"])
+                .unwrap_err()
+                .starts_with("import-state:")
+        );
     }
 
     #[test]

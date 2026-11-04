@@ -72,6 +72,20 @@ impl SelectionSet {
         }
     }
 
+    /// The set of `selections`, with the one at position `primary` primary,
+    /// sorted and with those at one offset merged. `None` if there is no such
+    /// position, which also rules out an empty set.
+    pub fn from_parts(selections: Vec<Selection>, primary: usize) -> Option<Self> {
+        (primary < selections.len()).then(|| {
+            let mut set = Self {
+                selections,
+                primary,
+            };
+            set.normalize();
+            set
+        })
+    }
+
     /// The primary selection.
     pub fn primary(&self) -> &Selection {
         &self.selections[self.primary]
@@ -152,6 +166,17 @@ mod tests {
         assert_eq!(set.primary().cursor, 4);
         let update = set.update(|_| Ok::<(), ()>(()));
         assert!(!update.changed);
+    }
+
+    #[test]
+    fn from_parts_sorts_merges_and_keeps_the_primary() {
+        let parts = vec![Selection::at(9), Selection::at(1), Selection::at(9)];
+        let set = SelectionSet::from_parts(parts.clone(), 1).unwrap();
+        assert_eq!(set.iter().map(|s| s.cursor).collect::<Vec<_>>(), [1, 9]);
+        assert_eq!(set.primary().cursor, 1);
+        assert_eq!(set.primary_index(), 0);
+        assert_eq!(SelectionSet::from_parts(parts, 3), None);
+        assert_eq!(SelectionSet::from_parts(Vec::new(), 0), None);
     }
 
     #[test]

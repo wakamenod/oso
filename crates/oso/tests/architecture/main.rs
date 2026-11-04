@@ -1,7 +1,7 @@
 //! Architecture guardrails (ADR 0038, ADR 0039): the dependency direction
 //! between crates and between modules, external crates confined to their
-//! owner, the file-size ratchet, the ban on `static` items and the module
-//! headers. The rules live in `guardrails/`; the format is described at the
+//! owner, the file-size ratchet, the ban on `static` items, the ban on
+//! spawning outside one module and the module headers. The rules live in `guardrails/`; the format is described at the
 //! top of each file there.
 //!
 //! Must not depend on: any crate outside `std`, spawned processes or the
@@ -18,6 +18,7 @@ mod modules;
 mod report;
 mod rules;
 mod size;
+mod spawning;
 mod statics;
 mod workspace;
 
@@ -117,6 +118,29 @@ fn there_are_no_statics() {
             ));
         }
     }
+    assert_none(&problems);
+}
+
+#[test]
+fn only_the_process_module_may_silence_the_ban_on_spawning() {
+    let workspace = Workspace::current();
+    let mut problems = Vec::new();
+    let mut allowed_seen = false;
+    for path in workspace.rust_files() {
+        let at = workspace.relative_path(&path);
+        let lines = spawning::silencing_lines(&tokenize(&read(&path)));
+        if at == spawning::ALLOWED {
+            allowed_seen = true;
+            assert!(!lines.is_empty(), "{at} spawns, so it must say so");
+            continue;
+        }
+        for line in lines {
+            problems.push(format!(
+                "{at}:{line}: spawn only through oso-platform::process (ADR 0010, ADR 0047)"
+            ));
+        }
+    }
+    assert!(allowed_seen, "the walk did not see {}", spawning::ALLOWED);
     assert_none(&problems);
 }
 

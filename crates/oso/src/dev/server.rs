@@ -217,7 +217,7 @@ where
 {
     let request = match protocol::parse(line) {
         Ok(request) => request,
-        Err(bad) => return protocol::failure(&bad.id, &bad.message),
+        Err(bad) => return bounded(&bad.id, protocol::failure(&bad.id, &bad.message)),
     };
     let op = match request.method {
         Method::Version => return protocol::success(&request.id, version()),
@@ -229,7 +229,7 @@ where
     }
     match replied.recv_timeout(REPLY_TIMEOUT) {
         Ok(Ok(result)) => bounded(&request.id, protocol::success(&request.id, result)),
-        Ok(Err(message)) => protocol::failure(&request.id, &message),
+        Ok(Err(message)) => bounded(&request.id, protocol::failure(&request.id, &message)),
         Err(mpsc::RecvTimeoutError::Timeout) => {
             protocol::failure(&request.id, "the editor did not reply in time")
         }
@@ -288,6 +288,7 @@ mod tests {
             UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
             UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),
             UiOp::ShowBuffer(buffer) => Ok(json!({ "buffer": buffer })),
+            UiOp::ExportState | UiOp::ImportState(_) | UiOp::Exit => Ok(json!({})),
             UiOp::Screenshot => return true,
         };
         let _ = request.reply.send(result);

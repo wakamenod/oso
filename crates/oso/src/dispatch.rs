@@ -46,6 +46,19 @@ impl Dispatcher {
         self.resolver.pending()
     }
 
+    /// Picks up a prefix in progress, for a state handoff. Commands never run
+    /// here: keys that are no longer a prefix in this build are dropped.
+    #[cfg(any(test, feature = "dev"))]
+    pub fn restore_pending(&mut self, keys: &[KeyPress]) {
+        let layers = Layers::global(&self.global);
+        for key in keys {
+            if !matches!(self.resolver.feed(&layers, *key), Resolution::Pending) {
+                self.resolver.reset();
+                return;
+            }
+        }
+    }
+
     /// Handles key presses in order, as from the control socket's
     /// `send-keys`. Keys after one that exits are dropped.
     #[cfg(any(test, feature = "dev"))]
@@ -461,5 +474,22 @@ mod tests {
         let (effects, result) = dispatcher.run_command(&mut editor, "explode", Some(1));
         assert_eq!(result, Err("explode takes no argument".into()));
         assert_eq!(effects, Effects::default(), "it did not run");
+    }
+
+    #[test]
+    fn a_restored_prefix_waits_for_its_next_key_and_runs_nothing() {
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = editor("abc");
+        let keys = |s: &str| s.parse::<KeySequence>().unwrap().0;
+        dispatcher.restore_pending(&keys("C-x"));
+        assert_eq!(dispatcher.pending(), keys("C-x"));
+        assert!(send(&mut dispatcher, &mut editor, "C-c").exit);
+
+        // Not a prefix any more: a command, or nothing at all.
+        dispatcher.restore_pending(&keys("C-f"));
+        assert!(dispatcher.pending().is_empty());
+        assert_eq!(cursor(&editor), 0, "the command did not run");
+        dispatcher.restore_pending(&keys("C-x C-z C-z"));
+        assert!(dispatcher.pending().is_empty());
     }
 }

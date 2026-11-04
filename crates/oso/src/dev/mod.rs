@@ -1,15 +1,19 @@
-//! Dev-only tooling behind the `dev` feature: the control socket and
-//! `oso ctl` (ADR 0016, ADR 0023, ADR 0032). Release builds never contain
+//! Dev-only tooling behind the `dev` feature: the control socket, `oso ctl`
+//! and `oso dev` (ADR 0016, ADR 0023, ADR 0032). Release builds never contain
 //! it, and CI checks this (`just release-safety`).
 //!
 //! Must not depend on: `app`, `dispatch` or winit; the caller passes in the
 //! `send` function that hands requests to the UI thread.
 
 pub mod ctl;
+pub mod handoff;
 mod png;
 mod protocol;
+mod restart;
 mod server;
 mod state;
+pub mod supervisor;
+mod watch;
 
 use std::sync::mpsc;
 use std::thread;
