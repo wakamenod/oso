@@ -12,6 +12,8 @@ often, so it must rebuild within 2 s.
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays
   behind the `dev` feature; `just release-safety` checks it.
+- End-to-end flows live in `tests/e2e` and run with `just e2e` (ADR 0049). They
+  drive a dev build from outside, and start it through `oso_platform::process`.
 - Module layers are in `guardrails/layers.txt` (`[oso]`).
 - Every Rust file opens with its responsibility and a `Must not depend on:`
   paragraph (ADR 0041). The test checks names in backticks against the layers.
