@@ -95,8 +95,9 @@ A glyph paints only the cells of its cluster and only its row. When the shaper
 draws several clusters as one ligature, its glyph paints the cells of all of
 them. Above the row it also keeps the part of a row that lies below the
 baseline, in pixels, because accents on capitals reach there and letters can
-differ only there. Anything further out is cut, including the sides of a
-fallback font's letter wider than its cells.
+differ only there. Below the row it keeps 2 pixels, where marks under a
+descender end. Anything further out is cut, including the sides of a fallback
+font's letter wider than its cells.
 
 ## Row heights
 

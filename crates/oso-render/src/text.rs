@@ -71,6 +71,9 @@ impl GlyphInstance {
     }
 }
 
+/// Pixels a glyph keeps below its row: marks under a descender end there.
+const BELOW_ROW: f32 = 2.0;
+
 /// What stays of `start..start + len` inside `min..max`, along one axis: the
 /// pixels cut from its start and the pixels left, or `None` if none are.
 ///
@@ -154,7 +157,7 @@ impl Layout {
     /// A glyph paints only the cells of its cluster, and only its row. Above
     /// the row it also keeps [`CellMetrics::descent`] pixels: accents on
     /// capitals reach there, and letters can differ only there, such as `Ắ`
-    /// and `Ẳ`. Below the row it keeps nothing.
+    /// and `Ẳ`. Below the row it keeps [`BELOW_ROW`] pixels.
     pub(crate) fn quad(
         &self,
         row: usize,
@@ -172,7 +175,8 @@ impl Layout {
         let y = cell_y + ascent + glyph.offset[1] - entry.top as f32;
         let right = cell_x + glyph.cells as f32 * width;
         let (cut_x, w) = clip_axis(x, entry.size[0] as f32, cell_x, right)?;
-        let (cut_y, h) = clip_axis(y, entry.size[1] as f32, cell_y - descent, cell_y + height)?;
+        let bottom = cell_y + height + BELOW_ROW;
+        let (cut_y, h) = clip_axis(y, entry.size[1] as f32, cell_y - descent, bottom)?;
         let [x, y] = [x + cut_x, y + cut_y];
         if x >= self.viewport[0] || y >= self.viewport[1] || x + w <= 0.0 || y + h <= 0.0 {
             return None;
@@ -630,14 +634,14 @@ mod tests {
     }
 
     #[test]
-    fn nothing_is_painted_below_the_row() {
+    fn marks_below_the_row_keep_only_two_pixels() {
         // Row 1 ends at y 48. The bitmap starts 2 px above the baseline, at
         // y 42, and is 20 px tall.
         let q = layout()
             .quad(1, &glyph(1, 1), &bitmap(0, 2, [8, 20]))
             .unwrap();
         assert_eq!(q.position, [18.0, 42.0]);
-        assert_eq!(q.size, [8.0, 6.0]);
+        assert_eq!(q.size, [8.0, 8.0], "2 px below the row");
         assert_eq!(q.uv, [5.0, 7.0], "the top of the bitmap stays");
     }
 
@@ -647,9 +651,9 @@ mod tests {
         // Left and right of cell (0, 1), which spans x 18..28.
         assert!(l.quad(0, &glyph(1, 1), &bitmap(-8, 12, [8, 12])).is_none());
         assert!(l.quad(0, &glyph(1, 1), &bitmap(10, 12, [8, 12])).is_none());
-        // Row 1 keeps y 24..48: this ends at y 24, and this starts at y 48.
+        // Row 1 keeps y 24..50: this ends at y 24, and this starts at y 50.
         assert!(l.quad(1, &glyph(1, 1), &bitmap(0, 24, [8, 4])).is_none());
-        assert!(l.quad(1, &glyph(1, 1), &bitmap(0, -4, [8, 4])).is_none());
+        assert!(l.quad(1, &glyph(1, 1), &bitmap(0, -6, [8, 4])).is_none());
     }
 
     #[test]
@@ -683,7 +687,8 @@ mod tests {
     proptest::proptest! {
         /// Whatever a font's bitmap looks like, what is drawn is exactly the
         /// part of it in the cluster's cells and the row, with the descent
-        /// above, and each pixel shows the texel it would show uncut.
+        /// above and two pixels below, and each pixel shows the texel it
+        /// would show uncut.
         #[test]
         fn prop_quads_are_the_part_of_the_bitmap_in_their_cells(
             (row, column, cells) in (0usize..4, 0usize..12, 1u32..4),
@@ -699,14 +704,15 @@ mod tests {
             let bitmap = bitmap(left, top, [width, height]);
 
             // The same rectangles in integers: the bitmap, and where it may
-            // paint. The metrics of `layout` are 10 x 20 with a descent of 4.
+            // paint. The metrics of `layout` are 10 x 20 with a descent of 4,
+            // and 2 px stay below the row.
             let (cell_x, cell_y) = (8 + 10 * column as i32, 8 + 20 * row as i32);
             let x0 = cell_x + offset_x + left;
             let y0 = cell_y + 16 + offset_y - top;
             let from_x = x0.max(cell_x);
             let to_x = (x0 + width as i32).min(cell_x + 10 * cells as i32);
             let from_y = y0.max(cell_y - 4);
-            let to_y = (y0 + height as i32).min(cell_y + 20);
+            let to_y = (y0 + height as i32).min(cell_y + 22);
             let shows = from_x < to_x && from_y < to_y;
             let on_surface = from_x < 200 && from_y < 100 && to_x > 0 && to_y > 0;
 
