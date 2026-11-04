@@ -79,6 +79,11 @@ item notes when it must be settled.
   (`InvalidBytes`, ADR 0040).
 - Horizontal mouse wheel and trackpad scrolling: the view scrolls only
   vertically, and auto-hscroll keeps the cursor in view.
+- Boxes of invisible characters are solid rectangles with no border or gap, so
+  neighboring ones read as one band, and only their labels tell them apart
+  (`ui.md`). Decide on a gap or a border together with the theme. Text-grid
+  snapshots do not show where one box ends
+  ([ADR 0045](adr/0045-text-grid-snapshots.md)), so a new mark may be needed.
 - Memory of very large files: a 1 GB file takes about 1.4 GB, and a binary
   file of random bytes about 3 bytes in the rope and 4 in the invalid-byte
   table per invalid byte. Nothing limits the size of a file opened: decide
