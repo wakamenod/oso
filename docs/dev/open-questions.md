@@ -30,10 +30,10 @@ item notes when it must be settled.
   matter, record GPU completion too, in dev builds. Key samples also end at
   the first frame after a key, even if glyphs fill in over the next ones.
 - Rendering: a multi-row cluster iterator that keeps one cursor across
-  rows, instead of a seek per row. Since M1-6 a cached row is reused
-  without a seek while the buffer's revision holds, and only rows shaped
-  or rechecked after a change seek; a frame costs 0.07 to 0.5 ms of CPU
-  (p50 to p99), so this waits until a profile shows it.
+  rows, instead of a seek per row. A cached row is reused without a seek
+  while the buffer's revision holds. After a change every visible row seeks
+  and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
+  rows of ordinary text, so this waits until a profile shows it.
 - Horizontal scroll extent needs the widest row, and the bidi-control
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
   summary tracks neither yet; add them when M2 needs them.
@@ -95,8 +95,20 @@ item notes when it must be settled.
 - Whether `set_ime_allowed(false)` is enough to switch the IME off on macOS, or
   oso must switch the input source itself. The logging branch beside M2-4 finds
   out.
+- Glyphs under the cursor box take `cursor_color` for their whole quad, including
+  pixels outside the box, so ink above or below the row or in a ligature's other
+  cells is drawn in the background color. Split the quad at the box
+  ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
 
 ## M3
+
+- With configurable fonts: `Placer::place` ends a span where the style changes,
+  so a shaper cluster crossing a boundary between text and a label is cut to its
+  first cell, and the next grapheme's cell stays empty. Menlo forms no such
+  cluster: no ASCII pair across such a boundary shaped as one. SF Mono has not
+  been checked. Shape labels apart from the text around them, or otherwise keep
+  them out of shaping context, before fonts become configurable
+  ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
 
 - User-defined secret patterns ([ADR 0028](adr/0028-secrets-handling.md)) need the
   resolved paths kept, or resolving again, so config reload can judge open buffers

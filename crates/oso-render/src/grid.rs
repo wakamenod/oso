@@ -23,7 +23,8 @@ pub(crate) struct PlacedGlyph {
     /// The first cell of the glyph's cluster, counted from the row start.
     pub(crate) column: usize,
     /// The cells the cluster takes: 1 for half-width, 2 for full-width,
-    /// more for a ligature over several clusters.
+    /// more for a ligature over several clusters. The glyph paints only
+    /// these cells.
     pub(crate) cells: u32,
     /// Pen position relative to the cluster's first cell, at the baseline,
     /// in whole pixels; y grows downwards. Centers glyphs whose advance is
@@ -103,12 +104,15 @@ impl Placer {
         }
 
         // Group graphemes into spans, from one shaper cluster start to the
-        // next.
+        // next, or to where the style changes: an escape's label keeps its
+        // own cells whatever follows it.
         self.spans.clear();
         self.span_of.clear();
         for (i, g) in graphemes.iter().enumerate() {
             match self.spans.last_mut() {
-                Some(span) if !self.starts[i] => span.cells = span.cells.saturating_add(g.cells),
+                Some(span) if !self.starts[i] && span.style == g.style => {
+                    span.cells = span.cells.saturating_add(g.cells);
+                }
                 _ => self.spans.push(Span {
                     column: g.column,
                     cells: g.cells,
@@ -340,6 +344,21 @@ mod tests {
             styles,
             [CellStyle::Text, CellStyle::Escape, CellStyle::Escape]
         );
+    }
+
+    #[test]
+    fn a_span_ends_where_the_style_changes() {
+        // Text with no glyph of its own follows the last cell of a label.
+        let text = "Ex";
+        let mut graphemes = graphemes(text);
+        graphemes[0].style = CellStyle::Boxed;
+        let mut glyphs = shape_naively(text);
+        glyphs.pop();
+        let mut out = Vec::new();
+        Placer::default().place(&graphemes, &glyphs, CELL, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].cells, 1);
+        assert_eq!(out[0].offset, [0.0, 0.0]);
     }
 
     #[test]
