@@ -1,5 +1,7 @@
 //! The control socket where it is not implemented yet (Windows, ADR 0032).
 //! The API matches the Unix one, and every operation fails.
+//!
+//! Must not depend on: OS bindings or `text`.
 
 use std::convert::Infallible;
 use std::io::{self, Read, Write};

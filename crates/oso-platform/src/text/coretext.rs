@@ -1,5 +1,8 @@
 //! The CoreText text system (macOS, ADR 0036).
 //!
+//! Must not depend on: `control`, `oso-core` or the GPU. CoreText types do not
+//! leave this file.
+//!
 //! All `unsafe` code of the text system is in this file: thin calls into
 //! CoreText and CoreGraphics through the objc2 bindings. The bindings mark
 //! even plain getters `unsafe`, so most blocks only need a valid object.

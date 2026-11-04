@@ -1,5 +1,7 @@
-//! The text system: font loading, shaping onto the cell grid and glyph
-//! rasterizing, behind one trait (ADR 0005, ADR 0036).
+//! The text system: font loading, shaping and glyph rasterizing, behind one
+//! trait (ADR 0005, ADR 0036).
+//!
+//! Must not depend on: `control`, `oso-core` or the GPU.
 //!
 //! - macOS uses CoreText.
 //! - Other systems have no backend yet: [`load`] reports
