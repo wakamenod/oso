@@ -104,8 +104,9 @@ secret-pattern buffers from leaving through the socket.
   build, 0.7 s to start and hand over, and up to 0.2 s to notice the change.
 - The new window appears at its default place and moves to the old one's, and
   briefly both are open. Whether it takes the keyboard focus depends on the
-  window system. Where it applies a size only later, the view can move to keep
-  the cursor in sight when the resize arrives.
+  window system. The view takes the old window's size at once, so positions are
+  restored against it. If the window ends up another size, the view can move to
+  keep the cursor in sight.
 - Input the old window takes between the export and its exit, about 30 ms, is
   lost. From M2 this could be a keystroke of text.
 - `oso-platform` now depends on `log`, in dev builds only.

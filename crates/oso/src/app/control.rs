@@ -142,19 +142,18 @@ impl App {
             }
         }
         self.editor.show(shown);
-        // The size first, so that positions are restored against it where the
-        // window system applies it at once. Elsewhere the view can still move
-        // to keep the cursor in sight when the resize arrives.
+        // The size first, so that positions are restored against it. Most window
+        // systems apply it later, so the view takes it now, and a `Resized` event
+        // corrects this if the window ends up another size.
         if let (Some(view), Some(frame)) = (&mut self.view, state.frame) {
             if let Some((x, y)) = frame.position {
                 view.window.set_outer_position(PhysicalPosition::new(x, y));
             }
-            let size = PhysicalSize::new(frame.width, frame.height);
-            if let Some(size) = view.window.request_inner_size(size) {
-                let redraw = view.render_state.resize(size.width, size.height);
-                view.redraw_if(redraw);
-                self.update_view_size();
-            }
+            let wanted = PhysicalSize::new(frame.width, frame.height);
+            let size = view.window.request_inner_size(wanted).unwrap_or(wanted);
+            let redraw = view.render_state.resize(size.width, size.height);
+            view.redraw_if(redraw);
+            self.update_view_size();
         }
         self.restore = Some(handoff::Restore {
             buffer: shown,
