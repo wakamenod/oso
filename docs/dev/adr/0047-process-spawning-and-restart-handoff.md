@@ -106,8 +106,8 @@ secret-pattern buffers from leaving through the socket.
   briefly both are open. Whether it takes the keyboard focus depends on the
   window system. Where it applies a size only later, the view can move to keep
   the cursor in sight when the resize arrives.
-- Input the old window takes between the export and its exit, a few
-  milliseconds, is lost. From M2 this could be a keystroke of text.
+- Input the old window takes between the export and its exit, about 30 ms, is
+  lost. From M2 this could be a keystroke of text.
 - `oso-platform` now depends on `log`, in dev builds only.
 - `oso dev` keeps running the code it was started with, so a change to the
   supervisor needs a new `just dev`.
