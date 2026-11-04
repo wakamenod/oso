@@ -279,10 +279,11 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 ### Persistence
 
-There is no periodic auto-save and there are no backup files. If oso panics,
-unsaved buffers are written to a private directory (mode `0700`, files
-`0600`), skipping secret-looking files. Saving uses a temporary file, fsync and
-rename. See [ADR 0013](adr/0013-persistence.md).
+There is no periodic auto-save and there are no backup files. If oso panics or
+the OS ends it, unsaved buffers are written to a private directory (mode
+`0700`, files `0600`), skipping secret-looking files. Saving uses a temporary
+file, fsync and rename. See [ADR 0013](adr/0013-persistence.md) and
+[ADR 0051](adr/0051-m2-plan-decisions.md).
 
 ## Security architecture (summary)
 
@@ -309,7 +310,8 @@ Full details are in [`security.md`](security.md).
     `oso-platform::process`.
   - The state holds paths and positions and never text, so the new instance
     reads every file from disk. Unsaved content joins it with M2
-    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)); undo history
+    does not ([ADR 0051](adr/0051-m2-plan-decisions.md)).
 - **Control socket:** agents can send keys, run commands, read state and take
   screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
   JSON Lines, and `oso ctl` is the client

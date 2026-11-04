@@ -108,25 +108,97 @@ M1 is built in this order. Each step is one PR.
 
 ### M2 — Editor (start using oso for text and notes)
 
-- Insertion and deletion; Japanese input through the macOS IME, switched off
-  automatically in the minibuffer and isearch.
-- Undo/redo, safe save and emergency save on panic.
-- Kill ring, mark and region, multiple cursors.
-- isearch (`C-s`/`C-r`).
-- Minibuffer with fuzzy matching and preview: `M-x`, `C-x C-f`, `C-x b`, `C-g`.
-- The UI from [`ui.md`](ui.md): top-center minibuffer with in-popup
-  preview, echo area, per-window modelines, isearch match count, inline IME
-  preedit, visual aids, and the dark/light theme
-  ([ADR 0026](adr/0026-m2-ui-layout.md), [ADR 0027](adr/0027-theme.md)).
-- Reloading files changed on disk ([ADR 0029](adr/0029-file-changes-on-disk.md)).
-- Editing command semantics from [ADR 0030](adr/0030-m2-editing-commands.md):
-  the author's key customizations, linear undo/redo (`C-z`/`C-M-z`), `M-y`
-  from the kill ring, Japanese word motion, multiple-cursor keys,
-  path-segment file completion and smart-case isearch.
-- Command = Meta, Option = Super.
+M2 is built in this order. Each step is one PR, and a step starts as soon as
+what it depends on has merged, with at most three running at once. The
+decisions behind this plan are in
+[ADR 0051](adr/0051-m2-plan-decisions.md). The UI is in [`ui.md`](ui.md)
+([ADR 0026](adr/0026-m2-ui-layout.md)), and command semantics are in
+[ADR 0030](adr/0030-m2-editing-commands.md). Command = Meta and Option = Super
+throughout.
+
+**The base.** Text can change only once all of this holds.
+
+- **In parallel:**
+  - **M2-0**: make room, with no change in behavior. Commands and bindings in one
+    module per feature, `app.rs` split into input, drawing and events, and
+    `Window::scroll` private.
+  - **M2-1**: the edit core in `oso-core`: edits applied atomically across all
+    cursors, selections mapped in every window, the modified flag, linear
+    undo/redo with one step per command, and the message store
+    ([ADR 0007](adr/0007-multi-cursor.md)).
+  - **M2-3**: shaped rows compared by content, so editing shows no stale glyphs
+    and reshapes only rows whose text changed.
+- **M2-2** (after M2-1): `oso dev` holds a restart while a buffer is modified, and
+  never closes or kills an instance that has been edited
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+- **M2-4** (after M2-0 to M2-3): typing: self-insert, `RET`, `DEL`, `C-d`, `TAB`,
+  `C-z`/`C-M-z`, and a typing metric in the benchmarks. A throwaway branch that
+  logs IME events runs alongside it, and its findings go to M2-12.
+
+**The screen, and keeping work safe.**
+
+- **In parallel, after M2-4:**
+  - **M2-5**: `oso_core::frame`, the pure layout of a frame into regions, and
+    text-grid snapshots that compose them. The modeline and echo rows are
+    reserved.
+  - **M2-8**: safe save (`C-x C-s`) on a background thread, and a guard on exiting
+    with unsaved work ([ADR 0013](adr/0013-persistence.md),
+    [ADR 0029](adr/0029-file-changes-on-disk.md)).
+  - **M2-9**: word motion with Japanese rules, `C-a`/`C-e` as in mwim, `track-eol`,
+    `C-u` and `M-<digit>`, `C-l`, and the horizontal wheel.
+- **M2-6** (after M2-5, and after the work in progress in the renderer's text pass
+  merges): a list of panes drawn with clipping and layers, the base of everything
+  below that draws ([ADR 0008](adr/0008-floating-ui.md)).
+- **M2-7** (after M2-6): modeline, echo area, `*Messages*` and internal buffers.
+- **M2-10** (after M2-8): emergency save on a panic or an OS-initiated exit, the
+  panic hook, and no core dumps ([ADR 0013](adr/0013-persistence.md),
+  [ADR 0014](adr/0014-panic-strategy.md), [ADR 0028](adr/0028-secrets-handling.md)).
+- **M2-11** (after M2-7 and M2-10): recovering an emergency copy.
+- **M2-12** (after M2-4 and M2-6): the macOS IME: inline preedit that pushes the
+  text after it, the candidate window, one undo step per commit, and off in the
+  minibuffer, isearch and menus.
+
+**The author can edit real notes without risking them once M2-12 has merged,** with
+M2-4, M2-7, M2-8, M2-10 and M2-11. Files open only as `oso FILE`, and `oso dev` holds
+restarts while text is unsaved. There is no kill and yank, opening files from inside,
+search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
+
+**Everyday editing.**
+
+- **M2-13** (after M2-6): mark and region, drawn as pane decorations.
+- **M2-14** (after M2-13): kill ring, `C-w`, `M-w`, `C-k`, `C-y`, typing over a
+  region, per-cursor kills and the OS clipboard.
+- **M2-15** (after M2-2, M2-7, M2-13 and M2-14): `oso dev` carries unsaved text, and
+  sends build errors to the echo area
+  ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
+  [ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+- **M2-16** (after M2-7): floating windows and minibuffer input, reading a command's
+  arguments, yes/no prompts and the `C-g` chain ([ADR 0008](adr/0008-floating-ui.md)).
+- **M2-17** (after M2-16): completion: the orderless matcher, 18 candidate rows,
+  annotations, history and `M-x`.
+- **M2-18** (after M2-8 and M2-17): `C-x C-f` with path-segment completion on a
+  worker thread, `C-x C-w`, and asking before opening files of 2 GiB or more.
+- **M2-19** (after M2-17): `C-x b` with in-popup preview, `kill-buffer`, distinct
+  names for files with one name, and `M-,`/`M-/`.
+- **M2-20** (after M2-7 and M2-13): isearch (`C-s`/`C-r`) with smart case, match
+  highlighting and a count from the background.
+- **M2-21** (after M2-14, M2-17 and M2-20): multiple-cursor keys, and `M-y` from the
+  kill ring ([ADR 0007](adr/0007-multi-cursor.md)).
+- **M2-22** (after M2-8 and M2-16): reloading files changed on disk
+  ([ADR 0029](adr/0029-file-changes-on-disk.md)).
+- **M2-23** (after M2-13, and after the work in the text pass merges): the dark and
+  light theme with the contrast check, text gamma, and gaps between invisible boxes
+  ([ADR 0027](adr/0027-theme.md)).
+- **M2-24** (after M2-23): visual aids: whitespace, current line, cursor flash and
+  line numbers.
+- **M2-25** (after M2-9 and M2-24): soft wrap, with the WrapMap
+  ([ADR 0006](adr/0006-display-model.md)).
 
 ### M3 — Coding
 
+- Loading the TOML configuration, with a user key layer above the global keymap
+  ([ADR 0019](adr/0019-configuration.md),
+  [ADR 0051](adr/0051-m2-plan-decisions.md)).
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML.
 - Window splits, indentation, project trust model.
 - Project file finding and asynchronous ripgrep search.

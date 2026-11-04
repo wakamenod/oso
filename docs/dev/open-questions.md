@@ -29,16 +29,6 @@ item notes when it must be settled.
 - Key latency leaves out the GPU's work. If a frame's GPU cost starts to
   matter, record GPU completion too, in dev builds. Key samples also end at
   the first frame after a key, even if glyphs fill in over the next ones.
-- `open-file` over the control socket lets a same-user client that is
-  sandboxed away from a file have an unsandboxed dev instance load it and show
-  it in a screenshot. `C-x C-f` over `send-keys` will do the same in M2. ADR
-  0044's trust model covers same-user clients; decide whether it should say
-  this.
-- Without the default menu there are no Command shortcuts such as Command-Q
-  and Command-H. Decide with Command = Meta (M2) whether oso builds its own
-  menu, after the first frame.
-- Text gamma: text is blended in linear space on the sRGB surface, so light
-  text on dark looks heavier than in native apps. Decide with the theme.
 - Rendering: a multi-row cluster iterator that keeps one cursor across
   rows, instead of a seek per row. Since M1-6 a cached row is reused
   without a seek while the buffer's revision holds, and only rows shaped
@@ -76,69 +66,34 @@ item notes when it must be settled.
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
   commands.
-- Two files with the same name need distinct buffer names (Emacs's
-  uniquify); the editor, which knows the other buffers, should name them.
-- The invalid-byte table lives in the TabMap and is keyed by buffer
-  offsets. When the FoldMap or InlayMap goes below the TabMap, move it to
-  the lowest layer that still sees buffer offsets, or to `DisplayMap`.
-  Its API (`DisplayMap::invalid_bytes`) does not change.
 - `Window::scroll` is a public field, so code can change the top row
   without `Window::set_top`, which moves cursors into view. Make it
   private with a getter before recenter (`C-l`), splits or `goto-line`
   add more writers.
 
-- Editing must invalidate shaped rows by edit range
-  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)). The
-  shaping cache checks only the buffer offsets a row covers, which an edit
-  that keeps the row's length does not change.
 - isearch must not match the U+FFFD of an invalid byte
   (`InvalidBytes`, ADR 0040).
 - Horizontal mouse wheel and trackpad scrolling: the view scrolls only
   vertically, and auto-hscroll keeps the cursor in view.
-- Boxes of invisible characters are solid rectangles with no border or gap, so
-  neighboring ones read as one band, and only their labels tell them apart
-  (`ui.md`). Decide on a gap or a border together with the theme. Text-grid
-  snapshots do not show where one box ends
-  ([ADR 0045](adr/0045-text-grid-snapshots.md)), so a new mark may be needed.
-- Memory of very large files: a 1 GB file takes about 1.4 GB, and a binary
-  file of random bytes about 3 bytes in the rope and 4 in the invalid-byte
-  table per invalid byte. Nothing limits the size of a file opened: decide
-  on a threshold that asks first, as Emacs's `large-file-warning-threshold`
-  does, once the minibuffer exists. Running out of memory aborts, so
-  emergency save would not run.
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
 
-- Secret-pattern buffers in M2
-  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)): their
-  unsaved edits cannot pass through `export-state`, so decide how `oso dev`
-  keeps them (for example, keep the old instance). The emergency save skips
-  them too, which loses unsaved work in a file that only could not be
-  resolved, so decide whether to tell that case apart. User-defined patterns
-  ([ADR 0028](adr/0028-secrets-handling.md)) need the resolved paths kept, or
-  resolving again, so config reload can judge open buffers again.
-
-- `oso dev` once M2 can edit
-  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)): carry unsaved
-  text of buffers that are not secret through the state, in pieces that fit the
-  line limit; send build errors to the echo area; and do not close a clean
-  instance without asking if it has been edited.
-
-- The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
-  Rust's default hook prints panic messages, which may quote buffer text,
-  to stderr even for panics caught at the command boundary. Decide what
-  the hook prints, in dev and release builds
-  ([ADR 0028](adr/0028-secrets-handling.md),
-  [ADR 0034](adr/0034-command-registry-and-keymaps.md)).
-
-- User key bindings from TOML ([ADR 0019](adr/0019-configuration.md)):
-  `Keymap::bind` refuses to rebind, so decide between a user layer above
-  the global keymap and explicit rebinding and unbinding
-  ([ADR 0034](adr/0034-command-registry-and-keymaps.md)).
+- Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
+  dependency approval.
+- Whether `set_ime_allowed(false)` is enough to switch the IME off on macOS, or
+  oso must switch the input source itself. The logging branch beside M2-4 finds
+  out.
 
 ## M3
 
+- User-defined secret patterns ([ADR 0028](adr/0028-secrets-handling.md)) need the
+  resolved paths kept, or resolving again, so config reload can judge open buffers
+  again.
+- The invalid-byte table lives in the TabMap and is keyed by buffer
+  offsets. When the FoldMap or InlayMap goes below the TabMap, move it to
+  the lowest layer that still sees buffer offsets, or to `DisplayMap`.
+  Its API (`DisplayMap::invalid_bytes`) does not change.
 - Initial set of tree-sitter grammars, beyond Rust, Markdown and TOML.
 - Fuzzing targets and how long they run. The `SumTree`, the rope, the
   display model under random edits, and the streaming decoder and load

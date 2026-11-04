@@ -122,10 +122,11 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 
 - There is no periodic auto-save, no backup files and no persisted undo
   history.
-- On panic, unsaved buffers are written to a private directory (`0700`,
-  files `0600`). Files matching secret patterns are excluded
-  ([ADR 0028](adr/0028-secrets-handling.md) lists the defaults; users can
-  extend them).
+- On a panic, or when the OS ends the app, unsaved buffers are written to a
+  private directory (`0700`, files `0600`). Files matching secret patterns are
+  excluded ([ADR 0028](adr/0028-secrets-handling.md) lists the defaults; users
+  can extend them), and a path that could not be resolved is saved only if no
+  name on it matches ([ADR 0051](adr/0051-m2-plan-decisions.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. Core
   dumps are disabled, and panic messages never include buffer contents
   ([ADR 0028](adr/0028-secrets-handling.md)).
@@ -198,7 +199,9 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this.
   This is reviewed when commands that spawn processes arrive (M3 onward)
-  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). A sandboxed
+  client of the same user is trusted too, so giving it the socket gives it what
+  the dev instance can read ([ADR 0051](adr/0051-m2-plan-decisions.md)).
 - Secret-pattern buffers give no text and no pixels over the socket: while
   one is shown, `screenshot` fails, `get-text` fails and `get-state` returns
   only its metadata. The path as opened, each symlink's target and the

@@ -57,6 +57,7 @@ old one's status.
 | 0048 | [Permission prompts depend on the mode](0048-permission-prompts-by-mode.md) | Accepted |
 | 0049 | [End-to-end test harness](0049-end-to-end-test-harness.md) | Accepted |
 | 0050 | [Test quality checks](0050-test-quality-checks.md) | Accepted |
+| 0051 | [M2 plan: scope, safety and display decisions](0051-m2-plan-decisions.md) | Accepted |
 
 ## Template
 
