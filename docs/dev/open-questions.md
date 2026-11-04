@@ -95,8 +95,20 @@ item notes when it must be settled.
 - Whether `set_ime_allowed(false)` is enough to switch the IME off on macOS, or
   oso must switch the input source itself. The logging branch beside M2-4 finds
   out.
+- Glyphs under the cursor box take `cursor_color` for their whole quad, including
+  pixels outside the box, so ink above or below the row or in a ligature's other
+  cells is drawn in the background color. Split the quad at the box
+  ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
 
 ## M3
+
+- With configurable fonts: `Placer::place` ends a span where the style changes,
+  so a shaper cluster crossing a boundary between text and a label is cut to its
+  first cell, and the next grapheme's cell stays empty. Menlo forms no such
+  cluster: no ASCII pair across such a boundary shaped as one. SF Mono has not
+  been checked. Shape labels apart from the text around them, or otherwise keep
+  them out of shaping context, before fonts become configurable
+  ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
 
 - User-defined secret patterns ([ADR 0028](adr/0028-secrets-handling.md)) need the
   resolved paths kept, or resolving again, so config reload can judge open buffers
