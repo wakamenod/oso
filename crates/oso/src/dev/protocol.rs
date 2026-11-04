@@ -29,6 +29,10 @@ pub const MAX_ID: usize = 256;
 /// The most characters of a method name echoed in an error.
 const MAX_ECHO: usize = 64;
 
+/// The longest command name `run-command` accepts, in bytes. Names are
+/// echoed in errors, so this keeps responses small.
+const MAX_COMMAND_NAME: usize = 256;
+
 /// A method and its parsed parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
@@ -38,8 +42,14 @@ pub enum Method {
     SendKeys(Vec<KeyPress>),
     /// A PNG of the current frame.
     Screenshot,
-    /// A minimal view of the editor state (M1-7b extends it).
+    /// The editor state, with the selected window's visible text.
     GetState,
+    /// Whole rows of the selected window's buffer.
+    GetText { start_row: usize, rows: usize },
+    /// Run a registered command, with a numeric argument if it takes one.
+    RunCommand { name: String, arg: Option<isize> },
+    /// Show a buffer in the selected window.
+    ShowBuffer(u64),
 }
 
 /// A parsed request.
@@ -99,6 +109,22 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "screenshot" => Method::Screenshot,
         "get-state" => Method::GetState,
         "send-keys" => Method::SendKeys(parse_keys(params).map_err(|m| bad(&id, m))?),
+        "run-command" => parse_run_command(params).map_err(|m| bad(&id, m))?,
+        "get-text" => Method::GetText {
+            start_row: parse_size(params, "get-text", "start_row").map_err(|m| bad(&id, m))?,
+            rows: parse_size(params, "get-text", "rows").map_err(|m| bad(&id, m))?,
+        },
+        "show-buffer" => Method::ShowBuffer(
+            params
+                .get("buffer")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| {
+                    bad(
+                        &id,
+                        "show-buffer needs a numeric parameter \"buffer\"".into(),
+                    )
+                })?,
+        ),
         other => {
             let mut shown: String = other.chars().take(MAX_ECHO).collect();
             if shown.len() < other.len() {
@@ -123,6 +149,40 @@ fn parse_keys(params: &Map<String, Value>) -> Result<Vec<KeyPress>, String> {
         return Err(format!("send-keys takes at most {MAX_KEYS} keys"));
     }
     Ok(keys)
+}
+
+/// The parameters of `run-command`: a string `name` and an optional
+/// integer `arg`.
+fn parse_run_command(params: &Map<String, Value>) -> Result<Method, String> {
+    let Some(Value::String(name)) = params.get("name") else {
+        return Err("run-command needs a string parameter \"name\"".into());
+    };
+    if name.len() > MAX_COMMAND_NAME {
+        return Err(format!(
+            "run-command takes names of at most {MAX_COMMAND_NAME} bytes"
+        ));
+    }
+    let arg = match params.get("arg") {
+        None | Some(Value::Null) => None,
+        Some(arg) => Some(
+            arg.as_i64()
+                .and_then(|arg| isize::try_from(arg).ok())
+                .ok_or("run-command's \"arg\" must be an integer")?,
+        ),
+    };
+    Ok(Method::RunCommand {
+        name: name.clone(),
+        arg,
+    })
+}
+
+/// A required parameter that is a non-negative integer.
+fn parse_size(params: &Map<String, Value>, method: &str, name: &str) -> Result<usize, String> {
+    params
+        .get(name)
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .ok_or_else(|| format!("{method} needs a non-negative integer parameter {name:?}"))
 }
 
 /// A success response line, without the newline.
@@ -207,8 +267,8 @@ mod tests {
             (json!(7), "params must be an object".into())
         );
         assert_eq!(
-            error(r#"{"id": 7, "method": "run-command"}"#),
-            (json!(7), "unknown method \"run-command\"".into())
+            error(r#"{"id": 7, "method": "no-such-method"}"#),
+            (json!(7), "unknown method \"no-such-method\"".into())
         );
     }
 
@@ -253,6 +313,73 @@ mod tests {
         );
         let most = vec!["a"; MAX_KEYS].join(" ");
         assert!(parse(&line(&format!(r#"{{"keys": "{most}"}}"#))).is_ok());
+    }
+
+    #[test]
+    fn parses_run_command() {
+        let line = |params: &str| format!(r#"{{"method": "run-command", "params": {params}}}"#);
+        assert_eq!(
+            parsed(&line(r#"{"name": "forward-char"}"#)).method,
+            Method::RunCommand {
+                name: "forward-char".into(),
+                arg: None
+            }
+        );
+        assert_eq!(
+            parsed(&line(r#"{"name": "next-line", "arg": -3}"#)).method,
+            Method::RunCommand {
+                name: "next-line".into(),
+                arg: Some(-3)
+            }
+        );
+        assert!(error(&line("{}")).1.contains("\"name\""));
+        assert!(error(&line(r#"{"name": 1}"#)).1.contains("\"name\""));
+        assert!(
+            error(&line(r#"{"name": "x", "arg": "2"}"#))
+                .1
+                .contains("integer")
+        );
+        assert!(
+            error(&line(r#"{"name": "x", "arg": 1.5}"#))
+                .1
+                .contains("integer")
+        );
+        let long = "a".repeat(MAX_LINE / 2);
+        let long = error(&line(&format!(r#"{{"name": "{long}"}}"#))).1;
+        assert!(long.len() < 100, "{long}");
+    }
+
+    #[test]
+    fn parses_get_text_and_show_buffer() {
+        let line =
+            |method: &str, params: &str| format!(r#"{{"method": "{method}", "params": {params}}}"#);
+        assert_eq!(
+            parsed(&line("get-text", r#"{"start_row": 5, "rows": 2}"#)).method,
+            Method::GetText {
+                start_row: 5,
+                rows: 2
+            }
+        );
+        assert!(
+            error(&line("get-text", r#"{"rows": 2}"#))
+                .1
+                .contains("start_row")
+        );
+        assert!(
+            error(&line("get-text", r#"{"start_row": -1, "rows": 2}"#))
+                .1
+                .contains("start_row")
+        );
+        assert!(
+            error(&line("get-text", r#"{"start_row": 0}"#))
+                .1
+                .contains("rows")
+        );
+        assert_eq!(
+            parsed(&line("show-buffer", r#"{"buffer": 3}"#)).method,
+            Method::ShowBuffer(3)
+        );
+        assert!(error(&line("show-buffer", "{}")).1.contains("\"buffer\""));
     }
 
     #[test]

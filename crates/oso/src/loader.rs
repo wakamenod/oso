@@ -15,6 +15,10 @@
 //! them, and a window opened after the first read draws it in its first
 //! frame.
 //!
+//! Before reading anything, the thread resolves the path, so that the UI
+//! can tell whether the file may hold secrets (ADR 0043) without touching
+//! the file system.
+//!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1).
 
@@ -89,6 +93,9 @@ struct Shared {
     cancel: AtomicBool,
     /// The latest update the UI has not taken.
     latest: Mutex<Option<LoadUpdate>>,
+    /// The canonical path, once resolved: `Some(None)` if it could not be.
+    /// Set before the first update, and taken once.
+    resolved: Mutex<Option<Option<PathBuf>>>,
 }
 
 impl Shared {
@@ -116,6 +123,18 @@ impl LoadHandle {
     /// The latest update, if one arrived since the last call.
     pub fn take(&self) -> Option<LoadUpdate> {
         self.shared.slot().take()
+    }
+
+    /// The file's canonical path, the first time this is called after the
+    /// path was resolved: `Some(None)` if it could not be. Every update
+    /// comes after this is available, so a caller who takes it first never
+    /// handles content without it.
+    pub fn take_resolved(&self) -> Option<Option<PathBuf>> {
+        self.shared
+            .resolved
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
     }
 }
 
@@ -149,6 +168,10 @@ where
             // A panic must not leave the buffer loading for good. Its
             // message, which may quote file content, is dropped.
             let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                *shared
+                    .resolved
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner) = Some(resolve(&path));
                 load(&path, &shared.cancel, &post)
             }));
             match loaded {
@@ -162,6 +185,24 @@ where
             }
         })?;
     Ok(LoadHandle { buffer, shared })
+}
+
+/// The canonical path of a file about to be read, or `None` if nobody can
+/// tell where it leads. A file that does not exist yet counts as being where
+/// its directory really is; a link to nothing does not, since it may point
+/// anywhere.
+fn resolve(path: &Path) -> Option<PathBuf> {
+    match std::fs::canonicalize(path) {
+        Ok(resolved) => Some(resolved),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            if std::fs::symlink_metadata(path).is_ok() {
+                return None;
+            }
+            let directory = std::fs::canonicalize(path.parent()?).ok()?;
+            Some(directory.join(path.file_name()?))
+        }
+        Err(_) => None,
+    }
 }
 
 /// Opens `path` if it is a regular file.
@@ -312,6 +353,44 @@ mod tests {
                 [LoadUpdate::Failed(LoadError::NotAFile)]
             ));
         }
+    }
+
+    #[test]
+    fn resolves_a_new_file_through_its_directory() {
+        let directory = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let new = directory.join("oso-loader-test-new-file");
+        assert_eq!(resolve(&new), Some(new));
+        let nowhere = directory.join("oso-loader-test-no-dir").join("file");
+        assert_eq!(resolve(&nowhere), None, "fails closed");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_links_and_fails_closed_on_a_link_to_nothing() {
+        let directory = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        let target = scratch_file("link-target.txt", b"x");
+        let target = std::fs::canonicalize(target).unwrap();
+        let link = directory.join(format!("oso-loader-test-{}-link", std::process::id()));
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(resolve(&link).as_ref(), Some(&target));
+        std::fs::remove_file(&target).unwrap();
+        assert_eq!(resolve(&link), None, "the target is gone");
+        std::fs::remove_file(&link).unwrap();
+    }
+
+    #[test]
+    fn the_resolved_path_is_there_before_the_first_update() {
+        let path = scratch_file("resolved.txt", b"abc");
+        let (tx, rx) = mpsc::channel();
+        let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(
+            handle.take_resolved(),
+            Some(Some(std::fs::canonicalize(&path).unwrap()))
+        );
+        assert_eq!(handle.take_resolved(), None, "taken once");
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

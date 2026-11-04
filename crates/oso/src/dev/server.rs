@@ -51,6 +51,12 @@ pub enum UiOp {
     Screenshot,
     /// Report the editor state.
     GetState,
+    /// Report whole rows of the selected window's buffer.
+    GetText { start_row: usize, rows: usize },
+    /// Run a registered command by name.
+    RunCommand { name: String, arg: Option<isize> },
+    /// Show a buffer in the selected window.
+    ShowBuffer(u64),
 }
 
 /// A request for the UI thread, with the channel for its reply. Dropping
@@ -208,13 +214,16 @@ where
         Method::SendKeys(keys) => UiOp::SendKeys(keys),
         Method::Screenshot => UiOp::Screenshot,
         Method::GetState => UiOp::GetState,
+        Method::GetText { start_row, rows } => UiOp::GetText { start_row, rows },
+        Method::RunCommand { name, arg } => UiOp::RunCommand { name, arg },
+        Method::ShowBuffer(buffer) => UiOp::ShowBuffer(buffer),
     };
     let (reply, replied) = mpsc::channel();
     if !send(UiRequest { op, reply }) {
         return protocol::failure(&request.id, "the editor is shutting down");
     }
     match replied.recv_timeout(REPLY_TIMEOUT) {
-        Ok(Ok(result)) => protocol::success(&request.id, result),
+        Ok(Ok(result)) => bounded(&request.id, protocol::success(&request.id, result)),
         Ok(Err(message)) => protocol::failure(&request.id, &message),
         Err(mpsc::RecvTimeoutError::Timeout) => {
             protocol::failure(&request.id, "the editor did not reply in time")
@@ -223,6 +232,19 @@ where
             protocol::failure(&request.id, "the editor dropped the request")
         }
     }
+}
+
+/// `line`, or an error in its place if a client could not read it: `oso
+/// ctl` and the protocol stop at [`MAX_LINE`] (ADR 0032).
+fn bounded(id: &Value, line: String) -> String {
+    if line.len() > MAX_LINE {
+        let message = format!(
+            "the response takes {} bytes, more than the {MAX_LINE} a line may hold; ask for less",
+            line.len()
+        );
+        return protocol::failure(id, &message);
+    }
+    line
 }
 
 /// The result of `version`.
@@ -251,12 +273,18 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    /// A fake UI thread: answers keys with their count and state with a
-    /// fixed value, and drops screenshots without replying.
+    /// A fake UI thread: answers keys with their count, state with a fixed
+    /// value, commands with an error or their name, and text with as many
+    /// bytes as `rows` asks for, whatever the limits. Drops screenshots
+    /// without replying.
     fn fake_ui(request: UiRequest) -> bool {
         let result = match request.op {
             UiOp::SendKeys(keys) => Ok(json!({ "keys": keys.len() })),
             UiOp::GetState => Ok(json!({ "cursor": { "position": 3 } })),
+            UiOp::GetText { rows, .. } => Ok(json!({ "text": "x".repeat(rows) })),
+            UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
+            UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),
+            UiOp::ShowBuffer(buffer) => Ok(json!({ "buffer": buffer })),
             UiOp::Screenshot => return true,
         };
         let _ = request.reply.send(result);
@@ -343,6 +371,40 @@ mod tests {
             &protocol::request(7, "version", None),
         );
         assert_eq!(still["id"], 7);
+    }
+
+    #[test]
+    fn commands_reach_the_ui_and_their_errors_come_back() {
+        let (mut reader, mut writer) = connected();
+        let run = |name: &str, arg: Value| {
+            protocol::request(1, "run-command", Some(json!({ "name": name, "arg": arg })))
+        };
+        let ok = call(&mut reader, &mut writer, &run("forward-char", json!(2)));
+        assert_eq!(ok["result"], json!({ "command": "forward-char", "arg": 2 }));
+        let failed = call(&mut reader, &mut writer, &run("fail", json!(null)));
+        assert_eq!(failed["error"]["message"], "fail panicked");
+    }
+
+    #[test]
+    fn a_response_past_the_line_limit_becomes_an_error() {
+        let (mut reader, mut writer) = connected();
+        let text = |rows: usize| {
+            protocol::request(1, "get-text", Some(json!({ "start_row": 0, "rows": rows })))
+        };
+        let fits = MAX_LINE - 100;
+        let ok = call(&mut reader, &mut writer, &text(fits));
+        assert_eq!(ok["result"]["text"].as_str().unwrap().len(), fits);
+        let too_long = call(&mut reader, &mut writer, &text(MAX_LINE));
+        assert_eq!(too_long["id"], 1);
+        let message = too_long["error"]["message"].as_str().unwrap();
+        assert!(message.contains("ask for less"), "{message}");
+        // The connection survives it.
+        let still = call(
+            &mut reader,
+            &mut writer,
+            &protocol::request(2, "version", None),
+        );
+        assert_eq!(still["id"], 2);
     }
 
     #[test]
