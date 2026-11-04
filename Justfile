@@ -202,6 +202,46 @@ mutants-exclusions:
     done < <(sed -n 's/^ *"\(.*\)",$/\1/p' .cargo/mutants.toml | sed 's/\\\\/\\/g')
     exit "$fail"
 
+# Write a coverage summary as Markdown (needs cargo-llvm-cov and `rustup component add llvm-tools`)
+coverage out="target/coverage/summary.md":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{out}}"
+    json="$(dirname "$out")/coverage.json"
+    mkdir -p "$(dirname "$out")"
+    INSTA_UPDATE=no INSTA_FORCE_PASS=0 cargo llvm-cov --locked --workspace --all-features \
+        --json --summary-only --output-path "$json"
+    {
+        echo "# Coverage"
+        echo
+        echo "Lines, functions and regions that \`cargo test\` runs, with the dev features, on $(uname -s). It is a"
+        echo "map of what no test reaches, not a target (ADR 0037). The window, the event loop and the GPU cannot run"
+        echo "here, so \`crates/oso\` and \`crates/oso-render\` read low. Code for other OSes is not counted at all,"
+        echo "and neither are the end-to-end tests. Look at \`crates/oso-core\` first."
+        echo
+        echo "| Crate | Lines | Functions | Regions |"
+        echo "|---|---:|---:|---:|"
+        jq -r '
+            def pct($kind): (map(.summary[$kind].covered) | add) as $hit
+                | (map(.summary[$kind].count) | add) as $all
+                | if $all == 0 then "-" else "\(($hit * 1000 / $all | round) / 10)%" end;
+            .data[0].files
+            | map(. + {crate: (.filename | capture("crates/(?<c>[^/]+)/").c)})
+            | group_by(.crate)[]
+            | "| \(.[0].crate) | \(pct("lines")) | \(pct("functions")) | \(pct("regions")) |"
+        ' "$json"
+        echo
+        echo "<details><summary>By file, least covered first</summary>"
+        echo
+        echo "| File | Lines | Not run |"
+        echo "|---|---:|---:|"
+        jq -r '.data[0].files | sort_by(.summary.lines.percent)[]
+            | "| \(.filename | sub(".*/crates/"; "crates/")) | \(.summary.lines.percent * 10 | round / 10)% | \(.summary.lines.count - .summary.lines.covered) |"' "$json"
+        echo
+        echo "</details>"
+    } >"$out"
+    echo "coverage: $out"
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Architecture guardrails (ADR 0038)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
