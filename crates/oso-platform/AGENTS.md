@@ -14,4 +14,6 @@ control socket transport lives in `control`, behind the `dev` feature.
 - Each OS backend sits in its own `cfg`-gated module. Linux and Windows
   must keep building and passing tests in CI (Tier 2).
 - Module layers are in `guardrails/layers.txt` (`[oso-platform]`).
+- Every Rust file opens with its responsibility and a `Must not depend on:`
+  paragraph (ADR 0041). The test checks names in backticks against the layers.
 - Anything `pub` is in the API snapshot (`just public-api`).

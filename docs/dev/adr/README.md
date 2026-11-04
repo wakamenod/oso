@@ -47,6 +47,8 @@ old one's status.
 | 0038 | [Architecture guardrails](0038-architecture-guardrails.md) | Accepted |
 | 0039 | [Architecture guardrail mechanics](0039-architecture-guardrail-mechanics.md) | Accepted |
 | 0040 | [Buffers, file loading, cursor motion and scrolling](0040-buffers-loading-motion-and-scrolling.md) | Accepted |
+| 0041 | [Module responsibility headers](0041-module-responsibility-headers.md) | Accepted |
+| 0042 | [Statics, API snapshot upkeep and render errors](0042-statics-snapshots-and-render-errors.md) | Accepted |
 
 ## Template
 

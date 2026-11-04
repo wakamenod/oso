@@ -1,5 +1,8 @@
 //! The editor state that commands operate on.
 //!
+//! Must not depend on: `command`, `keymap`, or the host's window, threads or
+//! I/O.
+//!
 //! The host owns one [`Editor`] and lends it to each command through
 //! [`Ctx`](crate::command::Ctx). It holds the buffers and the windows that
 //! show them, each window with its own selection set (ADR 0007). There is

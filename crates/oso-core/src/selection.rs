@@ -1,5 +1,8 @@
 //! Selection sets: a window's cursors (ADR 0007, ADR 0040).
 //!
+//! Must not depend on: `buffer`, `motion` or `window`; it holds offsets and a
+//! goal column, and `motion` decides how they move.
+//!
 //! A window has one or more selections. Commands take the whole set and
 //! move every selection, so multiple cursors (M2) need no new command
 //! signatures. Each selection's mark arrives with marks and regions (M2).

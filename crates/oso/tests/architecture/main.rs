@@ -1,13 +1,17 @@
 //! Architecture guardrails (ADR 0038, ADR 0039): the dependency direction
 //! between crates and between modules, external crates confined to their
-//! owner, the file-size ratchet and the ban on `static mut`. The rules live
-//! in `guardrails/`; the format is described at the top of each file there.
+//! owner, the file-size ratchet, the ban on `static` items and the module
+//! headers. The rules live in `guardrails/`; the format is described at the
+//! top of each file there.
 //!
-//! The checks read source text and manifests, so they need no dependency
-//! and spawn no process. Each module holds one check or one input, with the
-//! unit tests that show it catches a violation; this file holds the checks
-//! run against the workspace.
+//! Must not depend on: any crate outside `std`, spawned processes or the
+//! compiler. The checks read source text and manifests only.
+//!
+//! Each module holds one check or one input, with the unit tests that show
+//! it catches a violation; this file holds the checks run against the
+//! workspace.
 
+mod headers;
 mod lexer;
 mod manifests;
 mod modules;
@@ -22,7 +26,7 @@ use std::path::Path;
 
 use lexer::tokenize;
 use rules::{ROOT, Rules};
-use workspace::{Workspace, read};
+use workspace::{Workspace, read, rust_files};
 
 fn rules(workspace: &Workspace) -> Rules {
     let text = read(&workspace.path("guardrails/layers.txt"));
@@ -101,18 +105,49 @@ fn files_stay_within_the_size_limit() {
 }
 
 #[test]
-fn there_is_no_static_mut() {
+fn there_are_no_statics() {
     let workspace = Workspace::current();
-    let problems: Vec<String> = workspace
-        .rust_files()
-        .iter()
-        .flat_map(|path| {
-            let at = workspace.relative_path(path);
-            statics::static_mut_lines(&tokenize(&read(path))).into_iter().map(move |line| {
-                format!("{at}:{line}: `static mut` is global state (ADR 0038); keep state host-owned")
-            })
-        })
-        .collect();
+    let mut problems = Vec::new();
+    for path in workspace.rust_files() {
+        let at = workspace.relative_path(&path);
+        for line in statics::forbidden_lines(&tokenize(&read(&path))) {
+            problems.push(format!(
+                "{at}:{line}: a `static` is global state (ADR 0038, ADR 0042); keep state \
+                 host-owned, and use a `const` for data"
+            ));
+        }
+    }
+    assert_none(&problems);
+}
+
+#[test]
+fn every_file_states_its_responsibility_and_boundary() {
+    let workspace = Workspace::current();
+    let rules = rules(&workspace);
+    let crates = rules
+        .section("workspace")
+        .expect("[workspace] in guardrails/layers.txt");
+    let mut checked = 0;
+    let mut problems = Vec::new();
+    for krate in workspace.crates() {
+        let name = krate.manifest.name.as_str();
+        let src = krate.dir.join("src");
+        for path in rust_files(&krate.dir) {
+            let at = workspace.relative_path(&path);
+            // tests/ and examples/ have no module layers, only their crate's.
+            let module = path.strip_prefix(&src).ok().map(headers::top_module);
+            let mut scopes = vec![(crates, name)];
+            if let (Some(module), Some(layers)) = (&module, rules.section(name)) {
+                scopes.push((layers, module));
+            }
+            problems.extend(headers::problems(&at, &read(&path), &scopes));
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 20,
+        "the header check sees too few files: {checked}"
+    );
     assert_none(&problems);
 }
 

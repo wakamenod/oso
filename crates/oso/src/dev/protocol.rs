@@ -1,5 +1,8 @@
 //! The control socket's JSON Lines protocol (ADR 0023).
 //!
+//! Must not depend on: sockets, threads or editor state; it only parses and
+//! formats messages.
+//!
 //! - Request: `{"id": 1, "method": "send-keys", "params": {"keys": "C-x"}}`.
 //!   `id` is optional and may be a number, a string or null. `params` is
 //!   optional.

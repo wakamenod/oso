@@ -2,6 +2,9 @@
 //! found from `crate::` and `super::` paths and, in the crate root, bare
 //! paths to child modules.
 //!
+//! Must not depend on: the layer order; it reports edges, and `rules` judges
+//! them.
+//!
 //! Known gaps (ADR 0039): uses inside macros, `#[path]` attributes, and
 //! bare paths in a module that glob-imports the root (`use super::*;` in a
 //! top-level file).

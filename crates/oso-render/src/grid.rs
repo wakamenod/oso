@@ -1,6 +1,8 @@
 //! Placing shaped glyphs on the monospace cell grid (ADR 0005, ADR 0035,
 //! ADR 0036).
 //!
+//! Must not depend on: the GPU, `atlas`, `shape` or `rows`.
+//!
 //! Cells come from the display model (`oso_core::display_map`), so a
 //! cluster takes the same cells here as for cursor motion. The caller
 //! lists the display clusters of the text it shaped; the text system only

@@ -2,6 +2,8 @@
 //! how they grew, and the dependency edges added and removed, compared with
 //! an older checkout. `just health-report` adds the sections that come from
 //! git and clippy.
+//!
+//! Must not depend on: the verdict of any check; it only reports.
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

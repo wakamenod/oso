@@ -1,4 +1,6 @@
 //! The control socket on Unix: a Unix domain socket in a `0700` directory.
+//!
+//! Must not depend on: `text` or the protocol spoken over the socket.
 
 // The only place allowed to open local sockets (clippy.toml).
 #![expect(

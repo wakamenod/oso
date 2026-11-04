@@ -1,6 +1,9 @@
 //! Transport for the dev control socket (ADR 0016, ADR 0032). Dev builds
 //! only: this module exists only with the `dev` feature.
 //!
+//! Must not depend on: `text` or the protocol spoken over the socket; it never
+//! interprets the bytes it moves.
+//!
 //! - The socket lives in a private directory: `$XDG_RUNTIME_DIR/oso` when
 //!   that is set, otherwise `oso-<uid>` in the temporary directory (which is
 //!   per user on macOS). It is created with mode `0700`, and refused if it is

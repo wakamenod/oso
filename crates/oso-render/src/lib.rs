@@ -1,6 +1,6 @@
 //! The wgpu rendering pipeline (ADR 0004).
 //!
-//! This crate does not depend on winit: the caller owns the window, passes it
+//! Must not depend on: winit or `oso`. The caller owns the window, passes it
 //! in as a [`wgpu::DisplayAndWindowHandle`] and its size as plain pixels, and
 //! requests redraws when told to through [`Redraw`].
 
@@ -136,7 +136,7 @@ pub enum RenderError {
     /// The surface still failed after `MAX_RETRIES` retries in a row.
     RetriesExhausted,
     /// Creating the surface again after it was lost failed.
-    RecreateSurface(wgpu::CreateSurfaceError),
+    RecreateSurface(String),
 }
 
 impl std::fmt::Display for RenderError {
@@ -385,7 +385,7 @@ impl RenderState {
                 let surface = self
                     .instance
                     .create_surface(self.target.clone())
-                    .map_err(RenderError::RecreateSurface)?;
+                    .map_err(|e| RenderError::RecreateSurface(e.to_string()))?;
                 surface.configure(&self.device, &self.config);
                 self.surface = Some(surface);
             }

@@ -1,5 +1,8 @@
 //! Informal timings for the rope and the display model (M1-4).
 //!
+//! Must not depend on: other workspace crates or crate internals; it uses
+//! only the public API.
+//!
 //! Run with `cargo run --release -p oso-core --example text_perf`. Shows that
 //! per-query costs do not grow with file size or line length. CI benchmarks
 //! against the budgets arrive in M1-8.

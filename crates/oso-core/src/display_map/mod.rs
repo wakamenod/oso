@@ -2,6 +2,9 @@
 //! and back, in O(log n) (`docs/dev/display-model.md`, ADR 0006,
 //! ADR 0035).
 //!
+//! Must not depend on: `selection`, `buffer`, `window` or other editor state,
+//! fonts or the GPU. It measures cells; it does not draw them.
+//!
 //! The full pipeline is:
 //!
 //! ```text

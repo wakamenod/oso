@@ -1,6 +1,9 @@
 //! Keymaps with prefix keys, and the resolver that turns key presses into
 //! commands (ADR 0034).
 //!
+//! Must not depend on: winit or the concrete commands; the tip crate translates
+//! key events and supplies the bindings.
+//!
 //! - A [`Keymap`] maps a [`KeyPress`] to a command or to a nested prefix
 //!   keymap: `C-x` is a prefix, `C-x C-c` a command under it.
 //! - [`Layers`] are the keymaps active at a moment, highest priority first:

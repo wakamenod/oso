@@ -1,8 +1,10 @@
 //! The application: the window, the event loop handler and the glue
 //! between them and the editor (ADR 0004). It turns winit events into key
 //! presses, wheel scrolling and frames, starts file loads and takes in
-//! their snapshots. Editor logic belongs in `oso-core` and commands, not
-//! here.
+//! their snapshots.
+//!
+//! Must not depend on: wgpu or OS bindings. Editor logic belongs in oso-core
+//! and commands, not here.
 
 use std::path::PathBuf;
 use std::sync::Arc;

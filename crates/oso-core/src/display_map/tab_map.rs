@@ -1,5 +1,8 @@
 //! TabMap: from buffer offsets to rows and cell columns (ADR 0035).
 //!
+//! Must not depend on: cursors, windows or fonts; it sees only rope chunks,
+//! invalid bytes and cell widths.
+//!
 //! The TabMap expands tabs and gives every grapheme cluster its cells (see
 //! [`super::cell`]). It is a [`SumTree`] whose items mirror the rope's chunks
 //! and share their text. Each item's summary holds its line breaks and the

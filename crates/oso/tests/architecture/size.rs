@@ -1,5 +1,7 @@
 //! The per-file size limit and its ratchet (ADR 0038).
 //!
+//! Must not depend on: the layer rules or the other checks.
+//!
 //! A file's size is its number of lines outside top-level test items
 //! (`#[cfg(test)]` or `#[cfg(all(test, …))]`), comments and blank lines
 //! included. Files listed in `guardrails/size-allowlist.txt` may exceed the

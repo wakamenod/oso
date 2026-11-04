@@ -1,7 +1,7 @@
 pub mod oso_render
 pub enum oso_render::CaptureError
 pub oso_render::CaptureError::Gpu(alloc::string::String)
-pub oso_render::CaptureError::UnsupportedFormat(wgpu_types::texture::format::TextureFormat)
+pub oso_render::CaptureError::UnsupportedFormat(alloc::string::String)
 impl core::error::Error for oso_render::CaptureError
 impl core::fmt::Debug for oso_render::CaptureError
 pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -20,7 +20,7 @@ pub fn oso_render::Redraw::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fm
 impl core::marker::Copy for oso_render::Redraw
 impl core::marker::StructuralPartialEq for oso_render::Redraw
 pub enum oso_render::RenderError
-pub oso_render::RenderError::RecreateSurface(wgpu::api::surface::CreateSurfaceError)
+pub oso_render::RenderError::RecreateSurface(alloc::string::String)
 pub oso_render::RenderError::RetriesExhausted
 pub oso_render::RenderError::SurfaceValidation
 impl core::error::Error for oso_render::RenderError

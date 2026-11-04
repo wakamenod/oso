@@ -13,7 +13,8 @@ which rebuilds fastest. Read `docs/dev/architecture.md` ("Command registry",
 ## 1. Write the function
 
 In `crates/oso/src/commands.rs` (or a module next to it, once the file
-grows):
+grows; a new file opens with its responsibility and a `Must not depend on:`
+paragraph, ADR 0041):
 
 ```rust
 fn forward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

@@ -1,6 +1,8 @@
 //! The shaping cache: rows of buffer text shaped through the text system
 //! and placed on the cell grid, by display row (ADR 0040).
 //!
+//! Must not depend on: the GPU or `text`, which turns rows into quads.
+//!
 //! - A row is shaped only for the columns asked for, so a 10 MB line costs
 //!   one screen.
 //! - A shaped row is reused without looking at the buffer while the
@@ -10,8 +12,6 @@
 //!   shaped. Their escapes from the display model (`^M`, `\xFF`,
 //!   `U+202E`) are shaped instead, as plain ASCII labels (security.md, T3),
 //!   and invisible characters get a box.
-//!
-//! It must not depend on the GPU: `text` turns rows into quads.
 
 use std::collections::HashMap;
 use std::ops::Range;

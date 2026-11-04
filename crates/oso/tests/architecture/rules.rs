@@ -1,6 +1,9 @@
 //! The layer rules in `guardrails/layers.txt`, and the check of a
 //! dependency graph against them.
 //!
+//! Must not depend on: source files or manifests; it checks the graph it is
+//! given.
+//!
 //! A rules section lists layers, highest first, one per line. An entry may
 //! use only entries on lower lines; entries on the same line may not use
 //! each other. The same check serves the crate graph (`[workspace]`) and the
@@ -106,6 +109,14 @@ pub fn layer_problems(
     problems
 }
 
+/// Whether `layers` bar `from` from using `to`, or `None` when they do not
+/// list `to`. An unlisted `from` sits above every layer.
+pub fn forbids(layers: &[Vec<String>], from: &str, to: &str) -> Option<bool> {
+    let level = |name| layers.iter().position(|l| l.iter().any(|n| n == name));
+    let target = level(to)?;
+    Some(from != to && level(from).is_some_and(|source| target <= source))
+}
+
 /// One cycle in `edges`, as a path that ends where it starts.
 pub fn find_cycle(edges: &Edges) -> Option<Vec<String>> {
     let mut next: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
@@ -150,7 +161,7 @@ fn visit<'a>(
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{Edges, ROOT, Rules, find_cycle, layer_problems};
+    use super::{Edges, ROOT, Rules, find_cycle, forbids, layer_problems};
 
     fn set(names: &[&str]) -> BTreeSet<String> {
         names.iter().map(|&n| n.to_owned()).collect()
@@ -182,6 +193,22 @@ mod tests {
         for bad in [("low", "mid"), ("mid", "other"), ("mid", "top")] {
             let problems = layer_problems("s", layers, &nodes, &edges(&[bad]), None);
             assert_eq!(problems.len(), 1, "{bad:?}: {problems:?}");
+        }
+    }
+
+    #[test]
+    fn forbids_matches_the_layer_order() {
+        let rules = Rules::parse("[s]\ntop\nmid other\nlow\n").unwrap();
+        let layers = rules.section("s").unwrap();
+        for (from, to, expected) in [
+            ("mid", "top", Some(true)),
+            ("mid", "other", Some(true)),
+            ("mid", "low", Some(false)),
+            ("mid", "mid", Some(false)),
+            ("mid", "unlisted", None),
+            ("unlisted", "top", Some(false)),
+        ] {
+            assert_eq!(forbids(layers, from, to), expected, "{from} -> {to}");
         }
     }
 

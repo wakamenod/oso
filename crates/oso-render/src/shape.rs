@@ -1,6 +1,8 @@
 //! Pass 1: filled rectangles under the text: the background boxes of
-//! invisible characters and the cursor box. It knows pixels and colors,
-//! not text.
+//! invisible characters and the cursor box.
+//!
+//! Must not depend on: `atlas`, `grid`, `text` or anything else about text; it
+//! knows pixels and colors.
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;

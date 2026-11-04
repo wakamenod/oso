@@ -1,6 +1,8 @@
 //! A summarized B-tree: the data structure under the rope and every layer of
 //! the display model (ADR 0022, ADR 0035).
 //!
+//! Must not depend on: any module of this crate, or what its items hold.
+//!
 //! A [`SumTree`] holds a sequence of [`Item`]s. Every node caches the
 //! [`Summary`] of its subtree, so any quantity that can be accumulated from
 //! summaries (a [`Dimension`], such as bytes, lines or display rows) can be
@@ -8,11 +10,9 @@
 //!
 //! Nodes are immutable and shared through [`Arc`]: [`Clone`] is O(1), edits
 //! copy only the path they change, and a tree is `Send + Sync` whenever its
-//! items and summaries are. A snapshot handed to a background thread never
-//! sees later edits.
+//! items and summaries are. A snapshot never sees later edits.
 //!
-//! The design follows the summarized trees in Zed; the code is written from
-//! scratch.
+//! The design follows Zed's summarized trees; the code is from scratch.
 
 use std::cmp::Ordering;
 use std::fmt;

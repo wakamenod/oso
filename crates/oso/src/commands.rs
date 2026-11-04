@@ -2,6 +2,9 @@
 //! host-owned state in [`Ctx`], registered in [`COMMANDS`] with a docstring
 //! and an argument spec. Default key bindings are in `bindings.rs`.
 //!
+//! Must not depend on: winit, the GPU or `bindings`; a command sees only the
+//! host-owned state and does not know its keys.
+//!
 //! Motion commands move every cursor of the selected window (ADR 0007).
 //! After each command the dispatcher scrolls the window to keep its cursor
 //! in view (`Editor::follow_cursor`).

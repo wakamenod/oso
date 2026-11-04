@@ -3,6 +3,8 @@
 //! `clippy.toml` (ADR 0010) apply only through it. A crate that drops the
 //! opt-in, or a `clippy.toml` that shadows the root one, would silently fail
 //! open, so this test fails instead.
+//!
+//! Must not depend on: any crate outside `std`; it only reads files.
 
 use std::fs;
 use std::path::{Path, PathBuf};

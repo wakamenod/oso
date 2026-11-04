@@ -1,6 +1,9 @@
 //! Decoding a file into the rope's UTF-8, piece by piece as it is read
 //! (ADR 0022, ADR 0040).
 //!
+//! Must not depend on: `rope`, `display_map` or file I/O; the caller hands it
+//! the bytes.
+//!
 //! - Each invalid byte becomes one U+FFFD in the text, and its value is kept
 //!   in [`InvalidBytes`], so the display can show it as `\xNN` and the
 //!   buffer is never saved.

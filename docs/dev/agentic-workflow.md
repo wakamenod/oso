@@ -66,12 +66,16 @@ The setup is recorded in
 - `just deny` and `just audit` check dependencies against `deny.toml` and
   the RustSec database. `just secrets` scans the git history.
 - Architecture guardrails ([ADR 0038](adr/0038-architecture-guardrails.md),
-  [ADR 0039](adr/0039-architecture-guardrail-mechanics.md)):
+  [ADR 0039](adr/0039-architecture-guardrail-mechanics.md),
+  [ADR 0041](adr/0041-module-responsibility-headers.md),
+  [ADR 0042](adr/0042-statics-snapshots-and-render-errors.md)):
   - `crates/oso/tests/architecture` enforces the dependency direction
     between crates and modules (`guardrails/layers.txt`), confines wgpu,
     winit and OS bindings to their crates, applies the 600-line file
-    limit with its ratchet (`guardrails/size-allowlist.txt`), and rejects
-    `static mut`.
+    limit with its ratchet (`guardrails/size-allowlist.txt`), rejects every
+    `static` item except a plain one in a top-level test item, and requires
+    every Rust file to open with its responsibility and a
+    `Must not depend on:` paragraph.
   - Clippy bans global state (`OnceLock`, `LazyLock`, `thread_local!`),
     printing and `todo!`, and limits functions to 80 lines and a
     cognitive complexity of 25. `oso-core` denies `unwrap` and `expect`
@@ -80,6 +84,7 @@ The setup is recorded in
     `oso`.
   - `just public-api-check` (CI only; it needs nightly) compares the
     public API with `guardrails/public-api`. `just public-api` updates it.
+    The pinned nightly and `cargo-public-api` move with `rust-toolchain.toml`.
   - The structure workflow fails a pull request that changes the layer
     rules, the crate graph, the checks or the size thresholds, adds a
     public module or trait, or grows the allowlist, unless its description

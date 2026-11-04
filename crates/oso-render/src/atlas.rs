@@ -1,6 +1,9 @@
 //! The glyph atlas: rasterized glyphs cached in GPU textures (ADR 0005,
 //! ADR 0036).
 //!
+//! Must not depend on: `grid`, `shape`, `rows`, the `text` pass or the display
+//! model; it knows glyphs and textures.
+//!
 //! - One texture per [`GlyphFormat`]: one byte of coverage per pixel for
 //!   text, premultiplied RGBA for color emoji.
 //! - Glyphs are packed into shelves (rows) and never move. A full texture

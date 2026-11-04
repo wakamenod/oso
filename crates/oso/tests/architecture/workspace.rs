@@ -1,5 +1,8 @@
 //! The workspace on disk: its root, its crates and their manifests, and its
 //! Rust files.
+//!
+//! Must not depend on: the layer rules or any check's verdict; it finds and
+//! reads files, and parses manifests through `manifests`.
 
 use std::fs;
 use std::path::{Path, PathBuf};

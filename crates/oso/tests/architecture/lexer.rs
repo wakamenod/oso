@@ -1,6 +1,8 @@
 //! A small Rust lexer for the architecture checks. It drops comments, string
 //! and character literals, lifetimes and numbers, so the checks see only
 //! identifiers and punctuation, each with its line.
+//!
+//! Must not depend on: the other check modules or the file system.
 
 /// A token the checks look at.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -282,7 +284,14 @@ pub fn test_item_lines(tokens: &[Token]) -> Vec<(usize, usize)> {
     let mut depth = 0usize;
     let mut i = 0;
     while let Some(token) = tokens.get(i) {
+        // An item follows another item or attribute. This leaves out an
+        // attribute on a generic parameter.
+        let starts_item = i == 0
+            || tokens[i - 1].is_punct(';')
+            || tokens[i - 1].is_punct('}')
+            || tokens[i - 1].is_punct(']');
         if depth == 0
+            && starts_item
             && let Some(after) = test_attribute_end(tokens, i)
         {
             let end = item_end(tokens, after);
@@ -291,8 +300,8 @@ pub fn test_item_lines(tokens: &[Token]) -> Vec<(usize, usize)> {
             continue;
         }
         match token.tok {
-            Tok::Punct('{') => depth += 1,
-            Tok::Punct('}') => depth = depth.saturating_sub(1),
+            Tok::Punct('{' | '(' | '[') => depth += 1,
+            Tok::Punct('}' | ')' | ']') => depth = depth.saturating_sub(1),
             _ => {}
         }
         i += 1;
@@ -355,5 +364,12 @@ mod tests {
                    fn inner() {}\n\
                    }\n";
         assert_eq!(test_item_lines(&tokenize(src)), [(2, 5), (6, 7)]);
+    }
+
+    #[test]
+    fn a_test_attribute_on_a_parameter_is_not_a_test_item() {
+        let src = "fn f(#[cfg(test)] x: u8) {\nstatic A: u8 = 0;\n}\n\
+                   fn g<#[cfg(test)] T>() {\nstatic B: u8 = 0;\n}\n";
+        assert_eq!(test_item_lines(&tokenize(src)), []);
     }
 }

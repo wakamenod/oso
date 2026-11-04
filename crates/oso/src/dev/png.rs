@@ -1,5 +1,8 @@
 //! A minimal PNG encoder for screenshots: 8-bit RGBA, one IDAT chunk,
 //! deflate through `miniz_oxide`.
+//!
+//! Must not depend on: the socket or the protocol; it turns one image into
+//! bytes.
 
 use oso_render::Image;
 

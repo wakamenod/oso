@@ -1,6 +1,9 @@
 //! The cell grid: how many cells each grapheme cluster takes (ADR 0005,
 //! ADR 0035).
 //!
+//! Must not depend on: fonts, glyph metrics or editor state; widths come from
+//! the characters, invalid bytes and the tab width, never from a font.
+//!
 //! - A cluster takes the East Asian Width of its text: 1 cell for half
 //!   width, 2 for full width, with emoji sequences counted as one 2-cell
 //!   glyph. Ambiguous-width characters take 1 cell.

@@ -1,5 +1,7 @@
 //! Default key bindings, in Emacs notation (ADR 0033, ADR 0034). They
 //! follow vanilla Emacs (ADR 0019).
+//!
+//! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 use oso_core::command::Registry;
 use oso_core::keymap::Keymap;
