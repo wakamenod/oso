@@ -1,4 +1,6 @@
-//! The default font.
+//! The default font, loaded through the text system.
+//!
+//! Must not depend on: `app`, the GPU or buffer text; it only picks the font.
 
 use oso_platform::text::{self, FontRequest, NullTextSystem, TextSystem};
 

@@ -1,6 +1,9 @@
 //! The oso binary and tip crate: commands, default keymaps and the glue
 //! that wires `oso-core`, `oso-render` and `oso-platform` to the window
 //! (ADR 0004).
+//!
+//! Must not depend on: wgpu or OS bindings directly; they stay in the library
+//! crates (ADR 0038).
 
 mod app;
 mod bindings;

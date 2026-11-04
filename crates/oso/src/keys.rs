@@ -1,5 +1,8 @@
 //! Translation of winit key events into [`KeyPress`].
 //!
+//! Must not depend on: `commands`, `dispatch` or editor state; it only
+//! translates.
+//!
 //! On macOS, Command is Meta and Option is Super. Elsewhere, Alt is Meta and
 //! the logo key is Super (architecture.md, Layers).
 

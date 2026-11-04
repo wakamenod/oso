@@ -1,5 +1,8 @@
 //! Loading files on a background thread (ADR 0022, ADR 0040).
 //!
+//! Must not depend on: `app`, winit or the GPU; the caller supplies the
+//! wake-up.
+//!
 //! The thread reads the file in pieces, decodes them and builds the rope
 //! and the display map (`oso_core::load::Builder`), so the UI thread never
 //! waits on I/O or does O(n) work. It hands the UI O(1) snapshots: the

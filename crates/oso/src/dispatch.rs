@@ -1,6 +1,9 @@
 //! From key presses to commands: the keymaps, the key resolver and the
 //! command registry, wired together without a window so that key sequences
 //! can be tested as plain functions of the editor state.
+//!
+//! Must not depend on: `app` or winit; key sequences stay testable without a
+//! window.
 
 use oso_core::command::{Args, Ctx, Effects, ExecuteError, Registry};
 use oso_core::editor::Editor;

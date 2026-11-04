@@ -1,6 +1,9 @@
 //! The control socket server: background threads that read requests, hand
 //! them to the UI thread and write the replies.
 //!
+//! Must not depend on: `app`, winit or editor state, which only the UI thread
+//! touches.
+//!
 //! The UI thread never touches the socket. One thread accepts connections,
 //! and each client gets its own thread, which parses requests and waits for
 //! the UI's reply on a channel.

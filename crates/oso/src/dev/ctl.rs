@@ -1,5 +1,8 @@
 //! `oso ctl`: the control socket client (ADR 0023). It sends one request to
 //! a running dev instance and prints the JSON response.
+//!
+//! Must not depend on: `app`, winit or editor state; it runs without a window
+//! and talks only to the socket.
 
 use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Read, Write};
