@@ -41,7 +41,19 @@ fn main() {
     };
 
     env_logger::init();
-    let event_loop = EventLoop::<UserEvent>::with_user_event().build().unwrap();
+    #[cfg_attr(
+        not(target_os = "macos"),
+        expect(unused_mut, reason = "only macOS has a setting here")
+    )]
+    let mut builder = EventLoop::<UserEvent>::with_user_event();
+    // Building AppKit's default menu delays the first frame by about 55 ms,
+    // and its Command shortcuts would clash with Command = Meta (ADR 0044).
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::EventLoopBuilderExtMacOS;
+        builder.with_default_menu(false);
+    }
+    let event_loop = builder.build().unwrap();
     // Sleep until an event arrives; frames are drawn only on demand.
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
