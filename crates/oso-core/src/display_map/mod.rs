@@ -3,7 +3,7 @@
 //! ADR 0035).
 //!
 //! Must not depend on: `selection`, `buffer`, `window` or other editor state,
-//! fonts or the GPU. It measures cells; it does not draw them.
+//! fonts or the GPU. It says what each cell shows; it does not paint it.
 //!
 //! The full pipeline is:
 //!
@@ -79,14 +79,12 @@ pub struct DisplayCluster<'a> {
     /// The cluster's text in the buffer.
     pub text: &'a str,
     /// What to draw: the text, blank cells for a tab, or an escape (boxed
-    /// for an invisible character). The renderer clips each cluster's glyphs
-    /// to its cells, so stacked combining marks cannot paint over other
-    /// rows.
+    /// for an invisible character).
     pub kind: CellKind,
 }
 
 /// What one piece of a display cluster puts on the cell grid: its text in
-/// `cells` cells from `column`. See [`DisplayCluster::draw`].
+/// `cells` cells from `column`. See [`DisplayCluster::for_each_run`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CellRun<'a> {
     /// The first cell it takes.
@@ -104,7 +102,7 @@ impl DisplayCluster<'_> {
     /// a space across a tab's cells, or an escape's label with one run per
     /// cell. Everything that draws the grid goes through here, so the
     /// renderer and the text-grid snapshots agree (ADR 0045).
-    pub fn draw(&self, mut run: impl FnMut(CellRun<'_>)) {
+    pub fn for_each_run(&self, mut run: impl FnMut(CellRun<'_>)) {
         let text = match self.kind {
             CellKind::Text => self.text,
             // A space keeps ligatures from forming across the tab, and
@@ -519,7 +517,7 @@ mod tests {
 
     fn runs(cluster: &DisplayCluster<'_>) -> Vec<(usize, usize, String, CellStyle)> {
         let mut runs = Vec::new();
-        cluster.draw(|run| {
+        cluster.for_each_run(|run| {
             runs.push((run.column, run.cells, run.text.to_owned(), run.style));
         });
         runs
@@ -567,6 +565,28 @@ mod tests {
     }
 
     proptest! {
+        /// Whatever the text holds, no run draws a control character or a
+        /// bidi control (T3 in security.md).
+        #[test]
+        fn runs_never_draw_controls(pieces in prop::collection::vec(0usize..14, 0..40)) {
+            const PIECES: [&str; 14] = [
+                "a", "日", "\n", "\t", "\r", "\u{7f}", "\u{85}", "\u{202e}", "\u{2066}",
+                "\u{200f}", "\u{61c}", "\u{301}", "\u{200d}", "👨\u{200d}👩",
+            ];
+            let text: String = pieces.into_iter().map(|piece| PIECES[piece]).collect();
+            let snapshot = DisplayMap::new(&Rope::from(text.as_str()), TabWidth::default()).snapshot();
+            for row in 0..snapshot.row_count() {
+                for cluster in snapshot.clusters(DisplayPoint::new(row, 0)) {
+                    for (_, _, drawn, _) in runs(&cluster) {
+                        for c in drawn.chars() {
+                            let bidi = matches!(u32::from(c), 0x61c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069);
+                            prop_assert!(!c.is_control() && !bidi, "{c:?} in {text:?}");
+                        }
+                    }
+                }
+            }
+        }
+
         /// A cluster's runs fill its cells exactly, in order.
         #[test]
         fn runs_cover_their_cluster(text in text_strategy(40)) {

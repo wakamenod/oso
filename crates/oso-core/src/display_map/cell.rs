@@ -1,5 +1,5 @@
-//! The cell grid: how many cells each grapheme cluster takes (ADR 0005,
-//! ADR 0035).
+//! The cell grid: how many cells each grapheme cluster takes and how they
+//! are styled (ADR 0005, ADR 0035).
 //!
 //! Must not depend on: fonts, glyph metrics or editor state; widths come from
 //! the characters, invalid bytes and the tab width, never from a font.
@@ -49,10 +49,9 @@ pub enum CellKind {
 }
 
 /// How the cells of a cluster are drawn.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CellStyle {
     /// Buffer text.
-    #[default]
     Text,
     /// The label of an escape: a control character (`^M`) or an invalid
     /// byte (`\xFF`), drawn in the escape color.

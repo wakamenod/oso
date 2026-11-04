@@ -12,14 +12,14 @@
 use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
-use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
+use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot};
 use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphFormat, TextSystem};
 
 use wgpu::util::DeviceExt;
 
 use crate::atlas::{AtlasGlyph, GlyphAtlas, RasterBudget};
-use crate::grid::{PlacedGlyph, Style};
+use crate::grid::PlacedGlyph;
 use crate::rows::Rows;
 use crate::shape::Uniforms;
 
@@ -82,7 +82,7 @@ pub(crate) struct Layout {
     /// The cells under the cursor box: its display point and width. Glyphs
     /// there are drawn in `cursor_color` to show on the box.
     pub(crate) cursor: (DisplayPoint, usize),
-    /// Colors by [`Style`].
+    /// Colors by [`CellStyle`].
     pub(crate) color: [f32; 4],
     pub(crate) escape_color: [f32; 4],
     pub(crate) cursor_color: [f32; 4],
@@ -151,8 +151,8 @@ impl Layout {
             uv: [entry.uv[0] as f32, entry.uv[1] as f32],
             color: match glyph.style {
                 _ if under_cursor => self.cursor_color,
-                Style::Text => self.color,
-                Style::Escape | Style::Boxed => self.escape_color,
+                CellStyle::Text => self.color,
+                CellStyle::Escape | CellStyle::Boxed => self.escape_color,
             },
             kind: match entry.format {
                 GlyphFormat::Coverage => 0,
@@ -464,7 +464,7 @@ mod tests {
             column,
             cells,
             offset: [0.0, 0.0],
-            style: Style::Text,
+            style: CellStyle::Text,
         }
     }
 
@@ -521,7 +521,7 @@ mod tests {
         // A cursor on a 4-cell escape covers all of its label.
         l.cursor = (DisplayPoint::new(0, 4), 4);
         let escape = PlacedGlyph {
-            style: Style::Escape,
+            style: CellStyle::Escape,
             ..glyph(7, 1)
         };
         assert_eq!(l.quad(0, &escape, &entry()).unwrap().color, BLACK);

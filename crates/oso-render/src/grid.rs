@@ -8,15 +8,13 @@
 //! lists the display clusters of the text it shaped; the text system only
 //! says which cluster each glyph draws and where the font puts it.
 
+use oso_core::display_map::CellStyle;
 use oso_platform::text::{GlyphKey, ShapedGlyph};
 
 /// The most glyphs drawn for one span. Real text stacks a few marks on a
 /// letter; text stacking thousands ("Zalgo") is cut off here rather than
 /// drawing them all in one cell.
 const MAX_GLYPHS_PER_SPAN: u32 = 32;
-
-/// How a glyph is drawn.
-pub(crate) use oso_core::display_map::CellStyle as Style;
 
 /// A glyph placed on the grid.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,7 +29,7 @@ pub(crate) struct PlacedGlyph {
     /// in whole pixels; y grows downwards. Centers glyphs whose advance is
     /// not exactly `cells` cells, such as CJK from a fallback font.
     pub(crate) offset: [f32; 2],
-    pub(crate) style: Style,
+    pub(crate) style: CellStyle,
 }
 
 /// A display cluster of the shaped text: where it starts in the text, and
@@ -41,7 +39,7 @@ pub(crate) struct Grapheme {
     pub(crate) byte: u32,
     pub(crate) column: usize,
     pub(crate) cells: u32,
-    pub(crate) style: Style,
+    pub(crate) style: CellStyle,
 }
 
 /// A run of display clusters that the shaper drew as one unit: usually one
@@ -50,7 +48,7 @@ pub(crate) struct Grapheme {
 struct Span {
     column: usize,
     cells: u32,
-    style: Style,
+    style: CellStyle,
     /// Glyphs placed so far.
     glyphs: u32,
     /// Leftmost pen position of the span's glyphs, and their total advance.
@@ -213,7 +211,7 @@ mod tests {
                     byte: byte as u32,
                     column,
                     cells: cells as u32,
-                    style: Style::Text,
+                    style: CellStyle::Text,
                 };
                 column += cells;
                 g
@@ -333,12 +331,15 @@ mod tests {
     fn styles_follow_their_graphemes() {
         let text = "a^M";
         let mut graphemes = graphemes(text);
-        graphemes[1].style = Style::Escape;
-        graphemes[2].style = Style::Escape;
+        graphemes[1].style = CellStyle::Escape;
+        graphemes[2].style = CellStyle::Escape;
         let mut out = Vec::new();
         Placer::default().place(&graphemes, &shape_naively(text), CELL, &mut out);
         let styles: Vec<_> = out.iter().map(|g| g.style).collect();
-        assert_eq!(styles, [Style::Text, Style::Escape, Style::Escape]);
+        assert_eq!(
+            styles,
+            [CellStyle::Text, CellStyle::Escape, CellStyle::Escape]
+        );
     }
 
     #[test]

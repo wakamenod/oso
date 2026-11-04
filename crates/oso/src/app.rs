@@ -253,7 +253,7 @@ impl App {
 fn text_view(editor: &Editor) -> TextView {
     let (window, buffer) = editor.current();
     let display = buffer.display();
-    let cursor = display.offset_to_display_point(window.selections.primary().cursor);
+    let cursor = window.cursor_point(&display);
     TextView {
         display,
         buffer: window.buffer(),

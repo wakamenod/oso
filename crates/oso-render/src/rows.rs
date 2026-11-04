@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use oso_core::buffer::BufferId;
-use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot};
+use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot};
 use oso_core::sum_tree::Bias;
 use oso_platform::text::{ShapedGlyph, TextSystem};
 
@@ -163,10 +163,15 @@ impl Rows {
             } else {
                 1
             };
-            if matches!(cluster.kind, CellKind::Invisible(_)) {
-                out.boxes.push((cluster.column, cluster.cells));
-            }
-            cluster.draw(|run| {
+            cluster.for_each_run(|run| {
+                if run.style == CellStyle::Boxed {
+                    match out.boxes.last_mut() {
+                        Some((column, cells)) if *column + *cells == run.column => {
+                            *cells += run.cells;
+                        }
+                        _ => out.boxes.push((run.column, run.cells)),
+                    }
+                }
                 self.graphemes.push(Grapheme {
                     byte: self.text.len() as u32,
                     column: run.column,
@@ -189,7 +194,6 @@ impl Rows {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::grid::Style;
     use oso_core::buffer::Buffer;
     use oso_platform::text::{CellMetrics, FontId, GlyphBitmap, GlyphId, GlyphKey};
 
@@ -241,13 +245,22 @@ mod tests {
         assert_eq!(system.shaped, ["aU+202Eb^M^G\\xFF c"]);
         assert_eq!(shaped.boxes, [(1, 6)]);
         let styles: Vec<_> = shaped.glyphs.iter().map(|g| (g.column, g.style)).collect();
-        assert_eq!(styles[0], (0, Style::Text));
-        assert_eq!(styles[1], (1, Style::Boxed));
-        assert_eq!(styles[7], (7, Style::Text));
-        assert_eq!(styles[8], (8, Style::Escape));
-        assert_eq!(styles[12], (12, Style::Escape), "the invalid byte");
-        assert_eq!(styles[16], (16, Style::Text), "the tab");
-        assert_eq!(styles[17], (24, Style::Text), "after the tab stop");
+        assert_eq!(styles[0], (0, CellStyle::Text));
+        assert_eq!(styles[1], (1, CellStyle::Boxed));
+        assert_eq!(styles[7], (7, CellStyle::Text));
+        assert_eq!(styles[8], (8, CellStyle::Escape));
+        assert_eq!(styles[12], (12, CellStyle::Escape), "the invalid byte");
+        assert_eq!(styles[16], (16, CellStyle::Text), "the tab");
+        assert_eq!(styles[17], (24, CellStyle::Text), "after the tab stop");
+    }
+
+    #[test]
+    fn neighboring_invisible_characters_share_a_box() {
+        let buffer = Buffer::from_text("t", "\u{202e}\u{202e}a\u{200b}");
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        assert_eq!(shaped.boxes, [(0, 12), (13, 6)]);
     }
 
     #[test]

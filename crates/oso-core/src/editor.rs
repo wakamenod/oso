@@ -155,7 +155,7 @@ impl Editor {
     pub fn follow_cursor(&mut self) -> bool {
         let (window, buffer) = self.current_mut();
         let display = buffer.display();
-        let point = display.offset_to_display_point(window.selections.primary().cursor);
+        let point = window.cursor_point(&display);
         let cells = motion::cursor_cells(&display, point);
         let scroll = window::follow(window.scroll, window.size(), point, cells);
         let moved = scroll != window.scroll;
