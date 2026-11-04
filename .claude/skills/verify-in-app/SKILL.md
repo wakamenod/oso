@@ -68,7 +68,30 @@ echo $! > "$SCRATCH/oso.pid"
   is a difference.
 - With several instances running, pass `--pid <pid>`.
 
-## 3. Stop and clean up
+## 3. Check a restart
+
+`just dev` (`oso dev [FILE]`) rebuilds on a source change and restarts with the
+same buffers, cursors, scroll positions and window (ADR 0045). To check it:
+
+```sh
+RUST_LOG=oso=info,wgpu=warn ./target/debug/oso dev "$FILE" > "$SCRATCH/dev.log" 2>&1 &
+echo $! > "$SCRATCH/dev.pid"
+pgrep -P "$(cat "$SCRATCH/dev.pid")" -x oso          # the instance's PID
+```
+
+- Run it from the repository root. It takes a copy of the supervisor's code at
+  start, so to test a change to the supervisor, start it again.
+- Edit a source file, then watch `dev.log`: each restart logs `restart took`,
+  with the build and the handover. The PID changes; `get-state` shows the same
+  buffer and cursor.
+- A build that fails logs `the build failed` and keeps the PID.
+- A new build with another `STATE_VERSION` logs `refused the state`, and both
+  instances run until the next good build.
+- Revert your edits with `git checkout` when done, which starts one more
+  restart. Stop with `oso ctl --pid <pid> exit`, which also ends the supervisor.
+  Killing only the supervisor leaves the instance running.
+
+## 4. Stop and clean up
 
 ```sh
 kill "$(cat "$SCRATCH/oso.pid")"
