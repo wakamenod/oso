@@ -34,5 +34,11 @@ name = "perf"
 required-features = ["dev"]
 test = true
 
+# End-to-end flows through a real dev build (ADR 0037, ADR 0049). Their tests are
+# ignored, since they open windows; `just e2e` runs them.
+[[test]]
+name = "e2e"
+required-features = ["dev"]
+
 [lints]
 workspace = true
