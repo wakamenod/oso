@@ -318,6 +318,13 @@ Full details are in [`security.md`](security.md).
   - `screenshot` renders the frame again offscreen (`oso-render`, `dev`
     feature). Readback, PNG encoding and the file write run on a background
     thread.
+  - `run-command` runs a command through the same registry as keys.
+    `get-state` copies only what the selected window shows, and `get-text`
+    checks its limit before copying, so neither depends on the buffer's size.
+  - Buffers that may hold secrets give no text and no pixels. The loading
+    thread resolves the path, and `Buffer::is_secret` holds the verdict, so
+    the UI thread never touches the file system for this
+    ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

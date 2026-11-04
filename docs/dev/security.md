@@ -179,9 +179,20 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
     write to its parent and it is not sticky
   - checks on both ends that the peer runs as the same user (`getpeereid`,
     `SO_PEERCRED`)
-  - limits request lines to 1 MiB, clients to 4 (each disconnected after
+  - limits request and response lines to 1 MiB, clients to 4 (each disconnected after
     60 s idle) and `send-keys` to 4096 keys, and never blocks the UI thread
   - is not available on Windows yet
+- Dev builds trust the same user: any process running as the same user can
+  run any command through the socket. Release builds contain none of this.
+  This is reviewed when commands that spawn processes arrive (M3 onward)
+  ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
+- Secret-pattern buffers give no text and no pixels over the socket: while
+  one is shown, `screenshot` fails, `get-text` fails and `get-state` returns
+  only its metadata. `oso_core::secret` matches both the path as opened and
+  its canonical path, so a symlink to a key is caught, and a path that cannot
+  be resolved counts as secret. A file counts as secret from the moment it is
+  visited until the loading thread has resolved its path
+  ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
 - Screenshots are a dev-only exception to keeping screen and buffer
   contents off disk. They are written `0600`, without following symlinks,
   into the private directory, and removed on a clean exit or by the next
