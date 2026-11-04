@@ -131,7 +131,7 @@ impl App {
             }
         };
         #[cfg(feature = "dev")]
-        let redraw = self.restore_positions() || redraw;
+        let redraw = self.try_restore_positions() || redraw;
         redraw
     }
 

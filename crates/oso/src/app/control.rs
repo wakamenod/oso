@@ -187,7 +187,7 @@ impl App {
             selections: state.selections,
             scroll: state.scroll,
         });
-        self.restore_positions();
+        self.try_restore_positions();
         self.dispatcher.restore_pending(&state.pending_keys);
         self.request_redraw();
         Ok(json!({ "buffers": self.editor.buffers().count() }))
@@ -195,7 +195,7 @@ impl App {
 
     /// Applies positions from a handoff if their file has loaded far enough.
     /// Returns whether it did.
-    pub(super) fn restore_positions(&mut self) -> bool {
+    pub(super) fn try_restore_positions(&mut self) -> bool {
         let done = self
             .restore
             .as_ref()

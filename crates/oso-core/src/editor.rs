@@ -11,7 +11,8 @@
 
 use crate::buffer::{Buffer, BufferId};
 use crate::motion;
-use crate::window::{self, ViewSize, Window};
+use crate::selection::SelectionSet;
+use crate::window::{self, Scroll, ViewSize, Window};
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -181,6 +182,15 @@ impl Editor {
         moved
     }
 
+    /// Puts back the selected window's cursors and view, saved together as a
+    /// state handoff does, then scrolls as little as shows its primary cursor.
+    pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
+        let (window, buffer) = self.current_mut();
+        let display = buffer.display();
+        window.restore_positions(selections, scroll, &display);
+        self.follow_cursor();
+    }
+
     /// Scrolls the selected window's view by `rows` (down toward the end
     /// if positive), for the mouse wheel and trackpad. Cursors left outside
     /// the view move to its nearest row, as in Emacs. Returns whether the
@@ -201,6 +211,18 @@ mod tests {
 
     fn lines(n: usize) -> String {
         (0..n).map(|i| format!("line {i:03}\n")).collect()
+    }
+
+    #[test]
+    fn restoring_positions_follows_the_cursor() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        let saved = Scroll { top: 40, left: 1 };
+        editor.restore_positions(SelectionSet::new(45 * "line 000\n".len() + 1), saved);
+        assert_eq!(editor.window().scroll(), saved, "the cursor is in view");
+        editor.restore_positions(SelectionSet::new(0), saved);
+        assert_eq!(editor.window().scroll(), Scroll::default(), "back to it");
+        assert_eq!(editor.window().selections.primary().cursor, 0);
     }
 
     #[test]

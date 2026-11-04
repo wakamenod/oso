@@ -331,13 +331,6 @@ mod tests {
         (editor, id)
     }
 
-    /// Moves the view without moving the cursors.
-    fn show_from(editor: &mut Editor, scroll: Scroll) {
-        let (window, buffer) = editor.current_mut();
-        let selections = window.selections.clone();
-        window.restore_positions(selections, scroll, &buffer.display());
-    }
-
     #[test]
     fn state_reports_the_buffer_cursor_scroll_and_surface() {
         let mut editor = Editor::with_buffer(Buffer::from_bytes("bad.txt", b"a\r\n\xffSECRET"));
@@ -405,7 +398,9 @@ mod tests {
                 "truncated": false,
             })
         );
-        show_from(&mut editor, Scroll { top: 98, left: 5 });
+        // The cursor at the view's first cell, so that following it moves nothing.
+        let cursor = SelectionSet::new(98 * "line 00\n".len() + 5);
+        editor.restore_positions(cursor, Scroll { top: 98, left: 5 });
         assert_eq!(
             state(&editor, &[])["text"],
             json!({
@@ -420,9 +415,12 @@ mod tests {
 
     #[test]
     fn visible_text_includes_wide_characters_across_the_edges() {
-        let mut editor = editor("日本語\n", 1, 2);
-        show_from(&mut editor, Scroll { top: 0, left: 1 });
-        assert_eq!(state(&editor, &[])["text"]["rows"], json!(["日本"]));
+        // A view can start inside a wide character only while the cursor is on
+        // another row: the cursor shows a whole cluster.
+        let mut editor = editor("日本語\nabc\n", 2, 2);
+        let cursor = SelectionSet::new("日本語\nab".len());
+        editor.restore_positions(cursor, Scroll { top: 0, left: 1 });
+        assert_eq!(state(&editor, &[])["text"]["rows"], json!(["日本", "bc"]));
     }
 
     #[test]

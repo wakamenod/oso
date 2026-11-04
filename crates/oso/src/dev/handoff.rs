@@ -324,8 +324,7 @@ impl Restore {
             .collect();
         let selections = SelectionSet::from_parts(selections, self.selections.primary_index())
             .unwrap_or_else(|| window.selections.clone());
-        window.restore_positions(selections, self.scroll, &display);
-        editor.follow_cursor();
+        editor.restore_positions(selections, self.scroll);
         true
     }
 }

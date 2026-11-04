@@ -52,7 +52,7 @@ fn a_state_round_trips() {
     let selections = vec![
         Selection::at(5),
         Selection {
-            cursor: 10,
+            cursor: 11,
             goal: Some(Goal::Column(3)),
         },
         Selection {
@@ -60,11 +60,9 @@ fn a_state_round_trips() {
             goal: Some(Goal::LineEnd),
         },
     ];
-    let (window, buffer) = editor.current_mut();
-    window.restore_positions(
+    editor.restore_positions(
         SelectionSet::from_parts(selections.clone(), 1).unwrap(),
         Scroll { top: 2, left: 1 },
-        &buffer.display(),
     );
     let pending: KeySequence = "C-x 4".parse().unwrap();
     let frame = Frame {
@@ -85,7 +83,7 @@ fn a_state_round_trips() {
         state.selections.iter().copied().collect::<Vec<_>>(),
         selections
     );
-    assert_eq!(state.selections.primary().cursor, 10);
+    assert_eq!(state.selections.primary().cursor, 11);
     assert_eq!(state.scroll, Scroll { top: 2, left: 1 });
     assert_eq!(state.pending_keys, pending.0);
     assert_eq!(state.frame, Some(frame));

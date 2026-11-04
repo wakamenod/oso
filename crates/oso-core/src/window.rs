@@ -111,10 +111,10 @@ impl Window {
         self.scroll = scroll;
     }
 
-    /// Puts back cursors and a view that were saved together, as a state
-    /// handoff does. The top row stays within the buffer, which may have
-    /// changed since. To move only the view, use [`Window::set_top`].
-    pub fn restore_positions(
+    /// Puts back cursors and a view that were saved together. The top row stays
+    /// within the buffer, which may have changed since. The cursor may end up out
+    /// of view, so `Editor::restore_positions` follows it afterwards.
+    pub(crate) fn restore_positions(
         &mut self,
         selections: SelectionSet,
         scroll: Scroll,
