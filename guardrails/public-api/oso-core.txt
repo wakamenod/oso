@@ -33,7 +33,7 @@ pub fn oso_core::buffer::Buffer::path(&self) -> core::option::Option<&std::path:
 pub fn oso_core::buffer::Buffer::read_only(&self) -> core::option::Option<oso_core::buffer::ReadOnly>
 pub fn oso_core::buffer::Buffer::revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
-pub fn oso_core::buffer::Buffer::visiting(impl core::convert::Into<alloc::string::String>, std::path::PathBuf) -> Self
+pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
 pub struct oso_core::buffer::BufferId(_)
 impl core::clone::Clone for oso_core::buffer::BufferId
 pub fn oso_core::buffer::BufferId::clone(&self) -> oso_core::buffer::BufferId
@@ -206,31 +206,6 @@ impl core::hash::Hash for oso_core::decode::LineEnding
 pub fn oso_core::decode::LineEnding::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::decode::LineEnding
 impl core::marker::StructuralPartialEq for oso_core::decode::LineEnding
-pub struct oso_core::decode::Decoded
-pub oso_core::decode::Decoded::invalid: alloc::vec::Vec<(usize, u8)>
-pub oso_core::decode::Decoded::text: alloc::string::String
-impl oso_core::decode::Decoded
-pub fn oso_core::decode::Decoded::clear(&mut self)
-impl core::clone::Clone for oso_core::decode::Decoded
-pub fn oso_core::decode::Decoded::clone(&self) -> oso_core::decode::Decoded
-impl core::cmp::Eq for oso_core::decode::Decoded
-impl core::cmp::PartialEq for oso_core::decode::Decoded
-pub fn oso_core::decode::Decoded::eq(&self, &oso_core::decode::Decoded) -> bool
-impl core::default::Default for oso_core::decode::Decoded
-pub fn oso_core::decode::Decoded::default() -> oso_core::decode::Decoded
-impl core::fmt::Debug for oso_core::decode::Decoded
-pub fn oso_core::decode::Decoded::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::decode::Decoded
-pub struct oso_core::decode::Decoder
-impl oso_core::decode::Decoder
-pub fn oso_core::decode::Decoder::decode(&mut self, &[u8], &mut oso_core::decode::Decoded)
-pub fn oso_core::decode::Decoder::finish(&mut self, &mut oso_core::decode::Decoded)
-pub fn oso_core::decode::Decoder::info(&self) -> oso_core::decode::FileInfo
-pub fn oso_core::decode::Decoder::new() -> Self
-impl core::default::Default for oso_core::decode::Decoder
-pub fn oso_core::decode::Decoder::default() -> oso_core::decode::Decoder
-impl core::fmt::Debug for oso_core::decode::Decoder
-pub fn oso_core::decode::Decoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::decode::FileInfo
 pub oso_core::decode::FileInfo::binary: bool
 pub oso_core::decode::FileInfo::bom: bool
@@ -248,7 +223,6 @@ impl core::marker::Copy for oso_core::decode::FileInfo
 impl core::marker::StructuralPartialEq for oso_core::decode::FileInfo
 pub struct oso_core::decode::InvalidBytes
 impl oso_core::decode::InvalidBytes
-pub fn oso_core::decode::InvalidBytes::extend(&mut self, usize, &[(usize, u8)])
 pub fn oso_core::decode::InvalidBytes::get(&self, usize) -> core::option::Option<u8>
 pub fn oso_core::decode::InvalidBytes::is_empty(&self) -> bool
 pub fn oso_core::decode::InvalidBytes::len(&self) -> usize
@@ -264,8 +238,6 @@ pub struct oso_core::decode::InvalidIter<'a>
 impl core::iter::traits::iterator::Iterator for oso_core::decode::InvalidIter<'_>
 pub type oso_core::decode::InvalidIter<'_>::Item = (usize, u8)
 pub fn oso_core::decode::InvalidIter<'_>::next(&mut self) -> core::option::Option<(usize, u8)>
-pub const oso_core::decode::BINARY_SNIFF_BYTES: u64
-pub const oso_core::decode::REPLACEMENT: char
 pub mod oso_core::display_map
 pub mod oso_core::display_map::cell
 pub enum oso_core::display_map::cell::CellKind
@@ -291,14 +263,12 @@ impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellKind
 pub struct oso_core::display_map::cell::Clusters<'a>
 impl<'a> oso_core::display_map::cell::Clusters<'a>
 pub fn oso_core::display_map::cell::Clusters<'a>::new(&'a str) -> Self
-pub fn oso_core::display_map::cell::Clusters<'a>::with_invalid(&'a str, usize, &'a oso_core::decode::InvalidBytes) -> Self
 impl<'a> core::iter::traits::iterator::Iterator for oso_core::display_map::cell::Clusters<'a>
 pub type oso_core::display_map::cell::Clusters<'a>::Item = (usize, &'a str, oso_core::display_map::cell::CellKind, usize)
 pub fn oso_core::display_map::cell::Clusters<'a>::next(&mut self) -> core::option::Option<Self::Item>
 pub struct oso_core::display_map::cell::Escape
 impl oso_core::display_map::cell::Escape
 pub fn oso_core::display_map::cell::Escape::as_str(&self) -> &str
-pub fn oso_core::display_map::cell::Escape::byte(u8) -> Self
 impl core::clone::Clone for oso_core::display_map::cell::Escape
 pub fn oso_core::display_map::cell::Escape::clone(&self) -> oso_core::display_map::cell::Escape
 impl core::cmp::Eq for oso_core::display_map::cell::Escape
@@ -327,7 +297,6 @@ impl core::hash::Hash for oso_core::display_map::cell::TabWidth
 pub fn oso_core::display_map::cell::TabWidth::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::display_map::cell::TabWidth
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
-pub const oso_core::display_map::cell::INVALID_BYTE_CELLS: usize
 pub fn oso_core::display_map::cell::classify(&str) -> (oso_core::display_map::cell::CellKind, usize)
 pub fn oso_core::display_map::cell::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
 pub fn oso_core::display_map::cell::is_invisible(char) -> bool
@@ -339,11 +308,10 @@ pub fn oso_core::display_map::tab_map::RowClusters<'a>::next(&mut self) -> core:
 pub struct oso_core::display_map::tab_map::TabMap
 impl oso_core::display_map::tab_map::TabMap
 pub fn oso_core::display_map::tab_map::TabMap::clusters(&self, oso_core::display_map::tab_map::TabPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
-pub fn oso_core::display_map::tab_map::TabMap::invalid(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::display_map::tab_map::TabMap::max_point(&self) -> oso_core::display_map::tab_map::TabPoint
-pub fn oso_core::display_map::tab_map::TabMap::new(&oso_core::rope::Rope, &oso_core::decode::InvalidBytes, oso_core::display_map::cell::TabWidth) -> Self
+pub fn oso_core::display_map::tab_map::TabMap::new(&oso_core::rope::Rope, oso_core::display_map::cell::TabWidth) -> Self
 pub fn oso_core::display_map::tab_map::TabMap::summary(&self) -> &oso_core::display_map::tab_map::TabSummary
-pub fn oso_core::display_map::tab_map::TabMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::decode::InvalidBytes, &oso_core::rope::RopeEdit)
+pub fn oso_core::display_map::tab_map::TabMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::rope::RopeEdit)
 pub fn oso_core::display_map::tab_map::TabMap::tab_width(&self) -> oso_core::display_map::cell::TabWidth
 pub fn oso_core::display_map::tab_map::TabMap::to_offset(&self, oso_core::display_map::tab_map::TabPoint, oso_core::sum_tree::Bias) -> usize
 pub fn oso_core::display_map::tab_map::TabMap::to_tab_point(&self, usize) -> oso_core::display_map::tab_map::TabPoint
@@ -423,7 +391,6 @@ impl core::marker::StructuralPartialEq for oso_core::display_map::cell::CellKind
 pub struct oso_core::display_map::Clusters<'a>
 impl<'a> oso_core::display_map::cell::Clusters<'a>
 pub fn oso_core::display_map::cell::Clusters<'a>::new(&'a str) -> Self
-pub fn oso_core::display_map::cell::Clusters<'a>::with_invalid(&'a str, usize, &'a oso_core::decode::InvalidBytes) -> Self
 impl<'a> core::iter::traits::iterator::Iterator for oso_core::display_map::cell::Clusters<'a>
 pub type oso_core::display_map::cell::Clusters<'a>::Item = (usize, &'a str, oso_core::display_map::cell::CellKind, usize)
 pub fn oso_core::display_map::cell::Clusters<'a>::next(&mut self) -> core::option::Option<Self::Item>
@@ -444,13 +411,12 @@ impl<'a> core::marker::Copy for oso_core::display_map::DisplayCluster<'a>
 impl<'a> core::marker::StructuralPartialEq for oso_core::display_map::DisplayCluster<'a>
 pub struct oso_core::display_map::DisplayMap
 impl oso_core::display_map::DisplayMap
+pub fn oso_core::display_map::DisplayMap::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::display_map::DisplayMap::new(&oso_core::rope::Rope, oso_core::display_map::cell::TabWidth) -> Self
 pub fn oso_core::display_map::DisplayMap::set_tab_width(&mut self, &oso_core::rope::Rope, oso_core::display_map::cell::TabWidth)
 pub fn oso_core::display_map::DisplayMap::snapshot(&self) -> oso_core::display_map::DisplaySnapshot
 pub fn oso_core::display_map::DisplayMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::rope::RopeEdit)
-pub fn oso_core::display_map::DisplayMap::sync_with_invalid(&mut self, &oso_core::rope::Rope, &oso_core::decode::InvalidBytes, &oso_core::rope::RopeEdit)
 pub fn oso_core::display_map::DisplayMap::tab_width(&self) -> oso_core::display_map::cell::TabWidth
-pub fn oso_core::display_map::DisplayMap::with_invalid(&oso_core::rope::Rope, &oso_core::decode::InvalidBytes, oso_core::display_map::cell::TabWidth) -> Self
 impl core::clone::Clone for oso_core::display_map::DisplayMap
 pub fn oso_core::display_map::DisplayMap::clone(&self) -> oso_core::display_map::DisplayMap
 pub struct oso_core::display_map::DisplayPoint
@@ -494,7 +460,6 @@ pub fn oso_core::display_map::DisplaySnapshot::clone(&self) -> oso_core::display
 pub struct oso_core::display_map::Escape
 impl oso_core::display_map::cell::Escape
 pub fn oso_core::display_map::cell::Escape::as_str(&self) -> &str
-pub fn oso_core::display_map::cell::Escape::byte(u8) -> Self
 impl core::clone::Clone for oso_core::display_map::cell::Escape
 pub fn oso_core::display_map::cell::Escape::clone(&self) -> oso_core::display_map::cell::Escape
 impl core::cmp::Eq for oso_core::display_map::cell::Escape
@@ -507,11 +472,10 @@ impl core::marker::StructuralPartialEq for oso_core::display_map::cell::Escape
 pub struct oso_core::display_map::TabMap
 impl oso_core::display_map::tab_map::TabMap
 pub fn oso_core::display_map::tab_map::TabMap::clusters(&self, oso_core::display_map::tab_map::TabPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
-pub fn oso_core::display_map::tab_map::TabMap::invalid(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::display_map::tab_map::TabMap::max_point(&self) -> oso_core::display_map::tab_map::TabPoint
-pub fn oso_core::display_map::tab_map::TabMap::new(&oso_core::rope::Rope, &oso_core::decode::InvalidBytes, oso_core::display_map::cell::TabWidth) -> Self
+pub fn oso_core::display_map::tab_map::TabMap::new(&oso_core::rope::Rope, oso_core::display_map::cell::TabWidth) -> Self
 pub fn oso_core::display_map::tab_map::TabMap::summary(&self) -> &oso_core::display_map::tab_map::TabSummary
-pub fn oso_core::display_map::tab_map::TabMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::decode::InvalidBytes, &oso_core::rope::RopeEdit)
+pub fn oso_core::display_map::tab_map::TabMap::sync(&mut self, &oso_core::rope::Rope, &oso_core::rope::RopeEdit)
 pub fn oso_core::display_map::tab_map::TabMap::tab_width(&self) -> oso_core::display_map::cell::TabWidth
 pub fn oso_core::display_map::tab_map::TabMap::to_offset(&self, oso_core::display_map::tab_map::TabPoint, oso_core::sum_tree::Bias) -> usize
 pub fn oso_core::display_map::tab_map::TabMap::to_tab_point(&self, usize) -> oso_core::display_map::tab_map::TabPoint
@@ -565,7 +529,6 @@ impl core::hash::Hash for oso_core::display_map::cell::TabWidth
 pub fn oso_core::display_map::cell::TabWidth::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::display_map::cell::TabWidth
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
-pub const oso_core::display_map::INVALID_BYTE_CELLS: usize
 pub fn oso_core::display_map::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
 pub mod oso_core::editor
 pub struct oso_core::editor::Editor
@@ -841,12 +804,10 @@ pub fn oso_core::load::Builder::new(core::option::Option<u64>, oso_core::display
 pub fn oso_core::load::Builder::push(&mut self, &[u8])
 pub fn oso_core::load::Builder::snapshot(&self) -> oso_core::load::LoadSnapshot
 pub struct oso_core::load::LoadSnapshot
-pub oso_core::load::LoadSnapshot::display: oso_core::display_map::DisplayMap
-pub oso_core::load::LoadSnapshot::done: bool
-pub oso_core::load::LoadSnapshot::info: oso_core::decode::FileInfo
-pub oso_core::load::LoadSnapshot::invalid: oso_core::decode::InvalidBytes
-pub oso_core::load::LoadSnapshot::progress: oso_core::load::Progress
-pub oso_core::load::LoadSnapshot::text: oso_core::rope::Rope
+impl oso_core::load::LoadSnapshot
+pub fn oso_core::load::LoadSnapshot::done(&self) -> bool
+pub fn oso_core::load::LoadSnapshot::progress(&self) -> oso_core::load::Progress
+pub fn oso_core::load::LoadSnapshot::text(&self) -> &oso_core::rope::Rope
 impl core::clone::Clone for oso_core::load::LoadSnapshot
 pub fn oso_core::load::LoadSnapshot::clone(&self) -> oso_core::load::LoadSnapshot
 pub struct oso_core::load::Progress
@@ -1038,7 +999,7 @@ pub fn oso_core::selection::SelectionSet::iter(&self) -> impl core::iter::traits
 pub fn oso_core::selection::SelectionSet::len(&self) -> usize
 pub fn oso_core::selection::SelectionSet::new(usize) -> Self
 pub fn oso_core::selection::SelectionSet::primary(&self) -> &oso_core::selection::Selection
-pub fn oso_core::selection::SelectionSet::update<E>(&mut self, impl core::ops::function::FnMut(&mut oso_core::selection::Selection) -> core::result::Result<(), E>) -> oso_core::selection::Update<E>
+pub fn oso_core::selection::SelectionSet::update<E>(&mut self, impl core::ops::function::FnMut(&mut oso_core::selection::Selection) -> core::result::Result<(), E>) -> oso_core::selection::UpdateOutcome<E>
 impl core::clone::Clone for oso_core::selection::SelectionSet
 pub fn oso_core::selection::SelectionSet::clone(&self) -> oso_core::selection::SelectionSet
 impl core::cmp::Eq for oso_core::selection::SelectionSet
@@ -1049,15 +1010,15 @@ pub fn oso_core::selection::SelectionSet::default() -> Self
 impl core::fmt::Debug for oso_core::selection::SelectionSet
 pub fn oso_core::selection::SelectionSet::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::selection::SelectionSet
-pub struct oso_core::selection::Update<E>
-pub oso_core::selection::Update::changed: bool
-pub oso_core::selection::Update::error: core::option::Option<E>
-impl<E: core::cmp::Eq> core::cmp::Eq for oso_core::selection::Update<E>
-impl<E: core::cmp::PartialEq> core::cmp::PartialEq for oso_core::selection::Update<E>
-pub fn oso_core::selection::Update<E>::eq(&self, &oso_core::selection::Update<E>) -> bool
-impl<E: core::fmt::Debug> core::fmt::Debug for oso_core::selection::Update<E>
-pub fn oso_core::selection::Update<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<E> core::marker::StructuralPartialEq for oso_core::selection::Update<E>
+pub struct oso_core::selection::UpdateOutcome<E>
+pub oso_core::selection::UpdateOutcome::changed: bool
+pub oso_core::selection::UpdateOutcome::error: core::option::Option<E>
+impl<E: core::cmp::Eq> core::cmp::Eq for oso_core::selection::UpdateOutcome<E>
+impl<E: core::cmp::PartialEq> core::cmp::PartialEq for oso_core::selection::UpdateOutcome<E>
+pub fn oso_core::selection::UpdateOutcome<E>::eq(&self, &oso_core::selection::UpdateOutcome<E>) -> bool
+impl<E: core::fmt::Debug> core::fmt::Debug for oso_core::selection::UpdateOutcome<E>
+pub fn oso_core::selection::UpdateOutcome<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E> core::marker::StructuralPartialEq for oso_core::selection::UpdateOutcome<E>
 pub mod oso_core::sum_tree
 pub enum oso_core::sum_tree::Bias
 pub oso_core::sum_tree::Bias::Left
@@ -1185,6 +1146,7 @@ pub oso_core::window::Window::selections: oso_core::selection::SelectionSet
 impl oso_core::window::Window
 pub fn oso_core::window::Window::buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::window::Window::new(oso_core::buffer::BufferId) -> Self
+pub fn oso_core::window::Window::set_top(&mut self, usize, &oso_core::display_map::DisplaySnapshot) -> bool
 pub fn oso_core::window::Window::size(&self) -> oso_core::window::ViewSize
 impl core::clone::Clone for oso_core::window::Window
 pub fn oso_core::window::Window::clone(&self) -> oso_core::window::Window
@@ -1192,6 +1154,7 @@ impl core::fmt::Debug for oso_core::window::Window
 pub fn oso_core::window::Window::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_core::window::CONTEXT_LINES: usize
 pub fn oso_core::window::follow(oso_core::window::Scroll, oso_core::window::ViewSize, oso_core::display_map::DisplayPoint, usize) -> oso_core::window::Scroll
+pub fn oso_core::window::reaches(usize, oso_core::window::ViewSize, usize) -> bool
 pub fn oso_core::window::row_in_view(usize, usize, oso_core::window::ViewSize, usize) -> core::option::Option<usize>
 pub fn oso_core::window::screen_lines(oso_core::window::ViewSize) -> usize
 pub fn oso_core::window::scroll_down(usize, usize) -> core::result::Result<usize, oso_core::motion::Edge>

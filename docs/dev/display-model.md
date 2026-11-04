@@ -52,7 +52,8 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   rendering. A snapshot is O(1) to take and can go to another thread.
 - **Rows are buffer lines**, because soft wrap is off by default.
 - **Invalid bytes.** The TabMap holds the buffer's invalid-byte table
-  (`oso_core::decode::InvalidBytes`). The U+FFFD of an invalid byte is a
+  (`oso_core::decode::InvalidBytes`), its only copy: the buffer reads it
+  from the display map. The U+FFFD of an invalid byte is a
   display cluster of its own, `\xNN` in 4 cells, even where a grapheme
   cluster would join it to a neighbor
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).

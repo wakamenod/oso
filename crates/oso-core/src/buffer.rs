@@ -44,8 +44,8 @@ pub struct Buffer {
     name: String,
     path: Option<PathBuf>,
     text: Rope,
+    /// Also holds the invalid bytes (ADR 0040).
     display: DisplayMap,
-    invalid: InvalidBytes,
     info: FileInfo,
     /// `Some` while the file loads.
     loading: Option<Progress>,
@@ -67,7 +67,6 @@ impl Buffer {
             path: None,
             display: DisplayMap::new(&text, TabWidth::default()),
             text,
-            invalid: InvalidBytes::new(),
             info: FileInfo::default(),
             loading: None,
             revision: 0,
@@ -84,7 +83,15 @@ impl Buffer {
 
     /// An empty, read-only buffer for `path`, which a loading thread is
     /// about to fill.
-    pub fn visiting(name: impl Into<String>, path: PathBuf) -> Self {
+    ///
+    /// It is named after the file. Telling apart buffers of files with the
+    /// same name (Emacs's uniquify) is left to the editor, which knows the
+    /// other buffers.
+    pub fn visiting(path: PathBuf) -> Self {
+        let name = path.file_name().map_or_else(
+            || path.to_string_lossy().into_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        );
         Self {
             path: Some(path),
             loading: Some(Progress::default()),
@@ -96,7 +103,6 @@ impl Buffer {
     pub fn apply_load(&mut self, snapshot: LoadSnapshot) {
         self.text = snapshot.text;
         self.display = snapshot.display;
-        self.invalid = snapshot.invalid;
         self.info = snapshot.info;
         self.loading = (!snapshot.done).then_some(snapshot.progress);
         self.revision += 1;
@@ -135,7 +141,7 @@ impl Buffer {
 
     /// The invalid bytes of the file, each shown as `\xNN`.
     pub fn invalid_bytes(&self) -> &InvalidBytes {
-        &self.invalid
+        self.display.invalid_bytes()
     }
 
     /// The BOM and line ending of the file, and whether it is binary.
@@ -153,7 +159,7 @@ impl Buffer {
     pub fn read_only(&self) -> Option<ReadOnly> {
         if self.info.binary {
             Some(ReadOnly::Binary)
-        } else if !self.invalid.is_empty() {
+        } else if !self.invalid_bytes().is_empty() {
             Some(ReadOnly::InvalidUtf8)
         } else if self.loading.is_some() {
             Some(ReadOnly::Loading)
@@ -170,8 +176,9 @@ mod tests {
 
     #[test]
     fn a_loading_buffer_is_read_only_until_done() {
-        let mut buffer = Buffer::visiting("a.txt", PathBuf::from("/tmp/a.txt"));
+        let mut buffer = Buffer::visiting(PathBuf::from("/tmp/a.txt"));
         assert_eq!(buffer.read_only(), Some(ReadOnly::Loading));
+        assert_eq!(buffer.name(), "a.txt");
         let mut builder = Builder::new(Some(6), TabWidth::default());
         builder.push(b"abc");
         buffer.apply_load(builder.snapshot());
@@ -203,7 +210,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_ends_as_an_empty_editable_buffer() {
-        let mut buffer = Buffer::visiting("new.txt", PathBuf::from("/tmp/new.txt"));
+        let mut buffer = Buffer::visiting(PathBuf::from("/tmp/new.txt"));
         buffer.finish_empty();
         assert_eq!(buffer.read_only(), None);
         assert!(buffer.text().is_empty());

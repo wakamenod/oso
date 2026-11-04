@@ -12,9 +12,9 @@
 //! are tested without a window.
 
 use crate::buffer::BufferId;
-use crate::display_map::DisplayPoint;
-use crate::motion::Edge;
-use crate::selection::SelectionSet;
+use crate::display_map::{DisplayPoint, DisplaySnapshot};
+use crate::motion::{self, Edge};
+use crate::selection::{Selection, SelectionSet};
 
 /// Rows that `C-v` and `M-v` keep from the previous screen, as Emacs's
 /// `next-screen-context-lines`.
@@ -96,6 +96,32 @@ impl Window {
     pub(crate) fn set_size(&mut self, size: ViewSize) {
         self.size = size;
     }
+
+    /// Shows rows from `top` on, and moves every cursor the view left
+    /// behind to the start of the nearest row in view, as Emacs does after
+    /// `C-v`, `M-v` and the mouse wheel. Returns whether the view moved.
+    pub fn set_top(&mut self, top: usize, display: &DisplaySnapshot) -> bool {
+        if top == self.scroll.top {
+            return false;
+        }
+        self.scroll.top = top;
+        let (size, row_count) = (self.size, display.row_count());
+        self.selections.update(|selection| {
+            let row = display.offset_to_display_point(selection.cursor).row;
+            if let Some(row) = row_in_view(row, top, size, row_count) {
+                *selection = Selection::at(motion::line_start(display, row));
+            }
+            Ok::<(), ()>(())
+        });
+        true
+    }
+}
+
+/// Whether a view whose top row is `top` reaches `row` or the rows after
+/// it, counting the partly shown row below the full ones. A buffer that
+/// grew from `row` on needs a new frame only then.
+pub fn reaches(top: usize, size: ViewSize, row: usize) -> bool {
+    top.saturating_add(size.rows) >= row
 }
 
 /// The scroll position that shows the cursor at `cursor`, whose cluster
@@ -247,6 +273,40 @@ mod tests {
         assert_eq!(wheel(95, SIZE, 100, 3), 95, "past that after C-v");
         assert_eq!(wheel(95, SIZE, 100, -3), 92);
         assert_eq!(wheel(0, SIZE, 5, 3), 0, "a short buffer");
+    }
+
+    #[test]
+    fn a_view_reaches_the_partly_shown_row_below_it() {
+        assert!(reaches(10, SIZE, 15));
+        assert!(reaches(10, SIZE, 20), "the partly shown row");
+        assert!(!reaches(10, SIZE, 21));
+        assert!(reaches(30, SIZE, 21), "below the old end");
+    }
+
+    #[test]
+    fn set_top_moves_cursors_left_behind() {
+        use crate::display_map::{DisplayMap, TabWidth};
+        let text: String = (0..30).map(|i| format!("{i:02}\n")).collect();
+        let display = DisplayMap::new(&crate::rope::Rope::from(text.as_str()), TabWidth::default())
+            .snapshot();
+        let mut window = Window::new(BufferId(0));
+        window.set_size(SIZE);
+        window.selections = SelectionSet::new(5 * 3 + 1);
+        assert!(window.set_top(3, &display));
+        assert_eq!(
+            window.selections.primary().cursor,
+            5 * 3 + 1,
+            "still in view"
+        );
+        assert!(window.set_top(8, &display));
+        assert_eq!(
+            window.selections.primary().cursor,
+            8 * 3,
+            "start of the top row"
+        );
+        assert!(window.set_top(0, &display));
+        assert_eq!(window.selections.primary().cursor, 8 * 3);
+        assert!(!window.set_top(0, &display));
     }
 
     #[test]

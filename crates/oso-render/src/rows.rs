@@ -7,7 +7,7 @@
 //!   buffer's revision holds, and after a change while the buffer offsets
 //!   its columns cover are the same.
 //! - Control characters, invalid bytes and invisible characters are never
-//!   shaped. Their escapes from the display model (`^M`, `\\xFF`,
+//!   shaped. Their escapes from the display model (`^M`, `\xFF`,
 //!   `U+202E`) are shaped instead, as plain ASCII labels (security.md, T3),
 //!   and invisible characters get a box.
 //!
@@ -317,7 +317,7 @@ mod tests {
         rows.row(&buffer.display(), 0, 0..256, &mut system);
         let shaped = system.shaped[0].chars().count();
         // The rope splits the cluster into 1 KB pieces of one cell each,
-        // and each piece is cut to 32 characters.
+        // and each piece is cut to a few characters.
         assert!(
             shaped <= 256 * (CHARS_PER_COLUMN + 1),
             "{shaped} characters shaped"

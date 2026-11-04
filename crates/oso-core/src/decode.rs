@@ -9,7 +9,7 @@
 //! - A UTF-8 BOM at the start is stripped and remembered.
 //! - The line ending is the first line break's, even if it is split
 //!   between reads. Line breaks stay as they are in the text.
-//! - A NUL byte in the first [`BINARY_SNIFF_BYTES`] makes the file binary.
+//! - A NUL byte in the first 8 KB makes the file binary.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -17,12 +17,12 @@ use std::sync::Arc;
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
 
 /// How many bytes at the start of a file are searched for a NUL byte.
-pub const BINARY_SNIFF_BYTES: u64 = 8 * 1024;
+pub(crate) const BINARY_SNIFF_BYTES: u64 = 8 * 1024;
 
 const BOM: &[u8] = b"\xEF\xBB\xBF";
 
 /// The text an invalid byte becomes in the rope.
-pub const REPLACEMENT: char = '\u{FFFD}';
+pub(crate) const REPLACEMENT: char = '\u{FFFD}';
 
 /// A file's line ending: the first line break's.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -51,23 +51,23 @@ pub struct FileInfo {
     pub bom: bool,
     /// The first line break's ending.
     pub line_ending: LineEnding,
-    /// A NUL byte is in the first [`BINARY_SNIFF_BYTES`].
+    /// A NUL byte is in the first 8 KB.
     pub binary: bool,
 }
 
 /// The text decoded from one piece of a file.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct Decoded {
+pub(crate) struct Decoded {
     /// Valid UTF-8, with a U+FFFD for each invalid byte.
-    pub text: String,
+    pub(crate) text: String,
     /// The invalid bytes: the offset of each one's U+FFFD in `text`, and
     /// the byte.
-    pub invalid: Vec<(usize, u8)>,
+    pub(crate) invalid: Vec<(usize, u8)>,
 }
 
 impl Decoded {
     /// Empties the text and the invalid bytes, keeping their capacity.
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.text.clear();
         self.invalid.clear();
     }
@@ -88,7 +88,7 @@ impl Decoded {
 /// [`Decoder::decode`], then call [`Decoder::finish`]. The concatenated
 /// output is the same however the file was split.
 #[derive(Debug, Default)]
-pub struct Decoder {
+pub(crate) struct Decoder {
     /// Bytes not decoded yet: the start of the file while the BOM is
     /// undecided, or an incomplete UTF-8 sequence. At most 3 bytes.
     carry: Vec<u8>,
@@ -103,18 +103,18 @@ pub struct Decoder {
 
 impl Decoder {
     /// A decoder at the start of a file.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::default()
     }
 
     /// What is known about the file so far.
-    pub fn info(&self) -> FileInfo {
+    pub(crate) fn info(&self) -> FileInfo {
         self.info
     }
 
     /// Decodes the next piece of the file, appending to `out`. A sequence
     /// left incomplete at the end of `input` waits for the next piece.
-    pub fn decode(&mut self, input: &[u8], out: &mut Decoded) {
+    pub(crate) fn decode(&mut self, input: &[u8], out: &mut Decoded) {
         self.inspect(input);
         let mut input = input;
         if !self.bom_decided {
@@ -139,7 +139,7 @@ impl Decoder {
 
     /// Decodes what is left at the end of the file: bytes of an incomplete
     /// sequence are invalid.
-    pub fn finish(&mut self, out: &mut Decoded) {
+    pub(crate) fn finish(&mut self, out: &mut Decoded) {
         if !self.bom_decided {
             self.decide_bom();
         }
@@ -318,7 +318,7 @@ impl InvalidBytes {
 
     /// Appends invalid bytes at `base` plus each entry's offset. The
     /// offsets must ascend and come after every byte already held.
-    pub fn extend(&mut self, base: usize, entries: &[(usize, u8)]) {
+    pub(crate) fn extend(&mut self, base: usize, entries: &[(usize, u8)]) {
         let mut rest = entries;
         while let Some(&(first, _)) = rest.first() {
             let start = base + first;
