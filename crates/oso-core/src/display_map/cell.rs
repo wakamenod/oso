@@ -271,7 +271,10 @@ impl Default for TabWidth {
 /// (except `\r\n`): no ASCII character extends or prepends to a cluster.
 /// Only clusters that touch non-ASCII text go through full segmentation,
 /// with one cursor for the whole text, so that runs of regional indicators
-/// (flags) are not rescanned for every cluster.
+/// (flags) are not rescanned for every cluster. The end of the last grapheme
+/// cluster is remembered until the scan reaches it, so a grapheme cluster
+/// split into many display clusters is segmented once, and one pass takes time
+/// linear in the text.
 ///
 /// Built with a buffer's invalid bytes (inside the display model), the
 /// U+FFFD of an invalid byte is a cluster of its own,
@@ -281,6 +284,12 @@ pub struct Clusters<'a> {
     text: &'a str,
     position: usize,
     cursor: GraphemeCursor,
+    /// Where the last grapheme cluster segmented ends. There is no boundary
+    /// between `position` and it while `position` is before it.
+    grapheme_end: usize,
+    /// The bytes the segmenter has moved over so far.
+    #[cfg(test)]
+    segmented: usize,
     /// The invalid bytes after `position`, and where the text starts in
     /// the buffer.
     invalid: Option<InvalidIter<'a>>,
@@ -296,6 +305,9 @@ impl<'a> Clusters<'a> {
             text,
             position: 0,
             cursor: GraphemeCursor::new(0, text.len(), true),
+            grapheme_end: 0,
+            #[cfg(test)]
+            segmented: 0,
             invalid: None,
             base: 0,
             next_invalid: None,
@@ -353,12 +365,17 @@ impl<'a> Clusters<'a> {
     }
 
     /// The end of the grapheme cluster that starts (or continues) at
-    /// `start`.
+    /// `start`. Whether an offset is a boundary depends only on the whole of
+    /// `text`, before `start` too, and never on invalid bytes, so the end
+    /// found from an earlier start in the same cluster still holds.
     fn cluster_end(&mut self, start: usize) -> usize {
+        if start < self.grapheme_end {
+            return self.grapheme_end;
+        }
         if self.cursor.cur_cursor() != start {
             self.cursor.set_cursor(start);
         }
-        match self.cursor.next_boundary(self.text, 0) {
+        let end = match self.cursor.next_boundary(self.text, 0) {
             Ok(Some(end)) => end,
             _ => {
                 let next_char = self.text[start..].chars().next().map_or(1, char::len_utf8);
@@ -366,7 +383,13 @@ impl<'a> Clusters<'a> {
                 self.cursor.set_cursor(end);
                 end
             }
+        };
+        self.grapheme_end = end;
+        #[cfg(test)]
+        {
+            self.segmented += end - start;
         }
+        end
     }
 }
 
@@ -413,6 +436,7 @@ impl<'a> Iterator for Clusters<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn cells(cluster: &str) -> usize {
         classify(cluster).1
@@ -537,6 +561,141 @@ mod tests {
             })
             .collect();
         assert_eq!(fast, slow);
+    }
+
+    /// One pass over `text`: its display clusters and the bytes it segmented.
+    fn one_pass(text: &str) -> (Vec<&str>, usize) {
+        let mut clusters = Clusters::new(text);
+        let pieces = clusters.by_ref().map(|(_, piece, _, _)| piece).collect();
+        (pieces, clusters.segmented)
+    }
+
+    #[test]
+    fn a_long_run_of_joiners_scans_in_linear_time() {
+        let run = "\u{200d}".repeat(300);
+        let text = format!("a{run}");
+        let (pieces, segmented) = one_pass(&text);
+        assert_eq!(pieces.len(), 301);
+        assert!(pieces[1..].iter().all(|piece| *piece == "\u{200d}"));
+        assert_eq!(segmented, text.len());
+    }
+
+    #[test]
+    fn a_long_run_of_tag_characters_scans_in_linear_time() {
+        for base in ["a", "日"] {
+            let text = format!("{base}{}", "\u{e0041}".repeat(300));
+            let (pieces, segmented) = one_pass(&text);
+            assert_eq!(pieces.len(), 301, "after {base}");
+            assert_eq!(segmented, text.len(), "after {base}");
+        }
+    }
+
+    /// The display clusters of `text`, finding each grapheme cluster's end
+    /// with a new cursor at every start, as a scan without memory does.
+    fn clusters_by_fresh_cursors<'a>(
+        text: &'a str,
+        invalid: &InvalidBytes,
+    ) -> Vec<(usize, &'a str, CellKind, usize)> {
+        let mut clusters = Vec::new();
+        let mut start = 0;
+        while start < text.len() {
+            let byte = invalid
+                .get(start)
+                .filter(|_| text[start..].starts_with(REPLACEMENT));
+            let end = if byte.is_some() {
+                start + REPLACEMENT.len_utf8()
+            } else {
+                let mut cursor = GraphemeCursor::new(start, text.len(), true);
+                let mut end = cursor
+                    .next_boundary(text, 0)
+                    .ok()
+                    .flatten()
+                    .unwrap_or(text.len());
+                let replacement = text[start..end]
+                    .find(REPLACEMENT)
+                    .map(|index| start + index);
+                if let Some(at) = replacement.filter(|&at| invalid.get(at).is_some()) {
+                    end = at;
+                }
+                start + first_display_cluster(&text[start..end])
+            };
+            let (kind, cells) = byte.map_or_else(
+                || classify(&text[start..end]),
+                |byte| (CellKind::InvalidByte(byte), INVALID_BYTE_CELLS),
+            );
+            clusters.push((start, &text[start..end], kind, cells));
+            start = end;
+        }
+        clusters
+    }
+
+    /// Pieces that join in every way the segmenter looks back over: flags,
+    /// emoji after a ZWJ and Indic conjuncts, with what splits them apart.
+    fn scan_text() -> impl Strategy<Value = String> {
+        const PIECES: [&str; 16] = [
+            "a",
+            "\r\n",
+            "\n",
+            "\t",
+            "日",
+            "🇯",
+            "👍",
+            "\u{200d}",
+            "\u{200c}",
+            "\u{e0041}",
+            "\u{fe0f}",
+            "\u{301}",
+            "\u{915}",
+            "\u{94d}",
+            "\u{600}",
+            "\u{fffd}",
+        ];
+        prop::collection::vec(prop::sample::select(&PIECES[..]), 0..60)
+            .prop_map(|pieces| pieces.concat())
+    }
+
+    proptest! {
+        /// Remembering a cluster's end changes nothing that is shown, and one
+        /// pass moves the segmenter over no byte twice. Every other U+FFFD is
+        /// an invalid byte.
+        #[test]
+        fn remembering_the_end_matches_fresh_cursors(text in scan_text()) {
+            let entries: Vec<_> = text
+                .match_indices(REPLACEMENT)
+                .step_by(2)
+                .map(|(offset, _)| (offset, 0xff))
+                .collect();
+            for invalid_entries in [&[][..], &entries[..]] {
+                let mut invalid = InvalidBytes::new();
+                invalid.extend(0, invalid_entries);
+                let mut clusters = Clusters::with_invalid(&text, 0, &invalid);
+                let got: Vec<_> = clusters.by_ref().collect();
+                prop_assert_eq!(got, clusters_by_fresh_cursors(&text, &invalid), "{:?}", text);
+                prop_assert!(clusters.segmented <= text.len(), "{:?}", text);
+            }
+        }
+
+        /// From any start and with any table, even one that does not fit the
+        /// text, the clusters are never empty and rebuild the text.
+        #[test]
+        fn clusters_cover_the_text_with_any_table(
+            text in scan_text(),
+            from in 0usize..200,
+            offsets in prop::collection::btree_set(0usize..200, 0..12),
+        ) {
+            let entries: Vec<_> = offsets.into_iter().map(|offset| (offset, 0xff)).collect();
+            let mut invalid = InvalidBytes::new();
+            invalid.extend(0, &entries);
+            let from = text.floor_char_boundary(from);
+            let clusters = Clusters::with_invalid_from(&text, 0, from, &invalid);
+            let mut next = from;
+            for (offset, piece, _, _) in clusters {
+                prop_assert_eq!(offset, next, "{:?}", text);
+                prop_assert!(!piece.is_empty(), "{:?}", text);
+                next += piece.len();
+            }
+            prop_assert_eq!(next, text.len(), "{:?}", text);
+        }
     }
 
     #[test]
