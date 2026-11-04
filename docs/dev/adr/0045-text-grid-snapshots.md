@@ -1,6 +1,6 @@
 # 0045. Text-grid snapshots
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-04
 
 ## Context
