@@ -502,9 +502,12 @@ mod tests {
         client
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
+        // Closed: Linux reports a reset if a byte had just arrived, unread.
         let mut rest = Vec::new();
-        BufReader::new(client).read_to_end(&mut rest).unwrap();
-        assert!(rest.is_empty());
+        match BufReader::new(client).read_to_end(&mut rest) {
+            Ok(_) => assert!(rest.is_empty(), "the connection is closed"),
+            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::ConnectionReset),
+        }
         assert!(served.join().unwrap().is_ok());
     }
 
