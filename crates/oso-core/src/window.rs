@@ -1,5 +1,8 @@
 //! Windows and scrolling (ADR 0007, ADR 0040).
 //!
+//! Must not depend on: `editor`, `command` or any GPU or window-system type; a
+//! window here is editor state, not an OS window.
+//!
 //! A window shows one buffer, with its own selections and scroll position.
 //! Scrolling follows Emacs with `scroll-conservatively` at 101: when the
 //! cursor would leave the window, the view moves by the fewest rows that

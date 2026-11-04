@@ -1,6 +1,9 @@
 //! Building a buffer's text and display model from a file's bytes, as they
 //! are read (ADR 0022, ADR 0040).
 //!
+//! Must not depend on: file I/O or threads, which the host owns, or `buffer`
+//! and what sits above it.
+//!
 //! A [`Builder`] runs on the loading thread: it decodes each piece, appends
 //! it to the rope and brings the display map along, so the UI thread never
 //! does O(n) work. [`Builder::snapshot`] is O(1) and is what the UI shows

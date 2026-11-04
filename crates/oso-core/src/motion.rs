@@ -1,5 +1,8 @@
 //! Cursor motion over the display model (ADR 0030, ADR 0040).
 //!
+//! Must not depend on: `buffer`, `window` or `editor`; it works on offsets and
+//! selections over a display snapshot.
+//!
 //! Positions step over display clusters, the units the cell grid draws: a
 //! grapheme cluster (`が`, a flag, a ZWJ emoji family), a tab, a `\r\n`
 //! line break, a control escape, a boxed invisible character or an invalid

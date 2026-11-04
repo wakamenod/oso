@@ -1,6 +1,9 @@
 //! Buffers: the text of a file, with its display model (ADR 0022,
 //! ADR 0040).
 //!
+//! Must not depend on: `window`, `editor` or `command`, or file I/O; a buffer
+//! does not know who shows it or who reads the file.
+//!
 //! A file buffer starts empty and read-only, and fills in as the loading
 //! thread hands over snapshots ([`Buffer::apply_load`]). Buffers with
 //! invalid UTF-8, and binary files, stay read-only and can never be saved.

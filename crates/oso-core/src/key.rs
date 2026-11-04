@@ -1,5 +1,8 @@
 //! Key presses and Emacs key notation.
 //!
+//! Must not depend on: winit or other window-system types, `keymap` or
+//! `command`.
+//!
 //! A [`KeyPress`] is one key with its modifiers, independent of the window
 //! system. The tip crate translates OS key events into it, and the dev control
 //! socket parses it from Emacs notation (`"C-x C-f"`, `"<right>"`, `"RET"`),

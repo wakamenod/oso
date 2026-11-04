@@ -1,11 +1,12 @@
 //! The text of a buffer: a rope of UTF-8 chunks on a [`SumTree`]
 //! (ADR 0022, ADR 0035).
 //!
+//! Must not depend on: `decode`, `display_map`, cells or display rows.
+//!
 //! - Byte offsets are the primary coordinate. A [`Point`] is a line and a
 //!   byte column; conversions in both directions take O(log n).
-//! - Line endings are kept as they are in the file. `\n` and `\r\n` end a
-//!   line, and `\r\n` counts as one line break. A lone `\r` does not end a
-//!   line.
+//! - Line endings stay as in the file. `\n` and `\r\n` (one break) end a
+//!   line; a lone `\r` does not.
 //! - Chunks hold at most [`MAX_CHUNK_BYTES`] bytes and end on grapheme
 //!   cluster boundaries, so a character, a `\r\n` pair or an emoji sequence
 //!   is never split between chunks. Only a cluster longer than a whole chunk
@@ -13,9 +14,8 @@
 //! - Cloning a rope is O(1), and the clone is a snapshot that later edits
 //!   do not change.
 //!
-//! Offsets out of range are clamped to the end of the rope, and offsets
-//! inside a UTF-8 character are moved back to its start. No method panics on
-//! any input.
+//! Offsets past the end clamp to it, and offsets inside a UTF-8 character
+//! move back to its start. No method panics on any input.
 
 use std::borrow::Cow;
 use std::fmt;

@@ -1,5 +1,8 @@
 //! The command registry (ADR 0034).
 //!
+//! Must not depend on: `keymap`, key presses or the concrete commands, which
+//! the tip crate registers.
+//!
 //! A [`Command`] is a name, a docstring, an argument spec and a plain
 //! function over host-owned state: `fn(&mut Ctx, Args) -> Result<(),
 //! CommandError>`. The host owns a [`Registry`] and the [`Editor`], and
