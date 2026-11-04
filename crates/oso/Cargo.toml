@@ -23,5 +23,12 @@ miniz_oxide = { workspace = true, optional = true }
 # Never a default feature. CI checks that release builds contain none of it.
 dev = ["dep:serde_json", "dep:miniz_oxide", "oso-platform/dev", "oso-render/dev"]
 
+# The benchmark harness, which drives the app over the control socket
+# (ADR 0025, ADR 0044).
+[[example]]
+name = "perf"
+required-features = ["dev"]
+test = true
+
 [lints]
 workspace = true

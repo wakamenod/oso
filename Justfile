@@ -130,6 +130,25 @@ release-safety:
     exit "$fail"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Performance (ADR 0024, ADR 0025, ADR 0044)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Benchmark an optimized build with the dev feature; windows open and take the focus. Pass --quick to try it out
+perf out="target/perf/perf.json" *args="":
+    cargo build --locked --release -p oso --features dev --bin oso --example perf
+    target/release/examples/perf run --oso target/release/oso --out "{{out}}" {{args}}
+
+# Compare a result with a baseline, and fail on a large regression; a missing baseline passes with a note
+perf-compare base new summary="target/perf/summary.md":
+    cargo build --locked --release -p oso --features dev --example perf
+    target/release/examples/perf compare "{{base}}" "{{new}}" --summary "{{summary}}"
+
+# Time the incremental dev build of the tip crate after changing one file (median of 5)
+build-time out="target/perf/build-time.json":
+    cargo build --locked --release -p oso --features dev --example perf
+    target/release/examples/perf build-time --out "{{out}}"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Architecture guardrails (ADR 0038)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

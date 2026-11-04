@@ -4,8 +4,8 @@
 //! only the public API.
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`. Shows that
-//! per-query costs do not grow with file size or line length. CI benchmarks
-//! against the budgets arrive in M1-8.
+//! per-query costs do not grow with file size or line length. The benchmarks
+//! that CI checks against the budgets are in `crates/oso/examples/perf`.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
