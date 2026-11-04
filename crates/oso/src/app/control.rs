@@ -12,7 +12,8 @@ use serde_json::json;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 
-use super::{App, text_view};
+use super::App;
+use super::draw::text_view;
 use crate::dev;
 use crate::dev::handoff;
 
