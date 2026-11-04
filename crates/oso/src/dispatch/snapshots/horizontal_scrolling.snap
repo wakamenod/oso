@@ -1,0 +1,39 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: 0123456789abcdefghijklmnopqrstuvwxyz\\nshort\\n"
+---
+keys: none
+│0123456789ab│
+:^           :
+│short       │
+│            │
+
+keys: C-e
+│pqrstuvwxyz │
+:           ^:
+│            │
+│            │
+
+keys: C-b C-b
+│pqrstuvwxyz │
+:         ^  :
+│            │
+│            │
+
+keys: C-a
+│0123456789ab│
+:^           :
+│short       │
+│            │
+
+keys: C-e C-n
+│56789abcdefg│
+│            │
+:^           :
+│            │
+
+keys: C-p C-e
+│pqrstuvwxyz │
+:           ^:
+│            │
+│            │

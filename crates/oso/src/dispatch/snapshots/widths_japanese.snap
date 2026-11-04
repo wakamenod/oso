@@ -1,0 +1,12 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: 日本語abc\\nｱｲｳ半角\\nＡＢＣ全角\\n"
+---
+keys: none
+│日本語abc       │
+:^^<><>          :
+│ｱｲｳ半角         │
+:   <><>         :
+│ＡＢＣ全角      │
+:<><><><><>      :
+│                │

@@ -35,17 +35,62 @@ tests; higher layers have few.
 ### Text-grid snapshots
 
 The screen is rendered as a grid of characters and compared as text with
-`insta`. Buffer text, cursors, the modeline, the minibuffer and decorations
-all show up. For example:
+`insta` ([ADR 0045](adr/0045-text-grid-snapshots.md)). They need no GPU, so
+they run on every OS in `just ci`, and both people and agents can read the
+diffs. Decorations, the modeline and the minibuffer will show up once they
+exist.
 
 ```
-│fn main() {               │
-│    let x = 1;█           │
-│-:--  main.rs  L2 C14  Rust│
+keys: C-f
+│日本語 a\xFF        │
+:<>^^<>  ~~~~        :
+│                    │
 ```
 
-They need no GPU, so they run on every OS in `just ci`, and both people and
-agents can read the diffs.
+Each row of the window is a line between `│`. Below a row that needs it, a
+line between `:` marks its cells:
+
+| Mark | Meaning |
+|---|---|
+| `^` | the cursor box, over any other mark |
+| `<>` | the two cells of a wide cluster |
+| `~` | a cell of an escape (`^M`, `\xFF`) |
+| `#` | a cell of a boxed invisible character (`U+202E`) |
+
+`▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
+Text that reads like an escape has no mark, which is how the two differ. `#`
+does not show where one box ends and the next begins. The
+padding before the closing `│` shows the row's width whatever font the diff is
+read in.
+
+**To write one,** add a test to `crates/oso/src/dispatch/grid_tests.rs`. It
+lives there because `oso` is a binary crate, so `tests/` cannot reach the
+`Dispatcher`:
+
+```rust
+#[test]
+fn page_keys_scroll_by_a_screen() {
+    let text: String = (0..12).map(|i| format!("line {i:02}\n")).collect();
+    // A name, the file's bytes, rows and columns, and the keys of each frame.
+    // "" is a frame with no new keys. Keys add up from frame to frame.
+    check("page_scrolling", text, (5, 12), &["", "C-v", "M-v"]);
+}
+```
+
+Use a small window, write control and invisible characters as escapes in the
+test, and keep a scenario to one idea.
+
+**To update them,** run `just snapshots`, read `git diff` as you would code,
+and explain each change in the pull request. `just ci` never accepts a
+snapshot: a new or changed one fails it, and so does a `*.snap.new` file that
+a plain `cargo test` left behind. `just snapshots` clears those; delete one by
+hand if its test is gone.
+
+The grid draws through the code the renderer uses
+(`DisplayCluster::for_each_run`, `Window::cursor_point`,
+`motion::cursor_cells`). Anything drawn that a test cannot see this way belongs
+in the same code, not in the renderer. What happens after the cells, such as
+glyph placement and colors, is left to pixel snapshots.
 
 ### Guard tests
 
@@ -77,7 +122,8 @@ violation, so a broken parser cannot pass silently.
 |---|---|---|
 | High | `oso-core`: buffers, selections, display model, registry, keymaps | inline unit tests and property tests |
 | High | pure coordinate functions | unit tests |
-| Medium | command scenarios: key sequences to state | integration tests in `crates/*/tests/` with no window |
+| Medium | command scenarios: key sequences to state | tests in `crates/oso/src/dispatch.rs` with no window |
+| Medium | what is drawn: key sequences to the cell grid | text-grid snapshots in `crates/oso/src/dispatch/grid_tests.rs` with no window |
 | Medium | the running app | end-to-end tests over the dev control socket |
 | Low | `oso-render` GPU code | logic split out and unit-tested; pixels checked by snapshot tests |
 

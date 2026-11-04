@@ -18,6 +18,9 @@ env_logger.workspace = true
 serde_json = { workspace = true, optional = true }
 miniz_oxide = { workspace = true, optional = true }
 
+[dev-dependencies]
+insta.workspace = true
+
 [features]
 # Dev-only tooling: the control socket and `oso ctl` (ADR 0016, ADR 0023).
 # Never a default feature. CI checks that release builds contain none of it.

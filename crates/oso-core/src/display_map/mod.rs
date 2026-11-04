@@ -3,7 +3,7 @@
 //! ADR 0035).
 //!
 //! Must not depend on: `selection`, `buffer`, `window` or other editor state,
-//! fonts or the GPU. It measures cells; it does not draw them.
+//! fonts or the GPU. It says what each cell shows; it does not paint it.
 //!
 //! The full pipeline is:
 //!
@@ -36,7 +36,7 @@ use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
-pub use cell::{CellKind, Clusters, Escape, TabWidth, escape};
+pub use cell::{CellKind, CellStyle, Clusters, Escape, TabWidth, escape};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.
@@ -79,10 +79,61 @@ pub struct DisplayCluster<'a> {
     /// The cluster's text in the buffer.
     pub text: &'a str,
     /// What to draw: the text, blank cells for a tab, or an escape (boxed
-    /// for an invisible character). The renderer clips each cluster's glyphs
-    /// to its cells, so stacked combining marks cannot paint over other
-    /// rows.
+    /// for an invisible character).
     pub kind: CellKind,
+}
+
+/// What one piece of a display cluster puts on the cell grid: its text in
+/// `cells` cells from `column`. See [`DisplayCluster::for_each_run`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CellRun<'a> {
+    /// The first cell it takes.
+    pub column: usize,
+    /// How many cells it takes.
+    pub cells: usize,
+    /// What to draw there. Never a control character or a bidi control.
+    pub text: &'a str,
+    /// How to draw it.
+    pub style: CellStyle,
+}
+
+impl DisplayCluster<'_> {
+    /// Calls `run` for what this cluster draws, in column order: its text,
+    /// a space across a tab's cells, or an escape's label with one run per
+    /// cell. Everything that draws the grid goes through here, so the
+    /// renderer and the text-grid snapshots agree (ADR 0045).
+    pub fn for_each_run(&self, mut run: impl FnMut(CellRun<'_>)) {
+        let text = match self.kind {
+            CellKind::Text => self.text,
+            // A space keeps ligatures from forming across the tab, and
+            // draws nothing.
+            CellKind::Tab => " ",
+            CellKind::LineBreak => return,
+            CellKind::Control(_) | CellKind::Invisible(_) | CellKind::InvalidByte(_) => {
+                let style = match self.kind {
+                    CellKind::Invisible(_) => CellStyle::Boxed,
+                    _ => CellStyle::Escape,
+                };
+                let escape = self.kind.escape();
+                let label = escape.as_ref().map_or("?", Escape::as_str);
+                for (index, c) in label.char_indices() {
+                    run(CellRun {
+                        column: self.column + index,
+                        cells: 1,
+                        text: &label[index..index + c.len_utf8()],
+                        style,
+                    });
+                }
+                return;
+            }
+        };
+        run(CellRun {
+            column: self.column,
+            cells: self.cells,
+            text,
+            style: CellStyle::Text,
+        });
+    }
 }
 
 /// The display model of one buffer, kept in step with its edits.
@@ -464,7 +515,94 @@ mod tests {
         assert_send_sync::<Rope>();
     }
 
+    fn runs(cluster: &DisplayCluster<'_>) -> Vec<(usize, usize, String, CellStyle)> {
+        let mut runs = Vec::new();
+        cluster.for_each_run(|run| {
+            runs.push((run.column, run.cells, run.text.to_owned(), run.style));
+        });
+        runs
+    }
+
+    #[test]
+    fn a_cluster_draws_its_text_a_blank_tab_or_a_label_per_cell() {
+        let text = "日\t\r\u{202e}";
+        let snapshot = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
+        let drawn: Vec<_> = snapshot
+            .clusters(DisplayPoint::new(0, 0))
+            .flat_map(|cluster| runs(&cluster))
+            .collect();
+        let cell = |column, cells, text: &str, style| (column, cells, text.to_owned(), style);
+        assert_eq!(
+            drawn,
+            [
+                cell(0, 2, "日", CellStyle::Text),
+                cell(2, 6, " ", CellStyle::Text),
+                cell(8, 1, "^", CellStyle::Escape),
+                cell(9, 1, "M", CellStyle::Escape),
+                cell(10, 1, "U", CellStyle::Boxed),
+                cell(11, 1, "+", CellStyle::Boxed),
+                cell(12, 1, "2", CellStyle::Boxed),
+                cell(13, 1, "0", CellStyle::Boxed),
+                cell(14, 1, "2", CellStyle::Boxed),
+                cell(15, 1, "E", CellStyle::Boxed),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_invalid_byte_draws_its_value_as_an_escape() {
+        let cluster = DisplayCluster {
+            offset: 0,
+            column: 3,
+            cells: 4,
+            text: "\u{fffd}",
+            kind: CellKind::InvalidByte(0xff),
+        };
+        let labels: String = runs(&cluster).iter().map(|run| run.2.as_str()).collect();
+        assert_eq!(labels, "\\xFF");
+        assert!(runs(&cluster).iter().all(|run| run.3 == CellStyle::Escape));
+        assert_eq!(runs(&cluster)[3].0, 6);
+    }
+
     proptest! {
+        /// Whatever the text holds, no run draws a control character or a
+        /// bidi control (T3 in security.md).
+        #[test]
+        fn runs_never_draw_controls(pieces in prop::collection::vec(0usize..14, 0..40)) {
+            const PIECES: [&str; 14] = [
+                "a", "日", "\n", "\t", "\r", "\u{7f}", "\u{85}", "\u{202e}", "\u{2066}",
+                "\u{200f}", "\u{61c}", "\u{301}", "\u{200d}", "👨\u{200d}👩",
+            ];
+            let text: String = pieces.into_iter().map(|piece| PIECES[piece]).collect();
+            let snapshot = DisplayMap::new(&Rope::from(text.as_str()), TabWidth::default()).snapshot();
+            for row in 0..snapshot.row_count() {
+                for cluster in snapshot.clusters(DisplayPoint::new(row, 0)) {
+                    for (_, _, drawn, _) in runs(&cluster) {
+                        for c in drawn.chars() {
+                            let bidi = matches!(u32::from(c), 0x61c | 0x200e | 0x200f | 0x202a..=0x202e | 0x2066..=0x2069);
+                            prop_assert!(!c.is_control() && !bidi, "{c:?} in {text:?}");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// A cluster's runs fill its cells exactly, in order.
+        #[test]
+        fn runs_cover_their_cluster(text in text_strategy(40)) {
+            let snapshot = DisplayMap::new(&Rope::from(text.as_str()), TabWidth::default()).snapshot();
+            for row in 0..snapshot.row_count() {
+                for cluster in snapshot.clusters(DisplayPoint::new(row, 0)) {
+                    let mut next = cluster.column;
+                    for (column, cells, _, _) in runs(&cluster) {
+                        prop_assert_eq!(column, next);
+                        next += cells;
+                    }
+                    prop_assert_eq!(next, cluster.column + cluster.cells);
+                }
+            }
+        }
+
         #[test]
         fn mappings_match_a_naive_scan(text in text_strategy(50), tab_width in 1u32..10) {
             let tab_width = TabWidth::new(tab_width);

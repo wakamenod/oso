@@ -1,0 +1,27 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: line 0\\nline 1\\nline 2\\nline 3\\nline 4\\nline 5\\nline 6\\nline 7\\n"
+---
+keys: none
+│line 0  │
+:^       :
+│line 1  │
+│line 2  │
+
+keys: C-n C-n
+│line 0  │
+│line 1  │
+│line 2  │
+:^       :
+
+keys: C-n
+│line 1  │
+│line 2  │
+│line 3  │
+:^       :
+
+keys: C-p C-p C-p
+│line 0  │
+:^       :
+│line 1  │
+│line 2  │
