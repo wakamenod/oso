@@ -370,7 +370,7 @@ impl TabMap {
             // Chunks end on grapheme cluster boundaries, so the chunk is all
             // the context a cluster needs.
             Some(item) => {
-                Clusters::with_invalid(&item.text, base, &self.invalid).starting_at(offset - base)
+                Clusters::with_invalid_from(&item.text, base, offset - base, &self.invalid)
             }
             None => Clusters::new(""),
         };

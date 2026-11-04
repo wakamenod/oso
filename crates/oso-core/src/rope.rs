@@ -942,7 +942,7 @@ pub(crate) mod tests {
         let text = "x".repeat(MAX_CHUNK_BYTES * 3);
         let mut rope = Rope::from(text.as_str());
         let boundary = rope.chunks().next().unwrap().len();
-        // Replacing the chunk's first byte starts the edit at the chunk.
+        // An edit at a chunk's start also takes in the chunk before it.
         rope.replace(boundary..boundary + 1, "\u{301}");
         let expected = format!("{}\u{301}{}", &text[..boundary], &text[boundary + 1..]);
         check_against(&rope, &expected);

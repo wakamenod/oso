@@ -143,9 +143,6 @@ impl Decoder {
     /// Decodes what is left at the end of the file: bytes of an incomplete
     /// sequence are invalid.
     pub(crate) fn finish(&mut self, out: &mut Decoded) {
-        if !self.bom_decided {
-            self.decide_bom();
-        }
         self.decode_carry(&mut &[][..], out);
         out.push_invalid(&self.carry);
         self.carry.clear();

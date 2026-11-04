@@ -305,21 +305,27 @@ impl<'a> Clusters<'a> {
     /// The clusters of `text`, which starts at `base` in a buffer whose
     /// invalid bytes are `invalid`.
     pub(crate) fn with_invalid(text: &'a str, base: usize, invalid: &'a InvalidBytes) -> Self {
+        Self::with_invalid_from(text, base, 0, invalid)
+    }
+
+    /// Like [`Clusters::with_invalid`], going on from `position`, where a
+    /// cluster starts. The text before it stays as context: where a cluster
+    /// ends can depend on what comes before its start, when an earlier part
+    /// of a grapheme cluster was split out.
+    pub(crate) fn with_invalid_from(
+        text: &'a str,
+        base: usize,
+        position: usize,
+        invalid: &'a InvalidBytes,
+    ) -> Self {
         let mut clusters = Self::new(text);
+        clusters.position = position;
         if !invalid.is_empty() {
-            clusters.invalid = Some(invalid.range(base..base + text.len()));
+            clusters.invalid = Some(invalid.range(base + position..base + text.len()));
             clusters.base = base;
             clusters.advance_invalid();
         }
         clusters
-    }
-
-    /// Goes on from `position`, where a cluster starts. The text before it
-    /// stays as context: where a cluster ends can depend on what comes before
-    /// its start, when an earlier part of a grapheme cluster was split out.
-    pub(crate) fn starting_at(mut self, position: usize) -> Self {
-        self.position = position;
-        self
     }
 
     fn advance_invalid(&mut self) {

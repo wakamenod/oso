@@ -169,11 +169,7 @@ fn target_row(display: &DisplaySnapshot, offset: usize, n: isize) -> usize {
 pub fn line_after_fraction(display: &DisplaySnapshot, len: usize, tenths: usize) -> usize {
     let offset = (len as u128 * tenths.min(10) as u128 / 10) as usize;
     let row = display.offset_to_display_point(offset).row;
-    if row + 1 < display.row_count() {
-        line_start(display, row + 1)
-    } else {
-        buffer_end(display)
-    }
+    line_start(display, row + 1)
 }
 
 #[cfg(test)]

@@ -175,6 +175,24 @@ mod tests {
     }
 
     #[test]
+    fn a_row_read_from_a_column_past_an_invalid_byte_keeps_the_next_one() {
+        let display = decode_all(b"a\xffb\xfec", TabWidth::default())
+            .display
+            .snapshot();
+        let kinds = |column| -> Vec<CellKind> {
+            display
+                .clusters(DisplayPoint::new(0, column))
+                .map(|cluster| cluster.kind)
+                .collect()
+        };
+        assert_eq!(
+            kinds(5),
+            [CellKind::Text, CellKind::InvalidByte(0xfe), CellKind::Text]
+        );
+        assert_eq!(kinds(6), [CellKind::InvalidByte(0xfe), CellKind::Text]);
+    }
+
+    #[test]
     fn invalid_bytes_after_a_line_break_in_a_later_chunk_are_measured() {
         // `TabSummary::from_text` measures only a chunk's last line, at its
         // offset in the buffer, so a wrong base would miss the 4-cell escape.
