@@ -24,14 +24,21 @@ item notes when it must be settled.
   command once `run-command` exists. ADR 0016 accepts same-user trust, and
   this consequence should be stated there, with commands that spawn
   processes in mind.
-- Startup misses its budget, in M1-8: the first presented frame comes
-  about 175 ms after process start (release, warm), against 100 ms.
-  winit's event loop takes 30 to 45 ms to build, `resumed` arrives at
-  about 65 ms, the window and GPU take about 50 ms, and the first frame is
-  skipped as occluded until macOS shows the window, about 65 ms later. The
-  "50 ms after window creation" in ADR 0036 counted that skipped frame.
-  Candidates: requesting the GPU adapter and device while the event loop
-  builds, and showing the window only once the first frame is ready.
+- Startup misses its budget: the first presented frame comes 110 to 130 ms
+  after the process starts (optimized, warm, the author's Mac), against
+  100 ms. Removing AppKit's default menu took it down from about 172 ms
+  ([ADR 0044](adr/0044-performance-regression-checks.md)). What remains is
+  mostly AppKit and the window server: about 30 to 48 ms to build the event
+  loop, 10 ms to `resumed`, 37 ms for `create_window`, and about 33 ms until
+  macOS reports the window visible, before which wgpu skips the frame as
+  occluded. The GPU takes only about 3.5 ms, and starting it in the
+  background, showing the window late and starting from an app bundle made
+  no measurable difference. Decide whether to look for more in AppKit or to
+  change the budget. The "50 ms after window creation" in ADR 0036 counted
+  a skipped frame.
+- Without the default menu there are no Command shortcuts such as Command-Q
+  and Command-H. Decide with Command = Meta (M2) whether oso builds its own
+  menu, after the first frame.
 - Text gamma: text is blended in linear space on the sRGB surface, so light
   text on dark looks heavier than in native apps. Decide with the theme.
 - Rendering: a multi-row cluster iterator that keeps one cursor across

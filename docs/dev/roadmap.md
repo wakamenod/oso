@@ -72,9 +72,11 @@ M1 is built in this order. Each step is one PR.
 - **M1-7b**: the rest of the control socket (`run-command`, the full
   `get-state`, `export-state` and `import-state`) and the restart-and-restore
   loop (`oso dev`).
-- **M1-8**: performance measurement in CI
+- **M1-8** (done): performance measurement in CI
   ([ADR 0024](adr/0024-dev-build-profile.md),
-  [ADR 0025](adr/0025-latency-measurement.md)).
+  [ADR 0025](adr/0025-latency-measurement.md),
+  [ADR 0044](adr/0044-performance-regression-checks.md)). Startup still misses
+  its budget; see `open-questions.md`.
 - **M1-9**: test infrastructure from the test pyramid
   ([ADR 0037](adr/0037-test-pyramid.md)), in three steps, each started as
   soon as its prerequisite merges:

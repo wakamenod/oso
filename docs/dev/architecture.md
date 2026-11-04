@@ -318,6 +318,10 @@ Full details are in [`security.md`](security.md).
   - `screenshot` renders the frame again offscreen (`oso-render`, `dev`
     feature). Readback, PNG encoding and the file write run on a background
     thread.
+  - `take-timings` reports key latency, startup and load times to benchmarks,
+    and `open-file` visits a file with the window up, so that opening can be
+    timed apart from startup
+    ([ADR 0044](adr/0044-performance-regression-checks.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

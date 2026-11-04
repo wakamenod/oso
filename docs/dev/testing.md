@@ -111,8 +111,9 @@ violation, so a broken parser cannot pass silently.
     loading progress, size), the cursor as an offset and a display point,
     the scroll position, the keys of a pending prefix and the surface size.
     It never returns buffer text; that and the modeline come in M1-7b.
-  - `oso [FILE]` opens a file, so test files (generated in a scratch
-    directory, never committed) can be driven this way.
+  - `oso [FILE]` and `open-file` open a file, so test files (generated in a
+    scratch directory, never committed) can be driven this way.
+  - `take-timings` reads key latency, startup and load times for benchmarks.
   - `screenshot` writes a PNG of the current frame and returns its path
 - Agents use these checks to verify behavior in the real app, following the
   `verify-in-app` skill. A Claude Code agent reads the screenshots to check
@@ -133,21 +134,31 @@ violation, so a broken parser cannot pass silently.
 
 ## Performance tests
 
-- Benchmarks cover:
-  - key-to-photon latency, through the control socket with frame timestamps
-  - startup time
-  - opening large files
-  - editing very long lines
-- CI compares results against the budgets in
-  [`roadmap.md`](roadmap.md#performance-budgets).
-- Key-to-photon latency is measured inside the app, from receiving a key
-  event to presenting the frame that reflects it. CI fails on a regression
-  against `main`, and on p99 over 8 ms where a hardware GPU is available.
-  Real photon latency is checked by hand from time to time
-  ([ADR 0025](adr/0025-latency-measurement.md)).
-- The dev incremental build time of the tip crate is measured with
-  `just build-time`. The author's Mac decides the 2 s budget, and CI fails
-  only on a large regression ([ADR 0024](adr/0024-dev-build-profile.md)).
+`just perf` builds an optimized binary with the dev feature and runs the
+harness in `crates/oso/examples/perf`, which drives the app over the control
+socket. Windows open and take the focus, and a hidden window fails the run.
+Files are generated in a temporary directory and never committed. It writes
+JSON to `target/perf/perf.json`; `just perf OUT --quick` is for trying it out.
+
+| Metric | What it measures | Runs |
+|---|---|---|
+| `startup_ms` | just before the process starts, to its first presented frame | 9, plus a first launch reported alone |
+| `key_p50_ms`, `key_p99_ms` | key received to first frame presented, on a screen of mixed text | 5, 400 keys each |
+| `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
+| `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, and edits without a window | 3 |
+| `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |
+
+- Key latency is measured inside the app and ends when the frame is presented
+  ([ADR 0025](adr/0025-latency-measurement.md)). The display's refresh and the
+  compositor come after that, and real photon latency is checked by hand.
+- Nothing inserts text before M2, so typing is measured in two halves: the
+  unbound key's trip, and the cost of an edit in the core structures.
+- `just perf-compare BASE NEW` applies the thresholds. The author's Mac decides
+  the budgets it can measure; CI catches regressions
+  ([ADR 0044](adr/0044-performance-regression-checks.md),
+  [ADR 0024](adr/0024-dev-build-profile.md)).
+- `crates/oso-core/examples/text_perf.rs` remains for looking closely at the
+  rope and the display model.
 
 ## Fuzzing
 
@@ -171,8 +182,11 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue
+- the performance workflow (`perf.yml`), on every pull request and every push
+  to `main`: results in the job summary and in JSON artifacts, compared with
+  the last result on `main`
+  ([ADR 0044](adr/0044-performance-regression-checks.md))
 
 Planned:
 
-- performance and build-time budgets
 - snapshot tests on Linux with lavapipe, once they exist
