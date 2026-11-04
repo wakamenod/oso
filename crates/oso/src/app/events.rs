@@ -9,22 +9,12 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::WindowId;
 
-use super::draw::View;
 use super::{App, UserEvent};
 
 impl ApplicationHandler<UserEvent> for App {
     /// Called when the OS signals that the window is ready to be created (or resumed).
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.view.is_none() {
-            if let Some(started) = self.started {
-                log::debug!("resumed {:?} after start", started.elapsed());
-            }
-            self.view = Some(View::open(event_loop));
-            self.update_view_size();
-            // Content that loaded while the window opened shows in the
-            // first frame.
-            self.poll_loads();
-        }
+        self.open_window(event_loop);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
@@ -70,9 +60,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::MouseWheel { delta, .. } => self.handle_wheel(delta),
 
             // ---- Keyboard input ----
-            WindowEvent::ModifiersChanged(modifiers) => {
-                self.modifiers = modifiers.state();
-            }
+            WindowEvent::ModifiersChanged(modifiers) => self.set_modifiers(modifiers.state()),
             WindowEvent::KeyboardInput { event, .. } => self.handle_key_event(event_loop, &event),
 
             _ => {}

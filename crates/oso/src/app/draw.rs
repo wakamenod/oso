@@ -71,6 +71,20 @@ impl View {
 }
 
 impl App {
+    /// Opens the window, unless it is open already.
+    pub(super) fn open_window(&mut self, event_loop: &ActiveEventLoop) {
+        if self.view.is_none() {
+            if let Some(started) = self.started {
+                log::debug!("resumed {:?} after start", started.elapsed());
+            }
+            self.view = Some(View::open(event_loop));
+            self.update_view_size();
+            // Content that loaded while the window opened shows in the
+            // first frame.
+            self.poll_loads();
+        }
+    }
+
     /// Gives the window's new size to the renderer and the editor.
     pub(super) fn resize(&mut self, width: u32, height: u32) {
         if let Some(view) = &mut self.view {

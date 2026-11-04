@@ -9,6 +9,7 @@ use std::time::Instant;
 use oso_core::key::KeyPress;
 use winit::event::{ElementState, KeyEvent, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::ModifiersState;
 
 use super::App;
 use crate::keys;
@@ -17,6 +18,11 @@ use crate::keys;
 const WHEEL_ROWS: f32 = 3.0;
 
 impl App {
+    /// Remembers the modifier keys held, as winit reports them.
+    pub(super) fn set_modifiers(&mut self, modifiers: ModifiersState) {
+        self.modifiers = modifiers;
+    }
+
     /// Turns a key event from the window into a key press, and handles it.
     pub(super) fn handle_key_event(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
         // Process key-press events only.
