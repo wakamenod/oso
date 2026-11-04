@@ -63,6 +63,22 @@ fn assert_no_secret(line: &str, what: &str) {
     assert!(!line.contains(FAKE_SECRET), "{what} quotes the secret");
 }
 
+/// The top-level fields that differ between two states, by name, so that a
+/// message can say which without quoting their values.
+fn changed_fields<'a>(before: &'a Value, after: &Value) -> Vec<&'a str> {
+    let fields = before.as_object().expect("a state is an object");
+    fields
+        .iter()
+        .filter(|(name, value)| after.get(name.as_str()) != Some(*value))
+        .map(|(name, _)| name.as_str())
+        .collect()
+}
+
+/// Whether this runs on CI, where no real input reaches the windows.
+fn on_ci() -> bool {
+    std::env::var_os("CI").is_some_and(|value| !value.is_empty())
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn keys_and_commands_reach_the_window_and_the_state_reads_them_back() {
@@ -370,11 +386,13 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     assert!(process_exists(bystander.pid()));
     assert!(bystander.socket().exists());
     assert!(Path::new(&shot).exists(), "its files stay");
-    // Not its positions or size, which real input can move: its window is on the
-    // screen for anyone to scroll. `App::start` checks that sockets lead to the
-    // right instance.
+    // Real input can move its positions and size, since its window is on the
+    // screen for anyone to scroll. CI has no such input, so there nothing may
+    // change. `App::start` checks that sockets lead to the right instance.
+    let mut changed = changed_fields(&before, &bystander.state());
+    changed.retain(|field| on_ci() || *field == "buffers");
     assert!(
-        bystander.state()["buffers"] == before["buffers"],
-        "the other instance's buffers changed",
+        changed.is_empty(),
+        "the other instance's {changed:?} changed",
     );
 }
