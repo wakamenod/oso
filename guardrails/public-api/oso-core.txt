@@ -26,15 +26,19 @@ pub fn oso_core::buffer::Buffer::finish_empty(&mut self)
 pub fn oso_core::buffer::Buffer::from_bytes(impl core::convert::Into<alloc::string::String>, &[u8]) -> Self
 pub fn oso_core::buffer::Buffer::from_text(impl core::convert::Into<alloc::string::String>, &str) -> Self
 pub fn oso_core::buffer::Buffer::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
+pub fn oso_core::buffer::Buffer::is_secret(&self) -> bool
 pub fn oso_core::buffer::Buffer::loading(&self) -> core::option::Option<oso_core::load::Progress>
 pub fn oso_core::buffer::Buffer::name(&self) -> &str
 pub fn oso_core::buffer::Buffer::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub fn oso_core::buffer::Buffer::path(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::read_only(&self) -> core::option::Option<oso_core::buffer::ReadOnly>
+pub fn oso_core::buffer::Buffer::resolve_secret(&mut self, core::option::Option<&std::path::Path>)
 pub fn oso_core::buffer::Buffer::revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
 pub struct oso_core::buffer::BufferId(_)
+impl oso_core::buffer::BufferId
+pub const fn oso_core::buffer::BufferId::get(self) -> u64
 impl core::clone::Clone for oso_core::buffer::BufferId
 pub fn oso_core::buffer::BufferId::clone(&self) -> oso_core::buffer::BufferId
 impl core::cmp::Eq for oso_core::buffer::BufferId
@@ -542,9 +546,12 @@ pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::windo
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
+pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
+pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
@@ -961,6 +968,9 @@ pub fn usize::from_summary(&S) -> Self
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub const oso_core::rope::MAX_CHUNK_BYTES: usize
+pub mod oso_core::secret
+pub fn oso_core::secret::is_secret(&std::path::Path, core::option::Option<&std::path::Path>) -> bool
+pub fn oso_core::secret::matches_pattern(&std::path::Path) -> bool
 pub mod oso_core::selection
 pub enum oso_core::selection::Goal
 pub oso_core::selection::Goal::Column(usize)
