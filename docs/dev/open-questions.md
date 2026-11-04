@@ -54,6 +54,12 @@ item notes when it must be settled.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
+- Moving to a display with another scale loads the font synchronously on the UI
+  thread (`App::set_scale`), against "never block the UI thread". Measure it, and
+  move the load to a background thread.
+- After a render error, the comment in `App::draw_frame` says the next frame
+  retries, but nothing requests one under `ControlFlow::Wait`, so the window can
+  stay stale until another event. Decide on a bounded retry or correct the comment.
 
 ## M2
 
@@ -75,6 +81,11 @@ item notes when it must be settled.
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
 
+- By M2-4: key handling ignores winit's `is_synthetic`. On X11 and Windows, winit
+  generates presses for keys held when the window gains focus, so a held key runs
+  its command without a real press, and would insert text once typing lands.
+- By M2-9: `MouseScrollDelta::LineDelta` is rounded per event with no accumulator,
+  so small wheel deltas are dropped. Only `PixelDelta` adds up.
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
 - Whether `set_ime_allowed(false)` is enough to switch the IME off on macOS, or
