@@ -12,6 +12,8 @@ api_crates := "oso-core oso-platform oso-render"
 # Benchmarks build with the dev feature, so they keep out of target/release,
 # where the release binary lives (ADR 0046).
 perf_target := "target/perf-build"
+# The whole test run stays within this on the author's Mac (ADR 0037).
+test_budget_s := "30"
 # The design health report lists this many surviving mutants.
 mutants_listed := "100"
 
@@ -98,6 +100,29 @@ snapshots:
 
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
+
+# Time the whole test run, built beforehand, and warn past the limit (ADR 0037, ADR 0050)
+test-time limit=test_budget_s:
+    #!/usr/bin/env bash
+    # Failing tests fail this. Being slow only warns.
+    set -euo pipefail
+    export INSTA_UPDATE=no INSTA_FORCE_PASS=0
+    cargo test --locked -q --workspace --no-run
+    cargo test --locked -q --workspace --all-features --no-run
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    # `time` is bash's keyword: macOS's date has no fractions of a second.
+    TIMEFORMAT=%R
+    if ! { time { cargo test --locked --workspace && cargo test --locked --workspace --all-features; } >"$tmp/log" 2>&1; } 2>"$tmp/time"; then
+        cat "$tmp/log"
+        exit 1
+    fi
+    took=$(tail -n 1 "$tmp/time")
+    echo "test time: ${took} s (limit {{limit}} s; the budget is {{test_budget_s}} s on the author's Mac)"
+    if awk -v took="$took" -v limit="{{limit}}" 'BEGIN { exit !(took + 0 > limit + 0) }'; then
+        message="the test run took ${took} s, past the limit of {{limit}} s; the budget is {{test_budget_s}} s on the author's Mac (ADR 0037)"
+        if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::warning::$message"; else echo "warning: $message"; fi
+    fi
 
 # Fail if a release build contains dev-only code (ADR 0016, ADR 0032)
 release-safety:
