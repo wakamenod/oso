@@ -150,6 +150,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_set_knows_its_primary_and_is_never_empty() {
+        let set = SelectionSet::from_parts(vec![Selection::at(3), Selection::at(9)], 1).unwrap();
+        assert_eq!(set.primary_index(), 1);
+        assert_eq!(set.primary().cursor, 9);
+        assert_eq!(set.len(), 2);
+        assert!(!set.is_empty());
+    }
+
+    #[test]
     fn update_reports_changes_and_the_first_error() {
         let mut set = SelectionSet::new(3);
         let update = set.update(|s| {

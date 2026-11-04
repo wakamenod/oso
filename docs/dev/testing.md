@@ -110,11 +110,64 @@ violation, so a broken parser cannot pass silently.
 
 ### Test quality
 
-- Mutation testing (`cargo-mutants`) runs weekly in CI. Surviving mutants in
-  `oso-core` get a test or a note explaining why they are equivalent.
-- Coverage (`cargo-llvm-cov`) is reported on pull requests. It never fails
-  the build.
-- The whole `cargo test` run stays within 30 seconds on the author's Mac.
+Three measures ([ADR 0037](adr/0037-test-pyramid.md),
+[ADR 0050](adr/0050-test-quality-checks.md)). None of them fails the build for
+what it finds.
+
+**Mutation testing** (`just mutants`, weekly in `mutants.yml`) changes
+`oso-core` one small edit at a time, such as `<` to `<=`, and runs its tests
+against each. Each mutant ends in one of four lists:
+
+| List | Meaning | What to do |
+|---|---|---|
+| `missed.txt` | the tests passed: nothing noticed the change | triage it |
+| `caught.txt` | a test failed | nothing |
+| `timeout.txt` | the tests did not finish in 30 s, usually an endless loop | nothing, unless a slower test makes it grow |
+| `unviable.txt` | the change does not compile | nothing |
+
+The lists are in `mutants.out/` after a local run, and in the workflow's
+`mutants` artifact and job summary. The weekly design health issue shows the
+counts and the first 100 missed, from the last run.
+
+**To triage a surviving mutant,** read its line and ask whether any input could
+tell the two versions apart:
+
+1. **It can:** this is a gap in the tests. Add a test in `oso-core`, at the lowest
+   layer, that fails with the mutant. `cargo mutants -p oso-core -f FILE --re
+   'in FUNCTION'` checks it in seconds. A test in the tip crate does not count:
+   the run tests `oso-core` alone, as the logic should be testable there.
+2. **It cannot, in any input:** the mutant is equivalent. Add a pattern to
+   `exclude_re` in `.cargo/mutants.toml`, starting at the mutation's column, and
+   prove it in a comment: name what makes the two versions the same. `just
+   mutants-exclusions` checks that each pattern matches the one mutant. If the
+   proof shows that code is removable, remove it instead. If it comes down to
+   "tests happen not to reach it", the mutant is not equivalent. A mutant that
+   changes only speed is excluded if the cost stays within a chunk or a constant,
+   and stays in the list if a test could pin it, such as a chunk count.
+3. **Not worth a test yet:** leave it in the list. A surviving mutant fails
+   nothing, and the list is a queue. It is worked through in the refactoring
+   pull requests that the weekly report feeds, smallest functions first, and
+   anything in the path of a real bug goes first.
+
+**Coverage** (`just coverage`, `coverage.yml`) is in the job summary of each
+pull request that changes more than docs: lines, functions and regions per
+crate, then per file. Use it to find code no test reaches, not as a target. It measures `cargo test`
+on Linux with the dev features, so:
+
+- The window, the event loop and the GPU do not run: `crates/oso/src/app.rs` and
+  much of `oso-render` read at or near 0%. That is expected. The end-to-end tests
+  and checks by hand cover them, and this does not count those.
+- Code for other OSes, such as CoreText on macOS, is not compiled and so not
+  counted at all.
+- `crates/oso-core` is the number that means the most. It holds the logic, and
+  everything in it can run here.
+
+**The time budget** is 30 seconds for the whole test run on the author's Mac.
+`just test-time` runs `just test` once to build and times a second run, so
+compiling does not count, and neither do coverage and benchmark runs. On the reference Mac
+it takes about 4.6 s today. CI runs it on Linux and warns past 60 s, where the
+same run takes about twice as long as on the Mac. A warning there never fails
+the build, and it is a reason to run `just test-time` on the Mac, which decides.
 
 ## Testability by layer
 
@@ -280,13 +333,18 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue
 - the performance workflow (`perf.yml`), on every pull request and every push
-  to `main`: results in the job summary and in JSON artifacts, compared with
-  the last result on `main`
+  to `main` that changes more than `docs/`: results in the job summary and in
+  JSON artifacts, compared with the last result on `main`
   ([ADR 0046](adr/0046-performance-regression-checks.md))
 - the end-to-end workflow (`e2e.yml`), on pull requests and pushes to `main` that
   change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe, and on
   macOS, the one runner that checks text pixels
   ([ADR 0049](adr/0049-end-to-end-test-harness.md))
+- `just test-time` on Linux: a warning when the test run grows past its budget
+- the coverage workflow (`coverage.yml`) on pull requests, in the job summary;
+  it cannot fail the build
+- weekly, mutation testing of `oso-core` (`mutants.yml`), read by the design
+  health report ([ADR 0050](adr/0050-test-quality-checks.md))
 
 Planned:
 

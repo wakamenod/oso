@@ -221,6 +221,17 @@ mod tests {
     }
 
     #[test]
+    fn showing_a_buffer_keeps_the_window_size() {
+        let mut window = Window::new(BufferId(1));
+        window.set_size(SIZE);
+        window.scroll.top = 3;
+        window.show(BufferId(2));
+        assert_eq!(window.buffer(), BufferId(2));
+        assert_eq!(window.size(), SIZE);
+        assert_eq!(window.scroll, Scroll::default());
+    }
+
+    #[test]
     fn follow_scrolls_by_the_fewest_rows() {
         let scroll = Scroll { top: 5, left: 0 };
         assert_eq!(follow(scroll, SIZE, at(5, 0), 1), scroll);
@@ -259,6 +270,7 @@ mod tests {
         assert_eq!(scroll_up(99, 100, 8), Err(Edge::End));
         assert_eq!(scroll_up(0, 5, 8), Err(Edge::End), "a short buffer");
         assert_eq!(scroll_up(0, 1, 1), Err(Edge::End));
+        assert_eq!(scroll_up(99, 100, 0), Err(Edge::End), "already at the end");
         assert_eq!(
             scroll_up(usize::MAX - 1, usize::MAX, usize::MAX),
             Err(Edge::End)
@@ -321,6 +333,7 @@ mod tests {
     fn a_cursor_outside_the_view_moves_to_its_nearest_row() {
         assert_eq!(row_in_view(3, 10, SIZE, 100), Some(10));
         assert_eq!(row_in_view(12, 10, SIZE, 100), None);
+        assert_eq!(row_in_view(10, 10, SIZE, 100), None, "the first row");
         assert_eq!(row_in_view(25, 10, SIZE, 100), Some(19));
         // A view showing the end: its last row is the buffer's.
         assert_eq!(row_in_view(3, 95, SIZE, 100), Some(95));

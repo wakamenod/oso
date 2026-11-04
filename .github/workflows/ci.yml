@@ -44,6 +44,11 @@ jobs:
       # On Windows, just runs recipes with Git Bash's sh. Fail early if missing.
       - run: sh -c 'command -v sh'
       - run: just ci
+      # Warns, and does not fail. The budget is 30 s on the author's Mac, and
+      # this runner takes twice as long: 7.6 to 9.4 s against 4.6 s (ADR 0050).
+      - name: Test time budget
+        if: runner.os == 'Linux'
+        run: just test-time 60
 
   # Release builds must not contain the dev control socket or other dev-only
   # code (ADR 0016, ADR 0032).

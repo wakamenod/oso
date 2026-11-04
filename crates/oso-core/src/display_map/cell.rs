@@ -305,9 +305,23 @@ impl<'a> Clusters<'a> {
     /// The clusters of `text`, which starts at `base` in a buffer whose
     /// invalid bytes are `invalid`.
     pub(crate) fn with_invalid(text: &'a str, base: usize, invalid: &'a InvalidBytes) -> Self {
+        Self::with_invalid_from(text, base, 0, invalid)
+    }
+
+    /// Like [`Clusters::with_invalid`], going on from `position`, where a
+    /// cluster starts. The text before it stays as context: where a cluster
+    /// ends can depend on what comes before its start, when an earlier part
+    /// of a grapheme cluster was split out.
+    pub(crate) fn with_invalid_from(
+        text: &'a str,
+        base: usize,
+        position: usize,
+        invalid: &'a InvalidBytes,
+    ) -> Self {
         let mut clusters = Self::new(text);
+        clusters.position = position;
         if !invalid.is_empty() {
-            clusters.invalid = Some(invalid.range(base..base + text.len()));
+            clusters.invalid = Some(invalid.range(base + position..base + text.len()));
             clusters.base = base;
             clusters.advance_invalid();
         }
@@ -441,6 +455,11 @@ mod tests {
 
     #[test]
     fn hidden_extenders_are_split_out() {
+        assert_eq!(
+            display_clusters("日\u{e0041}"),
+            ["日", "\u{e0041}"],
+            "tag characters belong to a flag alone, not to any non-ASCII base"
+        );
         assert_eq!(
             display_clusters("a\u{e0041}\u{e0042}b"),
             ["a", "\u{e0041}", "\u{e0042}", "b"],

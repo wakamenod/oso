@@ -12,6 +12,10 @@ api_crates := "oso-core oso-platform oso-render"
 # Benchmarks build with the dev feature, so they keep out of target/release,
 # where the release binary lives (ADR 0046).
 perf_target := "target/perf-build"
+# The whole test run stays within this on the author's Mac (ADR 0037).
+test_budget_s := "30"
+# The design health report lists this many surviving mutants.
+mutants_listed := "100"
 
 # Default: show the recipe list
 default:
@@ -97,6 +101,28 @@ snapshots:
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
 
+# Time the whole test run, built beforehand, and warn past the limit (ADR 0037, ADR 0050)
+test-time limit=test_budget_s:
+    #!/usr/bin/env bash
+    # Failing tests fail this. Being slow only warns. The first run is there to
+    # build, so that the number leaves out compiling.
+    set -euo pipefail
+    {{just_executable()}} test >/dev/null 2>&1 || true
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    # `time` is bash's keyword: macOS's date has no fractions of a second.
+    TIMEFORMAT=%R
+    if ! { time {{just_executable()}} test >"$tmp/log" 2>&1; } 2>"$tmp/time"; then
+        cat "$tmp/log"
+        exit 1
+    fi
+    took=$(tail -n 1 "$tmp/time")
+    echo "test time: ${took} s (limit {{limit}} s; the budget is {{test_budget_s}} s on the author's Mac)"
+    if awk -v took="$took" -v limit="{{limit}}" 'BEGIN { exit !(took + 0 > limit + 0) }'; then
+        message="the test run took ${took} s, past the limit of {{limit}} s; the budget is {{test_budget_s}} s on the author's Mac (ADR 0037)"
+        if [ -n "${GITHUB_ACTIONS:-}" ]; then echo "::warning::$message"; else echo "warning: $message"; fi
+    fi
+
 # Fail if a release build contains dev-only code (ADR 0016, ADR 0032)
 release-safety:
     #!/usr/bin/env bash
@@ -181,6 +207,80 @@ perf-compare base new summary="target/perf/summary.md":
 build-time out="target/perf/build-time.json":
     cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --example perf
     {{perf_target}}/release/examples/perf build-time --out "{{out}}"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Test quality (ADR 0037, ADR 0050)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Mutation-test oso-core (needs cargo-mutants); surviving mutants are listed in mutants.out/missed.txt
+[positional-arguments]
+mutants *args:
+    #!/usr/bin/env bash
+    # 2 and 3 say that mutants survived or timed out, which is what a run is
+    # for. Anything else, such as tests failing before any mutation, is an error.
+    status=0
+    cargo mutants --package oso-core --no-shuffle --colors never "$@" || status=$?
+    case "$status" in 0|2|3) exit 0 ;; *) exit "$status" ;; esac
+
+# List entries of exclude_re in .cargo/mutants.toml that match no mutant, or more than the one they should; fails if there are any
+mutants-exclusions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mutants=$(cargo mutants --list --package oso-core --no-config) \
+        || { echo "cargo mutants --list failed, so the entries were not checked"; exit 1; }
+    fail=0
+    while IFS= read -r pattern; do
+        count=$(grep -Ec -- "$pattern" <<<"$mutants" || true)
+        case "$pattern" in
+            *:\[0-9\]+:*) want=1 ;;
+            *) want=$count; [ "$count" -gt 0 ] || want=any ;;
+        esac
+        if [ "$count" != "$want" ]; then
+            echo "\`$pattern\` matches $count mutants"
+            fail=1
+        fi
+    done < <(sed -n 's/^ *"\(.*\)",$/\1/p' .cargo/mutants.toml | sed 's/\\\\/\\/g')
+    exit "$fail"
+
+# Write a coverage summary as Markdown (needs cargo-llvm-cov and `rustup component add llvm-tools`)
+coverage out="target/coverage/summary.md":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    out="{{out}}"
+    json="$(dirname "$out")/coverage.json"
+    mkdir -p "$(dirname "$out")"
+    INSTA_UPDATE=no INSTA_FORCE_PASS=0 cargo llvm-cov --locked --workspace --all-features \
+        --json --summary-only --output-path "$json"
+    {
+        echo "# Coverage"
+        echo
+        echo "Lines, functions and regions that \`cargo test\` runs, with the dev features, on $(uname -s). It is a"
+        echo "map of what no test reaches, not a target (ADR 0037). The window, the event loop and the GPU cannot run"
+        echo "here, so \`crates/oso\` and \`crates/oso-render\` read low. Code for other OSes is not counted at all,"
+        echo "and neither are the end-to-end tests. Look at \`crates/oso-core\` first."
+        echo
+        echo "| Crate | Lines | Functions | Regions |"
+        echo "|---|---:|---:|---:|"
+        jq -r '
+            def pct($kind): (map(.summary[$kind].covered) | add) as $hit
+                | (map(.summary[$kind].count) | add) as $all
+                | if $all == 0 then "-" else "\(($hit * 1000 / $all | round) / 10)%" end;
+            .data[0].files
+            | map(. + {crate: (.filename | capture("crates/(?<c>[^/]+)/").c)})
+            | group_by(.crate)[]
+            | "| \(.[0].crate) | \(pct("lines")) | \(pct("functions")) | \(pct("regions")) |"
+        ' "$json"
+        echo
+        echo "<details><summary>By file, least covered first</summary>"
+        echo
+        echo "| File | Lines | Not run |"
+        echo "|---|---:|---:|"
+        jq -r '.data[0].files | sort_by(.summary.lines.percent)[]
+            | "| \(.filename | sub(".*/crates/"; "crates/")) | \(.summary.lines.percent * 10 | round / 10)% | \(.summary.lines.count - .summary.lines.covered) |"' "$json"
+        echo
+        echo "</details>"
+    } >"$out"
+    echo "coverage: $out"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Architecture guardrails (ADR 0038)
@@ -295,12 +395,27 @@ health-report out="target/design-health.md":
         echo
         echo "## Surviving mutants"
         echo
-        # Hook for mutation testing (M1-9a, ADR 0037): cargo-mutants writes
-        # mutants.out/missed.txt.
+        # CI puts the last weekly run's lists here (ADR 0050). The list is
+        # capped so that the issue stays within GitHub's limit on its size.
         if [ -f mutants.out/missed.txt ]; then
-            sed 's/^/- /' mutants.out/missed.txt
+            if [ -f mutants.out/run.md ]; then cat mutants.out/run.md; echo; fi
+            count() { if [ -f "mutants.out/$1.txt" ]; then wc -l <"mutants.out/$1.txt" | tr -d ' '; else echo 0; fi; }
+            echo "Missed $(count missed), caught $(count caught), timed out $(count timeout), unviable $(count unviable)."
+            echo
+            # The lists are data from another job, so nothing in them may leave
+            # its code span. Rust signatures hold no backticks.
+            span() { tr -d '`' | cut -c1-300 | sed 's/.*/- `&`/'; }
+            head -n {{mutants_listed}} mutants.out/missed.txt | span
+            more=$(($(count missed) - {{mutants_listed}}))
+            if [ "$more" -gt 0 ]; then echo; echo "And $more more, in the run's artifact."; fi
+            if [ -s mutants.out/exclusions.txt ]; then
+                echo
+                echo "Problems with the entries in \`.cargo/mutants.toml\`:"
+                echo
+                head -n 20 mutants.out/exclusions.txt | span
+            fi
         else
-            echo "Not collected yet: mutation testing arrives with M1-9a (ADR 0037)."
+            echo "Not collected: no weekly mutation run with results (\`mutants.yml\`, ADR 0050)."
         fi
     } >"$out"
     echo "design health report: $out"

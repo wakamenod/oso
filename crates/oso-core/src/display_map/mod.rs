@@ -438,11 +438,27 @@ mod tests {
         let inside_tab = DisplayPoint::new(0, 2);
         assert_eq!(snapshot.display_point_to_offset(inside_tab, Bias::Left), 1);
         assert_eq!(snapshot.display_point_to_offset(inside_tab, Bias::Right), 2);
+        let inside_wide = DisplayPoint::new(1, 3);
+        assert_eq!(snapshot.display_point_to_offset(inside_wide, Bias::Left), 7);
+        assert_eq!(
+            snapshot.display_point_to_offset(inside_wide, Bias::Right),
+            10
+        );
         assert_eq!(
             snapshot.clip_point(DisplayPoint::new(1, 1), Bias::Left),
             DisplayPoint::new(1, 0),
             "the middle of 日"
         );
+    }
+
+    #[test]
+    fn clusters_from_a_column_read_the_text_before_it() {
+        // The tag character is split out, so the mark starts a display
+        // cluster. Whether the ZWJ joins the emoji after it depends on the
+        // emoji before the tag, which comes before that column.
+        let text = "👍\u{e0041}\u{301}\u{200d}👧 x";
+        let snapshot = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
+        check_against(&snapshot, text, TabWidth::default());
     }
 
     #[test]

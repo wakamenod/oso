@@ -1,0 +1,53 @@
+# Coverage on pull requests, in the job summary (ADR 0037, ADR 0050). It only
+# informs: every step that can fail continues, so neither low numbers nor a
+# broken tool can fail the build.
+name: Coverage
+
+on:
+  pull_request:
+    paths-ignore: ["docs/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          persist-credentials: false
+      # llvm-tools only here: rust-toolchain.toml stays minimal.
+      - run: |
+          rustup toolchain install
+          rustup component add llvm-tools
+        continue-on-error: true
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        continue-on-error: true
+        with:
+          tool: just@1.52.0,cargo-llvm-cov@0.9.1
+          fallback: none
+      - id: coverage
+        run: just coverage target/coverage/summary.md
+        continue-on-error: true
+        # Below the job's limit, so that a hang reaches the step below.
+        timeout-minutes: 25
+      - name: Report
+        if: ${{ !cancelled() }}
+        env:
+          OUTCOME: ${{ steps.coverage.outcome }}
+        run: |
+          if [ "$OUTCOME" = success ]; then
+            tee -a "$GITHUB_STEP_SUMMARY" <target/coverage/summary.md
+          else
+            echo "::warning::no coverage report: the coverage run ended with '$OUTCOME'. This does not affect the build."
+          fi

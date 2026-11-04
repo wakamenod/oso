@@ -206,7 +206,30 @@ impl Buffer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::decode::LineEnding;
     use crate::load::Builder;
+
+    #[test]
+    fn ids_and_reasons_read_the_same_outside_the_editor() {
+        assert_eq!(BufferId(7).get(), 7);
+        assert_eq!(ReadOnly::Loading.as_str(), "loading");
+        assert_eq!(ReadOnly::InvalidUtf8.as_str(), "invalid-utf8");
+        assert_eq!(ReadOnly::Binary.as_str(), "binary");
+    }
+
+    #[test]
+    fn every_load_changes_the_revision_and_the_file_info() {
+        let mut buffer = Buffer::visiting(PathBuf::from("/tmp/a.txt"));
+        let start = buffer.revision();
+        let mut builder = Builder::new(None, TabWidth::default());
+        builder.push(b"a\r\n");
+        buffer.apply_load(builder.snapshot());
+        let first = buffer.revision();
+        assert_ne!(first, start);
+        buffer.apply_load(builder.snapshot());
+        assert_ne!(buffer.revision(), first);
+        assert_eq!(buffer.file_info().line_ending, LineEnding::Crlf);
+    }
 
     #[test]
     fn a_loading_buffer_is_read_only_until_done() {

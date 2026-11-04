@@ -145,6 +145,64 @@ mod tests {
     use crate::sum_tree::Bias;
 
     #[test]
+    fn a_snapshot_reports_what_has_loaded() {
+        let mut builder = Builder::new(Some(6), TabWidth::default());
+        assert!(builder.is_empty());
+        assert_eq!(builder.len(), 0);
+        builder.push(b"abc");
+        assert!(!builder.is_empty());
+        assert_eq!(builder.len(), 3);
+        let partial = builder.snapshot();
+        assert_eq!(partial.text().to_string(), "abc");
+        assert_eq!(
+            partial.progress(),
+            Progress {
+                read: 3,
+                total: Some(6)
+            }
+        );
+        assert!(!partial.done());
+        builder.finish();
+        assert!(builder.snapshot().done());
+    }
+
+    #[test]
+    fn a_snapshot_shares_the_invalid_bytes_of_its_map() {
+        let display = decode_all(b"a\xffb", TabWidth::default())
+            .display
+            .snapshot();
+        assert_eq!(display.invalid_bytes().get(1), Some(0xff));
+    }
+
+    #[test]
+    fn a_row_read_from_a_column_past_an_invalid_byte_keeps_the_next_one() {
+        let display = decode_all(b"a\xffb\xfec", TabWidth::default())
+            .display
+            .snapshot();
+        let kinds = |column| -> Vec<CellKind> {
+            display
+                .clusters(DisplayPoint::new(0, column))
+                .map(|cluster| cluster.kind)
+                .collect()
+        };
+        assert_eq!(
+            kinds(5),
+            [CellKind::Text, CellKind::InvalidByte(0xfe), CellKind::Text]
+        );
+        assert_eq!(kinds(6), [CellKind::InvalidByte(0xfe), CellKind::Text]);
+    }
+
+    #[test]
+    fn invalid_bytes_after_a_line_break_in_a_later_chunk_are_measured() {
+        // `TabSummary::from_text` measures only a chunk's last line, at its
+        // offset in the buffer, so a wrong base would miss the 4-cell escape.
+        let pad = "a".repeat(crate::rope::MAX_CHUNK_BYTES * 3);
+        let bytes = [pad.as_bytes(), b"\n\xffb"].concat();
+        let display = decode_all(&bytes, TabWidth::default()).display.snapshot();
+        assert_eq!(display.row_cells(1), 5);
+    }
+
+    #[test]
     fn pieces_build_the_same_buffer_as_the_whole() {
         let bytes = "line 1\r\n日本語\t👍\r\nx\u{301}\n".as_bytes().repeat(200);
         let whole = decode_all(&bytes, TabWidth::default());

@@ -143,9 +143,6 @@ impl Decoder {
     /// Decodes what is left at the end of the file: bytes of an incomplete
     /// sequence are invalid.
     pub(crate) fn finish(&mut self, out: &mut Decoded) {
-        if !self.bom_decided {
-            self.decide_bom();
-        }
         self.decode_carry(&mut &[][..], out);
         out.push_invalid(&self.carry);
         self.carry.clear();
@@ -509,6 +506,12 @@ mod tests {
         }
         let (out, _) = decode_split("🍣".as_bytes(), &[1, 2, 3]);
         assert_eq!(out.text, "🍣");
+    }
+
+    #[test]
+    fn line_endings_have_names() {
+        assert_eq!(LineEnding::Lf.as_str(), "lf");
+        assert_eq!(LineEnding::Crlf.as_str(), "crlf");
     }
 
     #[test]

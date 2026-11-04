@@ -1,13 +1,17 @@
 # Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046).
 # Results go to the job summary and to JSON artifacts. Pushes to main only
 # report: their results become the baseline, so a regression accepted on
-# purpose does not fail every later pull request.
+# purpose does not fail every later pull request. A change to docs alone has
+# no run: it cannot change a result, and the baseline stays the last run that
+# has one.
 name: Perf
 
 on:
   push:
     branches: [main]
+    paths-ignore: ["docs/**"]
   pull_request:
+    paths-ignore: ["docs/**"]
 
 permissions:
   contents: read

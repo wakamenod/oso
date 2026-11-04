@@ -169,11 +169,7 @@ fn target_row(display: &DisplaySnapshot, offset: usize, n: isize) -> usize {
 pub fn line_after_fraction(display: &DisplaySnapshot, len: usize, tenths: usize) -> usize {
     let offset = (len as u128 * tenths.min(10) as u128 / 10) as usize;
     let row = display.offset_to_display_point(offset).row;
-    if row + 1 < display.row_count() {
-        line_start(display, row + 1)
-    } else {
-        buffer_end(display)
-    }
+    line_start(display, row + 1)
 }
 
 #[cfg(test)]
@@ -206,6 +202,30 @@ mod tests {
             pieces,
             ["a", "が", "👨‍👩‍👧", "🇯🇵", "\t", "b", "\r\n", "\u{202e}", "x"]
         );
+    }
+
+    #[test]
+    fn edges_have_the_messages_emacs_shows() {
+        assert_eq!(Edge::Start.message(), "Beginning of buffer");
+        assert_eq!(Edge::End.message(), "End of buffer");
+    }
+
+    #[test]
+    fn cluster_motion_counts_and_stops_at_the_edges() {
+        let d = display("a日b");
+        let mut s = Selection::at(0);
+        s.goal = Some(Goal::Column(7));
+        assert_eq!(move_clusters(&d, &mut s, 2), Ok(()));
+        assert_eq!((s.cursor, s.goal), (4, None));
+        assert_eq!(move_clusters(&d, &mut s, -1), Ok(()));
+        assert_eq!(s.cursor, 1);
+        assert_eq!(move_clusters(&d, &mut s, 0), Ok(()));
+        assert_eq!(s.cursor, 1);
+        // Goes as far as it can before reporting the edge.
+        assert_eq!(move_clusters(&d, &mut s, 9), Err(Edge::End));
+        assert_eq!(s.cursor, 5);
+        assert_eq!(move_clusters(&d, &mut s, -9), Err(Edge::Start));
+        assert_eq!(s.cursor, 0);
     }
 
     #[test]
@@ -256,6 +276,14 @@ mod tests {
     }
 
     #[test]
+    fn line_motion_to_the_first_line_is_not_past_the_edge() {
+        let d = display("abc\nde");
+        let mut s = Selection::at(5);
+        assert_eq!(move_lines(&d, &mut s, -1), Ok(()));
+        assert_eq!(s.cursor, 1);
+    }
+
+    #[test]
     fn line_start_and_end_take_a_count() {
         let d = display("ab\r\ncd\nef");
         let mut s = Selection::at(5);
@@ -288,6 +316,8 @@ mod tests {
         assert_eq!(line_after_fraction(&d, 22, 0), 11);
         assert_eq!(line_after_fraction(&d, 22, 5), 22);
         assert_eq!(line_after_fraction(&d, 22, 10), 22);
+        let d = display("0123456789\n0123456789\n0123456789\n");
+        assert_eq!(line_after_fraction(&d, 33, 5), 22, "the second line's end");
     }
 
     proptest! {
