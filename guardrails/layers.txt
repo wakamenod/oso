@@ -23,9 +23,11 @@ oso-core oso-platform
 keymap
 command
 editor
-cursor
+window
+buffer motion
+load selection
 display_map
-key rope
+decode key rope
 sum_tree
 
 [oso-platform]
@@ -35,6 +37,7 @@ control text
 capture
 crate
 text
+rows
 atlas grid shape
 
 [oso]
@@ -42,4 +45,4 @@ crate
 app
 dispatch
 bindings
-commands dev keys text
+commands dev keys loader text

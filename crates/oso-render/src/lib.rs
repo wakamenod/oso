@@ -8,16 +8,22 @@ mod atlas;
 #[cfg(feature = "dev")]
 mod capture;
 mod grid;
+mod rows;
 mod shape;
 mod text;
+use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, Image};
-use shape::ShapeRenderer;
-use text::{Layout, Rows, TextRenderer};
+use rows::Rows;
+use shape::{Rect, ShapeRenderer};
+use text::{Layout, TextRenderer};
 
 use std::sync::Arc;
 
-use oso_core::cursor::Cursor;
+use oso_core::buffer::BufferId;
+use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
+use oso_core::motion;
+use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, TextSystem};
 
 // Top-left margin, in physical pixels (will become the line-number gutter
@@ -29,6 +35,30 @@ const MARGIN_Y: f32 = 8.0;
 const BACKGROUND: [f32; 4] = [0.05, 0.05, 0.07, 1.0];
 const FOREGROUND: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
 const CURSOR: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
+/// Escapes (`^M`, `\xFF`) and boxed code points (`U+202E`), so they are
+/// not mistaken for text that reads the same.
+const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
+const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
+
+/// New glyphs a frame rasterizes at most. Each takes tens of
+/// microseconds, so a screen of new CJK text fills in over a few frames
+/// instead of stalling one (ADR 0040).
+const GLYPHS_PER_FRAME: usize = 64;
+
+/// What to draw: a window's view of a buffer.
+pub struct TextView {
+    /// The buffer's display model.
+    pub display: DisplaySnapshot,
+    /// The buffer, so that cached shaping of another one is not reused.
+    pub buffer: BufferId,
+    /// The buffer's revision: while it holds, cached rows are reused
+    /// without looking at the buffer.
+    pub revision: u64,
+    /// The display row and column at the top left.
+    pub scroll: Scroll,
+    /// Where the cursor box goes.
+    pub cursor: DisplayPoint,
+}
 
 /// The single wgpu backend used on this OS (ADR 0003). There is no GL fallback.
 ///
@@ -155,10 +185,16 @@ pub struct RenderState {
     text_renderer: TextRenderer,
     /// Shapes and rasterizes text; see `oso_platform::text`.
     text_system: Box<dyn TextSystem>,
-    /// The rows of text shown from the top-left corner.
+    /// Shaped rows of the buffer shown, by display row.
     rows: Rows,
+    /// Boxes behind invisible characters this frame, and the rectangles
+    /// drawn in pass 1; reused across frames.
+    boxes: Vec<(usize, usize, usize)>,
+    rects: Vec<Rect>,
     /// Frames in a row that failed to draw; see `count_failed_frame`.
     failed_frames: u8,
+    /// Frames presented so far.
+    presented: u64,
 }
 
 impl RenderState {
@@ -258,7 +294,10 @@ impl RenderState {
             text_renderer,
             text_system,
             rows: Rows::default(),
+            boxes: Vec::new(),
+            rects: Vec::new(),
             failed_frames: 0,
+            presented: 0,
         }
     }
 
@@ -277,11 +316,19 @@ impl RenderState {
         Redraw::Needed
     }
 
-    /// Sets the rows of text drawn from the top-left corner. Rows whose
-    /// text did not change keep their shaping.
-    pub fn set_rows<S: AsRef<str>>(&mut self, rows: &[S]) -> Redraw {
-        self.rows.set(rows);
-        Redraw::Needed
+    /// The rows and columns of text the surface shows in full, each at
+    /// least 1: the window size that scrolling works with.
+    pub fn text_area(&self) -> (usize, usize) {
+        let metrics = self.text_system.metrics();
+        let rows = (self.config.height as f32 - MARGIN_Y) / metrics.height;
+        let columns = (self.config.width as f32 - MARGIN_X) / metrics.width;
+        (rows.max(1.0) as usize, columns.max(1.0) as usize)
+    }
+
+    /// How many frames have been presented. A frame skipped because the
+    /// window is hidden does not count.
+    pub fn presented_frames(&self) -> u64 {
+        self.presented
     }
 
     /// The size of the surface in physical pixels, as last configured.
@@ -366,13 +413,20 @@ impl RenderState {
     /// asking the window can be a blocking round trip (for example to the X
     /// server).
     ///
-    /// Converting `Cursor.position` to pixel coordinates is the renderer's
-    /// responsibility (§7.1); the `Cursor` struct itself stays free of pixel data.
+    /// Returns [`Redraw::Needed`] when glyphs were left for the next frame
+    /// to rasterize.
     pub fn render(
         &mut self,
-        cursor: &Cursor,
+        view: &TextView,
         window_size: &dyn Fn() -> (u32, u32),
     ) -> Result<Redraw, RenderError> {
+        // The CPU work (shaping, rasterizing, building quads) comes first,
+        // so it overlaps the wait for a drawable instead of adding to it.
+        let started = std::time::Instant::now();
+        let mut budget = RasterBudget::new(GLYPHS_PER_FRAME);
+        self.prepare_frame(view, &mut budget);
+        log::trace!("frame prepared in {:?}", started.elapsed());
+
         // Acquire the next surface texture, or recover as wgpu documents.
         let current = self
             .surface
@@ -389,7 +443,7 @@ impl RenderState {
                 return self.recover(action, window_size);
             }
         };
-        let view = output
+        let target = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -397,12 +451,14 @@ impl RenderState {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        self.encode_frame(&mut encoder, &view, cursor);
+        self.encode_passes(&mut encoder, &target);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
+        log::trace!("frame presented {:?} after it started", started.elapsed());
 
         self.failed_frames = 0;
+        self.presented += 1;
 
         // Configure only after presenting: no surface texture may be alive.
         // Only a size change is fixed here; reconfiguring with the same size
@@ -414,55 +470,75 @@ impl RenderState {
             }
         }
 
-        Ok(Redraw::NotNeeded)
+        Ok(if budget.exhausted {
+            Redraw::Needed
+        } else {
+            Redraw::NotNeeded
+        })
     }
 
-    /// Records the passes that draw one frame into `view`.
-    ///
-    /// Until buffers arrive (M1-6), the cursor's position is a column on the
-    /// first row.
-    fn encode_frame(
-        &mut self,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        cursor: &Cursor,
-    ) {
+    /// Shapes, rasterizes and uploads what one frame of `text` draws,
+    /// with at most `budget` new glyphs. Touches the queue, not the surface.
+    fn prepare_frame(&mut self, text: &TextView, budget: &mut RasterBudget) {
         let metrics = self.text_system.metrics();
-        let column = u32::try_from(cursor.position).unwrap_or(u32::MAX);
+        let display = &text.display;
+        // The box cursor covers the whole character under it, two cells for
+        // a full-width one (ADR 0026).
+        let cursor_cells = motion::cursor_cells(display, text.cursor);
         let layout = Layout {
             origin: [MARGIN_X, MARGIN_Y],
             viewport: [self.config.width as f32, self.config.height as f32],
             metrics,
-            cursor: (0, column),
+            scroll: text.scroll,
+            cursor: (text.cursor, cursor_cells),
             color: FOREGROUND,
+            escape_color: ESCAPE,
             cursor_color: BACKGROUND,
         };
 
         let rasterized = self.text_renderer.atlas.rasterized();
+        let shaped = self.rows.shaped_count();
         let started = std::time::Instant::now();
+        self.rows.begin(text.buffer, text.revision);
         self.text_renderer.prepare(
             &self.device,
             &self.queue,
             &mut *self.text_system,
             &mut self.rows,
+            display,
             &layout,
+            budget,
+            &mut self.boxes,
         );
         let new_glyphs = self.text_renderer.atlas.rasterized() - rasterized;
-        if new_glyphs > 0 {
+        let new_rows = self.rows.shaped_count() - shaped;
+        if new_glyphs > 0 || new_rows > 0 {
             log::debug!(
-                "rasterized {new_glyphs} glyphs into the atlas; text prepared in {:?}",
+                "shaped {new_rows} rows and rasterized {new_glyphs} glyphs in {:?}",
                 started.elapsed()
             );
         }
 
-        // The box cursor covers the whole character under it, two cells for
-        // a full-width one (ADR 0026).
-        let (first, cells) = self.rows.cluster_at(0, column);
-        let [x, y] = layout.cell(0, first);
-        let box_ = [x, y, metrics.width * cells as f32, metrics.height];
-        self.shape_renderer.prepare(&self.queue, box_, CURSOR);
+        self.rects.clear();
+        for &(row, column, cells) in &self.boxes {
+            self.rects.push(Rect {
+                position: layout.cell(row, column),
+                size: [metrics.width * cells as f32, metrics.height],
+                color: ESCAPE_BOX,
+            });
+        }
+        self.rects.push(Rect {
+            position: layout.cell(text.cursor.row, text.cursor.column),
+            size: [metrics.width * cursor_cells as f32, metrics.height],
+            color: CURSOR,
+        });
+        self.shape_renderer
+            .prepare(&self.device, &self.queue, &self.rects);
+    }
 
-        // --- Pass 1: clear background + cursor box (ShapeRenderer) ---
+    /// Records the passes of the prepared frame into `view`.
+    fn encode_passes(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+        // --- Pass 1: clear background, boxes and the cursor (ShapeRenderer) ---
         let [r, g, b, a] = BACKGROUND.map(f64::from);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Pass 1: Shape"),

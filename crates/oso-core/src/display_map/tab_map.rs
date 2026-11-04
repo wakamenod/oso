@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use super::DisplayCluster;
 use super::cell::{CellKind, Clusters, TabWidth};
+use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
 
@@ -112,12 +113,14 @@ impl TabSummary {
     /// Summarizes `text`, which starts and ends on cluster boundaries.
     ///
     /// Only the text after the last line break is measured: `\r\n` holds
-    /// exactly one `\n`, and a cluster always starts after `\n`.
-    fn from_text(text: &str, tab_width: TabWidth) -> Self {
+    /// exactly one `\n`, and a cluster always starts after `\n`. `text`
+    /// starts at `base` in the buffer.
+    fn from_text(text: &str, base: usize, invalid: &InvalidBytes, tab_width: TabWidth) -> Self {
         let lines = text.bytes().filter(|&byte| byte == b'\n').count();
-        let tail = text.rfind('\n').map_or(text, |index| &text[index + 1..]);
+        let tail_start = text.rfind('\n').map_or(0, |index| index + 1);
+        let tail = &text[tail_start..];
         let mut last_line = ColumnFn::default();
-        for (_, _, kind, cells) in Clusters::new(tail) {
+        for (_, _, kind, cells) in Clusters::with_invalid(tail, base + tail_start, invalid) {
             last_line = match kind {
                 CellKind::Tab => last_line.then_tab(tab_width),
                 _ => last_line.then_cells(cells),
@@ -184,39 +187,56 @@ impl Item for TabChunk {
 pub struct TabMap {
     tree: SumTree<TabChunk>,
     tab_width: TabWidth,
+    /// The buffer's invalid bytes, each shown as `\xNN`.
+    invalid: InvalidBytes,
 }
 
 impl TabMap {
-    /// Builds the map of `buffer`. O(n): it measures every cluster.
-    pub fn new(buffer: &Rope, tab_width: TabWidth) -> Self {
+    /// Builds the map of `buffer`, whose invalid bytes are `invalid`. O(n):
+    /// it measures every cluster.
+    pub fn new(buffer: &Rope, invalid: &InvalidBytes, tab_width: TabWidth) -> Self {
         Self {
-            tree: Self::items(buffer, 0..buffer.len(), tab_width).collect(),
+            tree: Self::items(buffer, invalid, 0..buffer.len(), tab_width).collect(),
             tab_width,
+            invalid: invalid.clone(),
         }
     }
 
-    fn items(
-        buffer: &Rope,
+    fn items<'a>(
+        buffer: &'a Rope,
+        invalid: &'a InvalidBytes,
         range: std::ops::Range<usize>,
         tab_width: TabWidth,
-    ) -> impl Iterator<Item = TabChunk> + '_ {
-        buffer.chunk_texts(range).map(move |text| TabChunk {
-            summary: TabSummary::from_text(text, tab_width),
-            text: Arc::clone(text),
+    ) -> impl Iterator<Item = TabChunk> + 'a {
+        let mut base = range.start;
+        buffer.chunk_texts(range).map(move |text| {
+            let summary = TabSummary::from_text(text, base, invalid, tab_width);
+            base += text.len();
+            TabChunk {
+                summary,
+                text: Arc::clone(text),
+            }
         })
     }
 
     /// Follows one edit of the buffer. `buffer` is the rope right after the
-    /// edit. Costs O(log n) plus the size of the edited chunks.
-    pub fn sync(&mut self, buffer: &Rope, edit: &RopeEdit) {
+    /// edit, and `invalid` its invalid bytes. Costs O(log n) plus the size
+    /// of the edited chunks.
+    pub fn sync(&mut self, buffer: &Rope, invalid: &InvalidBytes, edit: &RopeEdit) {
+        self.invalid = invalid.clone();
         if edit.old.is_empty() && edit.new.is_empty() {
             return;
         }
         let (mut tree, _) = self.tree.split(&edit.old.start, Bias::Right);
         let (_, right) = self.tree.split(&edit.old.end, Bias::Right);
-        tree.append(Self::items(buffer, edit.new.clone(), self.tab_width).collect());
+        tree.append(Self::items(buffer, invalid, edit.new.clone(), self.tab_width).collect());
         tree.append(right);
         self.tree = tree;
+    }
+
+    /// The buffer's invalid bytes.
+    pub fn invalid(&self) -> &InvalidBytes {
+        &self.invalid
     }
 
     /// The tab width.
@@ -251,7 +271,8 @@ impl TabMap {
             point.column = 0;
             from = newline + 1;
         }
-        for (index, cluster, kind, cells) in Clusters::new(&item.text[from..]) {
+        let clusters = Clusters::with_invalid(&item.text[from..], start + from, &self.invalid);
+        for (index, cluster, kind, cells) in clusters {
             if start + from + index + cluster.len() > offset {
                 break;
             }
@@ -286,7 +307,9 @@ impl TabMap {
             from = newline + 1;
             point = TabPoint::new(target.row, 0);
         }
-        for (index, cluster, kind, cells) in Clusters::new(&text[from..]) {
+        for (index, cluster, kind, cells) in
+            Clusters::with_invalid(&text[from..], start + from, &self.invalid)
+        {
             let offset = start + from + index;
             if point.row == target.row {
                 if kind == CellKind::LineBreak || point.column >= target.column {
@@ -314,7 +337,10 @@ impl TabMap {
                 point.column = 0;
             }
             CellKind::Tab => point.column = self.tab_width.next_stop(point.column),
-            CellKind::Text | CellKind::Control(_) | CellKind::Invisible(_) => {
+            CellKind::Text
+            | CellKind::Control(_)
+            | CellKind::Invisible(_)
+            | CellKind::InvalidByte(_) => {
                 point.column = point.column.saturating_add(cells);
             }
         }
@@ -327,7 +353,11 @@ impl TabMap {
         let mut cursor = self.tree.cursor::<usize>();
         cursor.seek(&offset, Bias::Right);
         let clusters = match cursor.item() {
-            Some(item) => Clusters::new(&item.text[offset - *cursor.start()..]),
+            Some(item) => Clusters::with_invalid(
+                &item.text[offset - *cursor.start()..],
+                offset,
+                &self.invalid,
+            ),
             None => Clusters::new(""),
         };
         RowClusters {
@@ -336,6 +366,7 @@ impl TabMap {
             base: offset,
             column: point.column,
             tab_width: self.tab_width,
+            invalid: &self.invalid,
             done: false,
         }
     }
@@ -349,6 +380,7 @@ pub struct RowClusters<'a> {
     base: usize,
     column: usize,
     tab_width: TabWidth,
+    invalid: &'a InvalidBytes,
     done: bool,
 }
 
@@ -367,7 +399,10 @@ impl<'a> Iterator for RowClusters<'a> {
                         return None;
                     }
                     CellKind::Tab => self.tab_width.next_stop(self.column) - self.column,
-                    CellKind::Text | CellKind::Control(_) | CellKind::Invisible(_) => cells,
+                    CellKind::Text
+                    | CellKind::Control(_)
+                    | CellKind::Invisible(_)
+                    | CellKind::InvalidByte(_) => cells,
                 };
                 let cluster = DisplayCluster {
                     offset: self.base + index,
@@ -385,7 +420,7 @@ impl<'a> Iterator for RowClusters<'a> {
                 return None;
             };
             self.base = *self.cursor.start();
-            self.clusters = Clusters::new(&item.text);
+            self.clusters = Clusters::with_invalid(&item.text, self.base, self.invalid);
         }
     }
 }

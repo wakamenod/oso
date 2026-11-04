@@ -7,11 +7,16 @@
 // Tests may unwrap (`allow-unwrap-in-tests` in clippy.toml).
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 
+pub mod buffer;
 pub mod command;
-pub mod cursor;
+pub mod decode;
 pub mod display_map;
 pub mod editor;
 pub mod key;
 pub mod keymap;
+pub mod load;
+pub mod motion;
 pub mod rope;
+pub mod selection;
 pub mod sum_tree;
+pub mod window;

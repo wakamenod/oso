@@ -1,18 +1,30 @@
 //! Pass 2: text drawn as glyph quads on the cell grid, from the atlas
 //! (ADR 0005, ADR 0036).
 //!
-//! Rows are shaped when they first become visible and kept until their text
-//! or the font changes. Glyphs are rasterized once, into the atlas. A frame
-//! only turns the visible rows' cached glyphs into quads.
+//! - Only visible rows are drawn, and of each only the visible columns,
+//!   in steps of [`WINDOW_STEP`] columns, shaped through the cache in
+//!   `rows`. A 10 MB line costs what a screen of it does.
+//! - Glyphs are rasterized once, into the atlas, within a per-frame budget.
+//!
+//! The GPU side of text lives here; shaping and grid placement do not.
+
+use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
-use oso_platform::text::{CellMetrics, GlyphFormat, ShapedGlyph, TextSystem};
+use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
+use oso_core::window::Scroll;
+use oso_platform::text::{CellMetrics, GlyphFormat, TextSystem};
 
 use wgpu::util::DeviceExt;
 
-use crate::atlas::{AtlasGlyph, GlyphAtlas};
-use crate::grid::{PlacedGlyph, Placer};
+use crate::atlas::{AtlasGlyph, GlyphAtlas, RasterBudget};
+use crate::grid::{PlacedGlyph, Style};
+use crate::rows::Rows;
 use crate::shape::Uniforms;
+
+/// Columns shaped beyond the visible ones on each side, and the step the
+/// shaped window moves by.
+pub(crate) const WINDOW_STEP: usize = 64;
 
 /// Instances the buffer holds before it first grows.
 const INITIAL_INSTANCES: usize = 1024;
@@ -64,43 +76,60 @@ pub(crate) struct Layout {
     /// The surface size; rows and glyphs outside it are skipped.
     pub(crate) viewport: [f32; 2],
     pub(crate) metrics: CellMetrics,
-    /// The cell under the cursor, as `(row, column)`. Its glyph is drawn in
-    /// `cursor_color` to show on the box cursor.
-    pub(crate) cursor: (u32, u32),
+    /// The display row and column at the top-left cell.
+    pub(crate) scroll: Scroll,
+    /// The cells under the cursor box: its display point and width. Glyphs
+    /// there are drawn in `cursor_color` to show on the box.
+    pub(crate) cursor: (DisplayPoint, usize),
+    /// Colors by [`Style`].
     pub(crate) color: [f32; 4],
+    pub(crate) escape_color: [f32; 4],
     pub(crate) cursor_color: [f32; 4],
 }
 
 impl Layout {
-    /// The top-left corner of a cell, in pixels.
-    pub(crate) fn cell(&self, row: u32, column: u32) -> [f32; 2] {
+    /// The top-left corner of a cell, in pixels. Cells left of or above the
+    /// scroll position get negative coordinates.
+    pub(crate) fn cell(&self, row: usize, column: usize) -> [f32; 2] {
+        let column = column as i64 - self.scroll.left as i64;
+        let row = row as i64 - self.scroll.top as i64;
         [
             self.origin[0] + column as f32 * self.metrics.width,
             self.origin[1] + row as f32 * self.metrics.height,
         ]
     }
 
-    /// The rows that are at least partly inside the viewport.
-    pub(crate) fn visible_rows(&self, rows: usize) -> usize {
+    /// The rows at least partly inside the viewport, from the top one.
+    pub(crate) fn visible_rows(&self) -> usize {
         let space = self.viewport[1] - self.origin[1];
         if space <= 0.0 {
             return 0;
         }
-        let visible = (space / self.metrics.height).ceil() as usize;
-        visible.min(rows)
+        (space / self.metrics.height).ceil() as usize
     }
 
     /// The columns at least partly inside the viewport, plus one for glyphs
     /// that overhang their cell to the left.
-    pub(crate) fn visible_columns(&self) -> u32 {
+    pub(crate) fn visible_columns(&self) -> usize {
         let space = (self.viewport[0] - self.origin[0]).max(0.0);
-        (space / self.metrics.width).ceil() as u32 + 1
+        (space / self.metrics.width).ceil() as usize + 1
+    }
+
+    /// The columns of a row to shape: from the left edge rounded down to
+    /// a multiple of [`WINDOW_STEP`], to past the right edge as it stands
+    /// one step later. The range changes only when the left edge crosses
+    /// a multiple of the step, so scrolling sideways shapes again once per
+    /// step at most.
+    pub(crate) fn shaped_columns(&self) -> Range<usize> {
+        let base = self.scroll.left / WINDOW_STEP * WINDOW_STEP;
+        let width = (self.visible_columns() + WINDOW_STEP).div_ceil(WINDOW_STEP) * WINDOW_STEP;
+        base..base.saturating_add(width)
     }
 
     /// The quad for one glyph of `row`, or `None` if it is off screen.
     pub(crate) fn quad(
         &self,
-        row: u32,
+        row: usize,
         glyph: &PlacedGlyph,
         entry: &AtlasGlyph,
     ) -> Option<GlyphInstance> {
@@ -111,97 +140,24 @@ impl Layout {
         if x >= self.viewport[0] || y >= self.viewport[1] || x + w <= 0.0 || y + h <= 0.0 {
             return None;
         }
-        let (cursor_row, cursor_column) = self.cursor;
-        let under_cursor = row == cursor_row
-            && (glyph.column..glyph.column + glyph.cells).contains(&cursor_column);
+        let (cursor, cursor_cells) = self.cursor;
+        let under_cursor = row == cursor.row
+            && glyph.column < cursor.column + cursor_cells
+            && cursor.column < glyph.column + glyph.cells as usize;
         Some(GlyphInstance {
             position: [x, y],
             size: [w, h],
             uv: [entry.uv[0] as f32, entry.uv[1] as f32],
-            color: if under_cursor {
-                self.cursor_color
-            } else {
-                self.color
+            color: match glyph.style {
+                _ if under_cursor => self.cursor_color,
+                Style::Text => self.color,
+                Style::Escape | Style::Boxed => self.escape_color,
             },
             kind: match entry.format {
                 GlyphFormat::Coverage => 0,
                 GlyphFormat::Color => 1,
             },
         })
-    }
-}
-
-/// Rows of text and their glyphs on the grid, shaped on first use.
-#[derive(Default)]
-pub(crate) struct Rows {
-    text: Vec<String>,
-    /// Sorted by column.
-    shaped: Vec<Option<Vec<PlacedGlyph>>>,
-    /// Scratch space for shaping and placing a row.
-    glyphs: Vec<ShapedGlyph>,
-    placer: Placer,
-}
-
-impl Rows {
-    /// Replaces the text, keeping the shaping of rows whose text is the
-    /// same.
-    pub(crate) fn set<S: AsRef<str>>(&mut self, rows: &[S]) {
-        self.text.truncate(rows.len());
-        self.shaped.truncate(rows.len());
-        for (i, row) in rows.iter().enumerate() {
-            let row = row.as_ref();
-            match self.text.get_mut(i) {
-                Some(text) if text == row => {}
-                Some(text) => {
-                    row.clone_into(text);
-                    self.shaped[i] = None;
-                }
-                None => {
-                    self.text.push(row.to_owned());
-                    self.shaped.push(None);
-                }
-            }
-        }
-    }
-
-    /// Forgets every row's shaping, for when the font changes.
-    pub(crate) fn invalidate(&mut self) {
-        self.shaped.iter_mut().for_each(|s| *s = None);
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.text.len()
-    }
-
-    /// The cluster that covers `column` of `row`, as its first column and
-    /// its cells, so that a box cursor covers a whole full-width character.
-    /// One cell past the end of the text, or in a row not shaped yet.
-    pub(crate) fn cluster_at(&self, row: usize, column: u32) -> (u32, u32) {
-        let glyphs = self
-            .shaped
-            .get(row)
-            .and_then(Option::as_deref)
-            .unwrap_or(&[]);
-        // Glyphs are in column order.
-        let i = glyphs.partition_point(|g| g.column + g.cells <= column);
-        match glyphs.get(i) {
-            Some(g) if g.column <= column => (g.column, g.cells),
-            _ => (column, 1),
-        }
-    }
-
-    /// The glyphs of row `i` that start before column `end`, shaping the
-    /// row if needed.
-    fn shaped(&mut self, i: usize, end: u32, system: &mut dyn TextSystem) -> &[PlacedGlyph] {
-        let placed = self.shaped[i].get_or_insert_with(|| {
-            let text = &self.text[i];
-            system.shape(text, &mut self.glyphs);
-            let mut placed = Vec::new();
-            self.placer
-                .place(text, &self.glyphs, system.metrics().width, &mut placed);
-            placed
-        });
-        &placed[..placed.partition_point(|g| g.column < end)]
     }
 }
 
@@ -353,20 +309,26 @@ impl TextRenderer {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// Builds this frame's quads from the visible rows and uploads them.
-    /// Must be called before the render pass begins.
+    /// Builds this frame's quads from the visible rows of `display` and
+    /// uploads them, with at most `budget` new glyphs. Must be called
+    /// before the render pass begins. Returns the boxes to draw behind
+    /// invisible characters, as `(row, column, cells)`, in `boxes`.
+    #[allow(clippy::too_many_arguments, reason = "one frame's inputs")]
     pub(crate) fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         system: &mut dyn TextSystem,
         rows: &mut Rows,
+        display: &DisplaySnapshot,
         layout: &Layout,
+        budget: &mut RasterBudget,
+        boxes: &mut Vec<(usize, usize, usize)>,
     ) {
         // A frame that fills the atlas clears it and is built once more,
         // so a full atlas never leaves glyphs invisible for good.
         for attempt in 0..2 {
-            self.build(device, queue, system, rows, layout);
+            self.build(device, queue, system, rows, display, layout, budget, boxes);
             if !self.atlas.take_full() {
                 break;
             }
@@ -375,6 +337,7 @@ impl TextRenderer {
                 self.atlas.clear();
             }
         }
+        self.atlas.flush(queue);
         if self.atlas.generation() != self.bound_generation {
             self.bind_group = Self::bind(
                 device,
@@ -402,31 +365,54 @@ impl TextRenderer {
     }
 
     /// Fills `self.instances` with the quads of the visible glyphs.
+    #[allow(clippy::too_many_arguments, reason = "one frame's inputs")]
     fn build(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         system: &mut dyn TextSystem,
         rows: &mut Rows,
+        display: &DisplaySnapshot,
         layout: &Layout,
+        budget: &mut RasterBudget,
+        boxes: &mut Vec<(usize, usize, usize)>,
     ) {
         self.instances.clear();
-        let end = layout.visible_columns();
-        for i in 0..layout.visible_rows(rows.len()) {
-            // Only glyphs that can show are looked up, so nothing off screen
-            // is rasterized.
-            for glyph in rows.shaped(i, end, system) {
+        boxes.clear();
+        let columns = layout.shaped_columns();
+        let top = layout.scroll.top;
+        let visible = top..(top + layout.visible_rows()).min(display.row_count());
+        for row in visible.clone() {
+            let shaped = rows.row(display, row, columns.clone(), system);
+            boxes.extend(
+                shaped
+                    .boxes
+                    .iter()
+                    .map(|&(column, cells)| (row, column, cells)),
+            );
+            // Only glyphs that can show are looked up, so nothing off
+            // screen is rasterized.
+            let left = layout.scroll.left.saturating_sub(WINDOW_STEP);
+            let right = layout.scroll.left + layout.visible_columns();
+            let from = shaped
+                .glyphs
+                .partition_point(|g| g.column + (g.cells as usize) < left);
+            for glyph in &shaped.glyphs[from..] {
+                if glyph.column >= right {
+                    break;
+                }
                 if self.instances.len() >= self.max_instances {
                     return;
                 }
-                let Some(entry) = self.atlas.get(device, queue, system, glyph.key) else {
+                let Some(entry) = self.atlas.get(device, queue, system, glyph.key, budget) else {
                     continue;
                 };
-                if let Some(quad) = layout.quad(i as u32, glyph, &entry) {
+                if let Some(quad) = layout.quad(row, glyph, &entry) {
                     self.instances.push(quad);
                 }
             }
         }
+        rows.evict(visible.start.saturating_sub(visible.len())..visible.end + visible.len());
     }
 
     /// Records the glyph quads into `pass`.
@@ -448,6 +434,7 @@ mod tests {
 
     const WHITE: [f32; 4] = [1.0; 4];
     const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+    const GRAY: [f32; 4] = [0.5, 0.5, 0.5, 1.0];
 
     fn layout() -> Layout {
         Layout {
@@ -459,13 +446,15 @@ mod tests {
                 ascent: 16.0,
                 descent: 4.0,
             },
-            cursor: (0, 3),
+            scroll: Scroll::default(),
+            cursor: (DisplayPoint::new(0, 3), 1),
             color: WHITE,
+            escape_color: GRAY,
             cursor_color: BLACK,
         }
     }
 
-    fn glyph(column: u32, cells: u32) -> PlacedGlyph {
+    fn glyph(column: usize, cells: u32) -> PlacedGlyph {
         PlacedGlyph {
             key: GlyphKey {
                 font: FontId(0),
@@ -474,6 +463,7 @@ mod tests {
             column,
             cells,
             offset: [0.0, 0.0],
+            style: Style::Text,
         }
     }
 
@@ -486,13 +476,18 @@ mod tests {
             top: 12,
         }
     }
-
     #[test]
-    fn cells_are_column_times_width() {
-        let l = layout();
+    fn cells_are_column_times_width_from_the_scroll_position() {
+        let mut l = layout();
         assert_eq!(l.cell(0, 0), [8.0, 8.0]);
         assert_eq!(l.cell(0, 3), [38.0, 8.0]);
         assert_eq!(l.cell(2, 1), [18.0, 48.0]);
+        l.scroll = Scroll { top: 10, left: 20 };
+        assert_eq!(l.cell(10, 20), [8.0, 8.0]);
+        assert_eq!(l.cell(11, 19), [-2.0, 28.0]);
+        // Far columns keep whole-pixel precision.
+        l.scroll.left = 20_000_000;
+        assert_eq!(l.cell(10, 20_000_001), [18.0, 8.0]);
     }
 
     #[test]
@@ -515,13 +510,23 @@ mod tests {
     }
 
     #[test]
-    fn glyph_under_the_cursor_uses_the_cursor_color() {
-        let l = layout();
+    fn glyphs_under_the_cursor_box_use_the_cursor_color() {
+        let mut l = layout();
         assert_eq!(l.quad(0, &glyph(3, 1), &entry()).unwrap().color, BLACK);
         assert_eq!(l.quad(0, &glyph(2, 1), &entry()).unwrap().color, WHITE);
         assert_eq!(l.quad(1, &glyph(3, 1), &entry()).unwrap().color, WHITE);
         // A full-width glyph in columns 2 and 3 is under a cursor at 3.
         assert_eq!(l.quad(0, &glyph(2, 2), &entry()).unwrap().color, BLACK);
+        // A cursor on a 4-cell escape covers all of its label.
+        l.cursor = (DisplayPoint::new(0, 4), 4);
+        let escape = PlacedGlyph {
+            style: Style::Escape,
+            ..glyph(7, 1)
+        };
+        assert_eq!(l.quad(0, &escape, &entry()).unwrap().color, BLACK);
+        assert_eq!(l.quad(0, &glyph(8, 1), &entry()).unwrap().color, WHITE);
+        l.cursor = (DisplayPoint::new(5, 0), 1);
+        assert_eq!(l.quad(0, &escape, &entry()).unwrap().color, GRAY);
     }
 
     #[test]
@@ -541,59 +546,32 @@ mod tests {
     }
 
     #[test]
-    fn only_columns_in_the_viewport_are_visible() {
-        // (200 - 8) / 10 = 19.2, so 20 columns show, plus one for overhang.
-        assert_eq!(layout().visible_columns(), 21);
-    }
-
-    #[test]
-    fn rows_skip_glyphs_past_the_viewport() {
-        let mut rows = Rows::default();
-        rows.set(&["abcd"]);
-        rows.shaped[0] = Some((0..4).map(|c| glyph(c, 1)).collect());
-        let mut system = oso_platform::text::NullTextSystem::new(13.0, 1.0);
-        let visible = rows.shaped(0, 2, &mut system);
-        assert_eq!(visible.iter().map(|g| g.column).collect::<Vec<_>>(), [0, 1]);
-    }
-
-    #[test]
-    fn only_rows_in_the_viewport_are_visible() {
+    fn only_rows_and_columns_in_the_viewport_are_visible() {
         let l = layout();
+        // (200 - 8) / 10 = 19.2, so 20 columns show, plus one for overhang.
+        assert_eq!(l.visible_columns(), 21);
         // (100 - 8) / 20 = 4.6, so 5 rows are at least partly visible.
-        assert_eq!(l.visible_rows(100), 5);
-        assert_eq!(l.visible_rows(2), 2);
+        assert_eq!(l.visible_rows(), 5);
         let tiny = Layout {
             viewport: [200.0, 4.0],
             ..l
         };
-        assert_eq!(tiny.visible_rows(100), 0);
+        assert_eq!(tiny.visible_rows(), 0);
     }
 
     #[test]
-    fn cursor_covers_the_whole_cluster() {
-        let mut rows = Rows::default();
-        rows.set(&["a日b"]);
-        rows.shaped[0] = Some(vec![glyph(0, 1), glyph(1, 2), glyph(3, 1)]);
-        assert_eq!(rows.cluster_at(0, 0), (0, 1));
-        assert_eq!(rows.cluster_at(0, 1), (1, 2));
-        assert_eq!(rows.cluster_at(0, 2), (1, 2), "right half of 日");
-        assert_eq!(rows.cluster_at(0, 3), (3, 1));
-        assert_eq!(rows.cluster_at(0, 9), (9, 1), "past the end");
-        assert_eq!(rows.cluster_at(5, 2), (2, 1), "no such row");
-    }
-
-    #[test]
-    fn rows_keep_shaping_of_unchanged_text() {
-        let mut rows = Rows::default();
-        rows.set(&["a", "b"]);
-        rows.shaped = vec![Some(vec![glyph(0, 1)]), Some(vec![glyph(0, 1)])];
-        rows.set(&["a", "c", "d"]);
-        assert!(rows.shaped[0].is_some(), "unchanged row kept");
-        assert!(rows.shaped[1].is_none(), "changed row reshaped");
-        assert!(rows.shaped[2].is_none(), "new row shaped");
-        rows.set(&["a"]);
-        assert_eq!(rows.len(), 1);
-        rows.invalidate();
-        assert!(rows.shaped[0].is_none());
+    fn shaped_columns_cover_the_view_and_move_in_steps() {
+        let mut l = layout();
+        assert_eq!(l.shaped_columns(), 0..128);
+        l.scroll.left = 63;
+        assert_eq!(l.shaped_columns(), 0..128);
+        l.scroll.left = 64;
+        assert_eq!(l.shaped_columns(), 64..192);
+        l.scroll.left = 200;
+        assert_eq!(l.shaped_columns(), 192..320);
+        // Every left edge until the next step is still covered.
+        l.scroll.left = 255;
+        assert_eq!(l.shaped_columns(), 192..320);
+        assert!(255 + l.visible_columns() <= 320);
     }
 }

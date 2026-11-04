@@ -18,7 +18,7 @@ Without --pid, the only running instance is used.
 
 methods:
   version           protocol version and build information
-  get-state         the cursor position and the surface size
+  get-state         the buffer, cursor, scroll position and surface size
   screenshot        writes a PNG of the current frame and prints its path
   send-keys KEYS    sends keys in Emacs notation, such as \"C-x C-f\" or \"<right>\"
 

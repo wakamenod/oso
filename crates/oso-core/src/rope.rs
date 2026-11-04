@@ -26,9 +26,9 @@ use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
 
-/// The most bytes in one chunk.
+/// The most bytes in one chunk, so that with an `Arc`'s counts it fits 1 KB.
 #[cfg(not(test))]
-pub const MAX_CHUNK_BYTES: usize = 1024;
+pub const MAX_CHUNK_BYTES: usize = 1008;
 /// Small in tests, so that chunk boundaries are everywhere.
 #[cfg(test)]
 pub const MAX_CHUNK_BYTES: usize = 32;

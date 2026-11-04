@@ -111,7 +111,10 @@ network features.
 
 Bidirectional control characters and invisible characters are always shown
 as boxed code points, and a buffer containing bidirectional controls shows a
-modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
+modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)). Control characters
+and invalid bytes are shown as escapes (`^M`, `\xFF`) in an escape color.
+None of these characters reach the text shaper: their labels are shaped as
+ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 
 ### Persistence (T4, T5)
 
@@ -149,7 +152,10 @@ modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)).
 ### Denial of service (T8)
 
 - Files load in the background, and the UI stays responsive on huge files and
-  long lines.
+  long lines. Only regular files are opened, so a pipe or a device cannot
+  block or feed the loader forever. Rendering shapes only the visible
+  columns of a row, and rasterizes a bounded number of new glyphs per frame
+  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Parsing runs in the background with cancellation and timeouts.
 
 ### Untrusted parsers (T10)
