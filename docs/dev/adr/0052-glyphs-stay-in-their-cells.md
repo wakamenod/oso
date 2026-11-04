@@ -1,6 +1,6 @@
 # 0052. Glyphs stay in their cells
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-04
 
 ## Context
