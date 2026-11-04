@@ -49,6 +49,7 @@ old one's status.
 | 0040 | [Buffers, file loading, cursor motion and scrolling](0040-buffers-loading-motion-and-scrolling.md) | Accepted |
 | 0041 | [Module responsibility headers](0041-module-responsibility-headers.md) | Accepted |
 | 0042 | [Statics, API snapshot upkeep and render errors](0042-statics-snapshots-and-render-errors.md) | Accepted |
+| 0043 | [No edit approval in auto mode](0043-no-edit-approval-in-auto-mode.md) | Accepted |
 | 0044 | [Control socket trust and secret-pattern buffers](0044-control-socket-trust-and-secret-buffers.md) | Accepted |
 
 ## Template

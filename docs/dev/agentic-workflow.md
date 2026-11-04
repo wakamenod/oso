@@ -47,7 +47,9 @@ The setup is recorded in
 
 - `.claude/settings.json` asks for human approval before edits to the files
   listed in `AGENTS.md`, and before `cargo add`, `remove`, `update` or
-  `install`.
+  `install`. In auto mode these prompts do not reach a human, and agents do
+  not ask about file changes either
+  ([ADR 0043](adr/0043-no-edit-approval-in-auto-mode.md)).
 - Pre-commit hook (`.claude/hooks/pre-commit.sh`): before `git commit`, run
   `just ci` and a gitleaks scan of staged, unstaged and untracked changes.
   Block the commit if either fails, and ask the human if the commit touches
