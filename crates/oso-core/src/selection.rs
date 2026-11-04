@@ -77,6 +77,11 @@ impl SelectionSet {
         &self.selections[self.primary]
     }
 
+    /// The position of the primary selection in [`SelectionSet::iter`].
+    pub fn primary_index(&self) -> usize {
+        self.primary
+    }
+
     /// All selections, in buffer order.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &Selection> {
         self.selections.iter()

@@ -89,6 +89,15 @@ item notes when it must be settled.
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
 
+- Secret-pattern buffers in M2
+  ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)): their
+  unsaved edits cannot pass through `export-state`, so decide how `oso dev`
+  keeps them (for example, keep the old instance). The emergency save skips
+  them too, which loses unsaved work in a file that only could not be
+  resolved, so decide whether to tell that case apart. User-defined patterns
+  ([ADR 0028](adr/0028-secrets-handling.md)) need the resolved paths kept, or
+  resolving again, so config reload can judge open buffers again.
+
 - The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
   Rust's default hook prints panic messages, which may quote buffer text,
   to stderr even for panics caught at the command boundary. Decide what

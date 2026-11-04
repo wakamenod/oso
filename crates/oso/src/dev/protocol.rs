@@ -9,8 +9,10 @@
 //! - Response: `{"id": 1, "result": ...}` or
 //!   `{"id": 1, "error": {"message": "..."}}`, echoing the request's `id`.
 
+use oso_core::display_map::cell::is_invisible;
 use oso_core::key::{KeyPress, KeySequence};
 use serde_json::{Map, Value, json};
+use std::fmt::Write as _;
 
 /// The protocol version reported by `version`. Bump it on incompatible
 /// changes.
@@ -33,18 +35,33 @@ const MAX_ECHO: usize = 64;
 /// echoed in errors, so this keeps responses small.
 const MAX_COMMAND_NAME: usize = 256;
 
+/// The largest count `run-command` passes on, in either direction. A command
+/// runs on the UI thread and may repeat its work this many times, so this
+/// plays the part of [`MAX_KEYS`].
+const MAX_COMMAND_ARG: isize = 10_000;
+
+/// The UI's answer to a request: a JSON result or an error message.
+pub type Reply = Result<Value, String>;
+
 /// A method and its parsed parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Method {
-    /// The protocol version and build information.
+    /// The protocol version and build information, which needs no UI.
     Version,
-    /// Key presses to handle, in order.
+    /// Work for the UI thread.
+    Ui(UiOp),
+}
+
+/// A method the UI thread answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UiOp {
+    /// Handle these key presses, in order.
     SendKeys(Vec<KeyPress>),
-    /// A PNG of the current frame.
+    /// Capture the current frame as a PNG.
     Screenshot,
-    /// The editor state, with the selected window's visible text.
+    /// Report the editor state, with the selected window's visible text.
     GetState,
-    /// Whole rows of the selected window's buffer.
+    /// Report whole rows of the selected window's buffer.
     GetText { start_row: usize, rows: usize },
     /// Run a registered command, with a numeric argument if it takes one.
     RunCommand { name: String, arg: Option<isize> },
@@ -104,17 +121,22 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         Some(Value::Object(params)) => params,
         Some(_) => return Err(bad(&id, "params must be an object".into())),
     };
-    let method = match method.as_str() {
-        "version" => Method::Version,
-        "screenshot" => Method::Screenshot,
-        "get-state" => Method::GetState,
-        "send-keys" => Method::SendKeys(parse_keys(params).map_err(|m| bad(&id, m))?),
+    let op = match method.as_str() {
+        "version" => {
+            return Ok(Request {
+                id,
+                method: Method::Version,
+            });
+        }
+        "screenshot" => UiOp::Screenshot,
+        "get-state" => UiOp::GetState,
+        "send-keys" => UiOp::SendKeys(parse_keys(params).map_err(|m| bad(&id, m))?),
         "run-command" => parse_run_command(params).map_err(|m| bad(&id, m))?,
-        "get-text" => Method::GetText {
+        "get-text" => UiOp::GetText {
             start_row: parse_size(params, "get-text", "start_row").map_err(|m| bad(&id, m))?,
             rows: parse_size(params, "get-text", "rows").map_err(|m| bad(&id, m))?,
         },
-        "show-buffer" => Method::ShowBuffer(
+        "show-buffer" => UiOp::ShowBuffer(
             params
                 .get("buffer")
                 .and_then(Value::as_u64)
@@ -133,7 +155,10 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
             return Err(bad(&id, format!("unknown method {shown:?}")));
         }
     };
-    Ok(Request { id, method })
+    Ok(Request {
+        id,
+        method: Method::Ui(op),
+    })
 }
 
 /// The `keys` parameter of `send-keys`, in Emacs notation.
@@ -153,7 +178,7 @@ fn parse_keys(params: &Map<String, Value>) -> Result<Vec<KeyPress>, String> {
 
 /// The parameters of `run-command`: a string `name` and an optional
 /// integer `arg`.
-fn parse_run_command(params: &Map<String, Value>) -> Result<Method, String> {
+fn parse_run_command(params: &Map<String, Value>) -> Result<UiOp, String> {
     let Some(Value::String(name)) = params.get("name") else {
         return Err("run-command needs a string parameter \"name\"".into());
     };
@@ -167,10 +192,15 @@ fn parse_run_command(params: &Map<String, Value>) -> Result<Method, String> {
         Some(arg) => Some(
             arg.as_i64()
                 .and_then(|arg| isize::try_from(arg).ok())
-                .ok_or("run-command's \"arg\" must be an integer")?,
+                .filter(|arg| arg.abs_diff(0) <= MAX_COMMAND_ARG.unsigned_abs())
+                .ok_or_else(|| {
+                    format!(
+                        "run-command's \"arg\" must be an integer of at most {MAX_COMMAND_ARG} either way"
+                    )
+                })?,
         ),
     };
-    Ok(Method::RunCommand {
+    Ok(UiOp::RunCommand {
         name: name.clone(),
         arg,
     })
@@ -187,12 +217,40 @@ fn parse_size(params: &Map<String, Value>, method: &str, name: &str) -> Result<u
 
 /// A success response line, without the newline.
 pub fn success(id: &Value, result: Value) -> String {
-    json!({ "id": id, "result": result }).to_string()
+    escape_unsafe(json!({ "id": id, "result": result }).to_string())
 }
 
 /// An error response line, without the newline.
 pub fn failure(id: &Value, message: &str) -> String {
-    json!({ "id": id, "error": { "message": message } }).to_string()
+    escape_unsafe(json!({ "id": id, "error": { "message": message } }).to_string())
+}
+
+/// `line` with what JSON leaves raw, but a terminal or a reader should not
+/// see raw, as `\uXXXX`: DEL, the C1 controls (U+009B starts an escape
+/// sequence on some terminals), and what the editor itself draws as a boxed
+/// code point, such as bidi controls and invisible tag characters. File text
+/// reaches `oso ctl`'s output, so a file must not be able to act on the
+/// terminal, or to say something its reader cannot see (security.md, T3).
+///
+/// These never occur outside a JSON string, and an escape there means the
+/// same character, so the line parses to the same value.
+fn escape_unsafe(line: String) -> String {
+    let is_unsafe = |c: char| matches!(c, '\u{7f}'..='\u{9f}') || is_invisible(c);
+    if !line.contains(is_unsafe) {
+        return line;
+    }
+    let mut escaped = String::with_capacity(line.len());
+    for c in line.chars() {
+        if is_unsafe(c) {
+            let mut units = [0; 2];
+            for unit in c.encode_utf16(&mut units) {
+                write!(escaped, "\\u{unit:04x}").expect("writing to a String cannot fail");
+            }
+        } else {
+            escaped.push(c);
+        }
+    }
+    escaped
 }
 
 /// Builds a request line, without the newline. For `oso ctl` and tests.
@@ -206,7 +264,10 @@ pub fn request(id: u64, method: &str, params: Option<Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, failure, parse, request, success};
+    use super::{
+        MAX_COMMAND_ARG, MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, UiOp, failure, parse,
+        request, success,
+    };
     use serde_json::{Value, json};
 
     fn parsed(line: &str) -> Request {
@@ -226,16 +287,19 @@ mod tests {
         );
         assert_eq!(
             parsed(r#"{"id": 2, "method": "screenshot", "params": {}}"#).method,
-            Method::Screenshot
+            Method::Ui(UiOp::Screenshot)
         );
         assert_eq!(
             parsed(r#"{"id": 3, "method": "get-state", "params": null}"#).method,
-            Method::GetState
+            Method::Ui(UiOp::GetState)
         );
         let keys = parsed(r#"{"id": 4, "method": "send-keys", "params": {"keys": "C-x <right>"}}"#);
         assert_eq!(
             keys.method,
-            Method::SendKeys(vec!["C-x".parse().unwrap(), "<right>".parse().unwrap()])
+            Method::Ui(UiOp::SendKeys(vec![
+                "C-x".parse().unwrap(),
+                "<right>".parse().unwrap()
+            ]))
         );
     }
 
@@ -320,17 +384,17 @@ mod tests {
         let line = |params: &str| format!(r#"{{"method": "run-command", "params": {params}}}"#);
         assert_eq!(
             parsed(&line(r#"{"name": "forward-char"}"#)).method,
-            Method::RunCommand {
+            Method::Ui(UiOp::RunCommand {
                 name: "forward-char".into(),
                 arg: None
-            }
+            })
         );
         assert_eq!(
             parsed(&line(r#"{"name": "next-line", "arg": -3}"#)).method,
-            Method::RunCommand {
+            Method::Ui(UiOp::RunCommand {
                 name: "next-line".into(),
                 arg: Some(-3)
-            }
+            })
         );
         assert!(error(&line("{}")).1.contains("\"name\""));
         assert!(error(&line(r#"{"name": 1}"#)).1.contains("\"name\""));
@@ -344,6 +408,18 @@ mod tests {
                 .1
                 .contains("integer")
         );
+        for arg in [MAX_COMMAND_ARG, -MAX_COMMAND_ARG] {
+            assert!(parse(&line(&format!(r#"{{"name": "x", "arg": {arg}}}"#))).is_ok());
+        }
+        for arg in [
+            MAX_COMMAND_ARG + 1,
+            -MAX_COMMAND_ARG - 1,
+            isize::MAX,
+            isize::MIN,
+        ] {
+            let message = error(&line(&format!(r#"{{"name": "x", "arg": {arg}}}"#))).1;
+            assert!(message.contains("at most"), "{message}");
+        }
         let long = "a".repeat(MAX_LINE / 2);
         let long = error(&line(&format!(r#"{{"name": "{long}"}}"#))).1;
         assert!(long.len() < 100, "{long}");
@@ -355,10 +431,10 @@ mod tests {
             |method: &str, params: &str| format!(r#"{{"method": "{method}", "params": {params}}}"#);
         assert_eq!(
             parsed(&line("get-text", r#"{"start_row": 5, "rows": 2}"#)).method,
-            Method::GetText {
+            Method::Ui(UiOp::GetText {
                 start_row: 5,
                 rows: 2
-            }
+            })
         );
         assert!(
             error(&line("get-text", r#"{"rows": 2}"#))
@@ -377,7 +453,7 @@ mod tests {
         );
         assert_eq!(
             parsed(&line("show-buffer", r#"{"buffer": 3}"#)).method,
-            Method::ShowBuffer(3)
+            Method::Ui(UiOp::ShowBuffer(3))
         );
         assert!(error(&line("show-buffer", "{}")).1.contains("\"buffer\""));
     }
@@ -396,6 +472,26 @@ mod tests {
             serde_json::from_str::<Value>(&err).unwrap(),
             json!({"id": "q", "error": {"message": "bad\nthing"}})
         );
+    }
+
+    #[test]
+    fn what_a_terminal_or_reader_should_not_see_raw_is_escaped() {
+        // CSI, DEL, a bidi override, a tag character and a zero-width space.
+        let text = "a\u{9b}31m\u{7f}\u{202e}\u{e0041}\u{200b}日本語\\\"🍣";
+        let line = success(&json!(1), json!({ "text": text }));
+        assert!(line.is_ascii() || line.contains("日本語"));
+        assert!(!line.contains('\u{9b}'), "{line}");
+        assert!(!line.contains('\u{202e}'), "{line}");
+        assert!(line.contains("\\u009b"), "{line}");
+        assert!(line.contains("\\udb40\\udc41"), "a surrogate pair: {line}");
+        assert!(line.contains("日本語"), "ordinary text stays: {line}");
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["result"]["text"],
+            text,
+            "it parses to the same text"
+        );
+        let error = failure(&json!(1), "bad \u{9b}");
+        assert!(!error.contains('\u{9b}'), "{error}");
     }
 
     #[test]

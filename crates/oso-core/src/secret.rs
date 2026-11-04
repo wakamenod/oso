@@ -17,7 +17,7 @@
 //!   home directory. This needs no `$HOME`, which can be wrong or unset, and
 //!   also covers other users' homes and backups.
 
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
 /// Directories whose contents are all secret.
 const DIRECTORIES: [&[u8]; 3] = [b".ssh", b".gnupg", b".aws"];
@@ -33,7 +33,7 @@ const SUFFIXES: [&[u8]; 4] = [b".pem", b".key", b".p12", b".pfx"];
 
 /// Whether `path` matches a secret pattern, as written. A symbolic link is
 /// judged by its own name: see [`is_secret`].
-pub fn matches_pattern(path: &Path) -> bool {
+fn matches_pattern(path: &Path) -> bool {
     let in_directory = path.components().any(|component| match component {
         Component::Normal(name) => {
             let name = name.as_encoded_bytes();
@@ -61,19 +61,22 @@ fn name_matches(name: &[u8]) -> bool {
         })
 }
 
-/// Whether the file opened as `opened` is secret. Both the path as opened
-/// and `resolved`, its canonical path, count, so a link to `~/.ssh/id_rsa`
-/// is caught whatever it is called. `None` means the path could not be
-/// resolved, and fails closed.
-pub fn is_secret(opened: &Path, resolved: Option<&Path>) -> bool {
-    matches_pattern(opened) || resolved.is_none_or(matches_pattern)
+/// Whether the file opened as `opened` is secret. The path as opened counts,
+/// and so does every path in `resolved`: each link's target on the way and
+/// the canonical path. So a link to `~/.ssh/id_rsa` is caught whatever it is
+/// called, and so is a link through `~/.aws/credentials` to a file with an
+/// ordinary name. `None` means the path could not be resolved, and fails
+/// closed.
+pub(crate) fn is_secret(opened: &Path, resolved: Option<&[PathBuf]>) -> bool {
+    matches_pattern(opened)
+        || resolved.is_none_or(|paths| paths.iter().any(|path| matches_pattern(path)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{is_secret, matches_pattern};
     use proptest::prelude::*;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     fn secret(path: &str) -> bool {
         matches_pattern(Path::new(path))
@@ -158,11 +161,23 @@ mod tests {
     #[test]
     fn the_canonical_path_counts_and_an_unresolved_path_fails_closed() {
         let link = Path::new("/p/notes.txt");
-        let target = Path::new("/h/.ssh/id_rsa");
-        assert!(is_secret(link, Some(target)), "a link to a secret");
-        assert!(is_secret(target, Some(link)), "named like a secret");
+        let target = PathBuf::from("/h/.ssh/id_rsa");
+        let plain = PathBuf::from("/p/real.txt");
+        assert!(
+            is_secret(link, Some(std::slice::from_ref(&target))),
+            "a link to a secret"
+        );
+        assert!(
+            is_secret(link, Some(&[target.clone(), plain.clone()][..])),
+            "a link through a secret"
+        );
+        assert!(
+            is_secret(&target, Some(std::slice::from_ref(&plain))),
+            "named like one"
+        );
         assert!(is_secret(link, None), "cannot be resolved");
-        assert!(!is_secret(link, Some(Path::new("/p/real.txt"))));
+        assert!(!is_secret(link, Some(std::slice::from_ref(&plain))));
+        assert!(!is_secret(link, Some(&[])));
     }
 
     /// A file name that no name pattern matches: lower-case letters, which

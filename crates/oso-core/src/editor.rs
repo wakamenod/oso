@@ -148,11 +148,12 @@ impl Editor {
         (window, buffer)
     }
 
+    /// The buffer `window` shows.
     #[expect(
         clippy::expect_used,
         reason = "every window shows a buffer that exists: kill_buffer moves windows off a buffer before it goes"
     )]
-    fn shown(&self, window: &Window) -> &Buffer {
+    pub fn shown(&self, window: &Window) -> &Buffer {
         self.buffer(window.buffer())
             .expect("every window shows a buffer that exists")
     }

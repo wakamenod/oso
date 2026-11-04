@@ -18,8 +18,9 @@ use oso_platform::control::{CleanupGuard, ControlDir};
 use oso_render::Capture;
 use serde_json::json;
 
-pub use server::{Reply, UiOp, UiRequest};
-pub use state::{screenshot_allowed, show_buffer, state, text};
+pub use protocol::{Reply, UiOp};
+pub use server::UiRequest;
+pub use state::{get_state, get_text, screenshot_allowed, show_buffer};
 
 /// Appears in every binary built with the `dev` feature, and in no other.
 /// `just release-safety` looks for it in release binaries.

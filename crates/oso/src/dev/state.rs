@@ -1,20 +1,23 @@
-//! What the control socket reports about the editor: `get-state` and
-//! `get-text` (ADR 0023, ADR 0043). It never returns the text of a buffer
-//! that may hold secrets, whichever way it is asked.
+//! What the control socket reads from and does to the editor state on the UI
+//! thread, apart from running commands (ADR 0023, ADR 0043). It never returns
+//! the text of a buffer that may hold secrets, whichever way it is asked.
 //!
-//! Must not depend on: `app`, `server`, winit or sockets; these are plain
-//! functions of the editor state, called on the UI thread.
+//! Must not depend on: `app`, winit or sockets; these are plain functions of
+//! the editor state.
 //!
-//! A buffer can be 1 GB and a response line 1 MiB (ADR 0032), so the work
-//! here is bounded before any text is copied. `get-state` copies only what
-//! the selected window shows, clipped to its columns, so it works on a
-//! 1 GB line too. `get-text` compares the size of the rows asked for with
-//! [`MAX_TEXT`] first, which takes no time on any buffer.
+//! A buffer can be 1 GB and a response line 1 MiB (ADR 0032), so the work is
+//! bounded before any text is copied. `get-state` copies only what the
+//! selected window shows, clipped to its columns and to [`MAX_VISIBLE_TEXT`].
+//! `get-text` checks the size of the rows asked for against [`MAX_TEXT`],
+//! and copies them on a background thread from an O(1) snapshot of the
+//! buffer, since each row costs a few tree lookups.
 //!
 //! Text is what the rope holds: invalid bytes read as U+FFFD, not as the
 //! `\xNN` escapes on screen, and tabs are tabs.
 
 use std::ops::Range;
+use std::sync::mpsc;
+use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, ReadOnly};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
@@ -22,12 +25,19 @@ use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::motion;
+use oso_core::rope::Rope;
 use oso_core::selection::{Goal, Selection};
 use oso_core::sum_tree::Bias;
 use oso_core::window::Window;
 use serde_json::{Value, json};
 
 use super::Reply;
+
+/// The most visible text `get-state` returns, in bytes. A cell usually holds
+/// a few bytes but can hold a thousand (combining marks), and a response this
+/// size still fits a line if every byte needs escaping, so the metadata that
+/// comes with it always gets through.
+pub const MAX_VISIBLE_TEXT: usize = 128 * 1024;
 
 /// The most text one `get-text` returns, in bytes. Well below the line
 /// limit, so that text with few characters to escape fits.
@@ -45,13 +55,13 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 /// prefix, and the surface size if there is a window.
 ///
 /// `text` is null for a buffer that may hold secrets. Its metadata stays.
-pub fn state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
+pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     let (window, buffer) = editor.current();
     let display = buffer.display();
     let cursor = window.selections.primary().cursor;
     let point = display.offset_to_display_point(cursor);
     let size = window.size();
-    let text = (!buffer.is_secret()).then(|| visible_text(window, buffer, &display));
+    let text = (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &display));
     json!({
         "buffer": buffer_state(window.buffer(), buffer),
         "cursor": {
@@ -99,29 +109,28 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
 
 fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
     let size = window.size();
-    let display = editor.buffer(window.buffer()).map(Buffer::display);
+    let display = editor.shown(window).display();
     let selections = &window.selections;
-    let primary = selections.primary();
     json!({
         "buffer": window.buffer().get(),
         "selected": index == editor.selected_window(),
         "rows": size.rows,
         "columns": size.columns,
         "scroll": { "top": window.scroll.top, "left": window.scroll.left },
-        "primary": selections.iter().position(|selection| selection == primary),
+        "primary": selections.primary_index(),
         "selections": selections
             .iter()
-            .map(|selection| selection_state(selection, display.as_ref()))
+            .map(|selection| selection_state(selection, &display))
             .collect::<Vec<_>>(),
     })
 }
 
-fn selection_state(selection: &Selection, display: Option<&DisplaySnapshot>) -> Value {
-    let point = display.map(|display| display.offset_to_display_point(selection.cursor));
+fn selection_state(selection: &Selection, display: &DisplaySnapshot) -> Value {
+    let point = display.offset_to_display_point(selection.cursor);
     json!({
         "cursor": selection.cursor,
-        "row": point.map(|point| point.row),
-        "column": point.map(|point| point.column),
+        "row": point.row,
+        "column": point.column,
         "goal": match selection.goal {
             None => Value::Null,
             Some(Goal::Column(column)) => json!({ "column": column }),
@@ -130,9 +139,10 @@ fn selection_state(selection: &Selection, display: Option<&DisplaySnapshot>) -> 
     })
 }
 
-/// The rows the window shows in full, from its top row and left column,
-/// cut at its right edge. A wide character across either edge is included.
-fn visible_text(window: &Window, buffer: &Buffer, display: &DisplaySnapshot) -> Value {
+/// The rows the window shows in full, from its top row and left column, cut
+/// at its right edge. A wide character across either edge is included. Stops
+/// at [`MAX_VISIBLE_TEXT`] and says so.
+fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Value {
     let size = window.size();
     let scroll = window.scroll;
     let end_row = scroll
@@ -140,64 +150,114 @@ fn visible_text(window: &Window, buffer: &Buffer, display: &DisplaySnapshot) -> 
         .saturating_add(size.rows)
         .min(display.row_count());
     let right = scroll.left.saturating_add(size.columns);
-    let rows: Vec<String> = (scroll.top..end_row)
-        .map(|row| {
-            let start =
-                display.display_point_to_offset(DisplayPoint::new(row, scroll.left), Bias::Left);
-            let end = display.display_point_to_offset(DisplayPoint::new(row, right), Bias::Right);
-            slice(buffer, start..end)
-        })
-        .collect();
-    json!({ "start_row": scroll.top, "start_column": scroll.left, "rows": rows })
+    let mut budget = MAX_VISIBLE_TEXT;
+    let mut truncated = false;
+    let mut rows = Vec::new();
+    for row in scroll.top..end_row {
+        let start =
+            display.display_point_to_offset(DisplayPoint::new(row, scroll.left), Bias::Left);
+        let end = display.display_point_to_offset(DisplayPoint::new(row, right), Bias::Right);
+        if end - start > budget {
+            truncated = true;
+            rows.push(slice(text, start..start + budget));
+            break;
+        }
+        budget -= end - start;
+        rows.push(slice(text, start..end));
+    }
+    json!({
+        "start_row": scroll.top,
+        "start_column": scroll.left,
+        "rows": rows,
+        "truncated": truncated,
+    })
 }
 
-fn slice(buffer: &Buffer, range: Range<usize>) -> String {
-    buffer.text().chunks_in_range(range).collect()
+fn slice(text: &Rope, range: Range<usize>) -> String {
+    text.chunks_in_range(range).collect()
 }
 
-/// The result of `get-text`: whole rows of the selected window's buffer,
-/// without their line breaks. Rows past the end are left out. An error if
-/// the buffer may hold secrets, or the rows are more than a response takes.
-pub fn text(editor: &Editor, start_row: usize, rows: usize) -> Reply {
+/// Starts `get-text`: whole rows of the selected window's buffer, without
+/// their line breaks. An error if the buffer may hold secrets. Everything
+/// else happens in [`TextJob::run`], off the UI thread.
+pub fn get_text(editor: &Editor, start_row: usize, rows: usize) -> Result<TextJob, String> {
     let (window, buffer) = editor.current();
     if buffer.is_secret() {
         return Err(WITHHELD.into());
     }
-    if rows > MAX_TEXT_ROWS {
-        return Err(format!(
-            "get-text returns at most {MAX_TEXT_ROWS} rows; {rows} were asked for"
-        ));
-    }
-    let display = buffer.display();
-    let row_count = display.row_count();
-    let end_row = start_row.saturating_add(rows).min(row_count);
-    let range = start_row.min(end_row)..end_row;
-    if !range.is_empty() {
-        let bytes =
-            motion::line_end(&display, range.end - 1) - motion::line_start(&display, range.start);
-        if bytes > MAX_TEXT {
-            return Err(format!(
-                "rows {} to {} hold {bytes} bytes, and get-text returns at most {MAX_TEXT}; ask for fewer rows",
-                range.start,
-                range.end - 1,
-            ));
+    Ok(TextJob {
+        buffer: window.buffer().get(),
+        text: buffer.text().clone(),
+        display: buffer.display(),
+        start_row,
+        rows,
+    })
+}
+
+/// A `get-text` request, with a snapshot of a buffer that was not secret
+/// when it was asked for.
+pub struct TextJob {
+    buffer: u64,
+    text: Rope,
+    display: DisplaySnapshot,
+    start_row: usize,
+    rows: usize,
+}
+
+impl TextJob {
+    /// Runs on a background thread, which replies. If the thread cannot
+    /// start, the reply sender is dropped, which the client sees as an error.
+    pub fn spawn(self, reply: mpsc::Sender<Reply>) {
+        let spawned = thread::Builder::new()
+            .name("oso-get-text".into())
+            .spawn(move || {
+                let _ = reply.send(self.run());
+            });
+        if let Err(e) = spawned {
+            log::warn!("cannot start the get-text thread: {e}");
         }
     }
-    let start_row = range.start;
-    let rows: Vec<String> = range
-        .map(|row| {
-            slice(
-                buffer,
-                motion::line_start(&display, row)..motion::line_end(&display, row),
-            )
-        })
-        .collect();
-    Ok(json!({
-        "buffer": window.buffer().get(),
-        "start_row": start_row,
-        "row_count": row_count,
-        "rows": rows,
-    }))
+
+    /// The result: rows past the end are left out. An error if the rows are
+    /// more than a response takes.
+    fn run(&self) -> Reply {
+        let display = &self.display;
+        if self.rows > MAX_TEXT_ROWS {
+            return Err(format!(
+                "get-text returns at most {MAX_TEXT_ROWS} rows; {} were asked for",
+                self.rows
+            ));
+        }
+        let row_count = display.row_count();
+        let end_row = self.start_row.saturating_add(self.rows).min(row_count);
+        let range = self.start_row.min(end_row)..end_row;
+        if !range.is_empty() {
+            let bytes =
+                motion::line_end(display, range.end - 1) - motion::line_start(display, range.start);
+            if bytes > MAX_TEXT {
+                return Err(format!(
+                    "rows {} to {} hold {bytes} bytes, and get-text returns at most {MAX_TEXT}; ask for fewer rows",
+                    range.start,
+                    range.end - 1,
+                ));
+            }
+        }
+        let start_row = range.start;
+        let rows: Vec<String> = range
+            .map(|row| {
+                slice(
+                    &self.text,
+                    motion::line_start(display, row)..motion::line_end(display, row),
+                )
+            })
+            .collect();
+        Ok(json!({
+            "buffer": self.buffer,
+            "start_row": start_row,
+            "row_count": row_count,
+            "rows": rows,
+        }))
+    }
 }
 
 /// Refuses a screenshot while any window shows a buffer that may hold
@@ -223,14 +283,26 @@ pub fn show_buffer(editor: &mut Editor, buffer: u64) -> Reply {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_TEXT, MAX_TEXT_ROWS, screenshot_allowed, show_buffer, state, text};
+    use super::{
+        MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, screenshot_allowed,
+        show_buffer,
+    };
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::editor::Editor;
     use oso_core::key::KeySequence;
     use oso_core::selection::SelectionSet;
     use oso_core::window::ViewSize;
     use serde_json::json;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
+
+    /// `get-text` from start to finish, on this thread.
+    fn text(editor: &Editor, start_row: usize, rows: usize) -> Reply {
+        get_text(editor, start_row, rows)?.run()
+    }
+
+    fn state(editor: &Editor, pending: &[oso_core::key::KeyPress]) -> serde_json::Value {
+        get_state(editor, pending, None)
+    }
 
     fn editor(text: &str, rows: usize, columns: usize) -> Editor {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", text));
@@ -247,7 +319,8 @@ mod tests {
             content.as_bytes(),
             oso_core::display_map::TabWidth::default(),
         ));
-        buffer.resolve_secret(resolved.map(Path::new));
+        let resolved = resolved.map(|path| [PathBuf::from(path)]);
+        buffer.judge_secret(resolved.as_ref().map(|paths| &paths[..]));
         let id = editor.add_buffer(buffer);
         editor.show(id);
         (editor, id)
@@ -259,7 +332,7 @@ mod tests {
         editor.set_view_size(ViewSize::new(5, 2));
         editor.current_mut().0.selections = SelectionSet::new(6);
         editor.follow_cursor();
-        let state = state(&editor, &[], Some((800, 600)));
+        let state = get_state(&editor, &[], Some((800, 600)));
         let buffer = json!({
             "id": 0,
             "name": "bad.txt",
@@ -280,7 +353,12 @@ mod tests {
                 "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1 },
                 "scroll": { "top": 0, "left": 3 },
                 "window": { "rows": 5, "columns": 2 },
-                "text": { "start_row": 0, "start_column": 3, "rows": ["", "\u{fffd}S"] },
+                "text": {
+                    "start_row": 0,
+                    "start_column": 3,
+                    "rows": ["", "\u{fffd}S"],
+                    "truncated": false,
+                },
                 "buffers": [buffer],
                 "windows": [{
                     "buffer": 0,
@@ -296,7 +374,7 @@ mod tests {
             })
         );
         let pending: KeySequence = "C-x 4".parse().unwrap();
-        let state = super::state(&Editor::default(), &pending.0, None);
+        let state = get_state(&Editor::default(), &pending.0, None);
         assert_eq!(state["keys"]["pending"], "C-x 4");
         assert_eq!(state["buffer"]["name"], "*scratch*");
         assert_eq!(state["surface"], json!(null));
@@ -307,18 +385,24 @@ mod tests {
         let content: String = (0..100).map(|i| format!("line {i:02}\n")).collect();
         let mut editor = editor(&content, 3, 6);
         assert_eq!(
-            state(&editor, &[], None)["text"],
+            state(&editor, &[])["text"],
             json!({
                 "start_row": 0,
                 "start_column": 0,
                 "rows": ["line 0", "line 0", "line 0"],
+                "truncated": false,
             })
         );
         editor.current_mut().0.scroll.top = 98;
         editor.current_mut().0.scroll.left = 5;
         assert_eq!(
-            state(&editor, &[], None)["text"],
-            json!({ "start_row": 98, "start_column": 5, "rows": ["98", "99", ""] }),
+            state(&editor, &[])["text"],
+            json!({
+                "start_row": 98,
+                "start_column": 5,
+                "rows": ["98", "99", ""],
+                "truncated": false,
+            }),
             "only rows that exist, and the columns from the left edge",
         );
     }
@@ -327,15 +411,29 @@ mod tests {
     fn visible_text_includes_wide_characters_across_the_edges() {
         let mut editor = editor("日本語\n", 1, 2);
         editor.current_mut().0.scroll.left = 1;
-        assert_eq!(state(&editor, &[], None)["text"]["rows"], json!(["日本"]));
+        assert_eq!(state(&editor, &[])["text"]["rows"], json!(["日本"]));
     }
 
     #[test]
     fn a_huge_line_is_clipped_to_the_window() {
         let long = "x".repeat(2 * 1024 * 1024);
         let editor = editor(&long, 2, 80);
-        let state = state(&editor, &[], None);
+        let state = state(&editor, &[]);
         assert_eq!(state["text"]["rows"], json!(["x".repeat(80)]));
+    }
+
+    #[test]
+    fn rows_of_combining_marks_are_cut_and_the_metadata_survives() {
+        // Each cell holds up to a chunk of bytes, far more than it looks.
+        let row = format!("a{}\n", "\u{301}".repeat(10_000));
+        let editor = editor(&row.repeat(100), 50, 200);
+        let state = state(&editor, &[]);
+        assert_eq!(state["text"]["truncated"], true);
+        let rows = state["text"]["rows"].as_array().unwrap();
+        let bytes: usize = rows.iter().map(|r| r.as_str().unwrap().len()).sum();
+        assert!(bytes <= MAX_VISIBLE_TEXT, "{bytes}");
+        assert!(bytes > MAX_VISIBLE_TEXT - 4, "{bytes}");
+        assert_eq!(state["buffers"][0]["id"], 0);
     }
 
     #[test]
@@ -404,7 +502,7 @@ mod tests {
             ("/p/notes.txt", None),
         ] {
             let (editor, _) = visiting(path, resolved, CONTENT);
-            let state = state(&editor, &[], None);
+            let state = state(&editor, &[]);
             assert_eq!(state["text"], json!(null), "{path}");
             assert_eq!(state["buffer"]["secret"], true, "{path}");
             assert_eq!(state["buffer"]["path"], path);
@@ -425,13 +523,13 @@ mod tests {
         let mut editor = Editor::default();
         let id = editor.add_buffer(Buffer::visiting(PathBuf::from("/p/notes.txt")));
         editor.show(id);
-        assert_eq!(state(&editor, &[], None)["text"], json!(null));
+        assert_eq!(state(&editor, &[])["text"], json!(null));
         assert!(screenshot_allowed(&editor).is_err());
         assert!(text(&editor, 0, 1).is_err());
         editor
             .buffer_mut(id)
             .unwrap()
-            .resolve_secret(Some(Path::new("/p/notes.txt")));
+            .judge_secret(Some(&[PathBuf::from("/p/notes.txt")]));
         assert!(screenshot_allowed(&editor).is_ok());
         assert!(text(&editor, 0, 1).is_ok());
     }
@@ -446,7 +544,7 @@ mod tests {
             json!({ "buffer": scratch.get() })
         );
         assert_eq!(screenshot_allowed(&editor), Ok(()));
-        let state = state(&editor, &[], None);
+        let state = state(&editor, &[]);
         assert_eq!(state["text"]["rows"], json!([""]));
         assert_eq!(state["buffers"][1]["secret"], true, "still listed");
         assert!(!state.to_string().contains("SECRET-VALUE"));
@@ -459,7 +557,7 @@ mod tests {
     #[test]
     fn every_selection_is_reported() {
         let editor = editor("abc\ndef", 5, 5);
-        let state = state(&editor, &[], None);
+        let state = state(&editor, &[]);
         assert_eq!(state["windows"][0]["primary"], 0);
         assert_eq!(
             state["windows"][0]["selections"],

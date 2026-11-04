@@ -187,7 +187,7 @@ fn call(invocation: &Invocation) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Invocation, parse_args};
+    use super::{Invocation, parse_args, protocol};
     use serde_json::json;
     use std::ffi::OsString;
 
@@ -251,6 +251,24 @@ mod tests {
         assert_eq!(params(&["show-buffer", "1"]), Some(json!({ "buffer": 1 })));
         assert_eq!(parse(&["get-text", "5"]), Err("get-text needs ROWS".into()));
         assert!(parse(&["show-buffer", "x"]).unwrap_err().contains("\"x\""));
+    }
+
+    #[test]
+    fn the_server_accepts_what_the_client_sends() {
+        for args in [
+            &["version"][..],
+            &["get-state"],
+            &["screenshot"],
+            &["get-text", "0", "5"],
+            &["show-buffer", "0"],
+            &["send-keys", "C-f"],
+            &["run-command", "forward-char"],
+            &["run-command", "forward-char", "-2"],
+        ] {
+            let invocation = parse(args).unwrap().unwrap();
+            let line = protocol::request(1, &invocation.method, invocation.params);
+            assert!(protocol::parse(&line).is_ok(), "{args:?}");
+        }
     }
 
     #[test]

@@ -8,19 +8,18 @@
 //! and each client gets its own thread, which parses requests and waits for
 //! the UI's reply on a channel.
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use oso_core::key::KeyPress;
 use oso_platform::control::{ControlListener, ControlStream};
 use serde_json::{Value, json};
 
 use super::DEV_BUILD_MARKER;
-use super::protocol::{self, MAX_LINE, Method};
+use super::protocol::{self, MAX_LINE, Method, Reply, UiOp};
 
 /// The most clients connected at once.
 pub const MAX_CLIENTS: usize = 4;
@@ -38,26 +37,6 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long the accept loop pauses after an unexpected error, so that a
 /// persistent one (out of file descriptors) cannot spin.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
-
-/// The UI's answer to a request: a JSON result or an error message.
-pub type Reply = Result<Value, String>;
-
-/// Work for the UI thread.
-#[derive(Debug)]
-pub enum UiOp {
-    /// Handle these key presses, in order.
-    SendKeys(Vec<KeyPress>),
-    /// Capture the current frame.
-    Screenshot,
-    /// Report the editor state.
-    GetState,
-    /// Report whole rows of the selected window's buffer.
-    GetText { start_row: usize, rows: usize },
-    /// Run a registered command by name.
-    RunCommand { name: String, arg: Option<isize> },
-    /// Show a buffer in the selected window.
-    ShowBuffer(u64),
-}
 
 /// A request for the UI thread, with the channel for its reply. Dropping
 /// the sender without replying is reported to the client as an error.
@@ -151,20 +130,18 @@ fn refuse(mut stream: ControlStream, message: &str) {
 }
 
 /// Serves one client until it hangs up, sends a line that is too long, or
-/// sends nothing for `idle`.
+/// does not finish a request within `idle`.
 pub fn serve<S>(stream: ControlStream, send: &S, idle: Duration) -> io::Result<()>
 where
     S: Fn(UiRequest) -> bool,
 {
     stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
-    stream.set_read_timeout(Some(idle))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut writer = stream;
     let mut line = Vec::new();
     loop {
         line.clear();
-        let limit = u64::try_from(MAX_LINE + 1).expect("the limit fits in u64");
-        let n = match (&mut reader).take(limit).read_until(b'\n', &mut line) {
+        let n = match read_line_within(&mut reader, &mut line, idle) {
             Ok(n) => n,
             // Idle for too long: a normal end, not an error.
             Err(e)
@@ -198,6 +175,41 @@ where
     }
 }
 
+/// Reads up to a newline into `line`, at most [`MAX_LINE`] + 1 bytes, and
+/// returns how many. Times out if the whole line takes longer than `idle`, so
+/// a client cannot hold its slot by sending a byte now and then.
+fn read_line_within(
+    reader: &mut BufReader<ControlStream>,
+    line: &mut Vec<u8>,
+    idle: Duration,
+) -> io::Result<usize> {
+    let started = Instant::now();
+    loop {
+        let remaining = idle
+            .checked_sub(started.elapsed())
+            .filter(|remaining| !remaining.is_zero())
+            .ok_or(io::ErrorKind::TimedOut)?;
+        reader.get_ref().set_read_timeout(Some(remaining))?;
+        let available = match reader.fill_buf() {
+            Ok(available) => available,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        if available.is_empty() {
+            return Ok(line.len());
+        }
+        let room = MAX_LINE + 1 - line.len();
+        let window = &available[..available.len().min(room)];
+        let newline = window.iter().position(|&byte| byte == b'\n');
+        let used = newline.map_or(window.len(), |at| at + 1);
+        line.extend_from_slice(&window[..used]);
+        reader.consume(used);
+        if newline.is_some() || line.len() > MAX_LINE {
+            return Ok(line.len());
+        }
+    }
+}
+
 /// The response line for one request line.
 fn respond<S>(line: &str, send: &S) -> String
 where
@@ -208,15 +220,8 @@ where
         Err(bad) => return protocol::failure(&bad.id, &bad.message),
     };
     let op = match request.method {
-        Method::Version => {
-            return protocol::success(&request.id, version());
-        }
-        Method::SendKeys(keys) => UiOp::SendKeys(keys),
-        Method::Screenshot => UiOp::Screenshot,
-        Method::GetState => UiOp::GetState,
-        Method::GetText { start_row, rows } => UiOp::GetText { start_row, rows },
-        Method::RunCommand { name, arg } => UiOp::RunCommand { name, arg },
-        Method::ShowBuffer(buffer) => UiOp::ShowBuffer(buffer),
+        Method::Version => return protocol::success(&request.id, version()),
+        Method::Ui(op) => op,
     };
     let (reply, replied) = mpsc::channel();
     if !send(UiRequest { op, reply }) {
@@ -259,10 +264,8 @@ fn version() -> Value {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::{
-        IDLE_TIMEOUT, MAX_CLIENTS, UiOp, UiRequest, serve, spawn, spawn_with_idle_timeout,
-    };
-    use crate::dev::protocol::{self, MAX_LINE};
+    use super::{IDLE_TIMEOUT, MAX_CLIENTS, UiRequest, serve, spawn, spawn_with_idle_timeout};
+    use crate::dev::protocol::{self, MAX_LINE, UiOp};
     use oso_platform::control::{ControlDir, ControlStream};
     use serde_json::{Value, json};
     use std::fs::{self, Permissions};
@@ -472,6 +475,26 @@ mod tests {
             served.join().unwrap().is_ok(),
             "an idle client is a normal end"
         );
+    }
+
+    #[test]
+    fn disconnects_a_client_that_never_finishes_a_request() {
+        let (client, server) = ControlStream::pair().unwrap();
+        let served = thread::spawn(move || serve(server, &fake_ui, Duration::from_millis(200)));
+        let mut writer = client.try_clone().unwrap();
+        // A byte now and then, sooner than the limit, and never a newline.
+        thread::spawn(move || {
+            while writer.write_all(b"x").is_ok() {
+                thread::sleep(Duration::from_millis(50));
+            }
+        });
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let mut rest = Vec::new();
+        BufReader::new(client).read_to_end(&mut rest).unwrap();
+        assert!(rest.is_empty());
+        assert!(served.join().unwrap().is_ok());
     }
 
     #[test]

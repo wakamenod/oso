@@ -188,10 +188,13 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
   ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
 - Secret-pattern buffers give no text and no pixels over the socket: while
   one is shown, `screenshot` fails, `get-text` fails and `get-state` returns
-  only its metadata. `oso_core::secret` matches both the path as opened and
-  its canonical path, so a symlink to a key is caught, and a path that cannot
-  be resolved counts as secret. A file counts as secret from the moment it is
-  visited until the loading thread has resolved its path
+  only its metadata. The path as opened, each symlink's target and the
+  canonical path all count, so a link to a key or through a secret path is
+  caught, and a path that cannot be resolved counts as secret. A file counts as
+  secret from the moment it is visited until the loading thread has resolved
+  its path ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
+- Responses are safe to print: DEL, C1 controls, bidi controls and invisible
+  characters from a file go out as `\uXXXX`
   ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
 - Screenshots are a dev-only exception to keeping screen and buffer
   contents off disk. They are written `0600`, without following symlinks,

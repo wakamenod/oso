@@ -170,7 +170,7 @@ impl App {
             return false;
         };
         if let Some(resolved) = self.loads[index].handle.take_resolved() {
-            buffer.resolve_secret(resolved.as_deref());
+            buffer.judge_secret(resolved.paths());
         }
         match update {
             LoadUpdate::Snapshot(snapshot) => {
@@ -300,9 +300,23 @@ impl App {
             }
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
-                Ok(dev::state(&self.editor, self.dispatcher.pending(), surface))
+                Ok(dev::get_state(
+                    &self.editor,
+                    self.dispatcher.pending(),
+                    surface,
+                ))
             }
-            dev::UiOp::GetText { start_row, rows } => dev::text(&self.editor, start_row, rows),
+            dev::UiOp::GetText { start_row, rows } => {
+                // Only the check happens here; a background thread copies
+                // the text and replies.
+                match dev::get_text(&self.editor, start_row, rows) {
+                    Ok(job) => {
+                        job.spawn(reply);
+                        return;
+                    }
+                    Err(message) => Err(message),
+                }
+            }
             dev::UiOp::RunCommand { name, arg } => {
                 let (effects, result) = self.dispatcher.run_command(&mut self.editor, &name, arg);
                 self.apply(event_loop, effects);
@@ -310,7 +324,9 @@ impl App {
             }
             dev::UiOp::ShowBuffer(buffer) => {
                 let result = dev::show_buffer(&mut self.editor, buffer);
-                self.request_redraw();
+                if result.is_ok() {
+                    self.request_redraw();
+                }
                 result
             }
             dev::UiOp::Screenshot => {

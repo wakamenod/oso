@@ -320,9 +320,11 @@ Full details are in [`security.md`](security.md).
     thread.
   - `run-command` runs a command through the same registry as keys.
     `get-state` copies only what the selected window shows, and `get-text`
-    checks its limit before copying, so neither depends on the buffer's size.
+    works from an O(1) snapshot on a background thread, checking its limit
+    before copying, so the UI thread's work does not depend on the buffer's
+    size.
   - Buffers that may hold secrets give no text and no pixels. The loading
-    thread resolves the path, and `Buffer::is_secret` holds the verdict, so
+    thread follows the path, and `Buffer::is_secret` holds the verdict, so
     the UI thread never touches the file system for this
     ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the

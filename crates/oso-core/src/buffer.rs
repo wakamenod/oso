@@ -129,11 +129,11 @@ impl Buffer {
         self.loading = None;
     }
 
-    /// Decides whether the file may hold secrets, from its canonical path:
-    /// `None` if the path could not be resolved, which counts as secret.
-    /// The host resolves the path off the UI thread, before any content
-    /// arrives.
-    pub fn resolve_secret(&mut self, resolved: Option<&Path>) {
+    /// Decides whether the file may hold secrets, from where its path really
+    /// leads: each link's target on the way and the canonical path, or `None`
+    /// if the path could not be resolved, which counts as secret. The host
+    /// resolves the path off the UI thread, before any content arrives.
+    pub fn judge_secret(&mut self, resolved: Option<&[PathBuf]>) {
         self.secret = self
             .path
             .as_deref()
@@ -253,17 +253,19 @@ mod tests {
 
     #[test]
     fn a_visited_file_is_secret_until_its_path_is_resolved() {
-        let mut buffer = Buffer::visiting(PathBuf::from("/tmp/notes.txt"));
+        let plain = PathBuf::from("/tmp/notes.txt");
+        let key = PathBuf::from("/home/me/.ssh/id_rsa");
+        let mut buffer = Buffer::visiting(plain.clone());
         assert!(buffer.is_secret(), "fails closed while unknown");
-        buffer.resolve_secret(Some(Path::new("/tmp/notes.txt")));
+        buffer.judge_secret(Some(std::slice::from_ref(&plain)));
         assert!(!buffer.is_secret());
-        buffer.resolve_secret(Some(Path::new("/home/me/.ssh/id_rsa")));
-        assert!(buffer.is_secret(), "a link to a secret");
-        buffer.resolve_secret(None);
+        buffer.judge_secret(Some(&[key.clone(), plain.clone()]));
+        assert!(buffer.is_secret(), "a link through a secret");
+        buffer.judge_secret(None);
         assert!(buffer.is_secret(), "a path that cannot be resolved");
 
         let mut named = Buffer::visiting(PathBuf::from("/tmp/.env"));
-        named.resolve_secret(Some(Path::new("/tmp/plain.txt")));
+        named.judge_secret(Some(&[plain]));
         assert!(named.is_secret(), "named like a secret, whatever it is");
     }
 
@@ -271,7 +273,7 @@ mod tests {
     fn a_buffer_without_a_file_is_not_secret() {
         let mut buffer = Buffer::new("*scratch*");
         assert!(!buffer.is_secret());
-        buffer.resolve_secret(None);
+        buffer.judge_secret(None);
         assert!(!buffer.is_secret());
     }
 }

@@ -27,12 +27,12 @@ pub fn oso_core::buffer::Buffer::from_bytes(impl core::convert::Into<alloc::stri
 pub fn oso_core::buffer::Buffer::from_text(impl core::convert::Into<alloc::string::String>, &str) -> Self
 pub fn oso_core::buffer::Buffer::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::buffer::Buffer::is_secret(&self) -> bool
+pub fn oso_core::buffer::Buffer::judge_secret(&mut self, core::option::Option<&[std::path::PathBuf]>)
 pub fn oso_core::buffer::Buffer::loading(&self) -> core::option::Option<oso_core::load::Progress>
 pub fn oso_core::buffer::Buffer::name(&self) -> &str
 pub fn oso_core::buffer::Buffer::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub fn oso_core::buffer::Buffer::path(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::read_only(&self) -> core::option::Option<oso_core::buffer::ReadOnly>
-pub fn oso_core::buffer::Buffer::resolve_secret(&mut self, core::option::Option<&std::path::Path>)
 pub fn oso_core::buffer::Buffer::revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
@@ -549,6 +549,7 @@ pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
 pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
@@ -968,9 +969,6 @@ pub fn usize::from_summary(&S) -> Self
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub const oso_core::rope::MAX_CHUNK_BYTES: usize
-pub mod oso_core::secret
-pub fn oso_core::secret::is_secret(&std::path::Path, core::option::Option<&std::path::Path>) -> bool
-pub fn oso_core::secret::matches_pattern(&std::path::Path) -> bool
 pub mod oso_core::selection
 pub enum oso_core::selection::Goal
 pub oso_core::selection::Goal::Column(usize)
@@ -1009,6 +1007,7 @@ pub fn oso_core::selection::SelectionSet::iter(&self) -> impl core::iter::traits
 pub fn oso_core::selection::SelectionSet::len(&self) -> usize
 pub fn oso_core::selection::SelectionSet::new(usize) -> Self
 pub fn oso_core::selection::SelectionSet::primary(&self) -> &oso_core::selection::Selection
+pub fn oso_core::selection::SelectionSet::primary_index(&self) -> usize
 pub fn oso_core::selection::SelectionSet::update<E>(&mut self, impl core::ops::function::FnMut(&mut oso_core::selection::Selection) -> core::result::Result<(), E>) -> oso_core::selection::UpdateOutcome<E>
 impl core::clone::Clone for oso_core::selection::SelectionSet
 pub fn oso_core::selection::SelectionSet::clone(&self) -> oso_core::selection::SelectionSet
