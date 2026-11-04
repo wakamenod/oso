@@ -12,3 +12,11 @@ pub mod control;
 #[cfg(feature = "dev")]
 pub mod process;
 pub mod text;
+
+#[cfg(test)]
+mod trial_slow {
+    #[test]
+    fn past_the_budget() {
+        std::thread::sleep(std::time::Duration::from_secs(35));
+    }
+}
