@@ -64,10 +64,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: sh .github/scripts/perf-baseline.sh "perf-$RUNNER_OS" target/perf/baseline
-      - name: Doctor the baseline (temporary)
-        run: |
-          mkdir -p target/perf/baseline
-          python3 -c "import json; r=json.load(open('target/perf/perf.json')); [m.update(value=m['value']/5) for m in r['metrics'].values()]; json.dump(r,open('target/perf/baseline/perf.json','w'))"
       - name: Compare
         env:
           ON_MAIN: ${{ github.ref == 'refs/heads/main' }}
