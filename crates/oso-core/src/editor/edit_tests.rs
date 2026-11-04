@@ -1,5 +1,5 @@
 //! Tests of edits through [`Editor`]: text and cursors in every window, read-only
-//! refusal and the helpers of the other editing tests (ADR 0052).
+//! refusal and the helpers of the other editing tests (ADR 0053).
 //!
 //! Must not depend on: `command` or `keymap`; the dispatcher's calls are written
 //! out here.

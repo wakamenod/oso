@@ -282,7 +282,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     /// A fake UI thread: answers keys with their count, state with a fixed
     /// value, commands with an error or their name, and text with as many
@@ -311,6 +311,16 @@ mod tests {
         thread::spawn(move || serve(server, &fake_ui, IDLE_TIMEOUT));
         let reader = BufReader::new(client.try_clone().unwrap());
         (reader, client)
+    }
+
+    /// Asserts that the server has hung up with nothing more to say. Linux reports
+    /// a reset if it left bytes unread.
+    fn assert_closed(reader: &mut impl Read) {
+        let mut rest = Vec::new();
+        if let Err(e) = reader.read_to_end(&mut rest) {
+            assert_eq!(e.kind(), std::io::ErrorKind::ConnectionReset);
+        }
+        assert!(rest.is_empty(), "the connection is closed");
     }
 
     fn call(
@@ -452,12 +462,7 @@ mod tests {
                 .unwrap()
                 .contains("longer than")
         );
-        // Closed: Linux reports a reset, since the server left bytes unread.
-        let mut rest = Vec::new();
-        match reader.read_to_end(&mut rest) {
-            Ok(_) => assert!(rest.is_empty(), "the connection is closed"),
-            Err(e) => assert_eq!(e.kind(), std::io::ErrorKind::ConnectionReset),
-        }
+        assert_closed(&mut reader);
         writing.join().unwrap();
     }
 
@@ -491,7 +496,9 @@ mod tests {
     #[test]
     fn disconnects_a_client_that_never_finishes_a_request() {
         let (client, server) = ControlStream::pair().unwrap();
-        let served = thread::spawn(move || serve(server, &fake_ui, Duration::from_millis(200)));
+        let limit = Duration::from_millis(200);
+        let started = Instant::now();
+        let served = thread::spawn(move || serve(server, &fake_ui, limit));
         let mut writer = client.try_clone().unwrap();
         // A byte now and then, sooner than the limit, and never a newline.
         thread::spawn(move || {
@@ -502,10 +509,21 @@ mod tests {
         client
             .set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        let mut rest = Vec::new();
-        BufReader::new(client).read_to_end(&mut rest).unwrap();
-        assert!(rest.is_empty());
+        // A byte may have just arrived, unread, when the server hangs up.
+        assert_closed(&mut BufReader::new(client));
+        assert!(started.elapsed() >= limit, "not before the limit");
         assert!(served.join().unwrap().is_ok());
+    }
+
+    /// What `assert_closed` allows for. It holds only on Linux, so CI checks it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn closing_with_bytes_unread_resets_the_connection() {
+        let (mut client, server) = ControlStream::pair().unwrap();
+        client.write_all(b"x").unwrap();
+        drop(server);
+        let error = client.read_to_end(&mut Vec::new()).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::ConnectionReset);
     }
 
     #[test]

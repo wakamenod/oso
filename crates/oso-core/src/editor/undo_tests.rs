@@ -1,5 +1,5 @@
 //! Tests of undo through [`Editor`]: groups, joining, the modified flag and the
-//! byte bound (ADR 0052).
+//! byte bound (ADR 0053).
 //!
 //! Must not depend on: `command` or `keymap`; the dispatcher's calls are written
 //! out here.

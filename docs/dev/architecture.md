@@ -120,13 +120,15 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   cursors change together: the work is done on clones, O(1) to make, and
   committed by moves that cannot panic, so a panic caught at the command boundary
   leaves nothing half applied. Read-only buffers refuse edits. See
-  [ADR 0052](adr/0052-edit-core.md).
+  [ADR 0053](adr/0053-edit-core.md).
 - **Motion and scrolling** are pure functions in `oso_core::motion` and
   `oso_core::window`. Motion steps over display clusters. After every
   command the dispatcher scrolls the window by the fewest rows and columns
   that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
   mouse wheel set the window's top row with `Window::set_top`, the one
-  place that moves cursors left behind into view.
+  place that moves cursors left behind into view. `Editor::restore_positions`
+  puts back cursors and a view saved together and then follows the cursor. No
+  public method sets the view alone.
 - **Undo** is linear (`oso_core::undo`, [ADR 0030](adr/0030-m2-editing-commands.md)):
   an edit after an undo discards the redo groups. A group holds one command's
   edits across all cursors, and the selected window's cursors before and after.
@@ -155,8 +157,9 @@ See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 - `oso_core::command`: `Command`, `Registry`, and `Ctx`, which lends a
   command the host's `Editor` and collects its requests to the host
   (redraw, exit). `Args` carries the numeric prefix argument.
-- Commands live in the tip crate (`crates/oso/src/commands.rs`) as a
-  `const` table. Registering a name twice is an error, and the tests build
+- Commands live in the tip crate, one module per feature under
+  `crates/oso/src/commands/`, each with a `const` table. `TABLES` in `mod.rs`
+  lists the tables. Registering a name twice is an error, and the tests build
   the full registry.
 - A command asks for a redraw only when it changed something visible.
 
@@ -170,7 +173,7 @@ A panicking command is caught at the command boundary
   prefix keymap. Bindings refer to commands by id, resolved from names
   once, when a keymap is built from a table in Emacs notation
   ([ADR 0033](adr/0033-key-presses-and-notation.md)). Default bindings are
-  in `crates/oso/src/bindings.rs`.
+  in `crates/oso/src/bindings/`, with a table for each module of commands.
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. Only the global layer exists so far.
@@ -217,9 +220,19 @@ null text system: the cursor is drawn on the grid, and no text. See
   while its font is loaded.
 - **Per frame**, only visible rows are drawn, and of each only the visible
   columns, widened to 64-column steps, are shaped. Shaping is cached by
-  display row and reused while the buffer's revision holds, or after a
-  change while the buffer offsets it covers are the same, so
-  scrolling reshapes only rows that come into view and a 10 MB line costs
+  display row. An entry is reused without looking at the buffer while the
+  revision holds. After a change, the row's shaped columns are read again
+  and it is reused if the shaper's input is the same: the text and each
+  cluster's column, cells and style. That is what "the bytes it covers and
+  its start column" in [ADR 0051](adr/0051-m2-plan-decisions.md) comes to,
+  because the rope's bytes alone cannot tell invalid bytes, tab widths or a
+  cluster that starts before the first column apart. It replaces the offset
+  check in [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md) too.
+  Nothing in an entry is a buffer offset, so an edit leaves the rows below
+  it alone wherever they now are in the buffer, and undo, reload and skipped
+  frames need no record of what changed. A row that went to another display
+  row, after a line break or a deleted line, is shaped again.
+  Scrolling reshapes only rows that come into view, and a 10 MB line costs
   one screen. Only glyphs inside the viewport become quads.
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels

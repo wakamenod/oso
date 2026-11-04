@@ -12,7 +12,7 @@ use crate::process;
 use crate::report::Report;
 
 /// The file changed, relative to the workspace root.
-const PROBE: &str = "crates/oso/src/commands.rs";
+const PROBE: &str = "crates/oso/src/commands/motion.rs";
 
 /// Builds timed, by default.
 pub const RUNS: usize = 5;

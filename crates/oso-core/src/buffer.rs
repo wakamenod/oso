@@ -8,7 +8,7 @@
 //! thread hands over snapshots ([`Buffer::apply_load`]). Buffers with
 //! invalid UTF-8, and binary files, stay read-only and can never be saved.
 //!
-//! Edits are atomic (ADR 0052). They are made on clones of the rope and the
+//! Edits are atomic (ADR 0053). They are made on clones of the rope and the
 //! display map, both O(1) to clone, and committed by moves that cannot panic.
 //! A panic in a command leaves a buffer before the edit or after it. The editor
 //! maps cursors between the two steps, since a buffer does not know its windows.

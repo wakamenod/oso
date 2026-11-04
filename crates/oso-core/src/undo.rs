@@ -1,5 +1,5 @@
 //! Undo history: linear undo and redo of one buffer's edits (ADR 0030,
-//! ADR 0052).
+//! ADR 0053).
 //!
 //! Must not depend on: `buffer`, `motion`, `window` or `editor`; it stores what
 //! the buffer did and applies nothing.

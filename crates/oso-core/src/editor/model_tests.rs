@@ -1,5 +1,5 @@
 //! A reference model of editing through [`Editor`]: random multi-cursor edits,
-//! undo and redo checked against a `String` after every step (ADR 0052).
+//! undo and redo checked against a `String` after every step (ADR 0053).
 //!
 //! Must not depend on: `command` or `keymap`; the dispatcher's calls are written
 //! out here.

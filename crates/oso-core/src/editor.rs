@@ -9,7 +9,7 @@
 //! one window until splits arrive (M3). New state is added here, so
 //! commands keep their signature as it grows.
 //!
-//! Text changes here ([`Editor::apply_edits`], ADR 0052), because a buffer does
+//! Text changes here ([`Editor::apply_edits`], ADR 0053), because a buffer does
 //! not know its windows. An edit is made on clones, every window's cursors are
 //! worked out against the result, and only then does anything change, in moves
 //! that cannot panic. An undo group spans a command: the dispatcher opens one
@@ -24,7 +24,7 @@ use crate::motion;
 use crate::selection::{OffsetEdit, SelectionSet};
 use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
-use crate::window::{self, ViewSize, Window};
+use crate::window::{self, Scroll, ViewSize, Window};
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -465,10 +465,19 @@ impl Editor {
         let display = buffer.display();
         let point = window.cursor_point(&display);
         let cells = motion::cursor_cells(&display, point);
-        let scroll = window::follow(window.scroll, window.size(), point, cells);
-        let moved = scroll != window.scroll;
-        window.scroll = scroll;
+        let scroll = window::follow(window.scroll(), window.size(), point, cells);
+        let moved = scroll != window.scroll();
+        window.set_scroll(scroll);
         moved
+    }
+
+    /// Puts back the selected window's cursors and view, saved together as a
+    /// state handoff does, then scrolls as little as shows its primary cursor.
+    pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
+        let (window, buffer) = self.current_mut();
+        let display = buffer.display();
+        window.restore_positions(selections, scroll, &display);
+        self.follow_cursor();
     }
 
     /// Scrolls the selected window's view by `rows` (down toward the end
@@ -479,7 +488,7 @@ impl Editor {
         let (window, buffer) = self.current_mut();
         let display = buffer.display();
         let row_count = display.row_count();
-        let top = window::wheel(window.scroll.top, window.size(), row_count, rows);
+        let top = window::wheel(window.scroll().top, window.size(), row_count, rows);
         window.set_top(top, &display)
     }
 }
@@ -491,6 +500,18 @@ mod tests {
 
     fn lines(n: usize) -> String {
         (0..n).map(|i| format!("line {i:03}\n")).collect()
+    }
+
+    #[test]
+    fn restoring_positions_follows_the_cursor() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        let saved = Scroll { top: 40, left: 1 };
+        editor.restore_positions(SelectionSet::new(45 * "line 000\n".len() + 1), saved);
+        assert_eq!(editor.window().scroll(), saved, "the cursor is in view");
+        editor.restore_positions(SelectionSet::new(0), saved);
+        assert_eq!(editor.window().scroll(), Scroll::default(), "back to it");
+        assert_eq!(editor.window().selections.primary().cursor, 0);
     }
 
     #[test]
@@ -559,17 +580,17 @@ mod tests {
         editor.set_view_size(ViewSize::new(10, 20));
         editor.windows[0].selections = crate::selection::SelectionSet::new(15 * 9);
         assert!(editor.follow_cursor());
-        assert_eq!(editor.window().scroll.top, 6);
+        assert_eq!(editor.window().scroll().top, 6);
         assert!(!editor.follow_cursor());
 
         assert!(editor.scroll_view(20));
-        assert_eq!(editor.window().scroll.top, 26);
+        assert_eq!(editor.window().scroll().top, 26);
         let cursor = editor.window().selections.primary().cursor;
         assert_eq!(cursor, 26 * 9, "moved to the start of the top row");
         assert!(editor.scroll_view(-3));
         assert_eq!(editor.window().selections.primary().cursor, 26 * 9);
         assert!(editor.scroll_view(-100));
-        assert_eq!(editor.window().scroll.top, 0);
+        assert_eq!(editor.window().scroll().top, 0);
         assert!(!editor.scroll_view(-1));
     }
 

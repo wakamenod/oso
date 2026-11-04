@@ -30,10 +30,10 @@ item notes when it must be settled.
   matter, record GPU completion too, in dev builds. Key samples also end at
   the first frame after a key, even if glyphs fill in over the next ones.
 - Rendering: a multi-row cluster iterator that keeps one cursor across
-  rows, instead of a seek per row. Since M1-6 a cached row is reused
-  without a seek while the buffer's revision holds, and only rows shaped
-  or rechecked after a change seek; a frame costs 0.07 to 0.5 ms of CPU
-  (p50 to p99), so this waits until a profile shows it.
+  rows, instead of a seek per row. A cached row is reused without a seek
+  while the buffer's revision holds. After a change every visible row seeks
+  and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
+  rows of ordinary text, so this waits until a profile shows it.
 - Horizontal scroll extent needs the widest row, and the bidi-control
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
   summary tracks neither yet; add them when M2 needs them.
@@ -52,6 +52,12 @@ item notes when it must be settled.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
+- Moving to a display with another scale loads the font synchronously on the UI
+  thread (`App::set_scale`), against "never block the UI thread". Measure it, and
+  move the load to a background thread.
+- After a render error, the comment in `App::draw_frame` says the next frame
+  retries, but nothing requests one under `ControlFlow::Wait`, so the window can
+  stay stale until another event. Decide on a bounded retry or correct the comment.
 
 ## M2
 
@@ -64,10 +70,6 @@ item notes when it must be settled.
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
   commands.
-- `Window::scroll` is a public field, so code can change the top row
-  without `Window::set_top`, which moves cursors into view. Make it
-  private with a getter before recenter (`C-l`), splits or `goto-line`
-  add more writers.
 
 - isearch must not match the U+FFFD of an invalid byte
   (`InvalidBytes`, ADR 0040).
@@ -77,7 +79,7 @@ item notes when it must be settled.
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
 - Large deletions free part of their trees on the UI thread
-  ([ADR 0052](adr/0052-edit-core.md)). Killing 89 MB of a 100 MB buffer takes about
+  ([ADR 0053](adr/0053-edit-core.md)). Killing 89 MB of a 100 MB buffer takes about
   1.2 ms, nearly all of it freeing the old display map's items. Its text stays in the
   undo group until the history drops it, on the edit that passes the 64 MiB bound, which
   takes about 2.5 ms (one early run took 17.6 ms, not seen again). Undoing an 89 MB paste
@@ -98,6 +100,15 @@ item notes when it must be settled.
 - `Editor::message` has no cap on a message's length. Add one with its first callers
   (M2-7).
 
+- By M2-4: key handling ignores winit's `is_synthetic`. On X11 and Windows, winit
+  generates presses for keys held when the window gains focus, so a held key runs
+  its command without a real press, and would insert text once typing lands.
+- By M2-9: `MouseScrollDelta::LineDelta` is rounded per event with no accumulator,
+  so small wheel deltas are dropped. Only `PixelDelta` adds up.
+- By M2-9: the wheel can leave the cursor out of view sideways. `Window::set_top`
+  moves a cursor left behind to column 0 and keeps `left`, and nothing follows it
+  until the next key. It also does not bound `top`, which its callers do. Have
+  `set_top` follow the primary cursor, and test the wheel with `left` above 0.
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
 - Whether `set_ime_allowed(false)` is enough to switch the IME off on macOS, or

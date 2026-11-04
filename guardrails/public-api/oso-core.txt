@@ -631,6 +631,7 @@ pub fn oso_core::editor::Editor::end_undo_group(&mut self)
 pub fn oso_core::editor::Editor::end_undo_group_after_panic(&mut self)
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages(&self) -> impl core::iter::traits::double_ended::DoubleEndedIterator<Item = &str> + core::iter::traits::exact_size::ExactSizeIterator
 pub fn oso_core::editor::Editor::redo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
@@ -1242,12 +1243,12 @@ pub fn oso_core::window::ViewSize::hash<__H: core::hash::Hasher>(&self, &mut __H
 impl core::marker::Copy for oso_core::window::ViewSize
 impl core::marker::StructuralPartialEq for oso_core::window::ViewSize
 pub struct oso_core::window::Window
-pub oso_core::window::Window::scroll: oso_core::window::Scroll
 pub oso_core::window::Window::selections: oso_core::selection::SelectionSet
 impl oso_core::window::Window
 pub fn oso_core::window::Window::buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::window::Window::cursor_point(&self, &oso_core::display_map::DisplaySnapshot) -> oso_core::display_map::DisplayPoint
 pub fn oso_core::window::Window::new(oso_core::buffer::BufferId) -> Self
+pub fn oso_core::window::Window::scroll(&self) -> oso_core::window::Scroll
 pub fn oso_core::window::Window::set_top(&mut self, usize, &oso_core::display_map::DisplaySnapshot) -> bool
 pub fn oso_core::window::Window::size(&self) -> oso_core::window::ViewSize
 impl core::clone::Clone for oso_core::window::Window

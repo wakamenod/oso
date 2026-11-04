@@ -1,4 +1,4 @@
-# 0052. Edit core: edits, selection mapping and undo
+# 0053. Edit core: edits, selection mapping and undo
 
 - Status: Proposed
 - Date: 2026-11-04

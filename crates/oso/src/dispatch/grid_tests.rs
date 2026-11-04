@@ -37,8 +37,8 @@ fn text_grid(editor: &Editor) -> String {
     let cursor = window.cursor_point(&display);
     let cursor = (cursor, motion::cursor_cells(&display, cursor));
     let mut lines = Vec::new();
-    for row in window.scroll.top..window.scroll.top + window.size().rows {
-        let (text, marks) = draw_row(&display, row, window.scroll, window.size(), cursor);
+    for row in window.scroll().top..window.scroll().top + window.size().rows {
+        let (text, marks) = draw_row(&display, row, window.scroll(), window.size(), cursor);
         lines.push(format!("│{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();

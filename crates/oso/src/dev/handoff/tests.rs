@@ -52,7 +52,7 @@ fn a_state_round_trips() {
     let selections = vec![
         Selection::at(5),
         Selection {
-            cursor: 10,
+            cursor: 11,
             goal: Some(Goal::Column(3)),
         },
         Selection {
@@ -60,9 +60,10 @@ fn a_state_round_trips() {
             goal: Some(Goal::LineEnd),
         },
     ];
-    let (window, _) = editor.current_mut();
-    window.selections = SelectionSet::from_parts(selections.clone(), 1).unwrap();
-    window.scroll = Scroll { top: 2, left: 1 };
+    editor.restore_positions(
+        SelectionSet::from_parts(selections.clone(), 1).unwrap(),
+        Scroll { top: 2, left: 1 },
+    );
     let pending: KeySequence = "C-x 4".parse().unwrap();
     let frame = Frame {
         position: Some((-10, 20)),
@@ -82,7 +83,7 @@ fn a_state_round_trips() {
         state.selections.iter().copied().collect::<Vec<_>>(),
         selections
     );
-    assert_eq!(state.selections.primary().cursor, 10);
+    assert_eq!(state.selections.primary().cursor, 11);
     assert_eq!(state.scroll, Scroll { top: 2, left: 1 });
     assert_eq!(state.pending_keys, pending.0);
     assert_eq!(state.frame, Some(frame));
@@ -259,7 +260,11 @@ fn positions_move_to_what_exists_in_a_changed_file() {
         0,
         "the start of the character"
     );
-    assert_eq!(editor.window().scroll.top, 0, "scrolled back to the cursor");
+    assert_eq!(
+        editor.window().scroll().top,
+        0,
+        "scrolled back to the cursor"
+    );
     assert!(restore(1000, 0, &editor).try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 7, "the end");
 }

@@ -119,15 +119,16 @@ throughout.
 **The base.** Text can change only once all of this holds.
 
 - **In parallel:**
-  - **M2-0**: make room, with no change in behavior. Commands and bindings in one
-    module per feature, `app.rs` split into input, drawing and events, and
-    `Window::scroll` private.
+  - **M2-0** (done): make room, with no change in behavior. Commands and bindings
+    in one module per feature, `app.rs` split into input, drawing, loads and
+    events, and `Window::scroll` private.
   - **M2-1**: the edit core in `oso-core`: edits applied atomically across all
     cursors, selections mapped in every window, the modified flag, linear
     undo/redo with one step per command, and the message store
     ([ADR 0007](adr/0007-multi-cursor.md)).
   - **M2-3**: shaped rows compared by content, so editing shows no stale glyphs
-    and reshapes only rows whose text changed.
+    and reshapes only display rows whose text changed. A line break reshapes the
+    rows below it.
 - **M2-2** (after M2-1): `oso dev` holds a restart while a buffer is modified, and
   never closes or kills an instance that has been edited
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
