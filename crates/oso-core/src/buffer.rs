@@ -14,10 +14,18 @@ use crate::decode::{FileInfo, InvalidBytes};
 use crate::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
 use crate::load::{self, LoadSnapshot, Progress};
 use crate::rope::Rope;
+use crate::secret;
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BufferId(pub(crate) u64);
+
+impl BufferId {
+    /// The number behind the id, for showing it outside the editor.
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
 
 /// Why a buffer cannot be edited.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -54,6 +62,9 @@ pub struct Buffer {
     loading: Option<Progress>,
     /// Changes whenever the content does.
     revision: u64,
+    /// The file may hold secrets (ADR 0044). True from the moment a file is
+    /// visited until the host knows better.
+    secret: bool,
 }
 
 impl Buffer {
@@ -73,6 +84,7 @@ impl Buffer {
             info: FileInfo::default(),
             loading: None,
             revision: 0,
+            secret: false,
         }
     }
 
@@ -98,6 +110,7 @@ impl Buffer {
         Self {
             path: Some(path),
             loading: Some(Progress::default()),
+            secret: true,
             ..Self::new(name)
         }
     }
@@ -114,6 +127,24 @@ impl Buffer {
     /// Ends loading with no content, for a file that does not exist yet.
     pub fn finish_empty(&mut self) {
         self.loading = None;
+    }
+
+    /// Decides whether the file may hold secrets, from where its path really
+    /// leads: each link's target on the way and the canonical path, or `None`
+    /// if the path could not be resolved, which counts as secret. The host
+    /// resolves the path off the UI thread, before any content arrives.
+    pub fn judge_secret(&mut self, resolved: Option<&[PathBuf]>) {
+        self.secret = self
+            .path
+            .as_deref()
+            .is_some_and(|path| secret::is_secret(path, resolved));
+    }
+
+    /// Whether the file may hold secrets (ADR 0028, ADR 0044). A file's text
+    /// must not leave the editor through dev tooling or an emergency save
+    /// while this is true.
+    pub fn is_secret(&self) -> bool {
+        self.secret
     }
 
     /// A number that changes whenever the content does, so that caches of
@@ -218,5 +249,31 @@ mod tests {
         assert_eq!(buffer.read_only(), None);
         assert!(buffer.text().is_empty());
         assert_eq!(buffer.path(), Some(Path::new("/tmp/new.txt")));
+    }
+
+    #[test]
+    fn a_visited_file_is_secret_until_its_path_is_resolved() {
+        let plain = PathBuf::from("/tmp/notes.txt");
+        let key = PathBuf::from("/home/me/.ssh/id_rsa");
+        let mut buffer = Buffer::visiting(plain.clone());
+        assert!(buffer.is_secret(), "fails closed while unknown");
+        buffer.judge_secret(Some(std::slice::from_ref(&plain)));
+        assert!(!buffer.is_secret());
+        buffer.judge_secret(Some(&[key.clone(), plain.clone()]));
+        assert!(buffer.is_secret(), "a link through a secret");
+        buffer.judge_secret(None);
+        assert!(buffer.is_secret(), "a path that cannot be resolved");
+
+        let mut named = Buffer::visiting(PathBuf::from("/tmp/.env"));
+        named.judge_secret(Some(&[plain]));
+        assert!(named.is_secret(), "named like a secret, whatever it is");
+    }
+
+    #[test]
+    fn a_buffer_without_a_file_is_not_secret() {
+        let mut buffer = Buffer::new("*scratch*");
+        assert!(!buffer.is_secret());
+        buffer.judge_secret(None);
+        assert!(!buffer.is_secret());
     }
 }

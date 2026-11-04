@@ -169,6 +169,9 @@ impl App {
             self.loads.swap_remove(index);
             return false;
         };
+        if let Some(resolved) = self.loads[index].handle.take_resolved() {
+            buffer.judge_secret(resolved.paths());
+        }
         match update {
             LoadUpdate::Snapshot(snapshot) => {
                 let old_rows = buffer.display().row_count();
@@ -297,9 +300,40 @@ impl App {
             }
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
-                Ok(dev::state(&self.editor, self.dispatcher.pending(), surface))
+                Ok(dev::get_state(
+                    &self.editor,
+                    self.dispatcher.pending(),
+                    surface,
+                ))
+            }
+            dev::UiOp::GetText { start_row, rows } => {
+                // Only the check happens here; a background thread copies
+                // the text and replies.
+                match dev::get_text(&self.editor, start_row, rows) {
+                    Ok(job) => {
+                        job.spawn(reply);
+                        return;
+                    }
+                    Err(message) => Err(message),
+                }
+            }
+            dev::UiOp::RunCommand { name, arg } => {
+                let (effects, result) = self.dispatcher.run_command(&mut self.editor, &name, arg);
+                self.apply(event_loop, effects);
+                result.map(|()| serde_json::json!({ "command": name }))
+            }
+            dev::UiOp::ShowBuffer(buffer) => {
+                let result = dev::show_buffer(&mut self.editor, buffer);
+                if result.is_ok() {
+                    self.request_redraw();
+                }
+                result
             }
             dev::UiOp::Screenshot => {
+                if let Err(message) = dev::screenshot_allowed(&self.editor) {
+                    let _ = reply.send(Err(message));
+                    return;
+                }
                 // Only the GPU submission happens here; the rest runs on a
                 // background thread, which replies.
                 let (Some(view), Some(dev)) = (self.view.as_mut(), self.dev.as_mut()) else {

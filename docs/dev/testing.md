@@ -152,11 +152,24 @@ violation, so a broken parser cannot pass silently.
   [ADR 0032](adr/0032-control-socket-transport.md)):
   - `send-keys` sends input in Emacs notation, through the same path as
     keys from the window ([ADR 0033](adr/0033-key-presses-and-notation.md))
-  - `get-state` reads the state as JSON: the selected window's buffer
-    (name, path, read-only reason, line ending, BOM, invalid-byte count,
-    loading progress, size), the cursor as an offset and a display point,
-    the scroll position, the keys of a pending prefix and the surface size.
-    It never returns buffer text; that and the modeline come in M1-7b.
+  - `run-command` runs a registered command by name, with a numeric
+    argument of at most 10,000 if it takes one. Command errors and panics come
+    back as error responses.
+  - `get-state` reads the state as JSON: every buffer (name, path, whether
+    it may hold secrets, read-only reason, line ending, BOM, invalid-byte
+    count, loading progress, size), every window with its selections, the
+    selected window's buffer, cursor and scroll position, its visible text,
+    the keys of a pending prefix and the surface size. The visible text
+    stops at 128 KiB and says so with `truncated`. The modeline comes with
+    M2.
+  - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails
+    clearly past that.
+  - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives
+    in M2.
+  - Secret-pattern buffers give no text and no screenshot
+    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). Any
+    file counts as secret until its path is resolved, so wait for `loading`
+    to become null before reading it.
   - `oso [FILE]` opens a file, so test files (generated in a scratch
     directory, never committed) can be driven this way.
   - `screenshot` writes a PNG of the current frame and returns its path
