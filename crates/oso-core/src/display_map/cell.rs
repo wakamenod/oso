@@ -283,11 +283,11 @@ impl Default for TabWidth {
 pub struct Clusters<'a> {
     text: &'a str,
     position: usize,
+    /// Stays at the end of the last grapheme cluster segmented. There is no
+    /// boundary between `position` and it while `position` is before it.
     cursor: GraphemeCursor,
-    /// Where the last grapheme cluster segmented ends. There is no boundary
-    /// between `position` and it while `position` is before it.
-    grapheme_end: usize,
-    /// The bytes the segmenter has moved over so far.
+    /// The bytes the segmenter has moved over so far, going forward. What it
+    /// reads when it looks back is not counted.
     #[cfg(test)]
     segmented: usize,
     /// The invalid bytes after `position`, and where the text starts in
@@ -305,7 +305,6 @@ impl<'a> Clusters<'a> {
             text,
             position: 0,
             cursor: GraphemeCursor::new(0, text.len(), true),
-            grapheme_end: 0,
             #[cfg(test)]
             segmented: 0,
             invalid: None,
@@ -369,12 +368,11 @@ impl<'a> Clusters<'a> {
     /// `text`, before `start` too, and never on invalid bytes, so the end
     /// found from an earlier start in the same cluster still holds.
     fn cluster_end(&mut self, start: usize) -> usize {
-        if start < self.grapheme_end {
-            return self.grapheme_end;
+        let segmented_to = self.cursor.cur_cursor();
+        if start < segmented_to {
+            return segmented_to;
         }
-        if self.cursor.cur_cursor() != start {
-            self.cursor.set_cursor(start);
-        }
+        self.cursor.set_cursor(start);
         let end = match self.cursor.next_boundary(self.text, 0) {
             Ok(Some(end)) => end,
             _ => {
@@ -384,7 +382,6 @@ impl<'a> Clusters<'a> {
                 end
             }
         };
-        self.grapheme_end = end;
         #[cfg(test)]
         {
             self.segmented += end - start;
@@ -655,9 +652,10 @@ mod tests {
     }
 
     proptest! {
-        /// Remembering a cluster's end changes nothing that is shown, and one
-        /// pass moves the segmenter over no byte twice. Every other U+FFFD is
-        /// an invalid byte.
+        /// Remembering a cluster's end changes nothing that is shown, from the
+        /// start of the text or from any cluster in it, and one pass moves the
+        /// segmenter forward over no byte twice. Every other U+FFFD is an
+        /// invalid byte.
         #[test]
         fn remembering_the_end_matches_fresh_cursors(text in scan_text()) {
             let entries: Vec<_> = text
@@ -670,8 +668,14 @@ mod tests {
                 invalid.extend(0, invalid_entries);
                 let mut clusters = Clusters::with_invalid(&text, 0, &invalid);
                 let got: Vec<_> = clusters.by_ref().collect();
-                prop_assert_eq!(got, clusters_by_fresh_cursors(&text, &invalid), "{:?}", text);
+                let fresh = clusters_by_fresh_cursors(&text, &invalid);
+                prop_assert_eq!(&got, &fresh, "{:?}", text);
                 prop_assert!(clusters.segmented <= text.len(), "{:?}", text);
+                for (index, &(start, ..)) in fresh.iter().enumerate() {
+                    let tail: Vec<_> =
+                        Clusters::with_invalid_from(&text, 0, start, &invalid).collect();
+                    prop_assert_eq!(&tail[..], &fresh[index..], "{:?} from {}", text, start);
+                }
             }
         }
 
