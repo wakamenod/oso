@@ -38,7 +38,7 @@ const SEND_INTERVAL: Duration = Duration::from_millis(50);
 /// What a loading thread reports.
 pub enum LoadUpdate {
     /// The content so far; `done` once the whole file is in.
-    Progress(Box<LoadSnapshot>),
+    Snapshot(Box<LoadSnapshot>),
     /// The file could not be read. Nothing more follows.
     Failed(LoadError),
 }
@@ -46,10 +46,10 @@ pub enum LoadUpdate {
 impl std::fmt::Debug for LoadUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Progress(snapshot) => f
-                .debug_struct("Progress")
-                .field("progress", &snapshot.progress)
-                .field("done", &snapshot.done)
+            Self::Snapshot(snapshot) => f
+                .debug_struct("Snapshot")
+                .field("progress", &snapshot.progress())
+                .field("done", &snapshot.done())
                 .finish_non_exhaustive(),
             Self::Failed(e) => f.debug_tuple("Failed").field(e).finish(),
         }
@@ -210,7 +210,7 @@ fn load(
             if sent.is_none() {
                 log::debug!("first {read} bytes decoded in {:?}", started.elapsed());
             }
-            if !send(LoadUpdate::Progress(Box::new(builder.snapshot()))) {
+            if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
                 return Ok(());
             }
             sent = Some(Instant::now());
@@ -225,7 +225,7 @@ fn load(
         log::info!("the file grew while loading; the rest is not shown");
     }
     log::debug!("loaded {} bytes in {:?}", builder.len(), started.elapsed());
-    send(LoadUpdate::Progress(Box::new(builder.snapshot())));
+    send(LoadUpdate::Snapshot(Box::new(builder.snapshot())));
     Ok(())
 }
 
@@ -261,7 +261,7 @@ mod tests {
                 continue;
             };
             let last = matches!(&update, LoadUpdate::Failed(_))
-                || matches!(&update, LoadUpdate::Progress(s) if s.done);
+                || matches!(&update, LoadUpdate::Snapshot(s) if s.done());
             updates.push(update);
             if last {
                 break;
@@ -275,16 +275,16 @@ mod tests {
         let content = "日本語 🍣\n".repeat(30_000);
         let path = scratch_file("big.txt", content.as_bytes());
         let events = events(path.clone());
-        let LoadUpdate::Progress(first) = &events[0] else {
+        let LoadUpdate::Snapshot(first) = &events[0] else {
             panic!("{events:?}");
         };
-        assert!(first.text.len() >= READ_SIZE - 4);
-        let Some(LoadUpdate::Progress(last)) = events.last() else {
+        assert!(first.text().len() >= READ_SIZE - 4);
+        let Some(LoadUpdate::Snapshot(last)) = events.last() else {
             panic!("{events:?}");
         };
-        assert!(last.done);
-        assert_eq!(last.text.to_string(), content);
-        assert_eq!(last.progress.total, Some(content.len() as u64));
+        assert!(last.done());
+        assert_eq!(last.text().to_string(), content);
+        assert_eq!(last.progress().total, Some(content.len() as u64));
         std::fs::remove_file(path).unwrap();
     }
 
@@ -321,10 +321,10 @@ mod tests {
         })
         .unwrap();
         assert_eq!(rx.iter().count(), 1, "one wake, then it stopped");
-        let Some(LoadUpdate::Progress(snapshot)) = handle.take() else {
+        let Some(LoadUpdate::Snapshot(snapshot)) = handle.take() else {
             panic!("no update");
         };
-        assert!(!snapshot.done);
+        assert!(!snapshot.done());
         std::fs::remove_file(path).unwrap();
     }
 }

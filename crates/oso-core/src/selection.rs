@@ -52,7 +52,7 @@ impl Default for SelectionSet {
 
 /// What [`SelectionSet::update`] did.
 #[derive(Debug, PartialEq, Eq)]
-pub struct Update<E> {
+pub struct UpdateOutcome<E> {
     /// Some cursor moved. A changed goal alone shows nothing.
     pub changed: bool,
     /// The first error a selection reported. Every selection was still
@@ -92,7 +92,10 @@ impl SelectionSet {
     /// Runs `f` on every selection, then merges selections whose cursors
     /// met. A selection that fails still keeps what `f` changed, as an
     /// Emacs motion that hits the buffer end moves as far as it can.
-    pub fn update<E>(&mut self, mut f: impl FnMut(&mut Selection) -> Result<(), E>) -> Update<E> {
+    pub fn update<E>(
+        &mut self,
+        mut f: impl FnMut(&mut Selection) -> Result<(), E>,
+    ) -> UpdateOutcome<E> {
         let mut changed = false;
         let mut error = None;
         for selection in &mut self.selections {
@@ -105,7 +108,7 @@ impl SelectionSet {
         if changed {
             self.normalize();
         }
-        Update { changed, error }
+        UpdateOutcome { changed, error }
     }
 
     /// Sorts the selections and merges those at one offset, keeping the
@@ -133,7 +136,7 @@ mod tests {
         });
         assert_eq!(
             update,
-            Update {
+            UpdateOutcome {
                 changed: true,
                 error: Some("End of buffer")
             }

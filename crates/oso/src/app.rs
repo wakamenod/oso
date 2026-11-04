@@ -1,3 +1,9 @@
+//! The application: the window, the event loop handler and the glue
+//! between them and the editor (ADR 0004). It turns winit events into key
+//! presses, wheel scrolling and frames, starts file loads and takes in
+//! their snapshots. Editor logic belongs in `oso-core` and commands, not
+//! here.
+
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -6,7 +12,7 @@ use oso_core::buffer::{Buffer, BufferId};
 use oso_core::command::Effects;
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
-use oso_core::window::ViewSize;
+use oso_core::window::{self, ViewSize};
 use oso_render::{Redraw, RenderState, TextView};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
@@ -95,11 +101,7 @@ impl App {
     pub fn open(&mut self, path: PathBuf) {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
-        let name = path.file_name().map_or_else(
-            || path.to_string_lossy().into_owned(),
-            |name| name.to_string_lossy().into_owned(),
-        );
-        let buffer = self.editor.add_buffer(Buffer::visiting(name, path.clone()));
+        let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
         self.editor.show(buffer);
         let proxy = self.proxy.clone();
         let spawned = loader::spawn(buffer, path, move |buffer| {
@@ -166,10 +168,10 @@ impl App {
             return false;
         };
         match update {
-            LoadUpdate::Progress(snapshot) => {
+            LoadUpdate::Snapshot(snapshot) => {
                 let old_rows = buffer.display().row_count();
                 let first = buffer.text().is_empty();
-                let done = snapshot.done;
+                let done = snapshot.done();
                 buffer.apply_load(*snapshot);
                 let load = &mut self.loads[index];
                 if first {
@@ -179,8 +181,7 @@ impl App {
                     log::debug!("{} loaded in {:?}", buffer.name(), load.started.elapsed());
                 }
                 let window = self.editor.window();
-                // The partly shown row below the full ones counts too.
-                shown && window.scroll.top + window.size().rows + 1 >= old_rows
+                shown && window::reaches(window.scroll.top, window.size(), old_rows - 1)
             }
             LoadUpdate::Failed(LoadError::NotFound) => {
                 // As Emacs does: a new file, empty until saved.

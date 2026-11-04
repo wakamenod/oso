@@ -38,7 +38,7 @@ pub enum CellKind {
     /// A bidi control or invisible character, drawn as its [`escape`] in a
     /// box.
     Invisible(char),
-    /// An invalid byte of the file, drawn as `\xNN` ([`Escape::byte`]). Its
+    /// An invalid byte of the file, drawn as `\xNN`. Its
     /// text in the buffer is U+FFFD.
     InvalidByte(u8),
     /// `\n` or `\r\n`. Ends the row and takes no cells.
@@ -150,7 +150,10 @@ impl CellKind {
 }
 
 /// The cells an invalid byte takes: `\xNN`.
-pub const INVALID_BYTE_CELLS: usize = 4;
+pub(crate) const INVALID_BYTE_CELLS: usize = 4;
+
+/// Upper-case hex digits, for escapes.
+const HEX: &[u8; 16] = b"0123456789ABCDEF";
 
 /// The text a control or invisible character is drawn as: `^@` to `^_`
 /// and `^?` for C0 and DEL, `\200` to `\237` for C1, and the code point
@@ -173,7 +176,6 @@ pub fn escape(c: char) -> Option<Escape> {
             4
         }
         _ if is_invisible(c) => {
-            const HEX: &[u8; 16] = b"0123456789ABCDEF";
             let digits = if code > 0xffff { 5 } else { 4 };
             bytes[0] = b'U';
             bytes[1] = b'+';
@@ -197,8 +199,7 @@ pub struct Escape {
 
 impl Escape {
     /// The escape of an invalid byte: `\xNN`, in upper-case hex.
-    pub fn byte(byte: u8) -> Self {
-        const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    pub(crate) fn byte(byte: u8) -> Self {
         let mut bytes = [0; 8];
         bytes[..2].copy_from_slice(b"\\x");
         bytes[2] = HEX[usize::from(byte >> 4)];
@@ -257,9 +258,10 @@ impl Default for TabWidth {
 /// with one cursor for the whole text, so that runs of regional indicators
 /// (flags) are not rescanned for every cluster.
 ///
-/// With [`Clusters::with_invalid`], the U+FFFD of an invalid byte is a
-/// cluster of its own, [`CellKind::InvalidByte`], even where a grapheme
-/// cluster would join it to its neighbors.
+/// Built with a buffer's invalid bytes (inside the display model), the
+/// U+FFFD of an invalid byte is a cluster of its own,
+/// [`CellKind::InvalidByte`], even where a grapheme cluster would join it
+/// to its neighbors.
 pub struct Clusters<'a> {
     text: &'a str,
     position: usize,
@@ -287,7 +289,7 @@ impl<'a> Clusters<'a> {
 
     /// The clusters of `text`, which starts at `base` in a buffer whose
     /// invalid bytes are `invalid`.
-    pub fn with_invalid(text: &'a str, base: usize, invalid: &'a InvalidBytes) -> Self {
+    pub(crate) fn with_invalid(text: &'a str, base: usize, invalid: &'a InvalidBytes) -> Self {
         let mut clusters = Self::new(text);
         if !invalid.is_empty() {
             clusters.invalid = Some(invalid.range(base..base + text.len()));

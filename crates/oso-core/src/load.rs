@@ -6,7 +6,7 @@
 //! does O(n) work. [`Builder::snapshot`] is O(1) and is what the UI shows
 //! while the rest loads.
 
-use crate::decode::{Decoded, Decoder, FileInfo, InvalidBytes};
+use crate::decode::{Decoded, Decoder, FileInfo};
 use crate::display_map::{DisplayMap, TabWidth};
 use crate::rope::Rope;
 
@@ -20,16 +20,33 @@ pub struct Progress {
 }
 
 /// The buffer content loaded so far. Every part is an O(1) snapshot that
-/// later appends do not change.
+/// later appends do not change. Only a [`Builder`] makes one, so its text
+/// and display map always agree.
 #[derive(Clone)]
 pub struct LoadSnapshot {
-    pub text: Rope,
-    pub display: DisplayMap,
-    pub invalid: InvalidBytes,
-    pub info: FileInfo,
-    pub progress: Progress,
-    /// The whole file is in.
-    pub done: bool,
+    pub(crate) text: Rope,
+    /// Also holds the invalid bytes.
+    pub(crate) display: DisplayMap,
+    pub(crate) info: FileInfo,
+    pub(crate) progress: Progress,
+    pub(crate) done: bool,
+}
+
+impl LoadSnapshot {
+    /// The text loaded so far.
+    pub fn text(&self) -> &Rope {
+        &self.text
+    }
+
+    /// How far the file has loaded.
+    pub fn progress(&self) -> Progress {
+        self.progress
+    }
+
+    /// Whether the whole file is in.
+    pub fn done(&self) -> bool {
+        self.done
+    }
 }
 
 /// Decodes a file piece by piece into a rope, its display map and its
@@ -38,7 +55,6 @@ pub struct Builder {
     decoder: Decoder,
     text: Rope,
     display: DisplayMap,
-    invalid: InvalidBytes,
     /// Scratch space for each piece.
     decoded: Decoded,
     progress: Progress,
@@ -54,7 +70,6 @@ impl Builder {
             decoder: Decoder::new(),
             display: DisplayMap::new(&text, tab_width),
             text,
-            invalid: InvalidBytes::new(),
             decoded: Decoded::default(),
             progress: Progress { read: 0, total },
             done: false,
@@ -82,13 +97,10 @@ impl Builder {
         }
         let base = self.text.len();
         let edit = self.text.push_str(&self.decoded.text);
-        if self.decoded.invalid.is_empty() {
-            self.display.sync(&self.text, &edit);
-        } else {
-            self.invalid.extend(base, &self.decoded.invalid);
-            self.display
-                .sync_with_invalid(&self.text, &self.invalid, &edit);
+        if !self.decoded.invalid.is_empty() {
+            self.display.extend_invalid(base, &self.decoded.invalid);
         }
+        self.display.sync(&self.text, &edit);
         self.decoded.clear();
     }
 
@@ -107,7 +119,6 @@ impl Builder {
         LoadSnapshot {
             text: self.text.clone(),
             display: self.display.clone(),
-            invalid: self.invalid.clone(),
             info: self.decoder.info(),
             progress: self.progress,
             done: self.done,
@@ -159,7 +170,7 @@ mod tests {
     fn invalid_bytes_show_as_escapes_in_four_cells() {
         let snapshot = decode_all(b"a\xffb\n\xe3\x81", TabWidth::default());
         let display = snapshot.display.snapshot();
-        assert_eq!(snapshot.invalid.len(), 3);
+        assert_eq!(snapshot.display.invalid_bytes().len(), 3);
         assert_eq!(display.row_cells(0), 1 + 4 + 1);
         assert_eq!(display.row_cells(1), 8);
         let kinds: Vec<_> = display
@@ -244,7 +255,10 @@ mod tests {
             builder.finish();
             let pieces = builder.snapshot();
             proptest::prop_assert_eq!(pieces.text.to_string(), whole.text.to_string());
-            proptest::prop_assert_eq!(pieces.invalid.len(), whole.invalid.len());
+            proptest::prop_assert_eq!(
+                pieces.display.invalid_bytes().len(),
+                whole.display.invalid_bytes().len()
+            );
             let (a, b) = (whole.display.snapshot(), pieces.display.snapshot());
             proptest::prop_assert_eq!(a.max_point(), b.max_point());
             // Every cluster start maps to a point and back.

@@ -32,8 +32,8 @@ fn main() {
         refuse_ctl();
     }
     let file = match parse_args(std::env::args_os().skip(1)) {
-        Ok(Args::Help) => exit_with_usage(None),
-        Ok(Args::Open(file)) => file,
+        Ok(Invocation::Help) => exit_with_usage(None),
+        Ok(Invocation::Open(file)) => file,
         Err(message) => exit_with_usage(Some(&message)),
     };
 
@@ -92,7 +92,7 @@ fn exit_with_usage(error: Option<&str>) -> ! {
 
 /// What the command line asks for.
 #[derive(Debug, PartialEq, Eq)]
-enum Args {
+enum Invocation {
     Help,
     /// Open the editor, visiting a file if one is given.
     Open(Option<PathBuf>),
@@ -100,14 +100,14 @@ enum Args {
 
 /// Parses `oso [FILE]`. `--` ends the options, so a file named `-x` can be
 /// opened as `oso -- -x`.
-fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
+fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Invocation, String> {
     let mut file = None;
     let mut options = true;
     for arg in args {
         if options && arg == "--" {
             options = false;
         } else if options && (arg == "-h" || arg == "--help") {
-            return Ok(Args::Help);
+            return Ok(Invocation::Help);
         } else if options && arg.to_string_lossy().starts_with('-') && arg != "-" {
             return Err(format!("unknown option {}", arg.to_string_lossy()));
         } else if file.is_some() {
@@ -116,30 +116,30 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> 
             file = Some(PathBuf::from(arg));
         }
     }
-    Ok(Args::Open(file))
+    Ok(Invocation::Open(file))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Args, parse_args};
+    use super::{Invocation, parse_args};
     use std::path::PathBuf;
 
-    fn parse(args: &[&str]) -> Result<Args, String> {
+    fn parse(args: &[&str]) -> Result<Invocation, String> {
         parse_args(args.iter().map(Into::into))
     }
 
     #[test]
     fn parses_an_optional_file() {
-        assert_eq!(parse(&[]), Ok(Args::Open(None)));
+        assert_eq!(parse(&[]), Ok(Invocation::Open(None)));
         assert_eq!(
             parse(&["notes.md"]),
-            Ok(Args::Open(Some(PathBuf::from("notes.md"))))
+            Ok(Invocation::Open(Some(PathBuf::from("notes.md"))))
         );
         assert_eq!(
             parse(&["--", "-x"]),
-            Ok(Args::Open(Some(PathBuf::from("-x"))))
+            Ok(Invocation::Open(Some(PathBuf::from("-x"))))
         );
-        assert_eq!(parse(&["--help"]), Ok(Args::Help));
+        assert_eq!(parse(&["--help"]), Ok(Invocation::Help));
     }
 
     #[test]

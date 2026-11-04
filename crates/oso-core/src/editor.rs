@@ -8,7 +8,6 @@
 
 use crate::buffer::{Buffer, BufferId};
 use crate::motion;
-use crate::selection::Selection;
 use crate::window::{self, ViewSize, Window};
 
 /// The name of the buffer shown when no file is open.
@@ -170,19 +169,7 @@ impl Editor {
         let display = buffer.display();
         let row_count = display.row_count();
         let top = window::wheel(window.scroll.top, window.size(), row_count, rows);
-        if top == window.scroll.top {
-            return false;
-        }
-        window.scroll.top = top;
-        let size = window.size();
-        window.selections.update(|selection| {
-            let row = display.offset_to_display_point(selection.cursor).row;
-            if let Some(row) = window::row_in_view(row, top, size, row_count) {
-                *selection = Selection::at(motion::line_start(&display, row));
-            }
-            Ok::<(), ()>(())
-        });
-        true
+        window.set_top(top, &display)
     }
 }
 
@@ -206,7 +193,7 @@ mod tests {
     #[test]
     fn killing_a_shown_buffer_shows_scratch() {
         let mut editor = Editor::default();
-        let file = editor.add_buffer(Buffer::visiting("a", PathBuf::from("/a")));
+        let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/a")));
         editor.show(file);
         assert_eq!(editor.current().1.name(), "a");
         editor.kill_buffer(file);
@@ -233,7 +220,8 @@ mod tests {
         assert_eq!(cursor, 26 * 9, "moved to the start of the top row");
         assert!(editor.scroll_view(-3));
         assert_eq!(editor.window().selections.primary().cursor, 26 * 9);
-        assert!(!editor.scroll_view(-100) || editor.window().scroll.top == 0);
+        assert!(editor.scroll_view(-100));
+        assert_eq!(editor.window().scroll.top, 0);
         assert!(!editor.scroll_view(-1));
     }
 }

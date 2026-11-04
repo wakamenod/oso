@@ -200,16 +200,9 @@ fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
         window::scroll_down(window.scroll.top, lines.unsigned_abs())
     }
     .map_err(|edge| CommandError::new(edge.message()))?;
-    window.scroll.top = top;
-    let size = window.size();
-    window.selections.update(|selection| {
-        let row = display.offset_to_display_point(selection.cursor).row;
-        if let Some(row) = window::row_in_view(row, top, size, row_count) {
-            *selection = Selection::at(motion::line_start(&display, row));
-        }
-        Ok::<(), ()>(())
-    });
-    ctx.request_redraw();
+    if window.set_top(top, &display) {
+        ctx.request_redraw();
+    }
     Ok(())
 }
 

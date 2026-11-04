@@ -192,9 +192,13 @@ pub struct TabMap {
 }
 
 impl TabMap {
-    /// Builds the map of `buffer`, whose invalid bytes are `invalid`. O(n):
-    /// it measures every cluster.
-    pub fn new(buffer: &Rope, invalid: &InvalidBytes, tab_width: TabWidth) -> Self {
+    /// Builds the map of `buffer`. O(n): it measures every cluster.
+    pub fn new(buffer: &Rope, tab_width: TabWidth) -> Self {
+        Self::with_invalid(buffer, &InvalidBytes::new(), tab_width)
+    }
+
+    /// [`TabMap::new`] for a buffer whose invalid bytes are `invalid`.
+    pub(crate) fn with_invalid(buffer: &Rope, invalid: &InvalidBytes, tab_width: TabWidth) -> Self {
         Self {
             tree: Self::items(buffer, invalid, 0..buffer.len(), tab_width).collect(),
             tab_width,
@@ -220,23 +224,29 @@ impl TabMap {
     }
 
     /// Follows one edit of the buffer. `buffer` is the rope right after the
-    /// edit, and `invalid` its invalid bytes. Costs O(log n) plus the size
-    /// of the edited chunks.
-    pub fn sync(&mut self, buffer: &Rope, invalid: &InvalidBytes, edit: &RopeEdit) {
-        self.invalid = invalid.clone();
+    /// edit. Costs O(log n) plus the size of the edited chunks.
+    pub fn sync(&mut self, buffer: &Rope, edit: &RopeEdit) {
         if edit.old.is_empty() && edit.new.is_empty() {
             return;
         }
+        let items: SumTree<TabChunk> =
+            Self::items(buffer, &self.invalid, edit.new.clone(), self.tab_width).collect();
         let (mut tree, _) = self.tree.split(&edit.old.start, Bias::Right);
         let (_, right) = self.tree.split(&edit.old.end, Bias::Right);
-        tree.append(Self::items(buffer, invalid, edit.new.clone(), self.tab_width).collect());
+        tree.append(items);
         tree.append(right);
         self.tree = tree;
     }
 
     /// The buffer's invalid bytes.
-    pub fn invalid(&self) -> &InvalidBytes {
+    pub(crate) fn invalid(&self) -> &InvalidBytes {
         &self.invalid
+    }
+
+    /// Adds invalid bytes at `base` plus each entry's offset, before the
+    /// [`TabMap::sync`] of the append that brought them.
+    pub(crate) fn extend_invalid(&mut self, base: usize, entries: &[(usize, u8)]) {
+        self.invalid.extend(base, entries);
     }
 
     /// The tab width.
