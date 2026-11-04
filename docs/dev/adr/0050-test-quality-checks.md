@@ -26,8 +26,9 @@ from CI can stand for a budget set on another machine.
 - `mutants.yml` runs on Sundays at 18:00 UTC and by `workflow_dispatch`, on
   `ubuntu-latest` with 4 jobs and a read-only token. `cargo-mutants` comes from
   `taiki-e/install-action` with `fallback: none`, so with a verified checksum.
-- A run of about 1,070 mutants took 31 minutes there and 17 on the author's Mac
-  with 6 jobs. So there are no shards, and the job's limit is 90 minutes.
+- A run of about 1,070 mutants took 54 minutes there and 20 on the author's Mac
+  with 6 jobs. Before the timeout below was raised, it took 31 and 47 minutes on
+  the runner. So there are no shards, and the job's limit is 90 minutes.
 - The timeout per mutant is 30 seconds, about twice the worst seen rather than the
   tool's default of 20. On the runner, tests took 3 seconds at the median and 16
   at most. So a timeout almost always means a hang. A mutant that passes but
@@ -147,7 +148,7 @@ from CI can stand for a budget set on another machine.
   to a job that runs mutated repository code.
 - **A second pass over the whole workspace for what survives:** 9 minutes on the
   Mac to remove a fifth of the list, and it would reward testing logic high up.
-- **Shards:** 31 minutes does not need them, and merging the lists is more to
+- **Shards:** under an hour does not need them, and merging the lists is more to
   maintain.
 - **Patterns by function name alone:** shorter, but a new `<` in the function would
   be excluded without anyone deciding to.
