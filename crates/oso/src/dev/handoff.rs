@@ -322,15 +322,9 @@ impl Restore {
                 }
             })
             .collect();
-        if let Some(selections) =
-            SelectionSet::from_parts(selections, self.selections.primary_index())
-        {
-            window.selections = selections;
-        }
-        window.set_scroll_keeping_cursors(Scroll {
-            top: self.scroll.top.min(display.row_count() - 1),
-            left: self.scroll.left,
-        });
+        let selections = SelectionSet::from_parts(selections, self.selections.primary_index())
+            .unwrap_or_else(|| window.selections.clone());
+        window.restore_positions(selections, self.scroll, &display);
         editor.follow_cursor();
         true
     }

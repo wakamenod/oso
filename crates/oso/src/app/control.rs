@@ -180,9 +180,7 @@ impl App {
             }
             let wanted = PhysicalSize::new(frame.width, frame.height);
             let size = view.window.request_inner_size(wanted).unwrap_or(wanted);
-            let redraw = view.render_state.resize(size.width, size.height);
-            view.redraw_if(redraw);
-            self.update_view_size();
+            self.resize(size.width, size.height);
         }
         self.restore = Some(handoff::Restore {
             buffer: shown,

@@ -42,7 +42,7 @@ fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// The lines `C-v` and `M-v` scroll: the numeric argument, or a screen
+/// The lines a screen command scrolls: the numeric argument, or a screen
 /// less the context lines.
 fn screen_or_count(ctx: &Ctx<'_>, args: Args) -> isize {
     args.prefix().unwrap_or_else(|| {

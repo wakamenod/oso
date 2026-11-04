@@ -1,6 +1,6 @@
 //! Default key bindings, in Emacs notation (ADR 0033, ADR 0034). They
-//! follow vanilla Emacs (ADR 0019). Each feature in `commands` has a module
-//! of the same name here with its own table, and [`TABLES`] lists them.
+//! follow vanilla Emacs (ADR 0019). Each feature with default keys has a module
+//! here, named as in `commands`, with its own table, and [`TABLES`] lists them.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 

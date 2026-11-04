@@ -11,7 +11,6 @@ use winit::window::WindowId;
 
 use super::draw::View;
 use super::{App, UserEvent};
-use crate::text;
 
 impl ApplicationHandler<UserEvent> for App {
     /// Called when the OS signals that the window is ready to be created (or resumed).
@@ -32,13 +31,7 @@ impl ApplicationHandler<UserEvent> for App {
         let _ = event_loop;
         match event {
             UserEvent::Load(buffer) => {
-                let load = self.loads.iter().position(|l| l.handle.buffer() == buffer);
-                if let Some(index) = load
-                    && let Some(update) = self.loads[index].handle.take()
-                    && self.apply_load(index, update)
-                {
-                    self.request_redraw();
-                }
+                self.load_updated(buffer);
             }
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -51,9 +44,9 @@ impl ApplicationHandler<UserEvent> for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        let Some(view) = self.view.as_mut() else {
+        if self.view.is_none() {
             return;
-        };
+        }
 
         match event {
             // ---- Close window ----
@@ -62,25 +55,13 @@ impl ApplicationHandler<UserEvent> for App {
             }
 
             // ---- Resize ----
-            WindowEvent::Resized(physical_size) => {
-                let redraw = view
-                    .render_state
-                    .resize(physical_size.width, physical_size.height);
-                view.redraw_if(redraw);
-                self.update_view_size();
-            }
+            WindowEvent::Resized(size) => self.resize(size.width, size.height),
 
             // ---- Moved to a display with another scale: reload the font ----
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                let redraw = view.render_state.set_text_system(text::load(scale_factor));
-                view.redraw_if(redraw);
-                self.update_view_size();
-            }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => self.set_scale(scale_factor),
 
             // ---- Visible again: frames skipped while occluded need a redraw ----
-            WindowEvent::Occluded(false) => {
-                view.window.request_redraw();
-            }
+            WindowEvent::Occluded(false) => self.request_redraw(),
 
             // ---- Redraw ----
             WindowEvent::RedrawRequested => self.draw_frame(),

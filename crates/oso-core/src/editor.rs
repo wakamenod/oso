@@ -177,7 +177,7 @@ impl Editor {
         let cells = motion::cursor_cells(&display, point);
         let scroll = window::follow(window.scroll(), window.size(), point, cells);
         let moved = scroll != window.scroll();
-        window.set_scroll_keeping_cursors(scroll);
+        window.set_scroll(scroll);
         moved
     }
 

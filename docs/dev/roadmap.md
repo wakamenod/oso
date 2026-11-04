@@ -120,8 +120,8 @@ throughout.
 
 - **In parallel:**
   - **M2-0** (done): make room, with no change in behavior. Commands and bindings
-    in one module per feature, `app.rs` split into input, drawing and events, and
-    `Window::scroll` private.
+    in one module per feature, `app.rs` split into input, drawing, loads and
+    events, and `Window::scroll` private.
   - **M2-1**: the edit core in `oso-core`: edits applied atomically across all
     cursors, selections mapped in every window, the modified flag, linear
     undo/redo with one step per command, and the message store

@@ -1,11 +1,11 @@
 //! Input: key presses and the mouse wheel, from the window to the editor.
 //!
-//! Must not depend on: how a frame is drawn, or loading files. Input changes the
-//! editor and asks for a frame; what a key does is decided by the keymaps.
+//! Must not depend on: the render pipeline, beyond the size of a cell, or loading
+//! files. Input changes the editor and asks for a frame; what a key does is
+//! decided by the keymaps.
 
 use std::time::Instant;
 
-use oso_core::command::Effects;
 use oso_core::key::KeyPress;
 use winit::event::{ElementState, KeyEvent, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
@@ -38,16 +38,6 @@ impl App {
         #[cfg(feature = "dev")]
         self.timings.keys_handled(started, 1, effects.redraw);
         self.apply(event_loop, effects);
-    }
-
-    /// Does what commands asked for.
-    pub(super) fn apply(&self, event_loop: &ActiveEventLoop, effects: Effects) {
-        if effects.redraw {
-            self.request_redraw();
-        }
-        if effects.exit {
-            event_loop.exit();
-        }
     }
 
     /// Scrolls the view for the mouse wheel or the trackpad.

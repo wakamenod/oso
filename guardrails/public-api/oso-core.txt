@@ -1198,8 +1198,8 @@ impl oso_core::window::Window
 pub fn oso_core::window::Window::buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::window::Window::cursor_point(&self, &oso_core::display_map::DisplaySnapshot) -> oso_core::display_map::DisplayPoint
 pub fn oso_core::window::Window::new(oso_core::buffer::BufferId) -> Self
+pub fn oso_core::window::Window::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot)
 pub fn oso_core::window::Window::scroll(&self) -> oso_core::window::Scroll
-pub fn oso_core::window::Window::set_scroll_keeping_cursors(&mut self, oso_core::window::Scroll)
 pub fn oso_core::window::Window::set_top(&mut self, usize, &oso_core::display_map::DisplaySnapshot) -> bool
 pub fn oso_core::window::Window::size(&self) -> oso_core::window::ViewSize
 impl core::clone::Clone for oso_core::window::Window

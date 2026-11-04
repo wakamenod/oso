@@ -331,6 +331,13 @@ mod tests {
         (editor, id)
     }
 
+    /// Moves the view without moving the cursors.
+    fn show_from(editor: &mut Editor, scroll: Scroll) {
+        let (window, buffer) = editor.current_mut();
+        let selections = window.selections.clone();
+        window.restore_positions(selections, scroll, &buffer.display());
+    }
+
     #[test]
     fn state_reports_the_buffer_cursor_scroll_and_surface() {
         let mut editor = Editor::with_buffer(Buffer::from_bytes("bad.txt", b"a\r\n\xffSECRET"));
@@ -398,8 +405,7 @@ mod tests {
                 "truncated": false,
             })
         );
-        let scroll = Scroll { top: 98, left: 5 };
-        editor.current_mut().0.set_scroll_keeping_cursors(scroll);
+        show_from(&mut editor, Scroll { top: 98, left: 5 });
         assert_eq!(
             state(&editor, &[])["text"],
             json!({
@@ -415,8 +421,7 @@ mod tests {
     #[test]
     fn visible_text_includes_wide_characters_across_the_edges() {
         let mut editor = editor("日本語\n", 1, 2);
-        let scroll = Scroll { top: 0, left: 1 };
-        editor.current_mut().0.set_scroll_keeping_cursors(scroll);
+        show_from(&mut editor, Scroll { top: 0, left: 1 });
         assert_eq!(state(&editor, &[])["text"]["rows"], json!(["日本"]));
     }
 

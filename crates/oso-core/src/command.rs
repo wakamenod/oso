@@ -343,7 +343,7 @@ mod tests {
     fn forward(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
         let (window, _) = ctx.editor.current_mut();
         let top = window.scroll().top.saturating_add_signed(args.count());
-        window.set_scroll_keeping_cursors(Scroll {
+        window.set_scroll(Scroll {
             top,
             ..window.scroll()
         });
@@ -357,7 +357,7 @@ mod tests {
 
     fn explode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         let (window, _) = ctx.editor.current_mut();
-        window.set_scroll_keeping_cursors(Scroll {
+        window.set_scroll(Scroll {
             top: 7,
             ..window.scroll()
         });

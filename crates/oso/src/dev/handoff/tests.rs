@@ -60,9 +60,12 @@ fn a_state_round_trips() {
             goal: Some(Goal::LineEnd),
         },
     ];
-    let (window, _) = editor.current_mut();
-    window.selections = SelectionSet::from_parts(selections.clone(), 1).unwrap();
-    window.set_scroll_keeping_cursors(Scroll { top: 2, left: 1 });
+    let (window, buffer) = editor.current_mut();
+    window.restore_positions(
+        SelectionSet::from_parts(selections.clone(), 1).unwrap(),
+        Scroll { top: 2, left: 1 },
+        &buffer.display(),
+    );
     let pending: KeySequence = "C-x 4".parse().unwrap();
     let frame = Frame {
         position: Some((-10, 20)),

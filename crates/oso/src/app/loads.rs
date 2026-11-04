@@ -15,7 +15,7 @@ use crate::loader::{self, LoadError, LoadHandle, LoadUpdate};
 /// A file loading into a buffer.
 pub(super) struct Load {
     /// Holds the latest update; cancels the load when dropped.
-    pub(super) handle: LoadHandle,
+    handle: LoadHandle,
     started: Instant,
     /// When its first content arrived, until that frame is drawn.
     first_screen: Option<Instant>,
@@ -60,6 +60,18 @@ impl App {
         }
     }
 
+    /// A loading thread has an update for `buffer`: takes it in, and asks for a
+    /// frame if it needs one.
+    pub(super) fn load_updated(&mut self, buffer: BufferId) {
+        let load = self.loads.iter().position(|l| l.handle.buffer() == buffer);
+        if let Some(index) = load
+            && let Some(update) = self.loads[index].handle.take()
+            && self.apply_load(index, update)
+        {
+            self.request_redraw();
+        }
+    }
+
     /// Takes in the latest update of every load, before a frame, so that
     /// the frame shows what has loaded by then.
     pub(super) fn poll_loads(&mut self) {
@@ -73,7 +85,7 @@ impl App {
     /// Applies one update of `self.loads[index]`. Returns whether a frame
     /// is needed: only if the window shows the buffer and reaches the part
     /// that changed, or the buffer was replaced.
-    pub(super) fn apply_load(&mut self, index: usize, update: LoadUpdate) -> bool {
+    fn apply_load(&mut self, index: usize, update: LoadUpdate) -> bool {
         let id = self.loads[index].handle.buffer();
         let shown = self.editor.window().buffer() == id;
         let Some(buffer) = self.editor.buffer_mut(id) else {

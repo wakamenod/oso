@@ -1,7 +1,8 @@
 //! The application: the window, the event loop handler and the glue
 //! between them and the editor (ADR 0004). It turns winit events into key
 //! presses, wheel scrolling and frames, starts file loads and takes in
-//! their snapshots. This file holds the state; each concern has a module.
+//! their snapshots. This file holds the state and what the concerns share;
+//! each concern has a module.
 //!
 //! Must not depend on: wgpu or OS bindings. Editor logic belongs in oso-core
 //! and commands, not here.
@@ -9,8 +10,9 @@
 use std::time::Instant;
 
 use oso_core::buffer::BufferId;
+use oso_core::command::Effects;
 use oso_core::editor::Editor;
-use winit::event_loop::EventLoopProxy;
+use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::ModifiersState;
 
 #[cfg(feature = "dev")]
@@ -92,5 +94,21 @@ impl App {
     #[cfg(feature = "dev")]
     pub fn set_dev(&mut self, dev: Option<dev::DevState>) {
         self.dev = dev;
+    }
+
+    /// Does what commands asked for.
+    fn apply(&self, event_loop: &ActiveEventLoop, effects: Effects) {
+        if effects.redraw {
+            self.request_redraw();
+        }
+        if effects.exit {
+            event_loop.exit();
+        }
+    }
+
+    fn request_redraw(&self) {
+        if let Some(view) = &self.view {
+            view.window.request_redraw();
+        }
     }
 }

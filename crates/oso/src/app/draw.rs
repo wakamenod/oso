@@ -1,7 +1,7 @@
 //! Drawing: the window and its renderer, and what a frame shows.
 //!
-//! Must not depend on: key presses or commands. A frame shows the editor's state
-//! and does not decide it.
+//! Must not depend on: key presses or commands. Before a frame it takes in what
+//! has loaded; otherwise a frame only reads the editor's state.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -71,9 +71,21 @@ impl View {
 }
 
 impl App {
-    pub(super) fn request_redraw(&self) {
-        if let Some(view) = &self.view {
-            view.window.request_redraw();
+    /// Gives the window's new size to the renderer and the editor.
+    pub(super) fn resize(&mut self, width: u32, height: u32) {
+        if let Some(view) = &mut self.view {
+            let redraw = view.render_state.resize(width, height);
+            view.redraw_if(redraw);
+            self.update_view_size();
+        }
+    }
+
+    /// Reloads the font for a display with another scale.
+    pub(super) fn set_scale(&mut self, scale_factor: f64) {
+        if let Some(view) = &mut self.view {
+            let redraw = view.render_state.set_text_system(text::load(scale_factor));
+            view.redraw_if(redraw);
+            self.update_view_size();
         }
     }
 
