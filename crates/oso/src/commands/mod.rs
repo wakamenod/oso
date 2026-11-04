@@ -1,10 +1,80 @@
-//! The editor's commands (ADR 0034).
+//! The editor's commands (ADR 0034). Each is a plain function over the
+//! host-owned state in `Ctx`, registered with a docstring and an argument
+//! spec. Each feature has a module here with its own table of commands, and
+//! [`TABLES`] lists them. Default key bindings are in `bindings`.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
 mod motion;
+mod scroll;
+mod session;
+
+use oso_core::command::{Command, Registry};
+
+/// Every feature's commands, in the order `M-x` and the command reference list
+/// them. A new feature adds a module and one line here, in alphabetical order
+/// and never joined with another, so that features added at the same time
+/// rarely touch the same line.
+#[rustfmt::skip]
+const TABLES: &[&[Command]] = &[
+    motion::COMMANDS,
+    scroll::COMMANDS,
+    session::COMMANDS,
+];
+
+/// A registry with every command in [`TABLES`].
+///
+/// # Panics
+///
+/// If a command is registered twice or lacks a docstring. The tests build
+/// this registry, so such a mistake cannot ship.
+pub fn registry() -> Registry {
+    let mut registry = Registry::new();
+    for table in TABLES {
+        if let Err(e) = registry.register_all(table) {
+            panic!("{e}");
+        }
+    }
+    registry
+}
 
 #[cfg(test)]
-pub use motion::COMMANDS;
-pub use motion::registry;
+mod tests {
+    use super::{TABLES, registry};
+    use oso_core::buffer::Buffer;
+    use oso_core::command::{Args, Ctx, Effects, ExecuteError};
+    use oso_core::editor::Editor;
+    use oso_core::window::ViewSize;
+
+    pub(super) fn editor(text: &str) -> Editor {
+        let mut editor = Editor::with_buffer(Buffer::from_text("test", text));
+        editor.set_view_size(ViewSize::new(10, 40));
+        editor
+    }
+
+    pub(super) fn run(
+        editor: &mut Editor,
+        name: &str,
+        args: Args,
+    ) -> (Result<(), String>, Effects) {
+        let registry = registry();
+        let id = registry.lookup(name).unwrap();
+        let mut ctx = Ctx::new(editor);
+        let result = registry.execute(id, &mut ctx, args).map_err(|e| match e {
+            ExecuteError::Failed { error, .. } => error.message().to_owned(),
+            other => panic!("{other}"),
+        });
+        (result, ctx.effects())
+    }
+
+    pub(super) fn cursor(editor: &Editor) -> usize {
+        editor.window().selections.primary().cursor
+    }
+
+    #[test]
+    fn every_command_registers() {
+        let commands: usize = TABLES.iter().map(|table| table.len()).sum();
+        assert_eq!(registry().iter().len(), commands);
+    }
+}

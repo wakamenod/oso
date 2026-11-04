@@ -1,6 +1,5 @@
-//! The editor's commands (ADR 0034). Each is a plain function over the
-//! host-owned state in [`Ctx`], registered in [`COMMANDS`] with a docstring
-//! and an argument spec. Default key bindings are in `bindings.rs`.
+//! Commands that move the cursors: by character and line, and to the ends of
+//! lines and the buffer (ADR 0040).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -9,13 +8,12 @@
 //! After each command the dispatcher scrolls the window to keep its cursor
 //! in view (`Editor::follow_cursor`).
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Registry};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
 use oso_core::display_map::DisplaySnapshot;
 use oso_core::motion::{self, Edge};
 use oso_core::selection::Selection;
-use oso_core::window;
 
-/// Every command, in the order `M-x` and the command reference list them.
+/// The motion commands.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "forward-char",
@@ -65,45 +63,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Count,
         run: end_of_buffer,
     },
-    Command {
-        name: "scroll-up-command",
-        doc: "Scroll the text up by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (down if N is negative). Point moves to the top line if it would leave the window. When the end of the buffer cannot scroll further up, signal \"End of buffer\".",
-        args: ArgSpec::Count,
-        run: scroll_up_command,
-    },
-    Command {
-        name: "scroll-down-command",
-        doc: "Scroll the text down by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (up if N is negative). Point moves to the bottom line if it would leave the window. At the start of the buffer, signal \"Beginning of buffer\".",
-        args: ArgSpec::Count,
-        run: scroll_down_command,
-    },
-    Command {
-        name: "keyboard-quit",
-        doc: "Cancel what is in progress.\n\nCancelling a pending prefix key is handled by the key resolver.",
-        args: ArgSpec::None,
-        run: keyboard_quit,
-    },
-    Command {
-        name: "save-buffers-kill-terminal",
-        doc: "Exit oso.\n\nNothing can be unsaved yet; asking to save buffers comes with editing.",
-        args: ArgSpec::None,
-        run: save_buffers_kill_terminal,
-    },
 ];
-
-/// A registry with every command in [`COMMANDS`].
-///
-/// # Panics
-///
-/// If a command is registered twice or lacks a docstring. The tests build
-/// this registry, so such a mistake cannot ship.
-pub fn registry() -> Registry {
-    let mut registry = Registry::new();
-    if let Err(e) = registry.register_all(COMMANDS) {
-        panic!("{e}");
-    }
-    registry
-}
 
 /// Moves every cursor of the selected window with `motion`. Asks for a
 /// redraw if a cursor moved, and fails with the first buffer edge a cursor
@@ -190,88 +150,10 @@ fn end_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     })
 }
 
-/// Scrolls the selected window by `lines` (the text up, toward the end, if
-/// positive), as Emacs's `scroll-up` does. Cursors that would leave the
-/// window move to the start of its nearest row.
-fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
-    let (window, buffer) = ctx.editor.current_mut();
-    let display = buffer.display();
-    let row_count = display.row_count();
-    let top = if lines >= 0 {
-        window::scroll_up(window.scroll().top, row_count, lines.unsigned_abs())
-    } else {
-        window::scroll_down(window.scroll().top, lines.unsigned_abs())
-    }
-    .map_err(|edge| CommandError::new(edge.message()))?;
-    if window.set_top(top, &display) {
-        ctx.request_redraw();
-    }
-    Ok(())
-}
-
-/// The lines `C-v` and `M-v` scroll: the numeric argument, or a screen
-/// less the context lines.
-fn screen_or_count(ctx: &Ctx<'_>, args: Args) -> isize {
-    args.prefix().unwrap_or_else(|| {
-        let lines = window::screen_lines(ctx.editor.window().size());
-        isize::try_from(lines).unwrap_or(isize::MAX)
-    })
-}
-
-fn scroll_up_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    let lines = screen_or_count(ctx, args);
-    scroll(ctx, lines)
-}
-
-fn scroll_down_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    let lines = screen_or_count(ctx, args);
-    scroll(ctx, lines.saturating_neg())
-}
-
-fn keyboard_quit(_: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    // The echo area (M2) shows "Quit"; deactivating the mark comes with it.
-    log::debug!("Quit");
-    Ok(())
-}
-
-fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ctx.request_exit();
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{COMMANDS, registry};
-    use oso_core::buffer::Buffer;
-    use oso_core::command::{Args, Ctx, Effects, ExecuteError};
-    use oso_core::editor::Editor;
-    use oso_core::window::ViewSize;
-
-    fn editor(text: &str) -> Editor {
-        let mut editor = Editor::with_buffer(Buffer::from_text("test", text));
-        editor.set_view_size(ViewSize::new(10, 40));
-        editor
-    }
-
-    fn run(editor: &mut Editor, name: &str, args: Args) -> (Result<(), String>, Effects) {
-        let registry = registry();
-        let id = registry.lookup(name).unwrap();
-        let mut ctx = Ctx::new(editor);
-        let result = registry.execute(id, &mut ctx, args).map_err(|e| match e {
-            ExecuteError::Failed { error, .. } => error.message().to_owned(),
-            other => panic!("{other}"),
-        });
-        (result, ctx.effects())
-    }
-
-    fn cursor(editor: &Editor) -> usize {
-        editor.window().selections.primary().cursor
-    }
-
-    #[test]
-    fn every_command_registers() {
-        assert_eq!(registry().iter().len(), COMMANDS.len());
-    }
+    use crate::commands::tests::{cursor, editor, run};
+    use oso_core::command::{Args, Effects};
 
     #[test]
     fn char_motion_moves_by_cluster_and_redraws() {
@@ -340,57 +222,5 @@ mod tests {
         assert_eq!(cursor(&editor), 16, "the line after the middle");
         let _ = run(&mut editor, "end-of-buffer", Args::numeric(10));
         assert_eq!(cursor(&editor), 4, "the line after the start");
-    }
-
-    #[test]
-    fn screens_scroll_and_move_the_cursor_into_view() {
-        let text: String = (0..30).map(|i| format!("{i:02}\n")).collect();
-        let mut editor = editor(&text);
-        let (result, effects) = run(&mut editor, "scroll-up-command", Args::NONE);
-        assert!(result.is_ok() && effects.redraw);
-        assert_eq!(editor.window().scroll().top, 8);
-        assert_eq!(cursor(&editor), 8 * 3, "start of the new top row");
-        let _ = run(&mut editor, "scroll-up-command", Args::numeric(3));
-        assert_eq!(editor.window().scroll().top, 11);
-        let _ = run(&mut editor, "scroll-down-command", Args::NONE);
-        assert_eq!(editor.window().scroll().top, 3);
-        assert_eq!(cursor(&editor), 11 * 3, "still in view");
-        let _ = run(&mut editor, "scroll-down-command", Args::NONE);
-        assert_eq!(editor.window().scroll().top, 0);
-        assert_eq!(cursor(&editor), 9 * 3, "start of the new bottom row");
-        assert_eq!(
-            run(&mut editor, "scroll-down-command", Args::NONE),
-            (Err("Beginning of buffer".into()), Effects::default())
-        );
-        assert_eq!(
-            run(&mut editor, "scroll-up-command", Args::numeric(-1)).0,
-            Err("Beginning of buffer".into()),
-            "a negative count scrolls the other way"
-        );
-        for _ in 0..3 {
-            let _ = run(&mut editor, "scroll-up-command", Args::NONE);
-        }
-        assert_eq!(editor.window().scroll().top, 24);
-        assert_eq!(
-            run(&mut editor, "scroll-up-command", Args::NONE),
-            (Err("End of buffer".into()), Effects::default())
-        );
-    }
-
-    #[test]
-    fn keyboard_quit_changes_nothing() {
-        let mut editor = editor("");
-        assert_eq!(
-            run(&mut editor, "keyboard-quit", Args::NONE),
-            (Ok(()), Effects::default())
-        );
-    }
-
-    #[test]
-    fn save_buffers_kill_terminal_exits() {
-        let mut editor = editor("");
-        let (_, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
-        assert!(effects.exit);
-        assert!(!effects.redraw);
     }
 }

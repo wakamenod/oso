@@ -165,9 +165,9 @@ mod grid_tests;
 #[cfg(test)]
 mod tests {
     use super::Dispatcher;
-    use crate::commands::COMMANDS;
+    use crate::commands;
     use oso_core::buffer::Buffer;
-    use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Effects, Registry};
+    use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Effects};
     use oso_core::display_map::DisplayPoint;
     use oso_core::editor::Editor;
     use oso_core::key::KeySequence;
@@ -391,8 +391,7 @@ mod tests {
 
     #[test]
     fn a_panicking_command_does_not_stop_the_editor() {
-        let mut registry = Registry::new();
-        registry.register_all(COMMANDS).unwrap();
+        let mut registry = commands::registry();
         registry
             .register(Command {
                 name: "explode",
