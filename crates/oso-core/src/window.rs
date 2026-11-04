@@ -63,7 +63,7 @@ pub struct Window {
     /// The cursors.
     pub selections: SelectionSet,
     /// What the window shows.
-    pub scroll: Scroll,
+    scroll: Scroll,
     size: ViewSize,
 }
 
@@ -98,6 +98,33 @@ impl Window {
 
     pub(crate) fn set_size(&mut self, size: ViewSize) {
         self.size = size;
+    }
+
+    /// What the window shows.
+    pub fn scroll(&self) -> Scroll {
+        self.scroll
+    }
+
+    /// Moves the view and leaves every cursor where it is, for following the
+    /// cursor. Anything that moves the view on its own uses [`Window::set_top`].
+    pub(crate) fn set_scroll(&mut self, scroll: Scroll) {
+        self.scroll = scroll;
+    }
+
+    /// Puts back cursors and a view that were saved together. The top row stays
+    /// within the buffer, which may have changed since. The cursor may end up out
+    /// of view, so `Editor::restore_positions` follows it afterwards.
+    pub(crate) fn restore_positions(
+        &mut self,
+        selections: SelectionSet,
+        scroll: Scroll,
+        display: &DisplaySnapshot,
+    ) {
+        self.selections = selections;
+        self.scroll = Scroll {
+            top: scroll.top.min(display.row_count().saturating_sub(1)),
+            left: scroll.left,
+        };
     }
 
     /// The cursor a frame draws, and the view follows: the primary one.
@@ -327,6 +354,23 @@ mod tests {
         assert!(window.set_top(0, &display));
         assert_eq!(window.selections.primary().cursor, 8 * 3);
         assert!(!window.set_top(0, &display));
+    }
+
+    #[test]
+    fn restoring_positions_keeps_the_cursors_and_the_top_row_in_the_buffer() {
+        use crate::display_map::{DisplayMap, TabWidth};
+        let text: String = (0..30).map(|i| format!("{i:02}\n")).collect();
+        let display = DisplayMap::new(&crate::rope::Rope::from(text.as_str()), TabWidth::default())
+            .snapshot();
+        let mut window = Window::new(BufferId(0));
+        window.set_size(SIZE);
+        let scroll = Scroll { top: 20, left: 3 };
+        window.restore_positions(SelectionSet::new(5), scroll, &display);
+        assert_eq!(window.scroll(), scroll);
+        assert_eq!(window.selections.primary().cursor, 5, "out of view is kept");
+        let past_the_end = Scroll { top: 99, left: 3 };
+        window.restore_positions(SelectionSet::new(5), past_the_end, &display);
+        assert_eq!(window.scroll(), Scroll { top: 30, left: 3 });
     }
 
     #[test]
