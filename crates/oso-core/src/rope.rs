@@ -175,7 +175,7 @@ impl fmt::Display for Rope {
 
 impl fmt::Debug for Rope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list().entries(self.chunks()).finish()
+        write!(f, "Rope({} bytes)", self.len()) // Never the text: it could reach a log.
     }
 }
 
@@ -829,6 +829,11 @@ pub(crate) mod tests {
             offset -= 1;
         }
         offset
+    }
+
+    #[test]
+    fn debug_shows_the_length_and_not_the_text() {
+        assert_eq!(format!("{:?}", Rope::from("secret")), "Rope(6 bytes)");
     }
 
     /// Line starts by a naive scan.

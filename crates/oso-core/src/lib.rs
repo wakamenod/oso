@@ -23,4 +23,5 @@ pub mod rope;
 mod secret;
 pub mod selection;
 pub mod sum_tree;
+mod undo;
 pub mod window;

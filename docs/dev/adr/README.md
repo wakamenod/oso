@@ -58,6 +58,7 @@ old one's status.
 | 0049 | [End-to-end test harness](0049-end-to-end-test-harness.md) | Accepted |
 | 0050 | [Test quality checks](0050-test-quality-checks.md) | Accepted |
 | 0051 | [M2 plan: scope, safety and display decisions](0051-m2-plan-decisions.md) | Accepted |
+| 0052 | [Edit core: edits, selection mapping and undo](0052-edit-core.md) | Proposed |
 
 ## Template
 

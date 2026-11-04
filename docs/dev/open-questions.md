@@ -37,8 +37,6 @@ item notes when it must be settled.
 - Horizontal scroll extent needs the widest row, and the bidi-control
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
   summary tracks neither yet; add them when M2 needs them.
-- Large deletions free their chunks on the calling thread. Measure when M2
-  editing lands, and drop big subtrees in the background if needed.
 - A path swapped for a FIFO between the loader's check and its open blocks
   the loading thread (not the UI). Opening with `O_NONBLOCK` closes this
   and needs `libc` behind an `oso-platform` filesystem helper.
@@ -78,6 +76,27 @@ item notes when it must be settled.
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
+- Large deletions free part of their trees on the UI thread
+  ([ADR 0052](adr/0052-edit-core.md)). Killing 89 MB of a 100 MB buffer takes about
+  1.2 ms, nearly all of it freeing the old display map's items. Its text stays in the
+  undo group until the history drops it, on the edit that passes the 64 MiB bound, which
+  takes about 2.5 ms (one early run took 17.6 ms, not seen again). Undoing an 89 MB paste
+  and then typing frees the redo group in the same way, in 2.4 ms. These scale with the
+  text: about 25 ms per GB. Decide before M2-14, which brings kills, whether to send
+  dropped groups to the background thread above.
+- Undoing a kill puts its text back at about 0.7 ms per MB (63 ms for 89 MB) on the UI
+  thread, and for a moment holds several copies of it, since the slice is copied, split
+  into chunks and measured again. Running out of memory aborts with no emergency save.
+  Redoing takes 1.4 ms. Sharing the slice's chunks with the rope, and keeping display items
+  with the undo group, would make it O(log n). Decide before M2-14. `rope.rs` is at its
+  size limit, so sharing needs room there.
+- Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
+  budget by itself. Applying a batch of splices in one tree pass instead of one
+  `Rope::replace` each is the next step. Do that or cap the cursors before M2-21.
+- Every window showing a buffer clips all its cursors after each edit, though only those
+  in the edited chunks can change. Limit it to those before splits (M3) bring more windows.
+- `Editor::message` has no cap on a message's length. Add one with its first callers
+  (M2-7).
 
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.

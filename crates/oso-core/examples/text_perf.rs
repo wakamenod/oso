@@ -13,8 +13,11 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
+use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::{DisplayMap, DisplayPoint, TabWidth};
+use oso_core::editor::Editor;
 use oso_core::rope::{Point, Rope};
+use oso_core::selection::{Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
 
 const MB: usize = 1024 * 1024;
@@ -100,6 +103,166 @@ fn edit_costs(name: &str, mut rope: Rope, map: &mut DisplayMap, rng: &mut Lcg) {
         samples[samples.len() * 99 / 100]
     );
     drop(snapshot);
+}
+
+/// An editor showing `text`, with `cursors` cursors spread over it.
+fn editor_with_cursors(text: &str, cursors: usize) -> Editor {
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", text));
+    let stride = text.len() / cursors;
+    let parts = (0..cursors)
+        .map(|index| Selection::at(floor_boundary(text, index * stride)))
+        .collect();
+    editor.current_mut().0.selections =
+        SelectionSet::from_parts(parts, 0).expect("there is a cursor");
+    editor
+}
+
+/// One command that types "x" at every cursor, as the dispatcher will run it.
+fn type_at_cursors(editor: &mut Editor, join: bool) {
+    let id = editor.window().buffer();
+    let edits: Vec<_> = editor
+        .window()
+        .selections
+        .iter()
+        .map(|selection| Replacement {
+            range: selection.cursor..selection.cursor,
+            text: "x",
+        })
+        .collect();
+    editor.begin_undo_group();
+    if join {
+        editor.allow_undo_join();
+    }
+    editor
+        .apply_edits(id, &edits)
+        .expect("the buffer is editable");
+    editor.end_undo_group();
+}
+
+fn percentiles(samples: &mut [Duration]) -> (Duration, Duration) {
+    samples.sort();
+    (
+        samples[samples.len() / 2],
+        samples[samples.len() * 99 / 100],
+    )
+}
+
+/// p50 and p99 of a self-insert at each of `cursors` scattered cursors, and of
+/// undoing a command that typed at them, through the [`Editor`].
+fn typing_costs(label: &str, text: &str, cursors: usize) {
+    let commands = (20_000 / cursors).clamp(200, 10_000);
+    let mut editor = editor_with_cursors(text, cursors);
+    let mut typed = Vec::with_capacity(commands);
+    for _ in 0..commands {
+        let start = Instant::now();
+        type_at_cursors(&mut editor, true);
+        typed.push(start.elapsed());
+    }
+    let mut editor = editor_with_cursors(text, cursors);
+    for _ in 0..commands {
+        type_at_cursors(&mut editor, false);
+    }
+    let mut undone = Vec::with_capacity(commands);
+    for _ in 0..commands {
+        let start = Instant::now();
+        editor.undo().expect("a command to undo");
+        undone.push(start.elapsed());
+    }
+    let (typed_50, typed_99) = percentiles(&mut typed);
+    let (undone_50, undone_99) = percentiles(&mut undone);
+    println!(
+        "{label:<12} {cursors:>5} cursors  type p50 {typed_50:>9.2?} p99 {typed_99:>9.2?}   undo p50 {undone_50:>9.2?} p99 {undone_99:>9.2?}"
+    );
+}
+
+/// Killing `killed` bytes of `text`, undoing and redoing it, and what freeing
+/// the kill's trees costs when the history drops them on the next edit.
+fn large_deletion_costs(text: &str, killed: usize) {
+    let start = floor_boundary(text, (text.len() - killed) / 2);
+    let end = floor_boundary(text, start + killed);
+    let label = format!("{} MB of {} MB", (end - start) / MB, text.len() / MB);
+    let kill = [Replacement {
+        range: start..end,
+        text: "",
+    }];
+    let next = [Replacement {
+        range: 0..0,
+        text: "x",
+    }];
+
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", text));
+    let id = editor.window().buffer();
+    let (result, killing) = time(|| editor.apply_edits(id, &kill));
+    result.expect("the buffer is editable");
+    let (result, evicting) = time(|| editor.apply_edits(id, &next));
+    result.expect("the buffer is editable");
+    println!("{label:<20} kill {killing:>9.2?}  next edit {evicting:>9.2?}");
+
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", text));
+    let id = editor.window().buffer();
+    editor
+        .apply_edits(id, &kill)
+        .expect("the buffer is editable");
+    let (result, undo) = time(|| editor.undo());
+    result.expect("the kill to undo");
+    let (result, redo) = time(|| editor.redo());
+    result.expect("the kill to redo");
+    let (result, evicting) = time(|| editor.apply_edits(id, &next));
+    result.expect("the buffer is editable");
+    let (_, dropped) = time(|| drop(editor));
+    println!(
+        "{label:<20} undo {undo:>9.2?}  redo {redo:>9.2?}  next edit {evicting:>9.2?}  drop the editor {dropped:>9.2?}"
+    );
+}
+
+/// Pasting `text` into a small buffer, undoing it, then typing, which discards
+/// the redo group and frees the paste.
+fn undone_paste_costs(text: &str) {
+    let mut editor = Editor::with_buffer(Buffer::from_text("file", "start"));
+    let id = editor.window().buffer();
+    let paste = [Replacement { range: 0..0, text }];
+    let (result, pasting) = time(|| editor.apply_edits(id, &paste));
+    result.expect("the buffer is editable");
+    let (result, undo) = time(|| editor.undo());
+    result.expect("the paste to undo");
+    let next = [Replacement {
+        range: 0..0,
+        text: "x",
+    }];
+    let (result, typing) = time(|| editor.apply_edits(id, &next));
+    result.expect("the buffer is editable");
+    println!(
+        "{:>3} MB  paste {pasting:>9.2?}  undo {undo:>9.2?}  type, dropping the redo {typing:>9.2?}",
+        text.len() / MB
+    );
+}
+
+/// The parts of a large deletion, and what freeing a killed region costs alone.
+fn large_deletion_parts(text: &str, killed: usize) {
+    let start = floor_boundary(text, (text.len() - killed) / 2);
+    let end = floor_boundary(text, start + killed);
+    let label = format!("{} MB of {} MB", (end - start) / MB, text.len() / MB);
+    let mut rope = Rope::from(text);
+    let mut map = DisplayMap::new(&rope, TabWidth::default());
+    let (slice, sliced) = time(|| rope.slice(start..end));
+    let mut old_rope = rope.clone();
+    let mut old_map = map.clone();
+    let (edit, deleted) = time(|| rope.delete(start..end));
+    let (_, synced) = time(|| map.sync(&rope, &edit));
+    // The old display map's items of the region go at once; the rope's stay
+    // alive through the slice, until the history drops it.
+    let (_, old_map_freed) = time(|| drop(old_map_slot(&mut old_map)));
+    let (_, old_rope_freed) = time(|| drop(std::mem::take(&mut old_rope)));
+    let (_, slice_freed) = time(|| drop(slice));
+    println!(
+        "{label:<20} slice {sliced:>8.2?}  delete {deleted:>8.2?}  sync {synced:>8.2?}  free: \
+         old display {old_map_freed:>8.2?}  old rope {old_rope_freed:>8.2?}  slice {slice_freed:>8.2?}"
+    );
+}
+
+/// Lets `std::mem::take` free the old display map as the buffer's swap does.
+fn old_map_slot(map: &mut DisplayMap) -> DisplayMap {
+    std::mem::replace(map, DisplayMap::new(&Rope::new(), TabWidth::default()))
 }
 
 #[expect(
@@ -216,6 +379,31 @@ fn main() {
     let (_, synced) = time(|| map.sync(&target, &edit));
     println!("10 MB paste into 100 MB     {elapsed:>10.2?} + sync {synced:.2?}");
     drop((target, map));
+
+    println!();
+    println!("== Typing through the Editor: self-insert, and undo");
+    typing_costs("1 MB file", &text[..floor_boundary(&text, MB)], 1);
+    for cursors in [1, 10, 100, 1000] {
+        typing_costs("100 MB file", &text, cursors);
+    }
+    typing_costs("10 MB line", &line, 1);
+    typing_costs("10 MB line", &line, 100);
+
+    println!();
+    println!("== Large deletions through the Editor");
+    for (size, killed) in [(10 * MB, 9 * MB), (100 * MB, 50 * MB), (100 * MB, 90 * MB)] {
+        large_deletion_costs(&text[..floor_boundary(&text, size)], killed);
+    }
+    println!();
+    println!("== Undoing a paste, then typing");
+    for size in [10 * MB, 90 * MB] {
+        undone_paste_costs(&text[..floor_boundary(&text, size)]);
+    }
+    println!();
+    println!("== Large deletions, part by part");
+    for (size, killed) in [(10 * MB, 9 * MB), (100 * MB, 90 * MB)] {
+        large_deletion_parts(&text[..floor_boundary(&text, size)], killed);
+    }
 
     println!();
     println!("== Adversarial text: building at 1 MB and 10 MB (should scale ~10x)");

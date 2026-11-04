@@ -7,14 +7,27 @@
 //! A file buffer starts empty and read-only, and fills in as the loading
 //! thread hands over snapshots ([`Buffer::apply_load`]). Buffers with
 //! invalid UTF-8, and binary files, stay read-only and can never be saved.
+//!
+//! Edits are atomic (ADR 0052). They are made on clones of the rope and the
+//! display map, both O(1) to clone, and committed by moves that cannot panic.
+//! A panic in a command leaves a buffer before the edit or after it. The editor
+//! maps cursors between the two steps, since a buffer does not know its windows.
 
+use std::borrow::Cow;
+use std::fmt;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::slice;
 
 use crate::decode::{FileInfo, InvalidBytes};
 use crate::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
 use crate::load::{self, LoadSnapshot, Progress};
-use crate::rope::Rope;
+use crate::rope::{Rope, RopeEdit};
 use crate::secret;
+use crate::selection::{OffsetEdit, SelectionSet};
+use crate::sum_tree::Bias;
+pub use crate::undo::ContentId;
+use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -50,6 +63,191 @@ impl ReadOnly {
     }
 }
 
+/// One replacement: the bytes in `range` become `text`.
+///
+/// `range` is clamped as in [`Rope::replace`]: to the text, to character
+/// starts, and a reversed range becomes empty at its start. It has no `Debug`,
+/// so that its text cannot reach a log.
+#[derive(Clone)]
+pub struct Replacement<'a> {
+    pub range: Range<usize>,
+    pub text: &'a str,
+}
+
+/// Why an edit, an undo or a redo did nothing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EditError {
+    /// The buffer cannot be edited, for this reason.
+    ReadOnly(ReadOnly),
+    /// No buffer has the id.
+    NoSuchBuffer,
+    /// The history has nothing more to undo.
+    NoUndo,
+    /// The history has nothing more to redo.
+    NoRedo,
+}
+
+impl fmt::Display for EditError {
+    /// The message Emacs shows, which never quotes the text.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::ReadOnly(_) => "Buffer is read-only",
+            Self::NoSuchBuffer => "No such buffer",
+            Self::NoUndo => "No further undo information",
+            Self::NoRedo => "No further redo information",
+        })
+    }
+}
+
+impl std::error::Error for EditError {}
+
+/// The new text of a [`Splice`]: borrowed for an edit, a rope for undo and redo.
+trait SpliceText {
+    fn byte_len(&self) -> usize;
+    /// Replaces `range` of `rope` with this text.
+    fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit;
+}
+
+impl SpliceText for Cow<'_, str> {
+    fn byte_len(&self) -> usize {
+        self.len()
+    }
+
+    fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit {
+        rope.replace(range, self)
+    }
+}
+
+impl SpliceText for Rope {
+    fn byte_len(&self) -> usize {
+        self.len()
+    }
+
+    fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit {
+        rope.replace(range, &self.to_string())
+    }
+}
+
+fn offset_edit<T: SpliceText>(splice: &Splice<T>) -> OffsetEdit {
+    OffsetEdit {
+        start: splice.start,
+        old_len: splice.len,
+        new_len: splice.text.byte_len(),
+    }
+}
+
+/// An edit made on clones, not yet in the buffer. Dropping it changes nothing.
+pub(crate) struct StagedEdit {
+    text: Rope,
+    display: DisplayMap,
+    edits: Vec<OffsetEdit>,
+    undo: Batch,
+}
+
+impl StagedEdit {
+    pub(crate) fn display(&self) -> DisplaySnapshot {
+        self.display.snapshot()
+    }
+
+    /// What cursors follow, batch by batch.
+    pub(crate) fn steps(&self) -> &[Vec<OffsetEdit>] {
+        slice::from_ref(&self.edits)
+    }
+}
+
+/// An undo or a redo made on clones, not yet in the buffer.
+pub(crate) struct StagedCrossing {
+    text: Rope,
+    display: DisplayMap,
+    steps: Vec<Vec<OffsetEdit>>,
+    direction: Direction,
+    crossed: Group,
+}
+
+impl StagedCrossing {
+    pub(crate) fn display(&self) -> DisplaySnapshot {
+        self.display.snapshot()
+    }
+
+    /// What cursors follow, batch by batch.
+    pub(crate) fn steps(&self) -> &[Vec<OffsetEdit>] {
+        &self.steps
+    }
+
+    /// The cursors of the state this returns to, if the group has them.
+    pub(crate) fn selections(&self) -> Option<&SelectionSet> {
+        self.crossed.source.selections.as_ref()
+    }
+}
+
+/// Clamps `edits`, drops empty ones, sorts them and merges those
+/// that overlap, so that the result is one batch. Ranges that overlap, and
+/// insertions at one offset, become their union, replaced by their texts joined
+/// in offset order. Edits with one start keep their given order. Ranges that
+/// only touch stay apart.
+fn normalized<'a>(text: &Rope, edits: &[Replacement<'a>]) -> Vec<Splice<Cow<'a, str>>> {
+    let mut sorted: Vec<Splice<Cow<'a, str>>> = edits
+        .iter()
+        .map(|edit| {
+            let start = text.clip_offset(edit.range.start, Bias::Left);
+            let end = text.clip_offset(edit.range.end, Bias::Left).max(start);
+            Splice {
+                start,
+                len: end - start,
+                text: Cow::Borrowed(edit.text),
+            }
+        })
+        .filter(|splice| splice.len > 0 || !splice.text.is_empty())
+        .collect();
+    sorted.sort_by_key(|splice| (splice.start, splice.start + splice.len));
+    sorted.dedup_by(|next, last| {
+        let merges = overlap(last, next);
+        if merges {
+            let end = (last.start + last.len).max(next.start + next.len);
+            last.len = end - last.start;
+            last.text.to_mut().push_str(&next.text);
+        }
+        merges
+    });
+    sorted
+}
+
+/// Whether `next`, which does not start before `last`, overlaps it.
+fn overlap<T>(last: &Splice<T>, next: &Splice<T>) -> bool {
+    next.start < last.start + last.len
+        || (last.len == 0 && next.len == 0 && last.start == next.start)
+}
+
+/// Applies one batch to `text` and `display`, in descending offset order so
+/// that each splice leaves the offsets below it valid. Returns the batch that
+/// undoes it.
+fn apply<T: SpliceText>(splices: &[Splice<T>], text: &mut Rope, display: &mut DisplayMap) -> Batch {
+    let mut undo: Batch = Vec::with_capacity(splices.len());
+    // What the splices below the current one take, before and after them.
+    let mut old_below: usize = splices.iter().map(|splice| splice.len).sum();
+    let mut new_below: usize = splices.iter().map(|s| s.text.byte_len()).sum();
+    for splice in splices.iter().rev() {
+        let new_len = splice.text.byte_len();
+        old_below -= splice.len;
+        new_below -= new_len;
+        let range = splice.start..splice.start + splice.len;
+        let removed = if range.is_empty() {
+            Rope::new()
+        } else {
+            text.slice(range.clone())
+        };
+        let edit = splice.text.replace_in(text, range);
+        display.sync(text, &edit);
+        undo.push(Splice {
+            start: splice.start - old_below + new_below,
+            len: new_len,
+            text: removed,
+        });
+    }
+    undo.reverse();
+    undo
+}
+
 /// A buffer: text, its display model, and where it came from.
 pub struct Buffer {
     name: String,
@@ -65,6 +263,14 @@ pub struct Buffer {
     /// The file may hold secrets (ADR 0044). True from the moment a file is
     /// visited until the host knows better.
     secret: bool,
+    /// The state of the content now.
+    content: ContentId,
+    /// The state the file on disk has.
+    saved: ContentId,
+    /// The number of the next new content id.
+    next_content: u64,
+    /// Undo and redo.
+    history: History,
 }
 
 impl Buffer {
@@ -85,6 +291,10 @@ impl Buffer {
             loading: None,
             revision: 0,
             secret: false,
+            content: ContentId(0),
+            saved: ContentId(0),
+            next_content: 1,
+            history: History::default(),
         }
     }
 
@@ -122,6 +332,9 @@ impl Buffer {
         self.info = snapshot.info;
         self.loading = (!snapshot.done).then_some(snapshot.progress);
         self.revision += 1;
+        self.content = self.new_content();
+        self.saved = self.content;
+        self.history.clear();
     }
 
     /// Ends loading with no content, for a file that does not exist yet.
@@ -151,6 +364,138 @@ impl Buffer {
     /// it (shaped rows) know when to check it again.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// The state of the content now. A safe save reads this with the text it
+    /// writes, and gives it to [`Buffer::mark_saved`] when the write is done.
+    pub fn content_id(&self) -> ContentId {
+        self.content
+    }
+
+    /// Records that the file on disk now holds the state `id`. Edits made
+    /// since that state leave the buffer modified.
+    pub fn mark_saved(&mut self, id: ContentId) {
+        self.saved = id;
+    }
+
+    /// Whether the content differs from the state last saved. Undoing back to
+    /// that state makes the buffer unmodified again. If the history no longer
+    /// reaches it, the buffer stays modified until it is saved.
+    pub fn is_modified(&self) -> bool {
+        self.content != self.saved
+    }
+
+    fn new_content(&mut self) -> ContentId {
+        let id = ContentId(self.next_content);
+        self.next_content += 1;
+        id
+    }
+
+    /// Makes `edits` on clones, unless the buffer is read-only. `None` if all
+    /// are empty.
+    pub(crate) fn stage_edits(
+        &self,
+        edits: &[Replacement<'_>],
+    ) -> Result<Option<StagedEdit>, EditError> {
+        if let Some(reason) = self.read_only() {
+            return Err(EditError::ReadOnly(reason));
+        }
+        let splices = normalized(&self.text, edits);
+        Ok((!splices.is_empty()).then(|| self.stage_splices(&splices)))
+    }
+
+    fn stage_splices<T: SpliceText>(&self, splices: &[Splice<T>]) -> StagedEdit {
+        let mut text = self.text.clone();
+        let mut display = self.display.clone();
+        let undo = apply(splices, &mut text, &mut display);
+        StagedEdit {
+            text,
+            display,
+            edits: splices.iter().map(offset_edit).collect(),
+            undo,
+        }
+    }
+
+    /// Puts a staged edit in the buffer, with its undo record and the cursors
+    /// `after` it. Nothing here can panic part way.
+    pub(crate) fn commit_edit(
+        &mut self,
+        staged: StagedEdit,
+        opening: Opening,
+        after: Option<SelectionSet>,
+    ) {
+        let before = self.content;
+        self.content = self.new_content();
+        self.text = staged.text;
+        self.display = staged.display;
+        self.revision += 1;
+        let after = Side {
+            content: self.content,
+            selections: after,
+        };
+        self.history.record(staged.undo, opening, before, after);
+    }
+
+    /// The group the next undo or redo crosses, if the buffer allows one.
+    pub(crate) fn next_crossing(&self, direction: Direction) -> Result<&Group, EditError> {
+        if let Some(reason) = self.read_only() {
+            return Err(EditError::ReadOnly(reason));
+        }
+        self.history.next(direction).ok_or(match direction {
+            Direction::Undo => EditError::NoUndo,
+            Direction::Redo => EditError::NoRedo,
+        })
+    }
+
+    /// Makes the next undo or redo on clones, if there is one.
+    pub(crate) fn stage_crossing(&self, direction: Direction) -> Result<StagedCrossing, EditError> {
+        let group = self.next_crossing(direction)?;
+        let mut text = self.text.clone();
+        let mut display = self.display.clone();
+        let mut steps = Vec::with_capacity(group.batches.len());
+        let mut batches = Vec::with_capacity(group.batches.len());
+        for batch in group.batches.iter().rev() {
+            steps.push(batch.iter().map(offset_edit).collect());
+            batches.push(apply(batch, &mut text, &mut display));
+        }
+        Ok(StagedCrossing {
+            text,
+            display,
+            steps,
+            direction,
+            crossed: group.crossed(batches),
+        })
+    }
+
+    /// Puts a staged undo or redo in the buffer, and restores the content id
+    /// of the state it returns to.
+    pub(crate) fn commit_crossing(&mut self, staged: StagedCrossing) {
+        self.content = staged.crossed.source.content;
+        self.text = staged.text;
+        self.display = staged.display;
+        self.revision += 1;
+        self.history.cross(staged.direction, staged.crossed);
+    }
+
+    /// Whether a command that starts with cursors `selections` may join the
+    /// newest undo group.
+    pub(crate) fn can_join_undo(&self, selections: Option<&SelectionSet>) -> bool {
+        self.history.can_join(self.content, selections)
+    }
+
+    /// Sets the cursors the newest undo group ends with.
+    pub(crate) fn set_undo_after(&mut self, selections: SelectionSet) {
+        self.history.set_after(selections);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_undo_limit(&mut self, limit: usize) {
+        self.history = History::new(limit);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn undo_lens(&self) -> (usize, usize) {
+        self.history.lens()
     }
 
     /// The buffer's name, such as `main.rs` or `*scratch*`.
@@ -290,6 +635,279 @@ mod tests {
         let mut named = Buffer::visiting(PathBuf::from("/tmp/.env"));
         named.judge_secret(Some(&[plain]));
         assert!(named.is_secret(), "named like a secret, whatever it is");
+    }
+
+    fn edit(range: Range<usize>, text: &str) -> Replacement<'_> {
+        Replacement { range, text }
+    }
+
+    /// `edits` normalized against `text`, as `(start, len, text)`.
+    fn batch(text: &str, edits: &[Replacement<'_>]) -> Vec<(usize, usize, String)> {
+        normalized(&Rope::from(text), edits)
+            .into_iter()
+            .map(|splice| (splice.start, splice.len, splice.text.into_owned()))
+            .collect()
+    }
+
+    fn one(start: usize, len: usize, text: &str) -> (usize, usize, String) {
+        (start, len, text.to_owned())
+    }
+
+    #[test]
+    fn edits_are_sorted_and_clamped() {
+        assert_eq!(
+            batch("abcdef", &[edit(4..5, "x"), edit(1..2, "y")]),
+            [one(1, 1, "y"), one(4, 1, "x")]
+        );
+        assert_eq!(batch("abc", &[edit(2..99, "x")]), [one(2, 1, "x")], "past");
+        assert_eq!(batch("abc", &[edit(99..99, "x")]), [one(3, 0, "x")]);
+        assert_eq!(
+            batch("abc", &[edit(usize::MAX..usize::MAX, "x")]),
+            [one(3, 0, "x")]
+        );
+        assert_eq!(batch("abc", &[edit(0..usize::MAX, "x")]), [one(0, 3, "x")]);
+        #[expect(clippy::reversed_empty_ranges, reason = "what the test is about")]
+        let reversed = edit(2..1, "x");
+        assert_eq!(batch("abc", &[reversed]), [one(2, 0, "x")], "reversed");
+        #[expect(clippy::reversed_empty_ranges, reason = "what the test is about")]
+        let reversed = edit(usize::MAX..0, "x");
+        assert_eq!(batch("abc", &[reversed]), [one(3, 0, "x")], "reversed");
+        // Inside 日, which takes bytes 1..4.
+        assert_eq!(batch("a日b", &[edit(2..3, "x")]), [one(1, 0, "x")]);
+        assert_eq!(batch("a日b", &[edit(2..4, "x")]), [one(1, 3, "x")]);
+    }
+
+    #[test]
+    fn empty_edits_are_dropped() {
+        assert_eq!(batch("abc", &[edit(1..1, "")]), []);
+        assert_eq!(batch("abc", &[edit(2..2, ""), edit(9..9, "")]), []);
+        assert_eq!(batch("abc", &[]), []);
+        // Empty once clamped: `2..3` inside 日.
+        assert_eq!(batch("a日b", &[edit(2..3, "")]), []);
+    }
+
+    #[test]
+    fn overlapping_edits_become_their_union_with_their_texts_in_order() {
+        assert_eq!(
+            batch("abcdefgh", &[edit(4..7, "2"), edit(1..5, "1")]),
+            [one(1, 6, "12")],
+            "partly"
+        );
+        assert_eq!(
+            batch("abcdefgh", &[edit(1..7, "1"), edit(3..4, "2")]),
+            [one(1, 6, "12")],
+            "one inside the other"
+        );
+        assert_eq!(
+            batch("abcdefgh", &[edit(1..7, "1"), edit(3..3, "2")]),
+            [one(1, 6, "12")],
+            "an insertion inside"
+        );
+        assert_eq!(
+            batch(
+                "abcdefgh",
+                &[edit(1..3, "a"), edit(2..5, "b"), edit(4..6, "c")]
+            ),
+            [one(1, 5, "abc")],
+            "a chain"
+        );
+        assert_eq!(
+            batch("abcdefgh", &[edit(2..2, "x"), edit(2..2, "y")]),
+            [one(2, 0, "xy")],
+            "insertions at one offset, in the order given"
+        );
+    }
+
+    #[test]
+    fn edits_that_only_touch_stay_apart() {
+        assert_eq!(
+            batch("abcdefgh", &[edit(3..5, "2"), edit(1..3, "1")]),
+            [one(1, 2, "1"), one(3, 2, "2")],
+            "end to start"
+        );
+        assert_eq!(
+            batch("abcdefgh", &[edit(1..3, "1"), edit(3..3, "2")]),
+            [one(1, 2, "1"), one(3, 0, "2")],
+            "an insertion where a range ends"
+        );
+        assert_eq!(
+            batch("abcdefgh", &[edit(3..5, "2"), edit(3..3, "1")]),
+            [one(3, 0, "1"), one(3, 2, "2")],
+            "an insertion where a range starts goes first"
+        );
+    }
+
+    /// Applies `edits` to a rope, checks the display map, and returns the
+    /// text and the batch that undoes them.
+    fn applied(text: &str, edits: &[Replacement<'_>]) -> (String, Batch) {
+        let mut rope = Rope::from(text);
+        let mut display = DisplayMap::new(&rope, TabWidth::default());
+        let undo = apply(&normalized(&rope, edits), &mut rope, &mut display);
+        let fresh = DisplayMap::new(&rope, TabWidth::default()).snapshot();
+        assert_eq!(display.snapshot().max_point(), fresh.max_point());
+        rope.check_invariants();
+        (rope.to_string(), undo)
+    }
+
+    #[test]
+    fn a_batch_reports_what_undoes_it_in_the_offsets_after_it() {
+        let (text, undo) = applied("abcdefgh", &[edit(5..7, "XXX"), edit(1..3, "")]);
+        assert_eq!(text, "adeXXXh");
+        let undo: Vec<_> = undo
+            .iter()
+            .map(|s| (s.start, s.len, s.text.to_string()))
+            .collect();
+        assert_eq!(undo, [one(1, 0, "bc"), one(3, 3, "fg")]);
+    }
+
+    #[test]
+    fn undoing_a_batch_gives_back_the_text_and_the_batch() {
+        let start = "日本語\r\ne\u{301}\tz";
+        let forward = [edit(0..3, "x"), edit(9..11, "👍"), edit(14..14, "\u{301}")];
+        let (after, undo) = applied(start, &forward);
+        let mut rope = Rope::from(after.as_str());
+        let mut display = DisplayMap::new(&rope, TabWidth::default());
+        let redo = apply(&undo, &mut rope, &mut display);
+        assert_eq!(rope.to_string(), start);
+        let again = apply(&redo, &mut rope, &mut display);
+        assert_eq!(rope.to_string(), after);
+        assert_eq!(again.len(), undo.len());
+    }
+
+    #[test]
+    fn staging_leaves_the_buffer_as_it_was_until_the_commit() {
+        let mut buffer = Buffer::from_text("t", "abc");
+        let (revision, content) = (buffer.revision(), buffer.content_id());
+        let staged = buffer.stage_edits(&[edit(1..1, "x")]).unwrap().unwrap();
+        assert_eq!(buffer.text().to_string(), "abc");
+        assert_eq!(buffer.revision(), revision);
+        assert_eq!(buffer.content_id(), content);
+        assert_eq!(buffer.undo_lens(), (0, 0));
+        assert_eq!(staged.display().max_point().column, 4);
+        assert_eq!(staged.steps().len(), 1);
+        drop(staged);
+        assert_eq!(buffer.display().max_point().column, 3);
+
+        let staged = buffer.stage_edits(&[edit(1..1, "x")]).unwrap().unwrap();
+        buffer.commit_edit(staged, Opening::New(None), None);
+        assert_eq!(buffer.text().to_string(), "axbc");
+        assert_eq!(buffer.display().max_point().column, 4);
+        assert_eq!(buffer.revision(), revision + 1);
+        assert_ne!(buffer.content_id(), content);
+        assert!(buffer.is_modified());
+        assert_eq!(buffer.undo_lens(), (1, 0));
+    }
+
+    /// Text that panics when it is put in a rope, after `good` replacements.
+    struct PanicsAfter<'a> {
+        good: &'a std::cell::Cell<usize>,
+    }
+
+    impl SpliceText for PanicsAfter<'_> {
+        fn byte_len(&self) -> usize {
+            1
+        }
+
+        fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit {
+            let good = self.good.get();
+            assert!(good > 0, "a bug part way through a batch");
+            self.good.set(good - 1);
+            rope.replace(range, "x")
+        }
+    }
+
+    #[test]
+    fn a_panic_part_way_through_a_batch_changes_nothing() {
+        let buffer = Buffer::from_text("t", "abcdef");
+        let good = std::cell::Cell::new(1);
+        let splices: Vec<_> = [1, 3, 5]
+            .map(|start| Splice {
+                start,
+                len: 1,
+                text: PanicsAfter { good: &good },
+            })
+            .into_iter()
+            .collect();
+        let staged = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            buffer.stage_splices(&splices)
+        }));
+        assert!(staged.is_err());
+        assert_eq!(good.get(), 0, "the panic came after one replacement");
+        assert_eq!(buffer.text().to_string(), "abcdef");
+        assert_eq!(buffer.display().max_point().column, 6);
+        assert_eq!(buffer.revision(), 0);
+        assert!(!buffer.is_modified());
+        assert_eq!(buffer.undo_lens(), (0, 0));
+    }
+
+    #[test]
+    fn empty_edits_stage_nothing() {
+        let buffer = Buffer::from_text("t", "abc");
+        assert!(buffer.stage_edits(&[edit(1..1, "")]).unwrap().is_none());
+        assert!(buffer.stage_edits(&[]).unwrap().is_none());
+    }
+
+    #[test]
+    fn read_only_buffers_refuse_edits_for_their_reason() {
+        let bad = Buffer::from_bytes("bad", b"a\xff");
+        let refused = |buffer: &Buffer| buffer.stage_edits(&[edit(0..0, "x")]).err();
+        assert_eq!(
+            refused(&bad),
+            Some(EditError::ReadOnly(ReadOnly::InvalidUtf8))
+        );
+        assert_eq!(
+            refused(&Buffer::from_bytes("bin", b"a\0")),
+            Some(EditError::ReadOnly(ReadOnly::Binary))
+        );
+        assert_eq!(
+            refused(&Buffer::visiting(PathBuf::from("/tmp/a"))),
+            Some(EditError::ReadOnly(ReadOnly::Loading))
+        );
+        assert_eq!(
+            bad.stage_crossing(Direction::Undo).err(),
+            Some(EditError::ReadOnly(ReadOnly::InvalidUtf8))
+        );
+    }
+
+    #[test]
+    fn a_load_is_a_new_saved_state_with_no_history() {
+        let mut buffer = Buffer::from_text("t", "abc");
+        let staged = buffer.stage_edits(&[edit(0..0, "x")]).unwrap().unwrap();
+        buffer.commit_edit(staged, Opening::New(None), None);
+        assert!(buffer.is_modified());
+        let before = buffer.content_id();
+        let mut builder = Builder::new(None, TabWidth::default());
+        builder.push(b"new");
+        builder.finish();
+        buffer.apply_load(builder.snapshot());
+        assert!(!buffer.is_modified());
+        assert_ne!(buffer.content_id(), before);
+        assert_eq!(buffer.undo_lens(), (0, 0));
+    }
+
+    #[test]
+    fn saving_marks_the_state_that_was_written() {
+        let mut buffer = Buffer::from_text("t", "abc");
+        assert!(!buffer.is_modified());
+        let staged = buffer.stage_edits(&[edit(0..0, "x")]).unwrap().unwrap();
+        buffer.commit_edit(staged, Opening::New(None), None);
+        let written = buffer.content_id();
+        // An edit while the save runs.
+        let staged = buffer.stage_edits(&[edit(0..0, "y")]).unwrap().unwrap();
+        buffer.commit_edit(staged, Opening::New(None), None);
+        buffer.mark_saved(written);
+        assert!(buffer.is_modified(), "the edit since is not on disk");
+        buffer.mark_saved(buffer.content_id());
+        assert!(!buffer.is_modified());
+    }
+
+    #[test]
+    fn errors_read_as_emacs_says_them() {
+        let read_only = EditError::ReadOnly(ReadOnly::Loading);
+        assert_eq!(read_only.to_string(), "Buffer is read-only");
+        assert_eq!(EditError::NoSuchBuffer.to_string(), "No such buffer");
+        assert_eq!(EditError::NoUndo.to_string(), "No further undo information");
+        assert_eq!(EditError::NoRedo.to_string(), "No further redo information");
     }
 
     #[test]
