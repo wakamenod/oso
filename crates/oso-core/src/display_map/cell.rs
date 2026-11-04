@@ -314,6 +314,14 @@ impl<'a> Clusters<'a> {
         clusters
     }
 
+    /// Goes on from `position`, where a cluster starts. The text before it
+    /// stays as context: where a cluster ends can depend on what comes before
+    /// its start, when an earlier part of a grapheme cluster was split out.
+    pub(crate) fn starting_at(mut self, position: usize) -> Self {
+        self.position = position;
+        self
+    }
+
     fn advance_invalid(&mut self) {
         let base = self.base;
         self.next_invalid = self
@@ -441,6 +449,11 @@ mod tests {
 
     #[test]
     fn hidden_extenders_are_split_out() {
+        assert_eq!(
+            display_clusters("日\u{e0041}"),
+            ["日", "\u{e0041}"],
+            "tag characters belong to a flag alone, not to any non-ASCII base"
+        );
         assert_eq!(
             display_clusters("a\u{e0041}\u{e0042}b"),
             ["a", "\u{e0041}", "\u{e0042}", "b"],

@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 90bf09019f43e3b9768e0c591c7aedbe05a0a6134ac38367eb3f0768b39459db # shrinks to text = "\u{7f}日本語", edits = [(1, 1, "")], tab_width = 1
 cc 949b15f91aeb606248a73dd48574f90053cddfc9da01a2899a510c511ce3ddef # shrinks to text = "日本語日本語a日本語a\r\né\r\naa👨\u{200d}👩\u{200d}👧a❤\u{fe0f}日本語aaaa", edits = [(65, 55, ""), (65, 65, "\r\naaa"), (70, 70, "❤\u{fe0f}のa"), (80, 51, "👨\u{200d}👩\u{200d}👧\u{301}"), (0, 0, ""), (0, 0, "")], tab_width = 1
+cc cccf9f91cbf887c40ebb831e56971827e747cda962b908f1e003cdce886510c5 # shrinks to text = "の\u{200b}\u{200b}の\u{85}👍a日本語\u{200b}\r\n\r\n👨\u{200d}👩\u{200d}👧aaの👍a\r\n👨\u{200d}👩\u{200d}👧", edits = [(34, 9, "のの"), (50, 0, "👍\u{e0041}\u{301}")], tab_width = 9

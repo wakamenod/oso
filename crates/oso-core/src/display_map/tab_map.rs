@@ -365,18 +365,19 @@ impl TabMap {
         let (offset, point) = self.locate(start, Bias::Left);
         let mut cursor = self.tree.cursor::<usize>();
         cursor.seek(&offset, Bias::Right);
+        let base = *cursor.start();
         let clusters = match cursor.item() {
-            Some(item) => Clusters::with_invalid(
-                &item.text[offset - *cursor.start()..],
-                offset,
-                &self.invalid,
-            ),
+            // Chunks end on grapheme cluster boundaries, so the chunk is all
+            // the context a cluster needs.
+            Some(item) => {
+                Clusters::with_invalid(&item.text, base, &self.invalid).starting_at(offset - base)
+            }
             None => Clusters::new(""),
         };
         RowClusters {
             cursor,
             clusters,
-            base: offset,
+            base,
             column: point.column,
             tab_width: self.tab_width,
             invalid: &self.invalid,
