@@ -234,7 +234,7 @@ coverage out="target/coverage/summary.md":
     out="{{out}}"
     json="$(dirname "$out")/coverage.json"
     mkdir -p "$(dirname "$out")"
-    INSTA_UPDATE=no INSTA_FORCE_PASS=0 cargo llvm-cov --locked --workspace --all-features \
+    INSTA_UPDATE=no INSTA_FORCE_PASS=0 cargo llvm-cov --no-such-flag --locked --workspace --all-features \
         --json --summary-only --output-path "$json"
     {
         echo "# Coverage"
