@@ -3,6 +3,7 @@
 //!
 //! Must not depend on: `compare`; measuring knows nothing of thresholds.
 
+use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::path::Path;
 use std::thread;
@@ -58,7 +59,9 @@ pub struct Scale {
     big_file: u64,
     open_file: u64,
     long_line: u64,
-    /// Key samples on the big files.
+    /// Runs on each big file, restarting the app.
+    big_runs: usize,
+    /// Key samples per run on the big files.
     big_keys: usize,
     /// Edits of the core text structures, per file.
     edits: usize,
@@ -67,12 +70,13 @@ pub struct Scale {
 impl Scale {
     pub const FULL: Self = Self {
         keys: 400,
-        key_runs: 3,
+        key_runs: 5,
         startups: 9,
         opens: 5,
         big_file: GB,
         open_file: 100 * MB,
         long_line: 10 * MB,
+        big_runs: 3,
         big_keys: 160,
         edits: 20_000,
     };
@@ -87,6 +91,7 @@ impl Scale {
         big_file: 20 * MB,
         open_file: 10 * MB,
         long_line: MB,
+        big_runs: 1,
         big_keys: 16,
         edits: 500,
     };
@@ -305,10 +310,14 @@ fn open_file(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> Res
     Ok(())
 }
 
-/// Keys and "typing" on a big file, while it loads and after, then edits of
-/// the same text in the core structures. Nothing inserts text in the app
-/// before M2, so typing is measured in two halves: an unbound key's trip
-/// through the UI thread, and the cost of an edit without a window.
+/// One run on a big file: its numbers, each keyed by the end of a metric name.
+type RunNumbers = Vec<(&'static str, f64)>;
+
+/// Keys and "typing" on a big file, while it loads and after, in new
+/// processes, then edits of the same text in the core structures. Nothing
+/// inserts text in the app before M2, so typing is measured in two halves: an
+/// unbound key's trip through the UI thread, and the cost of an edit without
+/// a window.
 fn big_file(
     exe: &Path,
     file: &Path,
@@ -318,9 +327,29 @@ fn big_file(
     scale: &Scale,
     report: &mut Report,
 ) -> Result<(), String> {
+    let mut metrics: BTreeMap<&str, Vec<f64>> = BTreeMap::new();
+    for run in 0..scale.big_runs {
+        for (metric, value) in big_file_run(exe, file, keys, scale, run as u64 + 1)? {
+            metrics.entry(metric).or_default().push(value);
+        }
+    }
+    for (metric, runs) in metrics {
+        report.add(&format!("{name}_{metric}"), runs);
+    }
+    edit_costs(file, name, tab, scale, report)
+}
+
+fn big_file_run(
+    exe: &Path,
+    file: &Path,
+    keys: &[&str],
+    scale: &Scale,
+    seed: u64,
+) -> Result<RunNumbers, String> {
     let mut app = App::start(exe, Some(file))?;
     app.wait_until("first frame", FRAME_TIMEOUT, has_frame)?;
-    let mut rng = Lcg(9);
+    let mut rng = Lcg(seed);
+    let mut numbers = Vec::new();
 
     // While it loads, for as long as that takes, up to the usual sample count.
     let mut loading = Vec::new();
@@ -338,25 +367,19 @@ fn big_file(
         }
     }
     if !loading.is_empty() {
-        report.add(&format!("{name}_keys_loading_max_ms"), vec![max(&loading)]);
+        numbers.push(("keys_loading_max_ms", max(&loading)));
     }
-    report.add(&format!("{name}_trip_loading_max_ms"), vec![max(&trips)]);
+    numbers.push(("trip_loading_max_ms", max(&trips)));
 
     let timings = app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
         t["load"]["done_us"].is_u64()
     })?;
-    report.add(
-        &format!("{name}_load_ms"),
-        us_to_ms(&timings["load"]["done_us"]).into_iter().collect(),
-    );
+    numbers.extend(us_to_ms(&timings["load"]["done_us"]).map(|load| ("load_ms", load)));
 
     // Loaded: scrolling.
     let samples = paced_keys(&mut app, keys, scale.big_keys, &mut rng)?;
-    report.add(
-        &format!("{name}_keys_p99_ms"),
-        vec![percentile(&samples, 99.0)],
-    );
-    report.add(&format!("{name}_keys_max_ms"), vec![max(&samples)]);
+    numbers.push(("keys_p99_ms", percentile(&samples, 99.0)));
+    numbers.push(("keys_max_ms", max(&samples)));
 
     // Loaded: "typing", as a round trip through the UI thread.
     let mut trips = Vec::with_capacity(scale.big_keys);
@@ -366,10 +389,9 @@ fn big_file(
         trips.push(started.elapsed().as_secs_f64() * 1000.0);
         thread::sleep(KEY_PACE);
     }
-    report.add(&format!("{name}_trip_max_ms"), vec![max(&trips)]);
+    numbers.push(("trip_max_ms", max(&trips)));
     app.stop();
-
-    edit_costs(file, name, tab, scale, report)
+    Ok(numbers)
 }
 
 /// One-character edits and the display map sync, while a snapshot is held, so

@@ -41,10 +41,6 @@ fn main() {
     };
 
     env_logger::init();
-    #[cfg_attr(
-        not(target_os = "macos"),
-        expect(unused_mut, reason = "only macOS has a setting here")
-    )]
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     // Building AppKit's default menu delays the first frame by about 55 ms,
     // and its Command shortcuts would clash with Command = Meta (ADR 0044).
