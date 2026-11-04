@@ -17,11 +17,11 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use oso_core::buffer::BufferId;
-use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot};
+use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot};
 use oso_core::sum_tree::Bias;
 use oso_platform::text::{ShapedGlyph, TextSystem};
 
-use crate::grid::{Grapheme, PlacedGlyph, Placer, Style};
+use crate::grid::{Grapheme, PlacedGlyph, Placer};
 
 /// The most characters of one cluster passed to the shaper: enough for
 /// the longest emoji sequences and Indic clusters. A cluster of a base and
@@ -158,55 +158,28 @@ impl Rows {
             if cluster.column >= columns.end {
                 break;
             }
-            let mut push = |text: &mut String, piece: &str, column, cells, style| {
-                self.graphemes.push(Grapheme {
-                    byte: text.len() as u32,
-                    column,
-                    cells,
-                    style,
-                });
-                text.push_str(piece);
-            };
-            let cells = u32::try_from(cluster.cells).unwrap_or(u32::MAX);
             let chars = if self.text.len() < budget {
                 MAX_CLUSTER_CHARS
             } else {
                 1
             };
-            match cluster.kind {
-                CellKind::Text => push(
-                    &mut self.text,
-                    clip_cluster(cluster.text, chars),
-                    cluster.column,
-                    cells,
-                    Style::Text,
-                ),
-                // A space keeps ligatures from forming across the tab, and
-                // draws nothing.
-                CellKind::Tab => push(&mut self.text, " ", cluster.column, cells, Style::Text),
-                CellKind::Control(_) | CellKind::Invisible(_) | CellKind::InvalidByte(_) => {
-                    let style = match cluster.kind {
-                        CellKind::Invisible(_) => {
-                            out.boxes.push((cluster.column, cluster.cells));
-                            Style::Boxed
-                        }
-                        _ => Style::Escape,
-                    };
-                    let escape = cluster.kind.escape();
-                    let label = escape.as_ref().map_or("?", |escape| escape.as_str());
-                    for (i, c) in label.char_indices() {
-                        let mut buf = [0; 4];
-                        push(
-                            &mut self.text,
-                            c.encode_utf8(&mut buf),
-                            cluster.column + i,
-                            1,
-                            style,
-                        );
+            cluster.for_each_run(|run| {
+                // One box per invisible character, across its label's runs.
+                if run.style == CellStyle::Boxed {
+                    if run.column == cluster.column {
+                        out.boxes.push((run.column, run.cells));
+                    } else if let Some((_, cells)) = out.boxes.last_mut() {
+                        *cells += run.cells;
                     }
                 }
-                CellKind::LineBreak => break,
-            }
+                self.graphemes.push(Grapheme {
+                    byte: self.text.len() as u32,
+                    column: run.column,
+                    cells: u32::try_from(run.cells).unwrap_or(u32::MAX),
+                    style: run.style,
+                });
+                self.text.push_str(clip_cluster(run.text, chars));
+            });
         }
         system.shape(&self.text, &mut self.glyphs);
         self.placer.place(
@@ -272,13 +245,22 @@ mod tests {
         assert_eq!(system.shaped, ["aU+202Eb^M^G\\xFF c"]);
         assert_eq!(shaped.boxes, [(1, 6)]);
         let styles: Vec<_> = shaped.glyphs.iter().map(|g| (g.column, g.style)).collect();
-        assert_eq!(styles[0], (0, Style::Text));
-        assert_eq!(styles[1], (1, Style::Boxed));
-        assert_eq!(styles[7], (7, Style::Text));
-        assert_eq!(styles[8], (8, Style::Escape));
-        assert_eq!(styles[12], (12, Style::Escape), "the invalid byte");
-        assert_eq!(styles[16], (16, Style::Text), "the tab");
-        assert_eq!(styles[17], (24, Style::Text), "after the tab stop");
+        assert_eq!(styles[0], (0, CellStyle::Text));
+        assert_eq!(styles[1], (1, CellStyle::Boxed));
+        assert_eq!(styles[7], (7, CellStyle::Text));
+        assert_eq!(styles[8], (8, CellStyle::Escape));
+        assert_eq!(styles[12], (12, CellStyle::Escape), "the invalid byte");
+        assert_eq!(styles[16], (16, CellStyle::Text), "the tab");
+        assert_eq!(styles[17], (24, CellStyle::Text), "after the tab stop");
+    }
+
+    #[test]
+    fn each_invisible_character_gets_its_own_box() {
+        let buffer = Buffer::from_text("t", "\u{202e}\u{202e}a\u{200b}");
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        assert_eq!(shaped.boxes, [(0, 6), (6, 6), (13, 6)]);
     }
 
     #[test]

@@ -100,6 +100,11 @@ impl Window {
         self.size = size;
     }
 
+    /// The cursor a frame draws, and the view follows: the primary one.
+    pub fn cursor_point(&self, display: &DisplaySnapshot) -> DisplayPoint {
+        display.offset_to_display_point(self.selections.primary().cursor)
+    }
+
     /// Shows rows from `top` on, and moves every cursor the view left
     /// behind to the start of the nearest row in view, as Emacs does after
     /// `C-v`, `M-v` and the mouse wheel. Returns whether the view moved.

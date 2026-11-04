@@ -1,0 +1,11 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: aああああああああああああああああああああ"
+---
+keys: none
+│aああああ▌│
+:^<><><><> :
+
+keys: C-e
+│▐ああああ │
+: <><><><>^:

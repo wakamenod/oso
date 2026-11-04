@@ -1,4 +1,4 @@
-# Performance results and regression checks (ADR 0024, ADR 0025, ADR 0044).
+# Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046).
 # Results go to the job summary and to JSON artifacts. Pushes to main only
 # report: their results become the baseline, so a regression accepted on
 # purpose does not fail every later pull request.

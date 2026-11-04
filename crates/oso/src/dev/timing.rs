@@ -1,6 +1,6 @@
 //! Performance samples for the benchmarks: key latency, startup and file
 //! loading, measured inside the app and read over the control socket
-//! (ADR 0025, ADR 0044). Dev builds only.
+//! (ADR 0025, ADR 0046). Dev builds only.
 //!
 //! Must not depend on: `app`, winit or the GPU; the app tells it what
 //! happened, and it only keeps the numbers. It holds no buffer text.

@@ -1,5 +1,5 @@
 //! Frame capture for the dev control socket's `screenshot` (ADR 0016), and
-//! the GPU in use, for benchmarks (ADR 0044). Dev builds only.
+//! the GPU in use, for benchmarks (ADR 0046). Dev builds only.
 //!
 //! Must not depend on: winit, PNG encoding or the control socket; it hands
 //! back raw pixels, and the tip crate does the rest.

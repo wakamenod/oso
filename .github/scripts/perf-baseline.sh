@@ -1,6 +1,6 @@
 #!/bin/sh
 # Downloads the newest performance result named $1 from the runs of perf.yml
-# on main into directory $2 (ADR 0044). Only pushes to main in this repository
+# on main into directory $2 (ADR 0046). Only pushes to main in this repository
 # count, so no pull request can plant a baseline: a fork can have a branch
 # called main too, but its runs are not push events here. Finding no result
 # is not an error, and the comparison then passes with a note. A failing API

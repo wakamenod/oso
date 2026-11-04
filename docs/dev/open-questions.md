@@ -13,21 +13,10 @@ item notes when it must be settled.
 
 ## M1
 
-- Control socket, before M1-7b: once `get-state` returns buffer text,
-  decide whether secret-pattern files
-  ([ADR 0028](adr/0028-secrets-handling.md)) are masked there and in
-  screenshots. Screenshots show buffer text since M1-6; `get-state` shows a
-  buffer's name and path but no text. Also, any
-  process running as the same user can run editor commands: already every
-  bound command through `send-keys`, which shares the keymaps with the
-  window ([ADR 0034](adr/0034-command-registry-and-keymaps.md)), and any
-  command once `run-command` exists. ADR 0016 accepts same-user trust, and
-  this consequence should be stated there, with commands that spawn
-  processes in mind.
 - Startup misses its budget: the first presented frame comes 110 to 130 ms
   after the process starts (optimized, warm, the author's Mac), against
   100 ms. Removing AppKit's default menu took it down from about 172 ms
-  ([ADR 0044](adr/0044-performance-regression-checks.md)). What remains is
+  ([ADR 0046](adr/0046-performance-regression-checks.md)). What remains is
   mostly AppKit and the window server: about 30 to 48 ms to build the event
   loop, 10 ms to `resumed`, 37 ms for `create_window`, and about 33 ms until
   macOS reports the window visible, before which wgpu skips the frame as
@@ -36,6 +25,17 @@ item notes when it must be settled.
   no measurable difference. Decide whether to look for more in AppKit or to
   change the budget. The "50 ms after window creation" in ADR 0036 counted
   a skipped frame.
+- Key latency leaves out the GPU's work. If a frame's GPU cost starts to
+  matter, record GPU completion too, in dev builds. Key samples also end at
+  the first frame after a key, even if glyphs fill in over the next ones.
+- `open-file` over the control socket lets a same-user client that is
+  sandboxed away from a file have an unsandboxed dev instance load it and show
+  it in a screenshot. `C-x C-f` over `send-keys` will do the same in M2. ADR
+  0044's trust model covers same-user clients; decide whether it should say
+  this.
+- The harness's thresholds (`compare.rs`) decide a CI check but are not on the
+  list of files needing approval, nor in the commit hook. Decide whether to add
+  them.
 - Without the default menu there are no Command shortcuts such as Command-Q
   and Command-H. Decide with Command = Meta (M2) whether oso builds its own
   menu, after the first frame.
@@ -97,18 +97,29 @@ item notes when it must be settled.
   (`InvalidBytes`, ADR 0040).
 - Horizontal mouse wheel and trackpad scrolling: the view scrolls only
   vertically, and auto-hscroll keeps the cursor in view.
+- Boxes of invisible characters are solid rectangles with no border or gap, so
+  neighboring ones read as one band, and only their labels tell them apart
+  (`ui.md`). Decide on a gap or a border together with the theme. Text-grid
+  snapshots do not show where one box ends
+  ([ADR 0045](adr/0045-text-grid-snapshots.md)), so a new mark may be needed.
 - Memory of very large files: a 1 GB file takes about 1.4 GB, and a binary
   file of random bytes about 3 bytes in the rope and 4 in the invalid-byte
   table per invalid byte. Nothing limits the size of a file opened: decide
   on a threshold that asks first, as Emacs's `large-file-warning-threshold`
   does, once the minibuffer exists. Running out of memory aborts, so
   emergency save would not run.
-- Emergency save must match secret patterns against a file's resolved
-  path too: a buffer is named after the symlink it was opened through
-  ([ADR 0028](adr/0028-secrets-handling.md)).
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
+
+- Secret-pattern buffers in M2
+  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)): their
+  unsaved edits cannot pass through `export-state`, so decide how `oso dev`
+  keeps them (for example, keep the old instance). The emergency save skips
+  them too, which loses unsaved work in a file that only could not be
+  resolved, so decide whether to tell that case apart. User-defined patterns
+  ([ADR 0028](adr/0028-secrets-handling.md)) need the resolved paths kept, or
+  resolving again, so config reload can judge open buffers again.
 
 - The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
   Rust's default hook prints panic messages, which may quote buffer text,

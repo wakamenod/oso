@@ -34,6 +34,9 @@ echo $! > "$SCRATCH/oso.pid"
   done
   ```
 
+- A file you opened counts as secret until its path is resolved, so wait
+  until `get-state` reports `"loading":null` for it before reading its text
+  or taking a screenshot.
 - If it never answers, read `oso.log`. A refused control directory means
   something else created it with the wrong owner or mode; report it, do not
   change its permissions.
@@ -42,7 +45,11 @@ echo $! > "$SCRATCH/oso.pid"
 
 ```sh
 ./target/debug/oso ctl send-keys "<right> <right>"   # Emacs key notation
-./target/debug/oso ctl get-state                     # cursor and surface size
+./target/debug/oso ctl run-command forward-char      # a command by name
+./target/debug/oso ctl run-command next-line 3       # with a numeric argument
+./target/debug/oso ctl get-state                     # state and the visible text
+./target/debug/oso ctl get-text 100 20               # 20 whole rows from row 100
+./target/debug/oso ctl show-buffer 0                 # a buffer, by its id in get-state
 ./target/debug/oso ctl screenshot                    # prints {"result": {"path": ...}}
 ```
 
@@ -50,8 +57,12 @@ echo $! > "$SCRATCH/oso.pid"
   error response, 2 means no request was made (no instance, bad arguments).
 - Key notation: `C-x C-f`, `M-<`, `S-<right>`, `RET`, `SPC`, `TAB`, `DEL`,
   `<f1>`. Shift is part of a character: write `A`, not `S-a` (ADR 0033).
-- Prefer `get-state` for facts (positions, sizes). Use screenshots for
-  what only pixels show.
+- Prefer `get-state` for facts (positions, sizes, visible text). Use
+  screenshots for what only pixels show.
+- Secret-pattern files (`.env`, `*.pem`, `id_*`, anything in `.ssh`, and
+  symlinks to them; ADR 0044) give no text and no screenshot, and the error
+  says so. Test with ordinary files. Never point a test at the user's real
+  keys.
 - Read the PNG at the returned path with the Read tool and check what you
   expected to see. Take one before and one after the input when the change
   is a difference.

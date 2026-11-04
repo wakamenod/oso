@@ -1,5 +1,5 @@
 //! Benchmark results: statistics over samples, and the JSON that CI keeps
-//! and compares (ADR 0044).
+//! and compares (ADR 0046).
 //!
 //! Must not depend on: the app or the control socket; results are plain data.
 
@@ -57,13 +57,15 @@ impl Gpu {
     }
 }
 
-/// The budgets in `docs/dev/roadmap.md` that have one number. They are read by
-/// hand on the author's Mac; CI runners say nothing about them, apart from
-/// key latency on a real GPU (ADR 0025, ADR 0044).
-pub const BUDGETS: [(&str, f64); 4] = [
+/// The budgets in `docs/dev/roadmap.md`, with "no freeze" as 100 ms. They are
+/// read by hand on the author's Mac; CI runners say nothing about them, apart from
+/// key latency on a real GPU (ADR 0025, ADR 0046).
+pub const BUDGETS: [(&str, f64); 6] = [
     ("key_p99_ms", 8.0),
     ("startup_ms", 100.0),
     ("open_first_screen_ms", 50.0),
+    ("big_keys_max_ms", 100.0),
+    ("line_keys_max_ms", 100.0),
     ("dev_build_ms", 2000.0),
 ];
 

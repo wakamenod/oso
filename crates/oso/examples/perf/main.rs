@@ -1,4 +1,4 @@
-//! The benchmark harness (ADR 0025, ADR 0044): starts the app, drives it over
+//! The benchmark harness (ADR 0025, ADR 0046): starts the app, drives it over
 //! the control socket, reads back its timings and compares the results with a
 //! baseline. Run it through `just perf`, `just perf-compare` and
 //! `just build-time`.

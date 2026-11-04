@@ -10,7 +10,7 @@ cargo_public_api := "0.52.0"
 api_target := "x86_64-unknown-linux-gnu"
 api_crates := "oso-core oso-platform oso-render"
 # Benchmarks build with the dev feature, so they keep out of target/release,
-# where the release binary lives (ADR 0044).
+# where the release binary lives (ADR 0046).
 perf_target := "target/perf-build"
 
 # Default: show the recipe list
@@ -75,10 +75,19 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
+# Nothing here accepts a snapshot: a new, changed or pending one fails (ADR 0045).
 # Run tests, with and without dev features (the control socket)
-test:
-    cargo test --locked --workspace
-    cargo test --locked --workspace --all-features
+test: snapshots-pending
+    INSTA_UPDATE=no INSTA_FORCE_PASS=0 cargo test --locked --workspace
+    INSTA_UPDATE=no INSTA_FORCE_PASS=0 cargo test --locked --workspace --all-features
+
+# Fail if a snapshot is waiting for review. git also lists ignored files here.
+snapshots-pending:
+    @if [ -n "$(git ls-files --cached --others -- 'crates/*.snap.new' 'crates/*.pending-snap')" ]; then echo "error: pending snapshots; run 'just snapshots' or delete them:"; git ls-files --cached --others -- 'crates/*.snap.new' 'crates/*.pending-snap'; exit 1; fi
+
+# Rewrite the text-grid snapshots; review the result with `git diff`, like code
+snapshots:
+    INSTA_UPDATE=always INSTA_FORCE_PASS=0 cargo test --locked -p oso grid_tests
 
 # Run check, lint, fmt-check, and test in sequence (equivalent to CI)
 ci: check lint fmt-check test
@@ -133,7 +142,7 @@ release-safety:
     exit "$fail"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Performance (ADR 0024, ADR 0025, ADR 0044)
+# Performance (ADR 0024, ADR 0025, ADR 0046)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # Benchmark an optimized build with the dev feature; windows open and take the focus. `just perf OUT --quick` tries it out

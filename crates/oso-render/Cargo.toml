@@ -26,7 +26,7 @@ wgpu = { workspace = true, features = ["vulkan"] }
 
 [features]
 # Frame capture for the dev control socket's `screenshot` (ADR 0016), and the
-# GPU in use, for benchmarks (ADR 0044).
+# GPU in use, for benchmarks (ADR 0046).
 # Enabled only by `oso/dev`.
 dev = []
 

@@ -15,6 +15,11 @@
 //! them, and a window opened after the first read draws it in its first
 //! frame.
 //!
+//! Right after opening the file, before reading it, the thread follows the
+//! path to where it really leads, so that the UI can tell whether the file
+//! may hold secrets (ADR 0044) without touching the file system. A file
+//! swapped in before the open is what gets judged.
+//!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1).
 
@@ -29,6 +34,11 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::BufferId;
 use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, LoadSnapshot};
+
+mod resolve;
+
+pub use resolve::Resolved;
+use resolve::resolve;
 
 /// Bytes read at a time.
 const READ_SIZE: usize = 64 * 1024;
@@ -89,6 +99,8 @@ struct Shared {
     cancel: AtomicBool,
     /// The latest update the UI has not taken.
     latest: Mutex<Option<LoadUpdate>>,
+    /// Where the path leads. Set before the first update, and taken once.
+    resolved: Mutex<Option<Resolved>>,
 }
 
 impl Shared {
@@ -97,6 +109,11 @@ impl Shared {
     /// half-written.
     fn slot(&self) -> std::sync::MutexGuard<'_, Option<LoadUpdate>> {
         self.latest.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Locks the resolved path, which is also held only to swap an `Option`.
+    fn resolved(&self) -> std::sync::MutexGuard<'_, Option<Resolved>> {
+        self.resolved.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -116,6 +133,13 @@ impl LoadHandle {
     /// The latest update, if one arrived since the last call.
     pub fn take(&self) -> Option<LoadUpdate> {
         self.shared.slot().take()
+    }
+
+    /// Where the file's path leads, the first time this is called after it
+    /// was resolved. Every update comes after this is available, so a caller
+    /// who takes it first never handles content without it.
+    pub fn take_resolved(&self) -> Option<Resolved> {
+        self.shared.resolved().take()
     }
 }
 
@@ -149,7 +173,7 @@ where
             // A panic must not leave the buffer loading for good. Its
             // message, which may quote file content, is dropped.
             let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                load(&path, &shared.cancel, &post)
+                load(&path, &shared, &post)
             }));
             match loaded {
                 Ok(Ok(())) => {}
@@ -187,19 +211,17 @@ fn open(path: &Path) -> Result<(File, u64), LoadError> {
 ///
 /// Only the size seen at open is read, so a file another process keeps
 /// appending to (a log) cannot be read forever.
-fn load(
-    path: &Path,
-    cancel: &AtomicBool,
-    send: &dyn Fn(LoadUpdate) -> bool,
-) -> Result<(), LoadError> {
+fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> {
     let started = Instant::now();
-    let (file, total) = open(path)?;
+    let opened = open(path);
+    *shared.resolved() = Some(resolve(path));
+    let (file, total) = opened?;
     let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];
     let mut sent: Option<Instant> = None;
     loop {
-        if cancel.load(Ordering::Relaxed) {
+        if shared.cancel.load(Ordering::Relaxed) {
             return Ok(());
         }
         let read = match file.read(&mut piece) {
@@ -312,6 +334,33 @@ mod tests {
                 [LoadUpdate::Failed(LoadError::NotAFile)]
             ));
         }
+    }
+
+    #[test]
+    fn the_resolved_path_is_there_before_the_first_update() {
+        let path = scratch_file("resolved.txt", b"abc");
+        let (tx, rx) = mpsc::channel();
+        let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let resolved = handle.take_resolved().unwrap();
+        assert_eq!(
+            resolved.paths().unwrap().last(),
+            Some(&std::fs::canonicalize(&path).unwrap())
+        );
+        assert_eq!(handle.take_resolved(), None, "taken once");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_missing_file_is_resolved_too() {
+        let (tx, rx) = mpsc::channel();
+        let path = std::env::temp_dir().join("oso-no-such-file-here");
+        let handle = spawn(id(), path, move |_| tx.send(()).is_ok()).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(matches!(
+            handle.take_resolved(),
+            Some(Resolved::Paths(paths)) if !paths.is_empty()
+        ));
     }
 
     #[test]

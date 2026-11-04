@@ -5,7 +5,9 @@
 //! Must not depend on: `app` or winit; key sequences stay testable without a
 //! window.
 
-use oso_core::command::{Args, Ctx, Effects, ExecuteError, Registry};
+#[cfg(any(test, feature = "dev"))]
+use oso_core::command::ArgSpec;
+use oso_core::command::{Args, CommandId, Ctx, Effects, ExecuteError, Registry};
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
@@ -62,36 +64,70 @@ impl Dispatcher {
         effects
     }
 
+    /// Runs the command named `name`, as the control socket's `run-command`
+    /// does, with `arg` as its numeric argument. Returns what the host
+    /// should do, which matters even if the command failed: a motion that
+    /// hits the buffer end still moves as far as it can.
+    #[cfg(any(test, feature = "dev"))]
+    pub fn run_command(
+        &self,
+        editor: &mut Editor,
+        name: &str,
+        arg: Option<isize>,
+    ) -> (Effects, Result<(), String>) {
+        let found = self
+            .registry
+            .lookup(name)
+            .and_then(|id| Some((id, self.registry.get(id)?)));
+        let Some((id, command)) = found else {
+            return (
+                Effects::default(),
+                Err(format!("no command named {name:?}")),
+            );
+        };
+        let args = match (command.args, arg) {
+            (_, None) => Args::NONE,
+            (ArgSpec::Count, Some(n)) => Args::numeric(n),
+            (ArgSpec::None, Some(_)) => {
+                return (Effects::default(), Err(format!("{name} takes no argument")));
+            }
+        };
+        let (effects, result) = self.execute(editor, id, args);
+        (effects, result.map_err(|e| e.to_string()))
+    }
+
+    /// Runs one command, then scrolls the selected window to keep its cursor
+    /// in view, as Emacs's redisplay does.
+    fn execute(
+        &self,
+        editor: &mut Editor,
+        id: CommandId,
+        args: Args,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let mut ctx = Ctx::new(editor);
+        let result = self.registry.execute(id, &mut ctx, args);
+        let mut effects = ctx.effects();
+        // What a panicking command changed may be visible.
+        effects.redraw |= matches!(result, Err(ExecuteError::Panicked { .. }));
+        effects.redraw |= editor.follow_cursor();
+        (effects, result)
+    }
+
     /// Handles one key press: waits on a prefix, or runs the command the
     /// keys resolve to. Returns what the host should do: redraw only when a
     /// command changed something visible, and exit when one asked to.
-    ///
-    /// After a command, the selected window scrolls to keep its cursor in
-    /// view, as Emacs's redisplay does.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         let layers = Layers::global(&self.global);
         match self.resolver.feed(&layers, key) {
             Resolution::Command(id) => {
-                let mut ctx = Ctx::new(editor);
                 // Prefix arguments (`C-u`) are not read yet.
-                let mut effects = match self.registry.execute(id, &mut ctx, Args::NONE) {
-                    Ok(()) => ctx.effects(),
-                    Err(e @ ExecuteError::Panicked { .. }) => {
-                        // Not fatal (ADR 0014). The echo area shows it from
-                        // M2. What the command changed before panicking may
-                        // be visible, so redraw.
-                        log::error!("{e}");
-                        Effects {
-                            redraw: true,
-                            ..ctx.effects()
-                        }
-                    }
-                    Err(e) => {
-                        log::warn!("{e}");
-                        ctx.effects()
-                    }
-                };
-                effects.redraw |= editor.follow_cursor();
+                let (effects, result) = self.execute(editor, id, Args::NONE);
+                // Not fatal (ADR 0014). The echo area shows these from M2.
+                match result {
+                    Ok(()) => {}
+                    Err(e @ ExecuteError::Panicked { .. }) => log::error!("{e}"),
+                    Err(e) => log::warn!("{e}"),
+                }
                 effects
             }
             Resolution::Pending => {
@@ -109,6 +145,9 @@ impl Dispatcher {
         }
     }
 }
+
+#[cfg(test)]
+mod grid_tests;
 
 #[cfg(test)]
 mod tests {
@@ -359,5 +398,68 @@ mod tests {
         assert!(dispatcher.pending().is_empty());
         assert_eq!(send(&mut dispatcher, &mut editor, "C-f"), REDRAW);
         assert_eq!(cursor(&editor), 3);
+    }
+
+    #[test]
+    fn run_command_runs_by_name_with_its_argument() {
+        let dispatcher = Dispatcher::new();
+        let mut editor = editor("abcdef");
+        let (effects, result) = dispatcher.run_command(&mut editor, "forward-char", None);
+        assert_eq!((effects, result), (REDRAW, Ok(())));
+        assert_eq!(cursor(&editor), 1);
+        let (_, result) = dispatcher.run_command(&mut editor, "forward-char", Some(3));
+        assert_eq!(result, Ok(()));
+        assert_eq!(cursor(&editor), 4);
+        let (_, result) = dispatcher.run_command(&mut editor, "backward-char", Some(-1));
+        assert_eq!(result, Ok(()));
+        assert_eq!(cursor(&editor), 5);
+    }
+
+    #[test]
+    fn run_command_scrolls_to_the_cursor_and_asks_to_exit() {
+        let dispatcher = Dispatcher::new();
+        let text: String = (0..100).map(|i| format!("{i}\n")).collect();
+        let mut editor = editor(&text);
+        let (_, result) = dispatcher.run_command(&mut editor, "next-line", Some(50));
+        assert_eq!(result, Ok(()));
+        assert_eq!(editor.window().scroll.top, 41);
+        let (effects, result) =
+            dispatcher.run_command(&mut editor, "save-buffers-kill-terminal", None);
+        assert!(effects.exit);
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn run_command_reports_errors_and_keeps_what_they_changed() {
+        let dispatcher = Dispatcher::new();
+        let mut editor = editor("abc");
+        let (effects, result) = dispatcher.run_command(&mut editor, "no-such-command", None);
+        assert_eq!(effects, Effects::default());
+        assert_eq!(result, Err("no command named \"no-such-command\"".into()));
+        let (effects, result) = dispatcher.run_command(&mut editor, "forward-char", Some(10));
+        assert_eq!(result, Err("forward-char: End of buffer".into()));
+        assert_eq!(effects, REDRAW, "it moved as far as it could");
+        assert_eq!(cursor(&editor), 3);
+    }
+
+    #[test]
+    fn run_command_reports_a_panic_and_an_unwanted_argument() {
+        let mut registry = oso_core::command::Registry::new();
+        registry
+            .register(Command {
+                name: "explode",
+                doc: "Panics.",
+                args: ArgSpec::None,
+                run: explode,
+            })
+            .unwrap();
+        let dispatcher = Dispatcher::with(registry, Keymap::new());
+        let mut editor = editor("abc");
+        let (effects, result) = dispatcher.run_command(&mut editor, "explode", None);
+        assert_eq!(result, Err("explode panicked".into()));
+        assert!(effects.redraw, "what it changed may be visible");
+        let (effects, result) = dispatcher.run_command(&mut editor, "explode", Some(1));
+        assert_eq!(result, Err("explode takes no argument".into()));
+        assert_eq!(effects, Effects::default(), "it did not run");
     }
 }

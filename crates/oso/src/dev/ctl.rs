@@ -21,11 +21,20 @@ Without --pid, the only running instance is used.
 
 methods:
   version           protocol version and build information
-  get-state         the buffer, cursor, scroll position and surface size
+  get-state         buffers, windows, selections, pending keys, surface size and
+                    the selected window's visible text
+  get-text START ROWS
+                    whole rows of the selected window's buffer, up to a limit
   screenshot        writes a PNG of the current frame and prints its path
   send-keys KEYS    sends keys in Emacs notation, such as \"C-x C-f\" or \"<right>\"
   take-timings      key latencies since the last call, startup and load times
   open-file PATH    visits a file in the selected window; nothing in it runs
+  run-command NAME [ARG]
+                    runs a command by name, with a numeric argument if it takes one
+  show-buffer ID    shows a buffer, by the id get-state reports
+
+Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
+and screenshot fails while one is shown.
 
 exit status: 0 on a result, 1 on an error response, 2 if no request was made";
 
@@ -112,7 +121,17 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
     }
     let mut positional = positional.into_iter();
     let method = positional.next().ok_or("no method given")?;
+    let mut number = |what: &str| {
+        let value = positional
+            .next()
+            .ok_or_else(|| format!("{method} needs {what}"))?;
+        value
+            .parse::<i64>()
+            .map_err(|_| format!("{what} is not a number: {value:?}"))
+    };
     let params = match method.as_str() {
+        "get-text" => Some(json!({ "start_row": number("START")?, "rows": number("ROWS")? })),
+        "show-buffer" => Some(json!({ "buffer": number("ID")? })),
         "send-keys" => {
             let keys = positional.next().ok_or("send-keys needs KEYS")?;
             Some(json!({ "keys": keys }))
@@ -120,6 +139,17 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
         "open-file" => {
             let path = positional.next().ok_or("open-file needs PATH")?;
             Some(json!({ "path": path }))
+        }
+        "run-command" => {
+            let name = positional.next().ok_or("run-command needs NAME")?;
+            let arg = positional
+                .next()
+                .map(|arg| {
+                    arg.parse::<i64>()
+                        .map_err(|_| format!("ARG is not a number: {arg:?}"))
+                })
+                .transpose()?;
+            Some(json!({ "name": name, "arg": arg }))
         }
         _ => None,
     };
@@ -163,7 +193,7 @@ fn call(invocation: &Invocation) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Invocation, parse_args};
+    use super::{Invocation, parse_args, protocol};
     use serde_json::json;
     use std::ffi::OsString;
 
@@ -200,9 +230,61 @@ mod tests {
     }
 
     #[test]
+    fn parses_run_command_and_its_negative_argument() {
+        let params = |args: &[&str]| parse(args).unwrap().unwrap().params;
+        assert_eq!(
+            params(&["run-command", "forward-char"]),
+            Some(json!({ "name": "forward-char", "arg": null }))
+        );
+        assert_eq!(
+            params(&["run-command", "next-line", "-3"]),
+            Some(json!({ "name": "next-line", "arg": -3 }))
+        );
+        assert_eq!(
+            parse(&["run-command"]),
+            Err("run-command needs NAME".into())
+        );
+        assert!(
+            parse(&["run-command", "next-line", "x"])
+                .unwrap_err()
+                .contains("not a number")
+        );
+    }
+
+    #[test]
+    fn parses_get_text_and_show_buffer() {
+        let params = |args: &[&str]| parse(args).unwrap().unwrap().params;
+        assert_eq!(
+            params(&["get-text", "5", "2"]),
+            Some(json!({ "start_row": 5, "rows": 2 }))
+        );
+        assert_eq!(params(&["show-buffer", "1"]), Some(json!({ "buffer": 1 })));
+        assert_eq!(parse(&["get-text", "5"]), Err("get-text needs ROWS".into()));
+        assert!(parse(&["show-buffer", "x"]).unwrap_err().contains("\"x\""));
+    }
+
+    #[test]
+    fn the_server_accepts_what_the_client_sends() {
+        for args in [
+            &["version"][..],
+            &["get-state"],
+            &["screenshot"],
+            &["get-text", "0", "5"],
+            &["show-buffer", "0"],
+            &["send-keys", "C-f"],
+            &["run-command", "forward-char"],
+            &["run-command", "forward-char", "-2"],
+        ] {
+            let invocation = parse(args).unwrap().unwrap();
+            let line = protocol::request(1, &invocation.method, invocation.params);
+            assert!(protocol::parse(&line).is_ok(), "{args:?}");
+        }
+    }
+
+    #[test]
     fn unknown_methods_are_left_to_the_server() {
-        let invocation = parse(&["run-command"]).unwrap().unwrap();
-        assert_eq!(invocation.method, "run-command");
+        let invocation = parse(&["no-such-method"]).unwrap().unwrap();
+        assert_eq!(invocation.method, "no-such-method");
         assert_eq!(invocation.params, None);
     }
 

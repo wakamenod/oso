@@ -181,6 +181,9 @@ impl App {
             self.loads.swap_remove(index);
             return false;
         };
+        if let Some(resolved) = self.loads[index].handle.take_resolved() {
+            buffer.judge_secret(resolved.paths());
+        }
         match update {
             LoadUpdate::Snapshot(snapshot) => {
                 let old_rows = buffer.display().row_count();
@@ -269,7 +272,7 @@ impl App {
 fn text_view(editor: &Editor) -> TextView {
     let (window, buffer) = editor.current();
     let display = buffer.display();
-    let cursor = display.offset_to_display_point(window.selections.primary().cursor);
+    let cursor = window.cursor_point(&display);
     TextView {
         display,
         buffer: window.buffer(),
@@ -299,11 +302,26 @@ impl View {
 
 #[cfg(feature = "dev")]
 impl App {
+    /// The result of `take-timings`: the samples, and the GPU they ran on.
+    fn take_timings(&mut self) -> serde_json::Value {
+        let mut timings = self.timings.take();
+        let gpu = self.view.as_ref().map(|v| v.render_state.gpu_info());
+        timings["gpu"] = gpu.map_or(
+            serde_json::Value::Null,
+            |gpu| serde_json::json!({ "name": gpu.name, "kind": gpu.kind }),
+        );
+        timings
+    }
+
     /// Answers a control socket request on the UI thread.
     fn handle_control(&mut self, event_loop: &ActiveEventLoop, request: dev::UiRequest) {
-        let dev::UiRequest { op, reply } = request;
+        let dev::UiRequest {
+            op,
+            received,
+            reply,
+        } = request;
         let result = match op {
-            dev::UiOp::SendKeys { keys, received } => {
+            dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
                 let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
@@ -316,20 +334,43 @@ impl App {
                 .open(path)
                 .map(|()| serde_json::json!({ "opened": true }))
                 .map_err(|e| format!("cannot start loading: {e}")),
-            dev::UiOp::TakeTimings => {
-                let mut timings = self.timings.take();
-                let gpu = self.view.as_ref().map(|v| v.render_state.gpu_info());
-                timings["gpu"] = gpu.map_or(
-                    serde_json::Value::Null,
-                    |gpu| serde_json::json!({ "name": gpu.name, "kind": gpu.kind }),
-                );
-                Ok(timings)
-            }
+            dev::UiOp::TakeTimings => Ok(self.take_timings()),
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
-                Ok(dev::state(&self.editor, self.dispatcher.pending(), surface))
+                Ok(dev::get_state(
+                    &self.editor,
+                    self.dispatcher.pending(),
+                    surface,
+                ))
+            }
+            dev::UiOp::GetText { start_row, rows } => {
+                // Only the check happens here; a background thread copies
+                // the text and replies.
+                match dev::get_text(&self.editor, start_row, rows) {
+                    Ok(job) => {
+                        job.spawn(reply);
+                        return;
+                    }
+                    Err(message) => Err(message),
+                }
+            }
+            dev::UiOp::RunCommand { name, arg } => {
+                let (effects, result) = self.dispatcher.run_command(&mut self.editor, &name, arg);
+                self.apply(event_loop, effects);
+                result.map(|()| serde_json::json!({ "command": name }))
+            }
+            dev::UiOp::ShowBuffer(buffer) => {
+                let result = dev::show_buffer(&mut self.editor, buffer);
+                if result.is_ok() {
+                    self.request_redraw();
+                }
+                result
             }
             dev::UiOp::Screenshot => {
+                if let Err(message) = dev::screenshot_allowed(&self.editor) {
+                    let _ = reply.send(Err(message));
+                    return;
+                }
                 // Only the GPU submission happens here; the rest runs on a
                 // background thread, which replies.
                 let (Some(view), Some(dev)) = (self.view.as_mut(), self.dev.as_mut()) else {

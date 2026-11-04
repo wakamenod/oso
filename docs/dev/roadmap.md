@@ -69,13 +69,15 @@ M1 is built in this order. Each step is one PR.
   - motion by display cluster, conservative scrolling, the mouse wheel
   - buffer text drawn through the display model; the temporary sample is
     gone
-- **M1-7b**: the rest of the control socket (`run-command`, the full
-  `get-state`, `export-state` and `import-state`) and the restart-and-restore
-  loop (`oso dev`).
+- **M1-7b**: the rest of the control socket and the restart-and-restore loop.
+  - `run-command`, the full `get-state`, `get-text` and the secret-pattern
+    rules ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md))
+    are done.
+  - Still to come: `export-state` and `import-state`, and `oso dev`.
 - **M1-8** (done): performance measurement in CI
   ([ADR 0024](adr/0024-dev-build-profile.md),
   [ADR 0025](adr/0025-latency-measurement.md),
-  [ADR 0044](adr/0044-performance-regression-checks.md)). Startup still misses
+  [ADR 0046](adr/0046-performance-regression-checks.md)). Startup still misses
   its budget; see `open-questions.md`.
 - **M1-9**: test infrastructure from the test pyramid
   ([ADR 0037](adr/0037-test-pyramid.md)), in three steps, each started as
@@ -83,8 +85,8 @@ M1 is built in this order. Each step is one PR.
   - **M1-9a** (right after M1-10a merges, since both change CI and the
     `Justfile`): weekly mutation testing, coverage reports and the 30 s test
     time budget.
-  - **M1-9b** (right after M1-6 merges, since it snapshots real buffer
-    views): the text-grid snapshot harness.
+  - **M1-9b** (done): the text-grid snapshot harness
+    ([ADR 0045](adr/0045-text-grid-snapshots.md)).
   - **M1-9c** (after M1-7b, which completes `get-state`): automated
     end-to-end tests over the control socket (`just e2e`, and Linux CI with
     lavapipe).

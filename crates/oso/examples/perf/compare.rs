@@ -1,5 +1,5 @@
 //! Compares a result with the baseline from `main` and decides whether it
-//! fails (ADR 0024, ADR 0025, ADR 0044). The thresholds live here.
+//! fails (ADR 0024, ADR 0025, ADR 0046). The thresholds live here.
 //!
 //! Must not depend on: `app` or `bench`; it works on results alone, so it can
 //! be tested with made-up numbers.
@@ -15,66 +15,50 @@ pub struct Threshold {
     pub floor_ms: f64,
 }
 
-/// The metrics that can fail, and their thresholds. Anything else is only
-/// reported: single worst samples are too noisy to judge on.
-const GATED: [(&str, Threshold); 8] = [
-    (
-        "key_p50_ms",
-        Threshold {
-            ratio: 1.5,
-            floor_ms: 1.0,
-        },
-    ),
-    (
-        "key_p99_ms",
-        Threshold {
-            ratio: 1.5,
-            floor_ms: 2.0,
-        },
-    ),
-    (
-        "startup_ms",
-        Threshold {
-            ratio: 1.5,
-            floor_ms: 50.0,
-        },
-    ),
-    (
-        "open_first_screen_ms",
-        Threshold {
-            ratio: 1.5,
-            floor_ms: 20.0,
-        },
-    ),
-    (
-        "open_full_load_ms",
-        Threshold {
-            ratio: 1.5,
-            floor_ms: 200.0,
-        },
-    ),
-    (
-        "big_load_ms",
-        Threshold {
-            ratio: 1.5,
-            floor_ms: 1000.0,
-        },
-    ),
-    (
-        "big_keys_p99_ms",
-        Threshold {
-            ratio: 2.0,
-            floor_ms: 5.0,
-        },
-    ),
-    (
-        "dev_build_ms",
-        Threshold {
-            ratio: 2.0,
-            floor_ms: 5000.0,
-        },
-    ),
+const fn gate(ratio: f64, floor_ms: f64) -> Threshold {
+    Threshold { ratio, floor_ms }
+}
+
+/// A slowdown this large is a freeze, wherever it is measured. Worst keys on
+/// big files stayed under 13 ms in every run on the runners.
+const FREEZE: Threshold = gate(3.0, 100.0);
+
+/// The metrics that can fail, and their thresholds, on each kind of runner.
+/// Anything else is only reported. The same commit ran 5 times on each runner:
+/// a threshold is at least twice the spread seen there, as a ratio over 1 and
+/// as a difference (ADR 0046).
+const LINUX: [(&str, Threshold); 13] = [
+    ("key_p50_ms", gate(3.5, 0.75)),
+    ("key_p99_ms", gate(3.0, 1.0)),
+    ("startup_ms", gate(2.25, 55.0)),
+    ("open_first_screen_ms", gate(2.0, 4.5)),
+    ("open_full_load_ms", gate(3.0, 370.0)),
+    ("big_load_ms", gate(3.0, 3750.0)),
+    ("big_keys_p99_ms", gate(4.75, 2.5)),
+    ("big_keys_max_ms", FREEZE),
+    ("line_load_ms", gate(3.25, 235.0)),
+    ("line_keys_p99_ms", gate(2.75, 1.0)),
+    ("line_keys_max_ms", FREEZE),
+    ("big_trip_max_ms", FREEZE),
+    ("dev_build_ms", gate(1.75, 1250.0)),
 ];
+const MACOS: [(&str, Threshold); 13] = [
+    ("key_p50_ms", gate(3.0, 1.5)),
+    ("key_p99_ms", gate(6.5, 12.0)),
+    ("startup_ms", gate(3.25, 410.0)),
+    ("open_first_screen_ms", gate(4.75, 44.0)),
+    ("open_full_load_ms", gate(4.0, 530.0)),
+    ("big_load_ms", gate(3.5, 5100.0)),
+    ("big_keys_p99_ms", gate(4.25, 7.0)),
+    ("big_keys_max_ms", FREEZE),
+    ("line_load_ms", gate(1.75, 135.0)),
+    ("line_keys_p99_ms", gate(2.75, 3.5)),
+    ("line_keys_max_ms", FREEZE),
+    ("big_trip_max_ms", FREEZE),
+    ("dev_build_ms", gate(3.0, 2150.0)),
+];
+/// Windows has no control socket yet (ADR 0032), so only the build is timed.
+const WINDOWS: [(&str, Threshold); 1] = [("dev_build_ms", gate(1.5, 950.0))];
 
 /// The one budget CI enforces, on a real GPU only (ADR 0025).
 const KEY_P99: &str = "key_p99_ms";
@@ -164,8 +148,13 @@ fn describe(gpu: &Gpu) -> String {
     format!("{} ({})", gpu.name, gpu.kind)
 }
 
-fn threshold(name: &str) -> Option<Threshold> {
-    GATED
+fn threshold(os: &str, name: &str) -> Option<Threshold> {
+    let gates: &[(&str, Threshold)] = match os {
+        "linux" => &LINUX,
+        "macos" => &MACOS,
+        _ => &WINDOWS,
+    };
+    gates
         .iter()
         .find(|(gated, _)| *gated == name)
         .map(|(_, threshold)| *threshold)
@@ -243,7 +232,7 @@ pub fn compare(base: &Baseline, new: &Report) -> Comparison {
             let old = usable
                 .and_then(|base| base.metrics.get(name))
                 .map(|m| m.value);
-            let gate = threshold(name);
+            let gate = threshold(&new.os, name);
             let status = if name == KEY_P99 && hardware && metric.value > budget {
                 Status::OverBudget
             } else if let (Some(gate), Some(old)) = (gate, old)
@@ -266,7 +255,7 @@ pub fn compare(base: &Baseline, new: &Report) -> Comparison {
     let gone = usable
         .iter()
         .flat_map(|base| &base.metrics)
-        .filter(|(name, _)| threshold(name).is_some() && !new.metrics.contains_key(*name));
+        .filter(|(name, _)| threshold(&new.os, name).is_some() && !new.metrics.contains_key(*name));
     rows.extend(gone.map(|(name, metric)| Row {
         name: name.clone(),
         base: Some(metric.value),
@@ -283,6 +272,7 @@ mod tests {
 
     fn report(metrics: &[(&str, f64)], gpu: (&str, &str)) -> Report {
         let mut report = Report::new();
+        report.os = "linux".into();
         report.gpu = Some(Gpu {
             name: gpu.0.into(),
             kind: gpu.1.into(),
@@ -318,12 +308,37 @@ mod tests {
     #[test]
     fn a_large_regression_fails_and_noise_passes() {
         let base = report(&[("key_p99_ms", 10.0)], LAVAPIPE);
-        let same = report(&[("key_p99_ms", 12.0)], LAVAPIPE);
+        let same = report(&[("key_p99_ms", 25.0)], LAVAPIPE);
         assert_eq!(status(&base, &same, "key_p99_ms"), Status::Ok);
         assert!(!compare(&Baseline::Report(base.clone()), &same).failed());
-        let slow = report(&[("key_p99_ms", 30.0)], LAVAPIPE);
+        let slow = report(&[("key_p99_ms", 31.0)], LAVAPIPE);
         assert_eq!(status(&base, &slow, "key_p99_ms"), Status::Regressed);
         assert!(compare(&Baseline::Report(base.clone()), &slow).failed());
+    }
+
+    #[test]
+    fn each_runner_has_its_own_thresholds() {
+        let mac = |value| {
+            let mut report = report(
+                &[("key_p99_ms", value)],
+                ("Apple Paravirtual device", "integrated"),
+            );
+            report.os = "macos".into();
+            report
+        };
+        assert!(!compare(&Baseline::Report(mac(2.0)), &mac(10.0)).failed());
+        assert!(compare(&Baseline::Report(mac(2.0)), &mac(20.0)).failed());
+        let linux = |value| report(&[("key_p99_ms", value)], LAVAPIPE);
+        assert!(compare(&Baseline::Report(linux(2.0)), &linux(10.0)).failed());
+    }
+
+    #[test]
+    fn the_runners_gate_the_same_metrics() {
+        let names = |gates: &[(&'static str, Threshold)]| -> Vec<&'static str> {
+            gates.iter().map(|(name, _)| *name).collect()
+        };
+        assert_eq!(names(&super::LINUX), names(&super::MACOS));
+        assert_eq!(names(&super::WINDOWS), ["dev_build_ms"]);
     }
 
     #[test]

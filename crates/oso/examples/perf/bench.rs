@@ -1,5 +1,5 @@
 //! The benchmarks: what is measured, on which files and how many times
-//! (ADR 0025, ADR 0044). Budgets are in `docs/dev/roadmap.md`.
+//! (ADR 0025, ADR 0046). Budgets are in `docs/dev/roadmap.md`.
 //!
 //! Must not depend on: `compare`; measuring knows nothing of thresholds.
 
