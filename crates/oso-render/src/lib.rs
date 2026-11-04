@@ -1,6 +1,6 @@
 //! The wgpu rendering pipeline (ADR 0004).
 //!
-//! This crate does not depend on winit: the caller owns the window, passes it
+//! Must not depend on: winit or `oso`. The caller owns the window, passes it
 //! in as a [`wgpu::DisplayAndWindowHandle`] and its size as plain pixels, and
 //! requests redraws when told to through [`Redraw`].
 

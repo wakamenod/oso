@@ -1,12 +1,13 @@
 //! Pass 2: text drawn as glyph quads on the cell grid, from the atlas
 //! (ADR 0005, ADR 0036).
 //!
+//! Must not depend on: `capture` or a font backend. The GPU side of text lives
+//! here; shaping and assigning glyphs to cells do not.
+//!
 //! - Only visible rows are drawn, and of each only the visible columns,
 //!   in steps of [`WINDOW_STEP`] columns, shaped through the cache in
 //!   `rows`. A 10 MB line costs what a screen of it does.
 //! - Glyphs are rasterized once, into the atlas, within a per-frame budget.
-//!
-//! The GPU side of text lives here; shaping and grid placement do not.
 
 use std::ops::Range;
 

@@ -1,6 +1,9 @@
 //! Frame capture for the dev control socket's `screenshot` (ADR 0016). Dev
 //! builds only.
 //!
+//! Must not depend on: winit, PNG encoding or the control socket; it hands
+//! back raw pixels, and the tip crate does the rest.
+//!
 //! The UI thread only records and submits the copy. Waiting for the GPU and
 //! reading the pixels back happen in [`Capture::wait`], on another thread.
 
