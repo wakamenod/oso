@@ -256,7 +256,7 @@ impl DisplaySnapshot {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::rope::tests::{floor_boundary, has_long_cluster, text_strategy};
     use proptest::prelude::*;
@@ -361,7 +361,7 @@ mod tests {
         line.content_end
     }
 
-    fn check_against(snapshot: &DisplaySnapshot, text: &str, tab_width: TabWidth) {
+    pub(crate) fn check_against(snapshot: &DisplaySnapshot, text: &str, tab_width: TabWidth) {
         if has_long_cluster(text) {
             // Split between chunks on purpose; see `long_clusters_are_split`.
             return;

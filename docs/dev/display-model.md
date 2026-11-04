@@ -32,7 +32,8 @@ Display rows
   [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)).
 - Layers update incrementally. An edit invalidates only the affected range:
   the rope reports the chunks an edit replaced (`RopeEdit`), and each layer
-  replaces its items for them.
+  replaces its items for them. The buffer does this on clones and swaps them in
+  together ([ADR 0053](adr/0053-edit-core.md)), so the layers never disagree.
 - Only visible rows are laid out and rendered.
 - The whole pipeline lives in `oso-core`. It has no GPU dependency and is
   unit- and property-tested.
@@ -61,7 +62,10 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   cluster would join it to a neighbor
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - **Cursor stops** are display clusters (`oso_core::motion`), so motion,
-  hit testing and drawing agree on every cluster.
+  hit testing and drawing agree on every cluster. An edit can move those
+  boundaries, for example a combining mark joining the letter before it, so every
+  cursor is clipped to a cluster start after each edit
+  ([ADR 0053](adr/0053-edit-core.md)).
 - FoldMap and InlayMap will go below the TabMap; its items then mirror
   InlayMap chunks. WrapMap and BlockMap will go above it; a display point
   then differs from a TabMap point. There are no placeholder layers.

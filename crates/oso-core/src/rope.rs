@@ -175,7 +175,7 @@ impl fmt::Display for Rope {
 
 impl fmt::Debug for Rope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_list().entries(self.chunks()).finish()
+        write!(f, "Rope({} bytes)", self.len()) // Never the text: it could reach a log.
     }
 }
 
@@ -393,7 +393,7 @@ impl Rope {
 
     /// Clamps both ends to the text and to character starts; a reversed
     /// range becomes empty at its start.
-    fn clip_range(&self, range: Range<usize>) -> (usize, usize) {
+    pub(crate) fn clip_range(&self, range: Range<usize>) -> (usize, usize) {
         let start = self.clip_offset(range.start, Bias::Left);
         let end = self.clip_offset(range.end, Bias::Left).max(start);
         (start, end)
@@ -829,6 +829,11 @@ pub(crate) mod tests {
             offset -= 1;
         }
         offset
+    }
+
+    #[test]
+    fn debug_shows_the_length_and_not_the_text() {
+        assert_eq!(format!("{:?}", Rope::from("secret")), "Rope(6 bytes)");
     }
 
     /// Line starts by a naive scan.

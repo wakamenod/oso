@@ -102,14 +102,25 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md).
 - **Buffers and windows** live in `oso_core::editor::Editor`. A buffer
   (`oso_core::buffer`) holds the rope, its display map (which holds the
-  invalid bytes), its file information and its loading progress. A window
+  invalid bytes), its file information, its loading progress and its undo
+  history. A window
   (`oso_core::window`) shows one buffer with its own selection set and
   scroll position. There is one window until splits (M3). See
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
   goal column for vertical motion and, from M2, its own mark. See
-  [ADR 0007](adr/0007-multi-cursor.md).
+  [ADR 0007](adr/0007-multi-cursor.md). Every window's cursors follow an edit
+  of the buffer it shows, and are clipped to display clusters. In the selected
+  window a cursor at an insertion ends after it; in others it stays before, as
+  an Emacs marker.
+- **Edits** go through `Editor::apply_edits`: one replacement per cursor, for
+  one buffer, applied in descending offset order. Overlapping ranges become
+  their union. The rope, display map, undo record, revision and every window's
+  cursors change together: the work is done on clones, O(1) to make, and
+  committed by moves that cannot panic, so a panic caught at the command boundary
+  leaves nothing half applied. Read-only buffers refuse edits. See
+  [ADR 0053](adr/0053-edit-core.md).
 - **Motion and scrolling** are pure functions in `oso_core::motion` and
   `oso_core::window`. Motion steps over display clusters. After every
   command the dispatcher scrolls the window by the fewest rows and columns
@@ -118,8 +129,21 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   place that moves cursors left behind into view. `Editor::restore_positions`
   puts back cursors and a view saved together and then follows the cursor. No
   public method sets the view alone.
-- **Undo** groups one command's edits across all cursors. Undo history is not
-  persisted to disk.
+- **Undo** is linear (`oso_core::undo`, [ADR 0030](adr/0030-m2-editing-commands.md)):
+  an edit after an undo discards the redo groups. A group holds one command's
+  edits across all cursors, and the selected window's cursors before and after.
+  The dispatcher opens it before a command and closes it after, and on the panic
+  path. Consecutive self-inserts join one group, up to 20. Removed text is kept as
+  rope slices, so killing a huge region copies nothing. History is bounded in
+  bytes, 64 MiB per buffer, not counting the group last recorded or crossed, which
+  always stays. It is not persisted to disk.
+- **Modified state** compares content ids. Each edit gets a new id, undo and redo
+  restore the stored one, and a buffer is modified when its id differs from the
+  saved one. So undoing to the saved state is unmodified, and a buffer whose saved
+  state left the history stays modified until it is saved.
+- **Messages** (`Editor::message`) are kept on the editor, bounded, and written to
+  the log, so they must not quote buffer text. The echo area and `*Messages*` draw
+  them (M2-7).
 
 ### Command registry
 

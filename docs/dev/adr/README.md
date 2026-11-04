@@ -59,6 +59,7 @@ old one's status.
 | 0050 | [Test quality checks](0050-test-quality-checks.md) | Accepted |
 | 0051 | [M2 plan: scope, safety and display decisions](0051-m2-plan-decisions.md) | Accepted |
 | 0052 | [Glyphs stay in their cells](0052-glyphs-stay-in-their-cells.md) | Accepted |
+| 0053 | [Edit core: edits, selection mapping and undo](0053-edit-core.md) | Accepted |
 
 ## Template
 

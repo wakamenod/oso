@@ -1327,6 +1327,7 @@ dependencies = [
 name = "oso-core"
 version = "0.1.0"
 dependencies = [
+ "log",
  "proptest",
  "unicode-segmentation",
  "unicode-width 0.2.3",

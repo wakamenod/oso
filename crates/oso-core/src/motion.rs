@@ -32,6 +32,23 @@ impl Edge {
     }
 }
 
+/// The start of the display cluster at `offset`, where a cursor can be; the
+/// end of the buffer past it.
+pub fn cluster_start(display: &DisplaySnapshot, offset: usize) -> usize {
+    display.display_point_to_offset(display.offset_to_display_point(offset), Bias::Left)
+}
+
+/// The end of the display cluster `offset` is inside, where a cursor can be;
+/// `offset` itself if it starts a cluster. A cursor just after typed text goes
+/// here when the text joined what follows, so what it typed stays before it.
+pub fn cluster_end(display: &DisplaySnapshot, offset: usize) -> usize {
+    let start = cluster_start(display, offset);
+    if start >= offset {
+        return start;
+    }
+    next_cluster(display, start).unwrap_or(start)
+}
+
 /// The offset after the display cluster at `offset`, or the start of the
 /// next line at a line end. `None` at the end of the buffer.
 pub fn next_cluster(display: &DisplaySnapshot, offset: usize) -> Option<usize> {
@@ -178,6 +195,52 @@ mod tests {
     use crate::display_map::{DisplayMap, TabWidth};
     use crate::rope::Rope;
     use proptest::prelude::*;
+
+    #[test]
+    fn cluster_end_finds_where_a_cursor_inside_one_goes() {
+        // e + mark, tab, 日, CRLF, then a flag.
+        let display = display("e\u{301}\t日\r\n🇯🇵");
+        let expected = [
+            (0, 0),
+            (1, 3),
+            (3, 3),
+            (4, 4),
+            (5, 7),
+            (7, 7),
+            (8, 9),
+            (9, 9),
+            (13, 17),
+            (17, 17),
+            (99, 17),
+        ];
+        for (offset, end) in expected {
+            assert_eq!(cluster_end(&display, offset), end, "{offset}");
+        }
+    }
+
+    #[test]
+    fn cluster_start_finds_where_a_cursor_can_be() {
+        // e + mark, tab, 日, CRLF, then a flag.
+        let display = display("e\u{301}\t日\r\n🇯🇵");
+        let expected = [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 3),
+            (4, 4),
+            (5, 4),
+            (6, 4),
+            (7, 7),
+            (8, 7),
+            (9, 9),
+            (13, 9),
+            (17, 17),
+            (99, 17),
+        ];
+        for (offset, start) in expected {
+            assert_eq!(cluster_start(&display, offset), start, "{offset}");
+        }
+    }
 
     fn display(text: &str) -> DisplaySnapshot {
         DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot()

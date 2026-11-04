@@ -25,6 +25,7 @@ command
 editor
 window
 buffer motion
+undo
 load selection
 display_map
 decode key rope secret
