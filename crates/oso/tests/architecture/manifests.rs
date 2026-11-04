@@ -1,6 +1,9 @@
 //! Crate manifests: the edges between workspace crates, and which crate may
 //! declare each external crate that is confined to one owner.
 //!
+//! Must not depend on: the lexer or the layer order; it reports edges, and
+//! `rules` judges them. Manifests are read line by line.
+//!
 //! The parser is line-based and approximate. It reads every dependency
 //! table form and rename that Cargo accepts on one line, and fails on a
 //! rename it cannot read. Continuation lines of multi-line arrays are
