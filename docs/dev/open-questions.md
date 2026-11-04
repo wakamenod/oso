@@ -66,10 +66,6 @@ item notes when it must be settled.
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
   commands.
-- `Window::scroll` is a public field, so code can change the top row
-  without `Window::set_top`, which moves cursors into view. Make it
-  private with a getter before recenter (`C-l`), splits or `goto-line`
-  add more writers.
 
 - isearch must not match the U+FFFD of an invalid byte
   (`InvalidBytes`, ADR 0040).

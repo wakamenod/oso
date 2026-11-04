@@ -198,9 +198,9 @@ fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
     let display = buffer.display();
     let row_count = display.row_count();
     let top = if lines >= 0 {
-        window::scroll_up(window.scroll.top, row_count, lines.unsigned_abs())
+        window::scroll_up(window.scroll().top, row_count, lines.unsigned_abs())
     } else {
-        window::scroll_down(window.scroll.top, lines.unsigned_abs())
+        window::scroll_down(window.scroll().top, lines.unsigned_abs())
     }
     .map_err(|edge| CommandError::new(edge.message()))?;
     if window.set_top(top, &display) {
@@ -348,15 +348,15 @@ mod tests {
         let mut editor = editor(&text);
         let (result, effects) = run(&mut editor, "scroll-up-command", Args::NONE);
         assert!(result.is_ok() && effects.redraw);
-        assert_eq!(editor.window().scroll.top, 8);
+        assert_eq!(editor.window().scroll().top, 8);
         assert_eq!(cursor(&editor), 8 * 3, "start of the new top row");
         let _ = run(&mut editor, "scroll-up-command", Args::numeric(3));
-        assert_eq!(editor.window().scroll.top, 11);
+        assert_eq!(editor.window().scroll().top, 11);
         let _ = run(&mut editor, "scroll-down-command", Args::NONE);
-        assert_eq!(editor.window().scroll.top, 3);
+        assert_eq!(editor.window().scroll().top, 3);
         assert_eq!(cursor(&editor), 11 * 3, "still in view");
         let _ = run(&mut editor, "scroll-down-command", Args::NONE);
-        assert_eq!(editor.window().scroll.top, 0);
+        assert_eq!(editor.window().scroll().top, 0);
         assert_eq!(cursor(&editor), 9 * 3, "start of the new bottom row");
         assert_eq!(
             run(&mut editor, "scroll-down-command", Args::NONE),
@@ -370,7 +370,7 @@ mod tests {
         for _ in 0..3 {
             let _ = run(&mut editor, "scroll-up-command", Args::NONE);
         }
-        assert_eq!(editor.window().scroll.top, 24);
+        assert_eq!(editor.window().scroll().top, 24);
         assert_eq!(
             run(&mut editor, "scroll-up-command", Args::NONE),
             (Err("End of buffer".into()), Effects::default())

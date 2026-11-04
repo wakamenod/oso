@@ -62,7 +62,7 @@ fn a_state_round_trips() {
     ];
     let (window, _) = editor.current_mut();
     window.selections = SelectionSet::from_parts(selections.clone(), 1).unwrap();
-    window.scroll = Scroll { top: 2, left: 1 };
+    window.set_scroll_keeping_cursors(Scroll { top: 2, left: 1 });
     let pending: KeySequence = "C-x 4".parse().unwrap();
     let frame = Frame {
         position: Some((-10, 20)),
@@ -259,7 +259,11 @@ fn positions_move_to_what_exists_in_a_changed_file() {
         0,
         "the start of the character"
     );
-    assert_eq!(editor.window().scroll.top, 0, "scrolled back to the cursor");
+    assert_eq!(
+        editor.window().scroll().top,
+        0,
+        "scrolled back to the cursor"
+    );
     assert!(restore(1000, 0, &editor).try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 7, "the end");
 }

@@ -70,7 +70,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             "column": point.column,
             "count": window.selections.len(),
         },
-        "scroll": { "top": window.scroll.top, "left": window.scroll.left },
+        "scroll": { "top": window.scroll().top, "left": window.scroll().left },
         "window": { "rows": size.rows, "columns": size.columns },
         "text": text,
         "buffers": editor
@@ -116,7 +116,7 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
         "selected": index == editor.selected_window(),
         "rows": size.rows,
         "columns": size.columns,
-        "scroll": { "top": window.scroll.top, "left": window.scroll.left },
+        "scroll": { "top": window.scroll().top, "left": window.scroll().left },
         "primary": selections.primary_index(),
         "selections": selections
             .iter()
@@ -149,7 +149,7 @@ pub(super) fn goal_state(goal: Option<Goal>) -> Value {
 /// at [`MAX_VISIBLE_TEXT`] and says so.
 fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Value {
     let size = window.size();
-    let scroll = window.scroll;
+    let scroll = window.scroll();
     let end_row = scroll
         .top
         .saturating_add(size.rows)
@@ -296,7 +296,7 @@ mod tests {
     use oso_core::editor::Editor;
     use oso_core::key::KeySequence;
     use oso_core::selection::SelectionSet;
-    use oso_core::window::ViewSize;
+    use oso_core::window::{Scroll, ViewSize};
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -398,8 +398,8 @@ mod tests {
                 "truncated": false,
             })
         );
-        editor.current_mut().0.scroll.top = 98;
-        editor.current_mut().0.scroll.left = 5;
+        let scroll = Scroll { top: 98, left: 5 };
+        editor.current_mut().0.set_scroll_keeping_cursors(scroll);
         assert_eq!(
             state(&editor, &[])["text"],
             json!({
@@ -415,7 +415,8 @@ mod tests {
     #[test]
     fn visible_text_includes_wide_characters_across_the_edges() {
         let mut editor = editor("日本語\n", 1, 2);
-        editor.current_mut().0.scroll.left = 1;
+        let scroll = Scroll { top: 0, left: 1 };
+        editor.current_mut().0.set_scroll_keeping_cursors(scroll);
         assert_eq!(state(&editor, &[])["text"]["rows"], json!(["日本"]));
     }
 

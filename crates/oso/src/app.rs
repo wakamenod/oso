@@ -218,7 +218,7 @@ impl App {
                     self.timings.load_done(load.started);
                 }
                 let window = self.editor.window();
-                shown && window::reaches(window.scroll.top, window.size(), old_rows - 1)
+                shown && window::reaches(window.scroll().top, window.size(), old_rows - 1)
             }
             LoadUpdate::Failed(LoadError::NotFound) => {
                 // As Emacs does: a new file, empty until saved.
@@ -296,7 +296,7 @@ fn text_view(editor: &Editor) -> TextView {
         display,
         buffer: window.buffer(),
         revision: buffer.revision(),
-        scroll: window.scroll,
+        scroll: window.scroll(),
         cursor,
     }
 }

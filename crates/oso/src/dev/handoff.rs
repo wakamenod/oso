@@ -74,7 +74,7 @@ pub fn export(
         .map(|window| {
             let (selections, scroll) = match restore.filter(|r| r.buffer == window.buffer()) {
                 Some(restore) => (&restore.selections, restore.scroll),
-                None => (&window.selections, window.scroll),
+                None => (&window.selections, window.scroll()),
             };
             json!({
                 "buffer": window.buffer().get(),
@@ -327,10 +327,10 @@ impl Restore {
         {
             window.selections = selections;
         }
-        window.scroll = Scroll {
+        window.set_scroll_keeping_cursors(Scroll {
             top: self.scroll.top.min(display.row_count() - 1),
             left: self.scroll.left,
-        };
+        });
         editor.follow_cursor();
         true
     }

@@ -63,7 +63,7 @@ pub struct Window {
     /// The cursors.
     pub selections: SelectionSet,
     /// What the window shows.
-    pub scroll: Scroll,
+    scroll: Scroll,
     size: ViewSize,
 }
 
@@ -98,6 +98,19 @@ impl Window {
 
     pub(crate) fn set_size(&mut self, size: ViewSize) {
         self.size = size;
+    }
+
+    /// What the window shows.
+    pub fn scroll(&self) -> Scroll {
+        self.scroll
+    }
+
+    /// Shows `scroll` and leaves every cursor where it is, even out of view.
+    /// Only for code that puts the view and the cursors together: following
+    /// the cursor, and restoring saved positions. A command or the mouse wheel
+    /// that moves the view on its own uses [`Window::set_top`].
+    pub fn set_scroll_keeping_cursors(&mut self, scroll: Scroll) {
+        self.scroll = scroll;
     }
 
     /// The cursor a frame draws, and the view follows: the primary one.
@@ -327,6 +340,17 @@ mod tests {
         assert!(window.set_top(0, &display));
         assert_eq!(window.selections.primary().cursor, 8 * 3);
         assert!(!window.set_top(0, &display));
+    }
+
+    #[test]
+    fn set_scroll_keeping_cursors_leaves_cursors_out_of_view() {
+        let mut window = Window::new(BufferId(0));
+        window.set_size(SIZE);
+        window.selections = SelectionSet::new(5);
+        let scroll = Scroll { top: 80, left: 3 };
+        window.set_scroll_keeping_cursors(scroll);
+        assert_eq!(window.scroll(), scroll);
+        assert_eq!(window.selections.primary().cursor, 5);
     }
 
     #[test]

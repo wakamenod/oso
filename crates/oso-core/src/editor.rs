@@ -175,9 +175,9 @@ impl Editor {
         let display = buffer.display();
         let point = window.cursor_point(&display);
         let cells = motion::cursor_cells(&display, point);
-        let scroll = window::follow(window.scroll, window.size(), point, cells);
-        let moved = scroll != window.scroll;
-        window.scroll = scroll;
+        let scroll = window::follow(window.scroll(), window.size(), point, cells);
+        let moved = scroll != window.scroll();
+        window.set_scroll_keeping_cursors(scroll);
         moved
     }
 
@@ -189,7 +189,7 @@ impl Editor {
         let (window, buffer) = self.current_mut();
         let display = buffer.display();
         let row_count = display.row_count();
-        let top = window::wheel(window.scroll.top, window.size(), row_count, rows);
+        let top = window::wheel(window.scroll().top, window.size(), row_count, rows);
         window.set_top(top, &display)
     }
 }
@@ -269,17 +269,17 @@ mod tests {
         editor.set_view_size(ViewSize::new(10, 20));
         editor.windows[0].selections = crate::selection::SelectionSet::new(15 * 9);
         assert!(editor.follow_cursor());
-        assert_eq!(editor.window().scroll.top, 6);
+        assert_eq!(editor.window().scroll().top, 6);
         assert!(!editor.follow_cursor());
 
         assert!(editor.scroll_view(20));
-        assert_eq!(editor.window().scroll.top, 26);
+        assert_eq!(editor.window().scroll().top, 26);
         let cursor = editor.window().selections.primary().cursor;
         assert_eq!(cursor, 26 * 9, "moved to the start of the top row");
         assert!(editor.scroll_view(-3));
         assert_eq!(editor.window().selections.primary().cursor, 26 * 9);
         assert!(editor.scroll_view(-100));
-        assert_eq!(editor.window().scroll.top, 0);
+        assert_eq!(editor.window().scroll().top, 0);
         assert!(!editor.scroll_view(-1));
     }
 }
