@@ -1,0 +1,17 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: 👨\\u{200d}👩\\u{200d}👧|family\\n🇯🇵|flag\\n🍣|sushi\\n1\\u{fe0f}\\u{20e3}|keycap\\nか\\u{3099}|voiced\\ne\\u{301}|acute\\n\\u{301}|lone mark"
+---
+keys: none
+│👨‍👩‍👧|family       │
+:^^              :
+│🇯🇵|flag         │
+:<>              :
+│🍣|sushi        │
+:<>              :
+│1️⃣|keycap       │
+:<>              :
+│が|voiced       │
+:<>              :
+│é|acute         │
+│́|lone mark     │

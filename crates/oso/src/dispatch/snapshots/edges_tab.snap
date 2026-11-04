@@ -1,0 +1,11 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: abc\\tdef"
+---
+keys: none
+│abc  │
+:^    :
+
+keys: C-e
+│ def │
+:    ^:

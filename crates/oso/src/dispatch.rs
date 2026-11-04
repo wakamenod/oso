@@ -111,6 +111,9 @@ impl Dispatcher {
 }
 
 #[cfg(test)]
+mod grid_tests;
+
+#[cfg(test)]
 mod tests {
     use super::Dispatcher;
     use crate::commands::COMMANDS;
