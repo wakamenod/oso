@@ -127,7 +127,8 @@ throughout.
     undo/redo with one step per command, and the message store
     ([ADR 0007](adr/0007-multi-cursor.md)).
   - **M2-3**: shaped rows compared by content, so editing shows no stale glyphs
-    and reshapes only rows whose text changed.
+    and reshapes only display rows whose text changed. A line break reshapes the
+    rows below it.
 - **M2-2** (after M2-1): `oso dev` holds a restart while a buffer is modified, and
   never closes or kills an instance that has been edited
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).

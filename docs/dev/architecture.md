@@ -193,9 +193,19 @@ null text system: the cursor is drawn on the grid, and no text. See
   while its font is loaded.
 - **Per frame**, only visible rows are drawn, and of each only the visible
   columns, widened to 64-column steps, are shaped. Shaping is cached by
-  display row and reused while the buffer's revision holds, or after a
-  change while the buffer offsets it covers are the same, so
-  scrolling reshapes only rows that come into view and a 10 MB line costs
+  display row. An entry is reused without looking at the buffer while the
+  revision holds. After a change, the row's shaped columns are read again
+  and it is reused if the shaper's input is the same: the text and each
+  cluster's column, cells and style. That is what "the bytes it covers and
+  its start column" in [ADR 0051](adr/0051-m2-plan-decisions.md) comes to,
+  because the rope's bytes alone cannot tell invalid bytes, tab widths or a
+  cluster that starts before the first column apart. It replaces the offset
+  check in [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md) too.
+  Nothing in an entry is a buffer offset, so an edit leaves the rows below
+  it alone wherever they now are in the buffer, and undo, reload and skipped
+  frames need no record of what changed. A row that went to another display
+  row, after a line break or a deleted line, is shaped again.
+  Scrolling reshapes only rows that come into view, and a 10 MB line costs
   one screen. Only glyphs inside the viewport become quads.
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels

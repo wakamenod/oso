@@ -30,10 +30,10 @@ item notes when it must be settled.
   matter, record GPU completion too, in dev builds. Key samples also end at
   the first frame after a key, even if glyphs fill in over the next ones.
 - Rendering: a multi-row cluster iterator that keeps one cursor across
-  rows, instead of a seek per row. Since M1-6 a cached row is reused
-  without a seek while the buffer's revision holds, and only rows shaped
-  or rechecked after a change seek; a frame costs 0.07 to 0.5 ms of CPU
-  (p50 to p99), so this waits until a profile shows it.
+  rows, instead of a seek per row. A cached row is reused without a seek
+  while the buffer's revision holds. After a change every visible row seeks
+  and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
+  rows of ordinary text, so this waits until a profile shows it.
 - Horizontal scroll extent needs the widest row, and the bidi-control
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
   summary tracks neither yet; add them when M2 needs them.
