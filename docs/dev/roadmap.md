@@ -74,7 +74,7 @@ M1 is built in this order. Each step is one PR.
   - `run-command`, the full `get-state`, `get-text` and the secret-pattern
     rules ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md))
   - `oso_platform::process`, `export-state` and `import-state`, and `oso dev`
-    with `just dev` ([ADR 0045](adr/0045-process-spawning-and-restart-handoff.md))
+    with `just dev` ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md))
 - **M1-8**: performance measurement in CI
   ([ADR 0024](adr/0024-dev-build-profile.md),
   [ADR 0025](adr/0025-latency-measurement.md)).

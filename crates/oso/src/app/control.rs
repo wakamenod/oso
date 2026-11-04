@@ -1,5 +1,5 @@
 //! Answering control socket requests on the UI thread, in dev builds
-//! (ADR 0023, ADR 0044, ADR 0045).
+//! (ADR 0023, ADR 0044, ADR 0047).
 //!
 //! Must not depend on: sockets or threads, which stay behind `UiRequest`.
 //! Plain functions of the editor state do not belong here either; this holds
@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use oso_core::editor::SCRATCH;
-use serde_json::{Value, json};
+use serde_json::json;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 
@@ -64,10 +64,13 @@ impl App {
                 self.take_screenshot(reply);
                 return;
             }
-            dev::UiOp::ExportState => {
-                handoff::export(&self.editor, self.dispatcher.pending(), self.frame())
-            }
-            dev::UiOp::ImportState(state) => self.import_state(&state),
+            dev::UiOp::ExportState => handoff::export(
+                &self.editor,
+                self.dispatcher.pending(),
+                self.frame(),
+                self.restore.as_ref(),
+            ),
+            dev::UiOp::ImportState(state) => self.import_state(*state),
             dev::UiOp::Exit => {
                 event_loop.exit();
                 Ok(json!({ "exiting": true }))
@@ -106,38 +109,53 @@ impl App {
     /// The OS window's place and size, if there is a window.
     fn frame(&self) -> Option<handoff::Frame> {
         let window = &self.view.as_ref()?.window;
-        let position = window.outer_position().ok()?;
         let size = window.inner_size();
         Some(handoff::Frame {
-            x: position.x,
-            y: position.y,
+            position: window
+                .outer_position()
+                .ok()
+                .map(|position| (position.x, position.y)),
             width: size.width,
             height: size.height,
         })
     }
 
     /// Takes over from the instance that exported `state`: opens its files
-    /// again, each judged anew, and moves the window. Replies once this has
-    /// begun, which is what lets the old instance exit. Refused without
-    /// changing anything if the state cannot be read, or this instance has
-    /// opened something already.
-    fn import_state(&mut self, state: &Value) -> dev::Reply {
-        let state = handoff::parse(state)?;
+    /// again, each judged anew, and moves the window. A reply means every file
+    /// has begun to load, which is what lets the old instance exit. Refused
+    /// without changing anything if this instance has opened something already.
+    fn import_state(&mut self, state: handoff::State) -> dev::Reply {
         if self.editor.buffers().count() > 1 || self.editor.current().1.name() != SCRATCH {
             return Err("this instance has already opened something".into());
         }
         let scratch = self.editor.window().buffer();
         let mut shown = scratch;
-        for (index, entry) in state.buffers.into_iter().enumerate() {
-            let buffer = match entry.path {
-                Some(path) => self.visit(path),
-                None => Some(scratch),
+        for (index, path) in state.buffers.into_iter().enumerate() {
+            let buffer = match path {
+                Some(path) => self
+                    .visit(path)
+                    .ok_or("a file could not begin to load, so the old instance should stay")?,
+                None => scratch,
             };
-            if let (true, Some(buffer)) = (index == state.shown, buffer) {
+            if index == state.shown {
                 shown = buffer;
             }
         }
         self.editor.show(shown);
+        // The size first, so that positions are restored against it where the
+        // window system applies it at once. Elsewhere the view can still move
+        // to keep the cursor in sight when the resize arrives.
+        if let (Some(view), Some(frame)) = (&mut self.view, state.frame) {
+            if let Some((x, y)) = frame.position {
+                view.window.set_outer_position(PhysicalPosition::new(x, y));
+            }
+            let size = PhysicalSize::new(frame.width, frame.height);
+            if let Some(size) = view.window.request_inner_size(size) {
+                let redraw = view.render_state.resize(size.width, size.height);
+                view.redraw_if(redraw);
+                self.update_view_size();
+            }
+        }
         self.restore = Some(handoff::Restore {
             buffer: shown,
             selections: state.selections,
@@ -145,13 +163,6 @@ impl App {
         });
         self.restore_positions();
         self.dispatcher.restore_pending(&state.pending_keys);
-        if let (Some(view), Some(frame)) = (&self.view, state.frame) {
-            view.window
-                .set_outer_position(PhysicalPosition::new(frame.x, frame.y));
-            let _ = view
-                .window
-                .request_inner_size(PhysicalSize::new(frame.width, frame.height));
-        }
         self.request_redraw();
         Ok(json!({ "buffers": self.editor.buffers().count() }))
     }

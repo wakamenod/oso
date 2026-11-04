@@ -51,7 +51,7 @@ old one's status.
 | 0042 | [Statics, API snapshot upkeep and render errors](0042-statics-snapshots-and-render-errors.md) | Accepted |
 | 0043 | [No edit approval in auto mode](0043-no-edit-approval-in-auto-mode.md) | Accepted |
 | 0044 | [Control socket trust and secret-pattern buffers](0044-control-socket-trust-and-secret-buffers.md) | Accepted |
-| 0045 | [Process spawning and the restart handoff](0045-process-spawning-and-restart-handoff.md) | Accepted |
+| 0047 | [Process spawning and the restart handoff](0047-process-spawning-and-restart-handoff.md) | Accepted |
 
 ## Template
 

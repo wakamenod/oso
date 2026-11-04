@@ -1,8 +1,11 @@
 //! `oso dev`: rebuild on source changes and restart without losing state
-//! (ADR 0002, ADR 0023, ADR 0045). The editor itself never runs cargo.
+//! (ADR 0002, ADR 0023, ADR 0047). The editor itself never runs cargo.
 //!
 //! Must not depend on: `app`, winit or editor state; it runs without a window
 //! and reaches instances only through their control sockets.
+//!
+//! It trusts the repository it runs in, since a build runs that repository's
+//! code anyway. New dependencies are not fetched: the build is offline.
 //!
 //! On a change it runs an incremental build, shown in the terminal. If that
 //! fails, the instance keeps running. If it succeeds, the new binary starts,
@@ -22,11 +25,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_platform::control::ControlDir;
-use oso_platform::process::{Executable, Output, Spawn, spawn};
+use oso_platform::process::{Executable, Sink, Spawn, spawn};
 use serde_json::Value;
 
 use super::ctl;
-use super::handover::{Handover, Instance, hand_over};
+use super::protocol;
+use super::restart::{Handover, Instance, hand_over};
 use super::watch::Sources;
 
 const USAGE: &str = "\
@@ -52,7 +56,7 @@ const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// What cargo may need beyond the base set. Dropping one that a build script
 /// watches would rebuild dependencies, so these follow the user's shell.
-const CARGO_ENV: [&str; 17] = [
+const CARGO_ENV: [&str; 16] = [
     "CARGO_HOME",
     "CARGO_TARGET_DIR",
     "CARGO_BUILD_JOBS",
@@ -69,15 +73,15 @@ const CARGO_ENV: [&str; 17] = [
     "DEVELOPER_DIR",
     "MACOSX_DEPLOYMENT_TARGET",
     "PKG_CONFIG_PATH",
-    "LD_LIBRARY_PATH",
 ];
 
 /// What an editor instance needs beyond the base set: its log filter, and how
 /// to reach the display and the control directory.
-const INSTANCE_ENV: [&str; 6] = [
+const INSTANCE_ENV: [&str; 7] = [
     "RUST_LOG",
     "RUST_BACKTRACE",
     "DISPLAY",
+    "XAUTHORITY",
     "WAYLAND_DISPLAY",
     "XDG_RUNTIME_DIR",
     "XDG_SESSION_TYPE",
@@ -154,6 +158,7 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
     let mut sources = Sources::new(&root);
     let mut current = Some(Running::start(&binary, &first_args, &root, &dir)?);
     let mut clean: Option<Running> = None;
+    let mut retry = false;
     log::info!("oso dev: watching the sources; a failed build keeps this instance");
     loop {
         thread::sleep(POLL);
@@ -171,14 +176,10 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
             }
         }
         let started = Instant::now();
-        let built = match build(&cargo, &root) {
-            Ok(Build::Built(built)) => built,
+        let (built, fresh) = match build(&cargo, &root) {
+            Ok(Build::Built { path, fresh }) => (path, fresh),
             Ok(Build::Failed) => {
                 log::warn!("oso dev: the build failed; the running instance stays");
-                continue;
-            }
-            Ok(Build::Fresh) => {
-                log::info!("oso dev: the binary did not change");
                 continue;
             }
             Err(e) => {
@@ -186,6 +187,11 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
                 continue;
             }
         };
+        // Nothing to do, unless the last try left things unfinished.
+        if fresh && current.is_some() && !retry {
+            log::info!("oso dev: cargo rebuilt nothing");
+            continue;
+        }
         let binary = match Executable::absolute(built) {
             Ok(binary) => binary,
             Err(e) => {
@@ -198,12 +204,10 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
             extra.stop();
         }
         let start = || Running::start(&binary, &[], &root, &dir).map_err(|e| e.to_string());
-        let started = Instant::now();
-        restart(&mut current, &mut clean, start);
+        retry = !restart(&mut current, &mut clean, start);
         log::info!(
-            "oso dev: restart took {:?}: build {build_time:?}, handover {:?}",
+            "oso dev: restart took {:?} since the change was seen: build {build_time:?}",
             changed.elapsed(),
-            started.elapsed(),
         );
     }
 }
@@ -228,27 +232,41 @@ fn reap(current: &mut Option<Running>, clean: &mut Option<Running>) -> Option<i3
 }
 
 /// Moves on to a new binary, keeping what `current` holds if there is one.
-fn restart<S>(current: &mut Option<Running>, clean: &mut Option<Running>, start: S)
+/// Returns whether a new instance runs. Reasons are logged escaped, since they
+/// can quote a file name and this is a terminal.
+fn restart<S>(current: &mut Option<Running>, clean: &mut Option<Running>, start: S) -> bool
 where
     S: FnOnce() -> Result<Running, String>,
 {
     let Some(old) = current.as_mut() else {
-        match start().and_then(|mut new| new.wait_until_ready().map(|()| new)) {
-            Ok(new) => *current = Some(new),
-            Err(reason) => log::warn!("oso dev: the new build did not start: {reason}"),
-        }
-        return;
+        return match start().and_then(|mut new| new.wait_until_ready().map(|()| new)) {
+            Ok(new) => {
+                *current = Some(new);
+                true
+            }
+            Err(reason) => {
+                log::warn!("oso dev: the new build did not start: {reason:?}");
+                false
+            }
+        };
     };
     match hand_over(old, start) {
-        Handover::Replaced(new) => *current = Some(new),
+        Handover::Replaced(new) => {
+            *current = Some(new);
+            true
+        }
         Handover::Refused { new, reason } => {
             log::warn!(
                 "oso dev: the new instance refused the state, so it starts clean \
-                 and the old one stays: {reason}"
+                 and the old one stays: {reason:?}"
             );
             *clean = Some(new);
+            true
         }
-        Handover::Failed(reason) => log::warn!("oso dev: the old instance stays: {reason}"),
+        Handover::Failed(reason) => {
+            log::warn!("oso dev: the old instance stays: {reason:?}");
+            false
+        }
     }
 }
 
@@ -269,9 +287,10 @@ impl Running {
             executable: binary,
             args,
             cwd: Some(root),
+            project: Some(root),
             inherit: &INSTANCE_ENV,
-            stdout: Output::Inherit,
-            stderr: Output::Inherit,
+            stdout: Sink::Inherit,
+            stderr: Sink::Inherit,
         })?;
         Ok(Self {
             child,
@@ -295,7 +314,7 @@ impl Instance for Running {
     fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {
         let pid = Some(self.child.id());
         let line = ctl::exchange(&self.dir, pid, method, params).map_err(|e| e.to_string())?;
-        response_result(&line)
+        protocol::response_result(&line)
     }
 
     fn wait_until_ready(&mut self) -> Result<(), String> {
@@ -331,24 +350,14 @@ impl Instance for Running {
     }
 }
 
-/// The result of a response line, or its error message.
-fn response_result(line: &str) -> Result<Value, String> {
-    let mut response: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
-    match response["error"]["message"].as_str() {
-        Some(message) => Err(message.to_owned()),
-        None => Ok(response["result"].take()),
-    }
-}
-
 /// What a build came to.
 #[derive(Debug, PartialEq, Eq)]
 enum Build {
     /// Errors, which cargo has shown in the terminal.
     Failed,
-    /// The binary is the same, as after an edit to a test.
-    Fresh,
-    /// A new binary, here.
-    Built(PathBuf),
+    /// The binary, here. `fresh` means cargo rebuilt nothing, as after an edit
+    /// to an integration test.
+    Built { path: PathBuf, fresh: bool },
 }
 
 /// Runs the incremental build. Errors go straight to the terminal, in color.
@@ -356,6 +365,7 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
     let args = [
         "build",
         "--locked",
+        "--offline",
         "-p",
         "oso",
         "--features",
@@ -367,9 +377,10 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         executable: cargo,
         args: &args,
         cwd: Some(root),
+        project: Some(root),
         inherit: &CARGO_ENV,
-        stdout: Output::Piped,
-        stderr: Output::Inherit,
+        stdout: Sink::Piped,
+        stderr: Sink::Inherit,
     })?;
     let mut artifact = None;
     if let Some(stdout) = child.stdout.take() {
@@ -380,15 +391,12 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
     if !child.wait()?.success() {
         return Ok(Build::Failed);
     }
-    match artifact {
-        Some((_, true)) => Ok(Build::Fresh),
-        Some((path, false)) => Ok(Build::Built(path)),
-        None => Err(io::Error::other("cargo reported no oso binary")),
-    }
+    let (path, fresh) = artifact.ok_or_else(|| io::Error::other("cargo reported no oso binary"))?;
+    Ok(Build::Built { path, fresh })
 }
 
-/// The oso binary's path and whether it is unchanged, if this line of cargo's
-/// JSON output reports it.
+/// The oso binary's path and whether cargo rebuilt nothing, if this line of
+/// cargo's JSON output reports it.
 fn oso_artifact(line: &str) -> Option<(PathBuf, bool)> {
     let message: Value = serde_json::from_str(line).ok()?;
     if message["reason"] != "compiler-artifact" || message["target"]["name"] != "oso" {
@@ -400,7 +408,7 @@ fn oso_artifact(line: &str) -> Option<(PathBuf, bool)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{oso_artifact, parse_args, response_result};
+    use super::{oso_artifact, parse_args};
     use serde_json::{Value, json};
     use std::ffi::OsString;
     use std::path::PathBuf;
@@ -428,19 +436,6 @@ mod tests {
         assert_eq!(oso_artifact(&line("oso-core", false, json!("/t/x"))), None);
         assert_eq!(oso_artifact(r#"{"reason":"build-finished"}"#), None);
         assert_eq!(oso_artifact("not json"), None);
-    }
-
-    #[test]
-    fn reads_response_lines() {
-        assert_eq!(
-            response_result(r#"{"id":1,"result":{"a":1}}"#),
-            Ok(json!({ "a": 1 }))
-        );
-        assert_eq!(
-            response_result(r#"{"id":1,"error":{"message":"no"}}"#),
-            Err("no".to_owned())
-        );
-        assert!(response_result("not json").is_err());
     }
 
     #[test]

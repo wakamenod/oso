@@ -1,11 +1,11 @@
-//! Spawning child processes: the only place allowed to (ADR 0010, ADR 0045).
+//! Spawning child processes: the only place allowed to (ADR 0010, ADR 0047).
 //!
 //! Must not depend on: `control` or `text`, or any idea of what is being run;
 //! callers decide that and name the extra variables a program needs.
 //!
 //! - An executable comes from an absolute path, or from `PATH` without the
-//!   current directory, the project and any relative entry, so a repository
-//!   cannot plant a `cargo` for oso to run.
+//!   current directory, the project and any relative or missing entry, so a
+//!   repository cannot put a program of its own on the search path.
 //! - A child gets an environment built from an allowlist. Anything else,
 //!   such as `LD_PRELOAD`, `DYLD_*` or an API token, stays behind.
 //! - Standard input is closed.
@@ -66,7 +66,8 @@ impl Executable {
     }
 
     /// The executable called `name` on `PATH`, leaving out the current
-    /// directory, `project` and everything under it, and relative entries.
+    /// directory, `project` and everything under it, and entries that are
+    /// relative or do not exist.
     pub fn from_path(name: &str, project: Option<&Path>) -> io::Result<Self> {
         let not_found = || {
             io::Error::new(
@@ -95,9 +96,9 @@ impl Executable {
     }
 }
 
-/// What happens to a child's output stream.
+/// Where a child's output stream goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Output {
+pub enum Sink {
     /// Goes where this process's goes.
     Inherit,
     /// Readable through the [`Child`].
@@ -106,12 +107,12 @@ pub enum Output {
     Null,
 }
 
-impl From<Output> for Stdio {
-    fn from(output: Output) -> Self {
-        match output {
-            Output::Inherit => Self::inherit(),
-            Output::Piped => Self::piped(),
-            Output::Null => Self::null(),
+impl From<Sink> for Stdio {
+    fn from(sink: Sink) -> Self {
+        match sink {
+            Sink::Inherit => Self::inherit(),
+            Sink::Piped => Self::piped(),
+            Sink::Null => Self::null(),
         }
     }
 }
@@ -121,20 +122,22 @@ impl From<Output> for Stdio {
 pub struct Spawn<'a> {
     pub executable: &'a Executable,
     pub args: &'a [OsString],
-    /// The directory to run in, this process's if `None`. It counts as the
-    /// project: it and everything under it are left out of the child's `PATH`.
+    /// The directory to run in, this process's if `None`.
     pub cwd: Option<&'a Path>,
+    /// The project the child works on. It and everything under it are left out
+    /// of the child's `PATH`.
+    pub project: Option<&'a Path>,
     /// Variables this program needs on top of the base set, by name.
     pub inherit: &'a [&'a str],
-    pub stdout: Output,
-    pub stderr: Output,
+    pub stdout: Sink,
+    pub stderr: Sink,
 }
 
 /// Starts a process.
 pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
     let current = env::current_dir().ok();
     let path = env::var_os("PATH").unwrap_or_default();
-    let dirs = search_dirs(&path, current.as_deref(), request.cwd);
+    let dirs = search_dirs(&path, current.as_deref(), request.project);
     let path = env::join_paths(dirs).map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
     let variables = allowed_env(env::vars_os(), request.inherit);
     log::info!(
@@ -164,7 +167,9 @@ pub fn spawn(request: &Spawn<'_>) -> io::Result<Child> {
 }
 
 /// The directories of `path`, a `PATH` value, that may supply a program: only
-/// absolute ones, and neither `current` nor `project` or anything under it.
+/// absolute ones that exist, and neither `current` nor `project` or anything
+/// under it. One that does not exist cannot be told apart from the project, and
+/// could appear later.
 fn search_dirs(path: &OsStr, current: Option<&Path>, project: Option<&Path>) -> Vec<PathBuf> {
     let real = |dir: &Path| fs::canonicalize(dir).unwrap_or_else(|_| dir.to_owned());
     let current = current.map(real);
@@ -172,11 +177,12 @@ fn search_dirs(path: &OsStr, current: Option<&Path>, project: Option<&Path>) -> 
     env::split_paths(path)
         .filter(|dir| dir.is_absolute())
         .filter(|dir| {
-            let dir = real(dir);
-            current.as_deref() != Some(&*dir)
-                && project
-                    .as_deref()
-                    .is_none_or(|project| !dir.starts_with(project))
+            fs::canonicalize(dir).is_ok_and(|dir| {
+                current.as_deref() != Some(&*dir)
+                    && project
+                        .as_deref()
+                        .is_none_or(|project| !dir.starts_with(project))
+            })
         })
         .collect()
 }
@@ -226,7 +232,7 @@ fn is_executable(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Executable, Output, Spawn, allowed_env, search_dirs, spawn};
+    use super::{Executable, Sink, Spawn, allowed_env, search_dirs, spawn};
     use std::env;
     use std::ffi::OsString;
     use std::fs;
@@ -298,6 +304,12 @@ mod tests {
             search_dirs(&around, None, Some(&project)),
             std::slice::from_ref(&tools)
         );
+        // What does not exist yet may never be searched.
+        let missing = path_of(&[&root.join("missing"), &tools]);
+        assert_eq!(
+            search_dirs(&missing, None, None),
+            std::slice::from_ref(&tools)
+        );
         // An empty entry means the current directory to a shell.
         let empty = env::join_paths([Path::new(""), &tools]).unwrap();
         assert_eq!(search_dirs(&empty, None, None), [tools]);
@@ -346,9 +358,10 @@ mod tests {
             executable: &program,
             args: &args,
             cwd: Some(&cwd),
+            project: None,
             inherit: &[],
-            stdout: Output::Piped,
-            stderr: Output::Null,
+            stdout: Sink::Piped,
+            stderr: Sink::Null,
         })
         .unwrap();
         let mut output = String::new();

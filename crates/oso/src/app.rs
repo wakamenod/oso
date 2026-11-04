@@ -203,21 +203,21 @@ impl App {
                     load.first_screen = Some(load.started);
                 }
                 if done {
-                    log::debug!("{} loaded in {:?}", buffer.name(), load.started.elapsed());
+                    log::debug!("{:?} loaded in {:?}", buffer.name(), load.started.elapsed());
                 }
                 let window = self.editor.window();
                 shown && window::reaches(window.scroll.top, window.size(), old_rows - 1)
             }
             LoadUpdate::Failed(LoadError::NotFound) => {
                 // As Emacs does: a new file, empty until saved.
-                log::info!("(New file) {}", buffer.name());
+                log::info!("(New file) {:?}", buffer.name());
                 buffer.finish_empty();
                 self.loads.swap_remove(index);
                 shown
             }
             LoadUpdate::Failed(e) => {
                 // The echo area shows this from M2.
-                log::warn!("cannot open {}: {e}", buffer.name());
+                log::warn!("cannot open {:?}: {e}", buffer.name());
                 self.editor.kill_buffer(id);
                 self.loads.swap_remove(index);
                 shown

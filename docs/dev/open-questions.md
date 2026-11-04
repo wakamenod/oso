@@ -103,6 +103,12 @@ item notes when it must be settled.
   ([ADR 0028](adr/0028-secrets-handling.md)) need the resolved paths kept, or
   resolving again, so config reload can judge open buffers again.
 
+- `oso dev` once M2 can edit
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)): carry unsaved
+  text of buffers that are not secret through the state, in pieces that fit the
+  line limit; send build errors to the echo area; and do not close a clean
+  instance without asking if it has been edited.
+
 - The panic hook (with emergency save, [ADR 0013](adr/0013-persistence.md)):
   Rust's default hook prints panic messages, which may quote buffer text,
   to stderr even for panics caught at the command boundary. Decide what

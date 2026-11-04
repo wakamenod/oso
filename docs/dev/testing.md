@@ -126,7 +126,7 @@ violation, so a broken parser cannot pass silently.
     to become null before reading it.
   - `export-state` and `import-state` hand the state to a new instance, and
     `exit` stops one. `just dev` (`oso dev`) drives them on each source change
-    ([ADR 0045](adr/0045-process-spawning-and-restart-handoff.md)).
+    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
   - `oso [FILE]` opens a file, so test files (generated in a scratch
     directory, never committed) can be driven this way.
   - `screenshot` writes a PNG of the current frame and returns its path

@@ -1,9 +1,13 @@
-//! The order of a restart: export, start, import, and only then stop the old
-//! instance (ADR 0023, ADR 0045).
+//! The order of a restart: start the new instance, then export, import, and
+//! only then stop the old one (ADR 0023, ADR 0047). The export comes as late as
+//! possible, so that input the old window takes while the new one starts is
+//! not lost.
 //!
 //! Must not depend on: `supervisor`, `ctl`, sockets or processes; the supervisor
 //! supplies them behind [`Instance`], so that the order can be tested without
 //! any of them.
+
+use std::time::Instant;
 
 use serde_json::{Value, json};
 
@@ -34,10 +38,7 @@ pub fn hand_over<I: Instance>(
     old: &mut I,
     start: impl FnOnce() -> Result<I, String>,
 ) -> Handover<I> {
-    let state = match old.call("export-state", None) {
-        Ok(state) => state,
-        Err(reason) => return Handover::Failed(format!("export failed: {reason}")),
-    };
+    let started = Instant::now();
     let mut new = match start() {
         Ok(new) => new,
         Err(reason) => return Handover::Failed(format!("the new build did not start: {reason}")),
@@ -46,9 +47,25 @@ pub fn hand_over<I: Instance>(
         new.stop();
         return Handover::Failed(format!("the new build did not start: {reason}"));
     }
+    let ready = started.elapsed();
+    let state = match old.call("export-state", None) {
+        Ok(state) => state,
+        Err(reason) => {
+            new.stop();
+            return Handover::Failed(format!("export failed: {reason}"));
+        }
+    };
+    let exported = started.elapsed();
     match new.call("import-state", Some(json!({ "state": state }))) {
         Ok(_) => {
+            let imported = started.elapsed();
             old.stop();
+            log::info!(
+                "oso dev: new window {ready:?}, export {:?}, import {:?}, old instance gone {:?}",
+                exported - ready,
+                imported - exported,
+                started.elapsed() - imported,
+            );
             Handover::Replaced(new)
         }
         Err(reason) => Handover::Refused { new, reason },
@@ -132,8 +149,8 @@ mod tests {
         assert_eq!(
             *log.borrow(),
             [
-                "old export-state",
                 "new ready?",
+                "old export-state",
                 "new import-state",
                 "old stop"
             ]
@@ -166,7 +183,8 @@ mod tests {
         ));
         assert_eq!(
             *log.borrow(),
-            ["old export-state", "new ready?", "new stop"]
+            ["new ready?", "new stop"],
+            "nothing exported"
         );
 
         let log = self::log();
@@ -175,16 +193,22 @@ mod tests {
             hand_over::<Fake>(&mut old, || Err("no binary".into())),
             Handover::Failed(_)
         ));
-        assert_eq!(*log.borrow(), ["old export-state"]);
+        assert!(log.borrow().is_empty());
     }
 
     #[test]
-    fn a_failed_export_starts_nothing() {
+    fn a_failed_export_stops_the_new_instance_and_keeps_the_old_one() {
         let log = log();
         let mut old = Fake::new("old", &log);
         old.export = Err("a buffer has text and no file".into());
-        let outcome = hand_over::<Fake>(&mut old, || panic!("started"));
-        assert!(matches!(outcome, Handover::Failed(_)));
-        assert_eq!(*log.borrow(), ["old export-state"]);
+        let new = Fake::new("new", &log);
+        assert!(matches!(
+            hand_over(&mut old, || Ok(new)),
+            Handover::Failed(_)
+        ));
+        assert_eq!(
+            *log.borrow(),
+            ["new ready?", "old export-state", "new stop"]
+        );
     }
 }

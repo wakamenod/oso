@@ -11,7 +11,7 @@ feature.
   types in its public API.
 - Every `unsafe` block needs a `// SAFETY:` comment.
 - Processes are spawned only through `oso-platform::process` (ADR 0010,
-  ADR 0045), behind the `dev` feature until a release feature needs it.
+  ADR 0047), behind the `dev` feature until a release feature needs it.
   There is no network code.
 - Each OS backend sits in its own `cfg`-gated module. Linux and Windows
   must keep building and passing tests in CI (Tier 2).

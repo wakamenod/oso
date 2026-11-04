@@ -1,9 +1,10 @@
-//! Watching the Rust sources for changes, for `oso dev` (ADR 0023, ADR 0045).
+//! Watching the sources for changes, for `oso dev` (ADR 0023, ADR 0047).
 //!
 //! Must not depend on: `app`, `server` or anything about building; it only
 //! notices that files changed.
 //!
-//! It polls modification times and sizes. A workspace has few enough files
+//! Shaders count, since they are compiled in until they can reload in a running
+//! instance (ADR 0002). It polls modification times and sizes. A workspace has few enough files
 //! that a look costs well under a millisecond, and this needs no dependency.
 //! File-event crates would save part of one poll interval out of a restart
 //! that takes seconds.
@@ -66,7 +67,7 @@ fn walk(directory: &Path, entries: &mut Vec<Entry>) {
             if !name.starts_with('.') && name != "target" {
                 walk(&path, entries);
             }
-        } else if name == "Cargo.toml" || name.ends_with(".rs") {
+        } else if name == "Cargo.toml" || name.ends_with(".rs") || name.ends_with(".wgsl") {
             add(&path, entries);
         }
     }
@@ -112,6 +113,8 @@ mod tests {
         fs::remove_file(&new).unwrap();
         assert!(sources.changed());
 
+        fs::write(root.join("crates/a/src/text.wgsl"), "1").unwrap();
+        assert!(sources.changed());
         fs::write(root.join("crates/a/Cargo.toml"), "12").unwrap();
         assert!(sources.changed());
         fs::write(root.join("Cargo.toml"), "12").unwrap();

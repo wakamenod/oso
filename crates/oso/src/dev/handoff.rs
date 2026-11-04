@@ -1,5 +1,5 @@
 //! The state one instance hands to the next on a restart: `export-state` and
-//! `import-state` (ADR 0023, ADR 0045).
+//! `import-state` (ADR 0023, ADR 0047).
 //!
 //! Must not depend on: `app`, `server`, winit or sockets; these are plain
 //! functions of the editor state, and the caller opens the files.
@@ -14,11 +14,12 @@
 //! Parsing changes nothing, so a state with another version or a bad field
 //! leaves the new instance clean, and the old one is kept.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::display_map::DisplayPoint;
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, SCRATCH};
 use oso_core::key::{KeyPress, KeySequence};
 use oso_core::keymap::display_keys;
 use oso_core::selection::{Goal, Selection, SelectionSet};
@@ -39,17 +40,31 @@ const MAX_STATE: usize = MAX_LINE - 256;
 /// The most buffers one state may open, each with a loading thread.
 const MAX_BUFFERS: usize = 1024;
 
-/// The OS window's place on the screen and its inner size, in physical pixels.
+/// The most selections one state may hold. Restoring them runs on the UI thread.
+const MAX_SELECTIONS: usize = 10_000;
+
+/// The largest window side, in pixels: the largest texture wgpu's default
+/// limits allow, since the surface follows the window.
+const MAX_FRAME_SIDE: u32 = 8192;
+
+/// The OS window's inner size and, where the window system tells, its place on
+/// the screen, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Frame {
-    pub x: i32,
-    pub y: i32,
+    pub position: Option<(i32, i32)>,
     pub width: u32,
     pub height: u32,
 }
 
-/// The result of `export-state`.
-pub fn export(editor: &Editor, pending: &[KeyPress], frame: Option<Frame>) -> Reply {
+/// The result of `export-state`. `restore` is what the window has yet to take
+/// from the previous instance: if its file is still loading, those positions
+/// are the real ones.
+pub fn export(
+    editor: &Editor,
+    pending: &[KeyPress],
+    frame: Option<Frame>,
+    restore: Option<&Restore>,
+) -> Reply {
     let mut buffers = Vec::new();
     for (id, buffer) in editor.buffers() {
         buffers.push(buffer_state(id, buffer)?);
@@ -57,14 +72,18 @@ pub fn export(editor: &Editor, pending: &[KeyPress], frame: Option<Frame>) -> Re
     let windows: Vec<Value> = editor
         .windows()
         .map(|window| {
+            let (selections, scroll) = match restore.filter(|r| r.buffer == window.buffer()) {
+                Some(restore) => (&restore.selections, restore.scroll),
+                None => (&window.selections, window.scroll),
+            };
             json!({
                 "buffer": window.buffer().get(),
-                "primary": window.selections.primary_index(),
-                "selections": window.selections.iter().map(|selection| json!({
+                "primary": selections.primary_index(),
+                "selections": selections.iter().map(|selection| json!({
                     "cursor": selection.cursor,
                     "goal": goal_state(selection.goal),
                 })).collect::<Vec<_>>(),
-                "scroll": { "top": window.scroll.top, "left": window.scroll.left },
+                "scroll": { "top": scroll.top, "left": scroll.left },
             })
         })
         .collect();
@@ -75,8 +94,8 @@ pub fn export(editor: &Editor, pending: &[KeyPress], frame: Option<Frame>) -> Re
         "selected": editor.selected_window(),
         "pending_keys": display_keys(pending).to_string(),
         "frame": frame.map(|frame| json!({
-            "x": frame.x,
-            "y": frame.y,
+            "x": frame.position.map(|position| position.0),
+            "y": frame.position.map(|position| position.1),
             "width": frame.width,
             "height": frame.height,
         })),
@@ -98,21 +117,23 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Result<Value, String> {
                 path.display()
             )
         })?),
-        None if buffer.text().is_empty() => None,
+        None if buffer.text().is_empty() && buffer.name() == SCRATCH => None,
         None => {
             return Err(format!(
-                "cannot hand over {}: it has text and no file",
+                "cannot hand over {}: it has no file to read again",
                 buffer.name()
             ));
         }
     };
-    Ok(json!({ "id": id.get(), "name": buffer.name(), "path": path }))
+    Ok(json!({ "id": id.get(), "path": path }))
 }
 
 /// A parsed state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct State {
-    pub buffers: Vec<BufferEntry>,
+    /// The buffers to open again: a file's absolute path, or `None` for
+    /// `*scratch*`.
+    pub buffers: Vec<Option<PathBuf>>,
     /// The position in `buffers` of the buffer the window shows.
     pub shown: usize,
     pub selections: SelectionSet,
@@ -121,30 +142,29 @@ pub struct State {
     pub frame: Option<Frame>,
 }
 
-/// A buffer to open again.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BufferEntry {
-    pub name: String,
-    /// An absolute path, or `None` for a buffer with no file.
-    pub path: Option<PathBuf>,
-}
-
 /// Reads a state, checking everything before anything changes. There is one
 /// window until splits arrive (M3), so a state with others is refused.
 pub fn parse(state: &Value) -> Result<State, String> {
     let state = state.as_object().ok_or("the state is not an object")?;
-    let version = state.get("version").and_then(Value::as_u64);
-    if version != Some(STATE_VERSION) {
-        return Err(format!(
-            "the state has version {}, and this build reads version {STATE_VERSION}",
-            state.get("version").unwrap_or(&Value::Null)
-        ));
+    match state.get("version").and_then(Value::as_u64) {
+        Some(STATE_VERSION) => {}
+        Some(version) => {
+            return Err(format!(
+                "the state has version {version}, and this build reads version {STATE_VERSION}"
+            ));
+        }
+        None => return Err("the state has no version".into()),
     }
     let entries = array(state, "buffers")?;
     if entries.len() > MAX_BUFFERS {
         return Err(format!("the state has more than {MAX_BUFFERS} buffers"));
     }
-    let buffers = entries.iter().map(parse_buffer).collect::<Result<_, _>>()?;
+    let buffers: Vec<Option<PathBuf>> =
+        entries.iter().map(parse_buffer).collect::<Result<_, _>>()?;
+    let files: HashSet<_> = buffers.iter().flatten().collect();
+    if files.len() != buffers.iter().flatten().count() {
+        return Err("the state opens one file twice".into());
+    }
     let windows = array(state, "windows")?;
     let ([window], Some(0)) = (&windows[..], state.get("selected").and_then(Value::as_u64)) else {
         return Err("the state must have one window, selected".into());
@@ -171,16 +191,11 @@ pub fn parse(state: &Value) -> Result<State, String> {
     })
 }
 
-fn parse_buffer(entry: &Value) -> Result<BufferEntry, String> {
+fn parse_buffer(entry: &Value) -> Result<Option<PathBuf>, String> {
     let entry = entry.as_object().ok_or("a buffer is not an object")?;
     if entry.get("id").and_then(Value::as_u64).is_none() {
         return Err("a buffer has no id".into());
     }
-    let name = entry
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or("a buffer has no name")?
-        .to_owned();
     let path = match entry.get("path") {
         None | Some(Value::Null) => None,
         Some(Value::String(path)) => Some(PathBuf::from(path)),
@@ -189,11 +204,17 @@ fn parse_buffer(entry: &Value) -> Result<BufferEntry, String> {
     if path.as_ref().is_some_and(|path| !path.is_absolute()) {
         return Err("a buffer's path is not absolute".into());
     }
-    Ok(BufferEntry { name, path })
+    Ok(path)
 }
 
 fn parse_selections(window: &Map<String, Value>) -> Result<SelectionSet, String> {
-    let selections = array(window, "selections")?
+    let selections = array(window, "selections")?;
+    if selections.len() > MAX_SELECTIONS {
+        return Err(format!(
+            "a window has more than {MAX_SELECTIONS} selections"
+        ));
+    }
+    let selections = selections
         .iter()
         .map(|selection| {
             let selection = selection
@@ -229,24 +250,24 @@ fn parse_frame(state: &Map<String, Value>) -> Result<Option<Frame>, String> {
         None | Some(Value::Null) => return Ok(None),
         Some(frame) => frame.as_object().ok_or("the frame is not an object")?,
     };
-    let int = |name: &str| {
-        frame
-            .get(name)
-            .and_then(Value::as_i64)
+    let coordinate = |name: &str| match frame.get(name) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_i64()
             .and_then(|value| i32::try_from(value).ok())
-            .ok_or_else(|| format!("the frame's {name} is not a position"))
+            .map(Some)
+            .ok_or_else(|| format!("the frame's {name} is not a position")),
     };
     let side = |name: &str| {
         frame
             .get(name)
             .and_then(Value::as_u64)
             .and_then(|value| u32::try_from(value).ok())
-            .filter(|&value| value > 0)
+            .filter(|value| (1..=MAX_FRAME_SIDE).contains(value))
             .ok_or_else(|| format!("the frame's {name} is not a size"))
     };
     Ok(Some(Frame {
-        x: int("x")?,
-        y: int("y")?,
+        position: coordinate("x")?.zip(coordinate("y")?),
         width: side("width")?,
         height: side("height")?,
     }))
@@ -317,7 +338,9 @@ impl Restore {
 
 #[cfg(test)]
 mod tests {
-    use super::{BufferEntry, Frame, MAX_BUFFERS, Restore, STATE_VERSION, export, parse};
+    use super::{
+        Frame, MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS, Restore, STATE_VERSION, export, parse,
+    };
     use oso_core::buffer::Buffer;
     use oso_core::display_map::TabWidth;
     use oso_core::editor::Editor;
@@ -344,7 +367,7 @@ mod tests {
     type Mutation = Box<dyn Fn(&mut Value)>;
 
     fn with(mutate: impl FnOnce(&mut Value)) -> Value {
-        let mut state = export(&visiting("/p/a.txt", "abc\n"), &[], None).unwrap();
+        let mut state = export(&visiting("/p/a.txt", "abc\n"), &[], None, None).unwrap();
         mutate(&mut state);
         state
     }
@@ -368,28 +391,15 @@ mod tests {
         window.scroll = Scroll { top: 2, left: 1 };
         let pending: KeySequence = "C-x 4".parse().unwrap();
         let frame = Frame {
-            x: -10,
-            y: 20,
+            position: Some((-10, 20)),
             width: 800,
             height: 600,
         };
-        let exported = export(&editor, &pending.0, Some(frame)).unwrap();
+        let exported = export(&editor, &pending.0, Some(frame), None).unwrap();
         assert_eq!(exported["version"], STATE_VERSION);
 
         let state = parse(&exported).unwrap();
-        assert_eq!(
-            state.buffers,
-            [
-                BufferEntry {
-                    name: "*scratch*".into(),
-                    path: None
-                },
-                BufferEntry {
-                    name: "a.txt".into(),
-                    path: Some("/p/a.txt".into())
-                },
-            ]
-        );
+        assert_eq!(state.buffers, [None, Some(PathBuf::from("/p/a.txt"))]);
         assert_eq!(state.shown, 1);
         assert_eq!(
             state.selections.iter().copied().collect::<Vec<_>>(),
@@ -399,12 +409,31 @@ mod tests {
         assert_eq!(state.scroll, Scroll { top: 2, left: 1 });
         assert_eq!(state.pending_keys, pending.0);
         assert_eq!(state.frame, Some(frame));
+
+        // Where the window system does not tell the place, the size still counts.
+        let frame = Frame {
+            position: None,
+            ..frame
+        };
+        let exported = export(&editor, &[], Some(frame), None).unwrap();
+        assert_eq!(parse(&exported).unwrap().frame, Some(frame));
+    }
+
+    #[test]
+    fn positions_still_waiting_for_their_file_are_the_ones_exported() {
+        let mut editor = Editor::default();
+        let id = editor.add_buffer(Buffer::visiting(PathBuf::from("/p/a.txt")));
+        editor.show(id);
+        let restore = restore(600, 40, &editor);
+        let state = parse(&export(&editor, &[], None, Some(&restore)).unwrap()).unwrap();
+        assert_eq!(state.selections.primary().cursor, 600);
+        assert_eq!(state.scroll.top, 40);
     }
 
     #[test]
     fn a_state_never_holds_text_secret_or_not() {
         for path in ["/p/.env", "/p/notes.txt"] {
-            let state = export(&visiting(path, "SECRET-VALUE\n"), &[], None).unwrap();
+            let state = export(&visiting(path, "SECRET-VALUE\n"), &[], None, None).unwrap();
             let line = state.to_string();
             assert!(!line.contains("SECRET-VALUE"), "{line}");
             assert!(line.contains(path), "{line}");
@@ -414,7 +443,7 @@ mod tests {
     #[test]
     fn text_with_no_file_is_refused_not_lost() {
         let editor = Editor::with_buffer(Buffer::from_text("notes", "unsaved"));
-        let message = export(&editor, &[], None).unwrap_err();
+        let message = export(&editor, &[], None, None).unwrap_err();
         assert!(message.contains("notes"), "{message}");
         assert!(!message.contains("unsaved"), "{message}");
     }
@@ -429,7 +458,7 @@ mod tests {
         let id = editor.add_buffer(Buffer::visiting(path));
         editor.show(id);
         assert!(
-            export(&editor, &[], None)
+            export(&editor, &[], None, None)
                 .unwrap_err()
                 .contains("not UTF-8")
         );
@@ -440,7 +469,7 @@ mod tests {
         let long = format!("/{}", "a".repeat(super::MAX_STATE));
         let mut editor = Editor::default();
         editor.add_buffer(Buffer::visiting(PathBuf::from(long)));
-        let message = export(&editor, &[], None).unwrap_err();
+        let message = export(&editor, &[], None, None).unwrap_err();
         assert!(message.contains("bytes"), "{message}");
     }
 
@@ -451,12 +480,15 @@ mod tests {
             let message = parse(&state).unwrap_err();
             assert!(message.contains("version"), "{message}");
         }
+        // A long value is not echoed.
+        let state = with(|state| state["version"] = json!("x".repeat(100_000)));
+        assert!(parse(&state).unwrap_err().len() < 100);
         assert!(parse(&json!([])).is_err());
     }
 
     #[test]
     fn bad_fields_are_refused() {
-        let bad: [(&str, Mutation); 12] = [
+        let bad: [(&str, Mutation); 13] = [
             ("buffers", Box::new(|s| s["buffers"] = json!(1))),
             ("path", Box::new(|s| s["buffers"][1]["path"] = json!(1))),
             (
@@ -489,6 +521,13 @@ mod tests {
             (
                 "width",
                 Box::new(|s| {
+                    s["frame"] =
+                        json!({ "x": 0, "y": 0, "width": MAX_FRAME_SIDE + 1, "height": 1 });
+                }),
+            ),
+            (
+                "width",
+                Box::new(|s| {
                     s["frame"] = json!({ "x": 0, "y": 0, "width": 0, "height": 1 });
                 }),
             ),
@@ -498,9 +537,17 @@ mod tests {
             let message = parse(&state).unwrap_err();
             assert!(message.contains(expected), "{expected}: {message}");
         }
-        let many = vec![json!({ "id": 0, "name": "x" }); MAX_BUFFERS + 1];
+        let many = vec![json!({ "id": 0 }); MAX_BUFFERS + 1];
         let state = with(|state| state["buffers"] = json!(many));
         assert!(parse(&state).unwrap_err().contains("more than"));
+        let many = vec![json!({ "cursor": 0 }); MAX_SELECTIONS + 1];
+        let state = with(|state| state["windows"][0]["selections"] = json!(many));
+        assert!(parse(&state).unwrap_err().contains("selections"));
+        let state = with(|state| {
+            let again = state["buffers"][1].clone();
+            state["buffers"].as_array_mut().unwrap().push(again);
+        });
+        assert!(parse(&state).unwrap_err().contains("twice"));
     }
 
     fn restore(cursor: usize, top: usize, editor: &Editor) -> Restore {

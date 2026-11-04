@@ -278,6 +278,20 @@ mod tests {
         assert!(parse(&["show-buffer", "x"]).unwrap_err().contains("\"x\""));
     }
 
+    /// The smallest state the server accepts.
+    const STATE: &str = r#"{
+        "version": 1,
+        "buffers": [{ "id": 0 }],
+        "windows": [{
+            "buffer": 0,
+            "primary": 0,
+            "selections": [{ "cursor": 0 }],
+            "scroll": { "top": 0, "left": 0 }
+        }],
+        "selected": 0,
+        "pending_keys": ""
+    }"#;
+
     #[test]
     fn the_server_accepts_what_the_client_sends() {
         for args in [
@@ -290,7 +304,7 @@ mod tests {
             &["run-command", "forward-char"],
             &["run-command", "forward-char", "-2"],
             &["export-state"],
-            &["import-state", r#"{"version":1}"#],
+            &["import-state", STATE],
             &["exit"],
         ] {
             let invocation = parse(args).unwrap().unwrap();

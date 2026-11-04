@@ -41,21 +41,21 @@ impl std::io::Write for oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::flush(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io::error::Result<usize>
 pub mod oso_platform::process
-pub enum oso_platform::process::Output
-pub oso_platform::process::Output::Inherit
-pub oso_platform::process::Output::Null
-pub oso_platform::process::Output::Piped
-impl core::clone::Clone for oso_platform::process::Output
-pub fn oso_platform::process::Output::clone(&self) -> oso_platform::process::Output
-impl core::cmp::Eq for oso_platform::process::Output
-impl core::cmp::PartialEq for oso_platform::process::Output
-pub fn oso_platform::process::Output::eq(&self, &oso_platform::process::Output) -> bool
-impl core::convert::From<oso_platform::process::Output> for std::process::Stdio
-pub fn std::process::Stdio::from(oso_platform::process::Output) -> Self
-impl core::fmt::Debug for oso_platform::process::Output
-pub fn oso_platform::process::Output::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_platform::process::Output
-impl core::marker::StructuralPartialEq for oso_platform::process::Output
+pub enum oso_platform::process::Sink
+pub oso_platform::process::Sink::Inherit
+pub oso_platform::process::Sink::Null
+pub oso_platform::process::Sink::Piped
+impl core::clone::Clone for oso_platform::process::Sink
+pub fn oso_platform::process::Sink::clone(&self) -> oso_platform::process::Sink
+impl core::cmp::Eq for oso_platform::process::Sink
+impl core::cmp::PartialEq for oso_platform::process::Sink
+pub fn oso_platform::process::Sink::eq(&self, &oso_platform::process::Sink) -> bool
+impl core::convert::From<oso_platform::process::Sink> for std::process::Stdio
+pub fn std::process::Stdio::from(oso_platform::process::Sink) -> Self
+impl core::fmt::Debug for oso_platform::process::Sink
+pub fn oso_platform::process::Sink::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::process::Sink
+impl core::marker::StructuralPartialEq for oso_platform::process::Sink
 pub struct oso_platform::process::Executable(_)
 impl oso_platform::process::Executable
 pub fn oso_platform::process::Executable::absolute(impl core::convert::Into<std::path::PathBuf>) -> std::io::error::Result<Self>
@@ -74,8 +74,9 @@ pub oso_platform::process::Spawn::args: &'a [std::ffi::os_str::OsString]
 pub oso_platform::process::Spawn::cwd: core::option::Option<&'a std::path::Path>
 pub oso_platform::process::Spawn::executable: &'a oso_platform::process::Executable
 pub oso_platform::process::Spawn::inherit: &'a [&'a str]
-pub oso_platform::process::Spawn::stderr: oso_platform::process::Output
-pub oso_platform::process::Spawn::stdout: oso_platform::process::Output
+pub oso_platform::process::Spawn::project: core::option::Option<&'a std::path::Path>
+pub oso_platform::process::Spawn::stderr: oso_platform::process::Sink
+pub oso_platform::process::Spawn::stdout: oso_platform::process::Sink
 impl<'a> core::clone::Clone for oso_platform::process::Spawn<'a>
 pub fn oso_platform::process::Spawn<'a>::clone(&self) -> oso_platform::process::Spawn<'a>
 impl<'a> core::fmt::Debug for oso_platform::process::Spawn<'a>

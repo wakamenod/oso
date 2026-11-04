@@ -183,14 +183,15 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
     60 s idle) and `send-keys` to 4096 keys, and never blocks the UI thread
   - is not available on Windows yet
 - Processes spawn only through `oso_platform::process`: executables come from
-  an absolute path or from `PATH` without relative entries, the current
-  directory or the project, children get an allowlisted environment and a closed
+  an absolute path or from `PATH` without relative or missing entries, the
+  current directory or the project, children get an allowlisted environment and a closed
   stdin, and every spawn is logged. It is behind the `dev` feature until a
-  release feature needs it, and only `oso dev` uses it
-  ([ADR 0045](adr/0045-process-spawning-and-restart-handoff.md)).
+  release feature needs it, and only `oso dev` uses it. `oso dev` builds offline,
+  so a changed lock file fetches nothing by itself
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff holds paths and positions, never text, so it cannot carry a
   secret buffer's content
-  ([ADR 0045](adr/0045-process-spawning-and-restart-handoff.md)).
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this.
   This is reviewed when commands that spawn processes arrive (M3 onward)
