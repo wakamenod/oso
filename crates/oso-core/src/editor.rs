@@ -227,6 +227,30 @@ mod tests {
     }
 
     #[test]
+    fn a_file_named_like_scratch_is_not_scratch() {
+        let mut editor = Editor::default();
+        let (scratch, _) = editor.buffers().next().unwrap();
+        let other = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/b")));
+        editor.show(other);
+        editor.kill_buffer(scratch);
+        let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/*scratch*")));
+        editor.kill_buffer(other);
+        assert_ne!(editor.current().0.buffer(), file);
+        assert_eq!(editor.current().1.path(), None);
+    }
+
+    #[test]
+    fn buffers_can_be_changed_by_id() {
+        let mut editor = Editor::default();
+        let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/b")));
+        editor.buffer_mut(file).unwrap().finish_empty();
+        assert_eq!(editor.buffer(file).unwrap().loading(), None);
+        assert_eq!(editor.buffer(file).unwrap().name(), "b");
+        assert!(editor.buffer_mut(BufferId(u64::MAX)).is_none());
+        assert_eq!(editor.selected_window(), 0);
+    }
+
+    #[test]
     fn shows_secret_follows_what_the_windows_show() {
         let mut editor = Editor::default();
         assert!(!editor.shows_secret());

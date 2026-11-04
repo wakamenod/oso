@@ -375,6 +375,24 @@ mod tests {
         registry
     }
 
+    #[test]
+    fn len_counts_the_keys_at_this_level() {
+        let registry = registry(&["forward-char"]);
+        let id = registry.lookup("forward-char").unwrap();
+        let mut keymap = Keymap::default();
+        assert!(keymap.is_empty());
+        assert_eq!(keymap.len(), 0);
+        keymap.bind(&keys("C-f"), id).unwrap();
+        keymap.bind(&keys("C-x C-f"), id).unwrap();
+        keymap.bind(&keys("C-x C-c"), id).unwrap();
+        assert!(!keymap.is_empty());
+        assert_eq!(keymap.len(), 2);
+        assert_eq!(
+            keymap.bind(&keys("C-f"), id).unwrap_err().to_string(),
+            "the key sequence is already bound"
+        );
+    }
+
     const NAMES: &[&str] = &[
         "forward-char",
         "backward-char",

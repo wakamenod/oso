@@ -385,6 +385,16 @@ mod tests {
         Key::char(c).unwrap()
     }
 
+    #[test]
+    fn modifiers_combine_as_a_set() {
+        assert!(Modifiers::NONE.is_empty());
+        assert!(!Modifiers::CONTROL.is_empty());
+        let both = Modifiers::CONTROL | Modifiers::META;
+        assert!(both.contains(Modifiers::META));
+        assert_eq!(both | Modifiers::META, both, "not a toggle");
+        assert_eq!(both.without(Modifiers::META), Modifiers::CONTROL);
+    }
+
     // --- Parsing ---
 
     #[test]

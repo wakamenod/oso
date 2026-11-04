@@ -932,6 +932,23 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn an_empty_rope_is_the_only_empty_one() {
+        assert!(Rope::new().is_empty());
+        assert!(!Rope::from("a").is_empty());
+    }
+
+    #[test]
+    fn a_mark_at_the_start_of_a_chunk_joins_the_cluster_before_it() {
+        let text = "x".repeat(MAX_CHUNK_BYTES * 3);
+        let mut rope = Rope::from(text.as_str());
+        let boundary = rope.chunks().next().unwrap().len();
+        // Replacing the chunk's first byte starts the edit at the chunk.
+        rope.replace(boundary..boundary + 1, "\u{301}");
+        let expected = format!("{}\u{301}{}", &text[..boundary], &text[boundary + 1..]);
+        check_against(&rope, &expected);
+    }
+
+    #[test]
     fn chunks_are_bounded_and_end_on_clusters() {
         let text = "x".repeat(MAX_CHUNK_BYTES - 1) + "e\u{301}\u{301}" + &"y".repeat(100);
         let rope = Rope::from(text.as_str());

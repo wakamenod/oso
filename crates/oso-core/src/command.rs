@@ -395,6 +395,39 @@ mod tests {
     }
 
     #[test]
+    fn effects_union_keeps_each_request() {
+        let redraw = Effects {
+            redraw: true,
+            exit: false,
+        };
+        let exit = Effects {
+            redraw: false,
+            exit: true,
+        };
+        assert_eq!(
+            redraw.union(exit),
+            Effects {
+                redraw: true,
+                exit: true
+            }
+        );
+        assert_eq!(redraw.union(Effects::default()), redraw);
+        assert_eq!(Effects::default().union(exit), exit);
+    }
+
+    #[test]
+    fn errors_read_as_sentences() {
+        assert_eq!(
+            CommandError::new("End of buffer").message(),
+            "End of buffer"
+        );
+        assert_eq!(
+            RegisterError::Duplicate("forward").to_string(),
+            "command \"forward\" is registered twice"
+        );
+    }
+
+    #[test]
     fn looks_up_commands_by_name() {
         let registry = registry();
         let id = registry.lookup("forward").unwrap();

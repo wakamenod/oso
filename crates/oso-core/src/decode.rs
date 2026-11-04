@@ -512,6 +512,12 @@ mod tests {
     }
 
     #[test]
+    fn line_endings_have_names() {
+        assert_eq!(LineEnding::Lf.as_str(), "lf");
+        assert_eq!(LineEnding::Crlf.as_str(), "crlf");
+    }
+
+    #[test]
     fn each_invalid_byte_becomes_one_replacement() {
         let (out, _) = decode_split(b"a\xff\xfeb\xe3\x81c", &[]);
         assert_eq!(out.text, "a\u{fffd}\u{fffd}b\u{fffd}\u{fffd}c");
