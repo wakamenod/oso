@@ -33,9 +33,10 @@ crates/
 ├── oso/            bin, "tip" crate: commands, default keymaps, app glue
 ├── oso-core/       buffers, selections, display model, command registry,
 │                   keymaps, config; no GPU, #![forbid(unsafe_code)]
-├── oso-render/     wgpu pipeline, glyph atlas, text-system trait
-└── oso-platform/   OS abstractions: text shaping/rasterizing backends, IME,
-                    clipboard, filesystem and paths, process spawning, PTY
+├── oso-render/     wgpu pipeline, glyph atlas
+└── oso-platform/   OS abstractions: the text-system trait and its
+                    shaping/rasterizing backends, IME, clipboard,
+                    filesystem and paths, process spawning, PTY
 ```
 
 Commands live in the tip crate because it changes most often and rebuilds
@@ -43,8 +44,16 @@ fastest. Stable foundations live in library crates. See
 [ADR 0004](adr/0004-crate-layout.md).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
-depends on `oso-core`, and `oso-core` depends on none of them. Only the tip
-crate uses winit. It owns the window and hands `oso-render` a
+depends on `oso-core` and `oso-platform`, and neither of those depends on
+another workspace crate. Only `oso-render` uses wgpu, and only
+`oso-platform` uses OS bindings. These rules, and the allowed layers of
+modules inside each crate, are listed in
+[`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
+`crates/oso/tests/architecture`
+([ADR 0038](adr/0038-architecture-guardrails.md),
+[ADR 0039](adr/0039-architecture-guardrail-mechanics.md)).
+
+Only the tip crate uses winit. It owns the window and hands `oso-render` a
 `wgpu::DisplayAndWindowHandle` and the size in pixels; the renderer reports
 back when it needs a redraw instead of calling into the window.
 
@@ -90,7 +99,7 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   its file information and its loading progress. A window
   (`oso_core::window`) shows one buffer with its own selection set and
   scroll position. There is one window until splits (M3). See
-  [ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md).
+  [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
   goal column for vertical motion and, from M2, its own mark. See
@@ -186,7 +195,7 @@ null text system: the cursor is drawn on the grid, and no text. See
   (security.md, T3). Invisible characters also get a box.
 - **New glyphs** are rasterized at most 64 per frame, and the frame asks
   for another; uploads are batched per run of neighbors on an atlas
-  shelf. See [ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md).
+  shelf. See [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).
 
 ### GPU rendering
 
@@ -246,7 +255,7 @@ The UI thread never blocks on I/O or parsing:
   loading finishes. Invalid UTF-8 and binary files stay read-only, with
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
-  [ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md)).
+  [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - The event loop's user event is an enum: loader wake-ups in every build,
   and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and

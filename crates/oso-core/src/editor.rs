@@ -114,6 +114,10 @@ impl Editor {
     }
 
     /// The selected window, to change, and the buffer it shows.
+    #[expect(
+        clippy::expect_used,
+        reason = "every window shows a buffer that exists: kill_buffer moves windows off a buffer before it goes"
+    )]
     pub fn current_mut(&mut self) -> (&mut Window, &Buffer) {
         let window = &mut self.windows[self.selected];
         let id = window.buffer();
@@ -125,6 +129,10 @@ impl Editor {
         (window, buffer)
     }
 
+    #[expect(
+        clippy::expect_used,
+        reason = "every window shows a buffer that exists: kill_buffer moves windows off a buffer before it goes"
+    )]
     fn shown(&self, window: &Window) -> &Buffer {
         self.buffer(window.buffer())
             .expect("every window shows a buffer that exists")

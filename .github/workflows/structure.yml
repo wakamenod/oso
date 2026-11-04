@@ -1,0 +1,33 @@
+# Structural changes need an ADR (ADR 0038). Fails when a pull request
+# changes the layer rules, the crate graph or a public API snapshot, or grows
+# the size allowlist, and its description cites no ADR. Editing the
+# description re-runs the check.
+name: Structure
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adr-cited:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # The description is untrusted: it reaches the script only through an
+      # environment variable, never through expression interpolation.
+      - run: sh .github/scripts/structural-change.sh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}

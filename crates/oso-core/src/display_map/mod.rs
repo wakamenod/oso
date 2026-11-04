@@ -97,7 +97,7 @@ impl DisplayMap {
     }
 
     /// [`DisplayMap::new`] for a buffer with invalid bytes, each shown as
-    /// `\xNN` (ADR 0039).
+    /// `\xNN` (ADR 0040).
     pub fn with_invalid(buffer: &Rope, invalid: &InvalidBytes, tab_width: TabWidth) -> Self {
         Self {
             tab_map: TabMap::new(buffer, invalid, tab_width),

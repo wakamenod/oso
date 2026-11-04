@@ -1,4 +1,4 @@
-//! Cursor motion over the display model (ADR 0030, ADR 0039).
+//! Cursor motion over the display model (ADR 0030, ADR 0040).
 //!
 //! Positions step over display clusters, the units the cell grid draws: a
 //! grapheme cluster (`が`, a flag, a ZWJ emoji family), a tab, a `\r\n`

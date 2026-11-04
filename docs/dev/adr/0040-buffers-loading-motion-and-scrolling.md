@@ -1,4 +1,4 @@
-# 0039. Buffers, file loading, cursor motion and scrolling
+# 0040. Buffers, file loading, cursor motion and scrolling
 
 - Status: Proposed
 - Date: 2026-11-03
@@ -64,7 +64,16 @@ These are new public modules of `oso-core`, a structural change under
 
 They depend on `rope`, `display_map` and `sum_tree`, never on `command`
 or `keymap`. `oso-render` gains a private `rows` module, the shaping
-cache. No crate edge changes.
+cache, and the tip crate a `loader` module. No crate edge changes.
+
+`guardrails/layers.txt` ([ADR 0039](0039-architecture-guardrail-mechanics.md))
+places them, highest first:
+
+- `oso-core`: `keymap`, `command`, `editor`, `window`, then `buffer` and
+  `motion`, then `load` and `selection`, then `display_map` (which now
+  uses `decode`), then `decode`, `key` and `rope`, then `sum_tree`.
+- `oso-render`: `rows` between `text` and `atlas grid shape`.
+- `oso`: `loader` in the lowest layer.
 
 ### Invalid bytes
 

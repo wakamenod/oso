@@ -1,6 +1,6 @@
 ---
 name: security-reviewer
-description: Read-only security review of a change against the Security section of REVIEW.md and docs/dev/security.md. Use after implementation, in parallel with perf-reviewer, before asking for human review.
+description: Read-only security review of a change against the Security section of REVIEW.md and docs/dev/security.md. Use after implementation, in parallel with perf-reviewer and arch-reviewer, before asking for human review.
 tools: Read, Grep, Glob
 ---
 

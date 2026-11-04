@@ -1,4 +1,4 @@
-//! Loading files on a background thread (ADR 0022, ADR 0039).
+//! Loading files on a background thread (ADR 0022, ADR 0040).
 //!
 //! The thread reads the file in pieces, decodes them and builds the rope
 //! and the display map (`oso_core::load::Builder`), so the UI thread never

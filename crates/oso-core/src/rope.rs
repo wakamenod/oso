@@ -26,9 +26,7 @@ use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
 
-/// The most bytes in one chunk: 1 KB less the 16 bytes of an `Arc`'s
-/// counts, so a chunk's allocation fits a 1 KB size class. At 1024, each
-/// chunk took a 1.5 KB allocation on macOS (ADR 0039).
+/// The most bytes in one chunk, so that with an `Arc`'s counts it fits 1 KB.
 #[cfg(not(test))]
 pub const MAX_CHUNK_BYTES: usize = 1008;
 /// Small in tests, so that chunk boundaries are everywhere.
@@ -463,6 +461,10 @@ impl Rope {
     ///
     /// The range is clamped as in [`Rope::slice`]. The returned edit gives
     /// the replaced chunks, for display layers to follow.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "predates the 80-line limit (ADR 0038); split it when it next changes"
+    )]
     pub fn replace(&mut self, range: Range<usize>, text: &str) -> RopeEdit {
         let (start, end) = self.clip_range(range);
         if start == end && text.is_empty() {

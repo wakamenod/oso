@@ -1,4 +1,4 @@
-//! Selection sets: a window's cursors (ADR 0007, ADR 0039).
+//! Selection sets: a window's cursors (ADR 0007, ADR 0040).
 //!
 //! A window has one or more selections. Commands take the whole set and
 //! move every selection, so multiple cursors (M2) need no new command

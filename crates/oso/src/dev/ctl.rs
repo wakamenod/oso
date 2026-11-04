@@ -38,6 +38,10 @@ pub fn main_if_requested() -> Option<i32> {
     Some(run(args.collect()))
 }
 
+#[expect(
+    clippy::disallowed_macros,
+    reason = "`oso ctl` is a command-line tool: its output is stdout and stderr"
+)]
 fn run(args: Vec<OsString>) -> i32 {
     let invocation = match parse_args(args) {
         Ok(Some(invocation)) => invocation,

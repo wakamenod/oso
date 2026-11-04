@@ -1,0 +1,80 @@
+# Weekly design health check (ADR 0038). Writes `just health-report` into
+# the "Design health report" issue that this workflow opened, or opens one.
+# Its findings feed refactoring pull requests.
+name: Design health
+
+on:
+  schedule:
+    # Mondays, 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  # Builds and runs the workspace (and so third-party build scripts) with a
+  # read-only token. The report leaves the job only as an output.
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      body: ${{ steps.report.outputs.body }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The report compares with the state 7 days ago.
+          fetch-depth: 0
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: false
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.52.0
+          fallback: none
+      - id: report
+        run: |
+          just health-report "$RUNNER_TEMP/design-health.md"
+          delimiter="report-$(openssl rand -hex 16)"
+          {
+            echo "body<<$delimiter"
+            cat "$RUNNER_TEMP/design-health.md"
+            echo "$delimiter"
+          } >>"$GITHUB_OUTPUT"
+
+  # Holds the only write token, and runs no repository code: no checkout,
+  # no build.
+  publish:
+    needs: report
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the report issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BODY: ${{ needs.report.outputs.body }}
+        run: |
+          printf '%s\n' "$BODY" >"$RUNNER_TEMP/design-health.md"
+          title="Design health report"
+          # Only an issue this workflow opened: anyone can open an issue with
+          # the same title on a public repository.
+          number=$(gh issue list --state open --author "app/github-actions" \
+            --search "in:title \"$title\"" --json number,title,author \
+            --jq ".[] | select(.title == \"$title\" and .author.is_bot) | .number" | head -n 1)
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file "$RUNNER_TEMP/design-health.md"
+          else
+            gh issue create --title "$title" --body-file "$RUNNER_TEMP/design-health.md"
+          fi

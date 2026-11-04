@@ -59,15 +59,29 @@ item notes when it must be settled.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
+- Architecture guardrails ([ADR 0039](adr/0039-architecture-guardrail-mechanics.md)),
+  by M1-10b:
+  - statics with interior mutability (`static X: Mutex<…>`, atomics) are
+    global state, but no check catches them yet. Decide whether the
+    architecture test rejects them, and how an exception is granted.
+  - when to move the pinned nightly and `cargo-public-api`, which must be
+    upgraded together.
+  - `oso-render` exposes wgpu types in `RenderError::RecreateSurface` and
+    `CaptureError::UnsupportedFormat`. The tip crate cannot match on them
+    without wgpu, which only `oso-render` may use. Carry oso-owned payloads
+    instead, after M1-6, which also changes `oso-render`.
+  - the public API snapshots are Linux-only. On Windows the dev control
+    socket stub differs (`ControlStream` has no field, `CleanupGuard` has
+    no `Drop`). Revisit when the Windows transport lands.
 
 ## M2
 
 - Editing must invalidate shaped rows by edit range
-  ([ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md)). The
+  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)). The
   shaping cache checks only the buffer offsets a row covers, which an edit
   that keeps the row's length does not change.
 - isearch must not match the U+FFFD of an invalid byte
-  (`InvalidBytes`, ADR 0039).
+  (`InvalidBytes`, ADR 0040).
 - Horizontal mouse wheel and trackpad scrolling: the view scrolls only
   vertically, and auto-hscroll keeps the cursor in view.
 - Memory of very large files: a 1 GB file takes about 1.4 GB, and a binary

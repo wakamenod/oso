@@ -15,7 +15,7 @@
 //!   or a script (see `is_hidden_extend`), so `a` followed by tag
 //!   characters or a ZWNJ shows every hidden code point.
 //! - An invalid byte of the file, held as U+FFFD with its value in
-//!   [`InvalidBytes`], is shown as `\xNN` in 4 cells (ADR 0039).
+//!   [`InvalidBytes`], is shown as `\xNN` in 4 cells (ADR 0040).
 //! - A tab advances to the next tab stop. `\n` and `\r\n` end the row and
 //!   take no cells.
 

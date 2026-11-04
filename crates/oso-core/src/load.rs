@@ -1,5 +1,5 @@
 //! Building a buffer's text and display model from a file's bytes, as they
-//! are read (ADR 0022, ADR 0039).
+//! are read (ADR 0022, ADR 0040).
 //!
 //! A [`Builder`] runs on the loading thread: it decodes each piece, appends
 //! it to the rope and brings the display map along, so the UI thread never
@@ -247,14 +247,13 @@ mod tests {
             proptest::prop_assert_eq!(pieces.invalid.len(), whole.invalid.len());
             let (a, b) = (whole.display.snapshot(), pieces.display.snapshot());
             proptest::prop_assert_eq!(a.max_point(), b.max_point());
-            let mut offset = 0;
-            loop {
-                let point = b.offset_to_display_point(offset);
-                proptest::prop_assert_eq!(point, a.offset_to_display_point(offset));
-                proptest::prop_assert_eq!(b.display_point_to_offset(point, Bias::Left), offset);
-                match crate::motion::next_cluster(&b, offset) {
-                    Some(next) => offset = next,
-                    None => break,
+            // Every cluster start maps to a point and back.
+            for row in 0..b.row_count() {
+                for cluster in b.clusters(DisplayPoint::new(row, 0)) {
+                    let point = b.offset_to_display_point(cluster.offset);
+                    proptest::prop_assert_eq!(point, a.offset_to_display_point(cluster.offset));
+                    proptest::prop_assert_eq!(point.column, cluster.column);
+                    proptest::prop_assert_eq!(b.display_point_to_offset(point, Bias::Left), cluster.offset);
                 }
             }
         }

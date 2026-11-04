@@ -55,7 +55,7 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   (`oso_core::decode::InvalidBytes`). The U+FFFD of an invalid byte is a
   display cluster of its own, `\xNN` in 4 cells, even where a grapheme
   cluster would join it to a neighbor
-  ([ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md)).
+  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - **Cursor stops** are display clusters (`oso_core::motion`), so motion,
   hit testing and drawing agree on every cluster.
 - FoldMap and InlayMap will go below the TabMap; its items then mirror

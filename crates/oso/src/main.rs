@@ -29,19 +29,12 @@ fn main() {
     // Without the control socket, `oso ctl` must not open the editor.
     #[cfg(not(feature = "dev"))]
     if std::env::args_os().nth(1).is_some_and(|arg| arg == "ctl") {
-        eprintln!("oso ctl needs a dev build (cargo run -p oso --features dev)");
-        std::process::exit(2);
+        refuse_ctl();
     }
     let file = match parse_args(std::env::args_os().skip(1)) {
-        Ok(Args::Help) => {
-            println!("{USAGE}");
-            return;
-        }
+        Ok(Args::Help) => exit_with_usage(None),
         Ok(Args::Open(file)) => file,
-        Err(message) => {
-            eprintln!("oso: {message}\n{USAGE}");
-            std::process::exit(2);
-        }
+        Err(message) => exit_with_usage(Some(&message)),
     };
 
     env_logger::init();
@@ -65,6 +58,36 @@ fn main() {
         app.open(file);
     }
     event_loop.run_app(&mut app).unwrap();
+}
+
+/// Exits with an error: `oso ctl` needs the control socket of a dev build.
+#[cfg(not(feature = "dev"))]
+#[expect(
+    clippy::disallowed_macros,
+    reason = "a command-line error, printed before logging starts"
+)]
+fn refuse_ctl() -> ! {
+    eprintln!("oso ctl needs a dev build (cargo run -p oso --features dev)");
+    std::process::exit(2);
+}
+
+/// Prints the usage, after an error if there is one, and exits: with
+/// status 0 for `--help`, 2 for an error.
+#[expect(
+    clippy::disallowed_macros,
+    reason = "command-line output, printed before logging starts"
+)]
+fn exit_with_usage(error: Option<&str>) -> ! {
+    match error {
+        None => {
+            println!("{USAGE}");
+            std::process::exit(0);
+        }
+        Some(message) => {
+            eprintln!("oso: {message}\n{USAGE}");
+            std::process::exit(2);
+        }
+    }
 }
 
 /// What the command line asks for.

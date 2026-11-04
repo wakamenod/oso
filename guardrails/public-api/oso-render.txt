@@ -1,0 +1,63 @@
+pub mod oso_render
+pub enum oso_render::CaptureError
+pub oso_render::CaptureError::Gpu(alloc::string::String)
+pub oso_render::CaptureError::UnsupportedFormat(wgpu_types::texture::format::TextureFormat)
+impl core::error::Error for oso_render::CaptureError
+impl core::fmt::Debug for oso_render::CaptureError
+pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_render::CaptureError
+pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_render::Redraw
+pub oso_render::Redraw::Needed
+pub oso_render::Redraw::NotNeeded
+impl core::clone::Clone for oso_render::Redraw
+pub fn oso_render::Redraw::clone(&self) -> oso_render::Redraw
+impl core::cmp::Eq for oso_render::Redraw
+impl core::cmp::PartialEq for oso_render::Redraw
+pub fn oso_render::Redraw::eq(&self, &oso_render::Redraw) -> bool
+impl core::fmt::Debug for oso_render::Redraw
+pub fn oso_render::Redraw::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::Redraw
+impl core::marker::StructuralPartialEq for oso_render::Redraw
+pub enum oso_render::RenderError
+pub oso_render::RenderError::RecreateSurface(wgpu::api::surface::CreateSurfaceError)
+pub oso_render::RenderError::RetriesExhausted
+pub oso_render::RenderError::SurfaceValidation
+impl core::error::Error for oso_render::RenderError
+impl core::fmt::Debug for oso_render::RenderError
+pub fn oso_render::RenderError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_render::RenderError
+pub fn oso_render::RenderError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_render::Capture
+impl oso_render::Capture
+pub fn oso_render::Capture::wait(self) -> core::result::Result<oso_render::Image, oso_render::CaptureError>
+pub struct oso_render::Image
+pub oso_render::Image::height: u32
+pub oso_render::Image::rgba: alloc::vec::Vec<u8>
+pub oso_render::Image::width: u32
+impl core::clone::Clone for oso_render::Image
+pub fn oso_render::Image::clone(&self) -> oso_render::Image
+impl core::cmp::Eq for oso_render::Image
+impl core::cmp::PartialEq for oso_render::Image
+pub fn oso_render::Image::eq(&self, &oso_render::Image) -> bool
+impl core::fmt::Debug for oso_render::Image
+pub fn oso_render::Image::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_render::Image
+pub struct oso_render::RenderState
+impl oso_render::RenderState
+pub fn oso_render::RenderState::capture(&mut self, &oso_render::TextView) -> core::result::Result<oso_render::Capture, oso_render::CaptureError>
+impl oso_render::RenderState
+pub fn oso_render::RenderState::cell_metrics(&self) -> oso_platform::text::CellMetrics
+pub async fn oso_render::RenderState::new(alloc::sync::Arc<dyn wgpu::api::surface::DisplayAndWindowHandle>, u32, u32, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> Self
+pub fn oso_render::RenderState::presented_frames(&self) -> u64
+pub fn oso_render::RenderState::render(&mut self, &oso_render::TextView, &dyn core::ops::function::Fn() -> (u32, u32)) -> core::result::Result<oso_render::Redraw, oso_render::RenderError>
+pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redraw
+pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
+pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
+pub fn oso_render::RenderState::text_area(&self) -> (usize, usize)
+pub struct oso_render::TextView
+pub oso_render::TextView::buffer: oso_core::buffer::BufferId
+pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
+pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot
+pub oso_render::TextView::revision: u64
+pub oso_render::TextView::scroll: oso_core::window::Scroll

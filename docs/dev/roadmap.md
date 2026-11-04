@@ -61,7 +61,7 @@ M1 is built in this order. Each step is one PR.
     exist. A temporary sample is drawn until M1-6.
 - **M1-6** (done): asynchronous, progressive file loading; scrolling and
   cursor motion: `C-f/b/n/p`, `C-a/e`, `M-<`/`M->`, `C-v`/`M-v`
-  ([ADR 0039](adr/0039-buffers-loading-motion-and-scrolling.md)):
+  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)):
   - `oso [FILE]`; buffers, windows and selection sets in `oso-core`
   - a loading thread that decodes and builds the rope and display map,
     with `\xNN` for invalid bytes
@@ -85,8 +85,9 @@ M1 is built in this order. Each step is one PR.
   - **M1-9c** (after M1-7b, which completes `get-state`): automated
     end-to-end tests over the control socket (`just e2e`, and Linux CI with
     lavapipe).
-- **M1-10a** (now, in parallel with M1-6; merge before M1-7b): architecture
-  guardrails ([ADR 0038](adr/0038-architecture-guardrails.md)):
+- **M1-10a** (done): architecture guardrails
+  ([ADR 0038](adr/0038-architecture-guardrails.md),
+  [ADR 0039](adr/0039-architecture-guardrail-mechanics.md)):
   - dependency-direction rules between crates and modules
   - public API snapshots
   - size limits with a ratchet allowlist

@@ -1,5 +1,5 @@
 //! The shaping cache: rows of buffer text shaped through the text system
-//! and placed on the cell grid, by display row (ADR 0039).
+//! and placed on the cell grid, by display row (ADR 0040).
 //!
 //! - A row is shaped only for the columns asked for, so a 10 MB line costs
 //!   one screen.

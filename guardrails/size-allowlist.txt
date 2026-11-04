@@ -1,0 +1,10 @@
+# Files allowed over the 600-line limit (ADR 0038, ADR 0039), checked by
+# crates/oso/tests/architecture: `<path> <max lines>`. Lines are counted
+# outside top-level test items, comments and blank lines included.
+#
+# This list may only shrink. A listed file may not grow past its entry, and
+# its entry must be removed once the file is back under the limit. Adding an
+# entry, or raising one, is a structural change and needs an ADR.
+
+crates/oso-core/src/rope.rs 775
+crates/oso-core/src/sum_tree.rs 816

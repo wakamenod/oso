@@ -45,7 +45,8 @@ old one's status.
 | 0036 | [Text system, glyph atlas and the default font](0036-text-system-and-glyph-atlas.md) | Accepted |
 | 0037 | [Test pyramid](0037-test-pyramid.md) | Accepted |
 | 0038 | [Architecture guardrails](0038-architecture-guardrails.md) | Accepted |
-| 0039 | [Buffers, file loading, cursor motion and scrolling](0039-buffers-loading-motion-and-scrolling.md) | Proposed |
+| 0039 | [Architecture guardrail mechanics](0039-architecture-guardrail-mechanics.md) | Accepted |
+| 0040 | [Buffers, file loading, cursor motion and scrolling](0040-buffers-loading-motion-and-scrolling.md) | Proposed |
 
 ## Template
 
