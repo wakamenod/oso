@@ -1,5 +1,5 @@
-//! Frame capture for the dev control socket's `screenshot` (ADR 0016). Dev
-//! builds only.
+//! Frame capture for the dev control socket's `screenshot` (ADR 0016), and
+//! the GPU in use, for benchmarks (ADR 0046). Dev builds only.
 //!
 //! Must not depend on: winit, PNG encoding or the control socket; it hands
 //! back raw pixels, and the tip crate does the rest.
@@ -218,6 +218,32 @@ impl Capture {
             height: self.layout.height,
             rgba,
         })
+    }
+}
+
+/// The GPU in use, for benchmarks to tell hardware from software rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GpuInfo {
+    /// The adapter's name.
+    pub name: String,
+    /// The kind of adapter: `integrated`, `discrete`, `virtual`, `cpu` or
+    /// `other`.
+    pub kind: &'static str,
+}
+
+impl RenderState {
+    /// The GPU in use.
+    pub fn gpu_info(&self) -> GpuInfo {
+        GpuInfo {
+            name: self.adapter.name.clone(),
+            kind: match self.adapter.device_type {
+                wgpu::DeviceType::IntegratedGpu => "integrated",
+                wgpu::DeviceType::DiscreteGpu => "discrete",
+                wgpu::DeviceType::VirtualGpu => "virtual",
+                wgpu::DeviceType::Cpu => "cpu",
+                wgpu::DeviceType::Other => "other",
+            },
+        }
     }
 }
 

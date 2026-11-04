@@ -22,9 +22,17 @@ miniz_oxide = { workspace = true, optional = true }
 insta.workspace = true
 
 [features]
-# Dev-only tooling: the control socket and `oso ctl` (ADR 0016, ADR 0023).
+# Dev-only tooling: the control socket, `oso ctl` and the timings benchmarks
+# read (ADR 0016, ADR 0023, ADR 0046).
 # Never a default feature. CI checks that release builds contain none of it.
 dev = ["dep:serde_json", "dep:miniz_oxide", "oso-platform/dev", "oso-render/dev"]
+
+# The benchmark harness, which drives the app over the control socket
+# (ADR 0025, ADR 0046).
+[[example]]
+name = "perf"
+required-features = ["dev"]
+test = true
 
 [lints]
 workspace = true

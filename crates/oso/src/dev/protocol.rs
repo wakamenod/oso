@@ -9,6 +9,8 @@
 //! - Response: `{"id": 1, "result": ...}` or
 //!   `{"id": 1, "error": {"message": "..."}}`, echoing the request's `id`.
 
+use std::path::PathBuf;
+
 use oso_core::display_map::cell::is_invisible;
 use oso_core::key::{KeyPress, KeySequence};
 use serde_json::{Map, Value, json};
@@ -75,6 +77,11 @@ pub enum UiOp {
     ImportState(Box<State>),
     /// Exit, without asking.
     Exit,
+    /// Performance samples for benchmarks (ADR 0025).
+    TakeTimings,
+    /// Visits a file in the selected window, as `oso FILE` does at startup,
+    /// so that a benchmark can time it with the window up.
+    OpenFile(PathBuf),
 }
 
 /// A parsed request.
@@ -138,23 +145,15 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         }
         "screenshot" => UiOp::Screenshot,
         "get-state" => UiOp::GetState,
+        "take-timings" => UiOp::TakeTimings,
+        "open-file" => UiOp::OpenFile(parse_path(params).map_err(|m| bad(&id, m))?),
         "send-keys" => UiOp::SendKeys(parse_keys(params).map_err(|m| bad(&id, m))?),
         "run-command" => parse_run_command(params).map_err(|m| bad(&id, m))?,
         "get-text" => UiOp::GetText {
             start_row: parse_size(params, "get-text", "start_row").map_err(|m| bad(&id, m))?,
             rows: parse_size(params, "get-text", "rows").map_err(|m| bad(&id, m))?,
         },
-        "show-buffer" => UiOp::ShowBuffer(
-            params
-                .get("buffer")
-                .and_then(Value::as_u64)
-                .ok_or_else(|| {
-                    bad(
-                        &id,
-                        "show-buffer needs a numeric parameter \"buffer\"".into(),
-                    )
-                })?,
-        ),
+        "show-buffer" => UiOp::ShowBuffer(parse_buffer(params).map_err(|m| bad(&id, m))?),
         "export-state" => UiOp::ExportState,
         "import-state" => {
             let state = params
@@ -190,6 +189,22 @@ fn parse_keys(params: &Map<String, Value>) -> Result<Vec<KeyPress>, String> {
         return Err(format!("send-keys takes at most {MAX_KEYS} keys"));
     }
     Ok(keys)
+}
+
+/// The `buffer` parameter of `show-buffer`.
+fn parse_buffer(params: &Map<String, Value>) -> Result<u64, String> {
+    params
+        .get("buffer")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "show-buffer needs a numeric parameter \"buffer\"".to_owned())
+}
+
+/// The `path` parameter of `open-file`.
+fn parse_path(params: &Map<String, Value>) -> Result<PathBuf, String> {
+    match params.get("path") {
+        Some(Value::String(path)) if !path.is_empty() => Ok(PathBuf::from(path)),
+        _ => Err("open-file needs a string parameter \"path\"".into()),
+    }
 }
 
 /// The parameters of `run-command`: a string `name` and an optional
@@ -323,6 +338,10 @@ mod tests {
             parsed(r#"{"id": 3, "method": "get-state", "params": null}"#).method,
             Method::Ui(UiOp::GetState)
         );
+        assert_eq!(
+            parsed(r#"{"id": 5, "method": "take-timings"}"#).method,
+            Method::Ui(UiOp::TakeTimings)
+        );
         let keys = parsed(r#"{"id": 4, "method": "send-keys", "params": {"keys": "C-x <right>"}}"#);
         assert_eq!(
             keys.method,
@@ -331,6 +350,18 @@ mod tests {
                 "<right>".parse().unwrap()
             ]))
         );
+    }
+
+    #[test]
+    fn open_file_needs_a_path() {
+        assert_eq!(
+            parsed(r#"{"method": "open-file", "params": {"path": "/tmp/a"}}"#).method,
+            Method::Ui(UiOp::OpenFile("/tmp/a".into()))
+        );
+        for params in [r#"{}"#, r#"{"path": 1}"#, r#"{"path": ""}"#] {
+            let line = format!(r#"{{"method": "open-file", "params": {params}}}"#);
+            assert!(error(&line).1.contains("\"path\""), "{params}");
+        }
     }
 
     #[test]

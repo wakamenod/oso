@@ -27,6 +27,8 @@ methods:
                     whole rows of the selected window's buffer, up to a limit
   screenshot        writes a PNG of the current frame and prints its path
   send-keys KEYS    sends keys in Emacs notation, such as \"C-x C-f\" or \"<right>\"
+  take-timings      key latencies since the last call, startup and load times
+  open-file PATH    visits a file in the selected window; nothing in it runs
   run-command NAME [ARG]
                     runs a command by name, with a numeric argument if it takes one
   show-buffer ID    shows a buffer, by the id get-state reports
@@ -143,6 +145,10 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
             let keys = positional.next().ok_or("send-keys needs KEYS")?;
             Some(json!({ "keys": keys }))
         }
+        "open-file" => {
+            let path = positional.next().ok_or("open-file needs PATH")?;
+            Some(json!({ "path": path }))
+        }
         "run-command" => {
             let name = positional.next().ok_or("run-command needs NAME")?;
             let arg = positional
@@ -237,6 +243,10 @@ mod tests {
                 method: "send-keys".into(),
                 params: Some(json!({ "keys": "<right> <right>" })),
             }))
+        );
+        assert_eq!(
+            parse(&["open-file", "/tmp/a"]).unwrap().unwrap().params,
+            Some(json!({ "path": "/tmp/a" }))
         );
         assert_eq!(
             parse(&["screenshot", "--pid=7"]).unwrap().unwrap().pid,
@@ -347,6 +357,7 @@ mod tests {
     fn rejects_bad_command_lines() {
         assert_eq!(parse(&[]), Err("no method given".into()));
         assert_eq!(parse(&["send-keys"]), Err("send-keys needs KEYS".into()));
+        assert_eq!(parse(&["open-file"]), Err("open-file needs PATH".into()));
         assert_eq!(parse(&["--pid"]), Err("--pid needs a process ID".into()));
         assert!(
             parse(&["--pid", "x", "version"])

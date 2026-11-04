@@ -19,16 +19,33 @@ use crate::dev::handoff;
 impl App {
     /// Answers a control socket request on the UI thread.
     pub(super) fn handle_control(&mut self, event_loop: &ActiveEventLoop, request: dev::UiRequest) {
-        let dev::UiRequest { op, reply } = request;
+        let dev::UiRequest {
+            op,
+            received,
+            reply,
+        } = request;
         let result = match op {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
                 let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
                 log::trace!("key handled in {:?}", started.elapsed());
+                self.timings.keys_handled(received, count, effects.redraw);
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }
+            dev::UiOp::OpenFile(path) => {
+                let visited = self.visit(path);
+                let result = visited
+                    .map(|buffer| {
+                        self.editor.show(buffer);
+                        json!({ "opened": true })
+                    })
+                    .ok_or_else(|| "cannot start loading; see the log".to_owned());
+                self.request_redraw();
+                result
+            }
+            dev::UiOp::TakeTimings => Ok(self.take_timings()),
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
                 Ok(dev::get_state(
@@ -77,6 +94,17 @@ impl App {
             }
         };
         let _ = reply.send(result);
+    }
+
+    /// The result of `take-timings`: the samples, and the GPU they ran on.
+    fn take_timings(&mut self) -> serde_json::Value {
+        let mut timings = self.timings.take();
+        let gpu = self.view.as_ref().map(|v| v.render_state.gpu_info());
+        timings["gpu"] = gpu.map_or(
+            serde_json::Value::Null,
+            |gpu| json!({ "name": gpu.name, "kind": gpu.kind }),
+        );
+        timings
     }
 
     /// Submits a capture of the frame. A background thread finishes it and

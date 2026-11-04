@@ -43,6 +43,9 @@ const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 #[derive(Debug)]
 pub struct UiRequest {
     pub op: UiOp,
+    /// When the socket thread read the request, so that a key's latency
+    /// includes any wait for a busy UI thread (ADR 0046).
+    pub received: Instant,
     pub reply: mpsc::Sender<Reply>,
 }
 
@@ -215,6 +218,7 @@ fn respond<S>(line: &str, send: &S) -> String
 where
     S: Fn(UiRequest) -> bool,
 {
+    let received = Instant::now();
     let request = match protocol::parse(line) {
         Ok(request) => request,
         Err(bad) => return bounded(&bad.id, protocol::failure(&bad.id, &bad.message)),
@@ -224,7 +228,11 @@ where
         Method::Ui(op) => op,
     };
     let (reply, replied) = mpsc::channel();
-    if !send(UiRequest { op, reply }) {
+    if !send(UiRequest {
+        op,
+        received,
+        reply,
+    }) {
         return protocol::failure(&request.id, "the editor is shutting down");
     }
     match replied.recv_timeout(REPLY_TIMEOUT) {
@@ -284,6 +292,8 @@ mod tests {
         let result = match request.op {
             UiOp::SendKeys(keys) => Ok(json!({ "keys": keys.len() })),
             UiOp::GetState => Ok(json!({ "cursor": { "position": 3 } })),
+            UiOp::TakeTimings => Ok(json!({ "key_latency_us": [] })),
+            UiOp::OpenFile(_) => Ok(json!({ "opened": true })),
             UiOp::GetText { rows, .. } => Ok(json!({ "text": "x".repeat(rows) })),
             UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
             UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),

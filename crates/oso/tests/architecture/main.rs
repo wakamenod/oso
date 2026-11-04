@@ -122,25 +122,14 @@ fn there_are_no_statics() {
 }
 
 #[test]
-fn only_the_process_module_may_silence_the_ban_on_spawning() {
+fn only_the_allowed_files_may_silence_the_ban_on_spawning() {
     let workspace = Workspace::current();
-    let mut problems = Vec::new();
-    let mut allowed_seen = false;
-    for path in workspace.rust_files() {
-        let at = workspace.relative_path(&path);
-        let lines = spawning::silencing_lines(&tokenize(&read(&path)));
-        if at == spawning::ALLOWED {
-            allowed_seen = true;
-            assert!(!lines.is_empty(), "{at} spawns, so it must say so");
-            continue;
-        }
-        for line in lines {
-            problems.push(format!(
-                "{at}:{line}: spawn only through oso-platform::process (ADR 0010, ADR 0047)"
-            ));
-        }
-    }
-    assert!(allowed_seen, "the walk did not see {}", spawning::ALLOWED);
+    let files: Vec<(String, String)> = workspace
+        .rust_files()
+        .into_iter()
+        .map(|path| (workspace.relative_path(&path), read(&path)))
+        .collect();
+    let problems = spawning::problems(&files);
     assert_none(&problems);
 }
 

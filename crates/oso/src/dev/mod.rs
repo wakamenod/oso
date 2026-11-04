@@ -1,6 +1,7 @@
 //! Dev-only tooling behind the `dev` feature: the control socket, `oso ctl`
-//! and `oso dev` (ADR 0016, ADR 0023, ADR 0032). Release builds never contain
-//! it, and CI checks this (`just release-safety`).
+//! `oso dev` and the timings benchmarks read (ADR 0016, ADR 0023, ADR 0032,
+//! ADR 0046). Release builds never contain it, and CI checks this
+//! (`just release-safety`).
 //!
 //! Must not depend on: `app`, `dispatch` or winit; the caller passes in the
 //! `send` function that hands requests to the UI thread.
@@ -13,6 +14,7 @@ mod restart;
 mod server;
 mod state;
 pub mod supervisor;
+mod timing;
 mod watch;
 
 use std::sync::mpsc;
@@ -25,6 +27,7 @@ use serde_json::json;
 pub use protocol::{Reply, UiOp};
 pub use server::UiRequest;
 pub use state::{get_state, get_text, screenshot_allowed, show_buffer};
+pub use timing::Timings;
 
 /// Appears in every binary built with the `dev` feature, and in no other.
 /// `just release-safety` looks for it in release binaries.

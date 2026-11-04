@@ -79,7 +79,9 @@ network features.
   `disallowed_methods` bans `std::process::Command::new` (and its async
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
-  Unix domain sockets outside the dev control socket.
+  Unix domain sockets outside the dev control socket. The one exception is the
+  benchmark harness, which never ships
+  ([ADR 0046](adr/0046-performance-regression-checks.md)).
 - Executables resolve from absolute paths in user config, or from `PATH` with
   the current directory and the project directory removed.
 - The environment is sanitized and every spawn is logged in a visible buffer.

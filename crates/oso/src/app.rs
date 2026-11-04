@@ -65,6 +65,9 @@ pub struct App {
     wheel_pixels: f64,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
+    /// Key latency, startup and load times, for benchmarks (ADR 0025).
+    #[cfg(feature = "dev")]
+    timings: dev::Timings,
     /// Positions handed over from the previous instance, until their file has
     /// loaded.
     #[cfg(feature = "dev")]
@@ -96,6 +99,8 @@ impl App {
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]
+            timings: dev::Timings::new(started),
+            #[cfg(feature = "dev")]
             restore: None,
         }
     }
@@ -123,6 +128,7 @@ impl App {
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
         let proxy = self.proxy.clone();
+        let started = Instant::now();
         let spawned = loader::spawn(buffer, path, move |buffer| {
             proxy.send_event(UserEvent::Load(buffer)).is_ok()
         });
@@ -130,7 +136,7 @@ impl App {
             Ok(handle) => {
                 self.loads.push(Load {
                     handle,
-                    started: Instant::now(),
+                    started,
                     first_screen: None,
                 });
                 Some(buffer)
@@ -150,6 +156,8 @@ impl App {
         let started = Instant::now();
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
         log::trace!("key handled in {:?}", started.elapsed());
+        #[cfg(feature = "dev")]
+        self.timings.keys_handled(started, 1, effects.redraw);
         self.apply(event_loop, effects);
     }
 
@@ -201,9 +209,13 @@ impl App {
                 let load = &mut self.loads[index];
                 if first {
                     load.first_screen = Some(load.started);
+                    #[cfg(feature = "dev")]
+                    self.timings.load_first_content(load.started);
                 }
                 if done {
                     log::debug!("{:?} loaded in {:?}", buffer.name(), load.started.elapsed());
+                    #[cfg(feature = "dev")]
+                    self.timings.load_done(load.started);
                 }
                 let window = self.editor.window();
                 shown && window::reaches(window.scroll.top, window.size(), old_rows - 1)
@@ -235,7 +247,7 @@ impl App {
         self.loads.retain_mut(|load| {
             if let Some(started) = load.first_screen.take() {
                 log::debug!(
-                    "first screen drawn {:?} after loading started",
+                    "first frame of the file drawn {:?} after loading started",
                     started.elapsed()
                 );
             }
@@ -407,9 +419,16 @@ impl ApplicationHandler<UserEvent> for App {
                     (size.width, size.height)
                 };
                 let text = text_view(&self.editor);
+                #[cfg(feature = "dev")]
+                let presented = view.render_state.presented_frames();
                 match view.render_state.render(&text, &window_size) {
                     Ok(redraw) => {
                         view.redraw_if(redraw);
+                        #[cfg(feature = "dev")]
+                        if view.render_state.presented_frames() > presented {
+                            let complete = redraw == Redraw::NotNeeded;
+                            self.timings.frame_presented(complete);
+                        }
                         // A frame skipped while the window is hidden draws
                         // nothing yet.
                         if view.render_state.presented_frames() == 0 {
