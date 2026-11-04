@@ -232,11 +232,11 @@ fn is_executable(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Executable, Sink, Spawn, allowed_env, search_dirs, spawn};
+    use super::{Executable, allowed_env, search_dirs};
     use std::env;
     use std::ffi::OsString;
     use std::fs;
-    use std::io::{self, Read};
+    use std::io;
     use std::path::{Path, PathBuf};
 
     /// A fresh directory for one test, with no links in its path.
@@ -351,6 +351,9 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_child_runs_where_it_is_told_with_only_the_allowed_variables() {
+        use super::{Sink, Spawn, spawn};
+        use std::io::Read;
+
         let program = Executable::from_path("sh", None).unwrap();
         let args = [OsString::from("-c"), OsString::from("pwd; env; cat")];
         let cwd = scratch_dir("child");
