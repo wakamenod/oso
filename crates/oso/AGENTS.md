@@ -16,4 +16,6 @@ often, so it must rebuild within 2 s.
 - Every Rust file opens with its responsibility and a `Must not depend on:`
   paragraph (ADR 0041). The test checks names in backticks against the layers.
 - The repository guard tests live in `tests/` (`workspace_lints.rs`,
-  `architecture/`).
+  `architecture/`). Tests that need the `Dispatcher` stay inside the crate,
+  including the text-grid snapshots in `src/dispatch/grid_tests.rs`
+  (ADR 0045).

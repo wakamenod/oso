@@ -1,3 +1,7 @@
 /target
 /.claude/worktrees/
 /.claude/settings.local.json
+
+# Snapshots waiting for review; `just test` fails on them (ADR 0045).
+*.snap.new
+*.pending-snap

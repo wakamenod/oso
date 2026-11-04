@@ -1,0 +1,24 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: crlf\\r\\nlone\\rcr\\nlf\\r\\n\\r\\nend\\r"
+---
+keys: none
+│crlf        │
+:^           :
+│lone^Mcr    │
+:    ~~      :
+│lf          │
+│            │
+│end^M       │
+:   ~~       :
+│            │
+
+keys: C-n C-f C-f C-f C-f
+│crlf        │
+│lone^Mcr    │
+:    ^^      :
+│lf          │
+│            │
+│end^M       │
+:   ~~       :
+│            │

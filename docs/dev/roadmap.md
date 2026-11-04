@@ -83,8 +83,8 @@ M1 is built in this order. Each step is one PR.
   - **M1-9a** (right after M1-10a merges, since both change CI and the
     `Justfile`): weekly mutation testing, coverage reports and the 30 s test
     time budget.
-  - **M1-9b** (right after M1-6 merges, since it snapshots real buffer
-    views): the text-grid snapshot harness.
+  - **M1-9b** (done): the text-grid snapshot harness
+    ([ADR 0045](adr/0045-text-grid-snapshots.md)).
   - **M1-9c** (after M1-7b, which completes `get-state`): automated
     end-to-end tests over the control socket (`just e2e`, and Linux CI with
     lavapipe).

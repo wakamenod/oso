@@ -1,0 +1,21 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: a\\xFFb\\n\\xE3\\x81x\\n\\xC0\\xAF\\n"
+---
+keys: none
+│a\xFFb          │
+:^~~~~           :
+│\xE3\x81x       │
+:~~~~~~~~        :
+│\xC0\xAF        │
+:~~~~~~~~        :
+│                │
+
+keys: C-f
+│a\xFFb          │
+: ^^^^           :
+│\xE3\x81x       │
+:~~~~~~~~        :
+│\xC0\xAF        │
+:~~~~~~~~        :
+│                │
