@@ -1,5 +1,5 @@
 //! Where a path really leads, for telling whether a file may hold secrets
-//! (ADR 0043). It walks the path as `fs::canonicalize` does, but keeps each
+//! (ADR 0044). It walks the path as `fs::canonicalize` does, but keeps each
 //! symbolic link's target, so a chain through a secret path is caught wherever
 //! it ends.
 //!

@@ -326,7 +326,7 @@ Full details are in [`security.md`](security.md).
   - Buffers that may hold secrets give no text and no pixels. The loading
     thread follows the path, and `Buffer::is_secret` holds the verdict, so
     the UI thread never touches the file system for this
-    ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)).
+    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

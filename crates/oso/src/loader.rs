@@ -17,7 +17,7 @@
 //!
 //! Right after opening the file, before reading it, the thread follows the
 //! path to where it really leads, so that the UI can tell whether the file
-//! may hold secrets (ADR 0043) without touching the file system. A file
+//! may hold secrets (ADR 0044) without touching the file system. A file
 //! swapped in before the open is what gets judged.
 //!
 //! Loading only reads the file. Nothing in it is run or interpreted

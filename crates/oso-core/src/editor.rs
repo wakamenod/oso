@@ -114,7 +114,7 @@ impl Editor {
         self.selected
     }
 
-    /// Whether any window shows a buffer that may hold secrets (ADR 0043).
+    /// Whether any window shows a buffer that may hold secrets (ADR 0044).
     pub fn shows_secret(&self) -> bool {
         self.windows
             .iter()

@@ -62,7 +62,7 @@ pub struct Buffer {
     loading: Option<Progress>,
     /// Changes whenever the content does.
     revision: u64,
-    /// The file may hold secrets (ADR 0043). True from the moment a file is
+    /// The file may hold secrets (ADR 0044). True from the moment a file is
     /// visited until the host knows better.
     secret: bool,
 }
@@ -140,7 +140,7 @@ impl Buffer {
             .is_some_and(|path| secret::is_secret(path, resolved));
     }
 
-    /// Whether the file may hold secrets (ADR 0028, ADR 0043). A file's text
+    /// Whether the file may hold secrets (ADR 0028, ADR 0044). A file's text
     /// must not leave the editor through dev tooling or an emergency save
     /// while this is true.
     pub fn is_secret(&self) -> bool {

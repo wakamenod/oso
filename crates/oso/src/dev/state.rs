@@ -1,5 +1,5 @@
 //! What the control socket reads from and does to the editor state on the UI
-//! thread, apart from running commands (ADR 0023, ADR 0043). It never returns
+//! thread, apart from running commands (ADR 0023, ADR 0044). It never returns
 //! the text of a buffer that may hold secrets, whichever way it is asked.
 //!
 //! Must not depend on: `app`, winit or sockets; these are plain functions of
@@ -48,7 +48,7 @@ pub const MAX_TEXT: usize = 512 * 1024;
 pub const MAX_TEXT_ROWS: usize = 10_000;
 
 /// Why text or pixels are refused.
-const WITHHELD: &str = "the buffer may hold secrets or is still being checked, so its text and pixels stay in the editor (ADR 0043)";
+const WITHHELD: &str = "the buffer may hold secrets or is still being checked, so its text and pixels stay in the editor (ADR 0044)";
 
 /// The result of `get-state`: every buffer and window, the selected window's
 /// buffer, cursor, scroll position and visible text, the keys of a pending
@@ -509,11 +509,11 @@ mod tests {
             assert_eq!(state["buffer"]["bytes"], CONTENT.len());
             assert_eq!(state["cursor"]["offset"], 0);
             assert!(!state.to_string().contains("SECRET-VALUE"), "{path}");
-            assert!(text(&editor, 0, 1).unwrap_err().contains("ADR 0043"));
+            assert!(text(&editor, 0, 1).unwrap_err().contains("ADR 0044"));
             assert!(
                 screenshot_allowed(&editor)
                     .unwrap_err()
-                    .contains("ADR 0043")
+                    .contains("ADR 0044")
             );
         }
     }

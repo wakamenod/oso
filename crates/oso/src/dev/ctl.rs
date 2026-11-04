@@ -31,7 +31,7 @@ methods:
                     runs a command by name, with a numeric argument if it takes one
   show-buffer ID    shows a buffer, by the id get-state reports
 
-Secret-pattern files (ADR 0043): get-state and get-text return no text for them,
+Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
 and screenshot fails while one is shown.
 
 exit status: 0 on a result, 1 on an error response, 2 if no request was made";

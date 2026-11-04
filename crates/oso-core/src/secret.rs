@@ -1,4 +1,4 @@
-//! Which files may hold secrets (ADR 0028, ADR 0043).
+//! Which files may hold secrets (ADR 0028, ADR 0044).
 //!
 //! Must not depend on: `buffer`, `editor` or file I/O. These are pure
 //! functions of paths; whoever can touch the file system resolves the path

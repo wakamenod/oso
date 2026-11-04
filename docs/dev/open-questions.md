@@ -90,7 +90,7 @@ item notes when it must be settled.
   them on a background thread.
 
 - Secret-pattern buffers in M2
-  ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)): their
+  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)): their
   unsaved edits cannot pass through `export-state`, so decide how `oso dev`
   keeps them (for example, keep the old instance). The emergency save skips
   them too, which loses unsaved work in a file that only could not be

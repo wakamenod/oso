@@ -1,4 +1,4 @@
-# 0043. Control socket trust and secret-pattern buffers
+# 0044. Control socket trust and secret-pattern buffers
 
 - Status: Accepted
 - Date: 2026-11-04

@@ -121,7 +121,7 @@ violation, so a broken parser cannot pass silently.
   - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives
     in M2.
   - Secret-pattern buffers give no text and no screenshot
-    ([ADR 0043](adr/0043-control-socket-trust-and-secret-buffers.md)). Any
+    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). Any
     file counts as secret until its path is resolved, so wait for `loading`
     to become null before reading it.
   - `oso [FILE]` opens a file, so test files (generated in a scratch

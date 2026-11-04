@@ -60,7 +60,7 @@ echo $! > "$SCRATCH/oso.pid"
 - Prefer `get-state` for facts (positions, sizes, visible text). Use
   screenshots for what only pixels show.
 - Secret-pattern files (`.env`, `*.pem`, `id_*`, anything in `.ssh`, and
-  symlinks to them; ADR 0043) give no text and no screenshot, and the error
+  symlinks to them; ADR 0044) give no text and no screenshot, and the error
   says so. Test with ordinary files. Never point a test at the user's real
   keys.
 - Read the PNG at the returned path with the Read tool and check what you
