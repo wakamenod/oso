@@ -46,7 +46,8 @@ M1 is built in this order. Each step is one PR.
   - the key and modifier type in `oso-core`, which M1-3 builds on
   - a CI check that release builds contain no dev-only code
   - Windows is deferred: `oso ctl` reports that it is not supported there
-    yet.
+    yet. Its transport is the point to look again at the Linux-only API
+    snapshots ([ADR 0042](adr/0042-statics-snapshots-and-render-errors.md)).
 - **In parallel** after M1-7a:
   - **M1-3** (done): command registry and keymaps with prefix keys
     ([ADR 0034](adr/0034-command-registry-and-keymaps.md)).
@@ -95,9 +96,11 @@ M1 is built in this order. Each step is one PR.
   - the `arch-reviewer` subagent and the PR template with the ADR check
   - crate `AGENTS.md` files
   - the weekly design health check
-- **M1-10b** (right after M1-6 merges): module responsibility headers in
-  every source file and the test that requires them. This step touches
-  every file, so it waits for M1-6 to avoid conflicts.
+- **M1-10b** (done): module responsibility headers in every source file and
+  the test that requires them
+  ([ADR 0041](adr/0041-module-responsibility-headers.md)), the ban on `static`
+  items and the render errors without wgpu types
+  ([ADR 0042](adr/0042-statics-snapshots-and-render-errors.md)).
 
 ### M2 — Editor (start using oso for text and notes)
 

@@ -13,5 +13,7 @@ often, so it must rebuild within 2 s.
 - Dev-only code (the control socket, `oso ctl`) stays behind the `dev`
   feature; `just release-safety` checks it.
 - Module layers are in `guardrails/layers.txt` (`[oso]`).
+- Every Rust file opens with its responsibility and a `Must not depend on:`
+  paragraph (ADR 0041). The test checks names in backticks against the layers.
 - The repository guard tests live in `tests/` (`workspace_lints.rs`,
   `architecture/`).

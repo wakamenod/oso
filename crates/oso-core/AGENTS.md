@@ -14,6 +14,8 @@ keymaps (ADR 0004). See `docs/dev/display-model.md`.
   screen row.
 - Module layers are in `guardrails/layers.txt` (`[oso-core]`). For example,
   `display_map` must not use `command`.
+- Every Rust file opens with its responsibility and a `Must not depend on:`
+  paragraph (ADR 0041). The test checks names in backticks against the layers.
 - Anything `pub` is in the API snapshot (`just public-api`). A new public
   trait or module needs an ADR.
 - Most logic is tested here with plain `cargo test`, often with `proptest`.
