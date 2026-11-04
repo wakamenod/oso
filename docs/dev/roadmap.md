@@ -83,9 +83,8 @@ M1 is built in this order. Each step is one PR.
 - **M1-9**: test infrastructure from the test pyramid
   ([ADR 0037](adr/0037-test-pyramid.md)), in three steps, each started as
   soon as its prerequisite merges:
-  - **M1-9a** (right after M1-10a merges, since both change CI and the
-    `Justfile`): weekly mutation testing, coverage reports and the 30 s test
-    time budget.
+  - **M1-9a** (done): weekly mutation testing, coverage reports and the 30 s
+    test time budget ([ADR 0050](adr/0050-test-quality-checks.md)).
   - **M1-9b** (done): the text-grid snapshot harness
     ([ADR 0045](adr/0045-text-grid-snapshots.md)).
   - **M1-9c** (after M1-7b, which completes `get-state`): automated
