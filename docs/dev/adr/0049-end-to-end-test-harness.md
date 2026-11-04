@@ -45,8 +45,8 @@ user has running, and what can be asserted where there is no text backend
   secret flow stops its instance and checks the whole log, raw, for the secret, and
   needs a line it knows is there, so that it cannot pass without a log.
 - **One test at a time** (`--test-threads=1`). Windows would otherwise cover one
-  another and compete for the focus. The suite takes 2 to 4 s on the author's Mac
-  and 1 to 5 s on Linux CI, so there is little to gain.
+  another and compete for the focus. The suite takes 2 to 4 s on the author's Mac,
+  1 to 5 s on Linux CI and 5 to 12 s on macOS CI, so there is little to gain.
 - **The flows are the ones in [`testing.md`](../testing.md):** keys and commands,
   screenshot, invalid bytes, secret files, the restart handoff, exit, and a check
   of the cleanup itself. The handoff runs `export-state` and `import-state` directly.
@@ -57,9 +57,14 @@ user has running, and what can be asserted where there is no text backend
   every OS, so the cursor's place and size are checked the same way everywhere. Text
   pixels are asserted on macOS, and their absence on Linux, so that a Linux backend
   has to change the line.
-- **CI:** `e2e.yml` runs `just e2e` on Linux with Xvfb and lavapipe, with a read-only
-  token, skipping changes only to `docs/`. It is its own workflow, so that
-  `paths-ignore` stays simple.
+- **CI:** `e2e.yml` runs `just e2e` on Linux with Xvfb and lavapipe, and on macOS, with
+  a read-only token, skipping changes only to `docs/`. ADR 0037 asks only for Linux.
+  macOS is added because it is the one runner that draws text, so it is the only
+  automated check of text pixels. It is its own workflow, so that `paths-ignore` stays
+  simple.
+- **`crates/oso/tests/e2e` is not on the list of files that need approval:** these are
+  ordinary tests that grow with features, and review checks that they are not
+  weakened.
 
 ## Consequences
 
@@ -73,16 +78,20 @@ user has running, and what can be asserted where there is no text backend
   someone typing or scrolling over them. CI has no such input.
 - On the fifth run on the author's Mac, the cleanup flow found another instance's
   state changed. The cause is unknown: real input to its window fits, but 125 later
-  runs of the same check, 25 of them with every CPU busy, did not show it again. That
-  flow now compares what the harness could harm, which is that instance's buffers
-  and whether it is alive, and not its positions or size. If it shows up on CI, which
-  has no such input, that explanation is wrong and this needs another look.
+  runs of the same check, 25 of them with every CPU busy, did not show it again. So
+  where real input can reach the windows, that flow compares that instance's buffers
+  and whether it is alive. Where the `CI` variable is set, there is no such input, so
+  it compares every field of the state, and names the ones that differ without quoting
+  them. If it fails there, real input was not the explanation, and this needs another
+  look.
 - A harness killed by `SIGKILL` cannot clean up: its instances keep running and its
   scratch directory stays. Ctrl-C reaches the instances too, since they share the
   terminal's process group, but leaves the scratch directory, which holds only
   generated files.
 - Linux checks that the app starts, draws, takes input and guards secrets, but no
-  text. Only `just e2e` on the author's Mac checks text pixels.
+  text. macOS, on CI and on the author's Mac, checks text pixels too.
+- The macOS job adds about 3 minutes of runner time to each pull request, on a runner
+  that is noisier than Linux ([ADR 0046](0046-performance-regression-checks.md)).
 - The list of variables an instance needs exists twice, here and in `oso dev`,
   because the tip crate is a binary and its code cannot be imported by a test.
 - The benchmark harness has a socket client of its own (`examples/perf/app.rs`), so a
@@ -103,7 +112,4 @@ user has running, and what can be asserted where there is no text backend
   enough.
 - **Tests in parallel:** the suite is short, and windows would overlap on the
   author's Mac.
-- **macOS on CI:** not required by ADR 0037, so left out for now. It passed 10 runs
-  out of 10 in a 3 minute job, and it is the one runner that draws text, so it would
-  be the only automated check of text pixels. It is one matrix entry away if the
-  noise of those runners (ADR 0046) turns out not to matter.
+- **Linux only on CI, as ADR 0037 asks:** would leave text pixels to local runs.

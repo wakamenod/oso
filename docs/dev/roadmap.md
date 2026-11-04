@@ -89,7 +89,7 @@ M1 is built in this order. Each step is one PR.
   - **M1-9b** (done): the text-grid snapshot harness
     ([ADR 0045](adr/0045-text-grid-snapshots.md)).
   - **M1-9c** (done): automated end-to-end tests over the control socket
-    (`just e2e`, and Linux CI with lavapipe;
+    (`just e2e`, and CI on Linux with lavapipe and on macOS;
     [ADR 0049](adr/0049-end-to-end-test-harness.md)).
 - **M1-10a** (done): architecture guardrails
   ([ADR 0038](adr/0038-architecture-guardrails.md),

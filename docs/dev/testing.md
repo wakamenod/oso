@@ -149,9 +149,9 @@ violation, so a broken parser cannot pass silently.
 `just e2e` starts real dev builds and drives them over the control socket
 ([ADR 0037](adr/0037-test-pyramid.md), layer 5;
 [ADR 0049](adr/0049-end-to-end-test-harness.md)). `just e2e 20` repeats the
-suite. It runs on the author's Mac and on Linux CI with Xvfb and lavapipe, and it
-is not part of `just ci`, because windows open and take the focus. Leave the
-keyboard and mouse alone while it runs: real input reaches its windows too.
+suite. It runs on the author's Mac, on Linux CI with Xvfb and lavapipe, and on macOS
+CI, and it is not part of `just ci`, because windows open and take the focus. Leave
+the keyboard and mouse alone while it runs: real input reaches its windows too.
 
 | Flow | The seam it checks |
 |---|---|
@@ -161,7 +161,7 @@ keyboard and mouse alone while it runs: real input reaches its windows too.
 | secret files | path judgment to every way out: `get-state`, `get-text`, `screenshot`, `export-state` and the log, also through a symlink, and `show-buffer` allows them again |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
-| cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay |
+| cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend
 ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)). Its screenshots show the
@@ -284,7 +284,8 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
   the last result on `main`
   ([ADR 0046](adr/0046-performance-regression-checks.md))
 - the end-to-end workflow (`e2e.yml`), on pull requests and pushes to `main` that
-  change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe
+  change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe, and on
+  macOS, the one runner that checks text pixels
   ([ADR 0049](adr/0049-end-to-end-test-harness.md))
 
 Planned:
