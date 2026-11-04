@@ -237,7 +237,9 @@ null text system: the cursor is drawn on the grid, and no text. See
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels
   in an escape color; the raw characters never reach the shaper
-  (security.md, T3). Invisible characters also get a box.
+  (security.md, T3). Invisible characters also get a box, as do characters
+  past a display cluster's limits
+  ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)).
 - **New glyphs** are rasterized at most 64 per frame, and the frame asks
   for another; uploads are batched per run of neighbors on an atlas
   shelf. See [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).

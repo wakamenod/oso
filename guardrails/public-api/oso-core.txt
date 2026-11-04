@@ -288,6 +288,7 @@ pub oso_core::display_map::cell::CellKind::Control(char)
 pub oso_core::display_map::cell::CellKind::InvalidByte(u8)
 pub oso_core::display_map::cell::CellKind::Invisible(char)
 pub oso_core::display_map::cell::CellKind::LineBreak
+pub oso_core::display_map::cell::CellKind::PastLimit(char)
 pub oso_core::display_map::cell::CellKind::Tab
 pub oso_core::display_map::cell::CellKind::Text
 impl oso_core::display_map::cell::CellKind
@@ -429,6 +430,7 @@ pub oso_core::display_map::CellKind::Control(char)
 pub oso_core::display_map::CellKind::InvalidByte(u8)
 pub oso_core::display_map::CellKind::Invisible(char)
 pub oso_core::display_map::CellKind::LineBreak
+pub oso_core::display_map::CellKind::PastLimit(char)
 pub oso_core::display_map::CellKind::Tab
 pub oso_core::display_map::CellKind::Text
 impl oso_core::display_map::cell::CellKind

@@ -108,5 +108,8 @@ Off by default: line numbers.
   their code point in a colored box (for example `U+202E`). They are never
   rendered invisibly. A 1-pixel gap separates neighboring boxes
   ([ADR 0051](adr/0051-m2-plan-decisions.md)).
+- A display cluster holds at most 8 marks and 16 characters. Each character past
+  that is drawn the same way
+  ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)).
 - A buffer containing bidirectional control characters shows a warning in its
   modeline (Trojan Source, CVE-2021-42574).
