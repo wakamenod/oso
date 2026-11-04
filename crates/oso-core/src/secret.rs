@@ -196,7 +196,8 @@ mod tests {
             dir in prop::sample::select(vec![".ssh", ".gnupg", ".aws", ".SSH"]),
             after in prop::collection::vec(plain_name(), 0..4),
         ) {
-            let path = format!("/{}/{dir}/{}", before.join("/"), after.join("/"));
+            // Not `//`, which starts a network path on Windows.
+            let path = format!("/r/{}/{dir}/{}", before.join("/"), after.join("/"));
             prop_assert!(secret(&path), "{}", path);
         }
 
@@ -214,7 +215,7 @@ mod tests {
                 4 => format!("id_{stem}"),
                 _ => format!("credentials{stem}"),
             };
-            let path = format!("/{}/{name}", dirs.join("/"));
+            let path = format!("/r/{}/{name}", dirs.join("/"));
             prop_assert!(secret(&path), "{}", path);
         }
 
@@ -224,7 +225,7 @@ mod tests {
             name in plain_name(),
             extension in prop::sample::select(vec!["", ".txt", ".rs", ".md"]),
         ) {
-            let path = format!("/{}/{name}{extension}", dirs.join("/"));
+            let path = format!("/r/{}/{name}{extension}", dirs.join("/"));
             prop_assert!(!secret(&path), "{}", path);
         }
 
