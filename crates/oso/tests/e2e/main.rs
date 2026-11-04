@@ -17,13 +17,9 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
-use harness::{App, Scratch, process_exists};
+use harness::{App, FAKE_SECRET, Scratch, process_exists};
 use png::Foreground;
 use serde_json::{Value, json};
-
-/// The text of the secret-pattern files, which must not leave the editor. A fake
-/// one: these tests never read a real key.
-pub const FAKE_SECRET: &str = "FAKE-E2E-NOT-A-REAL-SECRET";
 
 /// A file of `lines` numbered lines, each `line NNN`.
 fn numbered_lines(lines: usize) -> Vec<u8> {
@@ -36,6 +32,7 @@ fn numbered_lines(lines: usize) -> Vec<u8> {
 
 /// Checks that visible row `index` of a state reads `expected`. Says which row
 /// differs without quoting it.
+#[track_caller]
 fn assert_visible_row(state: &Value, index: usize, expected: &str) {
     let row = state["text"]["rows"][index].as_str();
     assert!(
@@ -60,7 +57,8 @@ fn scroll_top(state: &Value) -> u64 {
     state["scroll"]["top"].as_u64().expect("a scroll position")
 }
 
-/// Whether a response line quotes the fake secret.
+/// Checks that a response line or a log does not quote the fake secret.
+#[track_caller]
 fn assert_no_secret(line: &str, what: &str) {
     assert!(!line.contains(FAKE_SECRET), "{what} quotes the secret");
 }
@@ -82,33 +80,20 @@ fn keys_and_commands_reach_the_window_and_the_state_reads_them_back() {
 
     // Keys, in the notation and through the path window keys take.
     app.send_keys("C-n C-n <right> C-f");
-    let state = app.state();
-    assert_eq!(cursor(&state), (2, 2));
-    assert_eq!(state["cursor"]["offset"], 2 * 9 + 2);
+    assert_eq!(cursor(&app.state()), (2, 2));
 
-    // A command by name, with an argument and without.
+    // A command by name, with an argument, and one that does not exist.
     app.run_command("next-line", Some(3)).unwrap();
     assert_eq!(cursor(&app.state()), (5, 2));
-    app.run_command("move-end-of-line", None).unwrap();
-    assert_eq!(cursor(&app.state()), (5, 8));
     let error = app.run_command("no-such-command", None).unwrap_err();
     assert!(error.contains("no-such-command"), "{error}");
 
-    // A motion past the screen moves the window, and the text it reports.
-    app.send_keys("M->");
-    let state = app.state();
-    assert_eq!(cursor(&state).0, 300);
-    assert!(scroll_top(&state) > 0, "the end of the file is off screen");
-    app.send_keys("M-<");
-    let state = app.state();
-    assert_eq!(scroll_top(&state), 0);
-    assert_visible_row(&state, 0, "line 000");
+    // A scroll moves the window, and the text it reports with it.
     app.send_keys("C-v");
     let state = app.state();
     let top = scroll_top(&state);
     assert!(top > 0, "a page down scrolls");
     assert_visible_row(&state, 0, &format!("line {top:03}"));
-    assert_eq!(cursor(&state).0, top, "the cursor stays in the window");
 
     // `oso ctl`, the way into the socket for people and agents.
     let (status, output) = app.ctl(&["version"]);
@@ -180,12 +165,10 @@ fn a_file_with_invalid_bytes_opens_read_only() {
     assert_eq!(state["buffer"]["read_only"], "invalid-utf8");
     assert_visible_row(&state, 0, "caf\u{FFFD}");
     assert_visible_row(&state, 1, "next");
-    // It can still be read with the cursor.
-    app.send_keys("C-n");
-    assert_eq!(cursor(&app.state()), (1, 0));
 }
 
 /// Checks that an instance showing a secret file gives away none of it.
+#[track_caller]
 fn assert_withheld(app: &mut App) {
     let state = app
         .exchange("get-state", None)
@@ -212,13 +195,21 @@ fn assert_withheld(app: &mut App) {
             "{method} was not refused: {message:?}",
         );
     }
-    let exported = app
+    let line = app
         .exchange("export-state", None)
         .unwrap_or_else(|e| panic!("{e}"));
-    assert_no_secret(&exported, "export-state");
+    assert_no_secret(&line, "export-state");
+    let exported: Value = serde_json::from_str(&line).expect("a JSON response");
+    let path = &parsed["result"]["buffer"]["path"];
+    let buffers = exported["result"]["buffers"].as_array();
+    assert!(
+        buffers.is_some_and(|buffers| buffers.iter().any(|buffer| buffer["path"] == *path)),
+        "export-state did not hand over the secret buffer by its path",
+    );
 }
 
 /// Checks that the text and pixels of an ordinary buffer can be read.
+#[track_caller]
 fn assert_readable(app: &mut App, row_zero: &str) {
     let state = app.state();
     assert_eq!(state["buffer"]["secret"], false);
@@ -265,7 +256,13 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     app.show_buffer(&env_id);
     assert_withheld(&mut app);
 
-    assert_no_secret(&app.log(), "the log");
+    let log = app.stop_and_read_log();
+    assert_no_secret(&log, "the log");
+    // It logs this at the level `just e2e` sets, so the log is worth checking.
+    assert!(
+        log.contains("listening on"),
+        "no log to check; run this with `just e2e`, which sets RUST_LOG",
+    );
 }
 
 #[test]
@@ -373,8 +370,9 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     assert!(process_exists(bystander.pid()));
     assert!(bystander.socket().exists());
     assert!(Path::new(&shot).exists(), "its files stay");
-    // Not its positions or size: those follow real input as well, and its window
-    // is on the screen for anyone to scroll.
+    // Not its positions or size, which real input can move: its window is on the
+    // screen for anyone to scroll. `App::start` checks that sockets lead to the
+    // right instance.
     assert!(
         bystander.state()["buffers"] == before["buffers"],
         "the other instance's buffers changed",

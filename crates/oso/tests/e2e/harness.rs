@@ -1,5 +1,6 @@
-//! Starts real dev instances and drives them over the control socket, for the
-//! end-to-end flows (ADR 0037, ADR 0049).
+//! Starts real dev instances, drives them over the control socket and keeps a
+//! scratch directory of generated files, for the end-to-end flows (ADR 0037,
+//! ADR 0049).
 //!
 //! Must not depend on: the app's internals or winit; an instance is reached only
 //! through its process and its socket, and is always addressed by process ID,
@@ -24,6 +25,10 @@ use serde_json::{Value, json};
 
 use crate::png::Png;
 
+/// The text of the secret-pattern files, which must not leave the editor. A fake
+/// one: these tests never read a real key.
+pub const FAKE_SECRET: &str = "FAKE-E2E-NOT-A-REAL-SECRET";
+
 /// How long anything awaited may take. Generous, since CI draws in software.
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -37,7 +42,8 @@ const POLL: Duration = Duration::from_millis(20);
 const LOG_BYTES: usize = 64 * 1024;
 
 /// What an instance needs beyond the base set of `oso_platform::process`: its
-/// log filter, and how to reach the display and the control directory.
+/// log filter, and how to reach the display and the control directory. The same
+/// as for `oso dev`, whose code a test cannot import.
 const INSTANCE_ENV: [&str; 7] = [
     "RUST_LOG",
     "RUST_BACKTRACE",
@@ -55,13 +61,12 @@ fn oso() -> Executable {
 
 /// A running dev instance.
 pub struct App {
-    child: Child,
-    dir: ControlDir,
     reader: BufReader<ControlStream>,
     writer: ControlStream,
     next_id: u64,
-    log: Arc<Mutex<Vec<u8>>>,
-    log_reader: Option<JoinHandle<()>>,
+    dir: ControlDir,
+    /// Dropped after everything else, once `drop` has asked it to exit.
+    process: Process,
 }
 
 impl App {
@@ -72,26 +77,8 @@ impl App {
             .iter()
             .flat_map(|file| [OsString::from("--"), file.into()])
             .collect();
-        let mut child = spawn(&Spawn {
-            executable: &oso(),
-            args: &args,
-            cwd: Some(cwd),
-            project: None,
-            inherit: &INSTANCE_ENV,
-            stdout: Sink::Null,
-            stderr: Sink::Piped,
-        })
-        .expect("cannot start the instance");
-        let log = Arc::new(Mutex::new(Vec::new()));
-        let stderr = child.stderr.take().expect("stderr is piped");
-        let log_reader = {
-            let log = Arc::clone(&log);
-            thread::spawn(move || keep_log(stderr, &log))
-        };
-        // From here on, a failure kills the child through `Connecting`.
-        let mut connecting = Connecting { child: Some(child) };
-        let (dir, stream) = connecting.connect(&log);
-        let child = connecting.child.take().expect("still held");
+        let mut process = Process::start(&args, cwd);
+        let (dir, stream) = process.connect();
         stream
             .set_read_timeout(Some(TIMEOUT))
             .expect("cannot set a timeout");
@@ -99,20 +86,25 @@ impl App {
             .set_write_timeout(Some(TIMEOUT))
             .expect("cannot set a timeout");
         let reader = BufReader::new(stream.try_clone().expect("cannot use the socket"));
-        Self {
-            child,
-            dir,
+        let mut app = Self {
             reader,
             writer: stream,
             next_id: 1,
-            log,
-            log_reader: Some(log_reader),
-        }
+            dir,
+            process,
+        };
+        let version = app.call("version", None);
+        assert_eq!(
+            version["pid"],
+            app.pid(),
+            "the socket leads to another instance"
+        );
+        app
     }
 
     /// The instance's process ID.
     pub fn pid(&self) -> u32 {
-        self.child.id()
+        self.process.child.id()
     }
 
     /// Where the instance's socket is while it runs.
@@ -184,7 +176,7 @@ impl App {
     pub fn wait_for(&mut self, what: &str, done: impl Fn(&Value) -> bool) -> Value {
         let started = Instant::now();
         loop {
-            if let Ok(Some(status)) = self.child.try_wait() {
+            if let Ok(Some(status)) = self.process.child.try_wait() {
                 panic!("the instance exited with {status} while waiting for {what}");
             }
             let state = self.state();
@@ -226,7 +218,8 @@ impl App {
     pub fn wait_for_exit(&mut self) -> ExitStatus {
         let started = Instant::now();
         loop {
-            if let Some(status) = self.child.try_wait().expect("cannot look at the instance") {
+            let status = self.process.child.try_wait();
+            if let Some(status) = status.expect("cannot look at the instance") {
                 return status;
             }
             assert!(
@@ -266,82 +259,83 @@ impl App {
         (child.wait().expect("cannot wait for oso ctl"), output)
     }
 
-    /// The end of the instance's log so far, without the fake secret, in case a
-    /// bug put it there.
-    pub fn log(&self) -> String {
-        readable_log(&self.log)
-    }
-
-    /// Asks the instance to exit, so that it removes its socket and screenshots,
-    /// and kills it if it does not. Then removes what it left, if it was killed
-    /// or crashed.
-    fn stop(&mut self) {
-        let _ = writeln!(self.writer, r#"{{"method":"exit"}}"#);
-        let started = Instant::now();
-        while started.elapsed() < EXIT_TIMEOUT && !matches!(self.child.try_wait(), Ok(Some(_))) {
-            thread::sleep(POLL);
+    /// Stops the instance and returns the end of its log, whole and raw. For
+    /// looking at, not for quoting in a failure message.
+    pub fn stop_and_read_log(&mut self) -> String {
+        let _ = self.exchange("exit", None);
+        self.wait_for_exit();
+        if let Some(reader) = self.process.log_reader.take() {
+            let _ = reader.join();
         }
-        // Does nothing if it has exited.
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        if self.socket().exists() {
-            self.dir.remove_stale();
-        }
+        let log = self
+            .process
+            .log
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        String::from_utf8_lossy(&log).into_owned()
     }
 }
 
 impl Drop for App {
+    /// Asks the instance to exit, so that it removes its socket and screenshots.
+    /// `Process` kills it if it has not by the end of this.
     fn drop(&mut self) {
-        // After the instance is gone, so that the whole log shows.
-        self.stop();
-        if let Some(reader) = self.log_reader.take() {
-            let _ = reader.join();
-        }
-        if thread::panicking() {
-            print_log(self.pid(), &self.log());
+        let _ = writeln!(self.writer, r#"{{"method":"exit"}}"#);
+        let started = Instant::now();
+        while started.elapsed() < EXIT_TIMEOUT
+            && !matches!(self.process.child.try_wait(), Ok(Some(_)))
+        {
+            thread::sleep(POLL);
         }
     }
 }
 
-/// What a log holds so far, without the fake secret.
-fn readable_log(log: &Mutex<Vec<u8>>) -> String {
-    let log = log.lock().unwrap_or_else(PoisonError::into_inner);
-    String::from_utf8_lossy(&log).replace(crate::FAKE_SECRET, "[the fake secret]")
+/// The process of an instance and its log, whether or not it has been reached.
+struct Process {
+    child: Child,
+    log: Arc<Mutex<Vec<u8>>>,
+    log_reader: Option<JoinHandle<()>>,
 }
 
-/// `cargo test` shows what a failed test printed, and hides it otherwise.
-#[expect(
-    clippy::disallowed_macros,
-    reason = "a test's output, which `cargo test` captures"
-)]
-fn print_log(pid: u32, log: &str) {
-    eprintln!("--- the log of instance {pid} ---\n{log}--- end of the log ---");
-}
+impl Process {
+    fn start(args: &[OsString], cwd: &Path) -> Self {
+        let mut child = spawn(&Spawn {
+            executable: &oso(),
+            args,
+            cwd: Some(cwd),
+            project: None,
+            inherit: &INSTANCE_ENV,
+            stdout: Sink::Null,
+            stderr: Sink::Piped,
+        })
+        .expect("cannot start the instance");
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let stderr = child.stderr.take().expect("stderr is piped");
+        let log_reader = {
+            let log = Arc::clone(&log);
+            thread::spawn(move || keep_log(stderr, &log))
+        };
+        Self {
+            child,
+            log,
+            log_reader: Some(log_reader),
+        }
+    }
 
-/// A child that is killed if connecting to it fails.
-struct Connecting {
-    child: Option<Child>,
-}
-
-impl Connecting {
-    /// Connects to the child's socket, and panics with its log if it exits or
-    /// never listens.
-    fn connect(&mut self, log: &Mutex<Vec<u8>>) -> (ControlDir, ControlStream) {
-        let child = self.child.as_mut().expect("held until connected");
-        let pid = child.id();
+    /// Connects to the instance's socket, and panics if it exits or never
+    /// listens.
+    fn connect(&mut self) -> (ControlDir, ControlStream) {
+        let pid = self.child.id();
         let started = Instant::now();
         loop {
-            let status = child.try_wait().expect("cannot look at the instance");
-            let elapsed = started.elapsed();
-            if status.is_some() || elapsed > TIMEOUT {
-                // Let its last words arrive.
-                thread::sleep(Duration::from_millis(100));
-                print_log(pid, &readable_log(log));
-                match status {
-                    Some(status) => panic!("the instance exited with {status} before listening"),
-                    None => panic!("the instance did not listen within {TIMEOUT:?}"),
-                }
+            let status = self.child.try_wait().expect("cannot look at the instance");
+            if let Some(status) = status {
+                panic!("the instance exited with {status} before listening");
             }
+            assert!(
+                started.elapsed() < TIMEOUT,
+                "the instance did not listen within {TIMEOUT:?}"
+            );
             // The directory may not exist yet, on a first run.
             if let Ok(dir) = ControlDir::open_existing()
                 && let Ok((_, stream)) = dir.connect(Some(pid))
@@ -353,13 +347,52 @@ impl Connecting {
     }
 }
 
-impl Drop for Connecting {
+impl Drop for Process {
+    /// Kills the instance if it is still there, removes what it left, and shows
+    /// the log of a failed test. `cargo test` hides that of a passing one.
     fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
+        // Does nothing if it has exited.
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let pid = self.child.id();
+        if let Ok(dir) = ControlDir::open_existing() {
+            remove_files_of(pid, dir.path());
+        }
+        // After the instance is gone, so that the whole log shows.
+        if let Some(reader) = self.log_reader.take() {
+            let _ = reader.join();
+        }
+        if thread::panicking() {
+            print_log(pid, &self.log);
         }
     }
+}
+
+/// Removes the socket and files of the instance `pid` from the control
+/// directory, and nobody else's. An instance that exited cleanly has none left.
+fn remove_files_of(pid: u32, dir: &Path) {
+    let (socket, prefix) = (format!("{pid}.sock"), format!("{pid}-"));
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if *name == *socket || name.starts_with(&prefix) {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Prints a log, without the fake secret in case a bug put it there.
+#[expect(
+    clippy::disallowed_macros,
+    reason = "a test's output, which `cargo test` captures"
+)]
+fn print_log(pid: u32, log: &Mutex<Vec<u8>>) {
+    let log = log.lock().unwrap_or_else(PoisonError::into_inner);
+    let log = String::from_utf8_lossy(&log).replace(FAKE_SECRET, "[the fake secret]");
+    eprintln!("--- the log of instance {pid} ---\n{log}--- end of the log ---");
 }
 
 /// Reads a log until the instance closes it, keeping the end.

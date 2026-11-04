@@ -156,7 +156,8 @@ release-safety:
 e2e runs="1":
     #!/usr/bin/env bash
     set -euo pipefail
-    export RUST_LOG=oso=info,wgpu=warn
+    [[ "{{runs}}" =~ ^[0-9]+$ ]] || { echo "error: not a number of runs: {{runs}}"; exit 1; }
+    export RUST_LOG=oso=debug,wgpu=warn
     for run in $(seq 1 {{runs}}); do
         cargo test --locked -p oso --features dev --test e2e -- --ignored --test-threads=1 \
             || { echo "e2e: run $run of {{runs}} failed"; exit 1; }
