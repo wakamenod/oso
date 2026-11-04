@@ -25,6 +25,10 @@ jobs:
   report:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      # To read the artifact of the last mutation run (ADR 0050).
+      actions: read
     outputs:
       body: ${{ steps.report.outputs.body }}
     steps:
@@ -41,6 +45,11 @@ jobs:
         with:
           tool: just@1.52.0
           fallback: none
+      # The token reaches this step alone, not the build below.
+      - name: Fetch the mutation results
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh .github/scripts/mutants-results.sh mutants.out
       - id: report
         run: |
           just health-report "$RUNNER_TEMP/design-health.md"

@@ -1,0 +1,72 @@
+# Weekly mutation testing of oso-core (ADR 0037, ADR 0050). Surviving mutants
+# do not fail the run: they are triaged from the lists in the job summary and
+# the artifact, which the design health report also reads. A failure here means
+# that the run itself broke, for example that the tests fail with no mutation.
+name: Mutation testing
+
+on:
+  schedule:
+    # Sundays, 18:00 UTC: done well before the design health report on Monday.
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  # Builds and runs repository code, mutated, with a read-only token.
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: just@1.52.0,cargo-mutants@27.1.0
+          fallback: none
+      - run: just mutants --jobs 4
+      # An exclusion that matches nothing hides nothing, but it misleads.
+      - name: Check the exclusions
+        run: |
+          if ! just mutants-exclusions >mutants.out/exclusions.txt; then
+            echo "::warning::stale entries in .cargo/mutants.toml: $(tr '\n' ' ' <mutants.out/exclusions.txt)"
+          fi
+      - name: Summarize
+        if: ${{ !cancelled() }}
+        run: |
+          count() { wc -l <"mutants.out/$1.txt" | tr -d ' '; }
+          {
+            echo "# Mutation testing"
+            echo
+            echo "| Missed | Caught | Timed out | Unviable |"
+            echo "|---:|---:|---:|---:|"
+            echo "| $(count missed) | $(count caught) | $(count timeout) | $(count unviable) |"
+            echo
+            echo "See \`docs/dev/testing.md\` for how to triage a surviving mutant."
+            echo
+            echo '```'
+            cat mutants.out/missed.txt
+            echo '```'
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants
+          path: |
+            mutants.out/missed.txt
+            mutants.out/caught.txt
+            mutants.out/timeout.txt
+            mutants.out/unviable.txt
+            mutants.out/outcomes.json
+            mutants.out/exclusions.txt
+          if-no-files-found: error
+          retention-days: 90

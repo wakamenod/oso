@@ -12,6 +12,8 @@ api_crates := "oso-core oso-platform oso-render"
 # Benchmarks build with the dev feature, so they keep out of target/release,
 # where the release binary lives (ADR 0046).
 perf_target := "target/perf-build"
+# The design health report lists this many surviving mutants.
+mutants_listed := "100"
 
 # Default: show the recipe list
 default:
@@ -168,6 +170,39 @@ build-time out="target/perf/build-time.json":
     {{perf_target}}/release/examples/perf build-time --out "{{out}}"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Test quality (ADR 0037, ADR 0050)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Mutation-test oso-core (needs cargo-mutants); surviving mutants are listed in mutants.out/missed.txt
+[positional-arguments]
+mutants *args:
+    #!/usr/bin/env bash
+    # 2 and 3 say that mutants survived or timed out, which is what a run is
+    # for. Anything else, such as tests failing before any mutation, is an error.
+    status=0
+    cargo mutants --package oso-core --no-shuffle --colors never "$@" || status=$?
+    case "$status" in 0|2|3) exit 0 ;; *) exit "$status" ;; esac
+
+# List entries of exclude_re in .cargo/mutants.toml that match no mutant, or more than the one they should; fails if there are any
+mutants-exclusions:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mutants=$(cargo mutants --list --package oso-core --no-config)
+    fail=0
+    while IFS= read -r pattern; do
+        count=$(grep -Ec -- "$pattern" <<<"$mutants" || true)
+        case "$pattern" in
+            *:\[0-9\]+:*) want=1 ;;
+            *) want=$count; [ "$count" -gt 0 ] || want=any ;;
+        esac
+        if [ "$count" != "$want" ]; then
+            echo "\`$pattern\` matches $count mutants"
+            fail=1
+        fi
+    done < <(sed -n 's/^ *"\(.*\)",$/\1/p' .cargo/mutants.toml | sed 's/\\\\/\\/g')
+    exit "$fail"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Architecture guardrails (ADR 0038)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -280,12 +315,24 @@ health-report out="target/design-health.md":
         echo
         echo "## Surviving mutants"
         echo
-        # Hook for mutation testing (M1-9a, ADR 0037): cargo-mutants writes
-        # mutants.out/missed.txt.
+        # CI puts the last weekly run's lists here (ADR 0050). The list is
+        # capped so that the issue stays within GitHub's limit on its size.
         if [ -f mutants.out/missed.txt ]; then
-            sed 's/^/- /' mutants.out/missed.txt
+            if [ -f mutants.out/run.md ]; then cat mutants.out/run.md; echo; fi
+            count() { if [ -f "mutants.out/$1.txt" ]; then wc -l <"mutants.out/$1.txt" | tr -d ' '; else echo 0; fi; }
+            echo "Missed $(count missed), caught $(count caught), timed out $(count timeout), unviable $(count unviable)."
+            echo
+            head -n {{mutants_listed}} mutants.out/missed.txt | sed 's/.*/- `&`/'
+            more=$(($(count missed) - {{mutants_listed}}))
+            if [ "$more" -gt 0 ]; then echo; echo "And $more more, in the run's artifact."; fi
+            if [ -s mutants.out/exclusions.txt ]; then
+                echo
+                echo "Stale entries in \`.cargo/mutants.toml\`:"
+                echo
+                sed 's/^/- /' mutants.out/exclusions.txt
+            fi
         else
-            echo "Not collected yet: mutation testing arrives with M1-9a (ADR 0037)."
+            echo "Not collected: no weekly mutation run with results (\`mutants.yml\`, ADR 0050)."
         fi
     } >"$out"
     echo "design health report: $out"
