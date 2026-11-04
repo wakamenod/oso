@@ -115,18 +115,19 @@ from CI can stand for a budget set on another machine.
   look caught. It is fixed, with a test.
 - The first run on the author's Mac, before any of this PR's tests: 1096 mutants,
   94 missed, 792 caught, 120 timed out, 90 unviable. With the tests and exclusions
-  of this PR: 1073 mutants, 23 missed, 841 caught, 118 timed out, 91 unviable.
-- The 23 left are worked through as `testing.md` describes, from the weekly issue:
+  of this PR: 1072 mutants, 24 missed, 832 caught, 125 timed out, 91 unviable.
+- The 24 left are worked through as `testing.md` describes, from the weekly issue:
   - 15 in `rope.rs`. `Rope::replace` merges small chunks, which changes speed and
     not content, so no test sees it yet. Its look back for clusters may be dead
     code: an edit at a chunk's start already takes in the chunk before it, so the
     first character of the window does not change. Check this before testing it.
-  - 7 in `display_map`: fallback paths in `Clusters::cluster_end`,
-    `TabMap::locate` and `TabMap::advance` that current inputs do not reach, which
-    may also be dead code, and a base offset in `TabSummary::from_text`.
+  - 8 in `display_map`: fallback paths in `Clusters::invalid_at`,
+    `Clusters::cluster_end`, `TabMap::locate` and `TabMap::advance` that current
+    inputs do not reach, which may also be dead code, and a base offset in
+    `TabSummary::from_text`.
   - `Editor::selected_window`, until M2 has a second window.
-- A weekly run costs 31 minutes on a free runner, and coverage about CHECK_COV
-  minutes per pull request.
+- A weekly run costs about an hour of a free runner, and coverage about 3 minutes
+  per pull request.
 - The time budget's limit on Linux assumes today's ratio. The Mac has many more
   cores than the runner, so a change in how much the tests run in parallel moves
   the ratio.

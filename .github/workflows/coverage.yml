@@ -47,7 +47,7 @@ jobs:
           OUTCOME: ${{ steps.coverage.outcome }}
         run: |
           if [ "$OUTCOME" = success ]; then
-            cat target/coverage/summary.md >>"$GITHUB_STEP_SUMMARY"
+            tee -a "$GITHUB_STEP_SUMMARY" <target/coverage/summary.md
           else
             echo "::warning::no coverage report: the coverage run ended with '$OUTCOME'. This does not affect the build."
           fi
