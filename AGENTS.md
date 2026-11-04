@@ -43,6 +43,9 @@ one. Open topics are in `docs/dev/open-questions.md`.
 - Run `just ci` (check, lint, fmt-check, test) before every commit. Run
   `just deny` and `just audit` when dependencies change, and
   `just release-safety` when dev features change.
+- Run `just e2e` when a change touches the control socket, the input path,
+  the rendering pipeline, file opening or the restart handoff (ADR 0049). It
+  opens windows, so it is not part of `just ci`.
 - Check user-visible changes in the running app with the `verify-in-app`
   skill.
 - Features: a worktree branch, then a PR. Small chores may go to `main`.

@@ -124,7 +124,7 @@ violation, so a broken parser cannot pass silently.
 | High | pure coordinate functions | unit tests |
 | Medium | command scenarios: key sequences to state | tests in `crates/oso/src/dispatch.rs` with no window |
 | Medium | what is drawn: key sequences to the cell grid | text-grid snapshots in `crates/oso/src/dispatch/grid_tests.rs` with no window |
-| Medium | the running app | end-to-end tests over the dev control socket |
+| Medium | the running app | end-to-end tests over the dev control socket: `just e2e` in `crates/oso/tests/e2e` |
 | Low | `oso-render` GPU code | logic split out and unit-tested; pixels checked by snapshot tests |
 
 ## Test levels
@@ -144,48 +144,79 @@ violation, so a broken parser cannot pass silently.
   sequences run through the tip crate's `Dispatcher` with no window, for
   example `C-f C-f C-b` to a cursor position (`crates/oso/src/dispatch.rs`).
 
-### Level 2: end-to-end tests over the control socket (from M1-7a)
+### Level 2: end-to-end tests over the control socket
 
-- Start a dev build (`just run-dev`, or `cargo build -p oso --features dev`)
-  and drive it with `oso ctl` over the dev control socket
-  ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
-  [ADR 0032](adr/0032-control-socket-transport.md)):
-  - `send-keys` sends input in Emacs notation, through the same path as
-    keys from the window ([ADR 0033](adr/0033-key-presses-and-notation.md))
-  - `run-command` runs a registered command by name, with a numeric
-    argument of at most 10,000 if it takes one. Command errors and panics come
-    back as error responses.
-  - `get-state` reads the state as JSON: every buffer (name, path, whether
-    it may hold secrets, read-only reason, line ending, BOM, invalid-byte
-    count, loading progress, size), every window with its selections, the
-    selected window's buffer, cursor and scroll position, its visible text,
-    the keys of a pending prefix and the surface size. The visible text
-    stops at 128 KiB and says so with `truncated`. The modeline comes with
-    M2.
-  - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails
-    clearly past that.
-  - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives
-    in M2.
-  - Secret-pattern buffers give no text and no screenshot
-    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). Any
-    file counts as secret until its path is resolved, so wait for `loading`
-    to become null before reading it.
-  - `export-state` and `import-state` hand the state to a new instance, and
-    `exit` stops one. `just dev` (`oso dev`) drives them on each source change
-    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
-  - `oso [FILE]` and `open-file` open a file, so test files (generated in a
-    scratch directory, never committed) can be driven this way.
-  - `take-timings` reads key latency, startup and load times for benchmarks.
-  - `screenshot` writes a PNG of the current frame and returns its path
-- Agents use these checks to verify behavior in the real app, following the
-  `verify-in-app` skill. A Claude Code agent reads the screenshots to check
-  visuals.
-- Not covered yet: resizing the window, the mouse wheel and real OS key
-  events. These are still checked by hand.
-- The transport and protocol themselves are tested without a window or GPU
-  (`oso-platform` control tests, the server tests in the tip crate), and so
-  are process spawning, the state format, the order of a restart and the
-  source watcher, so CI runs them on Linux and macOS. Windows is not supported yet (ADR 0032).
+`just e2e` starts real dev builds and drives them over the control socket
+([ADR 0037](adr/0037-test-pyramid.md), layer 5;
+[ADR 0049](adr/0049-end-to-end-test-harness.md)). `just e2e 20` repeats the
+suite. It runs on the author's Mac and on Linux CI with Xvfb and lavapipe, and it
+is not part of `just ci`, because windows open and take the focus. Leave the
+keyboard and mouse alone while it runs: real input reaches its windows too.
+
+| Flow | The seam it checks |
+|---|---|
+| keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
+| screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
+| invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
+| secret files | path judgment to every way out: `get-state`, `get-text`, `screenshot`, `export-state` and the log, also through a symlink, and `show-buffer` allows them again |
+| restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
+| exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
+| cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay |
+
+**What it asserts differs by OS.** Linux has no text backend
+([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)). Its screenshots show the
+background and the cursor box, so a flow checks the cursor on a file of empty
+lines, which looks the same everywhere, and text pixels only on macOS. Linux
+having no text pixels is asserted too, so the line changes when it gets a backend.
+
+**To add a flow,** add an ignored test to `crates/oso/tests/e2e/main.rs`, and only
+if a component boundary or a critical flow has no test yet. Motion, widths,
+decoding and the grid belong in the layers below. Use `Scratch` for files, with
+fake secrets only, and `App`, which addresses its own instance by process ID and
+stops it even when the test panics. Wait with `App::wait_for`, never a sleep:
+`send-keys` and `run-command` have finished when they return, and anything else
+is polled through `get-state`. Failure messages name what was expected and never
+quote buffer text, so use `assert_visible_row`, and do not `assert_eq!` on a state
+that holds text.
+
+**What is still manual,** through the `verify-in-app` skill or by hand: resizing
+the window, the mouse wheel, real OS key events, IME, and `oso dev`'s build loop.
+
+The socket's methods, for flows and for agents following `verify-in-app`, over
+the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
+[ADR 0032](adr/0032-control-socket-transport.md)):
+
+- `send-keys` sends input in Emacs notation, through the same path as keys from
+  the window ([ADR 0033](adr/0033-key-presses-and-notation.md)).
+- `run-command` runs a registered command by name, with a numeric argument of at
+  most 10,000 if it takes one. Command errors and panics come back as error
+  responses.
+- `get-state` reads the state as JSON: every buffer (name, path, whether it may
+  hold secrets, read-only reason, line ending, BOM, invalid-byte count, loading
+  progress, size), every window with its selections, the selected window's
+  buffer, cursor and scroll position, its visible text, the keys of a pending
+  prefix and the surface size. The visible text stops at 128 KiB and says so with
+  `truncated`. The modeline comes with M2.
+- `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
+  past that.
+- `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
+- Secret-pattern buffers give no text and no screenshot
+  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). Any file
+  counts as secret until its path is resolved, so wait for `loading` to become
+  null before reading it.
+- `export-state` and `import-state` hand the state to a new instance, and `exit`
+  stops one. `just dev` (`oso dev`) drives them on each source change
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+- `oso [FILE]` and `open-file` open a file, so test files (generated in a scratch
+  directory, never committed) can be driven this way.
+- `take-timings` reads key latency, startup and load times for benchmarks.
+- `screenshot` writes a PNG of the current frame and returns its path.
+
+The transport and protocol themselves are tested without a window or GPU
+(`oso-platform` control tests, the server tests in the tip crate), and so are
+process spawning, the state format, the order of a restart and the source
+watcher, so CI runs them on Linux and macOS. Windows is not supported yet
+(ADR 0032).
 
 ### Level 3: snapshot tests (after text rendering lands)
 
@@ -252,6 +283,9 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
   to `main`: results in the job summary and in JSON artifacts, compared with
   the last result on `main`
   ([ADR 0046](adr/0046-performance-regression-checks.md))
+- the end-to-end workflow (`e2e.yml`), on pull requests and pushes to `main` that
+  change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe
+  ([ADR 0049](adr/0049-end-to-end-test-harness.md))
 
 Planned:
 

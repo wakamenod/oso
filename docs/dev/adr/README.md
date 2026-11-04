@@ -54,6 +54,7 @@ old one's status.
 | 0045 | [Text-grid snapshots](0045-text-grid-snapshots.md) | Accepted |
 | 0046 | [Performance regression checks](0046-performance-regression-checks.md) | Accepted |
 | 0047 | [Process spawning and the restart handoff](0047-process-spawning-and-restart-handoff.md) | Accepted |
+| 0049 | [End-to-end test harness](0049-end-to-end-test-harness.md) | Accepted |
 
 ## Template
 
