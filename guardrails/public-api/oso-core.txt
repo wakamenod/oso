@@ -631,10 +631,10 @@ pub fn oso_core::editor::Editor::end_undo_group(&mut self)
 pub fn oso_core::editor::Editor::end_undo_group_after_panic(&mut self)
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
-pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages(&self) -> impl core::iter::traits::double_ended::DoubleEndedIterator<Item = &str> + core::iter::traits::exact_size::ExactSizeIterator
 pub fn oso_core::editor::Editor::redo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
@@ -942,6 +942,7 @@ pub fn oso_core::motion::Edge::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::motion::Edge
 impl core::marker::StructuralPartialEq for oso_core::motion::Edge
 pub fn oso_core::motion::buffer_end(&oso_core::display_map::DisplaySnapshot) -> usize
+pub fn oso_core::motion::cluster_end(&oso_core::display_map::DisplaySnapshot, usize) -> usize
 pub fn oso_core::motion::cluster_start(&oso_core::display_map::DisplaySnapshot, usize) -> usize
 pub fn oso_core::motion::cursor_cells(&oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint) -> usize
 pub fn oso_core::motion::line_after_fraction(&oso_core::display_map::DisplaySnapshot, usize, usize) -> usize

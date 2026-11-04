@@ -255,6 +255,51 @@ fn an_undo_ends_the_joining() {
 }
 
 #[test]
+fn a_joining_command_that_edited_nothing_does_not_rearm_joining() {
+    let (mut editor, id) = editor_with("abc");
+    self_insert(&mut editor, "x");
+    // A motion and its reverse, then a self-insert or IME commit of nothing.
+    editor.begin_undo_group();
+    editor.end_undo_group();
+    self_insert(&mut editor, "");
+    self_insert(&mut editor, "y");
+    assert_eq!(editor.buffer(id).unwrap().undo_lens(), (2, 0));
+    editor.undo().unwrap();
+    assert_eq!(text(&editor, id), "xabc", "one undo removes only the y");
+}
+
+#[test]
+fn a_joining_command_that_undoes_does_not_rearm_joining() {
+    let (mut editor, id) = editor_with("abc");
+    self_insert(&mut editor, "x");
+    plain_edit(&mut editor, id, 1..1, "y");
+    // Back to where the group of x ended, in a command that allows joining.
+    editor.begin_undo_group();
+    editor.allow_undo_join();
+    editor.undo().unwrap();
+    editor.end_undo_group();
+    assert_eq!(editor.buffer(id).unwrap().undo_lens(), (1, 1));
+    editor.redo().unwrap();
+    editor.undo().unwrap();
+    self_insert(&mut editor, "z");
+    assert_eq!(editor.buffer(id).unwrap().undo_lens(), (2, 0));
+}
+
+#[test]
+fn a_joining_command_that_undoes_and_edits_does_not_rearm_joining() {
+    let (mut editor, id) = editor_with("abc");
+    plain_edit(&mut editor, id, 0..0, "x");
+    editor.begin_undo_group();
+    editor.allow_undo_join();
+    editor.undo().unwrap();
+    editor.apply_edits(id, &[edit(0..0, "y")]).unwrap();
+    editor.end_undo_group();
+    assert_eq!(editor.buffer(id).unwrap().undo_lens(), (1, 0));
+    self_insert(&mut editor, "z");
+    assert_eq!(editor.buffer(id).unwrap().undo_lens(), (2, 0));
+}
+
+#[test]
 fn an_edit_outside_a_command_ends_the_joining() {
     let (mut editor, id) = editor_with("");
     self_insert(&mut editor, "a");

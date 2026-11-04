@@ -155,16 +155,58 @@ fn model_cluster_start(text: &str, display: &DisplaySnapshot, cursor: usize) -> 
     row_end
 }
 
-/// `cursors` clipped to display clusters, sorted and merged.
-fn model_clip(text: &str, cursors: Vec<usize>) -> Vec<usize> {
+/// Where a cursor inside a cluster goes when new text before it must stay before
+/// it: past the cluster around it, or past the line break it is inside.
+fn model_cluster_end(text: &str, display: &DisplaySnapshot, cursor: usize) -> usize {
+    let cursor = floor_boundary(text, cursor);
+    if model_cluster_start(text, display, cursor) == cursor {
+        return cursor;
+    }
+    let row = text[..cursor].matches('\n').count();
+    for cluster in display.clusters(DisplayPoint::new(row, 0)) {
+        let end = cluster.offset + cluster.text.len();
+        if (cluster.offset..end).contains(&cursor) {
+            return end;
+        }
+    }
+    cursor + text[cursor..].find('\n').map_or(0, |index| index + 1)
+}
+
+/// `cursors` clipped to display clusters, sorted and merged: to the end of a
+/// cluster for those at one of `ends`, and to the start for the rest.
+fn model_clip_after(text: &str, cursors: Vec<usize>, ends: &[usize]) -> Vec<usize> {
     let display = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
     let mut clipped: Vec<usize> = cursors
         .into_iter()
-        .map(|cursor| model_cluster_start(text, &display, cursor))
+        .map(|cursor| {
+            if ends.contains(&cursor) {
+                model_cluster_end(text, &display, cursor)
+            } else {
+                model_cluster_start(text, &display, cursor)
+            }
+        })
         .collect();
     clipped.sort_unstable();
     clipped.dedup();
     clipped
+}
+
+fn model_clip(text: &str, cursors: Vec<usize>) -> Vec<usize> {
+    model_clip_after(text, cursors, &[])
+}
+
+/// Where the new text of `edits` ends, in the offsets after them.
+fn model_new_text_ends(edits: &[ModelEdit]) -> Vec<usize> {
+    let mut shift = 0isize;
+    let mut ends = Vec::new();
+    for edit in edits {
+        let new_end = edit.start.checked_add_signed(shift).unwrap() + edit.new.len();
+        if !edit.new.is_empty() {
+            ends.push(new_end);
+        }
+        shift += edit.new.len() as isize - edit.old.len() as isize;
+    }
+    ends
 }
 
 impl Model {
@@ -201,7 +243,12 @@ impl Model {
                     moved
                 }
             };
-            *window = model_clip(&text, moved);
+            // Only an edit moves the selected cursors past new text.
+            let ends = match restored {
+                None if selected => model_new_text_ends(&steps[0]),
+                _ => Vec::new(),
+            };
+            *window = model_clip_after(&text, moved, &ends);
         }
     }
 
@@ -405,6 +452,26 @@ proptest! {
             let buffer = editor.buffer(id).unwrap();
             prop_assert_eq!(buffer.revision() != revision, changed);
             prop_assert_eq!(buffer.content_id() != content, changed);
+        }
+    }
+
+    /// Whatever it joins, what was typed stays in order before the cursor.
+    #[test]
+    fn typed_text_stays_before_the_cursor(
+        start in text_strategy(12),
+        at in 0usize..60,
+        pieces in prop::collection::vec(text_strategy(2), 1..8),
+    ) {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &start));
+        let id = editor.window().buffer();
+        let display = editor.buffer(id).unwrap().display();
+        editor.current_mut().0.selections = SelectionSet::new(motion::cluster_start(&display, at));
+        for piece in pieces {
+            let cursor = editor.window().selections.primary().cursor;
+            editor.apply_edits(id, &[edit(cursor..cursor, &piece)]).unwrap();
+            let after = text(&editor, id);
+            prop_assert_eq!(&after[cursor..cursor + piece.len()], piece.as_str());
+            prop_assert!(editor.window().selections.primary().cursor >= cursor + piece.len());
         }
     }
 

@@ -132,6 +132,129 @@ fn cursors_clip_to_display_clusters_after_a_combining_mark() {
     assert_eq!(cursors(&editor.windows[other]), [0]);
 }
 
+/// Types each of `typed` at the one cursor, which starts at `at`, and returns the
+/// text and the cursor.
+fn typed(start: &str, at: usize, typed: &[&str]) -> (String, usize) {
+    let (mut editor, id) = editor_with(start);
+    editor.windows[0].selections = SelectionSet::new(at);
+    for piece in typed {
+        self_insert(&mut editor, piece);
+    }
+    (text(&editor, id), cursors(&editor.windows[0])[0])
+}
+
+#[test]
+fn typed_text_stays_before_a_cursor_when_it_joins_what_follows() {
+    let (virama, cursor) = typed("कष", 3, &["\u{94d}", "z"]);
+    assert_eq!(virama, "क\u{94d}षz", "the cursor went past the conjunct");
+    assert_eq!(cursor, virama.len());
+
+    let (mark, cursor) = typed("x\n\u{301}y", 2, &["a", "b"]);
+    assert_eq!(mark, "x\na\u{301}by", "the mark joined the first letter");
+    assert_eq!(cursor, "x\na\u{301}b".len());
+
+    let (flag, cursor) = typed("🇯🇵", 0, &["🇺", "z"]);
+    assert_eq!(flag, "🇺🇯z🇵", "the indicator paired with the first one");
+    assert_eq!(cursor, "🇺🇯z".len());
+
+    let (zwj, cursor) = typed("👨👩", "👨".len(), &["\u{200d}", "z"]);
+    assert_eq!(zwj, "👨\u{200d}👩z");
+    assert_eq!(cursor, zwj.len());
+}
+
+#[test]
+fn typing_a_carriage_return_before_a_line_feed_moves_past_the_break() {
+    let (text, cursor) = typed("a\nb", 1, &["\r"]);
+    assert_eq!(text, "a\r\nb");
+    assert_eq!(cursor, 3, "past the line break the two now make");
+}
+
+#[test]
+fn a_deletion_that_joins_clusters_clips_back() {
+    let (mut editor, id) = editor_with("exy\u{301}");
+    editor.windows[0].selections = SelectionSet::new(2);
+    editor.apply_edits(id, &[edit(2..3, "")]).unwrap();
+    assert_eq!(text(&editor, id), "ex\u{301}");
+    assert_eq!(
+        cursors(&editor.windows[0]),
+        [1],
+        "the start of the new cluster"
+    );
+}
+
+#[test]
+fn a_replacement_that_joins_what_follows_keeps_its_text_before_the_cursor() {
+    let (mut editor, id) = editor_with("ab\u{301}c");
+    editor.windows[0].selections = SelectionSet::new(0);
+    editor.apply_edits(id, &[edit(0..2, "z")]).unwrap();
+    assert_eq!(text(&editor, id), "z\u{301}c");
+    assert_eq!(cursors(&editor.windows[0]), [3]);
+}
+
+#[test]
+fn several_cursors_typing_into_what_follows_each_stay_after_their_text() {
+    let (mut editor, id) = editor_with("\u{301}x\n\u{301}y");
+    editor.windows[0].selections = set_at(&[0, 4]);
+    self_insert(&mut editor, "a");
+    assert_eq!(text(&editor, id), "a\u{301}x\na\u{301}y");
+    assert_eq!(cursors(&editor.windows[0]), [3, 8]);
+    self_insert(&mut editor, "b");
+    assert_eq!(text(&editor, id), "a\u{301}bx\na\u{301}by");
+    assert_eq!(cursors(&editor.windows[0]), [4, 10]);
+    editor.undo().unwrap();
+    assert_eq!(text(&editor, id), "\u{301}x\n\u{301}y");
+    assert_eq!(cursors(&editor.windows[0]), [0, 4]);
+}
+
+#[test]
+fn only_a_selected_cursor_after_new_text_clips_forward() {
+    let (mut editor, id) = editor_with("e\u{301}x");
+    let other = second_window(&mut editor, id, &[1]);
+    editor.windows[0].selections = set_at(&[1]);
+    editor.apply_edits(id, &[edit(1..1, "\u{301}")]).unwrap();
+    assert_eq!(cursors(&editor.windows[0]), [5]);
+    assert_eq!(cursors(&editor.windows[other]), [0], "a marker clips back");
+}
+
+#[test]
+fn clipping_both_ways_in_one_cluster_keeps_the_set_sorted() {
+    let (mut editor, id) = editor_with("e\u{301}\u{301}x");
+    editor.windows[0].selections = set_at(&[1, 3]);
+    editor.apply_edits(id, &[edit(1..1, "a")]).unwrap();
+    assert_eq!(text(&editor, id), "ea\u{301}\u{301}x");
+    // The first passes the new cluster, and the second goes to its start.
+    assert_eq!(cursors(&editor.windows[0]), [1, 6]);
+}
+
+#[test]
+fn a_panic_in_a_cursor_update_breaks_no_later_edit() {
+    let (mut editor, id) = editor_with("0123456789");
+    editor.windows[0].selections = set_at(&[2, 5, 9]);
+    editor.begin_undo_group();
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        editor.windows[0].selections.update(|selection| {
+            selection.cursor = 10 - selection.cursor;
+            assert!(selection.cursor > 4, "a bug in a command");
+            Ok::<(), ()>(())
+        });
+    }));
+    assert!(panicked.is_err());
+    editor.end_undo_group_after_panic();
+    assert!(
+        cursors(&editor.windows[0])
+            .windows(2)
+            .all(|pair| pair[0] < pair[1]),
+        "still sorted"
+    );
+
+    let before = cursors(&editor.windows[0]);
+    self_insert(&mut editor, "x");
+    assert_eq!(text(&editor, id).matches('x').count(), before.len());
+    editor.undo().unwrap();
+    assert_eq!(text(&editor, id), "0123456789");
+    assert_eq!(cursors(&editor.windows[0]), before);
+}
+
 #[test]
 fn cursors_that_meet_merge_and_a_primary_remains() {
     let (mut editor, id) = editor_with("0123456789");

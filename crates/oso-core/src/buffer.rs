@@ -25,7 +25,6 @@ use crate::load::{self, LoadSnapshot, Progress};
 use crate::rope::{Rope, RopeEdit};
 use crate::secret;
 use crate::selection::{OffsetEdit, SelectionSet};
-use crate::sum_tree::Bias;
 pub use crate::undo::ContentId;
 use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
@@ -101,7 +100,8 @@ impl fmt::Display for EditError {
 
 impl std::error::Error for EditError {}
 
-/// The new text of a [`Splice`]: borrowed for an edit, a rope for undo and redo.
+/// The new text of a [`Splice`]: borrowed for an edit, a rope or nothing for undo
+/// and redo.
 trait SpliceText {
     fn byte_len(&self) -> usize;
     /// Replaces `range` of `rope` with this text.
@@ -118,13 +118,16 @@ impl SpliceText for Cow<'_, str> {
     }
 }
 
-impl SpliceText for Rope {
+impl SpliceText for Option<Rope> {
     fn byte_len(&self) -> usize {
-        self.len()
+        self.as_ref().map_or(0, Rope::len)
     }
 
     fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit {
-        rope.replace(range, &self.to_string())
+        match self {
+            Some(text) => rope.replace(range, &text.to_string()),
+            None => rope.replace(range, ""),
+        }
     }
 }
 
@@ -189,8 +192,7 @@ fn normalized<'a>(text: &Rope, edits: &[Replacement<'a>]) -> Vec<Splice<Cow<'a, 
     let mut sorted: Vec<Splice<Cow<'a, str>>> = edits
         .iter()
         .map(|edit| {
-            let start = text.clip_offset(edit.range.start, Bias::Left);
-            let end = text.clip_offset(edit.range.end, Bias::Left).max(start);
+            let (start, end) = text.clip_range(edit.range.clone());
             Splice {
                 start,
                 len: end - start,
@@ -231,11 +233,7 @@ fn apply<T: SpliceText>(splices: &[Splice<T>], text: &mut Rope, display: &mut Di
         old_below -= splice.len;
         new_below -= new_len;
         let range = splice.start..splice.start + splice.len;
-        let removed = if range.is_empty() {
-            Rope::new()
-        } else {
-            text.slice(range.clone())
-        };
+        let removed = (!range.is_empty()).then(|| text.slice(range.clone()));
         let edit = splice.text.replace_in(text, range);
         display.sync(text, &edit);
         undo.push(Splice {
@@ -755,7 +753,7 @@ mod tests {
         assert_eq!(text, "adeXXXh");
         let undo: Vec<_> = undo
             .iter()
-            .map(|s| (s.start, s.len, s.text.to_string()))
+            .map(|s| (s.start, s.len, s.text.as_ref().unwrap().to_string()))
             .collect();
         assert_eq!(undo, [one(1, 0, "bc"), one(3, 3, "fg")]);
     }

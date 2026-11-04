@@ -45,8 +45,9 @@ pub(crate) struct Splice<T> {
     pub(crate) text: T,
 }
 
-/// The splices one edit call made, or what undoes them.
-pub(crate) type Batch = Vec<Splice<Rope>>;
+/// The splices one edit call made, or what undoes them. A splice that only
+/// deletes has no text, so typing keeps no empty rope per cursor.
+pub(crate) type Batch = Vec<Splice<Option<Rope>>>;
 
 /// What a group returns to on one of its sides.
 #[derive(Clone, Debug)]
@@ -81,14 +82,23 @@ pub(crate) struct Group {
     bytes: usize,
 }
 
-/// What a splice costs the history, besides its text. An empty rope still holds
-/// a tree node, which this estimates.
-const SPLICE_COST: usize = mem::size_of::<Splice<Rope>>() + 128;
+/// What a splice costs the history, besides any text.
+const SPLICE_COST: usize = mem::size_of::<Splice<Option<Rope>>>();
+
+/// What a rope holding text costs the history, besides the text: an estimate of
+/// its tree node.
+const ROPE_COST: usize = 128;
 
 fn batch_cost(batch: &Batch) -> usize {
     batch
         .iter()
-        .map(|splice| SPLICE_COST + splice.text.len())
+        .map(|splice| {
+            SPLICE_COST
+                + splice
+                    .text
+                    .as_ref()
+                    .map_or(0, |text| ROPE_COST + text.len())
+        })
         .sum::<usize>()
         + mem::size_of::<Batch>()
 }
@@ -300,13 +310,14 @@ mod tests {
         vec![Splice {
             start,
             len,
-            text: Rope::from(text),
+            text: (!text.is_empty()).then(|| Rope::from(text)),
         }]
     }
 
     /// The cost of a batch of one splice of `bytes` text.
     fn one_batch(bytes: usize) -> usize {
-        SPLICE_COST + bytes + mem::size_of::<Batch>()
+        let text = if bytes == 0 { 0 } else { ROPE_COST + bytes };
+        SPLICE_COST + text + mem::size_of::<Batch>()
     }
 
     /// The cost of a group with one such batch and no cursors.
@@ -331,6 +342,18 @@ mod tests {
     fn record(history: &mut History, opening: Opening, from: u64, to: u64, text: &str) {
         history.record(splice(0, 0, text), opening, ContentId(from), side(to));
         assert_eq!(history.bytes(), recompute(history), "the count stays exact");
+    }
+
+    #[test]
+    fn a_splice_with_no_text_costs_no_rope() {
+        assert_eq!(
+            batch_cost(&splice(0, 1, "")),
+            SPLICE_COST + mem::size_of::<Batch>()
+        );
+        assert_eq!(
+            batch_cost(&splice(0, 1, "abc")),
+            SPLICE_COST + ROPE_COST + 3 + mem::size_of::<Batch>()
+        );
     }
 
     #[test]

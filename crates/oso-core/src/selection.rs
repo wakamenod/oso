@@ -8,7 +8,7 @@
 //! signatures. Each selection's mark arrives with marks and regions (M2).
 //!
 //! Cursors follow edits here, as offsets ([`SelectionSet::follow_edits`], ADR
-//! 0052). The editor then clips them to the display clusters of the new text.
+//! 0053). The editor then clips them to the display clusters of the new text.
 
 use crate::sum_tree::Bias;
 
@@ -65,6 +65,31 @@ pub(crate) struct OffsetEdit {
     pub(crate) start: usize,
     pub(crate) old_len: usize,
     pub(crate) new_len: usize,
+}
+
+/// Where new text ends after `edits`, ascending. The edits are as in
+/// [`SelectionSet::follow_edits`], and deletions have no new text.
+pub(crate) fn new_text_ends(edits: &[OffsetEdit]) -> impl Iterator<Item = usize> + '_ {
+    let (mut old_end, mut new_end) = (0, 0);
+    edits.iter().filter_map(move |edit| {
+        new_end += edit.start - old_end + edit.new_len;
+        old_end = edit.start + edit.old_len;
+        (edit.new_len > 0).then_some(new_end)
+    })
+}
+
+/// Sorts a set when it goes out of scope, also when a panic unwinds past it.
+struct KeepOrder<'a> {
+    set: &'a mut SelectionSet,
+    changed: bool,
+}
+
+impl Drop for KeepOrder<'_> {
+    fn drop(&mut self) {
+        if self.changed {
+            self.set.normalize();
+        }
+    }
 }
 
 /// What [`SelectionSet::update`] did.
@@ -127,23 +152,29 @@ impl SelectionSet {
 
     /// Runs `f` on every selection, then merges selections whose cursors
     /// met. A selection that fails still keeps what `f` changed, as an
-    /// Emacs motion that hits the buffer end moves as far as it can.
+    /// Emacs motion that hits the buffer end moves as far as it can. If `f`
+    /// panics, the set is still put in order, so that a panicking command
+    /// leaves a valid set.
     pub fn update<E>(
         &mut self,
         mut f: impl FnMut(&mut Selection) -> Result<(), E>,
     ) -> UpdateOutcome<E> {
         let mut changed = false;
         let mut error = None;
-        for selection in &mut self.selections {
+        // Assumes a change until every selection has run.
+        let mut order = KeepOrder {
+            set: self,
+            changed: true,
+        };
+        for selection in &mut order.set.selections {
             let before = selection.cursor;
             if let Err(e) = f(selection) {
                 error.get_or_insert(e);
             }
             changed |= selection.cursor != before;
         }
-        if changed {
-            self.normalize();
-        }
+        order.changed = changed;
+        drop(order);
         UpdateOutcome { changed, error }
     }
 
@@ -351,6 +382,36 @@ mod tests {
         assert_eq!(set.iter().map(|s| s.cursor).collect::<Vec<_>>(), [1, 5]);
         assert_eq!(set.primary().cursor, 5);
         assert!(set.iter().all(|selection| selection.goal.is_none()));
+    }
+
+    #[test]
+    fn a_panic_in_an_update_leaves_a_valid_set() {
+        let mut set = set_at(&[1, 5, 9]);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            set.update(|selection| {
+                selection.cursor = 20 - selection.cursor;
+                assert!(selection.cursor > 15, "a bug in a command");
+                Ok::<(), ()>(())
+            })
+        }));
+        assert!(panicked.is_err());
+        let cursors: Vec<_> = set.iter().map(|selection| selection.cursor).collect();
+        assert_eq!(cursors, [9, 15, 19], "the two it reached, and the last");
+        assert_eq!(set.primary().cursor, 19, "the primary, wherever it went");
+        assert_eq!(set.primary_index(), 2);
+    }
+
+    #[test]
+    fn new_text_ends_are_in_the_offsets_after_the_edits() {
+        let edit = |start, old_len, new_len| OffsetEdit {
+            start,
+            old_len,
+            new_len,
+        };
+        let edits = [edit(1, 0, 2), edit(4, 3, 0), edit(9, 1, 5), edit(10, 0, 1)];
+        let ends: Vec<_> = new_text_ends(&edits).collect();
+        assert_eq!(ends, [3, 13, 14]);
+        assert_eq!(new_text_ends(&[]).count(), 0);
     }
 
     #[test]

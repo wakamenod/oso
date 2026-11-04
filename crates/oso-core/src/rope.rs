@@ -393,7 +393,7 @@ impl Rope {
 
     /// Clamps both ends to the text and to character starts; a reversed
     /// range becomes empty at its start.
-    fn clip_range(&self, range: Range<usize>) -> (usize, usize) {
+    pub(crate) fn clip_range(&self, range: Range<usize>) -> (usize, usize) {
         let start = self.clip_offset(range.start, Bias::Left);
         let end = self.clip_offset(range.end, Bias::Left).max(start);
         (start, end)

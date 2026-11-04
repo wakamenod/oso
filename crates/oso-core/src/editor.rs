@@ -16,12 +16,11 @@
 //! before it runs a command and closes it after, also when the command panics.
 
 use std::collections::VecDeque;
-use std::fmt;
 
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::DisplaySnapshot;
 use crate::motion;
-use crate::selection::{OffsetEdit, SelectionSet};
+use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
 use crate::window::{self, Scroll, ViewSize, Window};
@@ -32,10 +31,47 @@ pub const SCRATCH: &str = "*scratch*";
 /// The messages the editor keeps, as Emacs's `message-log-max`.
 const MAX_MESSAGES: usize = 1000;
 
-/// A message as the log shows it: escaped, so that a name in it cannot move a
-/// terminal's cursor or reorder the line.
-fn log_text(text: &str) -> impl fmt::Display + '_ {
-    text.escape_debug()
+/// A message as the log shows it: control and non-printable characters are
+/// escaped, so that a name in it cannot move a terminal's cursor or reorder the
+/// line. Quotes and backslashes stay as they are.
+fn log_text(text: &str) -> String {
+    let mut shown = String::with_capacity(text.len());
+    for part in text.split_inclusive(['\'', '"', '\\']) {
+        let (body, last) = match part.chars().next_back() {
+            Some(last @ ('\'' | '"' | '\\')) => (&part[..part.len() - 1], Some(last)),
+            _ => (part, None),
+        };
+        shown.extend(body.escape_debug());
+        shown.extend(last);
+    }
+    shown
+}
+
+/// What the selected window's cursors do when a buffer it shows changes.
+#[derive(Clone, Copy)]
+enum Selected<'a> {
+    /// It made the edit: a cursor after new text stays after it.
+    Edited,
+    /// An undo or a redo returns it to these cursors, if the group has them.
+    Restored(Option<&'a SelectionSet>),
+}
+
+/// Moves every cursor where a cursor can be: to the start of the display cluster
+/// around it, or to the end if it is at one of `ends` (ascending), just after new
+/// text. New text can join what follows it, and what was typed must stay before
+/// the cursor. Goals are cleared.
+fn clip_cursors(set: &mut SelectionSet, display: &DisplaySnapshot, ends: &[usize]) {
+    let mut ends = ends.iter().copied().peekable();
+    set.update(|selection| {
+        while ends.next_if(|end| *end < selection.cursor).is_some() {}
+        selection.cursor = if ends.peek() == Some(&selection.cursor) {
+            motion::cluster_end(display, selection.cursor)
+        } else {
+            motion::cluster_start(display, selection.cursor)
+        };
+        selection.goal = None;
+        Ok::<(), ()>(())
+    });
 }
 
 /// The undo group of the command running.
@@ -46,6 +82,8 @@ struct UndoScope {
     touched: Vec<BufferId>,
     /// The command allowed its edits to join the previous command's group.
     join: bool,
+    /// The command undid or redid something.
+    crossed: bool,
 }
 
 /// All editor state that commands read and change.
@@ -211,8 +249,10 @@ impl Editor {
     /// replaced text ends after the new text, so a command that inserts at each
     /// cursor need not move them, though it may move them afterward. In other
     /// windows such a cursor stays before the new text, as an Emacs marker.
-    /// Cursors are then clipped to the start of a display cluster, since a
-    /// combining mark can move the boundaries, and cursors that met merge.
+    /// Cursors are then clipped to a display cluster, since a combining mark can
+    /// move the boundaries: to its start, or to its end for a selected cursor
+    /// just after new text that joined what follows, so typed text stays before
+    /// the cursor. Cursors that met merge.
     ///
     /// # Errors
     ///
@@ -228,7 +268,7 @@ impl Editor {
             return Ok(());
         };
         let opening = self.opening(id, buffer);
-        let moved = self.moved_selections(id, &staged.display(), staged.steps(), Bias::Right, None);
+        let moved = self.moved_selections(id, &staged.display(), staged.steps(), Selected::Edited);
         let after = moved
             .iter()
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
@@ -275,42 +315,43 @@ impl Editor {
     }
 
     /// The cursors of every window showing `id` once a change is in, by window
-    /// position. They follow `steps`, the selected window by `selected_bias`
-    /// and others as markers, unless the selected window has `restored` ones.
+    /// position. They follow `steps`, as markers except in the selected window,
+    /// which does as `selected` says. Each ends where a cursor can be.
     fn moved_selections(
         &self,
         id: BufferId,
         display: &DisplaySnapshot,
         steps: &[Vec<OffsetEdit>],
-        selected_bias: Bias,
-        restored: Option<&SelectionSet>,
+        selected: Selected<'_>,
     ) -> Vec<(usize, SelectionSet)> {
-        let clipped = |mut set: SelectionSet| {
-            set.update(|selection| {
-                selection.cursor = motion::cluster_start(display, selection.cursor);
-                selection.goal = None;
-                Ok::<(), ()>(())
-            });
-            set
-        };
         let mut moved = Vec::new();
         for (index, window) in self.windows.iter().enumerate() {
             if window.buffer() != id {
                 continue;
             }
-            let selected = index == self.selected;
-            let set = match restored {
-                Some(restored) if selected => restored.clone(),
-                _ => {
-                    let bias = if selected { selected_bias } else { Bias::Left };
-                    let mut set = window.selections.clone();
-                    for edits in steps {
-                        set.follow_edits(edits, bias);
-                    }
-                    set
-                }
+            let selected = (index == self.selected).then_some(selected);
+            let mut set = match selected {
+                Some(Selected::Restored(Some(restored))) => restored.clone(),
+                _ => window.selections.clone(),
             };
-            moved.push((index, clipped(set)));
+            match selected {
+                Some(Selected::Restored(Some(_))) => clip_cursors(&mut set, display, &[]),
+                Some(Selected::Edited) => {
+                    let mut ends = Vec::new();
+                    for edits in steps {
+                        set.follow_edits(edits, Bias::Right);
+                        ends.extend(new_text_ends(edits));
+                    }
+                    clip_cursors(&mut set, display, &ends);
+                }
+                _ => {
+                    for edits in steps {
+                        set.follow_edits(edits, Bias::Left);
+                    }
+                    clip_cursors(&mut set, display, &[]);
+                }
+            }
+            moved.push((index, set));
         }
         moved
     }
@@ -327,12 +368,13 @@ impl Editor {
             before: (window.buffer(), window.selections.clone()),
             touched: Vec::new(),
             join: false,
+            crossed: false,
         });
     }
 
     /// Lets the edits of the running command join the previous command's undo
-    /// group, if that command called this too and the cursors are where it
-    /// left them. For self-inserted characters, up to a limit (ADR 0030). Does
+    /// group, if that command called this too, edited something and undid
+    /// nothing, and the cursors are where it left them. For self-inserted characters, up to a limit (ADR 0030). Does
     /// nothing with no group open.
     pub fn allow_undo_join(&mut self) {
         if let Some(scope) = &mut self.undo_scope {
@@ -358,7 +400,7 @@ impl Editor {
         let Some(scope) = self.undo_scope.take() else {
             return;
         };
-        self.join_ready = may_join && scope.join;
+        self.join_ready = may_join && scope.join && !scope.crossed && !scope.touched.is_empty();
         for id in scope.touched {
             self.seal_undo_group(id);
         }
@@ -408,13 +450,8 @@ impl Editor {
         }
         let buffer = self.buffer(id).ok_or(EditError::NoSuchBuffer)?;
         let staged = buffer.stage_crossing(direction)?;
-        let moved = self.moved_selections(
-            id,
-            &staged.display(),
-            staged.steps(),
-            Bias::Left,
-            staged.selections(),
-        );
+        let selected = Selected::Restored(staged.selections());
+        let moved = self.moved_selections(id, &staged.display(), staged.steps(), selected);
 
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
@@ -425,6 +462,7 @@ impl Editor {
         }
         if let Some(scope) = &mut self.undo_scope {
             scope.before = (id, self.windows[self.selected].selections.clone());
+            scope.crossed = true;
         }
         self.join_ready = false;
         Ok(())
@@ -596,8 +634,16 @@ mod tests {
 
     #[test]
     fn the_log_shows_control_characters_as_escapes() {
-        let shown = log_text("a\u{1b}[2J\u{9b}\u{202e}\n日本語").to_string();
-        assert_eq!(shown, "a\\u{1b}[2J\\u{9b}\\u{202e}\\n日本語");
+        let shown = log_text("a\u{1b}[2J\u{9b}\u{202e}\n日本語e\u{301}");
+        assert_eq!(shown, "a\\u{1b}[2J\\u{9b}\\u{202e}\\n日本語e\u{301}");
+    }
+
+    #[test]
+    fn the_log_leaves_quotes_and_backslashes_alone() {
+        let message = r#"Can't open "a\b.txt" 'x'\"#;
+        assert_eq!(log_text(message), message);
+        assert_eq!(log_text("'\u{1b}'"), "'\\u{1b}'");
+        assert_eq!(log_text(""), "");
     }
 
     #[test]

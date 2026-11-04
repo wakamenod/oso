@@ -60,8 +60,12 @@ replaced text stays before the text that followed it. The rest depends on the wi
 - **Other windows follow as Emacs markers.** A cursor at the start of an edit stays
   before the new text, and one inside the replaced text moves there.
 
-Mapped cursors are then clipped to the start of a display cluster, because an edit can
-move those boundaries, and cursors that met merge, keeping a primary. Edits clear goal
+Mapped cursors are then clipped to a display cluster, because an edit can move those
+boundaries, and cursors that met merge, keeping a primary. A cursor clips to the cluster's
+start, except a selected-window cursor just after new text, which clips to the cluster's end
+if the text joined what follows. Otherwise typing a mark before existing text would put the
+next character before what was just typed. So typing a virama before a consonant moves the
+cursor past that consonant. Edits clear goal
 columns and leave other fields of a selection alone. Marks (M2-13) need their own mapping,
 since they are not sorted as cursors are.
 
@@ -91,9 +95,10 @@ history. The same text reached by other edits counts as modified.
   step of its own. The group's closing cursors are read at the end, so a command may move
   them after its edits.
 - **A command joins** by calling `Editor::allow_undo_join`, for self-inserts. Its edits
-  join the previous group if the previous command called it too, the text and the cursors
-  are where that group left them, no redo is pending, and fewer than 20 commands joined
-  (`amalgamating-undo-limit`). Any other command in between ends the joining.
+  join the previous group if the previous command called it too, edited something and undid
+  nothing, the text and the cursors are where that group left them, no redo is pending, and
+  fewer than 20 commands joined (`amalgamating-undo-limit`). Any other command in between ends
+  the joining.
 - **Undo acts on the selected window's buffer.** That window gets the group's stored
   cursors; if the group has none, because the selected window showed another buffer when
   it was made, the cursors follow the text. Other windows follow the text.
@@ -114,7 +119,8 @@ completion and recovery offers arrive outside commands. Drawing it is M2-7.
 
 Since messages reach the log, they must never quote buffer text
 ([ADR 0028](0028-secrets-handling.md)). `Replacement` and the undo types have no `Debug`,
-and the `Debug` of `Rope` now shows only its length, so `{:?}` does not put text in a log.
+and the `Debug` of `Rope` now shows only its length. Types that hand out text for drawing,
+such as `DisplayCluster` and `CellRun`, still print it, so no log line may format them.
 
 `oso-core` now depends on `log`, with the author's approval. It was already in the build
 for `oso` and `oso-render`, so no crate is added.
