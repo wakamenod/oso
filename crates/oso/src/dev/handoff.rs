@@ -6,15 +6,20 @@
 //!
 //! The state holds paths and positions and never any text, so a secret file's
 //! content cannot leave through it (ADR 0044), and a response line is enough
-//! to carry it (ADR 0032). The new instance reads each file from disk. Nothing
-//! unsaved exists until M2, when text may join the format for buffers that are
-//! not secret. A path-less buffer with text cannot occur before then either,
-//! so exporting one is an error rather than a silent loss.
+//! to carry it (ADR 0032). The new instance reads each file from disk, so a
+//! buffer with text no file holds cannot be handed over. Exporting one is an
+//! error that names it and quotes nothing, and the old instance stays
+//! (ADR 0051, ADR 0055). Carrying the text is M2-15.
+//!
+//! A generation names the text an instance holds, so that it can refuse to exit
+//! if that has changed since a caller last looked. See [`generation`].
 //!
 //! Parsing changes nothing, so a state with another version or a bad field
 //! leaves the new instance clean, and the old one is kept.
 
 use std::collections::HashSet;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use oso_core::buffer::{Buffer, BufferId};
@@ -27,7 +32,7 @@ use oso_core::sum_tree::Bias;
 use oso_core::window::Scroll;
 use serde_json::{Map, Value, json};
 
-use super::protocol::{MAX_LINE, Reply};
+use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
 use super::state::goal_state;
 
 /// The version of the state format. Bump it on any change that the previous
@@ -89,6 +94,7 @@ pub fn export(
         .collect();
     let state = json!({
         "version": STATE_VERSION,
+        "generation": generation(editor),
         "buffers": buffers,
         "windows": windows,
         "selected": editor.selected_window(),
@@ -110,22 +116,86 @@ pub fn export(
 }
 
 fn buffer_state(id: BufferId, buffer: &Buffer) -> Result<Value, String> {
-    let path = match buffer.path() {
-        Some(path) => Some(path.to_str().ok_or_else(|| {
+    Ok(json!({ "id": id.get(), "path": file_to_read_again(buffer)? }))
+}
+
+/// The path a new instance reads `buffer` from, or `None` for an empty
+/// `*scratch*`, which needs nothing. An error, naming the buffer and quoting
+/// none of its text, if the new instance would not end up with the same text.
+fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
+    match buffer.path() {
+        Some(_) if buffer.is_modified() => Err(format!(
+            "cannot hand over {}: it has unsaved edits",
+            buffer.name()
+        )),
+        Some(path) => path.to_str().map(Some).ok_or_else(|| {
             format!(
                 "cannot hand over a path that is not UTF-8: {}",
                 path.display()
             )
-        })?),
-        None if buffer.text().is_empty() && buffer.name() == SCRATCH => None,
-        None => {
-            return Err(format!(
-                "cannot hand over {}: it has no file to read again",
-                buffer.name()
-            ));
-        }
-    };
-    Ok(json!({ "id": id.get(), "path": path }))
+        }),
+        None if buffer.text().is_empty() && buffer.name() == SCRATCH => Ok(None),
+        None => Err(format!(
+            "cannot hand over {}: it has no file to read again",
+            buffer.name()
+        )),
+    }
+}
+
+/// The result of `check-handover`: the instance's generation, or why its text
+/// would not survive a restart. This is what `export` would refuse, without
+/// building a state, so that the supervisor can ask before it opens a new window.
+pub fn check(editor: &Editor) -> Reply {
+    for (_, buffer) in editor.buffers() {
+        file_to_read_again(buffer)?;
+    }
+    Ok(json!({ "generation": generation(editor) }))
+}
+
+/// Names what an instance holds that a file does not: which buffers exist, and
+/// the content of each modified one. It says nothing about the text itself, and
+/// is meaningful only to the instance that made it.
+///
+/// A buffer that is not modified counts only by its id, since each piece of a
+/// load gets a new content id and a large file may still be arriving. So a save
+/// does not change the generation either: that text is on the disk.
+pub fn generation(editor: &Editor) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for (id, buffer) in editor.buffers() {
+        id.hash(&mut hasher);
+        buffer
+            .is_modified()
+            .then(|| buffer.content_id())
+            .hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// Whether `exit` may go ahead. Without a generation it always may: that is a
+/// person or an agent saying so. With one, only if nothing has changed since.
+pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String> {
+    match expected {
+        Some(expected) if expected != generation(editor) => Err(format!(
+            "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Whether this instance may take over from another. It may only if it has
+/// opened nothing and has no edits in its `*scratch*`, which the imported
+/// buffers would hide.
+pub fn import_allowed(editor: &Editor) -> Result<(), String> {
+    let (_, scratch) = editor.current();
+    if editor.buffers().count() > 1 || scratch.name() != SCRATCH {
+        return Err("this instance has already opened something".into());
+    }
+    if scratch.is_modified() {
+        return Err(format!(
+            "this instance has unsaved edits in {SCRATCH}, which the import would hide"
+        ));
+    }
+    Ok(())
 }
 
 /// A parsed state.

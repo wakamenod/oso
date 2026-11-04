@@ -214,6 +214,7 @@ the keyboard and mouse alone while it runs: real input reaches its windows too.
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
 | secret files | path judgment to every way out: `get-state`, `get-text`, `screenshot`, `export-state` and the log, also through a symlink, and `show-buffer` allows them again |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
+| unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
@@ -261,6 +262,11 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
 - `export-state` and `import-state` hand the state to a new instance, and `exit`
   stops one. `just dev` (`oso dev`) drives them on each source change
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+- `check-handover` reports the generation, or why a restart would lose text, and
+  `exit` with a `generation` exits only if that is still current. Without one, `exit`
+  goes whatever the buffers hold, which is what flows and agents want
+  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
+- `insert-text` inserts text at the primary cursor, until typing arrives in M2-4.
 - `oso [FILE]` and `open-file` open a file, so test files (generated in a scratch
   directory, never committed) can be driven this way.
 - `take-timings` reads key latency, startup and load times for benchmarks.

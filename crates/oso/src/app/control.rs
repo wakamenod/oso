@@ -5,9 +5,9 @@
 //! Plain functions of the editor state do not belong here either; this holds
 //! what needs the window, the loads or the dispatcher.
 
+use std::path::PathBuf;
 use std::time::Instant;
 
-use oso_core::editor::SCRATCH;
 use serde_json::json;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
@@ -35,17 +35,7 @@ impl App {
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }
-            dev::UiOp::OpenFile(path) => {
-                let visited = self.visit(path);
-                let result = visited
-                    .map(|buffer| {
-                        self.editor.show(buffer);
-                        json!({ "opened": true })
-                    })
-                    .ok_or_else(|| "cannot start loading; see the log".to_owned());
-                self.request_redraw();
-                result
-            }
+            dev::UiOp::OpenFile(path) => self.open_file(path),
             dev::UiOp::TakeTimings => Ok(self.take_timings()),
             dev::UiOp::GetState => {
                 let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
@@ -88,13 +78,36 @@ impl App {
                 self.frame(),
                 self.restore.as_ref(),
             ),
+            dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::ImportState(state) => self.import_state(*state),
-            dev::UiOp::Exit => {
-                event_loop.exit();
-                Ok(json!({ "exiting": true }))
+            dev::UiOp::InsertText(text) => {
+                let result = dev::insert_text(&mut self.editor, &text);
+                self.request_redraw();
+                result
+            }
+            // Checked here on the UI thread, so that no edit can come between
+            // the check and the event loop's end.
+            dev::UiOp::Exit { generation } => {
+                handoff::exit_allowed(&self.editor, generation).map(|()| {
+                    event_loop.exit();
+                    json!({ "exiting": true })
+                })
             }
         };
         let _ = reply.send(result);
+    }
+
+    /// The result of `open-file`: visits a file in the selected window.
+    fn open_file(&mut self, path: PathBuf) -> dev::Reply {
+        let visited = self.visit(path);
+        let result = visited
+            .map(|buffer| {
+                self.editor.show(buffer);
+                json!({ "opened": true })
+            })
+            .ok_or_else(|| "cannot start loading; see the log".to_owned());
+        self.request_redraw();
+        result
     }
 
     /// The result of `take-timings`: the samples, and the GPU they ran on.
@@ -152,11 +165,10 @@ impl App {
     /// Takes over from the instance that exported `state`: opens its files
     /// again, each judged anew, and moves the window. A reply means every file
     /// has begun to load, which is what lets the old instance exit. Refused
-    /// without changing anything if this instance has opened something already.
+    /// without changing anything if this instance has opened something already
+    /// or has been edited.
     fn import_state(&mut self, state: handoff::State) -> dev::Reply {
-        if self.editor.buffers().count() > 1 || self.editor.current().1.name() != SCRATCH {
-            return Err("this instance has already opened something".into());
-        }
+        handoff::import_allowed(&self.editor)?;
         let scratch = self.editor.window().buffer();
         let mut shown = scratch;
         for (index, path) in state.buffers.into_iter().enumerate() {

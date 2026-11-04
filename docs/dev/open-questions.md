@@ -61,6 +61,10 @@ item notes when it must be settled.
 
 ## M2
 
+- By M2-15: the generation that guards `exit` does not change on a save between the
+  export and the exit ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). That
+  text is on the disk today. Decide whether this still holds once the state carries
+  text, since the new instance would then show an unsaved copy of what was just saved.
 - Motion functions take display rows (`motion::line_start(display, row)`),
   which are buffer lines while there is no soft wrap. When the WrapMap
   lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines

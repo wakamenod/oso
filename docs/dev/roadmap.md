@@ -131,10 +131,12 @@ throughout.
     rows below it.
 - **M2-2** (after M2-1): `oso dev` holds a restart while a buffer is modified, and
   never closes or kills an instance that has been edited
-  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md),
+  [ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - **M2-4** (after M2-0 to M2-3): typing: self-insert, `RET`, `DEL`, `C-d`, `TAB`,
-  `C-z`/`C-M-z`, and a typing metric in the benchmarks. A throwaway branch that
-  logs IME events runs alongside it, and its findings go to M2-12.
+  `C-z`/`C-M-z`, and a typing metric in the benchmarks. It removes the dev method
+  `insert-text`, whose flow moves to `send-keys`. A throwaway branch that logs IME
+  events runs alongside it, and its findings go to M2-12.
 
 **The screen, and keeping work safe.**
 

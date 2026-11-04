@@ -44,6 +44,11 @@ const MAX_COMMAND_NAME: usize = 256;
 /// plays the part of [`MAX_KEYS`].
 const MAX_COMMAND_ARG: isize = 10_000;
 
+/// How the message of an `exit` refused for its generation starts, which tells
+/// a refusal, after which the instance surely runs on, from a request that went
+/// unanswered, after which it may yet exit.
+pub const EXIT_REFUSED: &str = "exit refused";
+
 /// The UI's answer to a request: a JSON result or an error message.
 pub type Reply = Result<Value, String>;
 
@@ -71,12 +76,17 @@ pub enum UiOp {
     RunCommand { name: String, arg: Option<isize> },
     /// Show a buffer in the selected window.
     ShowBuffer(u64),
+    /// Report the generation, or why this instance's text would not survive a
+    /// restart.
+    CheckHandover,
     /// Report what a new instance needs to take over.
     ExportState,
     /// Take over from the instance that exported this state.
     ImportState(Box<State>),
-    /// Exit, without asking.
-    Exit,
+    /// Insert text at the primary cursor, until typing exists (M2-4).
+    InsertText(String),
+    /// Exit: without asking, or only if the generation is still this one.
+    Exit { generation: Option<u64> },
     /// Performance samples for benchmarks (ADR 0025).
     TakeTimings,
     /// Visits a file in the selected window, as `oso FILE` does at startup,
@@ -154,6 +164,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
             rows: parse_size(params, "get-text", "rows").map_err(|m| bad(&id, m))?,
         },
         "show-buffer" => UiOp::ShowBuffer(parse_buffer(params).map_err(|m| bad(&id, m))?),
+        "check-handover" => UiOp::CheckHandover,
         "export-state" => UiOp::ExportState,
         "import-state" => {
             let state = params
@@ -161,7 +172,10 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                 .ok_or_else(|| bad(&id, "import-state needs a parameter \"state\"".into()))?;
             UiOp::ImportState(Box::new(handoff::parse(state).map_err(|m| bad(&id, m))?))
         }
-        "exit" => UiOp::Exit,
+        "insert-text" => UiOp::InsertText(parse_text(params).map_err(|m| bad(&id, m))?),
+        "exit" => UiOp::Exit {
+            generation: parse_generation(params).map_err(|m| bad(&id, m))?,
+        },
         other => {
             let mut shown: String = other.chars().take(MAX_ECHO).collect();
             if shown.len() < other.len() {
@@ -205,6 +219,28 @@ fn parse_path(params: &Map<String, Value>) -> Result<PathBuf, String> {
         Some(Value::String(path)) if !path.is_empty() => Ok(PathBuf::from(path)),
         _ => Err("open-file needs a string parameter \"path\"".into()),
     }
+}
+
+/// The `text` parameter of `insert-text`. The line limit bounds it.
+fn parse_text(params: &Map<String, Value>) -> Result<String, String> {
+    match params.get("text") {
+        Some(Value::String(text)) => Ok(text.clone()),
+        _ => Err("insert-text needs a string parameter \"text\"".into()),
+    }
+}
+
+/// The optional `generation` parameter of `exit`. Anything but a number is an
+/// error, null included, so that a caller who lost track of its generation
+/// never gets the unconditional exit by accident.
+fn parse_generation(params: &Map<String, Value>) -> Result<Option<u64>, String> {
+    params
+        .get("generation")
+        .map(|generation| {
+            generation
+                .as_u64()
+                .ok_or_else(|| "exit's \"generation\" must be a non-negative integer".to_owned())
+        })
+        .transpose()
 }
 
 /// The parameters of `run-command`: a string `name` and an optional
@@ -555,9 +591,41 @@ mod tests {
                 .contains("version")
         );
         assert_eq!(
-            parsed(r#"{"method": "exit"}"#).method,
-            Method::Ui(UiOp::Exit)
+            parsed(r#"{"method": "check-handover"}"#).method,
+            Method::Ui(UiOp::CheckHandover)
         );
+    }
+
+    #[test]
+    fn exit_is_unconditional_only_without_a_generation() {
+        assert_eq!(
+            parsed(r#"{"method": "exit"}"#).method,
+            Method::Ui(UiOp::Exit { generation: None })
+        );
+        let line = request(1, "exit", Some(json!({ "generation": u64::MAX })));
+        assert_eq!(
+            parsed(&line).method,
+            Method::Ui(UiOp::Exit {
+                generation: Some(u64::MAX)
+            })
+        );
+        // A caller that lost its generation must not end up exiting anyway.
+        for bad in [json!(null), json!("1"), json!(-1), json!(1.5)] {
+            let line = request(1, "exit", Some(json!({ "generation": bad })));
+            assert!(error(&line).1.contains("generation"), "{line}");
+        }
+    }
+
+    #[test]
+    fn insert_text_needs_text() {
+        assert_eq!(
+            parsed(r#"{"method": "insert-text", "params": {"text": "a"}}"#).method,
+            Method::Ui(UiOp::InsertText("a".into()))
+        );
+        for params in [r#"{}"#, r#"{"text": 1}"#] {
+            let line = format!(r#"{{"method": "insert-text", "params": {params}}}"#);
+            assert!(error(&line).1.contains("\"text\""), "{params}");
+        }
     }
 
     #[test]

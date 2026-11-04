@@ -3,11 +3,13 @@
 //! Must not depend on: a window or the file system; a state is a plain value.
 
 use super::{
-    Frame, MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS, Restore, STATE_VERSION, export, parse,
+    Frame, MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS, Restore, STATE_VERSION, check,
+    exit_allowed, export, generation, import_allowed, parse,
 };
-use oso_core::buffer::Buffer;
+use crate::dev::protocol::EXIT_REFUSED;
+use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::TabWidth;
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, SCRATCH};
 use oso_core::key::KeySequence;
 use oso_core::load::decode_all;
 use oso_core::selection::{Goal, Selection, SelectionSet};
@@ -34,6 +36,19 @@ fn visiting(path: &str, content: &str) -> Editor {
     editor.show(id);
     editor.set_view_size(ViewSize::new(5, 20));
     editor
+}
+
+/// Text the tests type, which no message may quote.
+const TYPED: &str = "TYPED-TEXT";
+
+/// Types into the selected window's buffer, as M2-4 will.
+fn type_text(editor: &mut Editor) {
+    let id = editor.window().buffer();
+    let edit = Replacement {
+        range: 0..0,
+        text: TYPED,
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
 }
 
 /// A change that spoils a state.
@@ -124,6 +139,164 @@ fn text_with_no_file_is_refused_not_lost() {
     let message = export(&editor, &[], None, None).unwrap_err();
     assert!(message.contains("notes"), "{message}");
     assert!(!message.contains("unsaved"), "{message}");
+}
+
+#[test]
+fn a_modified_file_is_refused_by_name_without_its_text() {
+    let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
+    type_text(&mut editor);
+    for message in [
+        export(&editor, &[], None, None).unwrap_err(),
+        check(&editor).unwrap_err(),
+    ] {
+        assert!(message.contains("notes.txt"), "{message}");
+        assert!(message.contains("unsaved"), "{message}");
+        assert!(!message.contains(TYPED), "{message}");
+        assert!(!message.contains("on disk"), "{message}");
+    }
+}
+
+#[test]
+fn a_modified_secret_file_is_refused_the_same_way() {
+    let mut editor = visiting(&absolute("/p/.env"), "SECRET-VALUE\n");
+    assert!(editor.current().1.is_secret());
+    type_text(&mut editor);
+    for message in [
+        export(&editor, &[], None, None).unwrap_err(),
+        check(&editor).unwrap_err(),
+    ] {
+        assert!(message.contains(".env"), "{message}");
+        assert!(!message.contains("SECRET-VALUE"), "{message}");
+        assert!(!message.contains(TYPED), "{message}");
+    }
+}
+
+#[test]
+fn text_in_scratch_is_refused_and_an_empty_scratch_is_not() {
+    let mut editor = Editor::default();
+    assert!(export(&editor, &[], None, None).is_ok());
+    assert!(check(&editor).is_ok());
+    type_text(&mut editor);
+    assert!(check(&editor).unwrap_err().contains(SCRATCH));
+    assert!(export(&editor, &[], None, None).is_err());
+    // Emptied again, it holds nothing, and undo history is not carried.
+    let id = editor.window().buffer();
+    let all = Replacement {
+        range: 0..TYPED.len(),
+        text: "",
+    };
+    editor.apply_edits(id, &[all]).unwrap();
+    assert!(editor.current().1.is_modified());
+    assert!(check(&editor).is_ok());
+    assert!(export(&editor, &[], None, None).is_ok());
+}
+
+#[test]
+fn saving_or_undoing_lets_a_restart_through() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    type_text(&mut editor);
+    assert!(check(&editor).is_err());
+    editor.undo().unwrap();
+    assert!(check(&editor).is_ok());
+    editor.redo().unwrap();
+    assert!(check(&editor).is_err());
+    let (_, buffer) = editor.current();
+    let content = buffer.content_id();
+    let id = editor.window().buffer();
+    editor.buffer_mut(id).unwrap().mark_saved(content);
+    assert!(check(&editor).is_ok());
+    assert!(export(&editor, &[], None, None).is_ok());
+}
+
+#[test]
+fn export_and_check_report_the_same_generation() {
+    let editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let exported = export(&editor, &[], None, None).unwrap();
+    assert_eq!(exported["generation"], generation(&editor));
+    assert_eq!(check(&editor).unwrap()["generation"], generation(&editor));
+    assert_eq!(exported["version"], 1, "the format stays version 1");
+    assert!(parse(&exported).is_ok(), "a reader takes it as before");
+}
+
+#[test]
+fn any_edit_changes_the_generation_and_undoing_it_restores_it() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let before = generation(&editor);
+    assert_eq!(generation(&editor), before, "it does not move by itself");
+    type_text(&mut editor);
+    let edited = generation(&editor);
+    assert_ne!(edited, before);
+    type_text(&mut editor);
+    assert_ne!(generation(&editor), edited, "a second edit counts too");
+    editor.undo().unwrap();
+    assert_eq!(generation(&editor), edited);
+    editor.undo().unwrap();
+    assert_eq!(generation(&editor), before);
+}
+
+#[test]
+fn a_new_buffer_or_a_change_to_another_buffer_changes_the_generation() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let before = generation(&editor);
+    let (scratch, _) = editor.buffers().next().unwrap();
+    editor.show(scratch);
+    assert_eq!(
+        generation(&editor),
+        before,
+        "showing another changes nothing"
+    );
+    type_text(&mut editor);
+    assert_ne!(generation(&editor), before, "not the buffer that was shown");
+
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let before = generation(&editor);
+    editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/b.txt"))));
+    assert_ne!(generation(&editor), before);
+}
+
+#[test]
+fn a_file_still_loading_does_not_change_the_generation() {
+    let mut editor = Editor::default();
+    let id = editor.add_buffer(Buffer::visiting(PathBuf::from("/p/a.txt")));
+    let before = generation(&editor);
+    let buffer = editor.buffer_mut(id).unwrap();
+    buffer.apply_load(decode_all(b"abc\n", TabWidth::default()));
+    assert_eq!(generation(&editor), before);
+}
+
+#[test]
+fn exit_needs_the_generation_if_it_is_given_one() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let exported = generation(&editor);
+    assert_eq!(exit_allowed(&editor, Some(exported)), Ok(()));
+    assert_eq!(exit_allowed(&editor, None), Ok(()));
+    type_text(&mut editor);
+    let message = exit_allowed(&editor, Some(exported)).unwrap_err();
+    assert!(message.starts_with(EXIT_REFUSED), "{message}");
+    assert!(!message.contains(TYPED), "{message}");
+    assert_eq!(
+        exit_allowed(&editor, None),
+        Ok(()),
+        "someone who asks for it without one gets it, unsaved text or not"
+    );
+    assert_eq!(exit_allowed(&editor, Some(generation(&editor))), Ok(()));
+}
+
+#[test]
+fn an_import_needs_an_untouched_scratch() {
+    let mut editor = Editor::default();
+    assert_eq!(import_allowed(&editor), Ok(()));
+    type_text(&mut editor);
+    let message = import_allowed(&editor).unwrap_err();
+    assert!(message.contains(SCRATCH), "{message}");
+    assert!(!message.contains(TYPED), "{message}");
+    // Back where it started, it holds nothing to hide.
+    editor.undo().unwrap();
+    assert_eq!(import_allowed(&editor), Ok(()));
+
+    let editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let message = import_allowed(&editor).unwrap_err();
+    assert!(message.contains("opened"), "{message}");
 }
 
 #[cfg(unix)]
