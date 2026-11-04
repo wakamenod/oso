@@ -104,16 +104,15 @@ ci: check lint fmt-check test
 # Time the whole test run, built beforehand, and warn past the limit (ADR 0037, ADR 0050)
 test-time limit=test_budget_s:
     #!/usr/bin/env bash
-    # Failing tests fail this. Being slow only warns.
+    # Failing tests fail this. Being slow only warns. The first run is there to
+    # build, so that the number leaves out compiling.
     set -euo pipefail
-    export INSTA_UPDATE=no INSTA_FORCE_PASS=0
-    cargo test --locked -q --workspace --no-run
-    cargo test --locked -q --workspace --all-features --no-run
+    {{just_executable()}} test >/dev/null 2>&1 || true
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     # `time` is bash's keyword: macOS's date has no fractions of a second.
     TIMEFORMAT=%R
-    if ! { time { cargo test --locked --workspace && cargo test --locked --workspace --all-features; } >"$tmp/log" 2>&1; } 2>"$tmp/time"; then
+    if ! { time {{just_executable()}} test >"$tmp/log" 2>&1; } 2>"$tmp/time"; then
         cat "$tmp/log"
         exit 1
     fi
@@ -212,7 +211,8 @@ mutants *args:
 mutants-exclusions:
     #!/usr/bin/env bash
     set -euo pipefail
-    mutants=$(cargo mutants --list --package oso-core --no-config)
+    mutants=$(cargo mutants --list --package oso-core --no-config) \
+        || { echo "cargo mutants --list failed, so the entries were not checked"; exit 1; }
     fail=0
     while IFS= read -r pattern; do
         count=$(grep -Ec -- "$pattern" <<<"$mutants" || true)
@@ -387,14 +387,17 @@ health-report out="target/design-health.md":
             count() { if [ -f "mutants.out/$1.txt" ]; then wc -l <"mutants.out/$1.txt" | tr -d ' '; else echo 0; fi; }
             echo "Missed $(count missed), caught $(count caught), timed out $(count timeout), unviable $(count unviable)."
             echo
-            head -n {{mutants_listed}} mutants.out/missed.txt | sed 's/.*/- `&`/'
+            # The lists are data from another job, so nothing in them may leave
+            # its code span. Rust signatures hold no backticks.
+            span() { tr -d '`' | cut -c1-300 | sed 's/.*/- `&`/'; }
+            head -n {{mutants_listed}} mutants.out/missed.txt | span
             more=$(($(count missed) - {{mutants_listed}}))
             if [ "$more" -gt 0 ]; then echo; echo "And $more more, in the run's artifact."; fi
             if [ -s mutants.out/exclusions.txt ]; then
                 echo
-                echo "Stale entries in \`.cargo/mutants.toml\`:"
+                echo "Problems with the entries in \`.cargo/mutants.toml\`:"
                 echo
-                sed 's/^/- /' mutants.out/exclusions.txt
+                head -n 20 mutants.out/exclusions.txt | span
             fi
         else
             echo "Not collected: no weekly mutation run with results (\`mutants.yml\`, ADR 0050)."

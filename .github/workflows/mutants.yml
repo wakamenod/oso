@@ -39,7 +39,7 @@ jobs:
       - name: Check the exclusions
         run: |
           if ! just mutants-exclusions >mutants.out/exclusions.txt; then
-            echo "::warning::stale entries in .cargo/mutants.toml: $(tr '\n' ' ' <mutants.out/exclusions.txt)"
+            echo "::warning::.cargo/mutants.toml: $(tr '\n' ' ' <mutants.out/exclusions.txt)"
           fi
       - name: Summarize
         if: ${{ !cancelled() }}

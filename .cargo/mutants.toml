@@ -1,8 +1,10 @@
 # cargo-mutants configuration (ADR 0050). `just mutants` runs it.
 #
-# Every entry in exclude_re needs a reason. Only mutants that cannot change what
-# the code does belong here. Anything else gets a test, or stays in the weekly
-# report until it does.
+# Every entry in exclude_re needs a reason. A mutant belongs here if no input can
+# change any result. If it changes only speed, it belongs here when the cost stays
+# within a chunk or a constant. It stays in the weekly report if a test could pin
+# it, such as a chunk count. Code that an entry would prove removable is removed
+# instead. Anything else gets a test, or stays in the weekly report until it does.
 #
 # A pattern starts with the mutation's column, so a new `<` elsewhere in the
 # function is still tested, and an edit above it does not undo the entry. It
@@ -13,8 +15,13 @@
 # As everywhere in CI: a run must not change the lockfile.
 additional_cargo_args = ["--locked"]
 
+# A hang ends here. Twice the slowest test run seen on a busy runner (ADR 0050),
+# so a mutant that is only slow still gets its verdict.
+minimum_test_timeout = 30
+
 exclude_re = [
-    # The one broad entry, on purpose: any Debug impl, today's and later ones.
+    # The one broad entry, and the first exception, on purpose: any Debug impl,
+    # today's and later ones.
     # Debug output is for people reading logs. No behavior depends on it, and
     # pinning its format would only make it harder to change. This is not
     # strictly an equivalent mutant.
@@ -24,10 +31,6 @@ exclude_re = [
     # contract, so any row from the last on gives the same answer.
     ":[0-9]+:36: replace - with \\+ in buffer_end",
     ":[0-9]+:36: replace - with / in buffer_end",
-    # line_start past the last row is also the end of the buffer, which is what
-    # the else branch returns. row * 1 and row + 1 <= row_count are always true.
-    ":[0-9]+:12: replace \\+ with \\* in line_after_fraction",
-    ":[0-9]+:16: replace < with <= in line_after_fraction",
     # n == 0 cannot be above the first row: the other half is row < 0.
     ":[0-9]+:10: replace < with <= in move_lines",
     # n == 0 takes no step, so which way it would step does not matter.
@@ -46,11 +49,7 @@ exclude_re = [
     # Scrolling by 0 rows stays at top in both branches: bottom is at least top.
     ":[0-9]+:13: replace < with <= in wheel",
 
-    # decode.rs. The carry is never a whole BOM in Decoder::finish. Before the
-    # decision it is shorter than one, and after it holds an incomplete
-    # sequence. So deciding there only sets a flag that nothing reads again.
-    ":[0-9]+:12: delete ! in Decoder::finish",
-    # At fed == BINARY_SNIFF_BYTES the sniffed slice is empty.
+    # decode.rs. At fed == BINARY_SNIFF_BYTES the sniffed slice is empty.
     ":[0-9]+:21: replace < with <= in Decoder::inspect",
     # The offset is shifted past the byte's 8 bits, so | and ^ are the same.
     ":[0-9]+:73: replace \\| with \\^ in InvalidBytes::extend",
@@ -65,7 +64,7 @@ exclude_re = [
     ":[0-9]+:23: replace < with <= in <impl Iterator for Clusters<'a>>::next",
 
     # display_map/tab_map.rs. A shortcut to the target row in the chunk: the
-    # loop below walks to the same row and column, only more slowly.
+    # loop below walks to the same row and column, at most a chunk more slowly.
     ":[0-9]+:23: replace > with < in TabMap::locate",
 
     # rope.rs. A GraphemeCursor at offset 0 or at the end of its text starts in
@@ -73,7 +72,9 @@ exclude_re = [
     # building one.
     ":[0-9]+:20: replace \\|\\| with && in is_grapheme_boundary",
 
-    # sum_tree.rs. MIN_CHILDREN is 2 in tests, where 2 * 2 is 2 + 2. In a release
-    # build it is a different but valid branching factor, so only speed differs.
+    # sum_tree.rs. The second exception, and not equivalent: MIN_CHILDREN is 2 in
+    # tests, where 2 * 2 is 2 + 2, so no test can see this. In a release build the
+    # most children would be 10, not 16, against MIN_CHILDREN's documented floor,
+    # but nothing reads MIN_CHILDREN outside tests, so only speed differs.
     "sum_tree.rs:[0-9]+:31: replace \\* with \\+",
 ]

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Downloads the lists of the newest finished run of mutants.yml on main into
+# Downloads the lists of the newest successful run of mutants.yml on main into
 # directory $1, for the design health report (ADR 0050), and describes the run
 # in $1/run.md. Only scheduled and dispatched runs on main in this repository
 # count, so no pull request or fork can plant a result. Finding none is not an

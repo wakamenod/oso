@@ -45,7 +45,8 @@ jobs:
         with:
           tool: just@1.52.0
           fallback: none
-      # The token reaches this step alone, not the build below.
+      # The token is in this step's environment alone, not the build's. The
+      # job's permissions are the real limit, so they stay read-only.
       - name: Fetch the mutation results
         env:
           GH_TOKEN: ${{ github.token }}
