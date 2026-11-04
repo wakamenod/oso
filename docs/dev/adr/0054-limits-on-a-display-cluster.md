@@ -1,6 +1,6 @@
 # 0054. Limits on a display cluster
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-05
 
 ## Context
@@ -8,8 +8,8 @@
 A display cluster could hold a whole rope chunk, about 1 KB, in one cell
 ([ADR 0035](0035-sumtree-rope-and-cell-grid.md)), and the renderer shaped at most
 16 of its characters ([ADR 0040](0040-buffers-loading-motion-and-scrolling.md)).
-The columns of a row bounded how many clusters it reads, not how many bytes. Since
-shaped rows are compared by content ([ADR 0051](0051-m2-plan-decisions.md)), every
+The columns of a row bounded how many clusters it reads, not how much text each
+of them holds. Since shaped rows are compared by content ([ADR 0051](0051-m2-plan-decisions.md)), every
 visible row is read after each change to the buffer, so the length of a cluster
 counts on the typing path.
 
@@ -52,7 +52,10 @@ These ADRs stay as they are; this one changes the following:
 
 ## Consequences
 
-- A row reads a bounded number of bytes per column.
+- The columns of a row bound how many clusters it reads, and each holds a limited
+  number of characters. Finding where a cluster ends still reads its grapheme
+  cluster, at most one chunk, and what it reads is not read again for the clusters
+  that follow in it.
 - Characters past a limit are shown as code points and can be reached by the
   cursor, and their row is wider.
 - What real text shows does not change. Tests keep whole: decomposed Vietnamese,
@@ -60,7 +63,7 @@ These ADRs stay as they are; this one changes the following:
   sequence of 10 characters and 6 marks, and a tag flag (6 marks).
 - Rare text can go past a limit, such as stacks written to test fonts.
 - Reading a screen of real text costs about the same: up to 4% more on ASCII and 3%
-  on Hindi, up to about 13 µs, and no change beyond noise on Japanese and emoji. A
+  on Japanese, up to about 8 µs, and no change beyond noise on Hindi and emoji. A
   cursor step costs up to about 0.2 µs more.
 - `CellKind` has a new variant, which is visible in the API snapshot.
 

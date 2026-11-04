@@ -18,10 +18,10 @@
 //!   out of the cluster it would extend, except where it is part of an emoji
 //!   or a script (see `is_hidden_extend`), so `a` followed by tag
 //!   characters or a ZWNJ shows every hidden code point.
-//! - A display cluster holds at most [`MAX_CLUSTER_MARKS`] marks after its
-//!   first character and [`MAX_CLUSTER_CHARS`] characters. Each character past
-//!   that, to the end of the grapheme cluster, is shown as its code point in a
-//!   box (`U+0301`).
+//! - A display cluster holds at most `MAX_CLUSTER_MARKS` marks after its first
+//!   character and `MAX_CLUSTER_CHARS` characters. Each character past that, to
+//!   the end of the grapheme cluster, is shown as its code point in a box
+//!   (`U+0301`), but ASCII, which stays text. A new chunk starts the limits over.
 //! - An invalid byte of the file, held as U+FFFD with its value in
 //!   [`InvalidBytes`], is shown as `\xNN` in 4 cells (ADR 0040).
 //! - A tab advances to the next tab stop. `\n` and `\r\n` end the row and
@@ -55,7 +55,9 @@ pub enum CellKind {
     /// box.
     Invisible(char),
     /// A character past a display cluster's limits, drawn as its code point
-    /// in a box.
+    /// in a box. ASCII past them stays [`CellKind::Text`], and invisible
+    /// characters stay [`CellKind::Invisible`]. The limits start over at the next
+    /// grapheme cluster and at a new chunk.
     PastLimit(char),
     /// An invalid byte of the file, drawn as `\xNN`. Its
     /// text in the buffer is U+FFFD.
@@ -172,9 +174,7 @@ pub(crate) struct FirstCluster {
 /// are too short to reach the limit on marks, so the marks are only looked at in
 /// a piece long enough to hold too many.
 fn limit_in(piece: &str) -> Option<usize> {
-    if piece.len() <= MAX_CLUSTER_MARKS + 1 || piece.chars().count() <= MAX_CLUSTER_MARKS + 1 {
-        return None;
-    }
+    piece.chars().nth(MAX_CLUSTER_MARKS + 1)?;
     let mut marks = 0;
     for (held, (index, c)) in (0..).zip(piece.char_indices()).skip(1) {
         marks += usize::from(is_mark(c));
@@ -535,6 +535,11 @@ impl<'a> Iterator for Clusters<'a> {
         } else if byte.is_ascii() && next.is_none_or(|next| next.is_ascii()) {
             let (kind, cells) = classify_ascii(byte);
             (start + 1, kind, cells)
+        } else if start < self.past_limit_until
+            && let Some(c) = text[start..].chars().next()
+        {
+            let (kind, cells) = classify_past_limit(c);
+            (start + c.len_utf8(), kind, cells)
         } else {
             let mut cluster_end = self.cluster_end(start);
             // An invalid byte's U+FFFD is never part of a larger cluster.
@@ -544,21 +549,14 @@ impl<'a> Iterator for Clusters<'a> {
             {
                 cluster_end = at;
             }
-            if start < self.past_limit_until
-                && let Some(c) = text[start..].chars().next()
-            {
-                let (kind, cells) = classify_past_limit(c);
-                (start + c.len_utf8(), kind, cells)
-            } else {
-                let first = first_display_cluster(&text[start..cluster_end]);
-                if first.at_limit {
-                    self.past_limit_until = self.cursor.cur_cursor();
-                    self.limit_reached_at = start;
-                }
-                let end = start + first.len;
-                let (kind, cells) = classify(&text[start..end]);
-                (end, kind, cells)
+            let first = first_display_cluster(&text[start..cluster_end]);
+            if first.at_limit {
+                self.past_limit_until = self.cursor.cur_cursor();
+                self.limit_reached_at = start;
             }
+            let end = start + first.len;
+            let (kind, cells) = classify(&text[start..end]);
+            (end, kind, cells)
         };
         self.position = end;
         Some((start, &text[start..end], kind, cells))

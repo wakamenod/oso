@@ -218,7 +218,7 @@ impl DisplaySnapshot {
         self.tab_map.max_point().into()
     }
 
-    /// The display point of a buffer offset. An offset inside a grapheme
+    /// The display point of a buffer offset. An offset inside a display
     /// cluster, including between the `\r` and `\n` of a line break, gives
     /// the point where the cluster starts. An offset past the end gives the
     /// end.

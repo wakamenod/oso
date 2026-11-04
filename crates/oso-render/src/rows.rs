@@ -326,24 +326,30 @@ mod tests {
 
     #[test]
     fn the_budget_bounds_the_characters_of_a_row() {
-        // Clusters of the longest characters, each at the display model's limit.
-        let cluster = format!("e{}", "\u{1d165}".repeat(8));
-        let buffer = Buffer::from_text("t", &cluster.repeat(512));
-        let mut rows = Rows::default();
-        let mut system = Recorder::default();
-        rows.row(&buffer.display(), 0, 0..128, &mut system);
-        let shaped = &system.shaped[0];
-        let bound = 128 * (CHARS_PER_COLUMN + 1) + 9;
-        assert!(
-            shaped.chars().count() <= bound,
-            "{}",
-            shaped.chars().count()
-        );
-        assert!(shaped.len() <= bound * 4, "{} bytes", shaped.len());
-        assert!(
-            shaped.chars().count() >= 128 * CHARS_PER_COLUMN,
-            "the budget is spent before clusters are cut"
-        );
+        // Clusters at the display model's limits: on marks, with the longest
+        // characters, and on characters.
+        for cluster in [
+            format!("e{}", "\u{1d165}".repeat(8)),
+            "\u{600}".repeat(15) + "a",
+        ] {
+            let buffer = Buffer::from_text("t", &cluster.repeat(512));
+            let mut rows = Rows::default();
+            let mut system = Recorder::default();
+            rows.row(&buffer.display(), 0, 0..128, &mut system);
+            let shaped = &system.shaped[0];
+            assert!(
+                shaped.starts_with(&cluster),
+                "the display model keeps it whole"
+            );
+            let bound = 128 * (CHARS_PER_COLUMN + 1) + cluster.chars().count();
+            let chars = shaped.chars().count();
+            assert!(chars <= bound, "{chars}");
+            assert!(shaped.len() <= bound * 4, "{} bytes", shaped.len());
+            assert!(
+                chars >= 128 * CHARS_PER_COLUMN,
+                "the budget is spent before clusters are cut: {chars}"
+            );
+        }
     }
 
     #[test]

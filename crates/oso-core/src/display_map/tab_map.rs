@@ -371,8 +371,10 @@ impl TabMap {
         cursor.seek(&offset, Bias::Right);
         let base = *cursor.start();
         let clusters = match cursor.item() {
-            // Chunks end on grapheme cluster boundaries, so the chunk is all
-            // the context a cluster needs.
+            // Chunks end on grapheme cluster boundaries, and a grapheme cluster
+            // longer than a chunk is measured piece by piece, so the chunk is
+            // all the context a cluster needs. The scan says if `offset` is past
+            // a limit.
             Some(item) => Clusters::with_invalid_from(
                 &item.text,
                 base,
