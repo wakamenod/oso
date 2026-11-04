@@ -9,7 +9,7 @@
 //!   `rows`. A 10 MB line costs what a screen of it does.
 //! - Glyphs are rasterized once, into the atlas, within a per-frame budget.
 //! - Each glyph's quad is cut to its cluster's cells and its row (see
-//!   [`Layout::quad`]), on the CPU, so this stays one instanced draw.
+//!   [`Layout::quad`], ADR 0052), on the CPU, so this stays one instanced draw.
 
 use std::ops::Range;
 
@@ -70,9 +70,6 @@ impl GlyphInstance {
         }
     }
 }
-
-/// Pixels a glyph keeps below its row: marks under a descender end there.
-const BELOW_ROW: f32 = 2.0;
 
 /// What stays of `start..start + len` inside `min..max`, along one axis: the
 /// pixels cut from its start and the pixels left, or `None` if none are.
@@ -157,7 +154,8 @@ impl Layout {
     /// A glyph paints only the cells of its cluster, and only its row. Above
     /// the row it also keeps [`CellMetrics::descent`] pixels: accents on
     /// capitals reach there, and letters can differ only there, such as `Ắ`
-    /// and `Ẳ`. Below the row it keeps [`BELOW_ROW`] pixels.
+    /// and `Ẳ`. Below the row it keeps half that, in whole pixels: marks
+    /// under a descender end there (ADR 0052).
     pub(crate) fn quad(
         &self,
         row: usize,
@@ -175,7 +173,7 @@ impl Layout {
         let y = cell_y + ascent + glyph.offset[1] - entry.top as f32;
         let right = cell_x + glyph.cells as f32 * width;
         let (cut_x, w) = clip_axis(x, entry.size[0] as f32, cell_x, right)?;
-        let bottom = cell_y + height + BELOW_ROW;
+        let bottom = cell_y + height + (descent / 2.0).round();
         let (cut_y, h) = clip_axis(y, entry.size[1] as f32, cell_y - descent, bottom)?;
         let [x, y] = [x + cut_x, y + cut_y];
         if x >= self.viewport[0] || y >= self.viewport[1] || x + w <= 0.0 || y + h <= 0.0 {
@@ -634,7 +632,7 @@ mod tests {
     }
 
     #[test]
-    fn marks_below_the_row_keep_only_two_pixels() {
+    fn marks_below_the_row_keep_half_the_descent() {
         // Row 1 ends at y 48. The bitmap starts 2 px above the baseline, at
         // y 42, and is 20 px tall.
         let q = layout()
@@ -643,6 +641,23 @@ mod tests {
         assert_eq!(q.position, [18.0, 42.0]);
         assert_eq!(q.size, [8.0, 8.0], "2 px below the row");
         assert_eq!(q.uv, [5.0, 7.0], "the top of the bitmap stays");
+    }
+
+    #[test]
+    fn the_band_below_the_row_follows_the_metrics_in_whole_pixels() {
+        let mut l = layout();
+        // As at a higher scale factor: half of 7 is rounded to 4.
+        l.metrics = CellMetrics {
+            width: 20.0,
+            height: 40.0,
+            ascent: 33.0,
+            descent: 7.0,
+        };
+        // Row 1 spans y 48..88, with its baseline at 81. The bitmap starts at
+        // y 79 and is 30 px tall, so it is kept down to y 92.
+        let q = l.quad(1, &glyph(1, 1), &bitmap(0, 2, [8, 30])).unwrap();
+        assert_eq!(q.position, [28.0, 79.0]);
+        assert_eq!(q.size, [8.0, 13.0]);
     }
 
     #[test]
@@ -687,8 +702,8 @@ mod tests {
     proptest::proptest! {
         /// Whatever a font's bitmap looks like, what is drawn is exactly the
         /// part of it in the cluster's cells and the row, with the descent
-        /// above and two pixels below, and each pixel shows the texel it
-        /// would show uncut.
+        /// above and half of it below, and each pixel shows the texel it would
+        /// show uncut.
         #[test]
         fn prop_quads_are_the_part_of_the_bitmap_in_their_cells(
             (row, column, cells) in (0usize..4, 0usize..12, 1u32..4),
@@ -704,8 +719,7 @@ mod tests {
             let bitmap = bitmap(left, top, [width, height]);
 
             // The same rectangles in integers: the bitmap, and where it may
-            // paint. The metrics of `layout` are 10 x 20 with a descent of 4,
-            // and 2 px stay below the row.
+            // paint. The metrics of `layout` are 10 x 20 with a descent of 4.
             let (cell_x, cell_y) = (8 + 10 * column as i32, 8 + 20 * row as i32);
             let x0 = cell_x + offset_x + left;
             let y0 = cell_y + 16 + offset_y - top;
