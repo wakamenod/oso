@@ -1,6 +1,6 @@
 # 0040. Buffers, file loading, cursor motion and scrolling
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-03
 
 ## Context
