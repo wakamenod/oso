@@ -1,0 +1,2 @@
+# Text-grid snapshots read the same on every OS (ADR 0045).
+*.snap text eol=lf
