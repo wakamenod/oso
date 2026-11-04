@@ -45,6 +45,11 @@ run-verbose *args:
 run-dev *args:
     RUST_LOG="wgpu=warn,oso=debug" cargo run --locked -p oso --features dev -- "$@"
 
+# Run a dev build and restart it on source changes, keeping its state (ADR 0023)
+[positional-arguments]
+dev *args:
+    RUST_LOG="wgpu=warn,oso=info" cargo run --locked -p oso --features dev -- dev "$@"
+
 # Run the release build
 [positional-arguments]
 run-release *args:
@@ -88,7 +93,7 @@ release-safety:
     # release` builds: the whole workspace, with features unified.
     set -euo pipefail
     dev_crates="serde_json miniz_oxide"
-    marker="oso-dev-control-socket"
+    markers="oso-dev-control-socket oso-dev-process-spawn"
     tree() {
         cargo tree --locked --workspace --target all -e normal,build --prefix none \
             --format '{p} [{f}]' "$@" | sort -u
@@ -117,14 +122,16 @@ release-safety:
     done
 
     dev_bin=$(oso_bin -p oso --features dev)
-    [ -f "$dev_bin" ] && grep -qaF "$marker" "$dev_bin" \
-        || { echo "error: no dev binary with the marker $marker; fix this check"; exit 1; }
     release_bin=$(oso_bin --workspace --release)
     [ -f "$release_bin" ] \
         || { echo "error: cargo reported no release binary; fix this check"; exit 1; }
-    if grep -qaF "$marker" "$release_bin"; then
-        echo "error: the release binary contains the dev marker $marker"; fail=1
-    fi
+    for marker in $markers; do
+        [ -f "$dev_bin" ] && grep -qaF "$marker" "$dev_bin" \
+            || { echo "error: no dev binary with the marker $marker; fix this check"; exit 1; }
+        if grep -qaF "$marker" "$release_bin"; then
+            echo "error: the release binary contains the dev marker $marker"; fail=1
+        fi
+    done
 
     if [ "$fail" -eq 0 ]; then echo "release safety: ok ($release_bin)"; fi
     exit "$fail"

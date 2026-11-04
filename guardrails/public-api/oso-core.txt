@@ -1002,6 +1002,7 @@ impl core::marker::Copy for oso_core::selection::Selection
 impl core::marker::StructuralPartialEq for oso_core::selection::Selection
 pub struct oso_core::selection::SelectionSet
 impl oso_core::selection::SelectionSet
+pub fn oso_core::selection::SelectionSet::from_parts(alloc::vec::Vec<oso_core::selection::Selection>, usize) -> core::option::Option<Self>
 pub fn oso_core::selection::SelectionSet::is_empty(&self) -> bool
 pub fn oso_core::selection::SelectionSet::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::selection::Selection>
 pub fn oso_core::selection::SelectionSet::len(&self) -> usize

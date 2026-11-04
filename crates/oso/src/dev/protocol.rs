@@ -67,6 +67,12 @@ pub enum UiOp {
     RunCommand { name: String, arg: Option<isize> },
     /// Show a buffer in the selected window.
     ShowBuffer(u64),
+    /// Report what a new instance needs to take over.
+    ExportState,
+    /// Take over from the instance that exported this state.
+    ImportState(Value),
+    /// Exit, without asking.
+    Exit,
 }
 
 /// A parsed request.
@@ -147,6 +153,14 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                     )
                 })?,
         ),
+        "export-state" => UiOp::ExportState,
+        "import-state" => UiOp::ImportState(
+            params
+                .get("state")
+                .cloned()
+                .ok_or_else(|| bad(&id, "import-state needs a parameter \"state\"".into()))?,
+        ),
+        "exit" => UiOp::Exit,
         other => {
             let mut shown: String = other.chars().take(MAX_ECHO).collect();
             if shown.len() < other.len() {
@@ -456,6 +470,27 @@ mod tests {
             Method::Ui(UiOp::ShowBuffer(3))
         );
         assert!(error(&line("show-buffer", "{}")).1.contains("\"buffer\""));
+    }
+
+    #[test]
+    fn parses_the_handoff_methods() {
+        assert_eq!(
+            parsed(r#"{"method": "export-state"}"#).method,
+            Method::Ui(UiOp::ExportState)
+        );
+        assert_eq!(
+            parsed(r#"{"method": "import-state", "params": {"state": {"version": 1}}}"#).method,
+            Method::Ui(UiOp::ImportState(json!({ "version": 1 })))
+        );
+        assert!(
+            error(r#"{"method": "import-state", "params": {}}"#)
+                .1
+                .contains("\"state\"")
+        );
+        assert_eq!(
+            parsed(r#"{"method": "exit"}"#).method,
+            Method::Ui(UiOp::Exit)
+        );
     }
 
     #[test]

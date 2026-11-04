@@ -23,6 +23,9 @@ use winit::keyboard::ModifiersState;
 use winit::window::{Window, WindowId};
 
 #[cfg(feature = "dev")]
+mod control;
+
+#[cfg(feature = "dev")]
 use crate::dev;
 use crate::dispatch::Dispatcher;
 use crate::loader::{self, LoadError, LoadHandle, LoadUpdate};
@@ -62,6 +65,10 @@ pub struct App {
     wheel_pixels: f64,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
+    /// Positions handed over from the previous instance, until their file has
+    /// loaded.
+    #[cfg(feature = "dev")]
+    restore: Option<dev::handoff::Restore>,
 }
 
 /// A file loading into a buffer.
@@ -88,6 +95,8 @@ impl App {
             wheel_pixels: 0.0,
             #[cfg(feature = "dev")]
             dev: None,
+            #[cfg(feature = "dev")]
+            restore: None,
         }
     }
 
@@ -101,26 +110,37 @@ impl App {
     /// shows at once, read-only, and fills in as a background thread loads
     /// it. Nothing in the file is run (security.md, T1).
     pub fn open(&mut self, path: PathBuf) {
+        if let Some(buffer) = self.visit(path) {
+            self.editor.show(buffer);
+        }
+        self.request_redraw();
+    }
+
+    /// Adds a buffer for `path` and starts loading it. `None` if the loading
+    /// thread cannot start.
+    fn visit(&mut self, path: PathBuf) -> Option<BufferId> {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
-        self.editor.show(buffer);
         let proxy = self.proxy.clone();
         let spawned = loader::spawn(buffer, path, move |buffer| {
             proxy.send_event(UserEvent::Load(buffer)).is_ok()
         });
         match spawned {
-            Ok(handle) => self.loads.push(Load {
-                handle,
-                started: Instant::now(),
-                first_screen: None,
-            }),
+            Ok(handle) => {
+                self.loads.push(Load {
+                    handle,
+                    started: Instant::now(),
+                    first_screen: None,
+                });
+                Some(buffer)
+            }
             Err(e) => {
                 log::warn!("cannot start loading: {e}");
                 self.editor.kill_buffer(buffer);
+                None
             }
         }
-        self.request_redraw();
     }
 
     /// Handles one key press from the window, through the keymaps and the
@@ -172,7 +192,7 @@ impl App {
         if let Some(resolved) = self.loads[index].handle.take_resolved() {
             buffer.judge_secret(resolved.paths());
         }
-        match update {
+        let redraw = match update {
             LoadUpdate::Snapshot(snapshot) => {
                 let old_rows = buffer.display().row_count();
                 let first = buffer.text().is_empty();
@@ -202,7 +222,10 @@ impl App {
                 self.loads.swap_remove(index);
                 shown
             }
-        }
+        };
+        #[cfg(feature = "dev")]
+        let redraw = self.restore_positions() || redraw;
+        redraw
     }
 
     /// Logs how long the first screen of each new file took, once drawn,
@@ -281,81 +304,6 @@ impl View {
         if redraw == Redraw::Needed {
             self.window.request_redraw();
         }
-    }
-}
-
-#[cfg(feature = "dev")]
-impl App {
-    /// Answers a control socket request on the UI thread.
-    fn handle_control(&mut self, event_loop: &ActiveEventLoop, request: dev::UiRequest) {
-        let dev::UiRequest { op, reply } = request;
-        let result = match op {
-            dev::UiOp::SendKeys(keys) => {
-                let count = keys.len();
-                let started = Instant::now();
-                let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
-                log::trace!("key handled in {:?}", started.elapsed());
-                self.apply(event_loop, effects);
-                Ok(serde_json::json!({ "keys": count }))
-            }
-            dev::UiOp::GetState => {
-                let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
-                Ok(dev::get_state(
-                    &self.editor,
-                    self.dispatcher.pending(),
-                    surface,
-                ))
-            }
-            dev::UiOp::GetText { start_row, rows } => {
-                // Only the check happens here; a background thread copies
-                // the text and replies.
-                match dev::get_text(&self.editor, start_row, rows) {
-                    Ok(job) => {
-                        job.spawn(reply);
-                        return;
-                    }
-                    Err(message) => Err(message),
-                }
-            }
-            dev::UiOp::RunCommand { name, arg } => {
-                let (effects, result) = self.dispatcher.run_command(&mut self.editor, &name, arg);
-                self.apply(event_loop, effects);
-                result.map(|()| serde_json::json!({ "command": name }))
-            }
-            dev::UiOp::ShowBuffer(buffer) => {
-                let result = dev::show_buffer(&mut self.editor, buffer);
-                if result.is_ok() {
-                    self.request_redraw();
-                }
-                result
-            }
-            dev::UiOp::Screenshot => {
-                if let Err(message) = dev::screenshot_allowed(&self.editor) {
-                    let _ = reply.send(Err(message));
-                    return;
-                }
-                // Only the GPU submission happens here; the rest runs on a
-                // background thread, which replies.
-                let (Some(view), Some(dev)) = (self.view.as_mut(), self.dev.as_mut()) else {
-                    let _ = reply.send(Err("there is no window yet".into()));
-                    return;
-                };
-                let started = Instant::now();
-                let capture = view.render_state.capture(&text_view(&self.editor));
-                log::debug!(
-                    "screenshot submitted on the UI thread in {:?}",
-                    started.elapsed()
-                );
-                match capture {
-                    Ok(capture) => dev.finish_screenshot(capture, reply),
-                    Err(e) => {
-                        let _ = reply.send(Err(e.to_string()));
-                    }
-                }
-                return;
-            }
-        };
-        let _ = reply.send(result);
     }
 }
 

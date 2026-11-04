@@ -288,6 +288,7 @@ mod tests {
             UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
             UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),
             UiOp::ShowBuffer(buffer) => Ok(json!({ "buffer": buffer })),
+            UiOp::ExportState | UiOp::ImportState(_) | UiOp::Exit => Ok(json!({})),
             UiOp::Screenshot => return true,
         };
         let _ = request.reply.send(result);

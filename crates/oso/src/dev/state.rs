@@ -131,12 +131,17 @@ fn selection_state(selection: &Selection, display: &DisplaySnapshot) -> Value {
         "cursor": selection.cursor,
         "row": point.row,
         "column": point.column,
-        "goal": match selection.goal {
-            None => Value::Null,
-            Some(Goal::Column(column)) => json!({ "column": column }),
-            Some(Goal::LineEnd) => json!("line-end"),
-        },
+        "goal": goal_state(selection.goal),
     })
+}
+
+/// A vertical motion's goal, as `get-state` and the state handoff write it.
+pub(super) fn goal_state(goal: Option<Goal>) -> Value {
+    match goal {
+        None => Value::Null,
+        Some(Goal::Column(column)) => json!({ "column": column }),
+        Some(Goal::LineEnd) => json!("line-end"),
+    }
 }
 
 /// The rows the window shows in full, from its top row and left column, cut
