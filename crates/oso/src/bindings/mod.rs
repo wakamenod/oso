@@ -52,18 +52,17 @@ mod tests {
         }
     }
 
+    /// Why the order of the tables cannot change what a key does.
     #[test]
-    fn the_order_of_the_tables_does_not_change_what_a_key_does() {
+    fn rows_that_conflict_fail_in_either_order() {
         let registry = commands::registry();
-        let reversed: Vec<_> = TABLES
-            .iter()
-            .rev()
-            .flat_map(|table| *table)
-            .copied()
-            .collect();
-        assert_eq!(
-            Keymap::from_table(&registry, &reversed).unwrap(),
-            global_keymap(&registry)
-        );
+        for (first, second) in [
+            (("C-f", "forward-char"), ("C-f", "backward-char")),
+            (("C-x", "forward-char"), ("C-x C-c", "keyboard-quit")),
+        ] {
+            for rows in [[first, second], [second, first]] {
+                assert!(Keymap::from_table(&registry, &rows).is_err(), "{rows:?}");
+            }
+        }
     }
 }

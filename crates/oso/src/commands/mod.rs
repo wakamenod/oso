@@ -12,10 +12,10 @@ mod session;
 
 use oso_core::command::{Command, Registry};
 
-/// Every feature's commands, in the order `M-x` and the command reference list
-/// them. A new feature adds a module and one line here, in alphabetical order
-/// and never joined with another, so that features added at the same time
-/// rarely touch the same line.
+/// Every feature's commands. A new feature adds a module and one line here, in
+/// alphabetical order and never joined with another, so that features added at
+/// the same time rarely touch the same line. This is only the order they
+/// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
     motion::COMMANDS,
