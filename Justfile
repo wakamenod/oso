@@ -175,6 +175,21 @@ release-safety:
     exit "$fail"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# End-to-end tests (ADR 0037, ADR 0049)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Drive real dev builds over the control socket; windows open and take the focus. `just e2e 20` repeats the suite to look for flakiness
+e2e runs="1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{runs}}" =~ ^[0-9]+$ ]] || { echo "error: not a number of runs: {{runs}}"; exit 1; }
+    export RUST_LOG=oso=debug,wgpu=warn
+    for run in $(seq 1 {{runs}}); do
+        cargo test --locked -p oso --features dev --test e2e -- --ignored --test-threads=1 \
+            || { echo "e2e: run $run of {{runs}} failed"; exit 1; }
+    done
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Performance (ADR 0024, ADR 0025, ADR 0046)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

@@ -55,7 +55,8 @@ old one's status.
 | 0046 | [Performance regression checks](0046-performance-regression-checks.md) | Accepted |
 | 0047 | [Process spawning and the restart handoff](0047-process-spawning-and-restart-handoff.md) | Accepted |
 | 0048 | [Permission prompts depend on the mode](0048-permission-prompts-by-mode.md) | Accepted |
-| 0050 | [Test quality checks](0050-test-quality-checks.md) | Proposed |
+| 0049 | [End-to-end test harness](0049-end-to-end-test-harness.md) | Accepted |
+| 0050 | [Test quality checks](0050-test-quality-checks.md) | Accepted |
 
 ## Template
 

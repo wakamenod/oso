@@ -1,6 +1,6 @@
 # 0050. Test quality checks
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-04
 
 ## Context

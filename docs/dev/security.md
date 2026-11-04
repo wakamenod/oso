@@ -188,7 +188,8 @@ ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
   an absolute path or from `PATH` without relative or missing entries, the
   current directory or the project, children get an allowlisted environment and a closed
   stdin, and every spawn is logged. It is behind the `dev` feature until a
-  release feature needs it, and only `oso dev` uses it. `oso dev` builds offline,
+  release feature needs it, and only `oso dev` and the end-to-end tests use it.
+  `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff holds paths and positions, never text, so it cannot carry a

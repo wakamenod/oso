@@ -9,6 +9,13 @@ Agents cannot see the screen or send OS key events. Dev builds expose a
 control socket instead (ADR 0016, ADR 0023, ADR 0032), and `oso ctl` drives
 it. Use this after `just ci` passes, before the reviewer agents.
 
+`just e2e` runs the regression checks for the socket, the input path, rendering
+and critical flows (ADR 0049), so run it when you change those. This skill is
+for what a change itself should look like, and for what those flows leave out:
+`oso dev`'s build loop, and with the user's help, resizing, the wheel and real
+keys. When a check here protects something lasting, consider a new flow
+(`docs/dev/testing.md`).
+
 Unix only for now: on Windows, `oso ctl` reports that the socket is not
 supported.
 
