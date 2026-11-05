@@ -8,6 +8,7 @@
 
 mod edit;
 mod motion;
+mod prefix;
 mod scroll;
 mod session;
 
@@ -21,6 +22,7 @@ use oso_core::command::{Command, Registry};
 const TABLES: &[&[Command]] = &[
     edit::COMMANDS,
     motion::COMMANDS,
+    prefix::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
 ];

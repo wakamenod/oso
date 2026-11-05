@@ -529,6 +529,25 @@ impl Editor {
         let top = window::wheel(window.scroll().top, window.size(), row_count, rows);
         window.set_top(top, &display)
     }
+
+    /// Scrolls the selected window's view by `columns` (toward the ends of lines
+    /// if positive), for the mouse wheel and trackpad, as far as the rows in view
+    /// need. Cursors stay, even out of view, and the next command brings the view
+    /// back. A short row may not reach the view at all, so no place in view would
+    /// do. Returns whether the view moved.
+    pub fn scroll_view_sideways(&mut self, columns: isize) -> bool {
+        let (window, buffer) = self.current_mut();
+        let display = buffer.display();
+        let scroll = window.scroll();
+        let end = scroll.top.saturating_add(window.size().rows);
+        let widest = (scroll.top..end)
+            .map(|row| display.row_cells(row))
+            .max()
+            .unwrap_or(0);
+        let left = window::wheel_sideways(scroll.left, window.size(), widest, columns);
+        window.set_scroll(Scroll { left, ..scroll });
+        left != scroll.left
+    }
 }
 
 #[cfg(test)]
@@ -550,6 +569,22 @@ mod tests {
         editor.restore_positions(SelectionSet::new(0), saved);
         assert_eq!(editor.window().scroll(), Scroll::default(), "back to it");
         assert_eq!(editor.window().selections.primary().cursor, 0);
+    }
+
+    #[test]
+    fn the_sideways_wheel_goes_as_far_as_the_rows_in_view_need_and_leaves_the_cursors() {
+        let long = "x".repeat(50);
+        let text = format!("ab\n{long}\n{}\nab\n", "y".repeat(100));
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &text));
+        editor.set_view_size(ViewSize::new(2, 20));
+        assert!(editor.scroll_view_sideways(6));
+        assert_eq!(editor.window().scroll().left, 6);
+        assert!(editor.scroll_view_sideways(1000));
+        assert_eq!(editor.window().scroll().left, 31, "the widest row in view");
+        assert!(!editor.scroll_view_sideways(1));
+        assert_eq!(editor.window().selections.primary().cursor, 0);
+        assert!(editor.follow_cursor(), "the next command brings it back");
+        assert_eq!(editor.window().scroll().left, 0);
     }
 
     #[test]

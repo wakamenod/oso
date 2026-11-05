@@ -127,6 +127,26 @@ pub fn oso_core::command::ExecuteError::fmt(&self, &mut core::fmt::Formatter<'_>
 impl core::fmt::Display for oso_core::command::ExecuteError
 pub fn oso_core::command::ExecuteError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::command::ExecuteError
+pub enum oso_core::command::Prefix
+pub oso_core::command::Prefix::Closed(isize)
+pub oso_core::command::Prefix::Negative
+pub oso_core::command::Prefix::Number(isize)
+pub oso_core::command::Prefix::Universal(isize)
+impl oso_core::command::Prefix
+pub const fn oso_core::command::Prefix::digit(core::option::Option<Self>, u32) -> Self
+pub const fn oso_core::command::Prefix::negative(core::option::Option<Self>) -> core::option::Option<Self>
+pub const fn oso_core::command::Prefix::reads_digits(self) -> bool
+pub const fn oso_core::command::Prefix::universal(core::option::Option<Self>) -> Self
+pub const fn oso_core::command::Prefix::value(self) -> isize
+impl core::clone::Clone for oso_core::command::Prefix
+pub fn oso_core::command::Prefix::clone(&self) -> oso_core::command::Prefix
+impl core::cmp::Eq for oso_core::command::Prefix
+impl core::cmp::PartialEq for oso_core::command::Prefix
+pub fn oso_core::command::Prefix::eq(&self, &oso_core::command::Prefix) -> bool
+impl core::fmt::Debug for oso_core::command::Prefix
+pub fn oso_core::command::Prefix::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::command::Prefix
+impl core::marker::StructuralPartialEq for oso_core::command::Prefix
 pub enum oso_core::command::RegisterError
 pub oso_core::command::RegisterError::BadName(&'static str)
 pub oso_core::command::RegisterError::Duplicate(&'static str)
@@ -148,6 +168,8 @@ pub const oso_core::command::Args::NONE: Self
 pub const fn oso_core::command::Args::count(self) -> isize
 pub const fn oso_core::command::Args::numeric(isize) -> Self
 pub const fn oso_core::command::Args::prefix(self) -> core::option::Option<isize>
+pub const fn oso_core::command::Args::raw(self) -> core::option::Option<oso_core::command::Prefix>
+pub const fn oso_core::command::Args::with_prefix(core::option::Option<oso_core::command::Prefix>) -> Self
 impl core::clone::Clone for oso_core::command::Args
 pub fn oso_core::command::Args::clone(&self) -> oso_core::command::Args
 impl core::cmp::Eq for oso_core::command::Args
@@ -203,12 +225,17 @@ pub oso_core::command::Ctx::editor: &'a mut oso_core::editor::Editor
 impl<'a> oso_core::command::Ctx<'a>
 pub fn oso_core::command::Ctx<'a>::effects(&self) -> oso_core::command::Effects
 pub fn oso_core::command::Ctx<'a>::input(&self) -> &'a str
+pub fn oso_core::command::Ctx<'a>::invoked(&'a mut oso_core::editor::Editor, oso_core::command::Invocation<'a>) -> Self
+pub fn oso_core::command::Ctx<'a>::key_char(&self) -> core::option::Option<char>
+pub fn oso_core::command::Ctx<'a>::leave_prefix(&mut self, core::option::Option<oso_core::command::Prefix>)
 pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
+pub fn oso_core::command::Ctx<'a>::repeats(&self) -> usize
 pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
 pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
 pub fn oso_core::command::Ctx<'a>::with_input(&'a mut oso_core::editor::Editor, &'a str) -> Self
 pub struct oso_core::command::Effects
 pub oso_core::command::Effects::exit: bool
+pub oso_core::command::Effects::prefix: core::option::Option<oso_core::command::Prefix>
 pub oso_core::command::Effects::redraw: bool
 impl oso_core::command::Effects
 pub const fn oso_core::command::Effects::union(self, Self) -> Self
@@ -223,6 +250,21 @@ impl core::fmt::Debug for oso_core::command::Effects
 pub fn oso_core::command::Effects::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::command::Effects
 impl core::marker::StructuralPartialEq for oso_core::command::Effects
+pub struct oso_core::command::Invocation<'a>
+pub oso_core::command::Invocation::input: &'a str
+pub oso_core::command::Invocation::key_char: core::option::Option<char>
+pub oso_core::command::Invocation::repeats: usize
+impl<'a> core::clone::Clone for oso_core::command::Invocation<'a>
+pub fn oso_core::command::Invocation<'a>::clone(&self) -> oso_core::command::Invocation<'a>
+impl<'a> core::cmp::Eq for oso_core::command::Invocation<'a>
+impl<'a> core::cmp::PartialEq for oso_core::command::Invocation<'a>
+pub fn oso_core::command::Invocation<'a>::eq(&self, &oso_core::command::Invocation<'a>) -> bool
+impl<'a> core::default::Default for oso_core::command::Invocation<'a>
+pub fn oso_core::command::Invocation<'a>::default() -> oso_core::command::Invocation<'a>
+impl<'a> core::fmt::Debug for oso_core::command::Invocation<'a>
+pub fn oso_core::command::Invocation<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_core::command::Invocation<'a>
+impl<'a> core::marker::StructuralPartialEq for oso_core::command::Invocation<'a>
 pub struct oso_core::command::Registry
 impl oso_core::command::Registry
 pub fn oso_core::command::Registry::execute(&self, oso_core::command::CommandId, &mut oso_core::command::Ctx<'_>, oso_core::command::Args) -> core::result::Result<(), oso_core::command::ExecuteError>
@@ -646,6 +688,7 @@ pub fn oso_core::editor::Editor::messages(&self) -> impl core::iter::traits::dou
 pub fn oso_core::editor::Editor::redo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
+pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
@@ -956,6 +999,23 @@ impl core::hash::Hash for oso_core::motion::Edge
 pub fn oso_core::motion::Edge::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::motion::Edge
 impl core::marker::StructuralPartialEq for oso_core::motion::Edge
+pub struct oso_core::motion::WalkBudget
+impl oso_core::motion::WalkBudget
+pub const fn oso_core::motion::WalkBudget::is_spent(self) -> bool
+pub const fn oso_core::motion::WalkBudget::new() -> Self
+pub fn oso_core::motion::WalkBudget::spend(&mut self, usize) -> bool
+impl core::clone::Clone for oso_core::motion::WalkBudget
+pub fn oso_core::motion::WalkBudget::clone(&self) -> oso_core::motion::WalkBudget
+impl core::cmp::Eq for oso_core::motion::WalkBudget
+impl core::cmp::PartialEq for oso_core::motion::WalkBudget
+pub fn oso_core::motion::WalkBudget::eq(&self, &oso_core::motion::WalkBudget) -> bool
+impl core::default::Default for oso_core::motion::WalkBudget
+pub fn oso_core::motion::WalkBudget::default() -> Self
+impl core::fmt::Debug for oso_core::motion::WalkBudget
+pub fn oso_core::motion::WalkBudget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::motion::WalkBudget
+impl core::marker::StructuralPartialEq for oso_core::motion::WalkBudget
+pub const oso_core::motion::TOO_MUCH: &str
 pub fn oso_core::motion::buffer_end(&oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::motion::cluster_end(&oso_core::display_map::DisplaySnapshot, usize) -> usize
 pub fn oso_core::motion::cluster_start(&oso_core::display_map::DisplaySnapshot, usize) -> usize
@@ -963,12 +1023,14 @@ pub fn oso_core::motion::cursor_cells(&oso_core::display_map::DisplaySnapshot, o
 pub fn oso_core::motion::line_after_fraction(&oso_core::display_map::DisplaySnapshot, usize, usize) -> usize
 pub fn oso_core::motion::line_end(&oso_core::display_map::DisplaySnapshot, usize) -> usize
 pub fn oso_core::motion::line_start(&oso_core::display_map::DisplaySnapshot, usize) -> usize
-pub fn oso_core::motion::move_clusters(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize) -> core::result::Result<(), oso_core::motion::Edge>
+pub fn oso_core::motion::move_clusters(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget) -> core::result::Result<(), oso_core::motion::Edge>
 pub fn oso_core::motion::move_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize)
 pub fn oso_core::motion::move_line_start(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize)
 pub fn oso_core::motion::move_lines(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize) -> core::result::Result<(), oso_core::motion::Edge>
 pub fn oso_core::motion::next_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
 pub fn oso_core::motion::prev_cluster(&oso_core::display_map::DisplaySnapshot, usize) -> core::option::Option<usize>
+pub fn oso_core::motion::toggle_line_end(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
+pub fn oso_core::motion::toggle_line_start(&oso_core::display_map::DisplaySnapshot, &mut oso_core::selection::Selection, isize, &mut oso_core::motion::WalkBudget)
 pub mod oso_core::rope
 pub struct oso_core::rope::Chunks<'a>
 impl<'a> core::iter::traits::iterator::Iterator for oso_core::rope::Chunks<'a>
@@ -1224,6 +1286,20 @@ pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub mod oso_core::window
+pub enum oso_core::window::Recenter
+pub oso_core::window::Recenter::Bottom
+pub oso_core::window::Recenter::Line(isize)
+pub oso_core::window::Recenter::Middle
+pub oso_core::window::Recenter::Top
+impl core::clone::Clone for oso_core::window::Recenter
+pub fn oso_core::window::Recenter::clone(&self) -> oso_core::window::Recenter
+impl core::cmp::Eq for oso_core::window::Recenter
+impl core::cmp::PartialEq for oso_core::window::Recenter
+pub fn oso_core::window::Recenter::eq(&self, &oso_core::window::Recenter) -> bool
+impl core::fmt::Debug for oso_core::window::Recenter
+pub fn oso_core::window::Recenter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::window::Recenter
+impl core::marker::StructuralPartialEq for oso_core::window::Recenter
 pub struct oso_core::window::Scroll
 pub oso_core::window::Scroll::left: usize
 pub oso_core::window::Scroll::top: usize
@@ -1258,6 +1334,19 @@ impl core::hash::Hash for oso_core::window::ViewSize
 pub fn oso_core::window::ViewSize::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::window::ViewSize
 impl core::marker::StructuralPartialEq for oso_core::window::ViewSize
+pub struct oso_core::window::WheelRemainder
+impl oso_core::window::WheelRemainder
+pub fn oso_core::window::WheelRemainder::add(&mut self, f64, f64) -> (isize, isize)
+impl core::clone::Clone for oso_core::window::WheelRemainder
+pub fn oso_core::window::WheelRemainder::clone(&self) -> oso_core::window::WheelRemainder
+impl core::cmp::PartialEq for oso_core::window::WheelRemainder
+pub fn oso_core::window::WheelRemainder::eq(&self, &oso_core::window::WheelRemainder) -> bool
+impl core::default::Default for oso_core::window::WheelRemainder
+pub fn oso_core::window::WheelRemainder::default() -> oso_core::window::WheelRemainder
+impl core::fmt::Debug for oso_core::window::WheelRemainder
+pub fn oso_core::window::WheelRemainder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::window::WheelRemainder
+impl core::marker::StructuralPartialEq for oso_core::window::WheelRemainder
 pub struct oso_core::window::Window
 pub oso_core::window::Window::selections: oso_core::selection::SelectionSet
 impl oso_core::window::Window
@@ -1274,8 +1363,14 @@ pub fn oso_core::window::Window::fmt(&self, &mut core::fmt::Formatter<'_>) -> co
 pub const oso_core::window::CONTEXT_LINES: usize
 pub fn oso_core::window::follow(oso_core::window::Scroll, oso_core::window::ViewSize, oso_core::display_map::DisplayPoint, usize) -> oso_core::window::Scroll
 pub fn oso_core::window::reaches(usize, oso_core::window::ViewSize, usize) -> bool
+pub fn oso_core::window::recenter_top(usize, oso_core::window::ViewSize, oso_core::window::Recenter) -> usize
 pub fn oso_core::window::row_in_view(usize, usize, oso_core::window::ViewSize, usize) -> core::option::Option<usize>
 pub fn oso_core::window::screen_lines(oso_core::window::ViewSize) -> usize
 pub fn oso_core::window::scroll_down(usize, usize) -> core::result::Result<usize, oso_core::motion::Edge>
 pub fn oso_core::window::scroll_up(usize, usize, usize) -> core::result::Result<usize, oso_core::motion::Edge>
 pub fn oso_core::window::wheel(usize, oso_core::window::ViewSize, usize, isize) -> usize
+pub fn oso_core::window::wheel_sideways(usize, oso_core::window::ViewSize, usize, isize) -> usize
+pub mod oso_core::word
+pub fn oso_core::word::backward_word(&oso_core::display_map::DisplaySnapshot, usize, &mut oso_core::motion::WalkBudget) -> usize
+pub fn oso_core::word::forward_word(&oso_core::display_map::DisplaySnapshot, usize, &mut oso_core::motion::WalkBudget) -> usize
+pub fn oso_core::word::move_words(&oso_core::display_map::DisplaySnapshot, usize, isize, &mut oso_core::motion::WalkBudget) -> usize

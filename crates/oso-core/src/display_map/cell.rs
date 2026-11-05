@@ -146,7 +146,7 @@ pub(crate) fn is_hidden_extend(c: char, base: char) -> bool {
 
 /// Whether `c` is a mark: it takes no cells, or it extends the character before
 /// it, as spacing marks and emoji modifiers do.
-fn is_mark(c: char) -> bool {
+pub(crate) fn is_mark(c: char) -> bool {
     if c.width() == Some(0) {
         return true;
     }

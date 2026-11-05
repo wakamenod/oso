@@ -9,8 +9,11 @@
 //! past a cluster's limits (ADR 0054) or an invalid byte. So one `C-f` passes what
 //! looks like one character, and the cursor never lands inside one. Rows are
 //! buffer lines (no soft wrap, ADR 0006).
+//!
+//! A motion that reads clusters one by one is limited, so that a count or a long
+//! run of one kind of character cannot stall a key ([`WalkBudget`], ADR 0058).
 
-use crate::display_map::{CellKind, DisplayPoint, DisplaySnapshot};
+use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::selection::{Goal, Selection};
 use crate::sum_tree::Bias;
 
@@ -30,6 +33,85 @@ impl Edge {
             Self::Start => "Beginning of buffer",
             Self::End => "End of buffer",
         }
+    }
+}
+
+/// What one command may read, in clusters read in order, about 8 to 40 ns each:
+/// about 80 ms at most, under the 100 ms that counts as a freeze. It holds across
+/// all its cursors and its count.
+const MAX_COMMAND_WALK: usize = 1 << 21;
+
+/// What finding one stop may read, such as the end of a word: a key stays within
+/// its budget on a long line with no word boundary, at about 3 ms at most. Past it
+/// the motion stops where it got to, and the next key goes on from there.
+pub(crate) const MAX_STOP_WALK: usize = 1 << 16;
+
+/// What going to another place in the text costs, in clusters read in order: it
+/// searches the display model and scans part of a chunk.
+pub(crate) const SEEK_COST: usize = 128;
+
+/// The columns read at a time when looking backward along a row. Clusters read
+/// only forward, so a backward search reads this much and moves back by it.
+pub(crate) const BACK_WINDOW: usize = 128;
+
+/// What a command signals when a count would read too much.
+pub const TOO_MUCH: &str = "Count too large";
+
+/// The clusters a command may still read (ADR 0058). A command makes one and
+/// passes it to each cursor's motion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WalkBudget {
+    left: usize,
+}
+
+impl WalkBudget {
+    /// The budget of a whole command.
+    pub const fn new() -> Self {
+        Self {
+            left: MAX_COMMAND_WALK,
+        }
+    }
+
+    /// Takes `clusters` from the budget. If it does not hold that many, it is left
+    /// empty and this returns false.
+    pub fn spend(&mut self, clusters: usize) -> bool {
+        let enough = clusters <= self.left;
+        self.left = if enough { self.left - clusters } else { 0 };
+        enough
+    }
+
+    /// Whether nothing is left, so that a motion may have stopped short.
+    pub const fn is_spent(self) -> bool {
+        self.left == 0
+    }
+
+    /// The reads of one stop.
+    pub(crate) fn stop(&mut self) -> StopWalk<'_> {
+        StopWalk {
+            budget: self,
+            left: MAX_STOP_WALK,
+        }
+    }
+}
+
+impl Default for WalkBudget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// What one stop may still read, from what its command may.
+pub(crate) struct StopWalk<'a> {
+    budget: &'a mut WalkBudget,
+    left: usize,
+}
+
+impl StopWalk<'_> {
+    /// Takes `clusters`, or returns false if the stop or the command has no more.
+    pub(crate) fn spend(&mut self, clusters: usize) -> bool {
+        let enough = clusters <= self.left && self.budget.spend(clusters);
+        self.left = if enough { self.left - clusters } else { 0 };
+        enough
     }
 }
 
@@ -83,6 +165,19 @@ pub fn line_end(display: &DisplaySnapshot, row: usize) -> usize {
     display.display_point_to_offset(DisplayPoint::new(row, usize::MAX), Bias::Left)
 }
 
+/// The clusters of `end.row` before `end`, which is at the offset `end_offset`, from
+/// up to [`BACK_WINDOW`] columns back. To go on, call it again at the first one.
+pub(crate) fn clusters_before(
+    display: &DisplaySnapshot,
+    end: DisplayPoint,
+    end_offset: usize,
+) -> impl Iterator<Item = DisplayCluster<'_>> {
+    let start = end.column.saturating_sub(BACK_WINDOW);
+    display
+        .clusters(DisplayPoint::new(end.row, start))
+        .take_while(move |cluster| cluster.offset < end_offset)
+}
+
 /// The end of the buffer.
 pub fn buffer_end(display: &DisplaySnapshot) -> usize {
     let last = display.row_count() - 1;
@@ -99,29 +194,138 @@ pub fn cursor_cells(display: &DisplaySnapshot, point: DisplayPoint) -> usize {
     }
 }
 
-/// Moves `selection` by `n` display clusters, backward if `n` is
-/// negative. Stops at the buffer's edge and reports it.
+/// Moves `selection` by `n` display clusters, backward if `n` is negative. Stops at
+/// the buffer's edge and reports it, or where the budget ran out. A count past the
+/// edge in bytes goes there without reading what lies between.
 pub fn move_clusters(
     display: &DisplaySnapshot,
     selection: &mut Selection,
     n: isize,
+    budget: &mut WalkBudget,
 ) -> Result<(), Edge> {
     selection.goal = None;
-    let step = if n < 0 { prev_cluster } else { next_cluster };
-    for _ in 0..n.unsigned_abs() {
-        match step(display, selection.cursor) {
-            Some(offset) => selection.cursor = offset,
-            None if n < 0 => return Err(Edge::Start),
-            None => return Err(Edge::End),
+    let count = n.unsigned_abs();
+    if count > 1 {
+        let end = buffer_end(display);
+        if n < 0 && count > selection.cursor {
+            selection.cursor = 0;
+            return Err(Edge::Start);
+        }
+        if n > 0 && count > end - selection.cursor {
+            selection.cursor = end;
+            return Err(Edge::End);
         }
     }
-    Ok(())
+    let walked = match n {
+        0 => return Ok(()),
+        1 => next_cluster(display, selection.cursor).ok_or(Edge::End),
+        -1 => prev_cluster(display, selection.cursor).ok_or(Edge::Start),
+        _ if n < 0 => walk_backward(display, selection.cursor, count, budget),
+        _ => walk_forward(display, selection.cursor, count, budget),
+    };
+    match walked {
+        Ok(offset) => {
+            selection.cursor = offset;
+            Ok(())
+        }
+        Err(edge) => {
+            selection.cursor = if edge == Edge::Start {
+                0
+            } else {
+                buffer_end(display)
+            };
+            Err(edge)
+        }
+    }
+}
+
+/// Where `count` clusters after `offset` ends, reading them in order. Where the
+/// budget ran out if it did, and the buffer's edge if it comes first.
+fn walk_forward(
+    display: &DisplaySnapshot,
+    offset: usize,
+    mut count: usize,
+    budget: &mut WalkBudget,
+) -> Result<usize, Edge> {
+    let mut at = offset;
+    let mut point = display.offset_to_display_point(offset);
+    loop {
+        for cluster in display.clusters(point) {
+            if count == 0 || !budget.spend(1) {
+                return Ok(at);
+            }
+            at = cluster.offset + cluster.text.len();
+            count -= 1;
+        }
+        if count == 0 {
+            return Ok(at);
+        }
+        if point.row + 1 >= display.row_count() {
+            return Err(Edge::End);
+        }
+        if !budget.spend(SEEK_COST) {
+            return Ok(at);
+        }
+        point = DisplayPoint::new(point.row + 1, 0);
+        at = line_start(display, point.row);
+        count -= 1;
+    }
+}
+
+/// Where `count` clusters before `offset` starts, reading windows of a row in turn.
+/// Where the budget ran out if it did, and the buffer's edge if it comes first.
+fn walk_backward(
+    display: &DisplaySnapshot,
+    offset: usize,
+    mut count: usize,
+    budget: &mut WalkBudget,
+) -> Result<usize, Edge> {
+    let mut at = offset;
+    let mut point = display.offset_to_display_point(offset);
+    while count > 0 {
+        if point.column == 0 {
+            if point.row == 0 {
+                return Err(Edge::Start);
+            }
+            if !budget.spend(SEEK_COST) {
+                return Ok(at);
+            }
+            at = line_end(display, point.row - 1);
+            point = display.offset_to_display_point(at);
+            count -= 1;
+            continue;
+        }
+        let mut read = 0;
+        let mut first = None;
+        for cluster in clusters_before(display, point, at) {
+            first.get_or_insert((cluster.offset, cluster.column));
+            read += 1;
+        }
+        if !budget.spend(read + SEEK_COST) {
+            return Ok(at);
+        }
+        let Some((offset, column)) = first else {
+            return Ok(at);
+        };
+        if read >= count {
+            let mut window = clusters_before(display, point, at);
+            return Ok(window
+                .nth(read - count)
+                .map_or(at, |cluster| cluster.offset));
+        }
+        count -= read;
+        at = offset;
+        point = DisplayPoint::new(point.row, column);
+    }
+    Ok(at)
 }
 
 /// Moves `selection` `n` lines down (up if negative), aiming at its goal
 /// column. The first vertical move sets the goal: the cursor's display
-/// column, or [`Goal::LineEnd`] at a line end (`track-eol`). A column in
-/// the middle of a wide character or a tab lands at its start.
+/// column, or [`Goal::LineEnd`] at the end of a line with text (`track-eol`). An
+/// empty line counts only if a command went to its end, which sets that goal, as
+/// in Emacs. A column in the middle of a wide character or a tab lands at its
+/// start.
 ///
 /// Past the last line the cursor goes to the end of the buffer, and before
 /// the first to its start, as Emacs's `next-line` does, and the edge is
@@ -133,7 +337,7 @@ pub fn move_lines(
 ) -> Result<(), Edge> {
     let point = display.offset_to_display_point(selection.cursor);
     let goal = selection.goal.unwrap_or_else(|| {
-        if selection.cursor == line_end(display, point.row) {
+        if point.column > 0 && selection.cursor == line_end(display, point.row) {
             Goal::LineEnd
         } else {
             Goal::Column(point.column)
@@ -168,10 +372,116 @@ pub fn move_line_start(display: &DisplaySnapshot, selection: &mut Selection, n: 
 }
 
 /// Moves `selection` to the end of its line, after moving `n - 1` lines
-/// down first (up if negative).
+/// down first (up if negative). A vertical move from there stays at line ends.
 pub fn move_line_end(display: &DisplaySnapshot, selection: &mut Selection, n: isize) {
     let row = target_row(display, selection.cursor, n);
-    *selection = Selection::at(line_end(display, row));
+    *selection = at_line_end(line_end(display, row));
+}
+
+/// A cursor at the end of a line.
+fn at_line_end(offset: usize) -> Selection {
+    Selection {
+        cursor: offset,
+        goal: Some(Goal::LineEnd),
+    }
+}
+
+/// Moves `selection` as `C-a` does (mwim, ADR 0030): to the first non-blank
+/// character of its line, or from there to the line's start. With `n` other than 1
+/// it moves `n - 1` lines down first, and goes to the first non-blank character.
+pub fn toggle_line_start(
+    display: &DisplaySnapshot,
+    selection: &mut Selection,
+    n: isize,
+    budget: &mut WalkBudget,
+) {
+    let row = target_row(display, selection.cursor, n);
+    let code = first_non_blank(display, row, budget);
+    *selection = Selection::at(if n == 1 && selection.cursor == code {
+        line_start(display, row)
+    } else {
+        code
+    });
+}
+
+/// Moves `selection` as `C-e` does (mwim, ADR 0030): to the end of its line before
+/// trailing blanks, or from there to the line's end. With `n` other than 1 it moves
+/// `n - 1` lines down first, and goes to the end before the blanks.
+pub fn toggle_line_end(
+    display: &DisplaySnapshot,
+    selection: &mut Selection,
+    n: isize,
+    budget: &mut WalkBudget,
+) {
+    let row = target_row(display, selection.cursor, n);
+    let code = end_before_blanks(display, row, budget);
+    let end = line_end(display, row);
+    *selection = if code == end || (n == 1 && selection.cursor == code) {
+        at_line_end(end)
+    } else {
+        Selection::at(code)
+    };
+}
+
+/// Whether `cluster` is blank: a tab, or text of nothing but white space, such as a
+/// full-width space. Such text with a mark on it is not.
+fn is_blank(cluster: &DisplayCluster<'_>) -> bool {
+    match cluster.kind {
+        CellKind::Tab => true,
+        CellKind::Text => cluster.text.chars().all(char::is_whitespace),
+        _ => false,
+    }
+}
+
+/// Where the first non-blank cluster of `row` starts, or the row's end if it has
+/// none. A run of blanks past what a stop reads ends the search where it got to.
+fn first_non_blank(display: &DisplaySnapshot, row: usize, budget: &mut WalkBudget) -> usize {
+    let mut walk = budget.stop();
+    let mut end = line_start(display, row);
+    if !walk.spend(SEEK_COST) {
+        return end;
+    }
+    for cluster in display.clusters(DisplayPoint::new(row, 0)) {
+        if !is_blank(&cluster) || !walk.spend(1) {
+            return cluster.offset;
+        }
+        end = cluster.offset + cluster.text.len();
+    }
+    end
+}
+
+/// Where `row` ends before its trailing blanks, or its start if it has nothing
+/// else. A run of blanks past what a stop reads ends the search where it got to.
+fn end_before_blanks(display: &DisplaySnapshot, row: usize, budget: &mut WalkBudget) -> usize {
+    let mut walk = budget.stop();
+    let end = line_end(display, row);
+    let mut point = display.offset_to_display_point(end);
+    let mut earliest = end;
+    while point.column > 0 {
+        let mut text_end = None;
+        let mut first = None;
+        let mut read = 0;
+        for cluster in clusters_before(display, point, earliest) {
+            first.get_or_insert((cluster.offset, cluster.column));
+            read += 1;
+            if !is_blank(&cluster) {
+                text_end = Some(cluster.offset + cluster.text.len());
+            }
+        }
+        let spent = walk.spend(read + SEEK_COST);
+        if let Some(text_end) = text_end {
+            return text_end;
+        }
+        let Some((offset, column)) = first else {
+            break;
+        };
+        earliest = offset;
+        if !spent {
+            return earliest;
+        }
+        point = DisplayPoint::new(row, column);
+    }
+    earliest
 }
 
 /// The row `n - 1` lines from the cursor's, clamped to the buffer.
@@ -279,17 +589,63 @@ mod tests {
         let d = display("a日b");
         let mut s = Selection::at(0);
         s.goal = Some(Goal::Column(7));
-        assert_eq!(move_clusters(&d, &mut s, 2), Ok(()));
+        let budget = &mut WalkBudget::new();
+        assert_eq!(move_clusters(&d, &mut s, 2, budget), Ok(()));
         assert_eq!((s.cursor, s.goal), (4, None));
-        assert_eq!(move_clusters(&d, &mut s, -1), Ok(()));
+        assert_eq!(move_clusters(&d, &mut s, -1, budget), Ok(()));
         assert_eq!(s.cursor, 1);
-        assert_eq!(move_clusters(&d, &mut s, 0), Ok(()));
+        assert_eq!(move_clusters(&d, &mut s, 0, budget), Ok(()));
         assert_eq!(s.cursor, 1);
         // Goes as far as it can before reporting the edge.
-        assert_eq!(move_clusters(&d, &mut s, 9), Err(Edge::End));
+        assert_eq!(move_clusters(&d, &mut s, 9, budget), Err(Edge::End));
         assert_eq!(s.cursor, 5);
-        assert_eq!(move_clusters(&d, &mut s, -9), Err(Edge::Start));
+        assert_eq!(move_clusters(&d, &mut s, -9, budget), Err(Edge::Start));
         assert_eq!(s.cursor, 0);
+    }
+
+    #[test]
+    fn a_count_past_the_edge_by_clusters_but_not_by_bytes_reaches_it_in_a_walk() {
+        // 3 clusters of 7 bytes; each way a count of 4 finds the edge by walking.
+        let d = display("a日b\n語");
+        let budget = &mut WalkBudget::new();
+        let mut s = Selection::at(0);
+        assert_eq!(move_clusters(&d, &mut s, 6, budget), Err(Edge::End));
+        assert_eq!(s.cursor, 9);
+        assert_eq!(move_clusters(&d, &mut s, -6, budget), Err(Edge::Start));
+        assert_eq!(s.cursor, 0);
+    }
+
+    #[test]
+    fn a_walk_stops_where_the_budget_runs_out() {
+        // Each line break costs a seek.
+        let d = display(&"\n".repeat(2 * MAX_COMMAND_WALK / SEEK_COST));
+        let mut budget = WalkBudget::new();
+        let mut s = Selection::at(0);
+        let n = isize::try_from(d.row_count() - 1).unwrap();
+        assert_eq!(move_clusters(&d, &mut s, n, &mut budget), Ok(()));
+        assert!(budget.is_spent());
+        assert_eq!(s.cursor, MAX_COMMAND_WALK / SEEK_COST);
+        let mut budget = WalkBudget::new();
+        let mut s = Selection::at(d.row_count() - 1);
+        assert_eq!(move_clusters(&d, &mut s, -n, &mut budget), Ok(()));
+        assert!(budget.is_spent());
+        assert_eq!(s.cursor, d.row_count() - 1 - MAX_COMMAND_WALK / SEEK_COST);
+    }
+
+    #[test]
+    fn a_budget_spends_what_it_has_and_a_stop_less() {
+        let mut budget = WalkBudget::new();
+        assert!(budget.spend(MAX_COMMAND_WALK - 1));
+        assert!(!budget.is_spent());
+        assert!(!budget.spend(2));
+        assert!(budget.is_spent());
+        assert!(!budget.spend(1));
+        let mut budget = WalkBudget::new();
+        let mut stop = budget.stop();
+        assert!(stop.spend(MAX_STOP_WALK));
+        assert!(!stop.spend(1));
+        assert!(!budget.is_spent(), "the command goes on");
+        assert!(budget.stop().spend(1));
     }
 
     #[test]
@@ -403,6 +759,28 @@ mod tests {
                 let point = d.offset_to_display_point(stop);
                 prop_assert_eq!(d.display_point_to_offset(point, Bias::Left), stop);
             }
+        }
+
+        /// A count ends where as many single moves do, each way.
+        #[test]
+        fn prop_a_count_is_as_many_moves(
+            text in crate::rope::tests::text_strategy(40), start in 0usize..200, n in -30isize..30,
+        ) {
+            let d = display(&text);
+            let all = stops(&d);
+            let start = all[start % all.len()];
+            let budget = &mut WalkBudget::new();
+            let mut one_by_one = Selection::at(start);
+            let mut edge = Ok(());
+            for _ in 0..n.unsigned_abs() {
+                edge = move_clusters(&d, &mut one_by_one, n.signum(), budget);
+                if edge.is_err() {
+                    break;
+                }
+            }
+            let mut at_once = Selection::at(start);
+            prop_assert_eq!(move_clusters(&d, &mut at_once, n, budget), edge);
+            prop_assert_eq!(at_once.cursor, one_by_one.cursor);
         }
 
         /// Vertical motion always lands on a stop of the target row.

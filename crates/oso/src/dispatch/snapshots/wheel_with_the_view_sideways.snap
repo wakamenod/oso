@@ -1,0 +1,21 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: line 0 of some length\\nline 1 of some length\\nline 2 of some length\\nline 3 of some length\\nline 4 of some length\\nline 5 of some length\\nline 6 of some length\\nline 7 of some length\\n"
+---
+keys: C-n C-e
+│ length │
+│ length │
+:       ^:
+│ length │
+
+wheel: 1, the cursor stays
+│ length │
+:       ^:
+│ length │
+│ length │
+
+wheel: 1, it moves
+│line 2 o│
+:^       :
+│line 3 o│
+│line 4 o│

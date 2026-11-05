@@ -16,9 +16,11 @@ use std::time::{Duration, Instant};
 use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::{DisplayMap, DisplayPoint, TabWidth};
 use oso_core::editor::Editor;
+use oso_core::motion::WalkBudget;
 use oso_core::rope::{Point, Rope};
 use oso_core::selection::{Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
+use oso_core::word;
 
 const MB: usize = 1024 * 1024;
 const QUERIES: usize = 100_000;
@@ -265,11 +267,83 @@ fn old_map_slot(map: &mut DisplayMap) -> DisplayMap {
     std::mem::replace(map, DisplayMap::new(&Rope::new(), TabWidth::default()))
 }
 
+/// The longest and the middle of some keys' worth of word motion from `start`, each
+/// way, with a new budget for each key, as commands have.
+fn word_costs(label: &str, text: &str) {
+    let display = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
+    let times = |forward: bool| {
+        let mut rng = Lcg(5);
+        let mut samples: Vec<Duration> = (0..200)
+            .map(|_| {
+                let at = floor_boundary(text, rng.below(text.len()));
+                let at = display
+                    .display_point_to_offset(display.offset_to_display_point(at), Bias::Left);
+                let mut budget = WalkBudget::new();
+                time(|| {
+                    black_box(if forward {
+                        word::forward_word(&display, at, &mut budget)
+                    } else {
+                        word::backward_word(&display, at, &mut budget)
+                    })
+                })
+                .1
+            })
+            .collect();
+        percentiles(&mut samples)
+    };
+    let (forward_p50, forward_p99) = times(true);
+    let (backward_p50, backward_p99) = times(false);
+    println!(
+        "{label:<28} M-f p50 {forward_p50:>9.2?} p99 {forward_p99:>9.2?}   M-b p50 {backward_p50:>9.2?} p99 {backward_p99:>9.2?}"
+    );
+}
+
+/// A count that reads all a command may, each way.
+fn word_count_costs(label: &str, text: &str) {
+    let display = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
+    let (forward, forward_time) = time(|| {
+        let mut budget = WalkBudget::new();
+        word::move_words(&display, 0, isize::MAX, &mut budget)
+    });
+    let (backward, backward_time) = time(|| {
+        let mut budget = WalkBudget::new();
+        word::move_words(&display, text.len(), isize::MIN, &mut budget)
+    });
+    println!(
+        "{label:<28} huge count: forward {forward_time:>9.2?} to {forward}, backward {backward_time:>9.2?} to {backward}"
+    );
+}
+
+/// What word motion costs, on ordinary text and on runs with no boundary. Run with
+/// the argument `words` for this alone.
+fn word_motion_costs() {
+    println!("== Word motion, one key at a time");
+    word_costs("100 MB file", &file_text(100 * MB));
+    word_costs("10 MB line", &single_line(10 * MB));
+    word_costs("10 MB line of x", &"x".repeat(10 * MB));
+    word_costs("10 MB line of 語", &"語".repeat(10 * MB / 3));
+    word_costs("10 MB line of spaces", &" ".repeat(10 * MB));
+    word_costs("10 MB of empty lines", &"\n".repeat(10 * MB));
+    word_costs(
+        "10 MB of marks",
+        &("e".to_owned() + &"\u{301}".repeat(5 * MB)),
+    );
+    println!();
+    println!("== Word motion with a count past what a command reads");
+    word_count_costs("100 MB file", &file_text(100 * MB));
+    word_count_costs("10 MB of empty lines", &"\n".repeat(10 * MB));
+    word_count_costs("10 MB of `a `", &"a ".repeat(5 * MB));
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "a linear script of timed sections, one after another"
 )]
 fn main() {
+    if std::env::args().any(|arg| arg == "words") {
+        word_motion_costs();
+        return;
+    }
     println!("== Building (100 MB, source-like text)");
     let text = file_text(100 * MB);
     let (rope, built) = time(|| Rope::from(text.as_str()));
@@ -404,6 +478,9 @@ fn main() {
     for (size, killed) in [(10 * MB, 9 * MB), (100 * MB, 90 * MB)] {
         large_deletion_parts(&text[..floor_boundary(&text, size)], killed);
     }
+
+    println!();
+    word_motion_costs();
 
     println!();
     println!("== Adversarial text: building at 1 MB and 10 MB (should scale ~10x)");

@@ -156,7 +156,7 @@ See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 
 - `oso_core::command`: `Command`, `Registry`, and `Ctx`, which lends a
   command the host's `Editor` and collects its requests to the host
-  (redraw, exit). `Args` carries the numeric prefix argument.
+  (redraw, exit). `Args` carries the numeric prefix argument, which the dispatcher holds between keys ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - Commands live in the tip crate, one module per feature under
   `crates/oso/src/commands/`, each with a `const` table. `TABLES` in `mod.rs`
   lists the tables. Registering a name twice is an error, and the tests build

@@ -4,8 +4,8 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
-use oso_core::window;
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
+use oso_core::window::{self, Recenter};
 
 /// The scrolling commands.
 pub const COMMANDS: &[Command] = &[
@@ -20,6 +20,12 @@ pub const COMMANDS: &[Command] = &[
         doc: "Scroll the text down by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (up if N is negative). Point moves to the bottom line if it would leave the window. At the start of the buffer, signal \"Beginning of buffer\".",
         args: ArgSpec::Count,
         run: scroll_down_command,
+    },
+    Command {
+        name: "recenter-top-bottom",
+        doc: "Scroll so that point's line is in the middle of the window; repeated, at the top, then the bottom, then round again.\n\nWith a numeric argument N, put it on line N of the window, counting from the bottom if N is negative. With a plain `C-u`, in the middle.",
+        args: ArgSpec::Count,
+        run: recenter_top_bottom,
     },
 ];
 
@@ -59,6 +65,26 @@ fn scroll_up_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> 
 fn scroll_down_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let lines = screen_or_count(ctx, args);
     scroll(ctx, lines.saturating_neg())
+}
+
+fn recenter_top_bottom(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let target = match args.raw() {
+        None => match ctx.repeats() % 3 {
+            0 => Recenter::Middle,
+            1 => Recenter::Top,
+            _ => Recenter::Bottom,
+        },
+        Some(Prefix::Universal(_)) => Recenter::Middle,
+        Some(prefix) => Recenter::Line(prefix.value()),
+    };
+    let (window, buffer) = ctx.editor.current_mut();
+    let display = buffer.display();
+    let row = window.cursor_point(&display).row;
+    let top = window::recenter_top(row, window.size(), target);
+    if window.set_top(top, &display) {
+        ctx.request_redraw();
+    }
+    Ok(())
 }
 
 #[cfg(test)]

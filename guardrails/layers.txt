@@ -23,7 +23,7 @@ oso-core oso-platform
 keymap
 command
 editor
-window
+window word
 buffer motion
 undo
 load selection

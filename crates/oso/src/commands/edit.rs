@@ -1,5 +1,5 @@
 //! Commands that change text: typing, deleting and undoing (ADR 0030, ADR 0051,
-//! ADR 0056).
+//! ADR 0056, ADR 0058).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -14,12 +14,18 @@ use std::borrow::Cow;
 use oso_core::buffer::{EditError, Replacement};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
 use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot, TabWidth};
-use oso_core::motion::{self, Edge};
+use oso_core::motion::{self, Edge, WalkBudget};
+use oso_core::word;
 
 /// The most text one command inserts across all cursors, so that a count cannot
 /// run the process out of memory, which aborts it with no emergency save
 /// (ADR 0051). It takes about 40 ms to insert, which is no freeze.
 const MAX_INSERT: usize = 16 * 1024 * 1024;
+
+/// The most undo steps one command crosses, each of which costs a few microseconds
+/// and more for the text it puts back. The history is bounded in bytes, but it can
+/// hold many small steps.
+const MAX_CROSSINGS: usize = 10_000;
 
 /// The editing commands.
 pub const COMMANDS: &[Command] = &[
@@ -46,6 +52,18 @@ pub const COMMANDS: &[Command] = &[
         doc: "Delete the N characters after every cursor (before it if N is negative).\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters after it deletes nothing and signals \"End of buffer\"; other cursors still delete.",
         args: ArgSpec::Count,
         run: delete_char,
+    },
+    Command {
+        name: "kill-word",
+        doc: "Delete from every cursor to the end of the next word, N times (backward if N is negative).\n\nWords are as in `forward-word`. What a command can delete stops at the buffer's edge, with no signal. Until the kill ring arrives, the text does not go to it.",
+        args: ArgSpec::Count,
+        run: kill_word,
+    },
+    Command {
+        name: "backward-kill-word",
+        doc: "Delete from every cursor to the start of the previous word, N times (forward if N is negative).\n\nSee `kill-word`.",
+        args: ArgSpec::Count,
+        run: backward_kill_word,
     },
     Command {
         name: "tab-to-tab-stop",
@@ -132,6 +150,7 @@ fn delete_clusters(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     }
     let display = buffer.display();
     let len = motion::buffer_end(&display);
+    let mut budget = WalkBudget::new();
     let mut edits = Vec::with_capacity(window.selections.len());
     let mut edge = None;
     for selection in window.selections.iter() {
@@ -146,9 +165,11 @@ fn delete_clusters(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
         let walked = if n.unsigned_abs() > room {
             Err(if n < 0 { Edge::Start } else { Edge::End })
         } else {
-            motion::move_clusters(&display, &mut moved, n)
+            motion::move_clusters(&display, &mut moved, n, &mut budget)
         };
         match walked {
+            // Stopped short: it could not go all the way.
+            Ok(()) if budget.is_spent() => {}
             Ok(()) if moved.cursor != selection.cursor => edits.push(Replacement {
                 range: selection.cursor.min(moved.cursor)..selection.cursor.max(moved.cursor),
                 text: "",
@@ -166,6 +187,7 @@ fn delete_clusters(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     }
     match edge {
         Some(edge) => Err(CommandError::new(edge.message())),
+        None if budget.is_spent() => Err(CommandError::new(motion::TOO_MUCH)),
         None => Ok(()),
     }
 }
@@ -176,6 +198,46 @@ fn delete_backward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandErro
 
 fn delete_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     delete_clusters(ctx, args.count())
+}
+
+/// Deletes from every cursor of the selected window across `n` words, backward if
+/// `n` is negative, in one edit. The buffer's edge stops it with no signal, as in
+/// Emacs. A cursor the budget runs out on deletes nothing, and the command signals
+/// after the others have deleted. This is where the kill ring comes in (M2-14).
+fn delete_words(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
+    let (window, buffer) = ctx.editor.current();
+    if let Some(reason) = buffer.read_only() {
+        return Err(EditError::ReadOnly(reason).into());
+    }
+    let display = buffer.display();
+    let mut budget = WalkBudget::new();
+    let mut edits = Vec::with_capacity(window.selections.len());
+    for selection in window.selections.iter() {
+        let to = word::move_words(&display, selection.cursor, n, &mut budget);
+        if !budget.is_spent() && to != selection.cursor {
+            edits.push(Replacement {
+                range: selection.cursor.min(to)..selection.cursor.max(to),
+                text: "",
+            });
+        }
+    }
+    if !edits.is_empty() {
+        let buffer = window.buffer();
+        ctx.editor.apply_edits(buffer, &edits)?;
+        ctx.request_redraw();
+    }
+    if budget.is_spent() {
+        return Err(CommandError::new(motion::TOO_MUCH));
+    }
+    Ok(())
+}
+
+fn kill_word(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    delete_words(ctx, args.count())
+}
+
+fn backward_kill_word(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    delete_words(ctx, args.count().saturating_neg())
 }
 
 fn tab_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -230,15 +292,18 @@ fn column_after(
 }
 
 /// Undoes `n` steps, or redoes them if `n` is negative, stopping at the first
-/// that fails. The history is bounded, so a huge count ends there.
+/// that fails, or signaling after [`MAX_CROSSINGS`].
 fn cross(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
-    for _ in 0..n.unsigned_abs() {
+    for _ in 0..n.unsigned_abs().min(MAX_CROSSINGS) {
         if n < 0 {
             ctx.editor.redo()?;
         } else {
             ctx.editor.undo()?;
         }
         ctx.request_redraw();
+    }
+    if n.unsigned_abs() > MAX_CROSSINGS {
+        return Err(CommandError::new(motion::TOO_MUCH));
     }
     Ok(())
 }

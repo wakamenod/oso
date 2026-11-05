@@ -149,7 +149,8 @@ throughout.
     with unsaved work ([ADR 0013](adr/0013-persistence.md),
     [ADR 0029](adr/0029-file-changes-on-disk.md)).
   - **M2-9**: word motion with Japanese rules, `C-a`/`C-e` as in mwim, `track-eol`,
-    `C-u` and `M-<digit>`, `C-l`, and the horizontal wheel.
+    `C-u` and `M-<digit>`, `C-l`, and the horizontal wheel
+    ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - **M2-6** (after M2-5, and after the work in progress in the renderer's text pass
   merges): a list of panes drawn with clipping and layers, the base of everything
   below that draws ([ADR 0008](adr/0008-floating-ui.md)).

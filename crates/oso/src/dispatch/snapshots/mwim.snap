@@ -1,0 +1,33 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: \\t  code  \\n"
+---
+keys: none
+│          code      │
+:^                   :
+│                    │
+
+keys: C-a
+│          code      │
+:          ^         :
+│                    │
+
+keys: C-a
+│          code      │
+:^                   :
+│                    │
+
+keys: C-e
+│          code      │
+:              ^     :
+│                    │
+
+keys: C-e
+│          code      │
+:                ^   :
+│                    │
+
+keys: C-a
+│          code      │
+:          ^         :
+│                    │

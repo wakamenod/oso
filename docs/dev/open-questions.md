@@ -34,9 +34,8 @@ item notes when it must be settled.
   while the buffer's revision holds. After a change every visible row seeks
   and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
   rows of ordinary text, so this waits until a profile shows it.
-- Horizontal scroll extent needs the widest row, and the bidi-control
-  modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
-  summary tracks neither yet; add them when M2 needs them.
+- The bidi-control modeline warning (`ui.md`) needs a count of bidi controls,
+  which the TabMap summary does not track yet. Add it when M2 needs it.
 - A path swapped for a FIFO between the loader's check and its open blocks
   the loading thread (not the UI). Opening with `O_NONBLOCK` closes this
   and needs `libc` behind an `oso-platform` filesystem helper.
@@ -70,10 +69,9 @@ item notes when it must be settled.
   lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines
   (`display-model.md`), so they need line-level conversions then
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)). `TAB` counts
-  display columns the same way ([ADR 0056](adr/0056-typing.md)).
-- With `C-u` (M2): a large count to a command that walks clusters, such as
-  `C-d` or `C-f`, runs for as long as the walk on the UI thread
-  ([ADR 0056](adr/0056-typing.md)). Decide on a limit when keys can give counts.
+  display columns the same way ([ADR 0056](adr/0056-typing.md)), and word motion
+  treats the end of a row as the end of a word
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - `kill-buffer` must cancel a load at once (ADR 0022). Today the app drops
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
@@ -81,8 +79,6 @@ item notes when it must be settled.
 
 - isearch must not match the U+FFFD of an invalid byte
   (`InvalidBytes`, ADR 0040).
-- Horizontal mouse wheel and trackpad scrolling: the view scrolls only
-  vertically, and auto-hscroll keeps the cursor in view.
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
@@ -120,12 +116,11 @@ item notes when it must be settled.
   the unshifted key, so holding Shift a moment too long still types. Decide whether
   `KeyResolver` does the same, or record that oso differs.
 
-- By M2-9: `MouseScrollDelta::LineDelta` is rounded per event with no accumulator,
-  so small wheel deltas are dropped. Only `PixelDelta` adds up.
-- By M2-9: the wheel can leave the cursor out of view sideways. `Window::set_top`
-  moves a cursor left behind to column 0 and keeps `left`, and nothing follows it
-  until the next key. It also does not bound `top`, which its callers do. Have
-  `set_top` follow the primary cursor, and test the wheel with `left` above 0.
+- By M2-6: with the view sideways, a cursor one column to its left can show in the
+  window's margin, since panes are not clipped yet
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
+- By M2-7: nothing shows that a prefix argument is being typed
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
 - By M2-12, from trying the macOS IME by hand (winit 0.30), with its ADR to record

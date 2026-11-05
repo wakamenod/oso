@@ -1,0 +1,579 @@
+//! Scenario tests of word motion, mwim, `C-l`, the prefix argument and the
+//! wheel, with their keys, through the [`Dispatcher`] (ADR 0037, ADR 0058).
+//!
+//! Must not depend on: `app`, winit, the renderer or the GPU; these run on every
+//! OS with no window.
+
+use oso_core::buffer::Buffer;
+use oso_core::command::Effects;
+use oso_core::editor::Editor;
+use oso_core::key::KeySequence;
+use oso_core::selection::{Selection, SelectionSet};
+use oso_core::window::{Scroll, ViewSize};
+
+use super::Dispatcher;
+
+const REDRAW: Effects = Effects {
+    redraw: true,
+    exit: false,
+    prefix: None,
+};
+const NOTHING: Effects = Effects {
+    redraw: false,
+    exit: false,
+    prefix: None,
+};
+
+fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str) -> Effects {
+    let keys: KeySequence = keys.parse().unwrap();
+    dispatcher.handle_keys(editor, keys.0)
+}
+
+/// A dispatcher and an editor showing `text`, with a cursor at each of `cursors`.
+fn at(text: &str, cursors: &[usize]) -> (Dispatcher, Editor) {
+    let mut editor = Editor::with_buffer(Buffer::from_bytes("test", text.as_bytes()));
+    editor.set_view_size(ViewSize::new(10, 20));
+    place(&mut editor, cursors);
+    (Dispatcher::new(), editor)
+}
+
+fn place(editor: &mut Editor, cursors: &[usize]) {
+    let selections = cursors.iter().map(|at| Selection::at(*at)).collect();
+    let set = SelectionSet::from_parts(selections, 0).unwrap();
+    editor.restore_positions(set, Scroll::default());
+}
+
+fn text(editor: &Editor) -> String {
+    let rope = editor.current().1.text();
+    rope.chunks_in_range(0..rope.len()).collect()
+}
+
+fn cursors(editor: &Editor) -> Vec<usize> {
+    editor
+        .window()
+        .selections
+        .iter()
+        .map(|s| s.cursor)
+        .collect()
+}
+
+mod word_motion {
+    use super::*;
+
+    #[test]
+    fn m_f_and_m_b_go_by_japanese_words() {
+        let line = "日本語の文章で書く";
+        let (mut d, mut editor) = at(line, &[0]);
+        assert_eq!(send(&mut d, &mut editor, "M-f"), REDRAW);
+        assert_eq!(cursors(&editor), ["日本語の".len()]);
+        send(&mut d, &mut editor, "M-f");
+        assert_eq!(cursors(&editor), ["日本語の文章で".len()]);
+        send(&mut d, &mut editor, "M-f");
+        assert_eq!(cursors(&editor), [line.len()]);
+        assert_eq!(send(&mut d, &mut editor, "M-f"), NOTHING, "the end");
+        send(&mut d, &mut editor, "M-b M-b");
+        assert_eq!(cursors(&editor), ["日本語の".len()]);
+        send(&mut d, &mut editor, "M-b");
+        assert_eq!(send(&mut d, &mut editor, "M-b"), NOTHING, "the start");
+        assert_eq!(cursors(&editor), [0]);
+    }
+
+    #[test]
+    fn counts_and_negative_counts_go_either_way() {
+        let (mut d, mut editor) = at("fooBar baz qux", &[0]);
+        send(&mut d, &mut editor, "M-3 M-f");
+        assert_eq!(cursors(&editor), [10]);
+        send(&mut d, &mut editor, "M-- M-f");
+        assert_eq!(cursors(&editor), [7]);
+        send(&mut d, &mut editor, "C-u - 2 M-b");
+        assert_eq!(cursors(&editor), [14]);
+        assert_eq!(send(&mut d, &mut editor, "M-0 M-b"), NOTHING);
+    }
+
+    #[test]
+    fn every_cursor_moves_and_those_that_meet_merge() {
+        let (mut d, mut editor) = at("one two three", &[0, 1, 4]);
+        send(&mut d, &mut editor, "M-f");
+        assert_eq!(cursors(&editor), [3, 7]);
+        send(&mut d, &mut editor, "M-b");
+        assert_eq!(cursors(&editor), [0, 4]);
+    }
+
+    #[test]
+    fn m_d_deletes_to_the_end_of_the_word_as_one_undo_step() {
+        let (mut d, mut editor) = at("one two three", &[0]);
+        assert_eq!(send(&mut d, &mut editor, "M-d"), REDRAW);
+        assert_eq!(text(&editor), " two three");
+        send(&mut d, &mut editor, "M-d");
+        assert_eq!(text(&editor), " three");
+        assert_eq!(cursors(&editor), [0]);
+        send(&mut d, &mut editor, "C-z");
+        assert_eq!(text(&editor), " two three");
+        send(&mut d, &mut editor, "C-z");
+        assert_eq!(text(&editor), "one two three");
+        assert!(!editor.current().1.is_modified());
+    }
+
+    #[test]
+    fn m_del_deletes_back_to_the_start_of_the_word() {
+        let (mut d, mut editor) = at("日本語の文章で", &["日本語の文章で".len()]);
+        assert_eq!(send(&mut d, &mut editor, "M-DEL"), REDRAW);
+        assert_eq!(text(&editor), "日本語の");
+        assert_eq!(cursors(&editor), ["日本語の".len()]);
+        send(&mut d, &mut editor, "C-z");
+        assert_eq!(text(&editor), "日本語の文章で");
+        assert_eq!(cursors(&editor), ["日本語の文章で".len()]);
+    }
+
+    #[test]
+    fn deleting_words_takes_counts_and_their_signs() {
+        let (mut d, mut editor) = at("one two three four", &[8]);
+        send(&mut d, &mut editor, "M-2 M-d");
+        assert_eq!(text(&editor), "one two ");
+        send(&mut d, &mut editor, "C-z M-2 M-DEL");
+        assert_eq!(text(&editor), "three four");
+        send(&mut d, &mut editor, "C-z M-- M-d");
+        assert_eq!(text(&editor), "one three four");
+        send(&mut d, &mut editor, "C-z M-- M-DEL");
+        assert_eq!(text(&editor), "one two  four");
+        send(&mut d, &mut editor, "C-z M-0 M-d");
+        assert_eq!(text(&editor), "one two three four");
+    }
+
+    #[test]
+    fn at_the_edges_deleting_a_word_does_nothing_and_says_nothing() {
+        let (mut d, mut editor) = at("ab", &[2]);
+        assert_eq!(send(&mut d, &mut editor, "M-d"), NOTHING);
+        assert!(editor.messages().next().is_none());
+        place(&mut editor, &[0]);
+        assert_eq!(send(&mut d, &mut editor, "M-DEL"), NOTHING);
+        assert!(editor.messages().next().is_none());
+        assert_eq!(text(&editor), "ab");
+    }
+
+    #[test]
+    fn a_count_past_the_edge_deletes_what_there_is() {
+        let (mut d, mut editor) = at("ab cd", &[0]);
+        send(&mut d, &mut editor, "M-9 M-d");
+        assert_eq!(text(&editor), "");
+        send(&mut d, &mut editor, "C-z");
+        place(&mut editor, &[5]);
+        let dispatched = d.run_command(&mut editor, "backward-kill-word", Some(isize::MIN));
+        assert_eq!(dispatched.1, Ok(()));
+        assert_eq!(text(&editor), "ab cd", "isize::MIN goes the other way");
+    }
+
+    #[test]
+    fn every_cursor_deletes_in_one_undo_step_and_overlaps_merge() {
+        let (mut d, mut editor) = at("one two three", &[0, 4]);
+        send(&mut d, &mut editor, "M-d");
+        assert_eq!(text(&editor), "  three");
+        assert_eq!(cursors(&editor), [0, 1]);
+        send(&mut d, &mut editor, "C-z");
+        assert_eq!(text(&editor), "one two three");
+        assert_eq!(cursors(&editor), [0, 4]);
+        // The second cursor's word holds the first cursor.
+        let (mut d, mut editor) = at("one two", &[2, 3]);
+        send(&mut d, &mut editor, "M-d");
+        assert_eq!(text(&editor), "on");
+        assert_eq!(cursors(&editor), [2]);
+        send(&mut d, &mut editor, "C-z");
+        assert_eq!(text(&editor), "one two");
+    }
+
+    #[test]
+    fn a_read_only_buffer_refuses_a_deleted_word_even_with_nothing_to_delete() {
+        let mut editor = Editor::with_buffer(Buffer::from_bytes("bad", b"ab \xff"));
+        editor.set_view_size(ViewSize::new(10, 20));
+        let mut d = Dispatcher::new();
+        assert_eq!(send(&mut d, &mut editor, "M-d"), NOTHING);
+        assert_eq!(editor.messages().count(), 1);
+        send(&mut d, &mut editor, "M-DEL");
+        assert_eq!(editor.messages().count(), 2);
+        assert_eq!(editor.current().1.text().len(), 6);
+    }
+
+    #[test]
+    fn a_long_line_with_no_boundary_is_passed_a_piece_at_a_time() {
+        let long = "x".repeat(100_000);
+        let (mut d, mut editor) = at(&long, &[0]);
+        send(&mut d, &mut editor, "M-f");
+        let first = cursors(&editor)[0];
+        assert!(first > 0 && first < long.len(), "{first}");
+        send(&mut d, &mut editor, "M-f M-f M-f M-f");
+        assert_eq!(cursors(&editor), [long.len()]);
+        send(&mut d, &mut editor, "M-DEL");
+        let left = editor.current().1.text().len();
+        assert!(left > 0 && left < long.len(), "{left}");
+        send(&mut d, &mut editor, "C-z");
+        assert_eq!(editor.current().1.text().len(), long.len());
+    }
+}
+
+mod prefix {
+    use super::*;
+
+    #[test]
+    fn c_u_is_four_and_repeats_multiply() {
+        let text16 = "x".repeat(40);
+        let (mut d, mut editor) = at(&text16, &[0]);
+        assert_eq!(send(&mut d, &mut editor, "C-u"), NOTHING);
+        assert_eq!(cursors(&editor), [0], "it waits");
+        send(&mut d, &mut editor, "C-f");
+        assert_eq!(cursors(&editor), [4]);
+        send(&mut d, &mut editor, "C-f");
+        assert_eq!(cursors(&editor), [5], "used up");
+        send(&mut d, &mut editor, "C-u C-u C-f");
+        assert_eq!(cursors(&editor), [21]);
+    }
+
+    #[test]
+    fn digits_after_c_u_build_a_number() {
+        let (mut d, mut editor) = at(&"x".repeat(200), &[0]);
+        send(&mut d, &mut editor, "C-u 1 2 C-f");
+        assert_eq!(cursors(&editor), [12]);
+        send(&mut d, &mut editor, "C-u 0 C-f");
+        assert_eq!(cursors(&editor), [12], "a count of 0");
+        send(&mut d, &mut editor, "C-u 0 7 C-f");
+        assert_eq!(cursors(&editor), [19]);
+        send(&mut d, &mut editor, "C-u - 3 C-f");
+        assert_eq!(cursors(&editor), [16]);
+        send(&mut d, &mut editor, "C-u - C-b");
+        assert_eq!(cursors(&editor), [17]);
+        assert_eq!(text(&editor).len(), 200, "no digit was typed");
+    }
+
+    #[test]
+    fn meta_digits_begin_a_number_and_plain_digits_go_on() {
+        let (mut d, mut editor) = at(&"x".repeat(200), &[0]);
+        send(&mut d, &mut editor, "M-5 C-f");
+        assert_eq!(cursors(&editor), [5]);
+        send(&mut d, &mut editor, "M-1 0 C-f");
+        assert_eq!(cursors(&editor), [15]);
+        send(&mut d, &mut editor, "M-1 M-2 C-f");
+        assert_eq!(cursors(&editor), [27]);
+        send(&mut d, &mut editor, "M-- 2 C-f");
+        assert_eq!(cursors(&editor), [25]);
+        send(&mut d, &mut editor, "M-5 - C-f");
+        assert_eq!(cursors(&editor), [20]);
+    }
+
+    #[test]
+    fn a_digit_with_no_prefix_is_text_and_a_prefix_repeats_it() {
+        let (mut d, mut editor) = at("", &[0]);
+        send(&mut d, &mut editor, "5 -");
+        assert_eq!(text(&editor), "5-");
+        send(&mut d, &mut editor, "C-u a");
+        assert_eq!(text(&editor), "5-aaaa");
+        send(&mut d, &mut editor, "C-u 2 b");
+        assert_eq!(text(&editor), "5-aaaabb");
+        send(&mut d, &mut editor, "C-u 3 C-u 7");
+        assert_eq!(text(&editor), "5-aaaabb777", "C-u ended the number");
+        send(&mut d, &mut editor, "C-u 2 RET");
+        assert_eq!(text(&editor), "5-aaaabb777\n\n");
+    }
+
+    #[test]
+    fn a_negative_count_to_typing_signals_and_changes_nothing() {
+        let (mut d, mut editor) = at("", &[0]);
+        assert_eq!(send(&mut d, &mut editor, "M-- a"), NOTHING);
+        assert_eq!(text(&editor), "");
+        assert_eq!(editor.messages().count(), 1);
+    }
+
+    #[test]
+    fn a_count_goes_to_del_too() {
+        let (mut d, mut editor) = at("abcdef", &[6]);
+        send(&mut d, &mut editor, "C-u 2 DEL");
+        assert_eq!(text(&editor), "abcd");
+        send(&mut d, &mut editor, "C-u C-u DEL");
+        assert_eq!(text(&editor), "abcd", "past the start: nothing");
+        send(&mut d, &mut editor, "M-- DEL");
+        assert_eq!(text(&editor), "abcd", "nothing after the cursor");
+    }
+
+    #[test]
+    fn c_g_cancels_the_prefix_at_any_point() {
+        let (mut d, mut editor) = at("abcdefgh", &[0]);
+        assert_eq!(send(&mut d, &mut editor, "C-u C-g"), NOTHING);
+        send(&mut d, &mut editor, "C-f");
+        assert_eq!(cursors(&editor), [1]);
+        send(&mut d, &mut editor, "C-u 3 C-g C-f");
+        assert_eq!(cursors(&editor), [2]);
+        send(&mut d, &mut editor, "C-u C-x C-g C-f");
+        assert_eq!(cursors(&editor), [3], "with a pending prefix key too");
+        send(&mut d, &mut editor, "C-u C-x C-f");
+        send(&mut d, &mut editor, "C-f");
+        assert_eq!(cursors(&editor), [4], "an undefined sequence drops it");
+    }
+
+    #[test]
+    fn a_prefix_key_after_the_prefix_keeps_it_for_the_command() {
+        // Only the digits' own layer changes what a digit means, and not after C-x.
+        let (mut d, mut editor) = at("abc", &[0]);
+        send(&mut d, &mut editor, "C-u 2 C-x 5");
+        assert_eq!(cursors(&editor), [0], "C-x 5 is undefined, as without it");
+        assert_eq!(text(&editor), "abc");
+        assert!(d.pending().is_empty());
+        let effects = send(&mut d, &mut editor, "C-u 2 C-x C-c");
+        assert!(effects.exit, "a command that takes no count ignores it");
+    }
+
+    #[test]
+    fn a_huge_number_saturates_and_commands_limit_their_work() {
+        let (mut d, mut editor) = at("abc", &[0]);
+        send(
+            &mut d,
+            &mut editor,
+            "C-u 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 C-f",
+        );
+        assert_eq!(cursors(&editor), [3], "past the edge, with no walk");
+        send(
+            &mut d,
+            &mut editor,
+            "M-- 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 9 C-f",
+        );
+        assert_eq!(cursors(&editor), [0]);
+        send(
+            &mut d,
+            &mut editor,
+            "C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-u C-f",
+        );
+        assert_eq!(cursors(&editor), [3]);
+    }
+
+    #[test]
+    fn a_huge_count_to_typing_is_refused_and_one_to_undo_ends_with_the_history() {
+        let (mut d, mut editor) = at("", &[0]);
+        assert_eq!(
+            send(&mut d, &mut editor, "C-u 9 9 9 9 9 9 9 9 9 a"),
+            NOTHING
+        );
+        assert_eq!(text(&editor), "");
+        send(&mut d, &mut editor, "x");
+        send(&mut d, &mut editor, "C-u 9 9 9 9 9 9 C-z");
+        assert_eq!(text(&editor), "");
+        assert_eq!(
+            editor.messages().next_back(),
+            Some("No further undo information")
+        );
+    }
+
+    #[test]
+    fn undo_stops_after_what_a_command_crosses() {
+        let (mut d, mut editor) = at("", &[0]);
+        for _ in 0..10_001 {
+            send(&mut d, &mut editor, "RET");
+        }
+        send(&mut d, &mut editor, "C-u 9 9 9 9 9 C-z");
+        assert_eq!(text(&editor), "\n", "all but one");
+        assert_eq!(editor.messages().next_back(), Some("Count too large"));
+    }
+
+    #[test]
+    fn a_prefix_from_the_keys_reaches_a_command_by_name() {
+        let (mut d, mut editor) = at("abcdef", &[0]);
+        send(&mut d, &mut editor, "C-u 3");
+        let (_, result) = d.run_command(&mut editor, "forward-char", None);
+        assert_eq!(result, Ok(()));
+        assert_eq!(cursors(&editor), [3]);
+        send(&mut d, &mut editor, "C-u 3");
+        let (_, result) = d.run_command(&mut editor, "forward-char", Some(1));
+        assert_eq!(result, Ok(()));
+        assert_eq!(cursors(&editor), [4], "its own argument wins");
+        send(&mut d, &mut editor, "C-f");
+        assert_eq!(cursors(&editor), [5]);
+    }
+
+    #[test]
+    fn text_from_an_input_method_takes_the_prefix() {
+        let (mut d, mut editor) = at("", &[0]);
+        send(&mut d, &mut editor, "C-u 2");
+        d.insert_text(&mut editor, "語句");
+        assert_eq!(text(&editor), "語句語句");
+        d.insert_text(&mut editor, "x");
+        assert_eq!(text(&editor), "語句語句x");
+    }
+}
+
+mod mwim {
+    use super::*;
+
+    #[test]
+    fn c_a_and_c_e_toggle_through_their_keys() {
+        let line = "  code  ";
+        let (mut d, mut editor) = at(line, &[4]);
+        assert_eq!(send(&mut d, &mut editor, "C-a"), REDRAW);
+        assert_eq!(cursors(&editor), [2]);
+        send(&mut d, &mut editor, "C-a");
+        assert_eq!(cursors(&editor), [0]);
+        send(&mut d, &mut editor, "C-a");
+        assert_eq!(cursors(&editor), [2]);
+        send(&mut d, &mut editor, "C-e");
+        assert_eq!(cursors(&editor), [6]);
+        send(&mut d, &mut editor, "C-e");
+        assert_eq!(cursors(&editor), [8]);
+        send(&mut d, &mut editor, "C-e");
+        assert_eq!(cursors(&editor), [6]);
+    }
+
+    #[test]
+    fn home_and_end_go_to_the_ends_of_the_line() {
+        let (mut d, mut editor) = at("  code  ", &[4]);
+        send(&mut d, &mut editor, "<home>");
+        assert_eq!(cursors(&editor), [0]);
+        send(&mut d, &mut editor, "<end>");
+        assert_eq!(cursors(&editor), [8]);
+    }
+
+    #[test]
+    fn each_cursor_toggles_on_its_own_line() {
+        let (mut d, mut editor) = at("  a  \n  b  \n", &[2, 8]);
+        send(&mut d, &mut editor, "C-a");
+        assert_eq!(cursors(&editor), [0, 6]);
+        send(&mut d, &mut editor, "C-a C-e");
+        assert_eq!(cursors(&editor), [3, 9]);
+    }
+
+    #[test]
+    fn nothing_to_move_draws_nothing() {
+        let (mut d, mut editor) = at("", &[0]);
+        assert_eq!(send(&mut d, &mut editor, "C-a"), NOTHING);
+        assert_eq!(send(&mut d, &mut editor, "C-e"), NOTHING);
+    }
+
+    #[test]
+    fn a_count_goes_through_their_keys() {
+        let (mut d, mut editor) = at("a\n  b  \nc", &[0]);
+        send(&mut d, &mut editor, "C-u 2 C-a");
+        assert_eq!(cursors(&editor), [4]);
+        send(&mut d, &mut editor, "M-0 C-e");
+        assert_eq!(cursors(&editor), [1]);
+    }
+
+    #[test]
+    fn line_motion_stays_at_the_line_end_after_the_second_c_e_only() {
+        let text = "ab  \nabcdefgh\n";
+        let (mut d, mut editor) = at(text, &[0]);
+        send(&mut d, &mut editor, "C-e C-n");
+        assert_eq!(cursors(&editor), [5 + 2], "the same column");
+        let (mut d, mut editor) = at(text, &[0]);
+        send(&mut d, &mut editor, "C-e C-e C-n");
+        assert_eq!(cursors(&editor), [13], "the next line's end");
+    }
+}
+
+mod recenter {
+    use super::*;
+
+    /// A dispatcher and an editor of 100 numbered lines, in a window of 10 rows.
+    fn numbered(row: usize) -> (Dispatcher, Editor) {
+        let lines: String = (0..100).map(|i| format!("{i:02}\n")).collect();
+        let (mut d, mut editor) = at(&lines, &[row * 3]);
+        send(&mut d, &mut editor, "C-f C-b");
+        (d, editor)
+    }
+
+    fn top(editor: &Editor) -> usize {
+        editor.window().scroll().top
+    }
+
+    #[test]
+    fn c_l_cycles_middle_top_bottom() {
+        let (mut d, mut editor) = numbered(50);
+        assert_eq!(send(&mut d, &mut editor, "C-l"), REDRAW);
+        assert_eq!(top(&editor), 45);
+        send(&mut d, &mut editor, "C-l");
+        assert_eq!(top(&editor), 50);
+        send(&mut d, &mut editor, "C-l");
+        assert_eq!(top(&editor), 41);
+        send(&mut d, &mut editor, "C-l");
+        assert_eq!(top(&editor), 45, "round again");
+        assert_eq!(cursors(&editor), [150], "the cursor stays");
+    }
+
+    #[test]
+    fn another_key_starts_the_cycle_over() {
+        let (mut d, mut editor) = numbered(50);
+        send(&mut d, &mut editor, "C-l C-f C-b C-l");
+        assert_eq!(top(&editor), 45);
+        send(&mut d, &mut editor, "C-l <f35> C-l");
+        assert_eq!(top(&editor), 45, "an undefined key too");
+    }
+
+    #[test]
+    fn a_count_puts_the_cursor_on_that_row() {
+        let (mut d, mut editor) = numbered(50);
+        send(&mut d, &mut editor, "M-3 C-l");
+        assert_eq!(top(&editor), 47);
+        send(&mut d, &mut editor, "M-0 C-l");
+        assert_eq!(top(&editor), 50);
+        send(&mut d, &mut editor, "M-- C-l");
+        assert_eq!(top(&editor), 41);
+        send(&mut d, &mut editor, "M-- 2 C-l");
+        assert_eq!(top(&editor), 42);
+        send(&mut d, &mut editor, "C-u C-l");
+        assert_eq!(top(&editor), 45, "a plain C-u: the middle");
+    }
+
+    #[test]
+    fn near_the_start_the_view_stays_and_draws_nothing() {
+        let (mut d, mut editor) = numbered(2);
+        assert_eq!(send(&mut d, &mut editor, "C-l"), NOTHING);
+        assert_eq!(top(&editor), 0);
+        assert_eq!(send(&mut d, &mut editor, "C-l"), REDRAW, "the top");
+        assert_eq!(top(&editor), 2);
+        assert_eq!(send(&mut d, &mut editor, "C-l"), REDRAW, "the bottom");
+        assert_eq!(top(&editor), 0);
+    }
+
+    #[test]
+    fn other_cursors_in_view_stay_and_those_left_behind_move() {
+        let lines: String = (0..100).map(|i| format!("{i:02}\n")).collect();
+        let (mut d, mut editor) = at(&lines, &[50 * 3, 54 * 3 + 1, 90 * 3 + 1]);
+        send(&mut d, &mut editor, "C-f C-b");
+        send(&mut d, &mut editor, "C-l");
+        assert_eq!(top(&editor), 45);
+        assert_eq!(cursors(&editor), [150, 54 * 3, 54 * 3 + 1]);
+    }
+}
+
+mod wheel {
+    use super::*;
+
+    #[test]
+    fn a_wheel_with_the_view_sideways_brings_a_moved_cursor_back_into_view() {
+        let long = "x".repeat(60);
+        let lines: String = (0..40).map(|_| format!("{long}\n")).collect();
+        let (mut d, mut editor) = at(&lines, &[0]);
+        send(&mut d, &mut editor, "C-e");
+        assert_eq!(editor.window().scroll().left, 41);
+        assert!(editor.scroll_view(20));
+        assert_eq!(editor.window().scroll(), Scroll { top: 20, left: 0 });
+        assert_eq!(cursors(&editor), [20 * 61], "at column 0, in view");
+    }
+
+    #[test]
+    fn the_sideways_wheel_leaves_the_cursor_and_the_next_key_comes_back() {
+        let long = "x".repeat(60);
+        let (mut d, mut editor) = at(&long, &[0]);
+        assert!(editor.scroll_view_sideways(30));
+        assert_eq!(editor.window().scroll().left, 30);
+        assert_eq!(cursors(&editor), [0]);
+        assert_eq!(send(&mut d, &mut editor, "<f35>"), NOTHING, "nothing ran");
+        assert_eq!(editor.window().scroll().left, 30);
+        assert_eq!(send(&mut d, &mut editor, "C-f"), REDRAW);
+        assert_eq!(editor.window().scroll().left, 1);
+    }
+
+    #[test]
+    fn scrolling_down_keeps_the_view_sideways_while_the_cursor_is_in_view() {
+        let long = "x".repeat(60);
+        let lines: String = (0..40).map(|_| format!("{long}\n")).collect();
+        let (mut d, mut editor) = at(&lines, &[61 * 5]);
+        send(&mut d, &mut editor, "C-f C-b");
+        assert!(editor.scroll_view_sideways(10));
+        assert!(editor.scroll_view(2));
+        assert_eq!(editor.window().scroll(), Scroll { top: 2, left: 10 });
+    }
+}

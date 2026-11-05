@@ -8,4 +8,5 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("<next>", "scroll-up-command"),
     ("M-v", "scroll-down-command"),
     ("<prior>", "scroll-down-command"),
+    ("C-l", "recenter-top-bottom"),
 ];

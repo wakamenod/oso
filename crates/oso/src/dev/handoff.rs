@@ -7,7 +7,10 @@
 //!
 //! The state holds paths and positions and never any text, so a secret file's
 //! content cannot leave through it (ADR 0044), and a response line is enough
-//! to carry it (ADR 0032). The new instance reads each file from disk, so a
+//! to carry it (ADR 0032). Where a window showing such a file has its cursors is
+//! not in it either, since the socket can ask for the state and positions say
+//! something of the text: it starts over from the top (ADR 0051, ADR 0058). The
+//! new instance reads each file from disk, so a
 //! buffer with text no file holds cannot be handed over. Exporting one is an
 //! error that names it and quotes nothing, and the old instance stays
 //! (ADR 0051, ADR 0055). Carrying the text is M2-15.
@@ -75,11 +78,16 @@ pub fn export(
     for (id, buffer) in editor.buffers() {
         buffers.push(buffer_state(id, buffer)?);
     }
+    let at_the_top = SelectionSet::default();
     let windows: Vec<Value> = editor
         .windows()
         .map(|window| {
-            let (selections, scroll) = match restore.filter(|r| r.buffer == window.buffer()) {
+            // Positions still waiting came in with the import, and so say nothing
+            // of the text, even while a file counts as secret until it is judged.
+            let waiting = restore.filter(|r| r.buffer == window.buffer());
+            let (selections, scroll) = match waiting {
                 Some(restore) => (&restore.selections, restore.scroll),
+                None if editor.shown(window).is_secret() => (&at_the_top, Scroll::default()),
                 None => (&window.selections, window.scroll()),
             };
             json!({
