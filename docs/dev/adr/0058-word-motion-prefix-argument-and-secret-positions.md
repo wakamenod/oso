@@ -166,8 +166,9 @@ These ADRs stay as they are; this one changes the following:
 - A motion past a stop's limit can stop in the middle of a word, and forward and backward motion do not
   agree there. Only a run longer than about 128 KiB forward, or about 26 KiB backward, gets there. `C-a` and
   `C-e` cannot reach text past that many blanks in one row.
-- A count past about 8,000 line breaks signals "Count too large", and so does about `C-u 6000 M-b` on any text, since
-  going back reads a whole window per word, whatever the word's length.
+- A count past about 8,000 line breaks or words forward, or about 6,000 words backward, signals "Count too large" on
+  any text, since each stop charges for a seek, and going back for a whole window. Measured, this leaves room: a real
+  file's count takes about 5 ms when it runs out.
 - A restart loses a secret buffer's cursor position, which goes to the start of the file.
 - Tests of secret buffers over the socket can check only what remains. `oso ctl` shows no size for one with
   unsaved edits.
