@@ -28,6 +28,12 @@ All floating UI uses the floating windows of
 [ADR 0008](adr/0008-floating-ui.md), with a border and padding similar to
 posframe.
 
+`oso_core::frame` divides the frame into whole cells
+([ADR 0057](adr/0057-frame-layout.md)). The modeline and the echo area take the
+two bottom rows. A frame too small for all of it gives up the modeline first and
+the echo area next. The pixels left over go below the echo area, in the background
+color, so no partly shown row is drawn.
+
 ## Minibuffer and completion
 
 - The minibuffer floats at the **top center** of the frame.

@@ -146,6 +146,9 @@ item notes when it must be settled.
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
   ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+- Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
+  M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
+  ([ADR 0057](adr/0057-frame-layout.md)).
 
 ## M3
 

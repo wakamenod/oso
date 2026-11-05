@@ -637,9 +637,11 @@ pub fn oso_core::editor::Editor::buffer_mut(&mut self, oso_core::buffer::BufferI
 pub fn oso_core::editor::Editor::buffers(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::buffer::Buffer)>
 pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
+pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) -> core::option::Option<oso_core::frame::PixelRect>
 pub fn oso_core::editor::Editor::end_undo_group(&mut self)
 pub fn oso_core::editor::Editor::end_undo_group_after_panic(&mut self)
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
+pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages(&self) -> impl core::iter::traits::double_ended::DoubleEndedIterator<Item = &str> + core::iter::traits::exact_size::ExactSizeIterator
@@ -647,6 +649,7 @@ pub fn oso_core::editor::Editor::redo(&mut self) -> core::result::Result<(), oso
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
+pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
@@ -658,6 +661,97 @@ pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
 pub const oso_core::editor::SCRATCH: &str
+pub mod oso_core::frame
+pub struct oso_core::frame::CellRect
+pub oso_core::frame::CellRect::column: usize
+pub oso_core::frame::CellRect::columns: usize
+pub oso_core::frame::CellRect::row: usize
+pub oso_core::frame::CellRect::rows: usize
+impl oso_core::frame::CellRect
+pub fn oso_core::frame::CellRect::view_size(self) -> oso_core::window::ViewSize
+impl core::clone::Clone for oso_core::frame::CellRect
+pub fn oso_core::frame::CellRect::clone(&self) -> oso_core::frame::CellRect
+impl core::cmp::Eq for oso_core::frame::CellRect
+impl core::cmp::PartialEq for oso_core::frame::CellRect
+pub fn oso_core::frame::CellRect::eq(&self, &oso_core::frame::CellRect) -> bool
+impl core::fmt::Debug for oso_core::frame::CellRect
+pub fn oso_core::frame::CellRect::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::frame::CellRect
+pub fn oso_core::frame::CellRect::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::frame::CellRect
+impl core::marker::StructuralPartialEq for oso_core::frame::CellRect
+pub struct oso_core::frame::FrameLayout
+pub oso_core::frame::FrameLayout::echo: oso_core::frame::CellRect
+pub oso_core::frame::FrameLayout::window: oso_core::frame::WindowRegions
+impl core::clone::Clone for oso_core::frame::FrameLayout
+pub fn oso_core::frame::FrameLayout::clone(&self) -> oso_core::frame::FrameLayout
+impl core::cmp::Eq for oso_core::frame::FrameLayout
+impl core::cmp::PartialEq for oso_core::frame::FrameLayout
+pub fn oso_core::frame::FrameLayout::eq(&self, &oso_core::frame::FrameLayout) -> bool
+impl core::fmt::Debug for oso_core::frame::FrameLayout
+pub fn oso_core::frame::FrameLayout::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::frame::FrameLayout
+pub fn oso_core::frame::FrameLayout::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::frame::FrameLayout
+impl core::marker::StructuralPartialEq for oso_core::frame::FrameLayout
+pub struct oso_core::frame::FrameSize
+pub oso_core::frame::FrameSize::columns: usize
+pub oso_core::frame::FrameSize::rows: usize
+impl oso_core::frame::FrameSize
+pub fn oso_core::frame::FrameSize::holding(oso_core::window::ViewSize) -> Self
+impl core::clone::Clone for oso_core::frame::FrameSize
+pub fn oso_core::frame::FrameSize::clone(&self) -> oso_core::frame::FrameSize
+impl core::cmp::Eq for oso_core::frame::FrameSize
+impl core::cmp::PartialEq for oso_core::frame::FrameSize
+pub fn oso_core::frame::FrameSize::eq(&self, &oso_core::frame::FrameSize) -> bool
+impl core::fmt::Debug for oso_core::frame::FrameSize
+pub fn oso_core::frame::FrameSize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::frame::FrameSize
+pub fn oso_core::frame::FrameSize::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::frame::FrameSize
+impl core::marker::StructuralPartialEq for oso_core::frame::FrameSize
+pub struct oso_core::frame::PixelGrid
+impl oso_core::frame::PixelGrid
+pub fn oso_core::frame::PixelGrid::frame_size(self, u32, u32) -> oso_core::frame::FrameSize
+pub fn oso_core::frame::PixelGrid::new(f32, f32) -> Self
+pub fn oso_core::frame::PixelGrid::rect(self, oso_core::frame::CellRect) -> oso_core::frame::PixelRect
+impl core::clone::Clone for oso_core::frame::PixelGrid
+pub fn oso_core::frame::PixelGrid::clone(&self) -> oso_core::frame::PixelGrid
+impl core::cmp::PartialEq for oso_core::frame::PixelGrid
+pub fn oso_core::frame::PixelGrid::eq(&self, &oso_core::frame::PixelGrid) -> bool
+impl core::fmt::Debug for oso_core::frame::PixelGrid
+pub fn oso_core::frame::PixelGrid::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::frame::PixelGrid
+impl core::marker::StructuralPartialEq for oso_core::frame::PixelGrid
+pub struct oso_core::frame::PixelRect
+pub oso_core::frame::PixelRect::height: f32
+pub oso_core::frame::PixelRect::width: f32
+pub oso_core::frame::PixelRect::x: f32
+pub oso_core::frame::PixelRect::y: f32
+impl core::clone::Clone for oso_core::frame::PixelRect
+pub fn oso_core::frame::PixelRect::clone(&self) -> oso_core::frame::PixelRect
+impl core::cmp::PartialEq for oso_core::frame::PixelRect
+pub fn oso_core::frame::PixelRect::eq(&self, &oso_core::frame::PixelRect) -> bool
+impl core::fmt::Debug for oso_core::frame::PixelRect
+pub fn oso_core::frame::PixelRect::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::frame::PixelRect
+impl core::marker::StructuralPartialEq for oso_core::frame::PixelRect
+pub struct oso_core::frame::WindowRegions
+pub oso_core::frame::WindowRegions::modeline: oso_core::frame::CellRect
+pub oso_core::frame::WindowRegions::text: oso_core::frame::CellRect
+impl core::clone::Clone for oso_core::frame::WindowRegions
+pub fn oso_core::frame::WindowRegions::clone(&self) -> oso_core::frame::WindowRegions
+impl core::cmp::Eq for oso_core::frame::WindowRegions
+impl core::cmp::PartialEq for oso_core::frame::WindowRegions
+pub fn oso_core::frame::WindowRegions::eq(&self, &oso_core::frame::WindowRegions) -> bool
+impl core::fmt::Debug for oso_core::frame::WindowRegions
+pub fn oso_core::frame::WindowRegions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::frame::WindowRegions
+pub fn oso_core::frame::WindowRegions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::frame::WindowRegions
+impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
+pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
 pub mod oso_core::key
 pub enum oso_core::key::Key
 pub oso_core::key::Key::Char(char)

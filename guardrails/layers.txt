@@ -23,6 +23,7 @@ oso-core oso-platform
 keymap
 command
 editor
+frame
 window
 buffer motion
 undo

@@ -1,0 +1,11 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: one\\ntwo\\nthree\\n"
+---
+keys: none
+│one     │
+:^       :
+
+keys: C-n
+│two     │
+:^       :
