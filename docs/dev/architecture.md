@@ -130,8 +130,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
   mouse wheel set the window's top row with `Window::set_top`, the one
   place that moves cursors left behind into view. `Editor::restore_positions`
-  puts back cursors and a view saved together and then follows the cursor. No
-  public method sets the view alone.
+  puts back cursors and a view saved together and then follows the cursor. A
+  selected window that gets taller also pulls its top row back by at most the rows
+  it gained, to fill empty rows below the last one, so one that was short at the
+  end of a buffer shows its text again. No public method sets the view alone.
 - **Undo** is linear (`oso_core::undo`, [ADR 0030](adr/0030-m2-editing-commands.md)):
   an edit after an undo discards the redo groups. A group holds one command's
   edits across all cursors, and the selected window's cursors before and after.

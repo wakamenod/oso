@@ -108,12 +108,14 @@ impl App {
         }
     }
 
-    /// Reloads the font for a display with another scale.
+    /// Reloads the font for a display with another scale. The surface still has
+    /// the old display's pixels, so cells counted now would give a frame of the
+    /// wrong size for one event, and a taller one moves the view. The editor learns
+    /// the size from the `Resized` that follows, or from `draw_frame` if none does.
     pub(super) fn set_scale(&mut self, scale_factor: f64) {
         if let Some(view) = &mut self.view {
             let redraw = view.render_state.set_text_system(text::load(scale_factor));
             view.redraw_if(redraw);
-            self.update_frame_size();
         }
     }
 

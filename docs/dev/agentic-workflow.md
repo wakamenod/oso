@@ -76,9 +76,9 @@ The setup is recorded in
     between crates and modules (`guardrails/layers.txt`), confines wgpu,
     winit and OS bindings to their crates, applies the 600-line file
     limit with its ratchet (`guardrails/size-allowlist.txt`), rejects every
-    `static` item except a plain one in a top-level test item, and requires
+    `static` item except a plain one in a top-level test item, requires
     every Rust file to open with its responsibility and a
-    `Must not depend on:` paragraph.
+    `Must not depend on:` paragraph, and rejects conflict markers in any file.
   - Clippy bans global state (`OnceLock`, `LazyLock`, `thread_local!`),
     printing and `todo!`, and limits functions to 80 lines and a
     cognitive complexity of 25. `oso-core` denies `unwrap` and `expect`

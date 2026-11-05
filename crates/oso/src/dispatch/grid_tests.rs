@@ -399,6 +399,21 @@ mod scenarios {
     }
 
     #[test]
+    fn a_window_that_shrinks_and_grows_at_the_end_shows_the_text_again() {
+        let text: String = (0..8).map(|i| format!("line {i}\n")).collect();
+        let mut editor = open(text.as_bytes(), (4, 8));
+        let columns = 8;
+        let mut dispatcher = Dispatcher::new();
+        dispatcher.handle_keys(&mut editor, "M->".parse::<KeySequence>().unwrap().0);
+        let mut frames = vec![format!("keys: M->\n{}", text_grid(&editor))];
+        for rows in [2, 6] {
+            editor.set_frame_size(FrameSize { rows, columns });
+            frames.push(format!("frame rows: {rows}\n{}", text_grid(&editor)));
+        }
+        assert_frames("frame_grows_at_the_end", text.as_bytes(), &frames);
+    }
+
+    #[test]
     fn the_wheel_moves_the_view_and_takes_the_cursor_along() {
         let text: String = (0..8).map(|i| format!("line {i}\n")).collect();
         let mut editor = open(text.as_bytes(), (3, 8));

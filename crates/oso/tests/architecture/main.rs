@@ -1,11 +1,12 @@
 //! Architecture guardrails (ADR 0038, ADR 0039): the dependency direction
 //! between crates and between modules, external crates confined to their
 //! owner, the file-size ratchet, the ban on `static` items, the ban on
-//! spawning outside one module and the module headers. The rules live in `guardrails/`; the format is described at the
-//! top of each file there.
+//! spawning outside one module, the module headers and conflict markers in any
+//! file. The rules live in `guardrails/`; the format is described at the top of
+//! each file there.
 //!
 //! Must not depend on: any crate outside `std`, spawned processes or the
-//! compiler. The checks read source text and manifests only.
+//! compiler. The checks read the repository's files as text only.
 //!
 //! Each module holds one check or one input, with the unit tests that show
 //! it catches a violation; this file holds the checks run against the
@@ -14,6 +15,7 @@
 mod headers;
 mod lexer;
 mod manifests;
+mod markers;
 mod modules;
 mod report;
 mod rules;
@@ -162,6 +164,11 @@ fn every_file_states_its_responsibility_and_boundary() {
         "the header check sees too few files: {checked}"
     );
     assert_none(&problems);
+}
+
+#[test]
+fn no_file_holds_a_conflict_marker() {
+    assert_none(&markers::problems(&Workspace::current().repository_texts()));
 }
 
 /// Writes the design health report to `$OSO_HEALTH_REPORT`, compared with
