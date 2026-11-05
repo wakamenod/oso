@@ -1,6 +1,6 @@
 # 0056. Typing
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-05
 
 ## Context
