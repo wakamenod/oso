@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::panic::{self, AssertUnwindSafe};
 
+use crate::buffer::EditError;
 use crate::editor::Editor;
 
 /// The function behind a command.
@@ -109,24 +110,37 @@ impl Effects {
     }
 }
 
-/// What a command gets to work with: the host's editor state, and a place
-/// to leave requests for the host.
+/// What a command gets to work with: the host's editor state, the text that
+/// invoked it, and a place to leave requests for the host.
 ///
 /// New state reaches commands as new fields of [`Editor`] or new methods
 /// here, so existing commands keep compiling.
 pub struct Ctx<'a> {
     /// The editor state.
     pub editor: &'a mut Editor,
+    input: &'a str,
     effects: Effects,
 }
 
 impl<'a> Ctx<'a> {
-    /// A context over `editor`, with no requests yet.
+    /// A context over `editor`, with no input and no requests yet.
     pub fn new(editor: &'a mut Editor) -> Self {
+        Self::with_input(editor, "")
+    }
+
+    /// A context over `editor` for a command invoked by typing `input`.
+    pub fn with_input(editor: &'a mut Editor, input: &'a str) -> Self {
         Self {
             editor,
+            input,
             effects: Effects::default(),
         }
+    }
+
+    /// The text that invoked the command: the character a key types, or text
+    /// from an input method. Empty for a command invoked in any other way.
+    pub fn input(&self) -> &'a str {
+        self.input
     }
 
     /// Asks for a new frame. Call it when the command changed something
@@ -146,7 +160,8 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// A command that failed. Shown to the user (the echo area, from M2).
+/// A command that failed. The host keeps its message with
+/// [`Editor::message`], which the echo area draws from M2-7.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandError {
     message: Cow<'static, str>,
@@ -173,6 +188,12 @@ impl fmt::Display for CommandError {
 }
 
 impl std::error::Error for CommandError {}
+
+impl From<EditError> for CommandError {
+    fn from(error: EditError) -> Self {
+        Self::new(error.to_string())
+    }
+}
 
 /// Identifies a command in the [`Registry`] that returned it. Keymaps store
 /// these, so dispatching a key needs no name lookup.
@@ -434,6 +455,19 @@ mod tests {
             RegisterError::Duplicate("forward").to_string(),
             "command \"forward\" is registered twice"
         );
+    }
+
+    #[test]
+    fn edit_errors_become_messages_that_quote_no_text() {
+        let error = CommandError::from(crate::buffer::EditError::NoUndo);
+        assert_eq!(error.message(), "No further undo information");
+    }
+
+    #[test]
+    fn a_context_carries_the_input_it_was_made_with() {
+        let mut editor = Editor::default();
+        assert_eq!(Ctx::new(&mut editor).input(), "");
+        assert_eq!(Ctx::with_input(&mut editor, "語").input(), "語");
     }
 
     #[test]

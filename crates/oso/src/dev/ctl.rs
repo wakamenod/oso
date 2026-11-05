@@ -32,7 +32,6 @@ methods:
   run-command NAME [ARG]
                     runs a command by name, with a numeric argument if it takes one
   show-buffer ID    shows a buffer, by the id get-state reports
-  insert-text TEXT  inserts test text at the primary cursor, until typing exists
   check-handover    the generation, or why a restart would lose text
   export-state      what a new instance needs to take over: paths and positions,
                     and the generation
@@ -165,10 +164,6 @@ fn parse_params(
         "open-file" => {
             let path = positional.next().ok_or("open-file needs PATH")?;
             Some(json!({ "path": path }))
-        }
-        "insert-text" => {
-            let text = positional.next().ok_or("insert-text needs TEXT")?;
-            Some(json!({ "text": text }))
         }
         "exit" => positional
             .next()
@@ -361,7 +356,6 @@ mod tests {
             &["send-keys", "C-f"],
             &["run-command", "forward-char"],
             &["run-command", "forward-char", "-2"],
-            &["insert-text", "a"],
             &["check-handover"],
             &["export-state"],
             &["import-state", STATE],
@@ -423,10 +417,6 @@ mod tests {
         assert_eq!(parse(&[]), Err("no method given".into()));
         assert_eq!(parse(&["send-keys"]), Err("send-keys needs KEYS".into()));
         assert_eq!(parse(&["open-file"]), Err("open-file needs PATH".into()));
-        assert_eq!(
-            parse(&["insert-text"]),
-            Err("insert-text needs TEXT".into())
-        );
         assert_eq!(parse(&["--pid"]), Err("--pid needs a process ID".into()));
         assert!(
             parse(&["--pid", "x", "version"])

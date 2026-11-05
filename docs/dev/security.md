@@ -207,7 +207,8 @@ and below the row, and a label's glyphs keep their own cells
   This is reviewed when commands that spawn processes arrive (M3 onward)
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). A sandboxed
   client of the same user is trusted too, so giving it the socket gives it what
-  the dev instance can read ([ADR 0051](adr/0051-m2-plan-decisions.md)).
+  the dev instance can read ([ADR 0051](adr/0051-m2-plan-decisions.md)). `send-keys` also
+  edits any buffer it can show, in memory, secret or not ([ADR 0056](adr/0056-typing.md)).
 - Secret-pattern buffers give no text and no pixels over the socket: while
   one is shown, `screenshot` fails, `get-text` fails and `get-state` returns
   only its metadata. The path as opened, each symlink's target and the

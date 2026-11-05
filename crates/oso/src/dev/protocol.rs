@@ -83,8 +83,6 @@ pub enum UiOp {
     ExportState,
     /// Take over from the instance that exported this state.
     ImportState(Box<State>),
-    /// Insert text at the primary cursor, until typing exists (M2-4).
-    InsertText(String),
     /// Exit: without asking, or only if the generation is still this one.
     Exit { generation: Option<u64> },
     /// Performance samples for benchmarks (ADR 0025).
@@ -172,7 +170,6 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
                 .ok_or_else(|| bad(&id, "import-state needs a parameter \"state\"".into()))?;
             UiOp::ImportState(Box::new(handoff::parse(state).map_err(|m| bad(&id, m))?))
         }
-        "insert-text" => UiOp::InsertText(parse_text(params).map_err(|m| bad(&id, m))?),
         "exit" => UiOp::Exit {
             generation: parse_generation(&request, params).map_err(|m| bad(&id, m))?,
         },
@@ -218,14 +215,6 @@ fn parse_path(params: &Map<String, Value>) -> Result<PathBuf, String> {
     match params.get("path") {
         Some(Value::String(path)) if !path.is_empty() => Ok(PathBuf::from(path)),
         _ => Err("open-file needs a string parameter \"path\"".into()),
-    }
-}
-
-/// The `text` parameter of `insert-text`. The line limit bounds it.
-fn parse_text(params: &Map<String, Value>) -> Result<String, String> {
-    match params.get("text") {
-        Some(Value::String(text)) => Ok(text.clone()),
-        _ => Err("insert-text needs a string parameter \"text\"".into()),
     }
 }
 
@@ -633,18 +622,6 @@ mod tests {
             Method::Ui(UiOp::Exit { generation: None }),
             "as for any method, null params are none"
         );
-    }
-
-    #[test]
-    fn insert_text_needs_text() {
-        assert_eq!(
-            parsed(r#"{"method": "insert-text", "params": {"text": "a"}}"#).method,
-            Method::Ui(UiOp::InsertText("a".into()))
-        );
-        for params in [r#"{}"#, r#"{"text": 1}"#] {
-            let line = format!(r#"{{"method": "insert-text", "params": {params}}}"#);
-            assert!(error(&line).1.contains("\"text\""), "{params}");
-        }
     }
 
     #[test]

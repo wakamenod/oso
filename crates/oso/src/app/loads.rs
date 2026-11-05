@@ -123,8 +123,8 @@ impl App {
                 shown
             }
             LoadUpdate::Failed(e) => {
-                // The echo area shows this from M2.
-                log::warn!("cannot open {:?}: {e}", buffer.name());
+                let message = format!("cannot open {:?}: {e}", buffer.name());
+                self.editor.message(message);
                 self.editor.kill_buffer(id);
                 self.loads.swap_remove(index);
                 shown

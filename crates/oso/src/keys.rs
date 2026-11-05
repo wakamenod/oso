@@ -7,13 +7,38 @@
 //! the logo key is Super (architecture.md, Layers).
 
 use oso_core::key::{Key, KeyPress, Modifiers, NamedKey};
-use winit::event::KeyEvent;
+use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{self, ModifiersState};
 
+/// Whether a key event is a press the user made now. On X11 and Windows, winit
+/// generates presses for keys already held when the window gains focus, and one
+/// of those would run a command or type text nobody asked for.
+pub fn is_real_press(state: ElementState, is_synthetic: bool) -> bool {
+    state == ElementState::Pressed && !is_synthetic
+}
+
 /// The key press for `event`, or `None` for keys oso does not handle yet:
-/// lone modifiers, dead keys, composed text and keys with no Emacs name.
+/// lone modifiers, dead keys, text of several characters ([`typed_text`]) and keys
+/// with no Emacs name.
 pub fn from_event(event: &KeyEvent, modifiers: ModifiersState) -> Option<KeyPress> {
     translate(&event.logical_key, &key_without_modifiers(event), modifiers)
+}
+
+/// The text of a key that types several characters, such as lam-alef on an Arabic
+/// layout, which is no [`KeyPress`]. `None` with Control, Meta or Super held, so
+/// composed text with Option on macOS stays out (ADR 0033, ADR 0051).
+pub fn typed_text(event: &KeyEvent, modifiers: ModifiersState) -> Option<&str> {
+    several_characters(&event.logical_key, modifiers)
+}
+
+fn several_characters(logical: &keyboard::Key, state: ModifiersState) -> Option<&str> {
+    let keyboard::Key::Character(text) = logical else {
+        return None;
+    };
+    let text = text.as_str();
+    let plain = modifiers(state).without(Modifiers::SHIFT).is_empty();
+    let several = text.chars().nth(1).is_some();
+    (plain && several && !text.chars().any(char::is_control)).then_some(text)
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
@@ -159,8 +184,9 @@ fn function_number(key: keyboard::NamedKey) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::translate;
+    use super::{is_real_press, several_characters, translate};
     use oso_core::key::KeyPress;
+    use winit::event::ElementState;
     use winit::keyboard::{Key, ModifiersState, NamedKey, NativeKey};
 
     fn ch(s: &str) -> Key {
@@ -183,6 +209,29 @@ mod tests {
     const NONE: ModifiersState = ModifiersState::empty();
     const SHIFT: ModifiersState = ModifiersState::SHIFT;
     const CONTROL: ModifiersState = ModifiersState::CONTROL;
+    const SUPER_KEY: ModifiersState = ModifiersState::SUPER;
+
+    #[test]
+    fn only_a_real_press_counts() {
+        assert!(is_real_press(ElementState::Pressed, false));
+        assert!(!is_real_press(ElementState::Pressed, true), "held at focus");
+        assert!(!is_real_press(ElementState::Released, false));
+        assert!(!is_real_press(ElementState::Released, true));
+    }
+
+    #[test]
+    fn only_plain_text_of_several_characters_is_typed_text() {
+        let lam_alef = ch("لا");
+        assert_eq!(several_characters(&lam_alef, NONE), Some("لا"));
+        assert_eq!(several_characters(&lam_alef, SHIFT), Some("لا"));
+        for held in [CONTROL, meta(), SUPER_KEY, ModifiersState::ALT] {
+            assert_eq!(several_characters(&lam_alef, held), None, "{held:?}");
+        }
+        assert_eq!(several_characters(&ch("a"), NONE), None, "a key press");
+        assert_eq!(several_characters(&ch("a\u{7f}"), NONE), None, "a control");
+        let enter = Key::Named(NamedKey::Enter);
+        assert_eq!(several_characters(&enter, NONE), None);
+    }
 
     #[test]
     fn plain_keys() {

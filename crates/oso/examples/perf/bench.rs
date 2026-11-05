@@ -46,8 +46,15 @@ const MIXED_KEYS: [&str; 10] = [
 const SCROLL_KEYS: [&str; 8] = ["C-v", "C-v", "C-n", "M-v", "C-p", "M->", "M-<", "C-n"];
 /// Moving along one long line: the end of the line is the far jump.
 const LINE_KEYS: [&str; 6] = ["C-f", "C-f", "C-e", "C-a", "C-f", "C-b"];
-/// An unbound key: typing inserts nothing before M2.
-const UNBOUND_KEY: &str = "a";
+/// Typing on a screen of text: ASCII, full width and emoji, and a line break,
+/// which moves the rows below it.
+const TYPING_KEYS: [&str; 12] = [
+    "t", "y", "p", "e", "SPC", "日", "本", "語", "SPC", "🍣", "x", "RET",
+];
+/// Typing in one long line, which a line break would leave behind.
+const LINE_TYPING_KEYS: [&str; 8] = ["t", "y", "p", "e", "SPC", "日", "本", "語"];
+/// A key that stays unbound: its trip through the UI thread does nothing else.
+const UNBOUND_KEY: &str = "<f35>";
 
 /// How much to measure.
 pub struct Scale {
@@ -140,14 +147,26 @@ pub fn run_all(exe: &Path, scale: &Scale) -> Result<Report, String> {
     let big = dir.file("big.txt");
     let wrote = files::write_mixed(&big, scale.big_file);
     wrote.map_err(|e| format!("{}: {e}", big.display()))?;
-    big_file(exe, &big, &SCROLL_KEYS, "big", scale, &mut report)?;
+    let spec = BigFile {
+        name: "big",
+        keys: &SCROLL_KEYS,
+        typing: &TYPING_KEYS,
+        place: middle_of_the_file,
+    };
+    big_file(exe, &big, &spec, scale, &mut report)?;
     std::fs::remove_file(&big).map_err(|e| format!("{}: {e}", big.display()))?;
 
     log_step("the long line");
     let line = dir.file("line.txt");
     let wrote = files::write_long_line(&line, scale.long_line);
     wrote.map_err(|e| format!("{}: {e}", line.display()))?;
-    big_file(exe, &line, &LINE_KEYS, "line", scale, &mut report)?;
+    let spec = BigFile {
+        name: "line",
+        keys: &LINE_KEYS,
+        typing: &LINE_TYPING_KEYS,
+        place: near_the_end_of_the_first_line,
+    };
+    big_file(exe, &line, &spec, scale, &mut report)?;
     Ok(report)
 }
 
@@ -291,9 +310,71 @@ fn check_jumps(app: &mut App) -> Result<(), String> {
     settle(app).map(|_| ())
 }
 
+/// The bytes `count` keys from `keys` type, with a line break of one byte.
+fn typed_bytes(keys: &[&str], count: usize) -> u64 {
+    let bytes = |key: &&str| {
+        if matches!(*key, "SPC" | "RET") {
+            1
+        } else {
+            key.len()
+        }
+    };
+    keys.iter().cycle().take(count).map(bytes).sum::<usize>() as u64
+}
+
+/// The size of the text.
+fn text_bytes(app: &mut App) -> Result<u64, String> {
+    let state = app.call("get-state", None)?;
+    let bytes = state["buffer"]["bytes"].as_u64();
+    bytes.ok_or("no buffer size in get-state".to_owned())
+}
+
+/// Key press to presented frame while typing `keys`, for `count` keys after a
+/// warm-up for their glyphs. Fails unless each key drew a frame and the text grew
+/// by what they type, so that it cannot go on measuring keys that have stopped
+/// typing.
+fn typing(app: &mut App, keys: &[&str], count: usize, rng: &mut Lcg) -> Result<Vec<f64>, String> {
+    paced_keys(app, keys, keys.len() * 2, rng)?;
+    let before = text_bytes(app)?;
+    let samples = paced_keys(app, keys, count, rng)?;
+    let after = text_bytes(app)?;
+    let typed = typed_bytes(keys, count);
+    if after != before + typed {
+        return Err(format!(
+            "{count} keys should type {typed} bytes, and took the text from {before} to {after}"
+        ));
+    }
+    if samples.len() != count {
+        return Err(format!("{count} typed keys drew {} frames", samples.len()));
+    }
+    Ok(samples)
+}
+
+/// Key press to presented frame while `DEL` removes what `typing` typed. Only
+/// reported. Fails unless each key drew a frame and the text shrank.
+fn deleting(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Vec<f64>, String> {
+    let before = text_bytes(app)?;
+    let samples = paced_keys(app, &["DEL"], count, rng)?;
+    let after = text_bytes(app)?;
+    if after + count as u64 > before {
+        return Err(format!(
+            "{count} deleting keys took the text from {before} to {after} bytes"
+        ));
+    }
+    if samples.len() != count {
+        return Err(format!(
+            "{count} deleting keys drew {} frames",
+            samples.len()
+        ));
+    }
+    Ok(samples)
+}
+
 /// Key press to presented frame on a screen of mixed text, in new processes.
 fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> Result<(), String> {
     let (mut p50, mut p99, mut worst) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut type_p50, mut type_p99, mut type_worst) = (Vec::new(), Vec::new(), Vec::new());
+    let mut del_p99 = Vec::new();
     for run in 0..scale.key_runs {
         let mut app = App::start(exe, Some(file))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
@@ -306,11 +387,21 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
         p50.push(percentile(&samples, 50.0));
         p99.push(percentile(&samples, 99.0));
         worst.push(max(&samples));
+        let samples = typing(&mut app, &TYPING_KEYS, scale.keys, &mut rng)?;
+        type_p50.push(percentile(&samples, 50.0));
+        type_p99.push(percentile(&samples, 99.0));
+        type_worst.push(max(&samples));
+        let samples = deleting(&mut app, scale.keys, &mut rng)?;
+        del_p99.push(percentile(&samples, 99.0));
         app.stop();
     }
     report.add("key_p50_ms", p50);
     report.add("key_p99_ms", p99);
     report.add("key_max_ms", worst);
+    report.add("type_p50_ms", type_p50);
+    report.add("type_p99_ms", type_p99);
+    report.add("type_max_ms", type_worst);
+    report.add("del_p99_ms", del_p99);
     Ok(())
 }
 
@@ -351,38 +442,62 @@ fn open_file(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> Res
 /// One run on a big file: its numbers, each keyed by the end of a metric name.
 type RunNumbers = Vec<(&'static str, f64)>;
 
-/// Keys and "typing" on a big file, while it loads and after, in new
-/// processes, then edits of the same text in the core structures. Nothing
-/// inserts text in the app before M2, so typing is measured in two halves: an
-/// unbound key's trip through the UI thread, and the cost of an edit without
-/// a window.
+/// What to do on a big file.
+struct BigFile<'a> {
+    /// What its metrics start with.
+    name: &'a str,
+    /// Keys that move around in it.
+    keys: &'a [&'a str],
+    /// Keys that type in it.
+    typing: &'a [&'a str],
+    /// Goes to where they type.
+    place: fn(&mut App) -> Result<(), String>,
+}
+
+/// The line after the middle of a file with many lines, deep in its trees.
+fn middle_of_the_file(app: &mut App) -> Result<(), String> {
+    let params = json!({ "name": "beginning-of-buffer", "arg": 5 });
+    app.call("run-command", Some(params)).map(|_| ())
+}
+
+/// Near the end of the first line: for one long line, far along it, and with text
+/// after the cursor, since the very end of a buffer skips most of what a key costs.
+fn near_the_end_of_the_first_line(app: &mut App) -> Result<(), String> {
+    app.send_keys("M-< C-e")?;
+    let params = json!({ "name": "backward-char", "arg": 2000 });
+    app.call("run-command", Some(params)).map(|_| ())
+}
+
+/// Keys and typing on a big file, while it loads and after, in new processes,
+/// then edits of the same text in the core structures, which the typing metrics
+/// then show from the inside.
 fn big_file(
     exe: &Path,
     file: &Path,
-    keys: &[&str],
-    name: &str,
+    spec: &BigFile<'_>,
     scale: &Scale,
     report: &mut Report,
 ) -> Result<(), String> {
     let mut metrics: BTreeMap<&str, Vec<f64>> = BTreeMap::new();
     for run in 0..scale.big_runs {
-        for (metric, value) in big_file_run(exe, file, keys, scale, run as u64 + 1)? {
+        for (metric, value) in big_file_run(exe, file, spec, scale, run as u64 + 1)? {
             metrics.entry(metric).or_default().push(value);
         }
     }
     for (metric, runs) in metrics {
-        report.add(&format!("{name}_{metric}"), runs);
+        report.add(&format!("{}_{metric}", spec.name), runs);
     }
-    edit_costs(file, name, scale, report)
+    edit_costs(file, spec.name, scale, report)
 }
 
 fn big_file_run(
     exe: &Path,
     file: &Path,
-    keys: &[&str],
+    spec: &BigFile<'_>,
     scale: &Scale,
     seed: u64,
 ) -> Result<RunNumbers, String> {
+    let keys = spec.keys;
     let mut app = App::start(exe, Some(file))?;
     app.wait_until("first frame", FRAME_TIMEOUT, has_frame)?;
     let mut rng = Lcg(seed);
@@ -419,7 +534,7 @@ fn big_file_run(
     numbers.push(("keys_p99_ms", percentile(&samples, 99.0)));
     numbers.push(("keys_max_ms", max(&samples)));
 
-    // Loaded: "typing", as a round trip through the UI thread.
+    // Loaded: an unbound key's round trip through the UI thread.
     let mut trips = Vec::with_capacity(scale.big_keys);
     for _ in 0..scale.big_keys {
         let started = Instant::now();
@@ -428,6 +543,15 @@ fn big_file_run(
         thread::sleep(KEY_PACE);
     }
     numbers.push(("trip_max_ms", max(&trips)));
+
+    // Loaded: typing. Goes last, since it changes the file's text.
+    (spec.place)(&mut app)?;
+    settle(&mut app)?;
+    let samples = typing(&mut app, spec.typing, scale.big_keys, &mut rng)?;
+    numbers.push(("type_p99_ms", percentile(&samples, 99.0)));
+    numbers.push(("type_max_ms", max(&samples)));
+    let samples = deleting(&mut app, scale.big_keys, &mut rng)?;
+    numbers.push(("del_p99_ms", percentile(&samples, 99.0)));
     app.stop();
     Ok(numbers)
 }

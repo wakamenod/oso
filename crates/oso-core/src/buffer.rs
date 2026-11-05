@@ -521,6 +521,11 @@ impl Buffer {
         self.display.invalid_bytes()
     }
 
+    /// How many cells apart the tab stops are.
+    pub fn tab_width(&self) -> TabWidth {
+        self.display.tab_width()
+    }
+
     /// The BOM and line ending of the file, and whether it is binary.
     pub fn file_info(&self) -> FileInfo {
         self.info

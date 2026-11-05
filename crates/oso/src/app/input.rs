@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 use oso_core::key::KeyPress;
-use winit::event::{ElementState, KeyEvent, MouseScrollDelta};
+use winit::event::{KeyEvent, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
 
@@ -24,13 +24,19 @@ impl App {
     }
 
     /// Turns a key event from the window into a key press, and handles it.
-    pub(super) fn handle_key_event(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
-        // Process key-press events only.
-        if event.state != ElementState::Pressed {
+    pub(super) fn handle_key_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: &KeyEvent,
+        is_synthetic: bool,
+    ) {
+        if !keys::is_real_press(event.state, is_synthetic) {
             return;
         }
         if let Some(key) = keys::from_event(event, self.modifiers) {
             self.handle_key(event_loop, key);
+        } else if let Some(text) = keys::typed_text(event, self.modifiers) {
+            self.handle_text(event_loop, text);
         }
     }
 
@@ -43,6 +49,16 @@ impl App {
         log::trace!("key handled in {:?}", started.elapsed());
         #[cfg(feature = "dev")]
         self.timings.keys_handled(started, 1, effects.redraw);
+        self.apply(event_loop, effects);
+    }
+
+    /// Handles text from one key press that types several characters.
+    fn handle_text(&mut self, event_loop: &ActiveEventLoop, text: &str) {
+        let started = Instant::now();
+        let effects = self.dispatcher.insert_text(&mut self.editor, text);
+        #[cfg(feature = "dev")]
+        self.timings.keys_handled(started, 1, effects.redraw);
+        log::trace!("text handled in {:?}", started.elapsed());
         self.apply(event_loop, effects);
     }
 
