@@ -106,6 +106,14 @@ impl App {
         }
     }
 
+    /// Records keys for the benchmarks, unless a buffer that may hold secrets is
+    /// shown (ADR 0060).
+    #[cfg(feature = "dev")]
+    fn time_keys(&mut self, received: Instant, count: usize, redraw: bool) {
+        let redraw = redraw && !self.editor.shows_secret();
+        self.timings.keys_handled(received, count, redraw);
+    }
+
     fn request_redraw(&self) {
         if let Some(view) = &self.view {
             view.window.request_redraw();

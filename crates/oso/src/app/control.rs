@@ -37,7 +37,7 @@ impl App {
                 let started = Instant::now();
                 let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
                 log::trace!("key handled in {:?}", started.elapsed());
-                self.timings.keys_handled(received, count, effects.redraw);
+                self.time_keys(received, count, effects.redraw);
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }

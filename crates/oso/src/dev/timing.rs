@@ -3,7 +3,8 @@
 //! (ADR 0025, ADR 0046). Dev builds only.
 //!
 //! Must not depend on: `app`, winit or the GPU; the app tells it what
-//! happened, and it only keeps the numbers. It holds no buffer text.
+//! happened, and it only keeps the numbers. It holds no buffer text, and nothing
+//! of keys or frames while a buffer that may hold secrets is shown (ADR 0060).
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -101,10 +102,7 @@ impl Timings {
     /// is false if glyphs were left for the next frame.
     pub fn frame_presented(&mut self, complete: bool) {
         self.frames += 1;
-        self.first_frame.get_or_insert_with(|| FirstFrame {
-            after_start: self.started.elapsed(),
-            unix: unix_now(),
-        });
+        self.note_first_frames(complete);
         for received in self.waiting_keys.drain(..) {
             if self.key_latency_us.len() < MAX_KEY_SAMPLES {
                 let micros = received.elapsed().as_micros();
@@ -114,6 +112,22 @@ impl Timings {
                 self.dropped_keys += 1;
             }
         }
+    }
+
+    /// A frame was presented while a buffer that may hold secrets is shown. It
+    /// counts only as the first frame or the first screen of a load, since a file
+    /// counts as such until it is judged. Keys waiting for it leave no sample.
+    pub fn frame_presented_withheld(&mut self, complete: bool) {
+        self.waiting_keys.clear();
+        self.note_first_frames(complete);
+    }
+
+    /// Remembers the first frame, and the first complete screen of a load.
+    fn note_first_frames(&mut self, complete: bool) {
+        self.first_frame.get_or_insert_with(|| FirstFrame {
+            after_start: self.started.elapsed(),
+            unix: unix_now(),
+        });
         if complete
             && self.load.first_screen.is_none()
             && let Some(began) = self.load.began
@@ -190,6 +204,26 @@ mod tests {
             timings.take()["key_latency_us"].as_array().unwrap().len(),
             1
         );
+    }
+
+    #[test]
+    fn a_withheld_frame_counts_nothing_but_the_first_ones() {
+        let mut timings = timings();
+        let began = Instant::now();
+        timings.load_first_content(began);
+        timings.keys_handled(Instant::now(), 1, true);
+        timings.frame_presented_withheld(true);
+        let taken = timings.take();
+        assert_eq!(taken["frames"], 0);
+        assert_eq!(taken["keys_waiting"], 0, "the key leaves no sample");
+        assert_eq!(taken["key_latency_us"], json!([]));
+        assert!(taken["startup_us"].as_u64().is_some(), "the first frame");
+        assert!(taken["load"]["first_screen_us"].as_u64().is_some());
+        timings.keys_handled(Instant::now(), 1, true);
+        timings.frame_presented(true);
+        let taken = timings.take();
+        assert_eq!(taken["frames"], 1, "once it is no longer shown");
+        assert_eq!(taken["key_latency_us"].as_array().map(Vec::len), Some(1));
     }
 
     #[test]

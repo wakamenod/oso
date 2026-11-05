@@ -48,7 +48,7 @@ impl App {
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
         log::trace!("key handled in {:?}", started.elapsed());
         #[cfg(feature = "dev")]
-        self.timings.keys_handled(started, 1, effects.redraw);
+        self.time_keys(started, 1, effects.redraw);
         self.apply(event_loop, effects);
     }
 
@@ -57,7 +57,7 @@ impl App {
         let started = Instant::now();
         let effects = self.dispatcher.insert_text(&mut self.editor, text);
         #[cfg(feature = "dev")]
-        self.timings.keys_handled(started, 1, effects.redraw);
+        self.time_keys(started, 1, effects.redraw);
         log::trace!("text handled in {:?}", started.elapsed());
         self.apply(event_loop, effects);
     }

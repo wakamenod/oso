@@ -280,6 +280,23 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     app.show_buffer(&env_id);
     assert_withheld(&mut app);
 
+    // Keys leave no timing while it is shown, and do again once it is not.
+    app.call("take-timings", None);
+    app.send_keys("C-f");
+    let timings = app.call("take-timings", None);
+    assert_eq!(timings["keys_waiting"], 0, "a key waits to be timed");
+    assert_eq!(timings["key_latency_us"], json!([]), "a key was timed");
+    app.show_buffer(&plain_id);
+    app.send_keys("C-f");
+    let timings = app.call("take-timings", None);
+    let samples = timings["key_latency_us"].as_array().map_or(0, Vec::len);
+    assert_eq!(
+        timings["keys_waiting"].as_u64().unwrap_or(0) + samples as u64,
+        1,
+        "a key in an ordinary buffer was not timed",
+    );
+    app.show_buffer(&env_id);
+
     // An edit does not make it readable, and a restart names it and quotes nothing.
     app.send_keys("a");
     assert_text_withheld(&mut app);
