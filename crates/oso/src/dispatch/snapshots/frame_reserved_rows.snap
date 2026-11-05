@@ -1,0 +1,57 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: line 00\\nline 01\\nline 02\\nline 03\\nline 04\\nline 05\\nline 06\\nline 07\\nline 08\\nline 09\\nline 10\\nline 11\\n"
+---
+keys: none
+│line 00     │
+:^           :
+│line 01     │
+│line 02     │
+│line 03     │
+=            =
+"            "
+
+keys: C-n C-n C-n
+│line 00     │
+│line 01     │
+│line 02     │
+│line 03     │
+:^           :
+=            =
+"            "
+
+keys: C-n
+│line 01     │
+│line 02     │
+│line 03     │
+│line 04     │
+:^           :
+=            =
+"            "
+
+keys: C-v
+│line 03     │
+│line 04     │
+:^           :
+│line 05     │
+│line 06     │
+=            =
+"            "
+
+keys: M->
+│line 09     │
+│line 10     │
+│line 11     │
+│            │
+:^           :
+=            =
+"            "
+
+keys: M-<
+│line 00     │
+:^           :
+│line 01     │
+│line 02     │
+│line 03     │
+=            =
+"            "

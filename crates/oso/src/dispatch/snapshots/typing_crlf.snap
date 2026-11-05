@@ -7,15 +7,21 @@ keys: none
 :^       :
 │cd      │
 │        │
+=        =
+"        "
 
 keys: C-f RET
 │a       │
 │b       │
 :^       :
 │cd      │
+=        =
+"        "
 
 keys: DEL
 │ab      │
 : ^      :
 │cd      │
 │        │
+=        =
+"        "

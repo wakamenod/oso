@@ -7,33 +7,45 @@ keys: none
 :^           :
 │short       │
 │            │
+=            =
+"            "
 
 keys: C-e
 │pqrstuvwxyz │
 :           ^:
 │            │
 │            │
+=            =
+"            "
 
 keys: C-b C-b
 │pqrstuvwxyz │
 :         ^  :
 │            │
 │            │
+=            =
+"            "
 
 keys: C-a
 │0123456789ab│
 :^           :
 │short       │
 │            │
+=            =
+"            "
 
 keys: C-e C-n
 │56789abcdefg│
 │            │
 :^           :
 │            │
+=            =
+"            "
 
 keys: C-p C-e
 │pqrstuvwxyz │
 :           ^:
 │            │
 │            │
+=            =
+"            "

@@ -22,14 +22,10 @@ use std::sync::Arc;
 
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
+use oso_core::frame::{self, CellRect, FrameSize, PixelGrid};
 use oso_core::motion;
 use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, TextSystem};
-
-// Top-left margin, in physical pixels (will become the line-number gutter
-// offset in the future).
-const MARGIN_X: f32 = 8.0;
-const MARGIN_Y: f32 = 8.0;
 
 // Colors in linear RGB, until the theme of ADR 0027.
 const BACKGROUND: [f32; 4] = [0.05, 0.05, 0.07, 1.0];
@@ -54,6 +50,8 @@ pub struct TextView {
     /// The buffer's revision: while it holds, cached rows are reused
     /// without looking at the buffer.
     pub revision: u64,
+    /// The frame's cells it is drawn in. No row is drawn below them.
+    pub area: CellRect,
     /// The display row and column at the top left.
     pub scroll: Scroll,
     /// Where the cursor box goes.
@@ -320,13 +318,16 @@ impl RenderState {
         Redraw::Needed
     }
 
-    /// The rows and columns of text the surface shows in full, each at
-    /// least 1: the window size that scrolling works with.
-    pub fn text_area(&self) -> (usize, usize) {
+    /// Where the frame's cells are on the surface.
+    pub fn pixel_grid(&self) -> PixelGrid {
         let metrics = self.text_system.metrics();
-        let rows = (self.config.height as f32 - MARGIN_Y) / metrics.height;
-        let columns = (self.config.width as f32 - MARGIN_X) / metrics.width;
-        (rows.max(1.0) as usize, columns.max(1.0) as usize)
+        PixelGrid::new(metrics.width, metrics.height)
+    }
+
+    /// The whole cells the surface holds, which the frame is laid out in.
+    pub fn frame_size(&self) -> FrameSize {
+        self.pixel_grid()
+            .frame_size(self.config.width, self.config.height)
     }
 
     /// How many frames have been presented. A frame skipped because the
@@ -489,12 +490,19 @@ impl RenderState {
         // The box cursor covers the whole character under it, two cells for
         // a full-width one (ADR 0026).
         let cursor_cells = motion::cursor_cells(display, text.cursor);
+        let cursor_rect = frame::cursor_rect(text.area, text.scroll, text.cursor, cursor_cells);
+        let grid = self.pixel_grid();
+        let area = grid.rect(text.area);
         let layout = Layout {
-            origin: [MARGIN_X, MARGIN_Y],
-            viewport: [self.config.width as f32, self.config.height as f32],
+            origin: [area.x, area.y],
+            viewport: [self.config.width as f32, area.y + area.height],
             metrics,
             scroll: text.scroll,
-            cursor: (text.cursor, cursor_cells),
+            // Glyphs take the box's color only where the box is.
+            cursor: cursor_rect.map_or((text.cursor, 0), |cells| {
+                let column = text.scroll.left + (cells.column - text.area.column);
+                (DisplayPoint::new(text.cursor.row, column), cells.columns)
+            }),
             color: FOREGROUND,
             escape_color: ESCAPE,
             cursor_color: BACKGROUND,
@@ -531,11 +539,14 @@ impl RenderState {
                 color: ESCAPE_BOX,
             });
         }
-        self.rects.push(Rect {
-            position: layout.cell(text.cursor.row, text.cursor.column),
-            size: [metrics.width * cursor_cells as f32, metrics.height],
-            color: CURSOR,
-        });
+        if let Some(cells) = cursor_rect {
+            let cursor = grid.rect(cells);
+            self.rects.push(Rect {
+                position: [cursor.x, cursor.y],
+                size: [cursor.width, cursor.height],
+                color: CURSOR,
+            });
+        }
         self.shape_renderer
             .prepare(&self.device, &self.queue, &self.rects);
     }

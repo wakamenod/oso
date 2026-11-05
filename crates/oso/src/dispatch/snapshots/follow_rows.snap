@@ -7,21 +7,29 @@ keys: none
 :^       :
 │line 1  │
 │line 2  │
+=        =
+"        "
 
 keys: C-n C-n
 │line 0  │
 │line 1  │
 │line 2  │
 :^       :
+=        =
+"        "
 
 keys: C-n
 │line 1  │
 │line 2  │
 │line 3  │
 :^       :
+=        =
+"        "
 
 keys: C-p C-p C-p
 │line 0  │
 :^       :
 │line 1  │
 │line 2  │
+=        =
+"        "

@@ -12,6 +12,8 @@ keys: none
 │end^M       │
 :   ~~       :
 │            │
+=            =
+"            "
 
 keys: C-n C-f C-f C-f C-f
 │crlf        │
@@ -22,3 +24,5 @@ keys: C-n C-f C-f C-f C-f
 │end^M       │
 :   ~~       :
 │            │
+=            =
+"            "
