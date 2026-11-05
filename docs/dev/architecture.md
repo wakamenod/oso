@@ -348,9 +348,16 @@ Full details are in [`security.md`](security.md).
   - It polls the sources, and spawns cargo and the new binary through
     `oso-platform::process`.
   - The state holds paths and positions and never text, so the new instance
-    reads every file from disk. Unsaved content joins it with M2
+    reads every file from disk. Unsaved content joins it with M2-15
     ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)); undo history
     does not ([ADR 0051](adr/0051-m2-plan-decisions.md)).
+  - Until then a modified buffer holds the restart, and the supervisor asks before
+    it starts anything. An instance goes only when it says so itself: the supervisor
+    never kills, the `exit` it sends carries the generation of the export, and an
+    instance whose text has changed since refuses. If the old one refuses, the new
+    one goes unless it has been edited too, and then both stay. Instances run in
+    process groups of their own, so Ctrl-C ends the supervisor and leaves their
+    windows ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - **Control socket:** agents can send keys, run commands, read state and take
   screenshots ([ADR 0016](adr/0016-dev-control-socket.md)). The protocol is
   JSON Lines, and `oso ctl` is the client

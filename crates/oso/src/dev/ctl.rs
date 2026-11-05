@@ -32,9 +32,14 @@ methods:
   run-command NAME [ARG]
                     runs a command by name, with a numeric argument if it takes one
   show-buffer ID    shows a buffer, by the id get-state reports
-  export-state      what a new instance needs to take over: paths and positions
+  insert-text TEXT  inserts test text at the primary cursor, until typing exists
+  check-handover    the generation, or why a restart would lose text
+  export-state      what a new instance needs to take over: paths and positions,
+                    and the generation
   import-state JSON takes over from that state, in an instance that opened nothing
-  exit              exits the instance, without asking
+                    and has no edits
+  exit [GENERATION] exits the instance: without asking, unsaved text or not, or,
+                    given a generation, only if nothing has changed since it
 
 Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
 and screenshot fails while one is shown.
@@ -124,17 +129,29 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
     }
     let mut positional = positional.into_iter();
     let method = positional.next().ok_or("no method given")?;
-    let mut number = |what: &str| {
-        let value = positional
-            .next()
-            .ok_or_else(|| format!("{method} needs {what}"))?;
-        value
-            .parse::<i64>()
-            .map_err(|_| format!("{what} is not a number: {value:?}"))
-    };
-    let params = match method.as_str() {
-        "get-text" => Some(json!({ "start_row": number("START")?, "rows": number("ROWS")? })),
-        "show-buffer" => Some(json!({ "buffer": number("ID")? })),
+    let params = parse_params(&method, &mut positional)?;
+    if let Some(extra) = positional.next() {
+        return Err(format!("unexpected argument {extra:?}"));
+    }
+    Ok(Some(Invocation {
+        pid,
+        method,
+        params,
+    }))
+}
+
+/// The parameters of `method`, from the arguments after it.
+fn parse_params(
+    method: &str,
+    positional: &mut impl Iterator<Item = String>,
+) -> Result<Option<Value>, String> {
+    let params = match method {
+        "get-text" => {
+            let start = parse_number(method, "START", positional)?;
+            let rows = parse_number(method, "ROWS", positional)?;
+            Some(json!({ "start_row": start, "rows": rows }))
+        }
+        "show-buffer" => Some(json!({ "buffer": parse_number(method, "ID", positional)? })),
         "import-state" => {
             let state = positional.next().ok_or("import-state needs JSON")?;
             let state: Value =
@@ -149,6 +166,19 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
             let path = positional.next().ok_or("open-file needs PATH")?;
             Some(json!({ "path": path }))
         }
+        "insert-text" => {
+            let text = positional.next().ok_or("insert-text needs TEXT")?;
+            Some(json!({ "text": text }))
+        }
+        "exit" => positional
+            .next()
+            .map(|generation| {
+                generation
+                    .parse::<u64>()
+                    .map(|generation| json!({ "generation": generation }))
+                    .map_err(|_| format!("GENERATION is not a number: {generation:?}"))
+            })
+            .transpose()?,
         "run-command" => {
             let name = positional.next().ok_or("run-command needs NAME")?;
             let arg = positional
@@ -162,14 +192,21 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Invocation>, String> {
         }
         _ => None,
     };
-    if let Some(extra) = positional.next() {
-        return Err(format!("unexpected argument {extra:?}"));
-    }
-    Ok(Some(Invocation {
-        pid,
-        method,
-        params,
-    }))
+    Ok(params)
+}
+
+/// The next argument of `method`, called `what` in messages, as a number.
+fn parse_number(
+    method: &str,
+    what: &str,
+    positional: &mut impl Iterator<Item = String>,
+) -> Result<i64, String> {
+    let value = positional
+        .next()
+        .ok_or_else(|| format!("{method} needs {what}"))?;
+    value
+        .parse()
+        .map_err(|_| format!("{what} is not a number: {value:?}"))
 }
 
 /// Sends the request and returns the response line.
@@ -191,9 +228,20 @@ pub fn exchange(
     method: &str,
     params: Option<Value>,
 ) -> io::Result<String> {
+    exchange_within(dir, pid, method, params, RESPONSE_TIMEOUT)
+}
+
+/// [`exchange`], giving up on a response after `patience`.
+pub fn exchange_within(
+    dir: &ControlDir,
+    pid: Option<u32>,
+    method: &str,
+    params: Option<Value>,
+    patience: Duration,
+) -> io::Result<String> {
     let (_, stream) = dir.connect(pid)?;
-    stream.set_read_timeout(Some(RESPONSE_TIMEOUT))?;
-    stream.set_write_timeout(Some(RESPONSE_TIMEOUT))?;
+    stream.set_read_timeout(Some(patience))?;
+    stream.set_write_timeout(Some(patience))?;
     let mut writer = stream.try_clone()?;
     let request = protocol::request(1, method, params);
     writeln!(writer, "{request}")?;
@@ -313,9 +361,12 @@ mod tests {
             &["send-keys", "C-f"],
             &["run-command", "forward-char"],
             &["run-command", "forward-char", "-2"],
+            &["insert-text", "a"],
+            &["check-handover"],
             &["export-state"],
             &["import-state", STATE],
             &["exit"],
+            &["exit", "18446744073709551615"],
         ] {
             let invocation = parse(args).unwrap().unwrap();
             let line = protocol::request(1, &invocation.method, invocation.params);
@@ -341,6 +392,20 @@ mod tests {
     }
 
     #[test]
+    fn exit_takes_a_generation_or_nothing() {
+        let params = |args: &[&str]| parse(args).unwrap().unwrap().params;
+        assert_eq!(params(&["exit"]), None);
+        assert_eq!(
+            params(&["exit", "7"]),
+            Some(json!({ "generation": 7 })),
+            "guarded"
+        );
+        // Not a silent unconditional exit.
+        assert!(parse(&["exit", "x"]).unwrap_err().contains("\"x\""));
+        assert!(parse(&["exit", "-1"]).unwrap_err().contains("\"-1\""));
+    }
+
+    #[test]
     fn unknown_methods_are_left_to_the_server() {
         let invocation = parse(&["no-such-method"]).unwrap().unwrap();
         assert_eq!(invocation.method, "no-such-method");
@@ -358,6 +423,10 @@ mod tests {
         assert_eq!(parse(&[]), Err("no method given".into()));
         assert_eq!(parse(&["send-keys"]), Err("send-keys needs KEYS".into()));
         assert_eq!(parse(&["open-file"]), Err("open-file needs PATH".into()));
+        assert_eq!(
+            parse(&["insert-text"]),
+            Err("insert-text needs TEXT".into())
+        );
         assert_eq!(parse(&["--pid"]), Err("--pid needs a process ID".into()));
         assert!(
             parse(&["--pid", "x", "version"])

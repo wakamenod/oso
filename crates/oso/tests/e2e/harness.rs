@@ -247,6 +247,7 @@ impl App {
             inherit: &["XDG_RUNTIME_DIR"],
             stdout: Sink::Piped,
             stderr: Sink::Null,
+            own_process_group: false,
         })
         .expect("cannot start oso ctl");
         let mut output = String::new();
@@ -257,6 +258,27 @@ impl App {
             .read_to_string(&mut output)
             .expect("cannot read what oso ctl printed");
         (child.wait().expect("cannot wait for oso ctl"), output)
+    }
+
+    /// Sends `first` on this connection and at once `second` on a new one, so that
+    /// both are likely to be queued together, and returns each response line. A
+    /// line is empty if the instance hung up first.
+    pub fn race(&mut self, first: &Value, second: &Value) -> (String, String) {
+        let (_, other) = self
+            .dir
+            .connect(Some(self.pid()))
+            .expect("cannot make a second connection");
+        other
+            .set_read_timeout(Some(TIMEOUT))
+            .expect("cannot set a timeout");
+        let mut reader = BufReader::new(other.try_clone().expect("cannot use the socket"));
+        let mut writer = other;
+        let _ = self.writer.write_all(format!("{first}\n").as_bytes());
+        let _ = writer.write_all(format!("{second}\n").as_bytes());
+        let (mut first_line, mut second_line) = (String::new(), String::new());
+        let _ = self.reader.read_line(&mut first_line);
+        let _ = reader.read_line(&mut second_line);
+        (first_line, second_line)
     }
 
     /// Stops the instance and returns the end of its log, whole and raw. For
@@ -307,6 +329,7 @@ impl Process {
             inherit: &INSTANCE_ENV,
             stdout: Sink::Null,
             stderr: Sink::Piped,
+            own_process_group: false,
         })
         .expect("cannot start the instance");
         let log = Arc::new(Mutex::new(Vec::new()));
@@ -482,6 +505,7 @@ pub fn process_exists(pid: u32) -> bool {
         inherit: &[],
         stdout: Sink::Null,
         stderr: Sink::Null,
+        own_process_group: false,
     })
     .and_then(|mut child| child.wait())
     .expect("cannot run ps");

@@ -26,7 +26,7 @@ use serde_json::json;
 
 pub use protocol::{Reply, UiOp};
 pub use server::UiRequest;
-pub use state::{get_state, get_text, screenshot_allowed, show_buffer};
+pub use state::{get_state, get_text, insert_text, screenshot_allowed, show_buffer};
 pub use timing::Timings;
 
 /// Appears in every binary built with the `dev` feature, and in no other.

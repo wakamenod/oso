@@ -34,7 +34,10 @@ impl ApplicationHandler<UserEvent> for App {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        if self.view.is_none() {
+        // An exit only sets a flag, and winit still delivers what is queued. Input
+        // handled now, by any path, would be lost with the process, and nothing
+        // else here matters to a window about to go.
+        if self.view.is_none() || event_loop.exiting() {
             return;
         }
 

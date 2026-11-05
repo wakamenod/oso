@@ -8,11 +8,16 @@
 //! code anyway. New dependencies are not fetched: the build is offline.
 //!
 //! On a change it runs an incremental build, shown in the terminal. If that
-//! fails, the instance keeps running. If it succeeds, the new binary starts,
-//! takes over the old instance's state, and only then does the old one exit.
-//! A new binary that cannot start is stopped and the old one kept. One that
-//! refuses the state stays open, clean, beside the old one until the next
-//! build.
+//! fails, the instance keeps running. If it succeeds, and no buffer holds unsaved
+//! edits, the new binary starts, takes over the old instance's state, and only
+//! then does the old one exit. A new binary that cannot start is closed and the
+//! old one kept. One that refuses the state stays open beside the old one until
+//! the next build, which closes it unless it has been edited.
+//!
+//! It never kills an instance, which may hold unsaved text. One that cannot be
+//! stopped is left running, and the log says why. Instances run in process groups
+//! of their own, so Ctrl-C here ends this and the build but leaves their windows,
+//! for the user to close (ADR 0055).
 //!
 //! The supervisor keeps running the code it was started with, so changes to
 //! this file take effect on the next `just dev`.
@@ -26,18 +31,20 @@ use std::time::{Duration, Instant};
 
 use oso_platform::control::ControlDir;
 use oso_platform::process::{Executable, Sink, Spawn, spawn};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::ctl;
-use super::protocol;
-use super::restart::{Handover, Instance, hand_over};
+use super::protocol::{self, EXIT_REFUSED};
+use super::restart::{CHECK, Instance, Instances, NotStopped, restart};
 use super::watch::Sources;
 
 const USAGE: &str = "\
 usage: oso dev [FILE]
 
 Runs oso, rebuilds it when a Rust source changes, and restarts it with the same
-buffers, cursors and window. Run it from the repository root (`just dev`).";
+buffers, cursors and window. A buffer with unsaved edits holds the restart: save
+it, and the next build goes through. Ctrl-C ends this but leaves the window open.
+Run it from the repository root (`just dev`).";
 
 /// How often to look at the sources and the instance.
 const POLL: Duration = Duration::from_millis(100);
@@ -51,8 +58,12 @@ const START_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long to wait between looks at a starting instance.
 const START_POLL: Duration = Duration::from_millis(20);
 
-/// How long an instance may take to exit before it is killed.
+/// How long an instance may take to exit before it is left running.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long one that got no window may take to answer. Longer than a busy UI
+/// thread takes, and short enough that those that never answer hold up no restart.
+const BRIEF_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// What cargo may need beyond the base set. Dropping one that a build script
 /// watches would rebuild dependencies, so these follow the user's shell.
@@ -156,13 +167,14 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
     let cargo = Executable::from_path("cargo", Some(&root))?;
     let binary = Executable::absolute(std::env::current_exe()?)?;
     let mut sources = Sources::new(&root);
-    let mut current = Some(Running::start(&binary, &first_args, &root, &dir)?);
-    let mut clean: Option<Running> = None;
+    // Counts the builds that made a new binary, to tell who runs the newest.
+    let mut newest = 0;
+    let mut instances = Instances::new(Running::start(&binary, &first_args, &root, &dir, newest)?);
     let mut retry = false;
     log::info!("oso dev: watching the sources; a failed build keeps this instance");
     loop {
         thread::sleep(POLL);
-        if let Some(status) = reap(&mut current, &mut clean) {
+        if let Some(status) = reap(&mut instances, &mut retry, newest) {
             return Ok(status);
         }
         if !sources.changed() {
@@ -188,9 +200,12 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
             }
         };
         // Nothing to do, unless the last try left things unfinished.
-        if fresh && current.is_some() && !retry {
+        if fresh && instances.current.is_some() && !retry {
             log::info!("oso dev: cargo rebuilt nothing");
             continue;
+        }
+        if !fresh {
+            newest += 1;
         }
         let binary = match Executable::absolute(built) {
             Ok(binary) => binary,
@@ -200,80 +215,57 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
             }
         };
         let build_time = started.elapsed();
-        if let Some(mut extra) = clean.take() {
-            extra.stop();
+        let start = || Running::start(&binary, &[], &root, &dir, newest).map_err(|e| e.to_string());
+        retry = !restart(&mut instances, start);
+        if !retry {
+            log::info!(
+                "oso dev: restart took {:?} since the change was seen: build {build_time:?}",
+                changed.elapsed(),
+            );
         }
-        let start = || Running::start(&binary, &[], &root, &dir).map_err(|e| e.to_string());
-        retry = !restart(&mut current, &mut clean, start);
-        log::info!(
-            "oso dev: restart took {:?} since the change was seen: build {build_time:?}",
-            changed.elapsed(),
-        );
     }
 }
 
 /// Forgets instances that have exited. Returns the status to exit with once
 /// the user has closed the last one. An instance that crashed is replaced by
-/// the next build.
-fn reap(current: &mut Option<Running>, clean: &mut Option<Running>) -> Option<i32> {
-    if clean.as_mut().is_some_and(|extra| extra.exited().is_some()) {
-        *clean = None;
+/// the next build. One promoted from beside it that already runs the newest binary
+/// has nothing to restart for, and a restart would drop its undo history.
+fn reap(instances: &mut Instances<Running>, retry: &mut bool, newest: u64) -> Option<i32> {
+    instances
+        .strays
+        .retain_mut(|stray| stray.exited().is_none());
+    if instances
+        .beside
+        .as_mut()
+        .is_some_and(|extra| extra.exited().is_some())
+    {
+        instances.beside = None;
     }
-    let status = current.as_mut()?.exited()?;
-    *current = clean.take();
-    if current.is_some() {
+    let status = instances.current.as_mut()?.exited()?;
+    instances.current = instances.beside.take();
+    if let Some(promoted) = &instances.current {
+        *retry = *retry && promoted.build != newest;
         return None;
     }
     if status {
+        for stray in &instances.strays {
+            log::warn!(
+                "oso dev: instance {} is left running and is yours to close",
+                stray.child.id()
+            );
+        }
         return Some(0);
     }
     log::error!("oso dev: the instance crashed; the next good build starts a new one");
     None
 }
 
-/// Moves on to a new binary, keeping what `current` holds if there is one.
-/// Returns whether a new instance runs. Reasons are logged escaped, since they
-/// can quote a file name and this is a terminal.
-fn restart<S>(current: &mut Option<Running>, clean: &mut Option<Running>, start: S) -> bool
-where
-    S: FnOnce() -> Result<Running, String>,
-{
-    let Some(old) = current.as_mut() else {
-        return match start().and_then(|mut new| new.wait_until_ready().map(|()| new)) {
-            Ok(new) => {
-                *current = Some(new);
-                true
-            }
-            Err(reason) => {
-                log::warn!("oso dev: the new build did not start: {reason:?}");
-                false
-            }
-        };
-    };
-    match hand_over(old, start) {
-        Handover::Replaced(new) => {
-            *current = Some(new);
-            true
-        }
-        Handover::Refused { new, reason } => {
-            log::warn!(
-                "oso dev: the new instance refused the state, so it starts clean \
-                 and the old one stays: {reason:?}"
-            );
-            *clean = Some(new);
-            true
-        }
-        Handover::Failed(reason) => {
-            log::warn!("oso dev: the old instance stays: {reason:?}");
-            false
-        }
-    }
-}
-
 /// A running editor instance.
 struct Running {
     child: Child,
     dir: ControlDir,
+    /// Which build made its binary.
+    build: u64,
 }
 
 impl Running {
@@ -282,6 +274,7 @@ impl Running {
         args: &[OsString],
         root: &Path,
         dir: &ControlDir,
+        build: u64,
     ) -> io::Result<Self> {
         let child = spawn(&Spawn {
             executable: binary,
@@ -291,10 +284,12 @@ impl Running {
             inherit: &INSTANCE_ENV,
             stdout: Sink::Inherit,
             stderr: Sink::Inherit,
+            own_process_group: true,
         })?;
         Ok(Self {
             child,
             dir: dir.clone(),
+            build,
         })
     }
 
@@ -308,12 +303,46 @@ impl Running {
             }
         }
     }
+
+    /// Asks it to exit if its generation is still `generation`, and gives it
+    /// `limit` to do so. It may exit before answering, so only a refusal says
+    /// anything. It is never killed: it may hold text that nothing else does.
+    fn stop_within(&mut self, generation: u64, limit: Duration) -> Result<(), NotStopped> {
+        let params = json!({ "generation": generation });
+        if let Err(message) = self.call("exit", Some(params))
+            && message.starts_with(EXIT_REFUSED)
+        {
+            return Err(NotStopped::Refused(message));
+        }
+        let started = Instant::now();
+        while started.elapsed() < limit {
+            if self.exited().is_some() {
+                return Ok(());
+            }
+            thread::sleep(START_POLL);
+        }
+        Err(NotStopped::Unknown(format!(
+            "instance {} did not exit within {limit:?}, so it is left running",
+            self.child.id()
+        )))
+    }
 }
 
 impl Instance for Running {
+    fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
     fn call(&mut self, method: &str, params: Option<Value>) -> Result<Value, String> {
         let pid = Some(self.child.id());
         let line = ctl::exchange(&self.dir, pid, method, params).map_err(|e| e.to_string())?;
+        protocol::response_result(&line)
+    }
+
+    fn check_briefly(&mut self) -> Result<Value, String> {
+        let pid = Some(self.child.id());
+        let line = ctl::exchange_within(&self.dir, pid, CHECK, None, BRIEF_TIMEOUT)
+            .map_err(|e| e.to_string())?;
         protocol::response_result(&line)
     }
 
@@ -334,19 +363,12 @@ impl Instance for Running {
         Err(format!("no window after {START_TIMEOUT:?}"))
     }
 
-    fn stop(&mut self) {
-        // It may exit before answering, so the answer does not matter.
-        let _ = self.call("exit", None);
-        let started = Instant::now();
-        while started.elapsed() < EXIT_TIMEOUT {
-            if self.exited().is_some() {
-                return;
-            }
-            thread::sleep(START_POLL);
-        }
-        log::warn!("oso dev: an instance did not exit in time; killing it");
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+    fn gone(&mut self) -> bool {
+        self.exited().is_some()
+    }
+
+    fn stop(&mut self, generation: u64) -> Result<(), NotStopped> {
+        self.stop_within(generation, EXIT_TIMEOUT)
     }
 }
 
@@ -381,6 +403,7 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         inherit: &CARGO_ENV,
         stdout: Sink::Piped,
         stderr: Sink::Inherit,
+        own_process_group: false,
     })?;
     let mut artifact = None;
     if let Some(stdout) = child.stdout.take() {
@@ -436,6 +459,222 @@ mod tests {
         assert_eq!(oso_artifact(&line("oso-core", false, json!("/t/x"))), None);
         assert_eq!(oso_artifact(r#"{"reason":"build-finished"}"#), None);
         assert_eq!(oso_artifact("not json"), None);
+    }
+
+    /// An instance that is a long sleep, not an editor, and whose control socket
+    /// answers `exit` with `reply`. Whether the process lives shows what `stop`
+    /// did to it.
+    #[cfg(unix)]
+    mod stopping {
+        use super::super::{Instance, Instances, NotStopped, Running, reap};
+        use crate::dev::protocol::EXIT_REFUSED;
+        use crate::dev::server;
+        use oso_platform::control::ControlDir;
+        use oso_platform::process::{Executable, Sink, Spawn, spawn};
+        use std::ffi::OsString;
+        use std::fs::{self, Permissions};
+        use std::os::unix::fs::PermissionsExt;
+        use std::path::PathBuf;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::time::Duration;
+
+        /// Short, as these tests are about what happens when it runs out.
+        const LIMIT: Duration = Duration::from_millis(100);
+
+        /// A fresh control directory for one test.
+        fn control_dir() -> (ControlDir, PathBuf) {
+            static NEXT: AtomicU32 = AtomicU32::new(0);
+            let n = NEXT.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!("osor-{}-{n}", std::process::id()));
+            let _ = fs::remove_dir_all(&path);
+            fs::create_dir(&path).unwrap();
+            fs::set_permissions(&path, Permissions::from_mode(0o700)).unwrap();
+            (ControlDir::at(path.join("c")).unwrap(), path)
+        }
+
+        fn sleeping(seconds: &str, dir: &ControlDir) -> Running {
+            let sleep = Executable::from_path("sleep", None).unwrap();
+            let child = spawn(&Spawn {
+                executable: &sleep,
+                args: &[OsString::from(seconds)],
+                cwd: None,
+                project: None,
+                inherit: &[],
+                stdout: Sink::Null,
+                stderr: Sink::Null,
+                own_process_group: false,
+            })
+            .unwrap();
+            Running {
+                child,
+                dir: dir.clone(),
+                build: 0,
+            }
+        }
+
+        /// Serves `reply` to any request, on the socket `running` is reached by.
+        fn answer(running: &Running, dir: &ControlDir, reply: Result<(), &'static str>) {
+            let listener = dir.bind().unwrap();
+            let socket = dir.path().join(format!("{}.sock", running.child.id()));
+            std::os::unix::fs::symlink(listener.socket_path(), socket).unwrap();
+            server::spawn(listener, move |request: server::UiRequest| {
+                let _ = request.reply.send(
+                    reply
+                        .map(|()| serde_json::json!({ "exiting": true }))
+                        .map_err(str::to_owned),
+                );
+                true
+            })
+            .unwrap();
+        }
+
+        /// Ends the sleep, so that a test leaves nothing behind.
+        fn clean_up(mut running: Running, scratch: PathBuf) {
+            let _ = running.child.kill();
+            let _ = running.child.wait();
+            let _ = fs::remove_dir_all(scratch);
+        }
+
+        #[test]
+        fn an_instance_that_refuses_is_not_killed() {
+            let (dir, scratch) = control_dir();
+            let mut running = sleeping("60", &dir);
+            answer(&running, &dir, Err("exit refused: changed"));
+            let stopped = running.stop_within(1, LIMIT);
+            assert!(
+                matches!(&stopped, Err(NotStopped::Refused(m)) if m.starts_with(EXIT_REFUSED)),
+                "{stopped:?}"
+            );
+            assert!(!running.gone(), "it runs on");
+            clean_up(running, scratch);
+        }
+
+        #[test]
+        fn an_instance_that_does_not_answer_is_not_killed() {
+            let (dir, scratch) = control_dir();
+            // There is no socket to reach.
+            let mut running = sleeping("60", &dir);
+            let stopped = running.stop_within(1, LIMIT);
+            assert!(
+                matches!(&stopped, Err(NotStopped::Unknown(_))),
+                "{stopped:?}"
+            );
+            assert!(!running.gone(), "it runs on");
+            clean_up(running, scratch);
+        }
+
+        #[test]
+        fn an_instance_that_agrees_and_does_not_exit_is_not_killed() {
+            let (dir, scratch) = control_dir();
+            let mut running = sleeping("60", &dir);
+            answer(&running, &dir, Ok(()));
+            let stopped = running.stop_within(1, LIMIT);
+            assert!(
+                matches!(&stopped, Err(NotStopped::Unknown(_))),
+                "{stopped:?}"
+            );
+            assert!(!running.gone(), "it runs on");
+            clean_up(running, scratch);
+        }
+
+        #[test]
+        fn another_error_is_not_taken_for_a_refusal() {
+            let (dir, scratch) = control_dir();
+            let mut running = sleeping("60", &dir);
+            answer(&running, &dir, Err("the editor did not reply in time"));
+            let stopped = running.stop_within(1, LIMIT);
+            assert!(
+                matches!(&stopped, Err(NotStopped::Unknown(_))),
+                "{stopped:?}"
+            );
+            assert!(!running.gone(), "it runs on");
+            clean_up(running, scratch);
+        }
+
+        #[test]
+        fn an_instance_starts_in_a_process_group_of_its_own() {
+            use std::io::Read;
+            let (dir, scratch) = control_dir();
+            let sleep = Executable::from_path("sleep", None).unwrap();
+            let running =
+                Running::start(&sleep, &[OsString::from("60")], &scratch, &dir, 0).unwrap();
+            let ps = Executable::from_path("ps", None).unwrap();
+            let pid = running.child.id();
+            let args = [
+                "-o".into(),
+                "pgid=".into(),
+                "-p".into(),
+                pid.to_string().into(),
+            ];
+            let mut child = spawn(&Spawn {
+                executable: &ps,
+                args: &args,
+                cwd: None,
+                project: None,
+                inherit: &[],
+                stdout: Sink::Piped,
+                stderr: Sink::Null,
+                own_process_group: false,
+            })
+            .unwrap();
+            let mut group = String::new();
+            let mut stdout = child.stdout.take().unwrap();
+            stdout.read_to_string(&mut group).unwrap();
+            child.wait().unwrap();
+            assert_eq!(group.trim(), pid.to_string(), "Ctrl-C does not reach it");
+            clean_up(running, scratch);
+        }
+
+        /// The first instance has exited, and the one beside it runs `build`.
+        fn promoted(build: u64, newest: u64) -> bool {
+            let (dir, scratch) = control_dir();
+            let mut current = sleeping("0", &dir);
+            current.child.wait().unwrap();
+            let mut beside = sleeping("60", &dir);
+            beside.build = build;
+            let mut instances = Instances::new(current);
+            instances.beside = Some(beside);
+            let mut retry = true;
+            assert_eq!(reap(&mut instances, &mut retry, newest), None);
+            let running = instances.current.take().unwrap();
+            assert!(instances.beside.is_none());
+            clean_up(running, scratch);
+            retry
+        }
+
+        #[test]
+        fn an_instance_promoted_on_the_newest_binary_needs_no_restart() {
+            assert!(
+                !promoted(3, 3),
+                "a fresh build leaves its undo history alone"
+            );
+            assert!(promoted(2, 3), "it missed a build, so it is still due one");
+        }
+
+        #[test]
+        fn a_stray_that_has_exited_is_forgotten_and_a_running_one_is_not() {
+            let (dir, scratch) = control_dir();
+            let mut ended = sleeping("0", &dir);
+            ended.child.wait().unwrap();
+            let mut instances = Instances::new(sleeping("60", &dir));
+            instances.strays.push(ended);
+            instances.strays.push(sleeping("60", &dir));
+            let mut retry = false;
+            assert_eq!(reap(&mut instances, &mut retry, 0), None);
+            assert_eq!(instances.strays.len(), 1);
+            let stray = instances.strays.pop().unwrap();
+            clean_up(instances.current.take().unwrap(), scratch.clone());
+            clean_up(stray, scratch);
+        }
+
+        #[test]
+        fn an_instance_that_exits_has_stopped() {
+            let (dir, scratch) = control_dir();
+            let mut running = sleeping("0", &dir);
+            assert_eq!(running.stop_within(1, Duration::from_secs(30)), Ok(()));
+            assert!(running.gone());
+            clean_up(running, scratch);
+        }
     }
 
     #[test]

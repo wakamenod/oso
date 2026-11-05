@@ -131,10 +131,12 @@ throughout.
     rows below it.
 - **M2-2** (after M2-1): `oso dev` holds a restart while a buffer is modified, and
   never closes or kills an instance that has been edited
-  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md),
+  [ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - **M2-4** (after M2-0 to M2-3): typing: self-insert, `RET`, `DEL`, `C-d`, `TAB`,
-  `C-z`/`C-M-z`, and a typing metric in the benchmarks. A throwaway branch that
-  logs IME events runs alongside it, and its findings go to M2-12.
+  `C-z`/`C-M-z`, and a typing metric in the benchmarks. It removes the dev method
+  `insert-text`, whose flow moves to `send-keys`. A throwaway branch that logs IME
+  events runs alongside it, and its findings go to M2-12.
 
 **The screen, and keeping work safe.**
 
@@ -150,9 +152,13 @@ throughout.
 - **M2-6** (after M2-5, and after the work in progress in the renderer's text pass
   merges): a list of panes drawn with clipping and layers, the base of everything
   below that draws ([ADR 0008](adr/0008-floating-ui.md)).
-- **M2-7** (after M2-6): modeline, echo area, `*Messages*` and internal buffers.
+- **M2-7** (after M2-6): modeline, echo area, `*Messages*` and internal buffers,
+  which `oso dev`'s check, generation and import must skip
+  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - **M2-10** (after M2-8): emergency save on a panic or an OS-initiated exit, the
-  panic hook, and no core dumps ([ADR 0013](adr/0013-persistence.md),
+  panic hook, which must ignore a failed write since `oso dev`'s instances can outlive
+  their terminal ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)), and no core
+  dumps ([ADR 0013](adr/0013-persistence.md),
   [ADR 0014](adr/0014-panic-strategy.md), [ADR 0028](adr/0028-secrets-handling.md)).
 - **M2-11** (after M2-7 and M2-10): recovering an emergency copy.
 - **M2-12** (after M2-4 and M2-6): the macOS IME: inline preedit that pushes the

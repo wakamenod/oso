@@ -328,6 +328,98 @@ fn the_state_moves_to_a_new_instance_and_a_wrong_version_changes_nothing() {
     assert_eq!(new.state()["cursor"]["offset"], offset);
 }
 
+/// Text no response may quote.
+const UNSAVED: &str = "UNSAVED-E2E-TEXT";
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
+    let scratch = Scratch::new("unsaved");
+    let file = scratch.write("notes.txt", b"on disk\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    let checked = app.call("check-handover", None)["generation"].clone();
+    let exported = app.call("export-state", None);
+    assert_eq!(exported["generation"], checked);
+
+    app.call("insert-text", Some(json!({ "text": UNSAVED })));
+
+    // No way of asking gives the text, and each names the buffer.
+    for method in ["check-handover", "export-state"] {
+        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!line.contains(UNSAVED), "{method} quotes the text");
+        let response: Value = serde_json::from_str(&line).expect("a JSON response");
+        let message = response["error"]["message"].as_str();
+        assert!(
+            message.is_some_and(|message| message.contains("notes.txt")),
+            "{method} did not refuse by name: {message:?}",
+        );
+    }
+
+    // The exit a supervisor makes is refused, and the instance goes on.
+    let line = app
+        .exchange("exit", Some(json!({ "generation": checked })))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(!line.contains(UNSAVED), "exit quotes the text");
+    assert!(line.contains("exit refused"), "exit was not refused");
+    assert_eq!(app.state()["buffer"]["path"].as_str(), file.to_str());
+    assert!(process_exists(app.pid()), "the instance is gone");
+
+    // An ordinary `exit`, as people and agents send it, still goes.
+    assert!(
+        app.state()["buffer"]["bytes"].as_u64() > Some(8),
+        "the edit"
+    );
+    let _ = app.exchange("exit", None);
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+
+    // A guarded exit with nothing changed goes too.
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    let current = app.call("check-handover", None)["generation"].clone();
+    let _ = app.exchange("exit", Some(json!({ "generation": current })));
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+
+    // Text in a new instance's `*scratch*` stops the import that would hide it.
+    let mut old = App::start(Some(&file), scratch.path());
+    old.wait_until_ready();
+    let state = old.call("export-state", None);
+    let mut new = App::start(None, scratch.path());
+    new.wait_until_ready();
+    new.call("insert-text", Some(json!({ "text": UNSAVED })));
+    let line = new
+        .exchange("import-state", Some(json!({ "state": state })))
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert!(!line.contains(UNSAVED), "import-state quotes the text");
+    assert!(line.contains("*scratch*"), "import-state was not refused");
+    assert_eq!(new.state()["buffers"].as_array().map(Vec::len), Some(1));
+
+    let log = new.stop_and_read_log();
+    assert!(!log.contains(UNSAVED), "the log quotes the text");
+    assert!(log.contains("listening on"), "no log to check");
+}
+
+/// The event loop goes on delivering what is queued after an exit, so this can
+/// only fail when the two land together, which a few tries make likely.
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_edit_is_never_confirmed_and_then_lost_with_an_exit() {
+    let scratch = Scratch::new("exit-race");
+    for _ in 0..4 {
+        let mut app = App::start(None, scratch.path());
+        app.wait_until_ready();
+        let generation = app.call("check-handover", None)["generation"].clone();
+        let (exit, edit) = app.race(
+            &json!({ "id": 1, "method": "exit", "params": { "generation": generation } }),
+            &json!({ "id": 2, "method": "insert-text", "params": { "text": UNSAVED } }),
+        );
+        assert!(
+            !(exit.contains("\"exiting\":true") && edit.contains("\"bytes\"")),
+            "the instance agreed to exit and also confirmed an edit",
+        );
+    }
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_quit_key_and_exit_end_the_process_with_status_zero() {

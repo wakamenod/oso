@@ -198,7 +198,10 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff holds paths and positions, never text, so it cannot carry a
   secret buffer's content
-  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)). A buffer with
+  unsaved edits holds the restart, and the refusal names it without quoting it. The
+  generation that guards `exit` is not reported while a file holds edits
+  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this.
   This is reviewed when commands that spawn processes arrive (M3 onward)

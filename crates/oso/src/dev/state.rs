@@ -19,7 +19,7 @@ use std::ops::Range;
 use std::sync::mpsc;
 use std::thread;
 
-use oso_core::buffer::{Buffer, BufferId, ReadOnly};
+use oso_core::buffer::{Buffer, BufferId, ReadOnly, Replacement};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
@@ -286,11 +286,32 @@ pub fn show_buffer(editor: &mut Editor, buffer: u64) -> Reply {
     Ok(json!({ "buffer": buffer }))
 }
 
+/// Inserts `text` at the selected window's primary cursor, as one edit. It
+/// exists so that unsaved text can be tested before typing does (ADR 0055), and
+/// goes away with M2-4. So it leaves other cursors alone, and the request's line
+/// limit bounds it. The reply gives the length, and never the text. No test needs
+/// it in a buffer that may hold secrets, so it stays out of those.
+pub fn insert_text(editor: &mut Editor, text: &str) -> Reply {
+    let (window, buffer) = editor.current();
+    if buffer.is_secret() {
+        return Err("insert-text does not edit a buffer that may hold secrets".into());
+    }
+    let (buffer, cursor) = (window.buffer(), window.selections.primary().cursor);
+    let edit = Replacement {
+        range: cursor..cursor,
+        text,
+    };
+    editor
+        .apply_edits(buffer, &[edit])
+        .map_err(|e| e.to_string())?;
+    Ok(json!({ "bytes": text.len() }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, screenshot_allowed,
-        show_buffer,
+        MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, insert_text,
+        screenshot_allowed, show_buffer,
     };
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::editor::Editor;
@@ -299,6 +320,38 @@ mod tests {
     use oso_core::window::{Scroll, ViewSize};
     use serde_json::json;
     use std::path::PathBuf;
+
+    #[test]
+    fn insert_text_edits_at_the_primary_cursor_and_quotes_nothing() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "ab"));
+        editor.restore_positions(SelectionSet::new(1), Scroll::default());
+        assert_eq!(
+            insert_text(&mut editor, "XY"),
+            Ok(json!({ "bytes": 2 })),
+            "the length, not the text"
+        );
+        let (window, buffer) = editor.current();
+        assert_eq!(buffer.text().to_string(), "aXYb");
+        assert_eq!(window.selections.primary().cursor, 3);
+        assert!(buffer.is_modified());
+    }
+
+    #[test]
+    fn insert_text_refuses_a_read_only_buffer() {
+        let mut editor = Editor::with_buffer(Buffer::from_bytes("t", b"caf\xE9"));
+        assert!(editor.current().1.read_only().is_some());
+        let message = insert_text(&mut editor, "SECRET-TEXT").unwrap_err();
+        assert!(!message.contains("SECRET-TEXT"), "{message}");
+        assert!(!editor.current().1.is_modified());
+    }
+
+    #[test]
+    fn insert_text_stays_out_of_a_secret_buffer() {
+        let mut editor = Editor::with_buffer(Buffer::visiting(PathBuf::from("/p/.env")));
+        let message = insert_text(&mut editor, "TEXT").unwrap_err();
+        assert!(message.contains("secrets"), "{message}");
+        assert!(!editor.current().1.is_modified());
+    }
 
     /// `get-text` from start to finish, on this thread.
     fn text(editor: &Editor, start_row: usize, rows: usize) -> Reply {
