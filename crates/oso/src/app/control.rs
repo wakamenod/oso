@@ -35,16 +35,16 @@ impl App {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
-                // Each key on its own: one may show or leave a buffer that may hold
-                // secrets (ADR 0060).
                 let timings = &mut self.timings;
-                let mut shown = self.editor.shows_secret();
+                let mut watch = dev::SecretWatch::new(&self.editor);
                 let effects =
                     self.dispatcher
                         .handle_keys_with(&mut self.editor, keys, |editor, effects| {
-                            let now = editor.shows_secret();
-                            timings.keys_handled(received, 1, effects.redraw, shown || now);
-                            shown = now;
+                            let key = dev::HandledKey {
+                                redraw: effects.redraw,
+                                withheld: watch.after_key(editor),
+                            };
+                            timings.key_handled(received, key);
                         });
                 log::trace!("key handled in {:?}", started.elapsed());
                 self.apply(event_loop, effects);

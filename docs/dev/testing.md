@@ -286,9 +286,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - `oso [FILE]` and `open-file` open a file, so test files (generated in a scratch
   directory, never committed) can be driven this way.
-- `take-timings` reads key latency, startup and load times for benchmarks. It records
-  no frames while a secret-pattern buffer is shown, and no key while one is shown before
-  or after that key, and a file counts as secret until it is judged
+- `take-timings` reads key latency, startup and load times for benchmarks. It records no
+  key if a secret-pattern buffer is shown just before or after it or when its frame is
+  presented, and no frames while one is shown, but the first frame and the first load's
+  times. A file counts as secret until it is judged
   ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
 - `screenshot` writes a PNG of the current frame and returns its path.
 

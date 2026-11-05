@@ -16,7 +16,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use harness::{App, FAKE_SECRET, Scratch, process_exists};
 use png::Foreground;
@@ -297,7 +297,13 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
         frames,
         "a frame was counted"
     );
+    // The window was drawing all along: the next buffer's frame counts.
     app.show_buffer(&plain_id);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while app.call("take-timings", None)["frames"] == frames {
+        assert!(Instant::now() < deadline, "the window draws no frames");
+        thread::sleep(Duration::from_millis(10));
+    }
     app.send_keys("C-f");
     let timings = app.call("take-timings", None);
     let samples = timings["key_latency_us"].as_array().map_or(0, Vec::len);

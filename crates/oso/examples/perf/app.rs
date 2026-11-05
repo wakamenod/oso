@@ -134,6 +134,8 @@ impl App {
             if started.elapsed() > timeout {
                 return Err(format!("the file still counts as secret after {timeout:?}"));
             }
+            // Faster than `POLL`: keys while loading start here, and a small file's
+            // load takes tens of milliseconds.
             thread::sleep(Duration::from_millis(1));
         }
         Ok(())

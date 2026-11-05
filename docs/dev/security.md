@@ -216,8 +216,9 @@ and below the row, and a label's glyphs keep their own cells
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved
   its path ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
-- `take-timings` records no frames while a secret-pattern buffer is shown, and no key
-  while one is shown before or after that key
+- `take-timings` records no key if a secret-pattern buffer is shown just before or after
+  it or when its frame is presented, and no frames while one is shown, but the first
+  frame and the first load's times
   ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
 - Responses are safe to print: DEL, C1 controls, bidi controls and invisible
   characters from a file go out as `\uXXXX`

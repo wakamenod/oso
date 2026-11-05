@@ -264,7 +264,8 @@ fn paced_keys(
 
 /// Waits until no key waits for a frame, and returns the key latencies. A
 /// key that never gets a frame, or a dropped sample, would flatter the result,
-/// so both are errors.
+/// so both are errors. A key withheld around a secret buffer counts as neither
+/// (ADR 0060), and the checks on how many keys drew catch that.
 fn settle(app: &mut App) -> Result<Vec<f64>, String> {
     let mut samples = Vec::new();
     let started = Instant::now();
