@@ -137,9 +137,11 @@ impl App {
             }
         };
         if no_baseline {
-            self.editor.message(
-                "Where this file leads could not be told as it was read, so it cannot be saved",
+            let name = self.editor.buffer(id).map_or("", Buffer::name);
+            let message = format!(
+                "Where {name} leads could not be told as it was read, so it cannot be saved"
             );
+            self.editor.message(message);
         }
         #[cfg(feature = "dev")]
         let redraw = self.try_restore_positions() || redraw;

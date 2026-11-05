@@ -41,7 +41,7 @@ use oso_core::load::{Builder, LoadSnapshot};
 mod resolve;
 
 use resolve::resolve;
-pub use resolve::{Resolved, follow_links, location, parent};
+pub use resolve::{Resolved, location, parent};
 
 /// Bytes read at a time.
 const READ_SIZE: usize = 64 * 1024;

@@ -10,7 +10,7 @@
 //!
 //! The order, each step before the next:
 //!
-//! 1. Follow symbolic links to the file itself, so that a link stays a link.
+//! 1. Follow symbolic links to the file's real place, so that a link stays a link.
 //! 2. Check the baseline, so that a path now leading elsewhere writes nothing there, and
 //!    a file already changed costs no write.
 //! 3. Create a temporary file with `create_new` and mode 0600 in that file's
@@ -42,7 +42,7 @@ use oso_core::buffer::{Baseline, BufferId, ContentId, FileStamp};
 use oso_core::decode::BOM;
 use oso_core::editor::{Editor, SaveJob, SaveRefused};
 
-use crate::loader::{follow_links, location, parent, stamp_of};
+use crate::loader::{location, parent, stamp_of};
 
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
 /// a million.
@@ -92,8 +92,18 @@ pub struct Written {
     content: ContentId,
     /// The file as it now is.
     stamp: FileStamp,
-    /// The file is in place, but this reached no disk for sure, and the old file has gone.
-    unsynced: Option<io::Error>,
+    /// The file is in place, but the disk did not confirm all of it.
+    unsynced: Option<Unsynced>,
+}
+
+/// What the disk did not confirm.
+#[derive(Debug)]
+pub enum Unsynced {
+    /// The text: the file system cannot sync a file. A power cut could lose it, with
+    /// whatever file it replaced.
+    File(io::Error),
+    /// The rename: the text is safe, but a power cut could bring back what was there.
+    Directory(io::Error),
 }
 
 /// How one save ended.
@@ -169,6 +179,14 @@ pub enum AfterSave {
     StayOpen,
 }
 
+/// Whether a save is running that is worth waiting for: not one that has already outlived
+/// a leave, in `stuck`.
+pub fn any_worth_waiting_for(editor: &Editor, stuck: &[BufferId]) -> bool {
+    editor
+        .buffers()
+        .any(|(id, buffer)| buffer.is_saving() && !stuck.contains(&id))
+}
+
 /// What to do when a save ends while leaving. A failed save means the text is only in this
 /// process, which a person asked to leave believing it would be on disk, so they get it
 /// back at once, whatever else runs. The socket's `exit` asks for no such thing
@@ -206,8 +224,11 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
             editor.save_finished(buffer, written.content, written.stamp);
             match written.unsynced {
                 None => format!("Wrote {path}"),
-                Some(e) => format!(
-                    "Wrote {path}, replacing the old file, but the disk did not confirm it, so a power cut could lose both: {e}"
+                Some(Unsynced::File(e)) => format!(
+                    "Wrote {path}, but the file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}"
+                ),
+                Some(Unsynced::Directory(e)) => format!(
+                    "Wrote {path}, but the disk did not confirm the rename. A power cut could bring back what was there: {e}"
                 ),
             }
         }
@@ -248,7 +269,7 @@ fn file_is_gone(job: &SaveJob) -> Result<bool, SaveError> {
         Err(e) => return Err(e.into()),
     };
     // The only copy, with a path that no longer leads to where it belongs: say so.
-    if gone && location(&follow_links(&job.path)?)? != baseline.location {
+    if gone && location(&job.path)? != baseline.location {
         return Err(SaveError::Elsewhere);
     }
     Ok(gone)
@@ -270,13 +291,12 @@ struct Prepared {
 
 /// Steps 1 to 5 of the order at the top. The file on disk is not touched.
 fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
-    let target = follow_links(&job.path)?;
     let baseline = baseline_of(job)?;
-    let replaced = unchanged_file(&target, baseline)?;
+    let replaced = unchanged_file(&job.path, baseline)?;
     if replaced.is_some() {
         // A rename needs only the directory, so it would replace a file the user has
         // made read-only, or may not write. Opening for writing changes nothing.
-        OpenOptions::new().write(true).open(&target)?;
+        OpenOptions::new().write(true).open(&baseline.location)?;
     }
     // The real directory, so that a link changed during the write does not lose track of
     // the temporary file.
@@ -318,7 +338,7 @@ impl Prepared {
     /// but the rename goes by the place itself.
     fn commit(self, job: &SaveJob) -> Result<Written, SaveError> {
         let baseline = baseline_of(job)?;
-        let now = unchanged_file(&follow_links(&job.path)?, baseline)?;
+        let now = unchanged_file(&job.path, baseline)?;
         if attributes_moved(self.replaced.as_ref(), now.as_ref()) {
             return Err(SaveError::Conflict);
         }
@@ -327,7 +347,10 @@ impl Prepared {
         Ok(Written {
             content: job.content,
             stamp: self.stamp,
-            unsynced: self.unsynced.or(directory),
+            unsynced: self
+                .unsynced
+                .map(Unsynced::File)
+                .or(directory.map(Unsynced::Directory)),
         })
     }
 }
@@ -380,20 +403,20 @@ fn attributes(metadata: &Metadata) -> bool {
     metadata.permissions().readonly()
 }
 
-/// The file at `target`, if there is one, unless it is not what `baseline` says.
+/// The file at the buffer's location, if there is one, unless it is not what `baseline`
+/// says.
 ///
-/// `target` must still be where the buffer's file was. Otherwise a link or a directory
-/// changed since would send the text to a place nobody chose. Being missing is no
-/// conflict, even if the baseline says a file was there: a file that was deleted holds
-/// nothing to keep, as in Emacs.
+/// `path` must still lead there. Otherwise a link or a directory changed since would send
+/// the text to a place nobody chose. Being missing is no conflict, even if the baseline says
+/// a file was there: a file that was deleted holds nothing to keep, as in Emacs.
 ///
-/// The check does not follow a link: `target` has none left unless one was swapped in
-/// since, and that is a change.
-fn unchanged_file(target: &Path, baseline: &Baseline) -> Result<Option<Metadata>, SaveError> {
-    if location(target)? != baseline.location {
+/// The check goes by the location, which is what a rename replaces, and does not follow a
+/// link: the location has none left unless one was swapped in since, and that is a change.
+fn unchanged_file(path: &Path, baseline: &Baseline) -> Result<Option<Metadata>, SaveError> {
+    if location(path)? != baseline.location {
         return Err(SaveError::Elsewhere);
     }
-    match fs::symlink_metadata(target) {
+    match fs::symlink_metadata(&baseline.location) {
         Ok(metadata) if metadata.is_file() => match baseline.file {
             Some(file) if file.same_content(stamp_of(&metadata)?) => Ok(Some(metadata)),
             _ => Err(SaveError::Conflict),

@@ -173,6 +173,33 @@ mod tests {
         path
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn following_links_goes_as_far_as_the_limit_and_no_further() {
+        use std::os::unix::fs::symlink;
+        let dir = scratch_dir("follow-limit");
+        let real = dir.join("real.txt");
+        fs::write(&real, b"text").unwrap();
+        let mut target = "real.txt".to_owned();
+        for index in 1..=MAX_LINKS + 1 {
+            let name = format!("link{index}");
+            symlink(&target, dir.join(&name)).unwrap();
+            target = name;
+        }
+        let longest = dir.join(format!("link{MAX_LINKS}"));
+        assert_eq!(follow_links(&longest).unwrap(), real);
+        assert!(follow_links(&dir.join(format!("link{}", MAX_LINKS + 1))).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_location_needs_no_file_or_directory_there_yet() {
+        let dir = scratch_dir("new-location");
+        let deep = dir.join("not").join("yet").join("file.txt");
+        assert_eq!(location(&deep).unwrap(), deep);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn resolves_a_new_file_through_its_directory() {
         let directory = scratch_dir("new");

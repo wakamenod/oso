@@ -39,7 +39,7 @@ On a thread of its own, each step before the next:
    are already in the rope.
 5. **Set the attributes, fsync and close.** One fsync after the attributes, so that a crash cannot leave
    the new file in place with mode `0600`. If the file system says it cannot sync at all, the save goes on
-   and the message says it may not survive a power cut. `std` makes `sync_all` a bare `F_FULLFSYNC` on macOS,
+   and the message says a power cut could lose the text and any file it replaced. `std` makes `sync_all` a bare `F_FULLFSYNC` on macOS,
    with no fallback, and some network and FUSE mounts refuse it, so otherwise nothing could be saved there. Any
    other error fails the save. The stamp to record next is read here, by the temporary file's name, after the
    close, as Windows may settle the modification time only then, and a size other than what was written fails
@@ -49,14 +49,14 @@ On a thread of its own, each step before the next:
    after being gone at step 2. The stamp to record next has by then been read, so that a change made just
    after the rename still counts as a change at the next save.
 7. **Rename, then fsync the directory.** If that fsync fails, the file has still been replaced, so the
-   save counts as done and the message adds that it may not survive a power cut. Some network file
-   systems cannot do it at all.
+   save counts as done and the message adds that a power cut could bring back what was there. Some network
+   file systems cannot do it at all.
 
 The temporary file goes in the real directory of the file's location, so a link changed during the write does
 not lose track of it. It is removed when anything fails, also on the way out of a panic, by a guard that only
 the rename disarms. Up to the rename the file is untouched, and after it the file holds the whole new text. If the
 file system cannot sync, that holds only as far as the file system can be told: the size is checked after the
-close, as `std` does not report a failed close, and the message says a power cut could lose both texts.
+close, as `std` does not report a failed close, and the message says a power cut could lose the text and any file it replaced.
 
 ### The baseline and the conflict rule
 
@@ -174,8 +174,8 @@ Then:
 - **A save still running at a confirmed exit gets to finish.** The user asked for it, and a process that ends mid-write
   would leave its temporary file behind. The window is hidden, and the event loop keeps running until the last save has
   reported. It has to keep running: a window closed or hidden after the loop stops stays on the screen, frozen, as a slow
-  save on macOS showed. In that time the instance counts as exiting: window events are ignored and every control request
-  is refused, as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) asks.
+  save on macOS showed. In that time the instance counts as exiting: input is ignored and every control request is refused, as
+  [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) asks.
 - **A failed save takes the exit back.** The person left believing the text would reach the disk, and with a conflict or a
   full disk it did not. So the window returns with the message, the buffer stays modified, and the guard starts over,
   at once, whatever other saves still run.
@@ -187,8 +187,9 @@ Then:
   take this path, and is M2-10's.
 - A deleted file does not count for the guard, as telling needs the disk. A person can exit with the only copy of such a text
   until M2-22, recorded in `open-questions.md`.
-- While a person's exit may yet be taken back, the window's size and the modifier keys still count, though no input does, so that it
-  returns as it should.
+- While an exit is under way, the window's size, its scale and the modifier keys still count, though no input does, so that it
+  returns as it should if taken back. It asks for attention then, and does not take the keyboard from another app, as it may be
+  minutes later and the person may be typing a password elsewhere.
 - The state lives on `Editor`, like the rest of what commands read. The proper prompt replaces this in M2-16.
 - `exit` over the socket stays as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) defines it. winit's `exiting` (Dock
   quit, logout) is M2-10.
@@ -217,8 +218,8 @@ Then:
   the UI thread's log write waits for the save's fsync. No benchmark tracks any of this yet, so these numbers come from one script run
   for the pull request.
 - **A conflict, or a load that could not tell where its file is, has no way out yet.** Until M2-16 can ask and M2-22 can reload, or M2-18 can write elsewhere, such a buffer
-  cannot be saved, and `oso dev` holds restarts for it. Moving the changed file away and saving again is what is left. A file
-  owned by someone else cannot be saved that way either.
+  cannot be saved, and `oso dev` holds restarts for it. For a conflict, moving the changed file away and saving again is what is
+  left. For a load that could not tell, and for a file owned by someone else, nothing is.
 - A window remains between the last check and the rename, about as long as a few system calls, in which another program's write
   is lost, or a link change is not seen. `renameat2` with `RENAME_NOREPLACE` could close it for a new file, but is not in `std`.
 - A change that keeps both the size and the modification time goes unseen. Time stamps are nanoseconds on APFS and about 4 ms on

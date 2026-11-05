@@ -7,7 +7,6 @@ use std::os::unix::fs::{MetadataExt, symlink};
 
 use super::super::{TEMPORARY_PREFIX, attributes_moved, kept_mode, open_new};
 use super::*;
-use crate::loader::follow_links;
 
 #[test]
 fn the_mode_stays_from_private_to_executable() {
@@ -127,22 +126,6 @@ fn a_relative_link_counts_from_its_own_directory_through_dot_dot() {
 }
 
 #[test]
-fn a_chain_of_links_may_be_as_long_as_the_limit_and_no_longer() {
-    let scratch = Scratch::new("chain");
-    let real = scratch.file("real.txt", b"old\n");
-    let mut target = "real.txt".to_owned();
-    for index in 1..=41 {
-        let name = format!("link{index}");
-        symlink(&target, scratch.path().join(&name)).unwrap();
-        target = name;
-    }
-    let longest = scratch.path().join("link40");
-    let too_long = scratch.path().join("link41");
-    assert_eq!(follow_links(&longest).unwrap(), real);
-    assert!(follow_links(&too_long).is_err());
-}
-
-#[test]
 fn a_link_to_a_missing_directory_is_an_error() {
     let scratch = Scratch::new("missing-dir");
     let link = scratch.path().join("link");
@@ -156,22 +139,21 @@ fn a_link_to_a_missing_directory_is_an_error() {
 }
 
 #[test]
-fn a_loop_of_links_is_an_error() {
+fn a_loop_of_links_made_since_the_load_is_an_error() {
     let scratch = Scratch::new("loop");
+    let file = scratch.file("notes.txt", b"old\n");
     let link = scratch.path().join("link");
+    symlink(&file, &link).unwrap();
+    let job = job(&link, "new\n");
+    fs::remove_file(&link).unwrap();
     symlink("link", &link).unwrap();
-    let mut editor = Editor::with_buffer(Buffer::visiting(link));
-    editor
-        .buffer_mut(editor.window().buffer())
-        .unwrap()
-        .finish_empty();
-    let job = job_of(&mut editor, "new\n");
     let report = run(job);
     assert!(
         matches!(report.outcome, Err(SaveError::Io(_))),
         "{report:?}"
     );
-    assert_eq!(scratch.names(), ["link"]);
+    assert_eq!(fs::read(&file).unwrap(), b"old\n");
+    assert_eq!(scratch.names(), ["link", "notes.txt"]);
 }
 
 #[test]

@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use oso_core::editor::ExitAction;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::ModifiersState;
+use winit::window::UserAttentionType;
 
 use super::{App, UserEvent};
 use crate::saver::{self, AfterSave, SaveReport};
@@ -56,7 +57,7 @@ impl App {
                 .buffer(*id)
                 .is_some_and(|buffer| buffer.is_saving())
         });
-        let still_saving = self.is_saving_any_but_stuck();
+        let still_saving = saver::any_worth_waiting_for(&self.editor, &self.stuck_saves);
         let Some(leaving) = self.leaving else {
             return;
         };
@@ -83,7 +84,7 @@ impl App {
     /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold. A
     /// person's exit comes back if the save fails, as the text is then only here.
     pub(super) fn leave(&mut self, event_loop: &ActiveEventLoop, anyway: bool) {
-        if !self.is_saving_any_but_stuck() {
+        if !saver::any_worth_waiting_for(&self.editor, &self.stuck_saves) {
             event_loop.exit();
             return;
         }
@@ -93,14 +94,6 @@ impl App {
         if let Some(view) = &self.view {
             view.window.set_visible(false);
         }
-    }
-
-    /// Whether a save is running that is worth waiting for: not one that has already
-    /// outlived a leave.
-    fn is_saving_any_but_stuck(&self) -> bool {
-        self.editor
-            .buffers()
-            .any(|(id, buffer)| buffer.is_saving() && !self.stuck_saves.contains(&id))
     }
 
     /// Whether this instance has agreed to go. Nothing that could still be lost with the
@@ -150,8 +143,11 @@ impl App {
         // the hidden window at all, may be gone, and the system says again when one is held.
         self.modifiers = ModifiersState::default();
         if let Some(view) = &self.view {
+            // It may be minutes later, with the person typing elsewhere, perhaps a password.
+            // So this asks for attention, and does not take the keyboard from another app.
             view.window.set_visible(true);
-            view.window.focus_window();
+            view.window
+                .request_user_attention(Some(UserAttentionType::Informational));
         }
         self.request_redraw();
     }

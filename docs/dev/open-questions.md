@@ -64,7 +64,8 @@ item notes when it must be settled.
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
   Decide whether copying them is worth `libc` once M2-10 brings it to release builds.
 - By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
-  buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. A file owned by
+  buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. The same goes for
+  a buffer whose load could not tell where its file is. A file owned by
   another user cannot be saved at all; decide whether the prompt should offer writing in place
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - By M2-11: a kill or a power cut during a save leaves a `.oso-save-*.tmp` beside the file, and

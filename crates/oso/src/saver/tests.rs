@@ -16,9 +16,9 @@ use oso_core::load::decode_all;
 use crate::loader::{location, stamp_of};
 
 use super::{
-    AfterSave, PRIVATE_MODE, SaveError, SaveReport, Temporary, after_save_while_leaving, apply,
-    at_leaving_deadline, check_whole, prepare, run, run_with, spawn, unless_unsupported,
-    write_text,
+    AfterSave, PRIVATE_MODE, SaveError, SaveReport, Temporary, Unsynced, after_save_while_leaving,
+    any_worth_waiting_for, apply, at_leaving_deadline, check_whole, prepare, run, run_with, spawn,
+    unless_unsupported, write_text,
 };
 
 /// A scratch directory, with no links in its path, removed at the end of the test.
@@ -299,21 +299,6 @@ fn the_temporary_file_goes_when_a_panic_passes_through() {
     assert!(scratch.names().is_empty());
 }
 
-#[test]
-fn a_panic_ends_the_save_with_a_report() {
-    let scratch = Scratch::new("panic-report");
-    let path = scratch.file("notes.txt", b"old\n");
-    let mut editor = visit(&path);
-    let job = job_of(&mut editor, "new\n");
-    let report = run_with(job, |_| panic!("a bug"));
-    assert!(matches!(report.outcome, Err(SaveError::Panicked)));
-    apply(&mut editor, report);
-    let buffer = editor.current().1;
-    assert!(!buffer.is_saving(), "not stuck");
-    assert!(buffer.is_modified());
-    assert_eq!(fs::read(&path).unwrap(), b"old\n");
-}
-
 /// A writer that takes some bytes and then fails, as a full disk does.
 struct FullDisk(usize);
 
@@ -339,63 +324,6 @@ fn a_failing_write_is_an_error() {
     let job = job(&path, "new\n");
     assert!(write_text(FullDisk(1), &job).is_err());
     assert!(write_text(FullDisk(100), &job).is_ok());
-}
-
-#[test]
-fn a_person_leaving_gets_the_text_back_if_the_save_fails() {
-    use AfterSave::{Exit, KeepWaiting, StayOpen};
-    // Failed, the socket's `exit`, another save running.
-    assert_eq!(after_save_while_leaving(false, false, false), Exit);
-    assert_eq!(after_save_while_leaving(false, false, true), KeepWaiting);
-    assert_eq!(after_save_while_leaving(true, false, false), StayOpen);
-    assert_eq!(
-        after_save_while_leaving(true, false, true),
-        StayOpen,
-        "at once"
-    );
-    assert_eq!(after_save_while_leaving(true, true, false), Exit);
-    assert_eq!(after_save_while_leaving(true, true, true), KeepWaiting);
-    assert_eq!(after_save_while_leaving(false, true, false), Exit);
-    assert_eq!(at_leaving_deadline(false), StayOpen);
-    assert_eq!(at_leaving_deadline(true), Exit);
-}
-
-#[test]
-fn a_report_says_whether_the_text_is_on_disk() {
-    let scratch = Scratch::new("failed");
-    let path = scratch.file("notes.txt", b"old\n");
-    let written = run(job(&path, "new\n"));
-    assert!(!written.failed());
-    let job = job(&path, "other\n");
-    fs::write(&path, b"another program\n").unwrap();
-    assert!(run(job).failed());
-}
-
-#[test]
-fn a_sync_a_file_system_cannot_do_is_said_and_others_fail_the_save() {
-    use std::io::{Error, ErrorKind};
-    assert!(unless_unsupported(Ok(())).unwrap().is_none());
-    let unsupported = Error::from(ErrorKind::Unsupported);
-    assert!(unless_unsupported(Err(unsupported)).unwrap().is_some());
-    let invalid = Error::from(ErrorKind::InvalidInput);
-    assert!(unless_unsupported(Err(invalid)).unwrap().is_some());
-    assert!(unless_unsupported(Err(Error::other("the disk failed"))).is_err());
-    assert!(unless_unsupported(Err(Error::from(ErrorKind::StorageFull))).is_err());
-    #[cfg(unix)]
-    {
-        use super::sync_is_unsupported;
-        #[cfg(target_vendor = "apple")]
-        assert!(
-            sync_is_unsupported(&Error::from_raw_os_error(45)),
-            "ENOTSUP"
-        );
-        assert!(sync_is_unsupported(&Error::from_raw_os_error(22)), "EINVAL");
-        assert!(!sync_is_unsupported(&Error::from_raw_os_error(5)), "EIO");
-        assert!(
-            !sync_is_unsupported(&Error::from_raw_os_error(28)),
-            "ENOSPC"
-        );
-    }
 }
 
 #[test]
@@ -438,25 +366,6 @@ fn an_unmodified_buffer_writes_only_if_its_file_has_gone() {
 }
 
 #[test]
-fn a_buffer_with_no_baseline_says_so_and_does_not_call_it_a_change() {
-    let scratch = Scratch::new("no-baseline-message");
-    let path = scratch.file("notes.txt", b"old\n");
-    let mut buffer = Buffer::visiting(path.clone());
-    buffer.apply_load(decode_all(b"old\n", TabWidth::default()));
-    let mut editor = Editor::with_buffer(buffer);
-    let job = job_of(&mut editor, "new\n");
-    let report = run(job);
-    assert!(
-        matches!(report.outcome, Err(SaveError::UnknownLocation)),
-        "{report:?}"
-    );
-    let message = applied(&mut editor, report);
-    assert!(!message.contains("changed on disk"), "{message}");
-    assert!(message.contains("could not be told"), "{message}");
-    assert_eq!(fs::read(&path).unwrap(), b"old\n");
-}
-
-#[test]
 fn a_file_shorter_than_the_text_is_refused_before_it_replaces_anything() {
     let scratch = Scratch::new("short");
     let with_bom = scratch.file("with.txt", b"\xEF\xBB\xBFold\n");
@@ -490,72 +399,6 @@ fn a_thread_reports_as_the_seam_does() {
     assert_eq!(fs::read(&path).unwrap(), b"new\n");
 }
 
-/// Applies `report`, and returns the message with the state it leaves.
-fn applied(editor: &mut Editor, report: SaveReport) -> String {
-    apply(editor, report);
-    assert!(!editor.current().1.is_saving());
-    editor.messages().next_back().unwrap().to_owned()
-}
-
-const SECRET: &str = "S3CRET-TEXT\n";
-
-#[test]
-fn each_outcome_says_so_by_path_and_quotes_no_text() {
-    let scratch = Scratch::new("messages");
-    let path = scratch.file("notes.txt", b"old\n");
-    let shown = path.display().to_string();
-
-    let mut editor = visit(&path);
-    let job = job_of(&mut editor, SECRET);
-    assert_eq!(applied(&mut editor, run(job)), format!("Wrote {shown}"));
-    assert!(!editor.current().1.is_modified());
-
-    let mut editor = visit(&path);
-    let job = job_of(&mut editor, "other\n");
-    fs::write(&path, b"changed\n").unwrap();
-    let message = applied(&mut editor, run(job));
-    assert!(
-        message.starts_with(&shown) && message.contains("changed on disk"),
-        "{message}"
-    );
-    assert!(editor.current().1.is_modified());
-
-    let mut editor = visit(&path);
-    let job = job_of(&mut editor, SECRET);
-    let buffer = job.buffer;
-    let report = SaveReport::not_started(buffer, path.clone(), std::io::Error::other("no threads"));
-    let message = applied(&mut editor, report);
-    assert_eq!(message, format!("Cannot save {shown}: no threads"));
-    assert!(editor.current().1.is_modified());
-    for message in editor.messages() {
-        assert!(!message.contains(SECRET.trim()), "{message}");
-    }
-}
-
-#[test]
-fn a_flush_that_failed_after_the_rename_counts_as_written_and_says_so() {
-    let scratch = Scratch::new("unsynced");
-    let path = scratch.file("notes.txt", b"old\n");
-    let mut editor = visit(&path);
-    let job = job_of(&mut editor, "new\n");
-    let content = job.content;
-    let report = SaveReport {
-        buffer: job.buffer,
-        path: path.clone(),
-        outcome: Ok(Some(super::Written {
-            content,
-            stamp: stamp_of(&fs::metadata(&path).unwrap()).unwrap(),
-            unsynced: Some(std::io::Error::other("no flush here")),
-        })),
-    };
-    let message = applied(&mut editor, report);
-    assert!(
-        message.starts_with("Wrote") && message.contains("no flush here"),
-        "{message}"
-    );
-    assert!(!editor.current().1.is_modified());
-}
-
 #[cfg(unix)]
 fn mode(path: &Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
@@ -568,5 +411,13 @@ fn set_mode(path: &Path, mode: u32) {
     fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
 }
 
+/// Applies `report`, and returns the message with the state it leaves.
+fn applied(editor: &mut Editor, report: SaveReport) -> String {
+    apply(editor, report);
+    assert!(!editor.current().1.is_saving());
+    editor.messages().next_back().unwrap().to_owned()
+}
+
+mod outcomes;
 #[cfg(unix)]
 mod unix;
