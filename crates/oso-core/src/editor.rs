@@ -491,36 +491,38 @@ impl Editor {
     }
 
     /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
-    /// the selected one then scrolls to show its primary cursor. If that made it
-    /// taller, it also shows the text above any empty space it has below the
-    /// buffer's last row. Returns whether the view moved.
+    /// the selected one then scrolls to show its primary cursor. Rows it gained
+    /// also show the text above any empty space below the buffer's last row.
+    /// Returns whether the view moved.
     pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
         self.frame = frame::layout(size);
         let view = self.frame.window.text.view_size();
-        let taller = view.rows > self.window().size().rows;
+        let added = view.rows.saturating_sub(self.window().size().rows);
         for window in &mut self.windows {
             window.set_size(view);
         }
         let followed = self.follow_cursor();
-        let filled = taller && self.fill_below_last_row();
+        let filled = self.fill_below_last_row(added);
         followed || filled
     }
 
-    /// Pulls the selected window's top row back no further than puts the last row
-    /// at the bottom, the wheel's limit ([`window::wheel`]). A short window moved
-    /// the top row to the cursor, and only this moves it back: a view past the end
-    /// otherwise stays, as the wheel leaves it (ADR 0040). The primary cursor stays in view, being on or
-    /// below the old top and on or above the last row. Other cursors keep their
-    /// places, so this does not use [`Window::set_top`]. Returns whether the view
-    /// moved.
-    fn fill_below_last_row(&mut self) -> bool {
+    /// Pulls the selected window's top row back by at most `added` rows, and no
+    /// further than puts the last row at the bottom, the wheel's limit
+    /// ([`window::wheel`]). A short window moved the top row to the cursor, and
+    /// only this moves it back. A view past the end otherwise stays, as the wheel
+    /// leaves it (ADR 0040), and it moves no more than the window grew, so it
+    /// stays steady while an edge is dragged. The primary cursor stays in view: it
+    /// is on or below the old top, and when the top moves, the view still reaches
+    /// the last row. Other cursors keep their places, so this does not use
+    /// [`Window::set_top`]. Returns whether the view moved.
+    fn fill_below_last_row(&mut self, added: usize) -> bool {
         let (window, buffer) = self.current_mut();
         let scroll = window.scroll();
         let bottom = buffer
             .display()
             .row_count()
             .saturating_sub(window.size().rows);
-        let top = scroll.top.min(bottom);
+        let top = scroll.top.saturating_sub(added).max(bottom.min(scroll.top));
         window.set_scroll(Scroll { top, ..scroll });
         top != scroll.top
     }
@@ -653,6 +655,9 @@ mod tests {
         assert_eq!(editor.window().scroll().top, 93);
         assert_eq!(resize(&mut editor, 8), (false, 93), "rows 93 to 100");
         assert_eq!(resize(&mut editor, 10), (true, 91));
+
+        let mut editor = editor_on_row(100, 95, 3);
+        assert_eq!(resize(&mut editor, 10), (true, 91), "2 of the 7 rows added");
     }
 
     #[test]
@@ -685,11 +690,14 @@ mod tests {
     }
 
     #[test]
-    fn growing_by_a_row_fills_all_the_empty_rows_at_once() {
+    fn a_view_past_the_end_moves_by_the_rows_added() {
         let mut editor = editor_on_row(100, 0, 10);
         let display = editor.current().1.display();
         editor.current_mut().0.set_top(98, &display);
-        assert_eq!(resize(&mut editor, 11), (true, 90));
+        assert_eq!(resize(&mut editor, 11), (true, 97), "a row for a row");
+        assert_eq!(resize(&mut editor, 12), (true, 96));
+        assert_eq!(resize(&mut editor, 20), (true, 88));
+        assert_eq!(resize(&mut editor, 200), (true, 0), "all that remains");
     }
 
     #[test]
