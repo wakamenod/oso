@@ -91,6 +91,22 @@ mod word_motion {
     }
 
     #[test]
+    fn a_long_vowel_after_hiragana_stays_with_it_through_the_keys() {
+        let (mut d, mut editor) = at("すごーい", &[0]);
+        send(&mut d, &mut editor, "M-f");
+        assert_eq!(cursors(&editor), ["すごー".len()]);
+        send(&mut d, &mut editor, "M-d");
+        assert_eq!(text(&editor), "すごー");
+    }
+
+    #[test]
+    fn m_d_stops_after_an_emoji_with_a_skin_tone() {
+        let (mut d, mut editor) = at("☝\u{1f3fd} next", &[0]);
+        send(&mut d, &mut editor, "M-d");
+        assert_eq!(text(&editor), " next");
+    }
+
+    #[test]
     fn every_cursor_moves_and_those_that_meet_merge() {
         let (mut d, mut editor) = at("one two three", &[0, 1, 4]);
         send(&mut d, &mut editor, "M-f");
@@ -191,6 +207,22 @@ mod word_motion {
         send(&mut d, &mut editor, "M-DEL");
         assert_eq!(editor.messages().count(), 2);
         assert_eq!(editor.current().1.text().len(), 6);
+    }
+
+    #[test]
+    fn a_count_that_spends_exactly_what_a_command_may_read_still_deletes() {
+        // The walk's start and each line break cost a seek, 8192 of them in all.
+        let lines = "\n".repeat(8191);
+        let (mut d, mut editor) = at(&lines, &[0]);
+        send(&mut d, &mut editor, "C-u 8 1 9 1 C-d");
+        assert_eq!(text(&editor), "");
+        assert!(editor.messages().next().is_none());
+        // One more goes past what it may read: nothing, and a signal.
+        let lines = "\n".repeat(8193);
+        let (mut d, mut editor) = at(&lines, &[0]);
+        send(&mut d, &mut editor, "C-u 8 1 9 2 C-d");
+        assert_eq!(text(&editor).len(), 8193);
+        assert_eq!(editor.messages().next_back(), Some("Count too large"));
     }
 
     #[test]

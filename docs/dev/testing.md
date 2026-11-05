@@ -106,7 +106,7 @@ Some tests check the repository rather than behavior:
 - `crates/oso/tests/workspace_lints.rs`: every crate uses the workspace
   lints.
 - `crates/oso/tests/architecture`: dependency direction, confined crates,
-  file sizes, `static` items and module headers
+  file sizes, `static` items, module headers and conflict markers
   ([ADR 0038](adr/0038-architecture-guardrails.md),
   [ADR 0039](adr/0039-architecture-guardrail-mechanics.md),
   [ADR 0041](adr/0041-module-responsibility-headers.md),
@@ -114,6 +114,15 @@ Some tests check the repository rather than behavior:
 
 Each check comes with a unit test on a fixture that shows it catches a
 violation, so a broken parser cannot pass silently.
+
+The conflict marker check reads every UTF-8 file in the repository and names each
+marker by file and line. It cannot ask git what is tracked, so it keeps its own copy
+of what `.gitignore` covers, other sessions' worktrees included. A file not yet added
+counts too, such as an editor's backup of a conflicted file. Delete it: adding it to
+`.gitignore` does not stop the check. A line of exactly seven `=` fails too, as a
+conflict resolved by deleting only the outer markers leaves it behind. That also
+fails a Markdown heading underlined at that length, so write headings with `#`. To
+show a marker in a doc, indent it.
 
 ### Test quality
 

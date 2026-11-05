@@ -63,6 +63,7 @@ pub const TOO_MUCH: &str = "Count too large";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WalkBudget {
     left: usize,
+    ran_out: bool,
 }
 
 impl WalkBudget {
@@ -70,20 +71,22 @@ impl WalkBudget {
     pub const fn new() -> Self {
         Self {
             left: MAX_COMMAND_WALK,
+            ran_out: false,
         }
     }
 
     /// Takes `bytes` from the budget. If it does not hold that many, it is left
-    /// empty and this returns false.
+    /// empty and has run out, and this returns false. Taking all it holds is fine.
     pub(crate) fn spend(&mut self, bytes: usize) -> bool {
         let enough = bytes <= self.left;
         self.left = if enough { self.left - bytes } else { 0 };
+        self.ran_out |= !enough;
         enough
     }
 
-    /// Whether nothing is left, so that a motion may have stopped short.
+    /// Whether it ran out, so that a motion stopped short.
     pub const fn is_spent(self) -> bool {
-        self.left == 0
+        self.ran_out
     }
 
     /// The reads of one stop.
@@ -644,9 +647,10 @@ mod tests {
         let mut budget = WalkBudget::new();
         assert!(budget.spend(MAX_COMMAND_WALK - 1));
         assert!(!budget.is_spent());
-        assert!(!budget.spend(2));
-        assert!(budget.is_spent());
+        assert!(budget.spend(1), "all it holds");
+        assert!(!budget.is_spent(), "it went all the way");
         assert!(!budget.spend(1));
+        assert!(budget.is_spent());
         let mut budget = WalkBudget::new();
         let mut stop = budget.stop();
         assert!(stop.spend(MAX_STOP_WALK));

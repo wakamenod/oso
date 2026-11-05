@@ -123,6 +123,13 @@ item notes when it must be settled.
   ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
 - By M2-7: nothing shows that a prefix argument is being typed
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
+- `Editor::set_frame_size` pulls the view back when the selected window gets taller:
+  - The limit should be a pure function beside `window::wheel`, used by both.
+  - By M2-16 and M3: "taller" compares the selected window alone. A selected minibuffer, or
+    splits of different heights, need it per window.
+  - Narrowing and widening do not do the same for `left`. With the cursor far to the right,
+    a window made very narrow and wide again stays scrolled sideways, with shorter rows blank.
+    Decide whether growing sideways follows the same rule.
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
 - By M2-12, from trying the macOS IME by hand (winit 0.30), with its ADR to record

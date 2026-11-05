@@ -106,8 +106,8 @@ impl Window {
     }
 
     /// Moves the view and leaves every cursor where it is, for following the
-    /// cursor and for the sideways wheel. Anything else that moves the view on its
-    /// own uses [`Window::set_top`].
+    /// cursor, for the sideways wheel and for a window that gets taller. Anything
+    /// else that moves the view on its own uses [`Window::set_top`].
     pub(crate) fn set_scroll(&mut self, scroll: Scroll) {
         self.scroll = scroll;
     }
@@ -247,8 +247,10 @@ pub(crate) fn wheel_sideways(left: usize, size: ViewSize, widest: usize, columns
 const COLUMNS_PER_ROW: f64 = 2.0;
 
 /// Wheel and trackpad scrolling not yet worth a whole row or column, so that small
-/// deltas add up. A wheel event moves the view along one axis, whichever it moved
-/// furthest on, so that a gesture a little off straight stays on its axis.
+/// deltas add up. A wheel event counts along one axis, whichever it moved furthest
+/// on, so that a gesture a little off straight stays on its axis. What the other
+/// axis holds stays, so that a slow gesture keeps its progress, and one whose main
+/// axis alternates still moves.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WheelRemainder {
     rows: f64,
@@ -258,17 +260,15 @@ pub struct WheelRemainder {
 impl WheelRemainder {
     /// Adds a delta in rows and columns, and takes out the whole ones.
     pub fn add(&mut self, rows: f64, columns: f64) -> (isize, isize) {
-        if !rows.is_finite() || !columns.is_finite() || (rows == 0.0 && columns == 0.0) {
+        if !rows.is_finite() || !columns.is_finite() {
             return (0, 0);
         }
         if rows.abs() * COLUMNS_PER_ROW >= columns.abs() {
-            self.columns = 0.0;
             self.rows += rows;
             let whole = self.rows.trunc();
             self.rows -= whole;
             (whole as isize, 0)
         } else {
-            self.rows = 0.0;
             self.columns += columns;
             let whole = self.columns.trunc();
             self.columns -= whole;
@@ -500,16 +500,38 @@ mod tests {
     }
 
     #[test]
-    fn a_wheel_event_moves_along_its_main_axis_and_drops_the_other_remainder() {
+    fn a_wheel_event_moves_along_its_main_axis_only() {
         let mut wheel = WheelRemainder::default();
-        assert_eq!(wheel.add(0.9, 0.0), (0, 0));
-        assert_eq!(wheel.add(0.1, 5.0), (0, 5), "sideways");
-        assert_eq!(wheel.add(0.5, 0.0), (0, 0), "what was held went");
-        assert_eq!(wheel.add(2.0, 1.0), (2, 0), "down");
+        assert_eq!(wheel.add(0.1, 5.0), (0, 5), "sideways: the 0.1 goes");
+        assert_eq!(wheel.add(2.0, 1.0), (2, 0), "down: the 1.0 goes");
         assert_eq!(wheel.add(1.0, 2.0), (1, 0), "as far on the screen: down");
         assert_eq!(wheel.add(1.0, 2.5), (0, 2), "further sideways");
         assert_eq!(wheel.add(0.0, 0.5), (0, 1), "the remainder adds up");
-        assert_eq!(wheel.add(0.0, 0.0), (0, 0), "an empty event keeps it");
+        assert_eq!(wheel.add(0.0, 0.0), (0, 0));
+    }
+
+    /// Pixels of 10 by 20 cells: a slow drag across, whose main axis takes turns.
+    #[test]
+    fn a_slow_gesture_whose_main_axis_alternates_still_moves() {
+        let mut wheel = WheelRemainder::default();
+        let (mut rows, mut columns) = (0, 0);
+        for _ in 0..10 {
+            for (x, y) in [(4.0, 3.0), (3.0, 4.0)] {
+                let (down, across) = wheel.add(y / 20.0, x / 10.0);
+                rows += down;
+                columns += across;
+            }
+        }
+        assert!(columns > 0, "it went sideways");
+        assert!(rows > 0, "and down");
+    }
+
+    #[test]
+    fn a_stray_sideways_event_keeps_a_slow_scrolls_progress() {
+        let mut wheel = WheelRemainder::default();
+        assert_eq!(wheel.add(0.6, 0.0), (0, 0));
+        assert_eq!(wheel.add(0.0, 0.3), (0, 0), "a stray event");
+        assert_eq!(wheel.add(0.6, 0.0), (1, 0), "nothing was lost");
     }
 
     #[test]

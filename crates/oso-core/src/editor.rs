@@ -15,16 +15,18 @@
 //! that cannot panic. An undo group spans a command: the dispatcher opens one
 //! before it runs a command and closes it after, also when the command panics.
 
+mod view;
+
 use std::collections::VecDeque;
 
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::DisplaySnapshot;
-use crate::frame::{self, FrameLayout, FrameSize, PixelGrid, PixelRect};
+use crate::frame::{self, FrameLayout, FrameSize};
 use crate::motion;
 use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
-use crate::window::{self, Scroll, ViewSize, Window};
+use crate::window::{ViewSize, Window};
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -489,115 +491,185 @@ impl Editor {
     pub fn messages(&self) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator {
         self.messages.iter().map(String::as_str)
     }
-
-    /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
-    /// the selected one then scrolls to show its primary cursor. Returns whether
-    /// the view moved.
-    pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
-        self.frame = frame::layout(size);
-        let view = self.frame.window.text.view_size();
-        for window in &mut self.windows {
-            window.set_size(view);
-        }
-        self.follow_cursor()
-    }
-
-    /// Lays out the frame whose text area is `size`, for tests that think in text
-    /// rows. Returns whether the view moved.
-    pub fn set_view_size(&mut self, size: ViewSize) -> bool {
-        self.set_frame_size(FrameSize::holding(size))
-    }
-
-    /// The frame's regions.
-    pub fn frame(&self) -> FrameLayout {
-        self.frame
-    }
-
-    /// Where the selected window's primary cursor is on the surface, in physical
-    /// pixels, for the OS's input method to place its candidate window. `None` if
-    /// it is out of view.
-    pub fn cursor_area(&self, grid: PixelGrid) -> Option<PixelRect> {
-        let (window, buffer) = self.current();
-        let display = buffer.display();
-        let point = window.cursor_point(&display);
-        let cells = motion::cursor_cells(&display, point);
-        let cell = frame::cursor_rect(self.frame.window.text, window.scroll(), point, cells)?;
-        Some(grid.rect(cell))
-    }
-
-    /// Scrolls the selected window by the fewest rows and columns that show
-    /// its primary cursor (`scroll-conservatively` 101). The host calls it
-    /// after every command. Returns whether the view moved.
-    pub fn follow_cursor(&mut self) -> bool {
-        let (window, buffer) = self.current_mut();
-        let display = buffer.display();
-        let point = window.cursor_point(&display);
-        let cells = motion::cursor_cells(&display, point);
-        let scroll = window::follow(window.scroll(), window.size(), point, cells);
-        let moved = scroll != window.scroll();
-        window.set_scroll(scroll);
-        moved
-    }
-
-    /// Puts back the selected window's cursors and view, saved together as a
-    /// state handoff does, then scrolls as little as shows its primary cursor.
-    pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
-        let (window, buffer) = self.current_mut();
-        let display = buffer.display();
-        window.restore_positions(selections, scroll, &display);
-        self.follow_cursor();
-    }
-
-    /// Scrolls the selected window's view by `rows` (down toward the end
-    /// if positive), for the mouse wheel and trackpad. Cursors left outside
-    /// the view move to its nearest row, as in Emacs. Returns whether the
-    /// view moved.
-    pub fn scroll_view(&mut self, rows: isize) -> bool {
-        let (window, buffer) = self.current_mut();
-        let display = buffer.display();
-        let row_count = display.row_count();
-        let top = window::wheel(window.scroll().top, window.size(), row_count, rows);
-        window.set_top(top, &display)
-    }
-
-    /// Scrolls the selected window's view by `columns` (toward the ends of lines
-    /// if positive), for the mouse wheel and trackpad, as far as the rows in view
-    /// need. Cursors stay, even out of view, and the next command brings the view
-    /// back. A short row may not reach the view at all, so no place in view would
-    /// do. Returns whether the view moved.
-    pub fn scroll_view_sideways(&mut self, columns: isize) -> bool {
-        let (window, buffer) = self.current_mut();
-        let display = buffer.display();
-        let scroll = window.scroll();
-        let size = window.size();
-        // How wide a row must be to go all the way, so that the search can stop
-        // there. Going left needs no row at all.
-        let wanted = scroll
-            .left
-            .saturating_add(columns.unsigned_abs())
-            .saturating_add(size.columns);
-        let mut widest = 0;
-        if columns > 0 {
-            for row in scroll.top..scroll.top.saturating_add(size.rows) {
-                widest = widest.max(display.row_cells(row));
-                if widest >= wanted {
-                    break;
-                }
-            }
-        }
-        let left = window::wheel_sideways(scroll.left, size, widest, columns);
-        window.set_scroll(Scroll { left, ..scroll });
-        left != scroll.left
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display_map::TabWidth;
+    use crate::frame::{PixelGrid, PixelRect};
+    use crate::load::Builder;
+    use crate::selection::Selection;
+    use crate::window::Scroll;
+    use proptest::prelude::*;
     use std::path::PathBuf;
 
     fn lines(n: usize) -> String {
         (0..n).map(|i| format!("line {i:03}\n")).collect()
+    }
+
+    /// An editor on `n` lines, plus the empty last row after them, with the cursor
+    /// on `row`, in a window of `rows` rows.
+    fn editor_on_row(n: usize, row: usize, rows: usize) -> Editor {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(n)));
+        editor.set_view_size(ViewSize::new(rows, 40));
+        editor.current_mut().0.selections = SelectionSet::new(row * "line 000\n".len());
+        editor.follow_cursor();
+        editor
+    }
+
+    /// Resizes to `rows` rows. Returns whether the view moved and the top row.
+    fn resize(editor: &mut Editor, rows: usize) -> (bool, usize) {
+        let moved = editor.set_view_size(ViewSize::new(rows, 40));
+        (moved, editor.window().scroll().top)
+    }
+
+    #[test]
+    fn growing_at_the_end_shows_the_text_again() {
+        let mut editor = editor_on_row(100, 100, 10);
+        assert_eq!(editor.window().scroll().top, 91);
+        let cursor = editor.window().selections.primary().cursor;
+        assert_eq!(resize(&mut editor, 1), (true, 100), "only the cursor's row");
+        assert_eq!(resize(&mut editor, 10), (true, 91), "the screen it had");
+        assert_eq!(resize(&mut editor, 25), (true, 76));
+        assert_eq!(resize(&mut editor, 200), (true, 0), "the whole buffer");
+        assert_eq!(resize(&mut editor, 300), (false, 0), "nothing above it");
+        assert_eq!(editor.window().selections.primary().cursor, cursor);
+    }
+
+    #[test]
+    fn growing_a_row_at_a_time_keeps_the_last_row_at_the_bottom() {
+        let mut editor = editor_on_row(100, 100, 1);
+        for rows in 2..=10 {
+            assert_eq!(resize(&mut editor, rows), (true, 101 - rows));
+        }
+    }
+
+    #[test]
+    fn growing_in_the_middle_moves_nothing_while_text_fills_the_window() {
+        let mut editor = editor_on_row(100, 50, 10);
+        assert_eq!(resize(&mut editor, 1), (true, 50));
+        assert_eq!(resize(&mut editor, 10), (false, 50));
+        assert_eq!(
+            resize(&mut editor, 51),
+            (false, 50),
+            "the last row just fits"
+        );
+        assert_eq!(resize(&mut editor, 52), (true, 49), "one empty row");
+    }
+
+    #[test]
+    fn growing_near_the_end_fills_only_the_empty_rows() {
+        let mut editor = editor_on_row(100, 95, 3);
+        assert_eq!(editor.window().scroll().top, 93);
+        assert_eq!(resize(&mut editor, 8), (false, 93), "rows 93 to 100");
+        assert_eq!(resize(&mut editor, 10), (true, 91));
+
+        let mut editor = editor_on_row(100, 95, 3);
+        assert_eq!(resize(&mut editor, 10), (true, 91), "2 of the 7 rows added");
+    }
+
+    #[test]
+    fn growing_at_the_top_moves_nothing() {
+        let mut editor = editor_on_row(100, 0, 10);
+        assert_eq!(resize(&mut editor, 1), (false, 0));
+        assert_eq!(resize(&mut editor, 200), (false, 0));
+    }
+
+    #[test]
+    fn a_buffer_shorter_than_the_window_comes_back_from_its_top() {
+        let mut editor = editor_on_row(3, 3, 10);
+        assert_eq!(editor.window().scroll().top, 0);
+        assert_eq!(resize(&mut editor, 1), (true, 3));
+        assert_eq!(resize(&mut editor, 2), (true, 2));
+        assert_eq!(resize(&mut editor, 10), (true, 0));
+    }
+
+    #[test]
+    fn a_view_past_the_end_stays_until_the_window_gets_taller() {
+        let mut editor = editor_on_row(100, 0, 10);
+        let display = editor.current().1.display();
+        editor.current_mut().0.set_top(98, &display);
+        assert_eq!(resize(&mut editor, 10), (false, 98), "the same size");
+        let wider = editor.set_view_size(ViewSize::new(10, 80));
+        assert!(!wider, "more columns are not more rows");
+        assert_eq!(resize(&mut editor, 3), (false, 98), "shorter");
+        assert_eq!(resize(&mut editor, 3), (false, 98));
+        assert_eq!(resize(&mut editor, 4), (true, 97), "taller");
+    }
+
+    #[test]
+    fn a_view_past_the_end_moves_by_the_rows_added() {
+        let mut editor = editor_on_row(100, 0, 10);
+        let display = editor.current().1.display();
+        editor.current_mut().0.set_top(98, &display);
+        assert_eq!(resize(&mut editor, 11), (true, 97), "a row for a row");
+        assert_eq!(resize(&mut editor, 12), (true, 96));
+        assert_eq!(resize(&mut editor, 20), (true, 88));
+        assert_eq!(resize(&mut editor, 200), (true, 0), "all that remains");
+    }
+
+    #[test]
+    fn growing_fills_with_what_a_loading_buffer_has_so_far() {
+        let mut builder = Builder::new(None, TabWidth::default());
+        builder.push(lines(20).as_bytes());
+        let mut editor = Editor::default();
+        editor.set_view_size(ViewSize::new(10, 40));
+        let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/a/b")));
+        editor.show(file);
+        assert_eq!(resize(&mut editor, 1), (false, 0), "nothing has loaded");
+        assert_eq!(resize(&mut editor, 10), (false, 0));
+
+        let buffer = editor.buffer_mut(file).unwrap();
+        buffer.apply_load(builder.snapshot());
+        assert!(buffer.loading().is_some());
+        editor.current_mut().0.selections = SelectionSet::new(20 * "line 000\n".len());
+        assert_eq!(resize(&mut editor, 1), (true, 20));
+        assert_eq!(resize(&mut editor, 10), (true, 11));
+
+        builder.push(lines(20).as_bytes());
+        builder.finish();
+        editor
+            .buffer_mut(file)
+            .unwrap()
+            .apply_load(builder.snapshot());
+        assert_eq!(resize(&mut editor, 12), (false, 11), "more text below now");
+    }
+
+    #[test]
+    fn growing_leaves_other_cursors_where_they_are() {
+        let mut editor = editor_on_row(100, 100, 1);
+        let row = "line 000\n".len();
+        let cursors = vec![Selection::at(0), Selection::at(100 * row)];
+        let selections = SelectionSet::from_parts(cursors, 1).unwrap();
+        editor.current_mut().0.selections = selections.clone();
+        assert_eq!(resize(&mut editor, 10), (true, 91));
+        assert_eq!(editor.window().selections, selections);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_a_resize_shows_the_cursor_and_growing_leaves_no_empty_rows(
+            n in 0usize..60,
+            row in 0usize..61,
+            sizes in proptest::collection::vec(1usize..80, 1..12),
+        ) {
+            let mut editor = editor_on_row(n, row.min(n), 10);
+            let mut before = 10;
+            for rows in sizes {
+                let old = editor.window().scroll().top;
+                let (moved, top) = resize(&mut editor, rows);
+                prop_assert_eq!(moved, top != old);
+                prop_assert!(top <= row.min(n) && row.min(n) < top + rows);
+                if rows > before {
+                    prop_assert!(top == 0 || top + rows <= n + 1, "empty rows below");
+                }
+                if rows == before {
+                    prop_assert_eq!(top, old);
+                }
+                before = rows;
+            }
+        }
     }
 
     #[test]

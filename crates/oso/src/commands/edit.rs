@@ -189,8 +189,7 @@ fn delete_clusters(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     }
     match edge {
         Some(edge) => Err(CommandError::new(edge.message())),
-        None if budget.is_spent() => Err(CommandError::new(motion::TOO_MUCH)),
-        None => Ok(()),
+        None => budget_left(budget),
     }
 }
 

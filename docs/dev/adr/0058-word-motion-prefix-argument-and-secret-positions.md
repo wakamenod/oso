@@ -28,15 +28,18 @@ some choices open:
   katakana with `ー`, Latin letters and digits, full-width letters and digits, emoji, other
   letters and digits, marks, and what is not a word: white space, punctuation, symbols such as
   `★` and `♪`, controls, boxed invisible characters and invalid bytes. An emoji is what Unicode
-  shows as one by default, or anything with a variation selector asking for one.
-- **A word breaks** where the class changes, except kanji followed by kana, as ADR 0030 has it,
-  and at camelCase boundaries as `subword-mode` does going forward: `fooBar` is `foo|Bar`,
+  shows as one by default, or anything with a variation selector or a skin tone.
+- **A word breaks** where the class changes, except kanji followed by kana, as ADR 0030 has it, and
+  `ー` after hiragana, so that `すごーい` is `すごー|い` and `えーと` is `えー|と`. Katakana words stay one
+  word, as `ー` is still katakana. It also breaks at camelCase boundaries as `subword-mode` does going forward: `fooBar` is `foo|Bar`,
   `HTTPServer` is `HTTP|Server`, and `UTF8` is `UT|F8`, since digits stay with what they follow.
   Backward motion stops at the same places, where Emacs's own backward rule differs a little.
   `subword-mode` is always on, since ADR 0030 carries it over and nothing configures it yet.
-- **Emoji are words of their own,** so `M-f` stops around them and `M-d` takes them. Marks with no
-  base of their own, such as a boxed one past a cluster's limits ([ADR 0054](0054-limits-on-a-display-cluster.md)),
-  break no word, as Emacs's `word-combining-categories` has it.
+- **Emoji are words of their own,** so `M-f` stops around them and `M-d` takes them.
+- **A mark belongs to what comes before it.** This is a mark with no base of its own, such as `゛` standing
+  alone or a boxed one past a cluster's limits ([ADR 0054](0054-limits-on-a-display-cluster.md)). A word breaks as if it
+  were not there, so `か゛語` is `か゛|語`, and after what is not a word a lone mark is not a word either. A cursor on
+  a mark is in what the mark follows, which needs a look back past the marks, within what a stop may read.
 - **Motion follows Emacs:** it passes what is not a word, then goes to the end of the word (or back
   to its start). It does not signal at the buffer's edge, unlike `C-f`. A negative count goes the
   other way. Whether a word breaks depends on two clusters and the one after, so forward and
@@ -118,8 +121,9 @@ the view does not move.
 ### The wheel
 
 - **`WheelRemainder` in `window`** adds up what is not yet worth a whole row or column, for lines and pixels alike, so
-  small deltas count. An event moves the view along the axis it moved furthest on, counting 2 columns as a row, and
-  drops the other's remainder, so a trackpad gesture a little off straight stays on its axis.
+  small deltas count. An event counts along the axis it moved furthest on, counting 2 columns as a row, so a trackpad
+  gesture a little off straight stays on its axis. The other axis keeps what it holds, so a slow scroll keeps its progress
+  through a stray event, and a drag whose main axis alternates still moves.
 - **The sideways wheel** moves `left` by 6 columns a notch, about as far as 3 rows, or by trackpad pixels.
   `Editor::scroll_view_sideways` stops once the widest row in view shows its end and a cell for the cursor. That bound
   costs a conversion per visible row at most, and none going left, so no summary needs the widest row in the buffer,
@@ -148,7 +152,8 @@ This is a human gate ([`REVIEW.md`](../../../REVIEW.md)). It applies ADR 0051, "
 
 These ADRs stay as they are; this one changes the following:
 
-- [ADR 0030](0030-m2-editing-commands.md), a table "generated from Unicode data": it is written by hand.
+- [ADR 0030](0030-m2-editing-commands.md), a table "generated from Unicode data": it is written by hand. Katakana
+  "including `ー`": it stays with hiragana before it, by the author's decision.
 - [ADR 0034](0034-command-registry-and-keymaps.md), `Args` holds a numeric argument: it holds a `Prefix`.
 - [ADR 0040](0040-buffers-loading-motion-and-scrolling.md), "every other motion clears" the goal: `C-e` and `<end>`
   set it. "Horizontal wheel scrolling is not handled yet": it is.
@@ -159,8 +164,8 @@ These ADRs stay as they are; this one changes the following:
 
 ## Consequences
 
-- One word costs about 1 to 4 µs on real text, and at most about 1.8 ms on 10 MB of one character or a run of
-  marks, sequences, empty lines or punctuation, each way, measured by `text_perf`
+- One word costs about 1 to 4 µs on real text, and about 1 to 2 ms on 10 MB of one character or a run of marks,
+  sequences, empty lines or punctuation, each way, measured by `text_perf`
   (`cargo run --release -p oso-core --example text_perf -- words`). A count that spends all a command may takes up to
   about 45 ms.
 - A motion past a stop's limit can stop in the middle of a word, and forward and backward motion do not
@@ -172,7 +177,6 @@ These ADRs stay as they are; this one changes the following:
 - A restart loses a secret buffer's cursor position, which goes to the start of the file.
 - Tests of secret buffers over the socket can check only what remains. `oso ctl` shows no size for one with
   unsaved edits.
-- `すごーい` reads as `すご|ー|い`, since ADR 0030 makes `ー` katakana, as `ラーメン` needs.
 - Until M2-7 draws it, nothing shows that a prefix is being typed.
 - `Effects`, `Args` and `Ctx` changed, and `Prefix`, `Invocation`, `WalkBudget`, `WheelRemainder` and
   `Recenter` are new, as the API snapshot shows.

@@ -9,9 +9,13 @@
 //!
 //! - where the script changes, but kanji followed by kana stays one word, as
 //!   Emacs's `word-combining-categories` does, so `書く` is one word and
-//!   `日本語の|文章で` splits as shown;
+//!   `日本語の|文章で` splits as shown, and `ー` stays with hiragana before it, so
+//!   `すごーい` is `すごー|い`;
 //! - at camelCase boundaries, as `subword-mode` does going forward: `fooBar` is
 //!   `foo|Bar`, and `HTTPServer` is `HTTP|Server`.
+//!
+//! A mark is part of what it follows, whether a word or not, so a word breaks
+//! between what comes before a mark and what comes after it, as if it were not there.
 //!
 //! Whether a word breaks between two clusters depends on them and the one after, so
 //! a word is found by reading from the cursor, and forward and backward motion
@@ -20,7 +24,7 @@
 
 use crate::display_map::cell::{is_mark, takes_no_cells};
 use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot};
-use crate::motion::{self, SEEK_COST, WalkBudget};
+use crate::motion::{self, SEEK_COST, StopWalk, WalkBudget};
 use crate::sum_tree::Bias;
 
 /// What a cluster is to word motion. Everything but [`Class::NotWord`] is part of a
@@ -31,8 +35,7 @@ enum Class {
     /// passes on its way to a word.
     NotWord,
     /// A mark with no base of its own, such as a boxed one past a cluster's limits
-    /// (ADR 0054). No word breaks at it, as Emacs's `word-combining-categories` has
-    /// it for combining characters.
+    /// (ADR 0054). It belongs to what comes before it, so no word starts at it.
     Mark,
     Han,
     Hiragana,
@@ -170,6 +173,8 @@ fn class_of(c: char) -> Class {
 struct Kind {
     class: Class,
     case: Case,
+    /// It is `ー`, which stays with hiragana before it.
+    long_vowel: bool,
 }
 
 impl Kind {
@@ -177,6 +182,7 @@ impl Kind {
     const NOT_WORD: Self = Self {
         class: Class::NotWord,
         case: Case::None,
+        long_vowel: false,
     };
 
     fn of(cluster: &DisplayCluster<'_>) -> Self {
@@ -186,9 +192,7 @@ impl Kind {
                 .chars()
                 .next()
                 .map_or(Self::NOT_WORD, |c| Self {
-                    // A variation selector asks for an emoji: `☀️` and `1️⃣`.
-                    class: if cluster.text.len() > c.len_utf8() && cluster.text.contains('\u{fe0f}')
-                    {
+                    class: if asks_for_emoji(cluster.text, c) {
                         Class::Emoji
                     } else {
                         class_of(c)
@@ -200,10 +204,11 @@ impl Kind {
                     } else {
                         Case::None
                     },
+                    long_vowel: matches!(c, 'ー' | 'ｰ'),
                 }),
             CellKind::PastLimit(_) => Self {
                 class: Class::Mark,
-                case: Case::None,
+                ..Self::NOT_WORD
             },
             CellKind::Tab
             | CellKind::Control(_)
@@ -214,16 +219,29 @@ impl Kind {
     }
 
     fn is_word(self) -> bool {
-        self.class != Class::NotWord
+        !matches!(self.class, Class::NotWord | Class::Mark)
+    }
+
+    fn is_mark(self) -> bool {
+        self.class == Class::Mark
     }
 }
 
-/// Whether a word breaks between two neighboring word clusters, with `after` the
-/// cluster that follows them.
+/// Whether what follows the first character of a cluster asks for an emoji: a
+/// variation selector, as in `☀️` and `1️⃣`, or a skin tone, as in `☝🏽`.
+fn asks_for_emoji(text: &str, first: char) -> bool {
+    text.len() > first.len_utf8()
+        && text
+            .chars()
+            .any(|c| c == '\u{fe0f}' || ('\u{1f3fb}'..='\u{1f3ff}').contains(&c))
+}
+
+/// Whether a word breaks between two word clusters with only marks between them, with
+/// `after` the cluster that follows them.
 fn splits(before: Kind, next: Kind, after: Kind) -> bool {
     match (before.class, next.class) {
-        (Class::Mark, _) | (_, Class::Mark) => false,
         (Class::Han, Class::Hiragana | Class::Katakana) => false,
+        (Class::Hiragana, Class::Katakana) if next.long_vowel => false,
         (a, b) if a != b => true,
         _ => match (before.case, next.case) {
             (Case::Lower, Case::Upper) => true,
@@ -239,6 +257,42 @@ fn starts_word(before: Kind, next: Kind, after: Kind) -> bool {
     next.is_word() && (!before.is_word() || splits(before, next, after))
 }
 
+/// What the last cluster before `point` on its row is, passing marks: what a mark at
+/// `point` belongs to. Not a word if it reaches the start of the row, or if the stop has
+/// read all it may.
+fn kind_before_marks(
+    display: &DisplaySnapshot,
+    mut point: DisplayPoint,
+    walk: &mut StopWalk<'_>,
+) -> Kind {
+    let mut end = display.display_point_to_offset(point, Bias::Left);
+    while point.column > 0 {
+        let mut read = SEEK_COST;
+        let mut last = None;
+        let mut first = None;
+        for cluster in motion::clusters_before(display, point, end) {
+            first.get_or_insert((cluster.offset, cluster.column));
+            read += cluster.text.len();
+            let kind = Kind::of(&cluster);
+            if !kind.is_mark() {
+                last = Some(kind);
+            }
+        }
+        if !walk.spend(read) {
+            return Kind::NOT_WORD;
+        }
+        if let Some(last) = last {
+            return last;
+        }
+        let Some((offset, column)) = first else {
+            break;
+        };
+        end = offset;
+        point = DisplayPoint::new(point.row, column);
+    }
+    Kind::NOT_WORD
+}
+
 /// Where the first word that ends after `offset` ends: past what is not a word, and
 /// on to the word's end. The end of the buffer if there is none. It stops short if
 /// the stop or the command has read all it may.
@@ -249,7 +303,16 @@ pub fn forward_word(display: &DisplaySnapshot, offset: usize, budget: &mut WalkB
     }
     let mut point = display.offset_to_display_point(offset);
     let mut end = offset;
-    let mut word: Option<Kind> = None;
+    // The word's last cluster, passing marks. A cursor on a mark is in what it follows.
+    let starts_on_mark = display
+        .clusters(point)
+        .next()
+        .is_some_and(|cluster| Kind::of(&cluster).is_mark());
+    let mut word = if starts_on_mark {
+        Some(kind_before_marks(display, point, &mut walk)).filter(|kind| kind.is_word())
+    } else {
+        None
+    };
     loop {
         let mut clusters = display.clusters(point).peekable();
         // The kind of the next cluster, found by looking ahead.
@@ -261,11 +324,13 @@ pub fn forward_word(display: &DisplaySnapshot, offset: usize, budget: &mut WalkB
             let kind = peeked.take().unwrap_or_else(|| Kind::of(&cluster));
             let after = clusters.peek().map_or(Kind::NOT_WORD, Kind::of);
             peeked = Some(after);
-            match word {
-                Some(before) if !kind.is_word() || splits(before, kind, after) => {
-                    return cluster.offset;
+            if !kind.is_mark() {
+                match word {
+                    Some(before) if !kind.is_word() || splits(before, kind, after) => {
+                        return cluster.offset;
+                    }
+                    _ => word = kind.is_word().then_some(kind),
                 }
-                _ => word = kind.is_word().then_some(kind),
             }
             end = cluster.offset + cluster.text.len();
         }
@@ -306,13 +371,24 @@ pub fn backward_word(display: &DisplaySnapshot, offset: usize, budget: &mut Walk
     let mut waiting: Option<Read> = None;
     loop {
         let from_row_start = point.column <= motion::BACK_WINDOW;
+        // What comes before the cluster under decision, passing marks.
         let mut before = from_row_start.then_some(Kind::NOT_WORD);
         let mut found = None;
-        // The first cluster of the window, and the kind of its neighbor.
+        // The first cluster of the window, for where to go on from.
         let mut first: Option<Read> = None;
-        let mut second = None;
+        // The first cluster with no known kind before it, which the window before
+        // this one decides, and what follows it.
+        let mut undecided: Option<(Read, Kind)> = None;
         let mut current: Option<Read> = None;
         let mut read = 0;
+        let mut decide = |cluster: Read, next: Kind, before: &mut Option<Kind>| {
+            match *before {
+                Some(kind) if starts_word(kind, cluster.kind, next) => found = Some(cluster.offset),
+                Some(_) => {}
+                None => undecided = undecided.or(Some((cluster, next))),
+            }
+            *before = Some(cluster.kind);
+        };
         let window = motion::clusters_before(display, point, earliest).map(|cluster| Read {
             offset: cluster.offset,
             column: cluster.column,
@@ -321,22 +397,16 @@ pub fn backward_word(display: &DisplaySnapshot, offset: usize, budget: &mut Walk
         });
         for next in window.chain(waiting) {
             read += next.len;
-            if first.is_some() && second.is_none() {
-                second = Some(next.kind);
-            }
             first.get_or_insert(next);
-            if let Some(cluster) = current {
-                if before.is_some_and(|before| starts_word(before, cluster.kind, next.kind)) {
-                    found = Some(cluster.offset);
-                }
-                before = Some(cluster.kind);
+            if let Some(cluster) = current.take() {
+                decide(cluster, next.kind, &mut before);
             }
-            current = Some(next);
+            if !next.kind.is_mark() {
+                current = Some(next);
+            }
         }
-        if let (Some(cluster), Some(before)) = (current, before)
-            && starts_word(before, cluster.kind, after)
-        {
-            found = Some(cluster.offset);
+        if let Some(cluster) = current {
+            decide(cluster, after, &mut before);
         }
         let spent = walk.spend(read + SEEK_COST);
         if let Some(found) = found {
@@ -361,8 +431,18 @@ pub fn backward_word(display: &DisplaySnapshot, offset: usize, budget: &mut Walk
             let Some(first) = first else {
                 return earliest;
             };
-            after = second.unwrap_or(after);
-            waiting = Some(first);
+            // Nothing undecided means only marks, which decide nothing, or that the
+            // kind after the window is the first cluster's.
+            match undecided {
+                Some((cluster, next)) => {
+                    waiting = Some(cluster);
+                    after = next;
+                }
+                None => {
+                    waiting = None;
+                    after = first.kind;
+                }
+            }
             point = DisplayPoint::new(point.row, first.column);
         }
     }
@@ -471,6 +551,55 @@ mod tests {
         assert_eq!(forward_pieces("コーヒー"), ["コーヒー"]);
         assert_eq!(forward_pieces("ｺｰﾋｰの"), ["ｺｰﾋｰ", "の"]);
         assert_eq!(forward_pieces("語ー"), ["語ー"]);
+        assert_eq!(forward_pieces("ラーメンを"), ["ラーメン", "を"]);
+    }
+
+    #[test]
+    fn a_long_vowel_mark_stays_with_hiragana_before_it() {
+        assert_eq!(forward_pieces("すごーい"), ["すごー", "い"]);
+        assert_eq!(backward_pieces("すごーい"), ["すごー", "い"]);
+        assert_eq!(forward_pieces("えーと"), ["えー", "と"]);
+        assert_eq!(forward_pieces("らーめん"), ["らー", "めん"]);
+    }
+
+    #[test]
+    fn a_mark_belongs_to_what_it_follows_and_words_break_around_it() {
+        // U+309B stands alone as a cluster.
+        assert_eq!(forward_pieces("か\u{309b}語"), ["か\u{309b}", "語"]);
+        assert_eq!(backward_pieces("か\u{309b}語"), ["か\u{309b}", "語"]);
+        let text = "fooか\u{309b}Bar";
+        assert_eq!(forward_pieces(text), ["foo", "か\u{309b}", "Bar"]);
+        assert_eq!(backward_pieces(text), ["foo", "か\u{309b}", "Bar"]);
+        // After what is not a word, a lone mark is not a word either.
+        assert_eq!(forward_pieces(" \u{309b} a"), [" \u{309b} a"]);
+        assert_eq!(backward_pieces(" \u{309b} a"), [" \u{309b} ", "a"]);
+        assert_eq!(forward_pieces("\u{309b}"), ["\u{309b}"]);
+    }
+
+    #[test]
+    fn a_cursor_on_a_mark_is_in_the_word_it_follows() {
+        let text = "か\u{309b}語";
+        let d = display(text);
+        let mut budget = WalkBudget::new();
+        assert_eq!(
+            forward_word(&d, "か".len(), &mut budget),
+            "か\u{309b}".len()
+        );
+        // Past a window of marks, each way.
+        let marks = "\u{309b}".repeat(motion::BACK_WINDOW * 3);
+        let text = format!("か{marks}語");
+        let d = display(&text);
+        let mut budget = WalkBudget::new();
+        let inside = "か".len() + "\u{309b}".len() * motion::BACK_WINDOW * 2;
+        assert_eq!(
+            forward_word(&d, inside, &mut budget),
+            text.len() - "語".len()
+        );
+        assert_eq!(
+            backward_word(&d, text.len(), &mut budget),
+            text.len() - "語".len()
+        );
+        assert_eq!(backward_word(&d, text.len() - "語".len(), &mut budget), 0);
     }
 
     #[test]
@@ -519,6 +648,11 @@ mod tests {
         // A variation selector makes a symbol an emoji; alone it is a symbol.
         assert_eq!(forward_pieces("☀\u{fe0f}a"), ["☀\u{fe0f}", "a"]);
         assert_eq!(forward_pieces("★a"), ["★a"]);
+        // A skin tone does too, so that `M-d` stops after it.
+        for emoji in ["☝\u{1f3fd}", "✌\u{1f3fb}", "⛹\u{1f3fd}"] {
+            let text = format!("{emoji} next");
+            assert_eq!(forward_pieces(&text), [emoji, " next"]);
+        }
         // Emoji are words of their own, whole.
         let family = "👨\u{200d}👩\u{200d}👧";
         let text = format!("abc{family}🇯🇵 def");
@@ -635,19 +769,26 @@ mod tests {
                 .clusters(DisplayPoint::new(row, 0))
                 .map(|cluster| (cluster.offset, cluster.text.len(), Kind::of(&cluster)))
                 .collect();
+            // What came before, passing marks.
+            let mut before = Kind::NOT_WORD;
             for (index, &(offset, len, kind)) in row.iter().enumerate() {
-                if !kind.is_word() {
+                if kind.is_mark() {
+                    if before.is_word()
+                        && let Some(word) = words.last_mut()
+                    {
+                        word.1 = offset + len;
+                    }
                     continue;
                 }
-                let before = index
-                    .checked_sub(1)
-                    .map_or(Kind::NOT_WORD, |index| row[index].2);
                 let after = row.get(index + 1).map_or(Kind::NOT_WORD, |next| next.2);
                 if starts_word(before, kind, after) {
                     words.push((offset, offset + len));
-                } else if let Some(word) = words.last_mut() {
+                } else if kind.is_word()
+                    && let Some(word) = words.last_mut()
+                {
                     word.1 = offset + len;
                 }
+                before = kind;
             }
         }
         words
@@ -672,6 +813,7 @@ mod tests {
             Just(","),
             Just("e\u{301}"),
             Just("\u{301}"),
+            Just("\u{309b}"),
             Just("😀"),
             Just("🇯🇵"),
             Just("\u{202e}"),
