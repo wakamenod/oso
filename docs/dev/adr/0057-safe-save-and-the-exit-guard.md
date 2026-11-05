@@ -1,0 +1,214 @@
+# 0057. Safe save and the exit guard
+
+- Status: Proposed
+- Date: 2026-11-05
+
+## Context
+
+[ADR 0013](0013-persistence.md) settled on a temporary file, fsync and a rename, and
+[ADR 0029](0029-file-changes-on-disk.md) on a check of the modification time right before
+the rename. [ADR 0053](0053-edit-core.md) brought `content_id` and `mark_saved`. Nothing wrote
+a file yet, `C-x C-c` and the window's close button exited at once, and the loader dropped the
+metadata of the file it opened.
+
+This is what lets the author trust oso with real notes, so losing or damaging a file is the
+failure to design against. The UI thread must not wait on any of it, and a command has no
+threads or files of its own ([ADR 0034](0034-command-registry-and-keymaps.md)).
+
+## Decision
+
+### The order of a write
+
+On a thread of its own, each step before the next:
+
+1. **Follow symbolic links** one at a time to the file itself, up to 40. A link stays a link, and
+   a link to a file that does not exist creates that file. A relative target counts from the
+   link's directory, and nothing is normalized by hand, so the system walks `..` as it would for
+   the link. Nothing about secrets is judged here: a secret buffer saves like any other, since
+   only the emergency save skips them ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)).
+2. **Check the baseline** (below), so that a file already changed costs no write. If the file
+   exists, also open it for writing and close it. A rename needs only the directory, so without
+   this a save would replace a file the user made read-only or may not write. Opening writes
+   nothing and changes no time.
+3. **Create a temporary file** with `create_new` (`O_EXCL`) and mode `0600`, in the directory of the
+   file itself, so that the rename stays on one file system. The name is
+   `.oso-save-<process>-<nanoseconds>-<attempt>.tmp`, trying the next attempt if it exists. It is
+   hidden and says what it is. It holds nothing of the file's name, which could make it too long
+   for the system, and `create_new` means it is never a link someone left there.
+4. **Write** the BOM if the file had one, then the rope's chunks through a 1 MiB buffer. Line endings
+   are already in the rope.
+5. **Set the attributes and fsync.** One fsync after the attributes, so that a crash cannot leave the
+   new file in place with mode `0600`.
+6. **Check the baseline again,** right before the rename. The baseline to record next is read from
+   the open file here, before the rename, so that a change made just after the rename still counts as
+   a change at the next save.
+7. **Rename, then fsync the directory.** If that fsync fails, the file has still been replaced, so the
+   save counts as done and the message adds that it may not survive a power cut. Some network file
+   systems cannot do it at all.
+
+The temporary file is removed when anything fails, also on the way out of a panic, by a guard that
+only the rename disarms. Up to the rename the file is untouched, and after it the file holds the whole
+new text.
+
+### The baseline and the conflict rule
+
+- `Buffer` holds a `Baseline`: `Present { modified, len }` or `Absent`. The loader reads it from the file
+  it opened, not the path, and hands it over before the first snapshot, as it does the resolved path. A
+  missing file leaves `Absent`, so a file that appears later is a change. `oso dev`'s handoff reads the
+  file again, so a fresh baseline comes with it.
+- A buffer starts with `Absent`. So one that never heard from the loader, through a bug, refuses to
+  replace any file.
+- **The check is for inequality,** not "newer": a backup restored with an older time is a change too.
+- **A change keeps the file.** Nothing is written over it, and the temporary file goes. The buffer stays
+  modified, and a message says why.
+- So does a directory or a link in the file's place. Anything that is not a regular file with the
+  baseline's time and size is a change. The check does not follow links, so a link swapped in for the
+  file cannot be written through.
+- **A deleted file is not a conflict.** It holds nothing to keep, and refusing would leave the text with
+  no way to be saved. Emacs does the same. The file is written again, with the mode of a new file.
+
+### Attributes of the replaced file
+
+A rename puts a new file in the old one's place, so nothing carries over by itself.
+
+- **Mode:** kept, including `0600` and the executable bits, less set-user-ID and set-group-ID, which a write
+  also clears, and the sticky bit. A new file gets what the umask gives. `std` cannot read the umask, so a
+  second temporary file, created with mode `0666`, is looked at and removed.
+- **Owner:** kept if it already matches, or if `fchown` works, which means running as root. Otherwise **the
+  save is refused,** as a save must not take someone else's file over silently. A shared file in a group can
+  therefore be edited but not saved, until M2-16 can ask.
+- **Group:** kept if the user may set it. If not, the save goes on, and that group gets no more access than
+  everyone else, since the group bits were meant for the old group. A file moved out of `/tmp` on macOS is
+  often in a group its owner is not in, so refusing would hurt, and its usual `0644` does not change.
+- **Extended attributes and ACLs: lost.** `std` has no way to copy them. On macOS that includes Finder tags and
+  the quarantine flag, and on Linux `security.selinux` falls back to the directory's default. This is recorded in
+  `open-questions.md`.
+- **Hard links: broken, and this is accepted.** Other names keep the old text. Nothing is lost, as both texts exist.
+  Detecting it would be platform code for a rare case, and refusing would make those files unsaveable.
+- The inode and the creation time are new.
+
+### Rules for saving
+
+`save-buffer` (`C-x C-s`) decides in this order, and refuses without changing anything:
+
+- **Read-only** buffers (binary, invalid UTF-8, loading) are refused, with the reason. They can never be
+  saved ([ADR 0022](0022-text-buffer-and-file-loading.md)).
+- **A save of this buffer is running:** a second one is **refused, not queued.** A queued save would have to take
+  its snapshot and its final newline at some later moment, outside any command and any undo group. Refusing
+  needs one flag, and leaves the buffer modified with a message that says so. A human rarely sees it, since
+  even a 1 GB file takes a fraction of a second.
+- **Unmodified** says `(No changes need to be saved)` and writes nothing, also for a new file left untouched.
+  This comes before the next rule, as in Emacs, so `C-x C-s` in an untouched `*scratch*` has nothing to do.
+  It is a message and not a failure.
+- **No file** says `Buffer has no file name`. `C-x C-w` comes in M2-18.
+
+Then:
+
+- **The final newline** ([ADR 0030](0030-m2-editing-commands.md)) is an edit of its own, made before the snapshot, so
+  the buffer matches the disk. It uses the file's line ending, is one undo step, and is skipped for an empty
+  buffer. **Cursors at the end stay before it,** as Emacs's do, so typing after a save continues the line.
+- `mark_saved` takes the content id of the snapshot, so edits made while a save runs stay modified, and an undo
+  made while it runs leaves the buffer modified once it ends.
+- A missing directory is an error, and none is created. Emacs asks, and prompts come later.
+- Messages go through `Editor::message`: `Wrote PATH`, or what went wrong, naming the path and never the text.
+  Drawing them is M2-7.
+
+### Where things live
+
+- **A command cannot start a thread, so it queues.** `Editor::start_save` makes the checks and the edit and adds a
+  `SaveJob`, which holds an O(1) snapshot. `App::apply`, which already runs after every command, takes the jobs
+  and starts them. This is also the seam for tests: `saver::run` does a job with no thread, and `saver::apply` takes
+  its report in. A panic on the thread is caught and reported, so a buffer cannot stay "saving".
+- `saver` is a new top-level module of the tip crate, in the lowest layer of `guardrails/layers.txt`. `app/saves.rs`
+  sits beside `app/loads.rs`, and `UserEvent::Save` carries the report, which holds no text.
+- `oso-core` gains no module. `editor/save.rs` is private, and its types are re-exported from `editor`. `Baseline`
+  is in `buffer`, and `decode::BOM` becomes public.
+
+### The exit guard
+
+- `C-x C-c` and `WindowEvent::CloseRequested` refuse once while any buffer is modified **or a save is running**, with a
+  message naming how many: `2 modified buffers and 1 save running; repeat to exit anyway`. A running save counts
+  separately, since an undo can leave a buffer unmodified while the disk is about to change.
+- **Repeating the same action confirms.** The keys do not confirm the button, or the other way around.
+- **Any other key resets it:** a command, even one that fails, typed text, an unbound key or a cancelled prefix. The
+  `C-x` of the repeat does not, as a pending prefix has not decided anything yet. The dispatcher sees this by comparing
+  the refused action before and after each command. A mouse wheel does not reset it, since it is not a key.
+- **A save that fails resets it,** as the refusal no longer says what is at risk. A save that succeeds does not need to:
+  with nothing left at risk, the next try exits at once.
+- **A save still running at a confirmed exit gets to finish.** The user asked for it, and a process that ends mid-write
+  would leave its temporary file behind. Once the event loop has ended, the window closes and the process waits for the
+  thread, for at most 60 s, with no UI left to block. A failure then reaches only the log. This holds for every way of
+  ending the event loop, including `exit` over the socket.
+- The state lives on `Editor`, like the rest of what commands read. The proper prompt replaces this in M2-16.
+- `exit` over the socket stays as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) defines it. winit's `exiting` (Dock
+  quit, logout) is M2-10.
+
+### The control socket
+
+- **`check-handover`, `export-state` and a guarded `exit` refuse while a save runs.** The buffer may look unmodified after
+  an undo, while the file a new instance would read is about to change. This adds to ADR 0055.
+- **`get-state` gains `modified` and `saving`** for each buffer. They tell nothing new: `bytes` and a refused handover already
+  gave the first away.
+- **Dev builds trust the same user to write, as they do to read.** This settles what [ADR 0056](0056-typing.md) and
+  `open-questions.md` left to M2-8. `open-file`, `send-keys` and `save-buffer` together can write any file the dev instance
+  may write, secret or not, so a sandboxed client given the socket can write outside its sandbox. Refusing would mean telling
+  keys from the socket from keys from the window, which `send-keys` is there not to do
+  ([ADR 0034](0034-command-registry-and-keymaps.md)), and a client could still reach them another way. Release builds have no
+  socket. Not giving a sandbox the socket is how to confine it.
+
+## Consequences
+
+- On the author's Mac, `C-x C-s` on a 1 GB buffer costs the UI thread about 20 µs for the command and 8 to 14 µs to start the
+  thread. The whole save takes about 170 ms, and keys typed meanwhile took about 0.5 ms each.
+- **A conflict has no way out yet.** Until M2-16 can ask and M2-22 can reload, or M2-18 can write elsewhere, such a buffer
+  cannot be saved, and `oso dev` holds restarts for it. Moving the changed file away and saving again is what is left. A file
+  owned by someone else cannot be saved that way either.
+- A window remains between the last check and the rename, about as long as two system calls, in which another program's write
+  is lost. `renameat2` with `RENAME_NOREPLACE` could close it for a new file, but is not in `std`.
+- A change that keeps both the size and the modification time goes unseen. Time stamps are nanoseconds on APFS and about 4 ms on
+  ext4, but a program can set them. Adding the inode would catch a rename by another safe saver, if this ever matters.
+- A kill signal or a power cut during a save, or leaving after the 60 s, can leave a `.oso-save-*.tmp` beside the file, mode `0600`,
+  holding the buffer's text, or part of it. Nothing cleans those up yet, and they look like what they are.
+- A directory the user may enter but not write stops a save even for a file in it that they may write. A rename needs the
+  directory, and writing in place is exactly what this design does not do.
+- Saving replaces the file, so a program watching an inode rather than a path sees it as deleted. `oso dev`'s watcher is not affected,
+  and neither is `tail -F`.
+- Two buffers visiting one file can each pass their check while the other writes. The last rename wins, and each file written is
+  whole. Only `oso FILE` and dev's `open-file` can make that happen yet.
+- `just perf`'s `stop` sends `C-x C-c` twice now, since benchmarks leave buffers modified.
+- A failed save leaves a message and asks for no frame, as a failed key does, which M2-7 must change.
+- M2-10 can share the temporary file's guard. It must not reuse `start_save`, which edits.
+- Text can no longer be lost by a single `C-x C-c`, as ADR 0055 noted it could until now. A bare `exit` over the socket still loses it,
+  on purpose.
+
+## Alternatives considered
+
+- **Writing in place, or a backup then in place:** keeps the inode, hard links and all attributes, but a crash in the middle leaves a
+  damaged file, which is the one thing this is designed against.
+- **Falling back to writing in place when the owner cannot be kept,** as Vim does: makes shared files saveable, at the price of a code
+  path with none of these guarantees, used only in the rare case nobody tests. M2-16 can ask.
+- **Taking the file over silently when the owner differs,** as Emacs's `file-precious-flag` does: the old owner may lose access with no
+  word about it.
+- **Refusing when the group cannot be kept:** the safest reading, but it refuses ordinary files on macOS over a difference that gives
+  nobody anything.
+- **Refusing to save over a hard-linked file:** the file could then not be saved at all until prompts exist.
+- **`libc` or a crate for `xattr` and ACLs:** `libc` is dev-only until M2-10, and no dependency is added here.
+- **The file's name in the temporary name (`.notes.txt.oso`),** as many editors do: easier to recognize, but a name near the limit of 255
+  bytes could then not be saved.
+- **A random temporary name:** needs a dependency or `/dev/urandom`. `create_new` makes a collision harmless, and the name is not a secret.
+- **Setting the mode after the fsync,** as first planned: a crash after the rename could leave the file at `0600`, or a second fsync would be
+  needed. Nothing reads the file until the rename, so nothing depends on the other order.
+- **Setting the mode after the rename:** the file would have the wrong mode, visibly, for a moment.
+- **Taking the new baseline by a `stat` after the rename:** a change made in between would be taken for the save's own.
+- **The baseline in `FileInfo`:** that is `Copy` data the decoder fills in, with nothing about the disk, and it would come through
+  `LoadSnapshot` from a builder that never sees the file.
+- **Counting a deleted file as a conflict:** consistent, but the text would have no way out, for a file with nothing to protect.
+- **Queueing a second save:** see above.
+- **A cancel flag, so that a confirmed exit drops a running save:** the user would lose a save they asked for, for a wait that is usually
+  milliseconds.
+- **Waiting without a limit at exit:** a stuck network file system would leave a process with no window, for good.
+- **Guarding exit on `Effects::exit` in the dispatcher:** no command would have to know, but `run-command` would report success for an exit that
+  did not happen, and M2-16's prompt belongs in the command anyway.
+- **A guard in the dispatcher's state:** would make several `&self` methods `&mut self`, and the close button goes through the editor
+  anyway.
+- **Letting the close button confirm `C-x C-c`:** a stray click after a refused key would lose the text.

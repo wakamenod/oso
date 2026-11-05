@@ -14,6 +14,9 @@
 //! worked out against the result, and only then does anything change, in moves
 //! that cannot panic. An undo group spans a command: the dispatcher opens one
 //! before it runs a command and closes it after, also when the command panics.
+//!
+//! Saving and the exit guard are in [`save`]: a command starts a save here, and the
+//! host, which owns threads and files, takes the job and reports back.
 
 use std::collections::VecDeque;
 
@@ -24,6 +27,10 @@ use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
 use crate::window::{self, Scroll, ViewSize, Window};
+
+mod save;
+
+pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -99,6 +106,10 @@ pub struct Editor {
     join_ready: bool,
     /// Oldest first.
     messages: VecDeque<String>,
+    /// Saves the host has yet to start.
+    save_jobs: Vec<SaveJob>,
+    /// The way of exiting that was last refused, until another key is pressed.
+    exit_attempt: Option<ExitAction>,
 }
 
 impl Default for Editor {
@@ -119,6 +130,8 @@ impl Editor {
             undo_scope: None,
             join_ready: false,
             messages: VecDeque::new(),
+            save_jobs: Vec::new(),
+            exit_attempt: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -667,5 +680,7 @@ mod tests {
 mod edit_tests;
 #[cfg(test)]
 mod model_tests;
+#[cfg(test)]
+mod save_tests;
 #[cfg(test)]
 mod undo_tests;

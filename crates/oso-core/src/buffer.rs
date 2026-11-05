@@ -18,6 +18,7 @@ use std::fmt;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::slice;
+use std::time::SystemTime;
 
 use crate::decode::{FileInfo, InvalidBytes};
 use crate::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
@@ -60,6 +61,21 @@ impl ReadOnly {
             Self::Binary => "binary",
         }
     }
+}
+
+/// What a buffer last knew of its file on disk (ADR 0029, ADR 0057). A save
+/// compares this with the file right before it replaces it, so that a change made
+/// by anything else is kept.
+///
+/// A buffer starts with [`Baseline::Absent`]. So one that never heard from the
+/// loader counts any file there as a change, and the save refuses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Baseline {
+    /// There was no file: a file that appears later is a change.
+    #[default]
+    Absent,
+    /// The file had this modification time and size.
+    Present { modified: SystemTime, len: u64 },
 }
 
 /// One replacement: the bytes in `range` become `text`.
@@ -254,6 +270,10 @@ pub struct Buffer {
     /// Also holds the invalid bytes (ADR 0040).
     display: DisplayMap,
     info: FileInfo,
+    /// The file on disk, as this buffer last read or wrote it.
+    baseline: Baseline,
+    /// A save of this buffer is running.
+    saving: bool,
     /// `Some` while the file loads.
     loading: Option<Progress>,
     /// Changes whenever the content does.
@@ -286,6 +306,8 @@ impl Buffer {
             display: DisplayMap::new(&text, TabWidth::default()),
             text,
             info: FileInfo::default(),
+            baseline: Baseline::default(),
+            saving: false,
             loading: None,
             revision: 0,
             secret: false,
@@ -374,6 +396,27 @@ impl Buffer {
     /// since that state leave the buffer modified.
     pub fn mark_saved(&mut self, id: ContentId) {
         self.saved = id;
+    }
+
+    /// The file on disk, as this buffer last read or wrote it.
+    pub fn baseline(&self) -> Baseline {
+        self.baseline
+    }
+
+    /// Records what the file on disk is now: when it was opened to load, and
+    /// when a save has replaced it.
+    pub fn set_baseline(&mut self, baseline: Baseline) {
+        self.baseline = baseline;
+    }
+
+    /// Whether a save of this buffer is running. Until it ends, the disk may hold
+    /// either the old state or the one being written.
+    pub fn is_saving(&self) -> bool {
+        self.saving
+    }
+
+    pub(crate) fn set_saving(&mut self, saving: bool) {
+        self.saving = saving;
     }
 
     /// Whether the content differs from the state last saved. Undoing back to

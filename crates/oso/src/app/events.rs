@@ -23,6 +23,7 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::Load(buffer) => {
                 self.load_updated(buffer);
             }
+            UserEvent::Save(report) => self.save_ended(report),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
@@ -43,9 +44,7 @@ impl ApplicationHandler<UserEvent> for App {
 
         match event {
             // ---- Close window ----
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
-            }
+            WindowEvent::CloseRequested => self.close_requested(event_loop),
 
             // ---- Resize ----
             WindowEvent::Resized(size) => self.resize(size.width, size.height),

@@ -46,4 +46,4 @@ crate
 app
 dispatch
 bindings
-commands dev keys loader text
+commands dev keys loader saver text

@@ -95,6 +95,9 @@ impl App {
         if let Some(resolved) = self.loads[index].handle.take_resolved() {
             buffer.judge_secret(resolved.paths());
         }
+        if let Some(baseline) = self.loads[index].handle.take_baseline() {
+            buffer.set_baseline(baseline);
+        }
         let redraw = match update {
             LoadUpdate::Snapshot(snapshot) => {
                 let old_rows = buffer.display().row_count();

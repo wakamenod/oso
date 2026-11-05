@@ -1,0 +1,237 @@
+//! What a save and an exit need from the editor state (ADR 0057).
+//!
+//! Must not depend on: threads or the file system, which the host owns, or
+//! `command` and `keymap`.
+//!
+//! [`Editor::start_save`] decides whether the selected window's buffer can be saved,
+//! ensures its final newline and queues a [`SaveJob`] with an O(1) snapshot. The host
+//! takes the job after the command, writes the file on a thread of its own, and
+//! reports back with [`Editor::save_finished`] or [`Editor::save_failed`]. The queue
+//! is what lets tests run a save with no thread at all.
+//!
+//! [`Editor::confirm_exit`] is the guard on exiting with work at stake. M2-16's prompt
+//! replaces it.
+
+use std::fmt;
+use std::path::PathBuf;
+
+use super::{Editor, clip_cursors};
+use crate::buffer::{Baseline, Buffer, BufferId, ContentId, ReadOnly, Replacement};
+use crate::rope::Rope;
+
+/// One save for the host to run. Its text is an O(1) snapshot, which later edits do
+/// not change. It has no `Debug`, so that its text cannot reach a log.
+pub struct SaveJob {
+    /// The buffer to report back about.
+    pub buffer: BufferId,
+    /// The path the buffer visits, which may be a symbolic link.
+    pub path: PathBuf,
+    /// The text to write.
+    pub text: Rope,
+    /// The file starts with a BOM, which is not in the text.
+    pub bom: bool,
+    /// The state of the text, for [`Editor::save_finished`].
+    pub content: ContentId,
+    /// What the file on disk must still be for it to be replaced.
+    pub baseline: Baseline,
+}
+
+/// Why a save did not start. Nothing was written, and nothing changed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveRefused {
+    /// The buffer is read-only, for this reason (ADR 0022).
+    ReadOnly(ReadOnly),
+    /// A save of this buffer is running. A second one is refused and not queued.
+    AlreadySaving,
+    /// The buffer holds what the disk does.
+    Unmodified,
+    /// The buffer visits no file.
+    NoFile,
+}
+
+impl fmt::Display for SaveRefused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::ReadOnly(ReadOnly::Binary) => "Cannot save a binary file",
+            Self::ReadOnly(ReadOnly::InvalidUtf8) => "Cannot save a file with invalid UTF-8",
+            Self::ReadOnly(ReadOnly::Loading) => "Cannot save a file that is still loading",
+            Self::AlreadySaving => "This buffer is already being saved; save again when it ends",
+            Self::Unmodified => "(No changes need to be saved)",
+            Self::NoFile => "Buffer has no file name",
+        })
+    }
+}
+
+/// A way of exiting. Only repeating the same one confirms.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExitAction {
+    /// The exit command, by a key or by name.
+    Command,
+    /// The window's close button.
+    CloseWindow,
+}
+
+/// What an exit would put at risk, which is why it was refused this time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExitRefused {
+    /// Buffers that differ from their file, or have no file.
+    pub modified: usize,
+    /// Saves still running. A buffer being saved usually counts as modified too.
+    pub saving: usize,
+}
+
+impl fmt::Display for ExitRefused {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let plural = |count: usize| if count == 1 { "" } else { "s" };
+        let modified = self.modified;
+        let saving = self.saving;
+        if modified > 0 {
+            write!(f, "{modified} modified buffer{}", plural(modified))?;
+        }
+        if modified > 0 && saving > 0 {
+            f.write_str(" and ")?;
+        }
+        if saving > 0 {
+            write!(f, "{saving} save{} running", plural(saving))?;
+        }
+        f.write_str("; repeat to exit anyway")
+    }
+}
+
+/// Why `buffer` cannot be saved now, if it cannot. Unmodified comes before no file,
+/// as in Emacs, where `C-x C-s` in an untouched `*scratch*` has nothing to do.
+fn refusal(buffer: &Buffer) -> Option<SaveRefused> {
+    if let Some(reason) = buffer.read_only() {
+        Some(SaveRefused::ReadOnly(reason))
+    } else if buffer.is_saving() {
+        Some(SaveRefused::AlreadySaving)
+    } else if !buffer.is_modified() {
+        Some(SaveRefused::Unmodified)
+    } else if buffer.path().is_none() {
+        Some(SaveRefused::NoFile)
+    } else {
+        None
+    }
+}
+
+/// The line break `buffer` needs at its end, if any: a text with something in it that
+/// does not end in one (ADR 0030). O(log n).
+fn missing_final_newline(buffer: &Buffer) -> Option<&'static str> {
+    let text = buffer.text();
+    let last = text.chunks_in_range(text.len().saturating_sub(1)..text.len());
+    let needed = !text.is_empty() && !last.last().is_some_and(|last| last.ends_with('\n'));
+    needed.then(|| buffer.file_info().line_ending.text())
+}
+
+impl Editor {
+    /// Starts saving the selected window's buffer: ensures its final newline, as an
+    /// edit of its own that undoes as one step, and queues a job with a snapshot of
+    /// the result for the host. Returns whether the text changed. The cursors stay
+    /// before the new line break, as Emacs's do.
+    ///
+    /// # Errors
+    ///
+    /// Why the save did not start. Nothing changes.
+    pub fn start_save(&mut self) -> Result<bool, SaveRefused> {
+        let id = self.window().buffer();
+        let buffer = self.current().1;
+        if let Some(refused) = refusal(buffer) {
+            return Err(refused);
+        }
+        let edited = match missing_final_newline(buffer) {
+            Some(line_break) => {
+                self.insert_final_newline(id, line_break);
+                true
+            }
+            None => false,
+        };
+        let job = self.buffer_mut(id).and_then(|buffer| {
+            buffer.set_saving(true);
+            Some(SaveJob {
+                buffer: id,
+                path: buffer.path()?.to_path_buf(),
+                text: buffer.text().clone(),
+                bom: buffer.file_info().bom,
+                content: buffer.content_id(),
+                baseline: buffer.baseline(),
+            })
+        });
+        self.save_jobs.extend(job);
+        Ok(edited)
+    }
+
+    /// Adds `line_break` at the end of `id`, the selected window's buffer, and
+    /// keeps the cursors that were at the end where they were.
+    fn insert_final_newline(&mut self, id: BufferId, line_break: &str) {
+        let old_end = self.current().1.text().len();
+        let edit = Replacement {
+            range: old_end..old_end,
+            text: line_break,
+        };
+        // The caller knows the buffer exists and is not read-only.
+        if self.apply_edits(id, &[edit]).is_err() {
+            return;
+        }
+        let new_end = old_end + line_break.len();
+        let display = self.current().1.display();
+        let selections = &mut self.windows[self.selected].selections;
+        selections.update(|selection| {
+            if selection.cursor == new_end {
+                selection.cursor = old_end;
+            }
+            Ok::<(), ()>(())
+        });
+        // A `\n` after a lone `\r` makes one cluster of the two.
+        clip_cursors(selections, &display, &[]);
+    }
+
+    /// The saves queued since the last call, for the host to run.
+    pub fn take_save_jobs(&mut self) -> Vec<SaveJob> {
+        std::mem::take(&mut self.save_jobs)
+    }
+
+    /// A save of `id` ended well: the disk holds the state `content`, and `baseline`
+    /// describes the file. Edits since that state leave the buffer modified.
+    pub fn save_finished(&mut self, id: BufferId, content: ContentId, baseline: Baseline) {
+        if let Some(buffer) = self.buffer_mut(id) {
+            buffer.set_saving(false);
+            buffer.mark_saved(content);
+            buffer.set_baseline(baseline);
+        }
+    }
+
+    /// A save of `id` wrote nothing, and the buffer stays modified. An exit refused
+    /// while it ran no longer speaks for what is at risk, so it must be refused again.
+    pub fn save_failed(&mut self, id: BufferId) {
+        if let Some(buffer) = self.buffer_mut(id) {
+            buffer.set_saving(false);
+        }
+        self.reset_exit_guard();
+    }
+
+    /// Whether `action` may exit: at once if nothing is at risk, or if it is the
+    /// action refused last and no other key came since.
+    ///
+    /// # Errors
+    ///
+    /// What is at risk, the first time. Repeating `action` then confirms.
+    pub fn confirm_exit(&mut self, action: ExitAction) -> Result<(), ExitRefused> {
+        let modified = self.buffers().filter(|(_, b)| b.is_modified()).count();
+        let saving = self.buffers().filter(|(_, b)| b.is_saving()).count();
+        if modified + saving == 0 || self.exit_attempt == Some(action) {
+            return Ok(());
+        }
+        self.exit_attempt = Some(action);
+        Err(ExitRefused { modified, saving })
+    }
+
+    /// The way of exiting that was last refused, if no other key came since.
+    pub fn exit_attempt(&self) -> Option<ExitAction> {
+        self.exit_attempt
+    }
+
+    /// Forgets a refused exit, so that the next one is refused again.
+    pub fn reset_exit_guard(&mut self) {
+        self.exit_attempt = None;
+    }
+}

@@ -63,6 +63,7 @@ old one's status.
 | 0054 | [Limits on a display cluster](0054-limits-on-a-display-cluster.md) | Accepted |
 | 0055 | [`oso dev` never loses unsaved text](0055-oso-dev-never-loses-unsaved-text.md) | Accepted |
 | 0056 | [Typing](0056-typing.md) | Accepted |
+| 0057 | [Safe save and the exit guard](0057-safe-save-and-the-exit-guard.md) | Proposed |
 
 ## Template
 

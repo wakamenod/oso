@@ -1,12 +1,13 @@
 //! The application: the window, the event loop handler and the glue
 //! between them and the editor (ADR 0004). It turns winit events into key
-//! presses, wheel scrolling and frames, starts file loads and takes in
-//! their snapshots. This file holds the state and what the concerns share;
+//! presses, wheel scrolling and frames, starts file loads and saves and takes
+//! in what they report. This file holds the state and what the concerns share;
 //! each concern has a module.
 //!
 //! Must not depend on: wgpu or OS bindings. Editor logic belongs in oso-core
 //! and commands, not here.
 
+use std::thread::JoinHandle;
 use std::time::Instant;
 
 use oso_core::buffer::BufferId;
@@ -21,10 +22,12 @@ mod draw;
 mod events;
 mod input;
 mod loads;
+mod saves;
 
 #[cfg(feature = "dev")]
 use crate::dev;
 use crate::dispatch::Dispatcher;
+use crate::saver::SaveReport;
 use draw::View;
 use loads::Load;
 
@@ -33,6 +36,8 @@ use loads::Load;
 pub enum UserEvent {
     /// A loading thread has an update for this buffer.
     Load(BufferId),
+    /// A saving thread has ended.
+    Save(SaveReport),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -45,6 +50,7 @@ pub enum UserEvent {
 /// - `dispatcher`: keymaps and commands, which turn keys into changes.
 /// - `modifiers`: the modifier keys held, as winit last reported them.
 /// - `loads`: files loading in the background.
+/// - `saves`: files being written in the background.
 /// - `dev`: the control socket, in dev builds where it started.
 pub struct App {
     view: Option<View>,
@@ -53,6 +59,7 @@ pub struct App {
     modifiers: ModifiersState,
     proxy: EventLoopProxy<UserEvent>,
     loads: Vec<Load>,
+    saves: Vec<JoinHandle<()>>,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Trackpad scrolling not yet worth a whole row, in pixels.
@@ -79,6 +86,7 @@ impl App {
             modifiers: ModifiersState::default(),
             proxy,
             loads: Vec::new(),
+            saves: Vec::new(),
             started: Some(started),
             wheel_pixels: 0.0,
             #[cfg(feature = "dev")]
@@ -97,7 +105,8 @@ impl App {
     }
 
     /// Does what commands asked for.
-    fn apply(&self, event_loop: &ActiveEventLoop, effects: Effects) {
+    fn apply(&mut self, event_loop: &ActiveEventLoop, effects: Effects) {
+        self.start_saves();
         if effects.redraw {
             self.request_redraw();
         }

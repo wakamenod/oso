@@ -457,3 +457,44 @@ fn positions_are_dropped_if_the_window_moved_on() {
     assert!(restore.try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 0);
 }
+
+#[test]
+fn a_running_save_holds_the_handover_and_a_guarded_exit_by_name() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let clean = generation(&editor);
+    type_text(&mut editor);
+    editor.start_save().unwrap();
+    let job = editor.take_save_jobs().pop().unwrap();
+    // An undo leaves the buffer unmodified, but the disk is about to differ from it.
+    editor.undo().unwrap();
+    assert!(!editor.current().1.is_modified());
+    assert_eq!(generation(&editor), clean);
+
+    for message in [
+        check(&editor).unwrap_err(),
+        export(&editor, &[], None, None).unwrap_err(),
+    ] {
+        assert!(message.contains("a.txt"), "{message}");
+        assert!(message.contains("being saved"), "{message}");
+        assert!(!message.contains(TYPED), "{message}");
+    }
+    let message = exit_allowed(&editor, Some(clean)).unwrap_err();
+    assert!(message.starts_with(EXIT_REFUSED), "{message}");
+    assert_eq!(exit_allowed(&editor, None), Ok(()), "a person or an agent");
+
+    editor.save_finished(job.buffer, job.content, job.baseline);
+    assert!(check(&editor).is_err(), "now modified");
+}
+
+#[test]
+fn a_finished_save_lets_the_handover_through() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    type_text(&mut editor);
+    assert!(check(&editor).is_err());
+    editor.start_save().unwrap();
+    let job = editor.take_save_jobs().pop().unwrap();
+    assert!(check(&editor).is_err());
+    editor.save_finished(job.buffer, job.content, job.baseline);
+    assert!(check(&editor).is_ok());
+    assert!(export(&editor, &[], None, None).is_ok());
+}

@@ -217,6 +217,8 @@ what you type goes into their buffers, which can fail a flow.
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
+| save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
+| exit guard | `C-x C-c` refuses once with unsaved text, another key starts it over, and repeating leaves the file as it was; after a save it needs no repeat |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend
@@ -236,8 +238,8 @@ quote buffer text, so use `assert_visible_row`, and do not `assert_eq!` on a sta
 that holds text.
 
 **What is still manual,** through the `verify-in-app` skill or by hand: resizing
-the window, the mouse wheel, real OS key events, IME, and `oso dev`'s build loop,
-with Ctrl-C and closing the terminal.
+the window, the mouse wheel, real OS key events, the window's close button, IME, and
+`oso dev`'s build loop, with Ctrl-C and closing the terminal.
 
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
@@ -249,8 +251,8 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   most 10,000 if it takes one. Command errors and panics come back as error
   responses.
 - `get-state` reads the state as JSON: every buffer (name, path, whether it may
-  hold secrets, read-only reason, line ending, BOM, invalid-byte count, loading
-  progress, size), every window with its selections, the selected window's
+  hold secrets, read-only reason, whether it is modified or being saved, line ending,
+  BOM, invalid-byte count, loading progress, size), every window with its selections, the selected window's
   buffer, cursor and scroll position, its visible text, the keys of a pending
   prefix and the surface size. The visible text stops at 128 KiB and says so with
   `truncated`. The modeline comes with M2.

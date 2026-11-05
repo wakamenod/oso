@@ -13,6 +13,7 @@ mod dev;
 mod dispatch;
 mod keys;
 mod loader;
+mod saver;
 mod text;
 
 use std::ffi::OsString;
@@ -73,6 +74,7 @@ fn main() {
         app.open(file);
     }
     event_loop.run_app(&mut app).unwrap();
+    app.finish_saves();
 }
 
 /// Exits with an error: `oso ctl` and `oso dev` need a dev build.

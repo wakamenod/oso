@@ -325,9 +325,20 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 There is no periodic auto-save and there are no backup files. If oso panics or
 the OS ends it, unsaved buffers are written to a private directory (mode
-`0700`, files `0600`), skipping secret-looking files. Saving uses a temporary
-file, fsync and rename. See [ADR 0013](adr/0013-persistence.md) and
-[ADR 0051](adr/0051-m2-plan-decisions.md).
+`0700`, files `0600`), skipping secret-looking files. See
+[ADR 0013](adr/0013-persistence.md) and [ADR 0051](adr/0051-m2-plan-decisions.md).
+
+Saving never touches the file until the whole new text is safely beside it. A
+command checks the buffer, ensures its final newline as an edit, and queues a job
+with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
+after the command and runs it on a thread (`saver`): a temporary file in the file's
+own directory, the file's owner and mode, fsync, a check that the file on disk is
+what the buffer last read or wrote (its modification time and size, the baseline on
+`Buffer`), rename, and fsync of the directory. A file changed by anything else is
+kept, and the buffer stays modified. A symbolic link stays a link, and hard links
+break. `C-x C-c` and the window's close button refuse once while a buffer is modified
+or a save runs, and a save still running at exit gets to finish. See
+[ADR 0057](adr/0057-safe-save-and-the-exit-guard.md).
 
 ## Security architecture (summary)
 

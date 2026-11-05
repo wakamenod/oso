@@ -58,9 +58,16 @@ item notes when it must be settled.
 
 ## M2
 
-- By M2-8: once a buffer can be saved, `send-keys` and `run-command` can edit and write any file
-  a client opens, secret or not. The trust statement in `security.md` speaks only of reading,
-  and a sandboxed client could write outside its sandbox this way.
+- Safe save loses a file's extended attributes and ACLs, since `std` cannot copy them
+  ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
+  Decide whether copying them is worth `libc` once M2-10 brings it to release builds.
+- By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
+  buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. A file owned by
+  another user cannot be saved at all; decide whether the prompt should offer writing in place
+  ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
+- By M2-18: two buffers visiting one file can each pass the check while the other writes.
+  `C-x C-f` should find the buffer already visiting a file
+  ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
 - By M2-15: the generation that guards `exit` does not change on a save between the
   export and the exit, and does not cover marks, the kill ring or file information
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
