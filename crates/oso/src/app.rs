@@ -60,8 +60,8 @@ pub struct App {
     loads: Vec<Load>,
     /// The exit waiting for running saves, once this instance has agreed to go.
     leaving: Option<Leaving>,
-    /// A save outlived a leave, so the next exit does not wait for it again.
-    save_stuck: bool,
+    /// Buffers whose save outlived a leave, which the next exit does not wait for again.
+    stuck_saves: Vec<BufferId>,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Trackpad scrolling not yet worth a whole row, in pixels.
@@ -89,7 +89,7 @@ impl App {
             proxy,
             loads: Vec::new(),
             leaving: None,
-            save_stuck: false,
+            stuck_saves: Vec::new(),
             started: Some(started),
             wheel_pixels: 0.0,
             #[cfg(feature = "dev")]

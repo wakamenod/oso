@@ -42,7 +42,8 @@ On a thread of its own, each step before the next:
    and the message says it may not survive a power cut. `std` makes `sync_all` a bare `F_FULLFSYNC` on macOS,
    with no fallback, and some network and FUSE mounts refuse it, so otherwise nothing could be saved there. Any
    other error fails the save. The stamp to record next is read here, by the temporary file's name, after the
-   close, as Windows may settle the modification time only then.
+   close, as Windows may settle the modification time only then, and a size other than what was written fails
+   the save.
 6. **Check the baseline again,** right before the rename. A file whose mode or owner changed during the
    write counts as changed too, since the rename would undo a `chmod`, and so does one that came back
    after being gone at step 2. The stamp to record next has by then been read, so that a change made just
@@ -51,9 +52,11 @@ On a thread of its own, each step before the next:
    save counts as done and the message adds that it may not survive a power cut. Some network file
    systems cannot do it at all.
 
-The temporary file is removed when anything fails, also on the way out of a panic, by a guard that
-only the rename disarms. Up to the rename the file is untouched, and after it the file holds the whole
-new text.
+The temporary file goes in the real directory of the file's location, so a link changed during the write does
+not lose track of it. It is removed when anything fails, also on the way out of a panic, by a guard that only
+the rename disarms. Up to the rename the file is untouched, and after it the file holds the whole new text. If the
+file system cannot sync, that holds only as far as the file system can be told: the size is checked after the
+close, as `std` does not report a failed close, and the message says a power cut could lose both texts.
 
 ### The baseline and the conflict rule
 
@@ -65,7 +68,7 @@ new text.
 - **The location must hold the opened file.** It is worked out after the open, so a link switched in between would pair
   one file's text with another place. The loader checks that the location holds the very file it opened, by device and
   inode on Unix. `std` keeps a file's identity unstable on Windows, so there it compares the stamp. If they differ, or nothing is
-  there, no baseline is recorded.
+  there, no baseline is recorded, and a message says the file cannot be saved.
 - A buffer has no baseline until the host says, and without one a save refuses, and says that where the file leads could
   not be told. So a bug that loses it cannot replace a file.
 - **The text goes only where the file was.** A path that now leads elsewhere, because a link or a directory on the way
@@ -79,8 +82,8 @@ new text.
   message says why. A file that appears where there was none is a change, and so is anything that is not a regular file
   with the baseline's time and size.
 - **A deleted file is not a conflict.** It holds nothing to keep, and refusing would leave the text with no way to be
-  saved. Emacs does the same. The file is written again in the same place, with its old mode, narrowed as for a lost
-  group below, since nothing says which group it had.
+  saved. Emacs does the same. The file is written again in the same place, with its mode as last read or written, narrowed
+  as for a lost group below, since nothing says which group it had. A `chmod` made since is not known.
 
 ### Attributes of the replaced file
 
@@ -119,7 +122,8 @@ A rename puts a new file in the old one's place, so nothing carries over by itse
   It is a message and not a failure.
 - **Except a file that has gone.** An unmodified buffer that read a file may hold the only copy of it, as Emacs knows.
   Whether the file is there needs the disk, so the command queues a job that writes only if nothing is at the file's
-  location, and otherwise reports that there is nothing to save. It adds no final newline: the text goes back as it was.
+  location, and otherwise reports that there is nothing to save. It adds no final newline: the text goes back as it was. If
+  the file has gone and the path also leads elsewhere now, the message says so instead.
 - **No file** says `Buffer has no file name`. `C-x C-w` comes in M2-18.
 
 Then:
@@ -183,6 +187,8 @@ Then:
   take this path, and is M2-10's.
 - A deleted file does not count for the guard, as telling needs the disk. A person can exit with the only copy of such a text
   until M2-22, recorded in `open-questions.md`.
+- While a person's exit may yet be taken back, the window's size and the modifier keys still count, though no input does, so that it
+  returns as it should.
 - The state lives on `Editor`, like the rest of what commands read. The proper prompt replaces this in M2-16.
 - `exit` over the socket stays as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) defines it. winit's `exiting` (Dock
   quit, logout) is M2-10.
@@ -205,12 +211,12 @@ Then:
 
 ## Consequences
 
-- On the author's Mac, with its internal SSD, `C-x C-s` on a 1 GB buffer costs the UI thread about 20 µs for the command, about 45
+- On the author's Mac, on an SSD, `C-x C-s` on a 1 GB buffer costs the UI thread about 20 µs for the command, about 45
   µs if it adds the final newline, and 8 to 14 µs to start the thread. The whole save takes 150 to 170 ms, and keys typed meanwhile
   took 0.3 to 6.4 ms from the socket to a presented frame. With `trace` logging to a file on the same disk, one key per save took 25 to 30 ms:
   the UI thread's log write waits for the save's fsync. No benchmark tracks any of this yet, so these numbers come from one script run
   for the pull request.
-- **A conflict has no way out yet.** Until M2-16 can ask and M2-22 can reload, or M2-18 can write elsewhere, such a buffer
+- **A conflict, or a load that could not tell where its file is, has no way out yet.** Until M2-16 can ask and M2-22 can reload, or M2-18 can write elsewhere, such a buffer
   cannot be saved, and `oso dev` holds restarts for it. Moving the changed file away and saving again is what is left. A file
   owned by someone else cannot be saved that way either.
 - A window remains between the last check and the rename, about as long as a few system calls, in which another program's write
@@ -229,7 +235,7 @@ Then:
 - `just perf`'s `stop` sends `C-x C-c` twice now, since benchmarks leave buffers modified.
 - **Until M2-7 draws messages, a refused exit, a conflict and a failed save reach only the log.** A close button that seems dead, or a
   save that seems to work, are what a user sees then, so real notes wait for M2-7. A failed save asks for no frame, as a failed key
-  does, which M2-7 must change. A save that fails after the editor has gone logs at the `error` level, as nothing else is left.
+  does, which M2-7 must change.
 - M2-10 can share the temporary file's guard. It must not reuse `start_save`, which edits.
 - Text can no longer be lost by a single `C-x C-c`, as ADR 0055 noted it could until now. A bare `exit` over the socket still loses it,
   on purpose.

@@ -268,6 +268,52 @@ fn a_directory_link_pointed_elsewhere_since_the_load_writes_nothing_there() {
 }
 
 #[test]
+fn a_directory_link_changed_during_the_write_loses_no_temporary_file() {
+    let scratch = Scratch::new("late-directory-link");
+    fs::create_dir(scratch.path().join("one")).unwrap();
+    fs::create_dir(scratch.path().join("two")).unwrap();
+    let file = scratch.file("one/notes.txt", b"old\n");
+    let link = scratch.path().join("current");
+    symlink("one", &link).unwrap();
+    let job = job(&link.join("notes.txt"), "new\n");
+    let prepared = prepare(&job).unwrap();
+    fs::remove_file(&link).unwrap();
+    symlink("two", &link).unwrap();
+    assert!(matches!(prepared.commit(&job), Err(SaveError::Elsewhere)));
+    assert_eq!(fs::read(&file).unwrap(), b"old\n");
+    assert_eq!(fs::read_dir(scratch.path().join("one")).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(scratch.path().join("two")).unwrap().count(), 0);
+}
+
+#[test]
+fn an_unmodified_buffer_whose_path_moved_on_is_told_when_its_file_has_gone() {
+    let scratch = Scratch::new("gone-elsewhere");
+    fs::create_dir(scratch.path().join("one")).unwrap();
+    fs::create_dir(scratch.path().join("two")).unwrap();
+    let file = scratch.file("one/notes.txt", b"the only copy\n");
+    let link = scratch.path().join("current");
+    symlink("one", &link).unwrap();
+    let mut editor = visit(&link.join("notes.txt"));
+
+    // The file is still where it was, so there is nothing to save.
+    fs::remove_file(&link).unwrap();
+    symlink("two", &link).unwrap();
+    editor.start_save().unwrap();
+    let report = run(editor.take_save_jobs().pop().unwrap());
+    assert!(matches!(report.outcome, Ok(None)), "{report:?}");
+    apply(&mut editor, report);
+
+    fs::remove_file(&file).unwrap();
+    editor.start_save().unwrap();
+    let report = run(editor.take_save_jobs().pop().unwrap());
+    assert!(
+        matches!(report.outcome, Err(SaveError::Elsewhere)),
+        "{report:?}"
+    );
+    assert_eq!(fs::read_dir(scratch.path().join("two")).unwrap().count(), 0);
+}
+
+#[test]
 fn a_directory_made_since_a_new_file_was_visited_is_the_same_place() {
     let scratch = Scratch::new("made-directory");
     let directory = scratch.path().join("later");

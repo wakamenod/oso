@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use oso_core::editor::ExitAction;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::keyboard::ModifiersState;
 
 use super::{App, UserEvent};
 use crate::saver::{self, AfterSave, SaveReport};
@@ -50,8 +51,12 @@ impl App {
     pub(super) fn save_ended(&mut self, event_loop: &ActiveEventLoop, report: SaveReport) {
         let failed = report.failed();
         saver::apply(&mut self.editor, report);
-        let still_saving = self.is_saving();
-        self.save_stuck &= still_saving;
+        self.stuck_saves.retain(|id| {
+            self.editor
+                .buffer(*id)
+                .is_some_and(|buffer| buffer.is_saving())
+        });
+        let still_saving = self.is_saving_any_but_stuck();
         let Some(leaving) = self.leaving else {
             return;
         };
@@ -78,7 +83,7 @@ impl App {
     /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold. A
     /// person's exit comes back if the save fails, as the text is then only here.
     pub(super) fn leave(&mut self, event_loop: &ActiveEventLoop, anyway: bool) {
-        if !self.is_saving() || self.save_stuck {
+        if !self.is_saving_any_but_stuck() {
             event_loop.exit();
             return;
         }
@@ -90,8 +95,12 @@ impl App {
         }
     }
 
-    fn is_saving(&self) -> bool {
-        self.editor.buffers().any(|(_, buffer)| buffer.is_saving())
+    /// Whether a save is running that is worth waiting for: not one that has already
+    /// outlived a leave.
+    fn is_saving_any_but_stuck(&self) -> bool {
+        self.editor
+            .buffers()
+            .any(|(id, buffer)| buffer.is_saving() && !self.stuck_saves.contains(&id))
     }
 
     /// Whether this instance has agreed to go. Nothing that could still be lost with the
@@ -118,7 +127,12 @@ impl App {
                 event_loop.exit();
             }
             _ => {
-                self.save_stuck = true;
+                self.stuck_saves = self
+                    .editor
+                    .buffers()
+                    .filter(|(_, buffer)| buffer.is_saving())
+                    .map(|(id, _)| id)
+                    .collect();
                 self.editor.reset_exit_guard();
                 self.editor.message(
                     "A save has not finished after 10 minutes. The buffer may not be on disk. Exiting again will not wait for it",
@@ -132,6 +146,9 @@ impl App {
     fn stay_open(&mut self, event_loop: &ActiveEventLoop) {
         self.leaving = None;
         event_loop.set_control_flow(ControlFlow::Wait);
+        // The key that confirmed the exit may have held Control. Its release, if it reached
+        // the hidden window at all, may be gone, and the system says again when one is held.
+        self.modifiers = ModifiersState::default();
         if let Some(view) = &self.view {
             view.window.set_visible(true);
             view.window.focus_window();

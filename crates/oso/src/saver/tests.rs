@@ -17,7 +17,8 @@ use crate::loader::{location, stamp_of};
 
 use super::{
     AfterSave, PRIVATE_MODE, SaveError, SaveReport, Temporary, after_save_while_leaving, apply,
-    at_leaving_deadline, prepare, run, run_with, spawn, unless_unsupported, write_text,
+    at_leaving_deadline, check_whole, prepare, run, run_with, spawn, unless_unsupported,
+    write_text,
 };
 
 /// A scratch directory, with no links in its path, removed at the end of the test.
@@ -453,6 +454,29 @@ fn a_buffer_with_no_baseline_says_so_and_does_not_call_it_a_change() {
     assert!(!message.contains("changed on disk"), "{message}");
     assert!(message.contains("could not be told"), "{message}");
     assert_eq!(fs::read(&path).unwrap(), b"old\n");
+}
+
+#[test]
+fn a_file_shorter_than_the_text_is_refused_before_it_replaces_anything() {
+    let scratch = Scratch::new("short");
+    let with_bom = scratch.file("with.txt", b"\xEF\xBB\xBFold\n");
+    let job = job(&with_bom, "new\n");
+    assert!(check_whole(7, &job).is_ok(), "the BOM and the text");
+    assert!(check_whole(4, &job).is_err(), "without the BOM");
+    assert!(check_whole(6, &job).is_err(), "cut short");
+    assert!(check_whole(8, &job).is_err(), "more than was written");
+}
+
+#[test]
+fn a_change_right_after_a_save_counts_as_a_change_at_the_next() {
+    let scratch = Scratch::new("after-rename");
+    let path = scratch.file("notes.txt", b"old\n");
+    let mut editor = visit(&path);
+    let first = job_of(&mut editor, "first\n");
+    apply(&mut editor, run(first));
+    fs::write(&path, b"another program\n").unwrap();
+    assert_conflict(&run(job_of(&mut editor, "second\n")));
+    assert_eq!(fs::read(&path).unwrap(), b"another program\n");
 }
 
 #[test]

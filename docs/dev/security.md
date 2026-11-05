@@ -135,20 +135,21 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0028](adr/0028-secrets-handling.md)).
 - Saving (T5) writes a temporary file beside the real file, follows symbolic links to
   find it, and renames it over that file, so a crash leaves the old file or the whole
-  new one. The text goes only to where the buffer's file was: if a link or a directory
+  new one, unless the file system cannot sync, which the message then says. The text goes only to where the buffer's file was: if a link or a directory
   on the path has changed since it was read, nothing is written at the new place. The
   temporary file is created with `create_new` and, on Unix, mode `0600`, so it is never a
   link someone planted and nobody else can read it while it fills. It takes the
   old file's mode, less set-user-ID and set-group-ID, and its group, before the rename.
   If the group cannot be kept, that group gets no more than others do. If the owner
   cannot be kept, the save is refused. A file deleted since it was read gets its mode
-  back. A file changed on disk since it was read and a file the user may not write are
+  back, narrowed if its group could differ. A file changed on disk since it was read and a file the user may not write are
   left as they are.
   Extended attributes and ACLs are lost, and hard links break
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). A secret buffer saves like
   any other: only the emergency save skips them. Messages name the path and never
-  quote the text. A kill or a power cut during a save can leave the temporary file
-  behind, `0600`, with the text in it, also a secret buffer's.
+  quote the text. A kill or a power cut during a save, or leaving past the 10 minutes it
+  may hold an exit, can leave the temporary file behind, `0600` or by then the file's own
+  mode, with the text in it, also a secret buffer's.
 - Dev state handoff for hot reload goes process-to-process in memory, never
   through files. Dev screenshots are the only dev-only files; see
   [Development](#development-t9).

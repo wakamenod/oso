@@ -23,8 +23,9 @@
 //! 7. Rename it over the file, then fsync the directory.
 //!
 //! Up to the rename the file on disk is untouched, and after it the file holds the
-//! whole new text. Whatever fails or panics on the way, the temporary file is removed.
-//! Only an end to the process itself can leave one behind.
+//! whole new text, unless the file system cannot sync, which the message then says.
+//! Whatever fails or panics on the way, the temporary file is removed. Only an end to the
+//! process, or its directory itself being renamed meanwhile, can leave one behind.
 //!
 //! A save of an unmodified buffer only asks whether its file has gone, and writes if it
 //! has, since the text may then exist nowhere else.
@@ -91,7 +92,7 @@ pub struct Written {
     content: ContentId,
     /// The file as it now is.
     stamp: FileStamp,
-    /// The file is in place, but this reached no disk for sure: it may not last a power cut.
+    /// The file is in place, but this reached no disk for sure, and the old file has gone.
     unsynced: Option<io::Error>,
 }
 
@@ -205,7 +206,9 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
             editor.save_finished(buffer, written.content, written.stamp);
             match written.unsynced {
                 None => format!("Wrote {path}"),
-                Some(e) => format!("Wrote {path}, but it may not survive a power cut: {e}"),
+                Some(e) => format!(
+                    "Wrote {path}, replacing the old file, but the disk did not confirm it, so a power cut could lose both: {e}"
+                ),
             }
         }
         Err(error) => {
@@ -218,7 +221,7 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
                     "{path} now leads somewhere other than when it was read. Nothing was written, and the buffer is not saved"
                 ),
                 SaveError::UnknownLocation => format!(
-                    "Cannot save {path}: where it leads could not be told when it was read. Nothing was written. Open the file again to save it"
+                    "Cannot save {path}: where it leads could not be told when it was read, so no place is safe. Nothing was written"
                 ),
                 SaveError::Io(e) => format!("Cannot save {path}: {e}"),
                 SaveError::Panicked => format!("Saving {path} failed. The buffer is not saved"),
@@ -235,19 +238,20 @@ fn write(job: &SaveJob) -> Result<Option<Written>, SaveError> {
     prepare(job)?.commit(job).map(Some)
 }
 
-/// Whether the file of an unmodified buffer has gone from where it was. If the path now
-/// leads elsewhere, or anything is there, the buffer has nothing to say about it.
+/// Whether the file of an unmodified buffer has gone from where it was. If anything is
+/// there, the buffer has nothing to say about it.
 fn file_is_gone(job: &SaveJob) -> Result<bool, SaveError> {
     let baseline = baseline_of(job)?;
-    let target = follow_links(&job.path)?;
-    if location(&target)? != baseline.location {
-        return Ok(false);
+    let gone = match fs::symlink_metadata(&baseline.location) {
+        Ok(_) => false,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => true,
+        Err(e) => return Err(e.into()),
+    };
+    // The only copy, with a path that no longer leads to where it belongs: say so.
+    if gone && location(&follow_links(&job.path)?)? != baseline.location {
+        return Err(SaveError::Elsewhere);
     }
-    match fs::symlink_metadata(&target) {
-        Ok(_) => Ok(false),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
-        Err(e) => Err(e.into()),
-    }
+    Ok(gone)
 }
 
 fn baseline_of(job: &SaveJob) -> Result<&Baseline, SaveError> {
@@ -257,7 +261,6 @@ fn baseline_of(job: &SaveJob) -> Result<&Baseline, SaveError> {
 /// The temporary file holding the whole text, closed, and not yet in place.
 struct Prepared {
     temporary: Temporary,
-    target: PathBuf,
     /// The file it replaces, as it was before the write.
     replaced: Option<Metadata>,
     stamp: FileStamp,
@@ -275,7 +278,9 @@ fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
         // made read-only, or may not write. Opening for writing changes nothing.
         OpenOptions::new().write(true).open(&target)?;
     }
-    let directory = parent(&target);
+    // The real directory, so that a link changed during the write does not lose track of
+    // the temporary file.
+    let directory = parent(&baseline.location);
     let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
     write_text(&file, job)?;
     keep_attributes(&file, replaced.as_ref(), baseline.file, directory)?;
@@ -285,25 +290,40 @@ fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
     // rename still counts as a change.
     drop(file);
     let stamp = stamp_of(&fs::symlink_metadata(&temporary.path)?)?;
+    // A file system with no sync, and `std` does not report a failed close, may only now
+    // have run out of room. Past this, the rename would replace a good file with less.
+    check_whole(stamp.len, job)?;
     Ok(Prepared {
         temporary,
-        target,
         replaced,
         stamp,
         unsynced,
     })
 }
 
+/// Whether a file of `len` bytes holds all of `job`.
+fn check_whole(len: u64, job: &SaveJob) -> io::Result<()> {
+    let bom = if job.bom { BOM.len() } else { 0 };
+    if len == (bom + job.text.len()) as u64 {
+        Ok(())
+    } else {
+        Err(io::Error::other(
+            "the file system kept less than was written",
+        ))
+    }
+}
+
 impl Prepared {
-    /// Steps 6 and 7.
+    /// Steps 6 and 7. The path is walked again, as it must still lead to the file's place,
+    /// but the rename goes by the place itself.
     fn commit(self, job: &SaveJob) -> Result<Written, SaveError> {
         let baseline = baseline_of(job)?;
-        let now = unchanged_file(&self.target, baseline)?;
+        let now = unchanged_file(&follow_links(&job.path)?, baseline)?;
         if attributes_moved(self.replaced.as_ref(), now.as_ref()) {
             return Err(SaveError::Conflict);
         }
-        self.temporary.rename_over(&self.target)?;
-        let directory = sync_directory(parent(&self.target)).err();
+        self.temporary.rename_over(&baseline.location)?;
+        let directory = sync_directory(parent(&baseline.location)).err();
         Ok(Written {
             content: job.content,
             stamp: self.stamp,
