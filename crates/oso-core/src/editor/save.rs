@@ -16,7 +16,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use super::{Editor, clip_cursors};
-use crate::buffer::{Baseline, Buffer, BufferId, ContentId, ReadOnly, Replacement};
+use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp, ReadOnly, Replacement};
 use crate::rope::Rope;
 
 /// One save for the host to run. Its text is an O(1) snapshot, which later edits do
@@ -32,8 +32,9 @@ pub struct SaveJob {
     pub bom: bool,
     /// The state of the text, for [`Editor::save_finished`].
     pub content: ContentId,
-    /// What the file on disk must still be for it to be replaced.
-    pub baseline: Baseline,
+    /// Where the file must still be and what it must still hold to be replaced. A
+    /// buffer the host never told about has none, and its save refuses.
+    pub baseline: Option<Baseline>,
 }
 
 /// Why a save did not start. Nothing was written, and nothing changed.
@@ -153,7 +154,7 @@ impl Editor {
                 text: buffer.text().clone(),
                 bom: buffer.file_info().bom,
                 content: buffer.content_id(),
-                baseline: buffer.baseline(),
+                baseline: buffer.baseline().cloned(),
             })
         });
         self.save_jobs.extend(job);
@@ -190,13 +191,19 @@ impl Editor {
         std::mem::take(&mut self.save_jobs)
     }
 
-    /// A save of `id` ended well: the disk holds the state `content`, and `baseline`
-    /// describes the file. Edits since that state leave the buffer modified.
-    pub fn save_finished(&mut self, id: BufferId, content: ContentId, baseline: Baseline) {
-        if let Some(buffer) = self.buffer_mut(id) {
-            buffer.set_saving(false);
-            buffer.mark_saved(content);
-            buffer.set_baseline(baseline);
+    /// A save of `id` ended well: the disk holds the state `content`, and `stamp`
+    /// describes the file. Edits since that state leave the buffer modified, and an
+    /// exit refused while it ran then no longer speaks for what is at risk: an undo
+    /// can make a buffer that looked unmodified differ from the disk only now.
+    pub fn save_finished(&mut self, id: BufferId, content: ContentId, stamp: FileStamp) {
+        let Some(buffer) = self.buffer_mut(id) else {
+            return;
+        };
+        buffer.set_saving(false);
+        buffer.mark_saved(content);
+        buffer.set_written(stamp);
+        if buffer.is_modified() {
+            self.reset_exit_guard();
         }
     }
 

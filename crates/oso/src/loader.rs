@@ -18,14 +18,15 @@
 //! Right after opening the file, before reading it, the thread follows the
 //! path to where it really leads, so that the UI can tell whether the file
 //! may hold secrets (ADR 0044) without touching the file system. A file
-//! swapped in before the open is what gets judged. It also hands over the modification
-//! time and size of the file it opened, read from that open file, which a save checks
-//! before it replaces the file (ADR 0029, ADR 0057).
+//! swapped in before the open is what gets judged. It also hands over the file's
+//! baseline: where the path really leads, and the modification time, size and mode read
+//! from the open file, which a save checks before it replaces the file (ADR 0029,
+//! ADR 0057).
 //!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1).
 
-use std::fs::File;
+use std::fs::{File, Metadata};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,14 +34,14 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{Baseline, BufferId};
+use oso_core::buffer::{Baseline, BufferId, FileStamp};
 use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, LoadSnapshot};
 
 mod resolve;
 
-pub use resolve::Resolved;
 use resolve::resolve;
+pub use resolve::{Resolved, follow_links, location, parent};
 
 /// Bytes read at a time.
 const READ_SIZE: usize = 64 * 1024;
@@ -103,7 +104,8 @@ struct Shared {
     latest: Mutex<Option<LoadUpdate>>,
     /// Where the path leads. Set before the first update, and taken once.
     resolved: Mutex<Option<Resolved>>,
-    /// The file that was opened. Set before the first snapshot, and taken once.
+    /// Where the file is and what was opened. Set before the first update, and taken
+    /// once.
     baseline: Mutex<Option<Baseline>>,
 }
 
@@ -151,9 +153,9 @@ impl LoadHandle {
         self.shared.resolved().take()
     }
 
-    /// The file that was opened, the first time this is called after it was opened.
-    /// Every snapshot comes after this is available. A file that was not there has
-    /// none, and the buffer keeps [`Baseline::Absent`].
+    /// The file's baseline, the first time this is called after it was opened. Every
+    /// update comes after this is available. A path that cannot be resolved has none,
+    /// and a buffer without one refuses to save.
     pub fn take_baseline(&self) -> Option<Baseline> {
         self.shared.baseline().take()
     }
@@ -204,10 +206,27 @@ where
     Ok(LoadHandle { buffer, shared })
 }
 
-/// Opens `path` if it is a regular file. Returns it with its size and baseline, both
-/// read from the open file, so they describe what is read even if the path now leads
-/// elsewhere.
-fn open(path: &Path) -> Result<(File, u64, Baseline), LoadError> {
+/// What a save records of a file, from its metadata. Loading and saving must agree on
+/// it, or every save would report a conflict.
+///
+/// # Errors
+///
+/// On a system or file system that keeps no modification time.
+pub fn stamp_of(metadata: &Metadata) -> io::Result<FileStamp> {
+    #[cfg(unix)]
+    let mode = std::os::unix::fs::PermissionsExt::mode(&metadata.permissions());
+    #[cfg(not(unix))]
+    let mode = 0;
+    Ok(FileStamp {
+        modified: metadata.modified()?,
+        len: metadata.len(),
+        mode,
+    })
+}
+
+/// Opens `path` if it is a regular file. Returns it with its stamp, read from the open
+/// file, so it describes what is read even if the path now leads elsewhere.
+fn open(path: &Path) -> Result<(File, FileStamp), LoadError> {
     let not_found = |e: io::Error| match e.kind() {
         io::ErrorKind::NotFound => LoadError::NotFound,
         _ => LoadError::Io(e),
@@ -221,11 +240,23 @@ fn open(path: &Path) -> Result<(File, u64, Baseline), LoadError> {
     if !metadata.is_file() {
         return Err(LoadError::NotAFile);
     }
-    let baseline = Baseline::Present {
-        modified: metadata.modified().map_err(LoadError::Io)?,
-        len: metadata.len(),
+    let stamp = stamp_of(&metadata).map_err(LoadError::Io)?;
+    Ok((file, stamp))
+}
+
+/// The baseline of `path`, given how opening it went. `None` if it cannot be resolved, or
+/// could not be opened for a reason other than not being there.
+fn baseline_after_open(
+    path: &Path,
+    opened: &Result<(File, FileStamp), LoadError>,
+) -> Option<Baseline> {
+    let file = match opened {
+        Ok((_, stamp)) => Some(*stamp),
+        Err(LoadError::NotFound) => None,
+        Err(_) => return None,
     };
-    Ok((file, metadata.len(), baseline))
+    let location = location(path).ok()?;
+    Some(Baseline { location, file })
 }
 
 /// Reads, decodes and sends the file. Returns early, without an error,
@@ -237,8 +268,9 @@ fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Resu
     let started = Instant::now();
     let opened = open(path);
     *shared.resolved() = Some(resolve(path));
-    let (file, total, baseline) = opened?;
-    *shared.baseline() = Some(baseline);
+    *shared.baseline() = baseline_after_open(path, &opened);
+    let (file, stamp) = opened?;
+    let total = stamp.len;
     let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];
@@ -395,9 +427,9 @@ mod tests {
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert_eq!(
             handle.take_baseline(),
-            Some(Baseline::Present {
-                modified: metadata.modified().unwrap(),
-                len: 3,
+            Some(Baseline {
+                location: std::fs::canonicalize(&path).unwrap(),
+                file: Some(stamp_of(&metadata).unwrap()),
             })
         );
         assert_eq!(handle.take_baseline(), None, "taken once");
@@ -405,12 +437,19 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_file_has_no_baseline_to_hand_over() {
+    fn a_missing_file_has_a_baseline_with_no_file() {
         let (tx, rx) = mpsc::channel();
         let path = std::env::temp_dir().join("oso-no-such-file-here");
-        let handle = spawn(id(), path, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
-        assert_eq!(handle.take_baseline(), None);
+        let directory = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+        assert_eq!(
+            handle.take_baseline(),
+            Some(Baseline {
+                location: directory.join("oso-no-such-file-here"),
+                file: None,
+            })
+        );
     }
 
     #[test]

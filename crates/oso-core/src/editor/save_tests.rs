@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use super::{Editor, ExitAction, ExitRefused, SaveJob, SaveRefused};
-use crate::buffer::{Baseline, Buffer, ReadOnly, Replacement};
+use crate::buffer::{Baseline, Buffer, FileStamp, ReadOnly, Replacement};
 use crate::decode::LineEnding;
 use crate::display_map::TabWidth;
 use crate::load::decode_all;
@@ -16,6 +16,14 @@ use crate::window::{Scroll, ViewSize};
 
 fn path() -> PathBuf {
     PathBuf::from("/nowhere/notes.txt")
+}
+
+fn stamp(len: u64) -> FileStamp {
+    FileStamp {
+        modified: SystemTime::UNIX_EPOCH + Duration::from_secs(5),
+        len,
+        mode: 0o644,
+    }
 }
 
 fn visiting(content: &[u8]) -> Editor {
@@ -62,12 +70,15 @@ fn place(editor: &mut Editor, at: &[usize]) {
 #[test]
 fn a_job_is_a_snapshot_of_the_text_with_what_the_write_needs() {
     let mut editor = visiting(b"\xEF\xBB\xBFabc\n");
-    let baseline = Baseline::Present {
-        modified: SystemTime::UNIX_EPOCH + Duration::from_secs(5),
-        len: 7,
+    let baseline = Baseline {
+        location: PathBuf::from("/real/notes.txt"),
+        file: Some(stamp(7)),
     };
     let id = editor.window().buffer();
-    editor.buffer_mut(id).unwrap().set_baseline(baseline);
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .set_baseline(baseline.clone());
     insert(&mut editor, 0, "x");
     assert_eq!(editor.start_save(), Ok(false));
     let job = job(&mut editor);
@@ -76,7 +87,7 @@ fn a_job_is_a_snapshot_of_the_text_with_what_the_write_needs() {
     assert_eq!(job.text.to_string(), "xabc\n");
     assert!(job.bom);
     assert_eq!(job.content, editor.current().1.content_id());
-    assert_eq!(job.baseline, baseline);
+    assert_eq!(job.baseline, Some(baseline));
 
     insert(&mut editor, 0, "later");
     assert_eq!(
@@ -85,6 +96,21 @@ fn a_job_is_a_snapshot_of_the_text_with_what_the_write_needs() {
         "later edits do not reach it"
     );
     assert!(editor.take_save_jobs().is_empty(), "taken once");
+}
+
+#[test]
+fn a_stamp_tells_content_apart_by_time_and_size_and_not_by_mode() {
+    let chmod = FileStamp {
+        mode: 0o600,
+        ..stamp(5)
+    };
+    assert!(stamp(5).same_content(chmod));
+    assert!(!stamp(5).same_content(stamp(6)));
+    let touched = FileStamp {
+        modified: SystemTime::UNIX_EPOCH,
+        ..stamp(5)
+    };
+    assert!(!stamp(5).same_content(touched));
 }
 
 #[test]
@@ -149,7 +175,7 @@ fn a_second_save_is_refused_while_one_runs_and_starts_after_it_ends() {
     assert!(editor.take_save_jobs().is_empty());
 
     let id = first.buffer;
-    editor.save_finished(id, first.content, Baseline::Absent);
+    editor.save_finished(id, first.content, stamp(5));
     assert!(!editor.current().1.is_saving());
     assert!(editor.current().1.is_modified(), "the edit is not on disk");
     assert_eq!(editor.start_save(), Ok(false));
@@ -160,21 +186,30 @@ fn a_second_save_is_refused_while_one_runs_and_starts_after_it_ends() {
 fn a_finished_save_records_the_state_and_the_baseline_and_a_failed_one_neither() {
     let mut editor = visiting(b"abc\n");
     let id = editor.window().buffer();
+    let location = PathBuf::from("/real/notes.txt");
+    let baseline = Baseline {
+        location: location.clone(),
+        file: Some(stamp(4)),
+    };
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .set_baseline(baseline.clone());
     insert(&mut editor, 0, "x");
     editor.start_save().unwrap();
     let job = job(&mut editor);
     editor.save_failed(id);
     assert!(!editor.current().1.is_saving());
     assert!(editor.current().1.is_modified());
-    assert_eq!(editor.current().1.baseline(), Baseline::Absent);
+    assert_eq!(editor.current().1.baseline(), Some(&baseline));
 
-    let baseline = Baseline::Present {
-        modified: SystemTime::UNIX_EPOCH,
-        len: 5,
-    };
-    editor.save_finished(id, job.content, baseline);
+    editor.save_finished(id, job.content, stamp(5));
     assert!(!editor.current().1.is_modified());
-    assert_eq!(editor.current().1.baseline(), baseline);
+    let written = Baseline {
+        location,
+        file: Some(stamp(5)),
+    };
+    assert_eq!(editor.current().1.baseline(), Some(&written));
 }
 
 #[test]
@@ -185,7 +220,7 @@ fn a_report_about_a_buffer_that_went_changes_nothing() {
     editor.start_save().unwrap();
     let job = job(&mut editor);
     editor.kill_buffer(id);
-    editor.save_finished(id, job.content, Baseline::Absent);
+    editor.save_finished(id, job.content, stamp(5));
     editor.save_failed(id);
     assert_eq!(editor.current().1.name(), crate::editor::SCRATCH);
 }
@@ -294,11 +329,31 @@ fn a_running_save_counts_even_when_undo_left_the_buffer_unmodified() {
             saving: 1
         })
     );
-    editor.save_finished(job.buffer, job.content, Baseline::Absent);
+    editor.save_finished(job.buffer, job.content, stamp(5));
     assert!(
         editor.current().1.is_modified(),
         "the disk now holds the edit"
     );
+    assert_eq!(
+        editor.confirm_exit(ExitAction::Command),
+        Err(ExitRefused {
+            modified: 1,
+            saving: 0
+        }),
+        "the refusal spoke of a save, and this is unsaved text it never mentioned"
+    );
+    assert_eq!(editor.confirm_exit(ExitAction::Command), Ok(()));
+}
+
+#[test]
+fn a_save_that_leaves_nothing_at_risk_lets_the_next_exit_go() {
+    let mut editor = visiting(b"abc\n");
+    insert(&mut editor, 0, "x");
+    editor.start_save().unwrap();
+    let job = job(&mut editor);
+    assert!(editor.confirm_exit(ExitAction::Command).is_err());
+    editor.save_finished(job.buffer, job.content, stamp(5));
+    assert_eq!(editor.confirm_exit(ExitAction::CloseWindow), Ok(()));
 }
 
 #[test]

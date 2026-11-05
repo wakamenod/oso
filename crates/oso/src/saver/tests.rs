@@ -13,9 +13,11 @@ use oso_core::display_map::TabWidth;
 use oso_core::editor::{Editor, SaveJob};
 use oso_core::load::decode_all;
 
+use crate::loader::{location, stamp_of};
+
 use super::{
     PRIVATE_MODE, SaveError, SaveReport, TEMPORARY_PREFIX, Temporary, apply, prepare, run,
-    run_with, spawn, write_text,
+    run_with, spawn, wait_for, write_text,
 };
 
 /// A scratch directory, with no links in its path, removed at the end of the test.
@@ -59,12 +61,11 @@ impl Drop for Scratch {
 
 /// The baseline of the file at `path`, as the loader takes it.
 fn baseline(path: &Path) -> Baseline {
-    match fs::metadata(path) {
-        Ok(metadata) => Baseline::Present {
-            modified: metadata.modified().unwrap(),
-            len: metadata.len(),
-        },
-        Err(_) => Baseline::Absent,
+    Baseline {
+        location: location(path).unwrap(),
+        file: fs::metadata(path)
+            .ok()
+            .map(|metadata| stamp_of(&metadata).unwrap()),
     }
 }
 
@@ -75,7 +76,9 @@ pub(crate) fn visit(path: &Path) -> Editor {
         Ok(content) => buffer.apply_load(decode_all(&content, TabWidth::default())),
         Err(_) => buffer.finish_empty(),
     }
-    buffer.set_baseline(baseline(path));
+    if location(path).is_ok() {
+        buffer.set_baseline(baseline(path));
+    }
     Editor::with_buffer(buffer)
 }
 
@@ -164,7 +167,7 @@ fn saving_twice_finds_no_conflict_with_itself() {
         let job = job_of(&mut editor, text);
         apply(&mut editor, run(job));
         assert!(!editor.current().1.is_modified());
-        assert_eq!(editor.current().1.baseline(), baseline(&path));
+        assert_eq!(editor.current().1.baseline(), Some(&baseline(&path)));
         assert_eq!(fs::read_to_string(&path).unwrap(), text);
     }
 }
@@ -260,6 +263,18 @@ fn a_directory_in_the_files_place_is_a_conflict() {
 }
 
 #[test]
+fn a_buffer_the_host_never_told_about_replaces_nothing() {
+    let scratch = Scratch::new("no-baseline");
+    let path = scratch.file("notes.txt", b"old\n");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.apply_load(decode_all(b"old\n", TabWidth::default()));
+    let mut editor = Editor::with_buffer(buffer);
+    assert_conflict(&run(job_of(&mut editor, "new\n")));
+    assert_eq!(fs::read(&path).unwrap(), b"old\n");
+    assert_eq!(scratch.names(), ["notes.txt"]);
+}
+
+#[test]
 fn a_missing_directory_is_an_error_and_is_not_created() {
     let scratch = Scratch::new("no-directory");
     let directory = scratch.path().join("no-such-directory");
@@ -338,6 +353,22 @@ fn a_failing_write_is_an_error() {
 }
 
 #[test]
+fn waiting_for_saves_ends_when_they_do_or_at_the_limit() {
+    let (release, released) = mpsc::channel::<()>();
+    let running = std::thread::spawn(move || {
+        let _ = released.recv();
+    });
+    let saves = [running];
+    assert!(
+        !wait_for(&saves, Duration::from_millis(20)),
+        "still running"
+    );
+    drop(release);
+    assert!(wait_for(&saves, Duration::from_secs(10)));
+    assert!(wait_for(&[], Duration::ZERO), "nothing to wait for");
+}
+
+#[test]
 fn a_thread_reports_as_the_seam_does() {
     let scratch = Scratch::new("thread");
     let path = scratch.file("notes.txt", b"old\n");
@@ -403,7 +434,7 @@ fn a_flush_that_failed_after_the_rename_counts_as_written_and_says_so() {
         path: path.clone(),
         outcome: Ok(super::Written {
             content,
-            baseline: baseline(&path),
+            stamp: stamp_of(&fs::metadata(&path).unwrap()).unwrap(),
             unsynced: Some(std::io::Error::other("no flush here")),
         }),
     };

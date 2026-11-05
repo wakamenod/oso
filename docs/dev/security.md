@@ -135,15 +135,20 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0028](adr/0028-secrets-handling.md)).
 - Saving (T5) writes a temporary file beside the real file, follows symbolic links to
   find it, and renames it over that file, so a crash leaves the old file or the whole
-  new one. The temporary file is created with `create_new` and mode `0600`, so it is
-  never a link someone planted and nobody else can read it while it fills. It takes the
-  old file's owner, group and mode, less set-user-ID and set-group-ID, before the
-  rename. A file changed on disk since it was read, a link swapped in for it, and a
-  file the user may not write are all left as they are. Extended attributes and ACLs
-  are lost, and hard links break
+  new one. The text goes only to where the buffer's file was: if a link or a directory
+  on the path has changed since it was read, nothing is written at the new place. The
+  temporary file is created with `create_new` and, on Unix, mode `0600`, so it is never a
+  link someone planted and nobody else can read it while it fills. It takes the
+  old file's mode, less set-user-ID and set-group-ID, and its group, before the rename.
+  If the group cannot be kept, that group gets no more than others do. If the owner
+  cannot be kept, the save is refused. A file deleted since it was read gets its mode
+  back. A file changed on disk since it was read and a file the user may not write are
+  left as they are.
+  Extended attributes and ACLs are lost, and hard links break
   ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)). A secret buffer saves like
   any other: only the emergency save skips them. Messages name the path and never
-  quote the text.
+  quote the text. A kill or a power cut during a save can leave the temporary file
+  behind, `0600`, with the text in it, also a secret buffer's.
 - Dev state handoff for hot reload goes process-to-process in memory, never
   through files. Dev screenshots are the only dev-only files; see
   [Development](#development-t9).
@@ -217,9 +222,10 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). A sandboxed
   client of the same user is trusted too, so giving it the socket gives it what
   the dev instance can read ([ADR 0051](adr/0051-m2-plan-decisions.md)). `send-keys` also
-  edits any buffer it can show, secret or not ([ADR 0056](adr/0056-typing.md)), and since
-  `open-file` and `save-buffer` go through it too, it writes any file the dev instance may
-  write. So a client given the socket can write outside its own sandbox
+  edits any buffer it can show, secret or not ([ADR 0056](adr/0056-typing.md)). With
+  `open-file` and `save-buffer` a client writes any file the dev instance may write, with no
+  prompt of its own tool asking, and outside any sandbox of its own. `save-buffer` writes
+  only where the file was, so this gives no way to read a secret buffer
   ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
 - Secret-pattern buffers give no text and no pixels over the socket: while
   one is shown, `screenshot` fails, `get-text` fails and `get-state` returns

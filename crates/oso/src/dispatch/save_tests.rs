@@ -49,7 +49,7 @@ fn modified(editor: &Editor) -> bool {
 
 #[test]
 fn the_keys_save_and_the_message_says_so() {
-    let scratch = Scratch::new("keys");
+    let scratch = Scratch::new("dispatch-keys");
     let path = scratch.file("notes.txt", b"old\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s");
@@ -64,7 +64,7 @@ fn the_keys_save_and_the_message_says_so() {
 
 #[test]
 fn a_new_file_is_created_on_the_first_save() {
-    let scratch = Scratch::new("new");
+    let scratch = Scratch::new("dispatch-new");
     let path = scratch.path().join("new.txt");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "a b C-x C-s");
@@ -83,7 +83,7 @@ fn a_new_file_is_created_on_the_first_save() {
 
 #[test]
 fn an_unmodified_buffer_says_so_and_writes_nothing() {
-    let scratch = Scratch::new("unmodified");
+    let scratch = Scratch::new("dispatch-unmodified");
     let path = scratch.file("notes.txt", b"no final newline");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     let effects = send(&mut dispatcher, &mut editor, "C-x C-s");
@@ -96,7 +96,7 @@ fn an_unmodified_buffer_says_so_and_writes_nothing() {
 
 #[test]
 fn a_new_file_left_untouched_is_not_created() {
-    let scratch = Scratch::new("untouched");
+    let scratch = Scratch::new("dispatch-untouched");
     let path = scratch.path().join("new.txt");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "C-x C-s");
@@ -120,7 +120,7 @@ fn a_buffer_with_no_file_says_so() {
 
 #[test]
 fn read_only_buffers_are_refused_and_their_files_stay() {
-    let scratch = Scratch::new("read-only");
+    let scratch = Scratch::new("dispatch-read-only");
     let cases: [(&str, &[u8], &str); 2] = [
         ("binary.bin", b"a\0b", "binary"),
         ("invalid.txt", b"a\xffb", "invalid UTF-8"),
@@ -146,7 +146,7 @@ fn read_only_buffers_are_refused_and_their_files_stay() {
 
 #[test]
 fn the_final_newline_is_one_undo_step_and_the_cursor_stays_before_it() {
-    let scratch = Scratch::new("newline");
+    let scratch = Scratch::new("dispatch-newline");
     let path = scratch.file("notes.txt", b"abc");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "C-e x");
@@ -167,7 +167,7 @@ fn the_final_newline_is_one_undo_step_and_the_cursor_stays_before_it() {
 
 #[test]
 fn typing_after_a_save_continues_the_line() {
-    let scratch = Scratch::new("continue");
+    let scratch = Scratch::new("dispatch-continue");
     let path = scratch.path().join("new.txt");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "a C-x C-s");
@@ -178,7 +178,7 @@ fn typing_after_a_save_continues_the_line() {
 
 #[test]
 fn undoing_and_redoing_past_the_saved_state_tells_it_apart() {
-    let scratch = Scratch::new("undo");
+    let scratch = Scratch::new("dispatch-undo");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s");
@@ -196,7 +196,7 @@ fn undoing_and_redoing_past_the_saved_state_tells_it_apart() {
 
 #[test]
 fn edits_made_while_a_save_runs_stay_modified() {
-    let scratch = Scratch::new("while-saving");
+    let scratch = Scratch::new("dispatch-while-saving");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s y");
@@ -212,7 +212,7 @@ fn edits_made_while_a_save_runs_stay_modified() {
 
 #[test]
 fn undoing_while_a_save_runs_leaves_the_buffer_modified_after_it() {
-    let scratch = Scratch::new("undo-while-saving");
+    let scratch = Scratch::new("dispatch-undo-while-saving");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s C-z");
@@ -224,7 +224,7 @@ fn undoing_while_a_save_runs_leaves_the_buffer_modified_after_it() {
 
 #[test]
 fn a_second_save_while_one_runs_is_refused_and_says_so() {
-    let scratch = Scratch::new("second");
+    let scratch = Scratch::new("dispatch-second");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s");
@@ -241,7 +241,7 @@ fn a_second_save_while_one_runs_is_refused_and_says_so() {
 
 #[test]
 fn a_conflict_keeps_the_file_and_the_edits_each_time_it_is_tried() {
-    let scratch = Scratch::new("conflict");
+    let scratch = Scratch::new("dispatch-conflict");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x");
@@ -258,7 +258,7 @@ fn a_conflict_keeps_the_file_and_the_edits_each_time_it_is_tried() {
 
 #[test]
 fn a_save_failure_says_why_and_leaves_the_buffer_modified() {
-    let scratch = Scratch::new("failure");
+    let scratch = Scratch::new("dispatch-failure");
     let path = scratch.path().join("no-such-directory").join("new.txt");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s");
@@ -358,7 +358,7 @@ fn a_key_after_the_close_button_resets_it() {
 
 #[test]
 fn exit_counts_a_running_save_and_a_finished_one_lets_it_go() {
-    let scratch = Scratch::new("exit-saving");
+    let scratch = Scratch::new("dispatch-exit-saving");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s");
@@ -377,7 +377,7 @@ fn exit_counts_a_running_save_and_a_finished_one_lets_it_go() {
 
 #[test]
 fn a_save_that_fails_after_the_exit_was_refused_needs_a_new_refusal() {
-    let scratch = Scratch::new("exit-failed");
+    let scratch = Scratch::new("dispatch-exit-failed");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x C-x C-s");

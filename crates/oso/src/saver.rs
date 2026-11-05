@@ -5,15 +5,20 @@
 //! Must not depend on: `app`, winit or the GPU; the caller supplies the report's way
 //! back. [`run`] needs no thread, so tests can save deterministically.
 //!
+//! It shares with `loader` how a path resolves and what is recorded of a file, as they
+//! must agree.
+//!
 //! The order, each step before the next:
 //!
 //! 1. Follow symbolic links to the file itself, so that a link stays a link.
-//! 2. Check the baseline, so that a file already changed costs no write.
+//! 2. Check the baseline, so that a path now leading elsewhere writes nothing there, and
+//!    a file already changed costs no write.
 //! 3. Create a temporary file with `create_new` and mode 0600 in that file's
 //!    directory, so that the rename stays on one file system.
 //! 4. Write the BOM and the text. Line endings are already in the text.
 //! 5. Give it the owner, the group and the mode of the file it replaces, and fsync.
-//! 6. Check the baseline again, right before the rename.
+//! 6. Check the baseline again, right before the rename, and that the file's mode and
+//!    owner did not change meanwhile.
 //! 7. Rename it over the file, then fsync the directory.
 //!
 //! Up to the rename the file on disk is untouched, and after it the file holds the
@@ -26,14 +31,13 @@ use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::SystemTime;
+use std::time::{Duration, Instant, SystemTime};
 
-use oso_core::buffer::{Baseline, BufferId, ContentId};
+use oso_core::buffer::{Baseline, BufferId, ContentId, FileStamp};
 use oso_core::decode::BOM;
 use oso_core::editor::{Editor, SaveJob};
 
-/// The most symbolic links one path may pass through, as in Linux.
-const MAX_LINKS: usize = 40;
+use crate::loader::{follow_links, location, parent, stamp_of};
 
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
 /// a million.
@@ -53,14 +57,20 @@ const PRIVATE_MODE: u32 = 0o600;
 #[cfg(unix)]
 const DEFAULT_MODE: u32 = 0o666;
 
+/// How often [`wait_for`] looks at the threads. `JoinHandle` has no timed join.
+const WAIT_POLL: Duration = Duration::from_millis(10);
+
 /// Why a save wrote nothing. The file on disk is as it was.
 #[derive(Debug)]
 pub enum SaveError {
     /// The file on disk is not what the buffer last read or wrote (ADR 0029).
     Conflict,
+    /// The path no longer leads to where the buffer's file was: a link or a directory on
+    /// it has changed. Nothing is written at the new place.
+    Elsewhere,
     /// The file system refused.
     Io(io::Error),
-    /// The saving thread panicked. Its message, which may quote text, is dropped.
+    /// The saving thread panicked. This holds none of its message, which may quote text.
     Panicked,
 }
 
@@ -76,7 +86,7 @@ pub struct Written {
     /// The state of the text now on disk.
     content: ContentId,
     /// The file as it now is.
-    baseline: Baseline,
+    stamp: FileStamp,
     /// The rename happened, but may not last a power cut.
     unsynced: Option<io::Error>,
 }
@@ -127,11 +137,26 @@ fn run_with(
 ) -> SaveReport {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| write(&job)))
         .unwrap_or(Err(SaveError::Panicked));
+    // The text goes with what is left of `job` when this returns, so the UI thread
+    // never frees what only the snapshot still held.
     SaveReport {
         buffer: job.buffer,
         path: job.path,
         outcome,
     }
+}
+
+/// Waits for the threads of `saves` to end, for at most `timeout`. Returns whether
+/// they all did. This blocks, so it is only for after the event loop has ended.
+pub fn wait_for(saves: &[thread::JoinHandle<()>], timeout: Duration) -> bool {
+    let started = Instant::now();
+    while saves.iter().any(|save| !save.is_finished()) {
+        if started.elapsed() > timeout {
+            return false;
+        }
+        thread::sleep(WAIT_POLL);
+    }
+    true
 }
 
 /// Takes a report in: updates the buffer, and says how it went. Never quotes text.
@@ -144,7 +169,7 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
     let path = path.display();
     let message = match outcome {
         Ok(written) => {
-            editor.save_finished(buffer, written.content, written.baseline);
+            editor.save_finished(buffer, written.content, written.stamp);
             match written.unsynced {
                 None => format!("Wrote {path}"),
                 Some(e) => format!("Wrote {path}, but it may not survive a power cut: {e}"),
@@ -155,6 +180,9 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
             match error {
                 SaveError::Conflict => format!(
                     "{path} changed on disk since it was read. It was kept, and the buffer is not saved"
+                ),
+                SaveError::Elsewhere => format!(
+                    "{path} now leads somewhere other than when it was read. Nothing was written, and the buffer is not saved"
                 ),
                 SaveError::Io(e) => format!("Cannot save {path}: {e}"),
                 SaveError::Panicked => format!("Saving {path} failed. The buffer is not saved"),
@@ -173,13 +201,16 @@ struct Prepared {
     file: File,
     temporary: Temporary,
     target: PathBuf,
-    baseline: Baseline,
+    /// The file it replaces, as it was before the write.
+    replaced: Option<Metadata>,
+    stamp: FileStamp,
 }
 
 /// Steps 1 to 5 of the order at the top. The file on disk is not touched.
 fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
     let target = follow_links(&job.path)?;
-    let replaced = unchanged_file(&target, job.baseline)?;
+    let baseline = job.baseline.as_ref().ok_or(SaveError::Conflict)?;
+    let replaced = unchanged_file(&target, baseline)?;
     if replaced.is_some() {
         // A rename needs only the directory, so it would replace a file the user has
         // made read-only, or may not write. Opening for writing changes nothing.
@@ -188,79 +219,78 @@ fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
     let directory = parent(&target);
     let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
     write_text(&file, job)?;
-    keep_attributes(&file, replaced.as_ref(), directory)?;
+    keep_attributes(&file, replaced.as_ref(), baseline.file, directory)?;
     file.sync_all()?;
-    let baseline = baseline_of(&file.metadata()?)?;
+    let stamp = stamp_of(&file.metadata()?)?;
     Ok(Prepared {
         file,
         temporary,
         target,
-        baseline,
+        replaced,
+        stamp,
     })
 }
 
 impl Prepared {
-    /// Steps 6 and 7. What this returns is the file as `prepare` read it, from the
-    /// open file and before the rename, so a change made right after the rename still
-    /// counts as a change.
+    /// Steps 6 and 7. The stamp this returns was read from the open file before the
+    /// rename, so a change made right after the rename still counts as a change.
     fn commit(self, job: &SaveJob) -> Result<Written, SaveError> {
-        unchanged_file(&self.target, job.baseline)?;
+        let baseline = job.baseline.as_ref().ok_or(SaveError::Conflict)?;
+        let now = unchanged_file(&self.target, baseline)?;
+        if attributes_moved(self.replaced.as_ref(), now.as_ref()) {
+            return Err(SaveError::Conflict);
+        }
         // Windows cannot rename an open file.
         drop(self.file);
         self.temporary.rename_over(&self.target)?;
         Ok(Written {
             content: job.content,
-            baseline: self.baseline,
+            stamp: self.stamp,
             unsynced: sync_directory(parent(&self.target)).err(),
         })
     }
 }
 
-/// Where `path` leads through symbolic links, one at a time. Unlike
-/// `fs::canonicalize`, this also goes through a link to a file that does not exist,
-/// which a save creates.
-fn follow_links(path: &Path) -> io::Result<PathBuf> {
-    let mut current = path.to_path_buf();
-    for _ in 0..MAX_LINKS {
-        match fs::symlink_metadata(&current) {
-            // Relative to the link's directory, whatever that directory leads through.
-            Ok(metadata) if metadata.is_symlink() => {
-                let target = fs::read_link(&current)?;
-                current = parent(&current).join(target);
-            }
-            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
-            _ => return Ok(current),
-        }
-    }
-    Err(io::Error::other("too many levels of symbolic links"))
-}
-
-/// The directory holding `path`.
-fn parent(path: &Path) -> &Path {
-    match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent,
-        _ => Path::new("."),
+/// Whether the attributes the new file took are out of date by now, as the rename would
+/// then undo a `chmod` made during the write. A file that came back counts, since it
+/// was not there to take them from. One deleted meanwhile has nothing left to keep.
+fn attributes_moved(before: Option<&Metadata>, now: Option<&Metadata>) -> bool {
+    match (before, now) {
+        (Some(before), Some(now)) => attributes(before) != attributes(now),
+        (None, Some(_)) => true,
+        (_, None) => false,
     }
 }
 
-fn baseline_of(metadata: &Metadata) -> io::Result<Baseline> {
-    Ok(Baseline::Present {
-        modified: metadata.modified()?,
-        len: metadata.len(),
-    })
+#[cfg(unix)]
+fn attributes(metadata: &Metadata) -> (u32, u32, u32) {
+    use std::os::unix::fs::MetadataExt;
+    (metadata.mode(), metadata.uid(), metadata.gid())
 }
 
-/// The file at `target`, unless it differs from `baseline`, which is a conflict.
-/// `None` if there is no file. That is no conflict even if the baseline says there
-/// was: a file that was deleted holds nothing to keep, as in Emacs.
+#[cfg(not(unix))]
+fn attributes(metadata: &Metadata) -> bool {
+    metadata.permissions().readonly()
+}
+
+/// The file at `target`, if there is one, unless it is not what `baseline` says.
 ///
-/// A link does not count as following it: `target` has no link left unless one was
-/// swapped in since, and that is a change.
-fn unchanged_file(target: &Path, baseline: Baseline) -> Result<Option<Metadata>, SaveError> {
+/// `target` must still be where the buffer's file was. Otherwise a link or a directory
+/// changed since would send the text to a place nobody chose. Being missing is no
+/// conflict, even if the baseline says a file was there: a file that was deleted holds
+/// nothing to keep, as in Emacs.
+///
+/// The check does not follow a link: `target` has none left unless one was swapped in
+/// since, and that is a change.
+fn unchanged_file(target: &Path, baseline: &Baseline) -> Result<Option<Metadata>, SaveError> {
+    if location(target)? != baseline.location {
+        return Err(SaveError::Elsewhere);
+    }
     match fs::symlink_metadata(target) {
-        Ok(metadata) if metadata.is_file() && baseline_of(&metadata)? == baseline => {
-            Ok(Some(metadata))
-        }
+        Ok(metadata) if metadata.is_file() => match baseline.file {
+            Some(file) if file.same_content(stamp_of(&metadata)?) => Ok(Some(metadata)),
+            _ => Err(SaveError::Conflict),
+        },
         Ok(_) => Err(SaveError::Conflict),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
@@ -278,15 +308,24 @@ fn write_text(file: impl Write, job: &SaveJob) -> io::Result<()> {
     out.flush()
 }
 
-/// Gives `file` the owner, group and mode of the file it replaces, or a new file's
-/// default mode. Extended attributes, ACLs and other hard links do not carry over
-/// (ADR 0057).
+/// Gives `file` the owner, group and mode of the file it replaces. If that file was
+/// deleted since it was `read`, it gets its mode back, as if its group were lost, and a
+/// file that never existed gets the default mode. Extended attributes, ACLs and other
+/// hard links do not carry over (ADR 0057).
 #[cfg(unix)]
-fn keep_attributes(file: &File, replaced: Option<&Metadata>, directory: &Path) -> io::Result<()> {
+fn keep_attributes(
+    file: &File,
+    replaced: Option<&Metadata>,
+    read: Option<FileStamp>,
+    directory: &Path,
+) -> io::Result<()> {
     use std::fs::Permissions;
     use std::os::unix::fs::{MetadataExt, PermissionsExt, fchown};
 
     let Some(old) = replaced else {
+        if let Some(read) = read {
+            return file.set_permissions(Permissions::from_mode(kept_mode(read.mode, false)));
+        }
         let (_probe, probe_file) = Temporary::create(directory, DEFAULT_MODE)?;
         return file.set_permissions(probe_file.metadata()?.permissions());
     };
@@ -314,7 +353,12 @@ fn kept_mode(mode: u32, group_kept: bool) -> u32 {
 }
 
 #[cfg(not(unix))]
-fn keep_attributes(file: &File, replaced: Option<&Metadata>, _directory: &Path) -> io::Result<()> {
+fn keep_attributes(
+    file: &File,
+    replaced: Option<&Metadata>,
+    _read: Option<FileStamp>,
+    _directory: &Path,
+) -> io::Result<()> {
     match replaced {
         Some(old) => file.set_permissions(old.permissions()),
         None => Ok(()),
@@ -330,6 +374,18 @@ fn sync_directory(directory: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Creates the file at `path`, which must not exist in any form. A link left there,
+/// even to nothing, makes this fail and is not followed. `mode` means nothing on Windows.
+fn open_new(path: &Path, mode: u32) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, mode);
+    #[cfg(not(unix))]
+    let _ = mode;
+    options.open(path)
+}
+
 /// A temporary file's name, removed when this is dropped unless it was renamed, also
 /// on the way out of a panic.
 struct Temporary {
@@ -338,23 +394,16 @@ struct Temporary {
 }
 
 impl Temporary {
-    /// Creates a file with a new name, which is never a link someone left there:
-    /// `create_new` fails on any name that exists. `mode` means nothing on Windows.
+    /// Creates a file with a new name beside nothing it could be mistaken for.
     fn create(directory: &Path, mode: u32) -> io::Result<(Self, File)> {
         let stamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |since| since.subsec_nanos());
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut options, mode);
-        #[cfg(not(unix))]
-        let _ = mode;
         let process = std::process::id();
         for attempt in 0..NAME_ATTEMPTS {
             let name = format!("{TEMPORARY_PREFIX}{process}-{stamp}-{attempt}.tmp");
             let path = directory.join(name);
-            match options.open(&path) {
+            match open_new(&path, mode) {
                 Ok(file) => {
                     let renamed = false;
                     return Ok((Self { path, renamed }, file));

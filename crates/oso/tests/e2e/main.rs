@@ -495,7 +495,7 @@ fn a_save_reaches_the_disk_and_lets_a_held_restart_through() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn the_quit_key_refuses_once_with_unsaved_text_and_saving_needs_no_repeat() {
+fn the_quit_key_refuses_once_with_unsaved_text_and_a_save_needs_no_repeat() {
     let scratch = Scratch::new("exit-guard");
     let file = scratch.write("notes.txt", b"on disk\n");
     let mut app = App::start(Some(&file), scratch.path());
@@ -504,8 +504,6 @@ fn the_quit_key_refuses_once_with_unsaved_text_and_saving_needs_no_repeat() {
 
     app.send_keys("C-x C-c");
     assert!(process_exists(app.pid()), "refused the first time");
-    // Any other key starts it over. The instance still answers afterward.
-    app.send_keys("C-a C-x C-c");
     assert_eq!(app.state()["buffer"]["modified"], true);
 
     // It may exit before answering.

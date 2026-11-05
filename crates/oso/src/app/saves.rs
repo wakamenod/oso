@@ -4,7 +4,6 @@
 //! Must not depend on: key presses or how a frame is drawn. Files are written on the
 //! saver's threads, never here.
 
-use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_core::editor::ExitAction;
@@ -14,12 +13,10 @@ use super::{App, UserEvent};
 use crate::saver::{self, SaveReport};
 
 /// How long a save still running may hold the process once the window is gone. It
-/// is long enough for a large file on a slow disk, and a save that hangs past it (a
-/// stuck network file system) cannot keep the process for good.
-const FINISH_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// How often a save still running is looked at.
-const FINISH_POLL: Duration = Duration::from_millis(10);
+/// is long enough for many gigabytes on a slow disk, and abandoning a save that is
+/// getting somewhere is the worse mistake: a process with no window costs little. A
+/// save that hangs past it (a stuck network file system) cannot keep it for good.
+const FINISH_TIMEOUT: Duration = Duration::from_secs(600);
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
@@ -29,9 +26,10 @@ impl App {
             let (buffer, path) = (job.buffer, job.path.clone());
             let proxy = self.proxy.clone();
             let spawned = saver::spawn(job, move |report| {
-                // After a confirmed exit, nothing is left to tell but the log.
+                // After a confirmed exit, nothing is left to tell but the log. `Debug` escapes
+                // what a path may hold, and a report holds no text.
                 if let Err(e) = proxy.send_event(UserEvent::Save(report)) {
-                    log::warn!("a save ended after the editor: {:?}", e.0);
+                    log::error!("a save ended after the editor: {:?}", e.0);
                 }
             });
             log::trace!("save started in {:?}", started.elapsed());
@@ -66,13 +64,10 @@ impl App {
             return;
         }
         self.view = None;
-        let started = Instant::now();
-        while self.saves.iter().any(|save| !save.is_finished()) {
-            if started.elapsed() > FINISH_TIMEOUT {
-                log::warn!("leaving with a save still running; its file is as it was");
-                return;
-            }
-            thread::sleep(FINISH_POLL);
+        if !saver::wait_for(&self.saves, FINISH_TIMEOUT) {
+            log::error!(
+                "leaving with a save that has not finished. Its file may or may not be replaced, and a .oso-save-*.tmp may remain"
+            );
         }
     }
 }

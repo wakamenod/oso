@@ -1,7 +1,8 @@
 //! Where a path really leads, for telling whether a file may hold secrets
 //! (ADR 0044). It walks the path as `fs::canonicalize` does, but keeps each
 //! symbolic link's target, so a chain through a secret path is caught wherever
-//! it ends.
+//! it ends. Also the place a save of the path writes, which the load records and
+//! the save compares (ADR 0057).
 //!
 //! Must not depend on: `app` or the UI thread; this touches the file system
 //! and runs on the loading thread.
@@ -53,6 +54,57 @@ pub fn resolve(path: &Path) -> Resolved {
         Err(_) => return Resolved::Unknown,
     }
     Resolved::Paths(walk.visited)
+}
+
+/// Where `path` leads through symbolic links, one at a time. Unlike
+/// `fs::canonicalize`, this also goes through a link to a file that does not exist,
+/// which a save creates.
+///
+/// # Errors
+///
+/// On a loop of links, or if a link cannot be read.
+pub fn follow_links(path: &Path) -> io::Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    for _ in 0..=MAX_LINKS {
+        match fs::symlink_metadata(&current) {
+            // Relative to the link's directory, whatever that directory leads through.
+            Ok(metadata) if metadata.is_symlink() => {
+                let target = fs::read_link(&current)?;
+                current = parent(&current).join(target);
+            }
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => return Ok(current),
+        }
+    }
+    Err(io::Error::other("too many levels of symbolic links"))
+}
+
+/// The real place `path` leads, whether or not anything is there: its links followed,
+/// and the part of its directory that exists canonical. Two paths have the same answer
+/// only if a file made through either lands in one place.
+///
+/// # Errors
+///
+/// If it cannot be told: as for [`follow_links`], or a directory that cannot be read.
+pub fn location(path: &Path) -> io::Result<PathBuf> {
+    let target = follow_links(path)?;
+    let name = target
+        .file_name()
+        .ok_or_else(|| io::Error::other("the path names no file"))?;
+    let directory = parent(&target);
+    match fs::canonicalize(directory) {
+        Ok(real) => Ok(real.join(name)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(location(directory)?.join(name)),
+        Err(e) => Err(e),
+    }
+}
+
+/// The directory holding `path`.
+pub fn parent(path: &Path) -> &Path {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    }
 }
 
 /// A walk along a path, one name at a time, following links. It is the same

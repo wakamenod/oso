@@ -5,8 +5,9 @@
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, symlink};
 
-use super::super::kept_mode;
+use super::super::{attributes_moved, kept_mode, open_new};
 use super::*;
+use crate::loader::follow_links;
 
 #[test]
 fn the_mode_stays_from_private_to_executable() {
@@ -113,6 +114,35 @@ fn a_link_chain_and_a_link_to_a_missing_file_write_through() {
 }
 
 #[test]
+fn a_relative_link_counts_from_its_own_directory_through_dot_dot() {
+    let scratch = Scratch::new("dot-dot");
+    fs::create_dir(scratch.path().join("links")).unwrap();
+    fs::create_dir(scratch.path().join("real")).unwrap();
+    let real = scratch.file("real/notes.txt", b"old\n");
+    let link = scratch.path().join("links/link");
+    symlink("../real/notes.txt", &link).unwrap();
+    assert_written(&run(job(&link, "new\n")));
+    assert_eq!(fs::read(&real).unwrap(), b"new\n");
+    assert!(fs::symlink_metadata(&link).unwrap().is_symlink());
+}
+
+#[test]
+fn a_chain_of_links_may_be_as_long_as_the_limit_and_no_longer() {
+    let scratch = Scratch::new("chain");
+    let real = scratch.file("real.txt", b"old\n");
+    let mut target = "real.txt".to_owned();
+    for index in 1..=41 {
+        let name = format!("link{index}");
+        symlink(&target, scratch.path().join(&name)).unwrap();
+        target = name;
+    }
+    let longest = scratch.path().join("link40");
+    let too_long = scratch.path().join("link41");
+    assert_eq!(follow_links(&longest).unwrap(), real);
+    assert!(follow_links(&too_long).is_err());
+}
+
+#[test]
 fn a_link_to_a_missing_directory_is_an_error() {
     let scratch = Scratch::new("missing-dir");
     let link = scratch.path().join("link");
@@ -145,15 +175,175 @@ fn a_loop_of_links_is_an_error() {
 }
 
 #[test]
-fn a_link_swapped_in_for_the_file_is_a_conflict() {
+fn a_link_swapped_in_for_the_file_is_not_written_through() {
     let scratch = Scratch::new("swapped");
     let path = scratch.file("notes.txt", b"old\n");
     let other = scratch.file("other.txt", b"other\n");
     let job = job(&path, "new\n");
     fs::remove_file(&path).unwrap();
     symlink(&other, &path).unwrap();
-    assert_conflict(&run(job));
+    let report = run(job);
+    assert!(
+        matches!(report.outcome, Err(SaveError::Elsewhere)),
+        "{report:?}"
+    );
     assert_eq!(fs::read(&other).unwrap(), b"other\n");
+}
+
+#[test]
+fn a_link_swapped_in_during_the_write_is_not_written_through() {
+    let scratch = Scratch::new("late-swap");
+    let path = scratch.file("notes.txt", b"old\n");
+    let other = scratch.file("other.txt", b"other\n");
+    let job = job(&path, "new\n");
+    let prepared = prepare(&job).unwrap();
+    fs::remove_file(&path).unwrap();
+    symlink(&other, &path).unwrap();
+    assert!(matches!(prepared.commit(&job), Err(SaveError::Elsewhere)));
+    assert_eq!(fs::read(&other).unwrap(), b"other\n");
+    assert!(fs::symlink_metadata(&path).unwrap().is_symlink());
+    assert_eq!(scratch.names(), ["notes.txt", "other.txt"]);
+}
+
+#[test]
+fn a_link_pointed_elsewhere_since_the_load_writes_nothing_at_the_new_place() {
+    let scratch = Scratch::new("retarget");
+    let first = scratch.file("first.txt", b"old\n");
+    let existing = scratch.file("existing.txt", b"existing\n");
+    let missing = scratch.path().join("missing.txt");
+    let link = scratch.path().join("link");
+    symlink(&first, &link).unwrap();
+    for elsewhere in [&missing, &existing] {
+        let job = job(&link, "text\n");
+        fs::remove_file(&link).unwrap();
+        symlink(elsewhere, &link).unwrap();
+        let report = run(job);
+        assert!(
+            matches!(report.outcome, Err(SaveError::Elsewhere)),
+            "{report:?}"
+        );
+        fs::remove_file(&link).unwrap();
+        symlink(&first, &link).unwrap();
+    }
+    assert!(!missing.exists());
+    assert_eq!(fs::read(&existing).unwrap(), b"existing\n");
+    assert_eq!(fs::read(&first).unwrap(), b"old\n");
+}
+
+#[test]
+fn a_regular_file_replaced_by_a_link_to_nothing_writes_nothing_there() {
+    let scratch = Scratch::new("swap-dangling");
+    let path = scratch.file("notes.txt", b"old\n");
+    let missing = scratch.path().join("missing.txt");
+    let job = job(&path, "new\n");
+    fs::remove_file(&path).unwrap();
+    symlink(&missing, &path).unwrap();
+    let report = run(job);
+    assert!(
+        matches!(report.outcome, Err(SaveError::Elsewhere)),
+        "{report:?}"
+    );
+    assert!(!missing.exists());
+}
+
+#[test]
+fn a_directory_link_pointed_elsewhere_since_the_load_writes_nothing_there() {
+    let scratch = Scratch::new("directory-link");
+    fs::create_dir(scratch.path().join("one")).unwrap();
+    fs::create_dir(scratch.path().join("two")).unwrap();
+    let file = scratch.file("one/notes.txt", b"old\n");
+    let link = scratch.path().join("current");
+    symlink("one", &link).unwrap();
+    let path = link.join("notes.txt");
+    let job = job(&path, "new\n");
+    fs::remove_file(&link).unwrap();
+    symlink("two", &link).unwrap();
+    let report = run(job);
+    assert!(
+        matches!(report.outcome, Err(SaveError::Elsewhere)),
+        "{report:?}"
+    );
+    assert!(!scratch.path().join("two/notes.txt").exists());
+    assert_eq!(fs::read(&file).unwrap(), b"old\n");
+}
+
+#[test]
+fn a_directory_made_since_a_new_file_was_visited_is_the_same_place() {
+    let scratch = Scratch::new("made-directory");
+    let directory = scratch.path().join("later");
+    let path = directory.join("deep").join("new.txt");
+    let job = job(&path, "new\n");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    assert_written(&run(job));
+    assert_eq!(fs::read(&path).unwrap(), b"new\n");
+}
+
+#[test]
+fn a_deleted_file_gets_its_mode_back_and_no_wider() {
+    let scratch = Scratch::new("deleted-mode");
+    for (old, new) in [
+        (0o600, 0o600),
+        (0o640, 0o600),
+        (0o644, 0o644),
+        (0o755, 0o755),
+    ] {
+        let path = scratch.file("notes.txt", b"old\n");
+        set_mode(&path, old);
+        let job = job(&path, "new\n");
+        fs::remove_file(&path).unwrap();
+        assert_written(&run(job));
+        assert_eq!(mode(&path), new, "from {old:o}");
+        fs::remove_file(&path).unwrap();
+    }
+}
+
+#[test]
+fn set_user_id_does_not_survive_a_save() {
+    let scratch = Scratch::new("setuid");
+    let path = scratch.file("tool", b"old\n");
+    set_mode(&path, 0o4755);
+    assert_written(&run(job(&path, "new\n")));
+    assert_eq!(mode(&path), 0o755);
+}
+
+#[test]
+fn a_chmod_during_the_write_is_not_undone_by_the_rename() {
+    let scratch = Scratch::new("late-chmod");
+    let path = scratch.file("notes.txt", b"old\n");
+    set_mode(&path, 0o644);
+    let job = job(&path, "new\n");
+    let prepared = prepare(&job).unwrap();
+    set_mode(&path, 0o600);
+    assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict)));
+    assert_eq!(mode(&path), 0o600);
+    assert_eq!(fs::read(&path).unwrap(), b"old\n");
+    assert_eq!(scratch.names(), ["notes.txt"]);
+}
+
+#[test]
+fn only_a_changed_or_returned_file_makes_the_attributes_out_of_date() {
+    let scratch = Scratch::new("attributes");
+    let path = scratch.file("notes.txt", b"old\n");
+    let before = fs::metadata(&path).unwrap();
+    assert!(!attributes_moved(Some(&before), Some(&before)));
+    assert!(attributes_moved(None, Some(&before)), "it came back");
+    assert!(!attributes_moved(Some(&before), None), "deleted meanwhile");
+    assert!(!attributes_moved(None, None));
+}
+
+#[test]
+fn a_link_left_at_a_temporary_name_is_not_followed() {
+    let scratch = Scratch::new("planted");
+    let victim = scratch.file("victim.txt", b"victim\n");
+    let missing = scratch.path().join("missing.txt");
+    let planted = scratch.path().join("planted");
+    let dangling = scratch.path().join("dangling");
+    symlink(&victim, &planted).unwrap();
+    symlink(&missing, &dangling).unwrap();
+    assert!(open_new(&planted, PRIVATE_MODE).is_err());
+    assert!(open_new(&dangling, PRIVATE_MODE).is_err());
+    assert_eq!(fs::read(&victim).unwrap(), b"victim\n");
+    assert!(!missing.exists());
 }
 
 #[test]
@@ -187,8 +377,6 @@ fn a_read_only_file_stays_as_it_is_though_a_rename_could_replace_it() {
     set_mode(&path, 0o444);
     // Root ignores modes, so this cannot fail for it.
     let locked = fs::OpenOptions::new().write(true).open(&path).is_err();
-    let baseline_after_chmod = baseline(&path);
-    assert_eq!(job.baseline, baseline_after_chmod, "a mode is not a change");
     let report = run(job);
     if locked {
         assert!(

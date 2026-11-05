@@ -7,7 +7,7 @@ use super::{
     exit_allowed, export, generation, import_allowed, parse,
 };
 use crate::dev::protocol::EXIT_REFUSED;
-use oso_core::buffer::{Buffer, Replacement};
+use oso_core::buffer::{Buffer, FileStamp, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::{Editor, SCRATCH};
 use oso_core::key::KeySequence;
@@ -458,6 +458,15 @@ fn positions_are_dropped_if_the_window_moved_on() {
     assert_eq!(editor.window().selections.primary().cursor, 0);
 }
 
+/// What a save reports of the file it put in place.
+fn written() -> FileStamp {
+    FileStamp {
+        modified: std::time::SystemTime::UNIX_EPOCH,
+        len: 0,
+        mode: 0o644,
+    }
+}
+
 #[test]
 fn a_running_save_holds_the_handover_and_a_guarded_exit_by_name() {
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
@@ -482,7 +491,7 @@ fn a_running_save_holds_the_handover_and_a_guarded_exit_by_name() {
     assert!(message.starts_with(EXIT_REFUSED), "{message}");
     assert_eq!(exit_allowed(&editor, None), Ok(()), "a person or an agent");
 
-    editor.save_finished(job.buffer, job.content, job.baseline);
+    editor.save_finished(job.buffer, job.content, written());
     assert!(check(&editor).is_err(), "now modified");
 }
 
@@ -494,7 +503,7 @@ fn a_finished_save_lets_the_handover_through() {
     editor.start_save().unwrap();
     let job = editor.take_save_jobs().pop().unwrap();
     assert!(check(&editor).is_err());
-    editor.save_finished(job.buffer, job.content, job.baseline);
+    editor.save_finished(job.buffer, job.content, written());
     assert!(check(&editor).is_ok());
     assert!(export(&editor, &[], None, None).is_ok());
 }

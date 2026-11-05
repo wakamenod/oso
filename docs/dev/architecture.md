@@ -46,8 +46,10 @@ fastest. Stable foundations live in library crates. See
 Files are read today with portable `std::fs` calls in the tip crate's
 loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 How file-system code splits between the loader and `oso-platform` is
-settled when the first OS-specific piece (opening with `O_NONBLOCK`)
-arrives; see `open-questions.md`.
+settled when the first piece that needs `libc` (opening with `O_NONBLOCK`)
+arrives; see `open-questions.md`. Saving uses `std`'s Unix file calls in
+the tip crate until then
+([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
 depends on `oso-core` and `oso-platform`, and neither of those depends on
@@ -156,7 +158,8 @@ See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 
 - `oso_core::command`: `Command`, `Registry`, and `Ctx`, which lends a
   command the host's `Editor` and collects its requests to the host
-  (redraw, exit). `Args` carries the numeric prefix argument.
+  (redraw, exit). A request that carries data waits on the `Editor`, as a save
+  does. `Args` carries the numeric prefix argument.
 - Commands live in the tip crate, one module per feature under
   `crates/oso/src/commands/`, each with a `const` table. `TABLES` in `mod.rs`
   lists the tables. Registering a name twice is an error, and the tests build
@@ -308,8 +311,11 @@ The UI thread never blocks on I/O or parsing:
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
-- The event loop's user event is an enum: loader wake-ups in every build,
-  and control socket requests in dev builds.
+- Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
+  snapshot of the rope. The thread frees what only the snapshot held, then sends
+  its report ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
+- The event loop's user event is an enum: loader wake-ups and save reports in every
+  build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in
@@ -333,9 +339,9 @@ command checks the buffer, ensures its final newline as an edit, and queues a jo
 with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
 after the command and runs it on a thread (`saver`): a temporary file in the file's
 own directory, the file's owner and mode, fsync, a check that the file on disk is
-what the buffer last read or wrote (its modification time and size, the baseline on
-`Buffer`), rename, and fsync of the directory. A file changed by anything else is
-kept, and the buffer stays modified. A symbolic link stays a link, and hard links
+where and what the buffer last read or wrote (its real location, modification time and
+size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
+anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button refuse once while a buffer is modified
 or a save runs, and a save still running at exit gets to finish. See
 [ADR 0057](adr/0057-safe-save-and-the-exit-guard.md).
@@ -367,8 +373,8 @@ Full details are in [`security.md`](security.md).
     reads every file from disk. Unsaved content joins it with M2-15
     ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)); undo history
     does not ([ADR 0051](adr/0051-m2-plan-decisions.md)).
-  - Until then a modified buffer holds the restart, and the supervisor asks before
-    it starts anything. An instance goes only when it says so itself: the supervisor
+  - Until then a modified buffer holds the restart, as a running save does, and the
+    supervisor asks before it starts anything. An instance goes only when it says so itself: the supervisor
     never kills, the `exit` it sends carries the generation of the export, and an
     instance whose text has changed since refuses. If the old one refuses, the new
     one goes unless it has been edited too, and then both stay. Instances run in

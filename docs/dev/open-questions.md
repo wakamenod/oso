@@ -38,8 +38,10 @@ item notes when it must be settled.
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
   summary tracks neither yet; add them when M2 needs them.
 - A path swapped for a FIFO between the loader's check and its open blocks
-  the loading thread (not the UI). Opening with `O_NONBLOCK` closes this
-  and needs `libc` behind an `oso-platform` filesystem helper.
+  the loading thread (not the UI), and the same goes for the save's check that a
+  file is writable, which leaves the buffer saving and a confirmed exit waiting.
+  Opening with `O_NONBLOCK` closes this and needs `libc` behind an `oso-platform`
+  filesystem helper.
 - UI-thread allocations per frame: every `SumTree` seek allocates a cursor
   stack, and every visible glyph hashes its key in the atlas with SipHash.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
@@ -65,8 +67,13 @@ item notes when it must be settled.
   buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. A file owned by
   another user cannot be saved at all; decide whether the prompt should offer writing in place
   ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
+- By M2-11: a kill or a power cut during a save leaves a `.oso-save-*.tmp` beside the file, and
+  nothing removes it. Decide whether finding one is part of recovery, keeping in mind that one
+  may hold a secret buffer's text ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
 - By M2-18: two buffers visiting one file can each pass the check while the other writes.
-  `C-x C-f` should find the buffer already visiting a file
+  `C-x C-f` should find the buffer already visiting a file. And `C-x C-w` must decide what writing
+  a secret buffer to a new path means over the socket, since `save-buffer` writes only where the
+  file was, which is what keeps its text in the editor
   ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
 - By M2-15: the generation that guards `exit` does not change on a save between the
   export and the exit, and does not cover marks, the kill ring or file information
@@ -84,7 +91,10 @@ item notes when it must be settled.
 - `kill-buffer` must cancel a load at once (ADR 0022). Today the app drops
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
-  commands.
+  commands. It must also think about a running save: `saving` lives on the
+  `Buffer`, so a killed buffer's save no longer counts for the exit guard or
+  a guarded `exit`, though the process still waits for it
+  ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
 
 - isearch must not match the U+FFFD of an invalid byte
   (`InvalidBytes`, ADR 0040).
