@@ -231,7 +231,7 @@ null text system: the cursor is drawn on the grid, and no text. See
   display row. An entry is reused without looking at the buffer while the
   revision holds. After a change, the row's shaped columns are read again
   and it is reused if the shaper's input is the same: the text and each
-  cluster's column, cells and style. That is what "the bytes it covers and
+  cluster's column, cells and face. That is what "the bytes it covers and
   its start column" in [ADR 0051](adr/0051-m2-plan-decisions.md) comes to,
   because the rope's bytes alone cannot tell invalid bytes, tab widths or a
   cluster that starts before the first column apart. It replaces the offset
@@ -241,7 +241,15 @@ null text system: the cursor is drawn on the grid, and no text. See
   frames need no record of what changed. A row that went to another display
   row, after a line break or a deleted line, is shaped again.
   Scrolling reshapes only rows that come into view, and a 10 MB line costs
-  one screen. Only glyphs inside the viewport become quads.
+  one screen. Only glyphs inside the pane become quads. Each pane has its own
+  cache, by a `PaneId` that the caller gives it
+  ([ADR 0060](adr/0060-panes-clipping-and-layers.md)).
+- **Clipping** is done on the CPU. A glyph's quad is cut to its cluster's cells, its
+  row with the bands of [ADR 0052](adr/0052-glyphs-stay-in-their-cells.md), and its
+  pane, moving the atlas position along with the corner.
+- **Text that is no buffer's,** such as a modeline row, comes as `Span`s with a `Face`
+  and goes through `display_map::text_clusters`, so its control characters, tabs and
+  line breaks are escapes.
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels
   in an escape color; the raw characters never reach the shaper
@@ -256,13 +264,24 @@ null text system: the cursor is drawn on the grid, and no text. See
 
 wgpu with one backend per OS: Metal, DX12 and Vulkan. Only that backend is
 compiled in, through per-target wgpu features, and there is no GL fallback.
-Each frame runs independent passes:
+
+A frame is a list of panes, each with a region of cells, a layer and what it shows
+([ADR 0060](adr/0060-panes-clipping-and-layers.md)). One render pass draws the layers
+from the back, each with one draw per pipeline, whatever the number of panes and
+glyphs:
 
 ```
-Pass 1: background, cursors, selections, underlines   (shape renderer)
-Pass 2: glyphs from the atlas                          (text renderer)
-Pass 3: images and other content                       (added when needed)
+for each layer, back to front:
+  rectangles: backgrounds, boxes, cursors, selections   (shape renderer)
+  glyphs from the atlas                                 (text renderer)
 ```
+
+`scene` builds those ranges with no GPU, and `paint` uploads and records them, for the
+window and for a screenshot alike. Panes are built front to back, so the caps on quads
+and rectangles and the budget of new glyphs run out behind what is in front. A frame is
+clipped to pixels on the CPU, so there is no scissor. Only the background is drawn in the
+margins and in what is left over of a cell at the right and bottom, apart from the band
+that glyphs on the frame's top row keep above it.
 
 The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
 on input that changes the view, on resize, and when the window becomes visible.

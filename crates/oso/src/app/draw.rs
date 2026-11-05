@@ -8,26 +8,39 @@ use std::time::Instant;
 
 use oso_core::editor::Editor;
 use oso_core::frame;
-use oso_render::{Redraw, RenderState, TextView};
+use oso_render::{Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, TextView};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
 use super::App;
 use crate::text;
 
-/// What the selected window shows, for the renderer.
-pub(super) fn text_view(editor: &Editor) -> TextView {
+/// What the frame shows, for the renderer: the selected window, then the rows
+/// reserved below it, which show nothing until M2-7 fills them in.
+pub(super) fn panes(editor: &Editor) -> [Pane<'static>; 3] {
     let (window, buffer) = editor.current();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
-    TextView {
+    let frame = editor.frame();
+    let text = PaneContent::Text(TextView {
         display,
         buffer: window.buffer(),
         revision: buffer.revision(),
-        area: editor.frame().window.text,
         scroll: window.scroll(),
         cursor,
-    }
+    });
+    let pane = |id, region, content| Pane {
+        id: PaneId(id),
+        region,
+        layer: Layer::TILED,
+        background: None::<Face>,
+        content,
+    };
+    [
+        pane(0, frame.window.text, text),
+        pane(1, frame.window.modeline, PaneContent::Lines(&[])),
+        pane(2, frame.echo, PaneContent::Lines(&[])),
+    ]
 }
 
 /// The window and its renderer. The tip crate owns the window; `oso-render`
@@ -123,12 +136,12 @@ impl App {
             let size = window.inner_size();
             (size.width, size.height)
         };
-        let text = text_view(&self.editor);
+        let panes = panes(&self.editor);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
-        let result = view.render_state.render(&text, &window_size);
+        let result = view.render_state.render(&panes, &window_size);
         // Recovering from a surface error can configure it to a new size before
-        // `Resized` says so, and text stops at the text area, so the editor catches
+        // `Resized` says so, and panes stop at their regions, so the editor catches
         // up now.
         let size = view.render_state.frame_size();
         if frame::layout(size) != self.editor.frame() {
@@ -160,5 +173,31 @@ impl App {
             // Not fatal: the frame is skipped and the next one retries.
             Err(e) => log::error!("render error: {e}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use oso_core::frame::{self, FrameSize};
+
+    #[test]
+    fn panes_are_the_frames_regions_with_their_own_ids() {
+        let mut editor = Editor::default();
+        let size = FrameSize {
+            rows: 24,
+            columns: 80,
+        };
+        editor.set_frame_size(size);
+        let layout = frame::layout(size);
+        let panes = panes(&editor);
+        let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
+        assert_eq!(
+            regions,
+            [layout.window.text, layout.window.modeline, layout.echo]
+        );
+        let ids: Vec<_> = panes.iter().map(|pane| pane.id).collect();
+        assert_eq!(ids, [PaneId(0), PaneId(1), PaneId(2)]);
+        assert!(panes.iter().all(|pane| pane.layer == Layer::TILED));
     }
 }

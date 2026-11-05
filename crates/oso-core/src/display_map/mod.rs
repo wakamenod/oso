@@ -39,6 +39,9 @@ use crate::sum_tree::Bias;
 pub use cell::{CellKind, CellStyle, Clusters, Escape, TabWidth, escape};
 pub use tab_map::{TabMap, TabPoint};
 
+/// The cells of `^J`, the escape of an ASCII control character.
+const CONTROL_CELLS: usize = 2;
+
 /// A position on screen: a display row and a cell column.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DisplayPoint {
@@ -70,7 +73,8 @@ impl From<DisplayPoint> for TabPoint {
 /// One grapheme cluster on a display row, for rendering and hit testing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DisplayCluster<'a> {
-    /// The buffer offset where the cluster starts.
+    /// The buffer offset where the cluster starts, or the offset in the text
+    /// given to [`text_clusters`].
     pub offset: usize,
     /// The first cell it takes.
     pub column: usize,
@@ -137,6 +141,37 @@ impl DisplayCluster<'_> {
             style: CellStyle::Text,
         });
     }
+}
+
+/// The clusters of `text` that is no buffer's, such as a modeline's, as one row
+/// from `column`. A row of its own has no tab stops and no next line, so tabs and
+/// line breaks are escapes like other control characters, and nothing in the text
+/// can hide what follows it. Offsets are in `text`.
+pub fn text_clusters(text: &str, mut column: usize) -> impl Iterator<Item = DisplayCluster<'_>> {
+    let mut clusters = Clusters::new(text);
+    // The line feed of a `\r\n`.
+    let mut line_feed = None;
+    std::iter::from_fn(move || {
+        let (offset, text, kind, cells) = line_feed.take().or_else(|| clusters.next())?;
+        let (text, kind, cells) = match kind {
+            CellKind::Tab => (text, CellKind::Control('\t'), CONTROL_CELLS),
+            CellKind::LineBreak if text == "\r\n" => {
+                line_feed = Some((offset + 1, &text[1..], kind, cells));
+                (&text[..1], CellKind::Control('\r'), CONTROL_CELLS)
+            }
+            CellKind::LineBreak => (text, CellKind::Control('\n'), CONTROL_CELLS),
+            _ => (text, kind, cells),
+        };
+        let cluster = DisplayCluster {
+            offset,
+            column,
+            cells,
+            text,
+            kind,
+        };
+        column = column.saturating_add(cells);
+        Some(cluster)
+    })
 }
 
 /// The display model of one buffer, kept in step with its edits.
@@ -584,6 +619,48 @@ pub(crate) mod tests {
         fn assert_send_sync<X: Send + Sync>() {}
         assert_send_sync::<DisplaySnapshot>();
         assert_send_sync::<Rope>();
+    }
+
+    /// What `text` draws as a row of its own, in order, as `(column, text)`.
+    fn text_runs(text: &str, column: usize) -> Vec<(usize, String)> {
+        let mut out = Vec::new();
+        for cluster in text_clusters(text, column) {
+            cluster.for_each_run(|run| out.push((run.column, run.text.to_owned())));
+        }
+        out
+    }
+
+    #[test]
+    fn text_clusters_add_up_their_columns() {
+        let clusters: Vec<_> = text_clusters("aあb", 3)
+            .map(|c| (c.offset, c.column, c.cells, c.text.to_owned()))
+            .collect();
+        assert_eq!(
+            clusters,
+            [
+                (0, 3, 1, "a".to_owned()),
+                (1, 4, 2, "あ".to_owned()),
+                (4, 6, 1, "b".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn line_breaks_and_tabs_in_text_clusters_are_escapes_and_hide_nothing() {
+        let label =
+            |text: &str| -> String { text_runs(text, 0).into_iter().map(|run| run.1).collect() };
+        assert_eq!(label("a\nb"), "a^Jb");
+        assert_eq!(label("a\r\nb"), "a^M^Jb");
+        assert_eq!(label("a\tb"), "a^Ib");
+        let columns: Vec<_> = text_runs("\r\nb", 0).into_iter().map(|run| run.0).collect();
+        assert_eq!(columns, [0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn text_clusters_box_what_a_buffer_boxes() {
+        let cluster = text_clusters("\u{202e}", 0).next().unwrap();
+        assert_eq!(cluster.kind, CellKind::Invisible('\u{202e}'));
+        assert_eq!(cluster.cells, 6);
     }
 
     fn runs(cluster: &DisplayCluster<'_>) -> Vec<(usize, usize, String, CellStyle)> {

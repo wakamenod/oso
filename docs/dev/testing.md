@@ -201,6 +201,9 @@ the build, and it is a reason to run `just test-time` on the Mac, which decides.
   - buffer edits on Japanese text and emoji
   - display-model mappings in both directions, with folds, inlays and wraps
   - keymap resolution and command dispatch
+  - what a frame draws (`oso-render`'s `scene`): pane regions, draw order, what each
+    layer holds, clipping, rows per pane and a full atlas, with a fake text system
+    and a fake atlas
 - Reach every command through the registry, as a user would. Key
   sequences run through the tip crate's `Dispatcher` with no window, for
   example `C-f C-f C-b` to a cursor position (`crates/oso/src/dispatch.rs`).
@@ -245,6 +248,14 @@ that holds text.
 **What is still manual,** through the `verify-in-app` skill or by hand: resizing
 the window, the mouse wheel, real OS key events, IME, and `oso dev`'s build loop,
 with Ctrl-C and closing the terminal.
+
+**Layers in real pixels.** No feature draws a pane above another yet, so no flow can see
+it. Five ignored tests in `oso-render`'s `paint` draw panes on a real GPU with a block
+for a glyph and read the pixels: an opaque pane hides the text under it, a pane's text
+goes over its background, both layers draw their own ranges, a glyph stops at its pane's
+edges, and the frame's top row keeps its band. Run them with `cargo test -p oso-render --
+--ignored` after changing `paint` or the shaders. CI does not run them. Once M2-16 draws
+floats, a flow can take over.
 
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),

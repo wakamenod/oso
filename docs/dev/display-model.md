@@ -156,9 +156,10 @@ one layer:
   modeline, and the echo area. M2-16 adds floating windows. `Editor` holds the layout,
   and a window's `ViewSize` is its text area, so scrolling and the cursor stop above
   the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).
-- `frame::PixelGrid` maps cells to physical pixels. The renderer draws the rows of
-  the text area it is given, and `Editor::cursor_area` gives the input method the
-  cursor's rectangle.
+- `frame::PixelGrid` maps cells to physical pixels. The renderer draws a list of
+  panes, each in its region and no further
+  ([ADR 0060](adr/0060-panes-clipping-and-layers.md)), and `Editor::cursor_area` gives
+  the input method the cursor's rectangle.
 
 ## Terminal views
 
