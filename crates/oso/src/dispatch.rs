@@ -112,8 +112,8 @@ impl Dispatcher {
     /// Inserts `text`, which may hold several characters, as a key that types
     /// them would: through the text command of the active keymaps, as one command
     /// and one undo step. A pending prefix makes it an undefined key sequence.
-    /// Input method commits come through here (M2-12).
-    #[cfg(test)]
+    /// A key that types several characters comes through here, and input method
+    /// commits will (M2-12).
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
         if !self.resolver.pending().is_empty() {
             log::debug!(
@@ -152,7 +152,7 @@ impl Dispatcher {
             }
             Err(error @ ExecuteError::Panicked { .. }) => {
                 editor.end_undo_group_after_panic();
-                log::error!("{error}");
+                // This names the command and nothing else (ADR 0028).
                 editor.message(error.to_string());
                 // What it changed may be visible.
                 effects.redraw = true;

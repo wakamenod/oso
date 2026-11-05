@@ -31,8 +31,12 @@ replaces half of what [ADR 0046](0046-performance-regression-checks.md) measures
   `run-command`.
 - **`Dispatcher::insert_text`** finds the text command with `Layers::text_command`, so an
   input method's text goes where a key's does, and with no text command nowhere. After a
-  pending prefix it is an undefined sequence and inserts nothing. Until M2-12 calls it, it
-  exists only in tests.
+  pending prefix it is an undefined sequence and inserts nothing.
+- **A key that types several characters goes there too,** such as lam-alef on an Arabic layout.
+  It is no key press ([ADR 0033](0033-key-presses-and-notation.md)), and it was being dropped with
+  nothing to say so. With Control, Meta or Super held it stays dropped, so Option-composed text on
+  macOS does too ([ADR 0051](0051-m2-plan-decisions.md)). Input method commits share this path
+  from M2-12.
 - **Synthetic presses are ignored,** so that a key held when the window gains focus runs
   nothing.
 
@@ -54,8 +58,10 @@ replaces half of what [ADR 0046](0046-performance-regression-checks.md) measures
   `C-u 5 C-d` with 3 characters left signals and leaves them. **With several cursors, this
   holds per cursor.** The ones with room delete and the command then signals, as a motion
   moves its cursors as far as they go.
-- **`TAB` counts the display column of each cursor,** so each goes to its own next stop.
-  Wrapped rows (M2-25) must count from the line's start.
+- **`TAB` counts the display column of each cursor,** so each goes to its own next stop. On a
+  row with several cursors it counts what the earlier ones insert, walking what lies between,
+  since a tab there starts from a new column. That costs the clusters between two cursors on one
+  row, and nothing with one cursor. Wrapped rows (M2-25) must count from the line's start.
 
 ### Undo
 
@@ -74,8 +80,9 @@ replaces half of what [ADR 0046](0046-performance-regression-checks.md) measures
 
 ### Errors
 
-A failed command's message goes to `Editor::message`, once, whatever invoked it, and reaches
-the log. A panic's goes there too. An unbound key stays at the `debug` level, since the keys
+A failed command's message goes to `Editor::message`, whatever invoked it, and reaches the log
+once. A panic's goes there too, and so reaches the log at the `info` level, naming only the
+command. An unbound key stays at the `debug` level, since the keys
 of a sequence are what the user typed, and a key that types a character shows there as
 `<char>`, since it may be text meant for the buffer. The echo area draws messages from M2-7.
 
@@ -105,8 +112,23 @@ nothing can write it until M2-8, which must decide how far this reaches.
   `big_type_max_ms` and `line_type_max_ms` with 100 ms. They are still read by hand: CI enforces
   only `key_p99_ms` on a real GPU, as before.
 - **Those five can fail a pull request** as regressions, with thresholds in `compare.rs`, under
-  the rule of ADR 0046. The `_max_` ones use its freeze threshold. `type_p50_ms` is only
-  reported, since typing's p99 is what its budget speaks of.
+  the rule of ADR 0046, from 6 runs of one commit on each runner. The `_max_` ones use its freeze
+  threshold, and the worst key seen in those runs, moving or typing, was 29 ms. `type_p50_ms` is
+  only reported, since typing's p99 is what its budget speaks of.
+- **A typing metric takes the wider of its own spread and that of the motion metric beside it** in
+  the same runs. Both draw the same frames, and 6 runs may catch a runner's jump in one and not the
+  other: `line_keys_p99_ms` jumped once on macOS and `line_type_p99_ms` did not.
+
+  | Metric | Linux | macOS |
+  |---|---|---|
+  | `type_p99_ms` | 2x, 0.75 ms | 3x, 4 ms |
+  | `big_type_p99_ms` | 5.5x, 3.25 ms | 4.5x, 12 ms |
+  | `line_type_p99_ms` | 5x, 2.5 ms | 6.75x, 18 ms |
+  | `big_type_max_ms`, `line_type_max_ms` | 3x, 100 ms | 3x, 100 ms |
+
+- **`line_keys_p99_ms` on macOS goes from 2.75x, 3.5 ms to 6.75x, 18 ms.** One of the 6 runs took it
+  from 3.72 ms on `main` to 12.12 ms with no change to its path, and failed the run. On the author's
+  Mac it stayed between 0.5 and 1.5 ms in 12 runs of this branch and `main`, so that is the runner.
 
 ## Consequences
 

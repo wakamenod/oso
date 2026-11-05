@@ -257,6 +257,16 @@ mod scenarios {
     }
 
     #[test]
+    fn insert_text_from_a_key_with_several_characters_is_one_step() {
+        let (mut dispatcher, mut editor) = at("", &[0]);
+        send(&mut dispatcher, &mut editor, "a");
+        assert_eq!(dispatcher.insert_text(&mut editor, "لا"), REDRAW);
+        assert_eq!(text(&editor), "aلا");
+        send(&mut dispatcher, &mut editor, "C-z");
+        assert_eq!(text(&editor), "a");
+    }
+
+    #[test]
     fn insert_text_after_a_prefix_is_an_undefined_sequence() {
         let (mut dispatcher, mut editor) = at("", &[0]);
         send(&mut dispatcher, &mut editor, "C-x");
@@ -447,6 +457,46 @@ mod scenarios {
             .map(|selection| display.offset_to_display_point(selection.cursor).column)
             .collect();
         assert_eq!(columns, [8, 8, 16]);
+    }
+
+    #[test]
+    fn tab_counts_what_earlier_cursors_on_the_row_insert() {
+        let columns = |editor: &Editor| -> Vec<usize> {
+            let (window, buffer) = editor.current();
+            let display = buffer.display();
+            let selections = window.selections.iter();
+            selections
+                .map(|selection| display.offset_to_display_point(selection.cursor).column)
+                .collect()
+        };
+        let cases: [(&str, &[usize], &[usize]); 5] = [
+            ("abcdef", &[1, 3], &[8, 16]),
+            ("abcdef", &[0, 1, 2], &[8, 16, 24]),
+            // Wide characters take their cells, whatever their bytes.
+            ("日本語", &[3, 9], &[8, 16]),
+            ("日本語の文章", &[0, 6, 18], &[8, 16, 32]),
+            // A tab between them still reaches a stop, from where it now starts.
+            ("a\tb", &[1, 3], &[8, 24]),
+        ];
+        for (start, places, expected) in cases {
+            let (mut dispatcher, mut editor) = at(start, places);
+            send(&mut dispatcher, &mut editor, "TAB");
+            assert_eq!(columns(&editor), expected, "{start:?} at {places:?}");
+        }
+
+        // Exactly the spaces each needs.
+        let (mut dispatcher, mut editor) = at("abcdef", &[1, 3]);
+        send(&mut dispatcher, &mut editor, "TAB");
+        let spaces = |n| " ".repeat(n);
+        assert_eq!(text(&editor), format!("a{}bc{}def", spaces(7), spaces(6)));
+        send(&mut dispatcher, &mut editor, "C-z");
+        assert_eq!(text(&editor), "abcdef", "one step");
+        assert_eq!(cursors(&editor), [1, 3]);
+
+        // A cursor on another row starts from its own column.
+        let (mut dispatcher, mut editor) = at("ab\ncd", &[1, 4]);
+        send(&mut dispatcher, &mut editor, "TAB");
+        assert_eq!(columns(&editor), [8, 8]);
     }
 
     #[test]

@@ -102,9 +102,14 @@ item notes when it must be settled.
   size limit, so sharing needs room there.
 - Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
   budget by itself. Applying a batch of splices in one tree pass instead of one
-  `Rope::replace` each is the next step. Do that or cap the cursors before M2-21.
+  `Rope::replace` each is the next step. Do that or cap the cursors before M2-21. A command
+  also clones the selection set for its undo group, and an edit a few times more, which counts
+  with that many cursors.
 - Every window showing a buffer clips all its cursors after each edit, though only those
   in the edited chunks can change. Limit it to those before splits (M3) bring more windows.
+- After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
+  cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
+  scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
 - `Editor::message` has no cap on a message's length. Its callers so far pass short text and
   file names. Add one by M2-7.
 - By M2-7: a command that fails leaves a message and asks for no frame, so the echo area would

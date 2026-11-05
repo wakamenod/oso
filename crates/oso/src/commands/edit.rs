@@ -13,6 +13,7 @@ use std::borrow::Cow;
 
 use oso_core::buffer::{EditError, Replacement};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot, TabWidth};
 use oso_core::motion::{self, Edge};
 
 /// The most text one command inserts across all cursors, so that a count cannot
@@ -182,21 +183,50 @@ fn tab_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let display = buffer.display();
     let tab_width = buffer.tab_width();
     let spaces = " ".repeat(tab_width.get() as usize);
-    let edits: Vec<Replacement<'_>> = window
-        .selections
-        .iter()
-        .map(|selection| {
-            let column = display.offset_to_display_point(selection.cursor).column;
-            Replacement {
-                range: selection.cursor..selection.cursor,
-                text: &spaces[..tab_width.next_stop(column) - column],
+    let mut edits = Vec::with_capacity(window.selections.len());
+    // The cursor before this one, if it is on the same row, and the column it ends at.
+    let mut earlier: Option<(DisplayPoint, usize)> = None;
+    for selection in window.selections.iter() {
+        let point = display.offset_to_display_point(selection.cursor);
+        let column = match earlier {
+            Some((from, column)) if from.row == point.row => {
+                column_after(&display, tab_width, from, column, selection.cursor)
             }
-        })
-        .collect();
+            _ => point.column,
+        };
+        let stop = tab_width.next_stop(column);
+        edits.push(Replacement {
+            range: selection.cursor..selection.cursor,
+            text: &spaces[..stop - column],
+        });
+        earlier = Some((point, stop));
+    }
     let buffer = window.buffer();
     ctx.editor.apply_edits(buffer, &edits)?;
     ctx.request_redraw();
     Ok(())
+}
+
+/// The column of the offset `to` on the row of `from`, once what is at `from` starts
+/// at `column`, after an earlier insertion. What lies between keeps its cells, except
+/// that a tab reaches the next stop from where it now starts.
+fn column_after(
+    display: &DisplaySnapshot,
+    tab_width: TabWidth,
+    from: DisplayPoint,
+    mut column: usize,
+    to: usize,
+) -> usize {
+    for cluster in display.clusters(from) {
+        if cluster.offset >= to {
+            break;
+        }
+        column = match cluster.kind {
+            CellKind::Tab => tab_width.next_stop(column),
+            _ => column + cluster.cells,
+        };
+    }
+    column
 }
 
 /// Undoes `n` steps, or redoes them if `n` is negative, stopping at the first

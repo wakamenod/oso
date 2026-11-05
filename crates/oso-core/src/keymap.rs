@@ -151,9 +151,10 @@ impl Keymap {
         self.bindings.len()
     }
 
-    /// Whether nothing is bound.
+    /// Whether no key does anything here: nothing is bound, and it has no text
+    /// command.
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty()
+        self.bindings.is_empty() && self.text.is_none()
     }
 }
 
@@ -757,6 +758,16 @@ mod tests {
             feed_all(&mut resolver, &layers, &registry, "C-x a"),
             ["pending", "unbound C-x a"]
         );
+    }
+
+    #[test]
+    fn a_keymap_with_only_a_text_command_is_not_empty() {
+        let registry = registry(NAMES);
+        let mut map = Keymap::new();
+        assert!(map.is_empty());
+        map.set_text_command(id(&registry, "other"));
+        assert!(!map.is_empty());
+        assert_eq!(map.len(), 0, "no key is bound at this level");
     }
 
     #[test]

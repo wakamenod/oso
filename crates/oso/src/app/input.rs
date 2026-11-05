@@ -35,6 +35,8 @@ impl App {
         }
         if let Some(key) = keys::from_event(event, self.modifiers) {
             self.handle_key(event_loop, key);
+        } else if let Some(text) = keys::typed_text(event, self.modifiers) {
+            self.handle_text(event_loop, text);
         }
     }
 
@@ -47,6 +49,16 @@ impl App {
         log::trace!("key handled in {:?}", started.elapsed());
         #[cfg(feature = "dev")]
         self.timings.keys_handled(started, 1, effects.redraw);
+        self.apply(event_loop, effects);
+    }
+
+    /// Handles text from one key press that types several characters.
+    fn handle_text(&mut self, event_loop: &ActiveEventLoop, text: &str) {
+        let started = Instant::now();
+        let effects = self.dispatcher.insert_text(&mut self.editor, text);
+        #[cfg(feature = "dev")]
+        self.timings.keys_handled(started, 1, effects.redraw);
+        log::trace!("text handled in {:?}", started.elapsed());
         self.apply(event_loop, effects);
     }
 
