@@ -10,6 +10,8 @@ pub fn oso_core::buffer::EditError::clone(&self) -> oso_core::buffer::EditError
 impl core::cmp::Eq for oso_core::buffer::EditError
 impl core::cmp::PartialEq for oso_core::buffer::EditError
 pub fn oso_core::buffer::EditError::eq(&self, &oso_core::buffer::EditError) -> bool
+impl core::convert::From<oso_core::buffer::EditError> for oso_core::command::CommandError
+pub fn oso_core::command::CommandError::from(oso_core::buffer::EditError) -> Self
 impl core::error::Error for oso_core::buffer::EditError
 impl core::fmt::Debug for oso_core::buffer::EditError
 pub fn oso_core::buffer::EditError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -56,6 +58,7 @@ pub fn oso_core::buffer::Buffer::new(impl core::convert::Into<alloc::string::Str
 pub fn oso_core::buffer::Buffer::path(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::buffer::Buffer::read_only(&self) -> core::option::Option<oso_core::buffer::ReadOnly>
 pub fn oso_core::buffer::Buffer::revision(&self) -> u64
+pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell::TabWidth
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
 pub struct oso_core::buffer::BufferId(_)
@@ -175,6 +178,8 @@ pub fn oso_core::command::CommandError::clone(&self) -> oso_core::command::Comma
 impl core::cmp::Eq for oso_core::command::CommandError
 impl core::cmp::PartialEq for oso_core::command::CommandError
 pub fn oso_core::command::CommandError::eq(&self, &oso_core::command::CommandError) -> bool
+impl core::convert::From<oso_core::buffer::EditError> for oso_core::command::CommandError
+pub fn oso_core::command::CommandError::from(oso_core::buffer::EditError) -> Self
 impl core::error::Error for oso_core::command::CommandError
 impl core::fmt::Debug for oso_core::command::CommandError
 pub fn oso_core::command::CommandError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -197,9 +202,11 @@ pub struct oso_core::command::Ctx<'a>
 pub oso_core::command::Ctx::editor: &'a mut oso_core::editor::Editor
 impl<'a> oso_core::command::Ctx<'a>
 pub fn oso_core::command::Ctx<'a>::effects(&self) -> oso_core::command::Effects
+pub fn oso_core::command::Ctx<'a>::input(&self) -> &'a str
 pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
 pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
 pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
+pub fn oso_core::command::Ctx<'a>::with_input(&'a mut oso_core::editor::Editor, &'a str) -> Self
 pub struct oso_core::command::Effects
 pub oso_core::command::Effects::exit: bool
 pub oso_core::command::Effects::redraw: bool
@@ -236,6 +243,7 @@ pub oso_core::decode::LineEnding::Crlf
 pub oso_core::decode::LineEnding::Lf
 impl oso_core::decode::LineEnding
 pub fn oso_core::decode::LineEnding::as_str(self) -> &'static str
+pub fn oso_core::decode::LineEnding::text(self) -> &'static str
 impl core::clone::Clone for oso_core::decode::LineEnding
 pub fn oso_core::decode::LineEnding::clone(&self) -> oso_core::decode::LineEnding
 impl core::cmp::Eq for oso_core::decode::LineEnding
@@ -801,6 +809,7 @@ pub oso_core::key::KeyPress::modifiers: oso_core::key::Modifiers
 impl oso_core::key::KeyPress
 pub fn oso_core::key::KeyPress::new(oso_core::key::Modifiers, oso_core::key::Key) -> core::option::Option<Self>
 pub const fn oso_core::key::KeyPress::plain(oso_core::key::Key) -> Self
+pub const fn oso_core::key::KeyPress::text(self) -> core::option::Option<char>
 impl core::clone::Clone for oso_core::key::KeyPress
 pub fn oso_core::key::KeyPress::clone(&self) -> oso_core::key::KeyPress
 impl core::cmp::Eq for oso_core::key::KeyPress
@@ -892,17 +901,18 @@ impl core::fmt::Display for oso_core::keymap::BindError
 pub fn oso_core::keymap::BindError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::keymap::BindError
 impl core::marker::StructuralPartialEq for oso_core::keymap::BindError
-pub enum oso_core::keymap::Binding
+pub enum oso_core::keymap::Binding<'a>
 pub oso_core::keymap::Binding::Command(oso_core::command::CommandId)
-pub oso_core::keymap::Binding::Prefix(oso_core::keymap::Keymap)
-impl core::clone::Clone for oso_core::keymap::Binding
-pub fn oso_core::keymap::Binding::clone(&self) -> oso_core::keymap::Binding
-impl core::cmp::Eq for oso_core::keymap::Binding
-impl core::cmp::PartialEq for oso_core::keymap::Binding
-pub fn oso_core::keymap::Binding::eq(&self, &oso_core::keymap::Binding) -> bool
-impl core::fmt::Debug for oso_core::keymap::Binding
-pub fn oso_core::keymap::Binding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::keymap::Binding
+pub oso_core::keymap::Binding::Prefix(&'a oso_core::keymap::Keymap)
+impl<'a> core::clone::Clone for oso_core::keymap::Binding<'a>
+pub fn oso_core::keymap::Binding<'a>::clone(&self) -> oso_core::keymap::Binding<'a>
+impl<'a> core::cmp::Eq for oso_core::keymap::Binding<'a>
+impl<'a> core::cmp::PartialEq for oso_core::keymap::Binding<'a>
+pub fn oso_core::keymap::Binding<'a>::eq(&self, &oso_core::keymap::Binding<'a>) -> bool
+impl<'a> core::fmt::Debug for oso_core::keymap::Binding<'a>
+pub fn oso_core::keymap::Binding<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for oso_core::keymap::Binding<'a>
+impl<'a> core::marker::StructuralPartialEq for oso_core::keymap::Binding<'a>
 pub enum oso_core::keymap::Resolution<'a>
 pub oso_core::keymap::Resolution::Cancelled
 pub oso_core::keymap::Resolution::Command(oso_core::command::CommandId)
@@ -943,11 +953,13 @@ pub struct oso_core::keymap::Keymap
 impl oso_core::keymap::Keymap
 pub fn oso_core::keymap::Keymap::bind(&mut self, &[oso_core::key::KeyPress], oso_core::command::CommandId) -> core::result::Result<(), oso_core::keymap::BindError>
 pub fn oso_core::keymap::Keymap::from_table(&oso_core::command::Registry, &[(&str, &str)]) -> core::result::Result<Self, oso_core::keymap::TableError>
-pub fn oso_core::keymap::Keymap::get(&self, oso_core::key::KeyPress) -> core::option::Option<&oso_core::keymap::Binding>
+pub fn oso_core::keymap::Keymap::get(&self, oso_core::key::KeyPress) -> core::option::Option<oso_core::keymap::Binding<'_>>
 pub fn oso_core::keymap::Keymap::is_empty(&self) -> bool
 pub fn oso_core::keymap::Keymap::len(&self) -> usize
-pub fn oso_core::keymap::Keymap::lookup(&self, &[oso_core::key::KeyPress]) -> core::option::Option<&oso_core::keymap::Binding>
+pub fn oso_core::keymap::Keymap::lookup(&self, &[oso_core::key::KeyPress]) -> core::option::Option<oso_core::keymap::Binding<'_>>
 pub fn oso_core::keymap::Keymap::new() -> Self
+pub fn oso_core::keymap::Keymap::set_text_command(&mut self, oso_core::command::CommandId)
+pub fn oso_core::keymap::Keymap::text_command(&self) -> core::option::Option<oso_core::command::CommandId>
 impl core::clone::Clone for oso_core::keymap::Keymap
 pub fn oso_core::keymap::Keymap::clone(&self) -> oso_core::keymap::Keymap
 impl core::cmp::Eq for oso_core::keymap::Keymap
@@ -966,7 +978,8 @@ pub oso_core::keymap::Layers::minor: &'a [&'a oso_core::keymap::Keymap]
 impl<'a> oso_core::keymap::Layers<'a>
 pub fn oso_core::keymap::Layers<'a>::global(&'a oso_core::keymap::Keymap) -> Self
 pub fn oso_core::keymap::Layers<'a>::iter(&self) -> impl core::iter::traits::iterator::Iterator<Item = &'a oso_core::keymap::Keymap>
-pub fn oso_core::keymap::Layers<'a>::lookup(&self, &[oso_core::key::KeyPress]) -> core::option::Option<&'a oso_core::keymap::Binding>
+pub fn oso_core::keymap::Layers<'a>::lookup(&self, &[oso_core::key::KeyPress]) -> core::option::Option<oso_core::keymap::Binding<'a>>
+pub fn oso_core::keymap::Layers<'a>::text_command(&self) -> core::option::Option<oso_core::command::CommandId>
 impl<'a> core::clone::Clone for oso_core::keymap::Layers<'a>
 pub fn oso_core::keymap::Layers<'a>::clone(&self) -> oso_core::keymap::Layers<'a>
 impl<'a> core::fmt::Debug for oso_core::keymap::Layers<'a>

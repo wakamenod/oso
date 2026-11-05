@@ -1,0 +1,27 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: 012"
+---
+keys: none
+│012     │
+:^       :
+=        =
+"        "
+
+keys: a b c d e f
+│abcdef01│
+:      ^ :
+=        =
+"        "
+
+keys: 語
+│bcdef語0│
+:     <>^:
+=        =
+"        "
+
+keys: DEL DEL DEL DEL DEL
+│b012    │
+: ^      :
+=        =
+"        "

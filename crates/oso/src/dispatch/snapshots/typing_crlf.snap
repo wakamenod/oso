@@ -1,0 +1,27 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: ab\\r\\ncd\\r\\n"
+---
+keys: none
+│ab      │
+:^       :
+│cd      │
+│        │
+=        =
+"        "
+
+keys: C-f RET
+│a       │
+│b       │
+:^       :
+│cd      │
+=        =
+"        "
+
+keys: DEL
+│ab      │
+: ^      :
+│cd      │
+│        │
+=        =
+"        "

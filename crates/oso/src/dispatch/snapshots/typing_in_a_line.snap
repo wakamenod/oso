@@ -1,0 +1,66 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: ab\\ncd\\n"
+---
+keys: none
+│ab      │
+:^       :
+│cd      │
+│        │
+│        │
+=        =
+"        "
+
+keys: C-f x
+│axb     │
+:  ^     :
+│cd      │
+│        │
+│        │
+=        =
+"        "
+
+keys: RET
+│ax      │
+│b       │
+:^       :
+│cd      │
+│        │
+=        =
+"        "
+
+keys: C-d
+│ax      │
+│        │
+:^       :
+│cd      │
+│        │
+=        =
+"        "
+
+keys: C-z
+│ax      │
+│b       │
+:^       :
+│cd      │
+│        │
+=        =
+"        "
+
+keys: C-z
+│axb     │
+:  ^     :
+│cd      │
+│        │
+│        │
+=        =
+"        "
+
+keys: C-z
+│ab      │
+: ^      :
+│cd      │
+│        │
+│        │
+=        =
+"        "

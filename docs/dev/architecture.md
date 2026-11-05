@@ -177,6 +177,11 @@ A panicking command is caught at the command boundary
   once, when a keymap is built from a table in Emacs notation
   ([ADR 0033](adr/0033-key-presses-and-notation.md)). Default bindings are
   in `crates/oso/src/bindings/`, with a table for each module of commands.
+- A keymap may have a text command, which runs for a key that types a character
+  (no Control, Meta or Super) and that it does not bind. The command reads the
+  character from `ctx.input()`. Other text, from an input method, goes to the same
+  command through `Dispatcher::insert_text`
+  ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. Only the global layer exists so far.

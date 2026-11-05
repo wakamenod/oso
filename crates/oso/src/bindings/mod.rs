@@ -4,6 +4,7 @@
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
+mod edit;
 mod motion;
 mod scroll;
 mod session;
@@ -17,6 +18,7 @@ use oso_core::keymap::Keymap;
 /// key does: a key bound twice fails to build the keymap, whichever comes first.
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
+    edit::BINDINGS,
     motion::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
@@ -26,10 +28,16 @@ const TABLES: &[&[(&str, &str)]] = &[
 ///
 /// # Panics
 ///
-/// If a row of [`TABLES`] does not bind. The tests build this keymap, so
-/// such a mistake cannot ship.
+/// If a row of [`TABLES`] does not bind, or `registry` lacks the command that
+/// typing runs. The tests build this keymap, so such a mistake cannot ship.
 pub fn global_keymap(registry: &Registry) -> Keymap {
-    Keymap::from_table(registry, &TABLES.concat()).unwrap_or_else(|e| panic!("{e}"))
+    let mut keymap =
+        Keymap::from_table(registry, &TABLES.concat()).unwrap_or_else(|e| panic!("{e}"));
+    let Some(typing) = registry.lookup(edit::TEXT_COMMAND) else {
+        panic!("no command named {}", edit::TEXT_COMMAND);
+    };
+    keymap.set_text_command(typing);
+    keymap
 }
 
 #[cfg(test)]
@@ -48,8 +56,17 @@ mod tests {
             let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
                 panic!("{keys} is not bound to a command");
             };
-            assert_eq!(registry.get(*id).unwrap().name, name);
+            assert_eq!(registry.get(id).unwrap().name, name);
         }
+    }
+
+    /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means
+    /// something else if this one comes to run a command.
+    #[test]
+    fn the_key_the_benchmarks_send_stays_unbound() {
+        let registry = commands::registry();
+        let keys: KeySequence = "<f35>".parse().unwrap();
+        assert_eq!(global_keymap(&registry).lookup(&keys.0), None);
     }
 
     /// Why the order of the tables cannot change what a key does.

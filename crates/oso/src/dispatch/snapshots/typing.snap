@@ -1,0 +1,72 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: "
+---
+keys: none
+│                │
+:^               :
+│                │
+│                │
+=                =
+"                "
+
+keys: a b SPC c
+│ab c            │
+:    ^           :
+│                │
+│                │
+=                =
+"                "
+
+keys: 日 本
+│ab c日本        │
+:    <><>^       :
+│                │
+│                │
+=                =
+"                "
+
+keys: RET 🍣
+│ab c日本        │
+:    <><>        :
+│🍣              │
+:<>^             :
+│                │
+=                =
+"                "
+
+keys: DEL
+│ab c日本        │
+:    <><>        :
+│                │
+:^               :
+│                │
+=                =
+"                "
+
+keys: C-a TAB
+│ab c日本        │
+:    <><>        :
+│                │
+:        ^       :
+│                │
+=                =
+"                "
+
+keys: C-z C-z
+│ab c日本        │
+:    <><>        :
+│🍣              │
+:<>^             :
+│                │
+=                =
+"                "
+
+keys: C-M-z
+│ab c日本        │
+:    <><>        :
+│                │
+:^               :
+│                │
+=                =
+"                "

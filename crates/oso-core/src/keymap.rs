@@ -11,6 +11,9 @@
 //! - A [`KeyResolver`] keeps the keys of a pending prefix between presses.
 //!   `C-x` waits, `C-x C-c` resolves to a command, an unbound sequence is
 //!   reported and clears the prefix, and `C-g` cancels a pending prefix.
+//! - A keymap may have a text command, which runs for a key that types a
+//!   character ([`KeyPress::text`]) and that it does not bind otherwise. It counts
+//!   as a binding of that key in the layers (ADR 0056).
 //!
 //! Bindings refer to commands by [`CommandId`], resolved from names once,
 //! when the keymap is built, so a key press costs a few hash lookups and no
@@ -23,18 +26,27 @@ use crate::command::{CommandId, Registry};
 use crate::key::{Key, KeyPress, KeySequence, Modifiers};
 
 /// What a key is bound to in a keymap.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Binding {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Binding<'a> {
     /// Run this command.
     Command(CommandId),
     /// Wait for another key, and look it up in this keymap.
+    Prefix(&'a Keymap),
+}
+
+/// What a keymap holds for a key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Entry {
+    Command(CommandId),
     Prefix(Keymap),
 }
 
 /// Key bindings, possibly nested under prefix keys.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Keymap {
-    bindings: HashMap<KeyPress, Binding>,
+    bindings: HashMap<KeyPress, Entry>,
+    /// What a key that types a character runs, if `bindings` does not have it.
+    text: Option<CommandId>,
 }
 
 impl Keymap {
@@ -80,31 +92,49 @@ impl Keymap {
             let entry = map
                 .bindings
                 .entry(*key)
-                .or_insert_with(|| Binding::Prefix(Keymap::new()));
+                .or_insert_with(|| Entry::Prefix(Keymap::new()));
             match entry {
-                Binding::Prefix(sub) => map = sub,
-                Binding::Command(_) => return Err(BindError::NonPrefix { len: i + 1 }),
+                Entry::Prefix(sub) => map = sub,
+                Entry::Command(_) => return Err(BindError::NonPrefix { len: i + 1 }),
             }
         }
         match map.bindings.get(last) {
             None => {
-                map.bindings.insert(*last, Binding::Command(command));
+                map.bindings.insert(*last, Entry::Command(command));
                 Ok(())
             }
-            Some(Binding::Command(_)) => Err(BindError::AlreadyBound),
-            Some(Binding::Prefix(_)) => Err(BindError::IsPrefix),
+            Some(Entry::Command(_)) => Err(BindError::AlreadyBound),
+            Some(Entry::Prefix(_)) => Err(BindError::IsPrefix),
         }
     }
 
+    /// Makes `command` run for every key that types a character and is not
+    /// bound here. A prefix keymap has none, so `C-x a` types nothing.
+    pub fn set_text_command(&mut self, command: CommandId) {
+        self.text = Some(command);
+    }
+
+    /// The command that keys typing a character run, if this keymap has one.
+    pub fn text_command(&self) -> Option<CommandId> {
+        self.text
+    }
+
     /// What `key` is bound to in this keymap, without descending.
-    pub fn get(&self, key: KeyPress) -> Option<&Binding> {
-        self.bindings.get(&key)
+    pub fn get(&self, key: KeyPress) -> Option<Binding<'_>> {
+        match self.bindings.get(&key) {
+            Some(Entry::Command(command)) => Some(Binding::Command(*command)),
+            Some(Entry::Prefix(sub)) => Some(Binding::Prefix(sub)),
+            None => self
+                .text
+                .filter(|_| key.text().is_some())
+                .map(Binding::Command),
+        }
     }
 
     /// What the whole sequence `keys` is bound to, descending through
     /// prefix keymaps. `None` if it is unbound here, including when a
     /// shorter part of it is bound to a command.
-    pub fn lookup(&self, keys: &[KeyPress]) -> Option<&Binding> {
+    pub fn lookup(&self, keys: &[KeyPress]) -> Option<Binding<'_>> {
         let (first, rest) = keys.split_first()?;
         let mut binding = self.get(*first)?;
         for key in rest {
@@ -121,9 +151,10 @@ impl Keymap {
         self.bindings.len()
     }
 
-    /// Whether nothing is bound.
+    /// Whether no key does anything here: nothing is bound, and it has no text
+    /// command.
     pub fn is_empty(&self) -> bool {
-        self.bindings.is_empty()
+        self.bindings.is_empty() && self.text.is_none()
     }
 }
 
@@ -235,8 +266,16 @@ impl<'a> Layers<'a> {
     }
 
     /// What `keys` is bound to in the first keymap that binds it.
-    pub fn lookup(&self, keys: &[KeyPress]) -> Option<&'a Binding> {
+    pub fn lookup(&self, keys: &[KeyPress]) -> Option<Binding<'a>> {
         self.iter().find_map(|keymap| keymap.lookup(keys))
+    }
+
+    /// The text command of the first keymap that has one, for text that comes
+    /// from an input method and not from one key. A layer without one lets the
+    /// next one's through, so a layer that must take no text gives itself one that
+    /// refuses it, or is the only layer.
+    pub fn text_command(&self) -> Option<CommandId> {
+        self.iter().find_map(Keymap::text_command)
     }
 }
 
@@ -311,7 +350,7 @@ impl KeyResolver {
         match layers.lookup(&self.keys) {
             Some(Binding::Command(id)) => {
                 self.keys.clear();
-                Resolution::Command(*id)
+                Resolution::Command(id)
             }
             Some(Binding::Prefix(_)) => Resolution::Pending,
             None => {
@@ -449,11 +488,11 @@ mod tests {
         let map = global(&registry);
         assert_eq!(
             map.lookup(&keys("C-f")),
-            Some(&Binding::Command(id(&registry, "forward-char")))
+            Some(Binding::Command(id(&registry, "forward-char")))
         );
         assert_eq!(
             map.lookup(&keys("C-x C-c")),
-            Some(&Binding::Command(id(&registry, "quit")))
+            Some(Binding::Command(id(&registry, "quit")))
         );
         assert!(matches!(map.lookup(&keys("C-x")), Some(Binding::Prefix(_))));
         assert!(matches!(
@@ -691,6 +730,84 @@ mod tests {
     }
 
     #[test]
+    fn a_text_command_runs_for_keys_that_type_and_are_not_bound() {
+        let registry = registry(NAMES);
+        let mut map = global(&registry);
+        map.bind(&keys("q"), id(&registry, "quit")).unwrap();
+        map.set_text_command(id(&registry, "other"));
+        assert_eq!(map.text_command(), Some(id(&registry, "other")));
+        let layers = Layers::global(&map);
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "a A SPC あ ! q"),
+            ["other", "other", "other", "other", "other", "quit"]
+        );
+        // Only a character without Control, Meta or Super types.
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "C-a M-a s-a RET <f1>"),
+            [
+                "unbound C-a",
+                "unbound M-a",
+                "unbound s-a",
+                "unbound RET",
+                "unbound <f1>"
+            ]
+        );
+        // Under a prefix a character is a key like any other.
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "C-x a"),
+            ["pending", "unbound C-x a"]
+        );
+    }
+
+    #[test]
+    fn a_keymap_with_only_a_text_command_is_not_empty() {
+        let registry = registry(NAMES);
+        let mut map = Keymap::new();
+        assert!(map.is_empty());
+        map.set_text_command(id(&registry, "other"));
+        assert!(!map.is_empty());
+        assert_eq!(map.len(), 0, "no key is bound at this level");
+    }
+
+    #[test]
+    fn a_keymap_without_a_text_command_types_nothing() {
+        let registry = registry(NAMES);
+        let menu = global(&registry);
+        assert_eq!(menu.text_command(), None);
+        let layers = Layers::global(&menu);
+        assert_eq!(layers.text_command(), None);
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "a"),
+            ["unbound a"]
+        );
+    }
+
+    #[test]
+    fn the_highest_text_command_wins() {
+        let registry = registry(NAMES);
+        let mut global = global(&registry);
+        global.set_text_command(id(&registry, "other"));
+        let mut major = Keymap::new();
+        major.set_text_command(id(&registry, "find-file"));
+        let plain = Keymap::new();
+        let minors = [&plain];
+        let layers = Layers {
+            at_point: None,
+            minor: &minors,
+            major: Some(&major),
+            global: &global,
+        };
+        assert_eq!(layers.text_command(), Some(id(&registry, "find-file")));
+        let mut resolver = KeyResolver::new();
+        assert_eq!(
+            feed_all(&mut resolver, &layers, &registry, "a C-f"),
+            ["find-file", "forward-char"]
+        );
+    }
+
+    #[test]
     fn cancel_is_c_g() {
         assert_eq!(CANCEL, "C-g".parse().unwrap());
     }
@@ -798,7 +915,7 @@ mod tests {
             let (keymap, model) = build(&registry, &table)?;
             for probe in &probes {
                 let actual = keymap.lookup(probe).map(|b| match b {
-                    Binding::Command(id) => Ok(*id),
+                    Binding::Command(id) => Ok(id),
                     Binding::Prefix(_) => Err(()),
                 });
                 prop_assert_eq!(actual, model_lookup(&model, probe), "probe {:?}", probe);

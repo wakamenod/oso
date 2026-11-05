@@ -58,8 +58,9 @@ item notes when it must be settled.
 
 ## M2
 
-- By M2-8: once a buffer can be saved, `send-keys` can edit and write any file a client
-  opens, secret or not. The trust statement in `security.md` speaks only of reading.
+- By M2-8: once a buffer can be saved, `send-keys` and `run-command` can edit and write any file
+  a client opens, secret or not. The trust statement in `security.md` speaks only of reading,
+  and a sandboxed client could write outside its sandbox this way.
 - By M2-15: the generation that guards `exit` does not change on a save between the
   export and the exit, and does not cover marks, the kill ring or file information
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
@@ -68,7 +69,11 @@ item notes when it must be settled.
   which are buffer lines while there is no soft wrap. When the WrapMap
   lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines
   (`display-model.md`), so they need line-level conversions then
-  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)). `TAB` counts
+  display columns the same way ([ADR 0056](adr/0056-typing.md)).
+- With `C-u` (M2): a large count to a command that walks clusters, such as
+  `C-d` or `C-f`, runs for as long as the walk on the UI thread
+  ([ADR 0056](adr/0056-typing.md)). Decide on a limit when keys can give counts.
 - `kill-buffer` must cancel a load at once (ADR 0022). Today the app drops
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
@@ -97,15 +102,24 @@ item notes when it must be settled.
   size limit, so sharing needs room there.
 - Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
   budget by itself. Applying a batch of splices in one tree pass instead of one
-  `Rope::replace` each is the next step. Do that or cap the cursors before M2-21.
+  `Rope::replace` each is the next step. Do that or cap the cursors before M2-21. A command
+  also clones the selection set for its undo group, and an edit a few times more, which counts
+  with that many cursors.
 - Every window showing a buffer clips all its cursors after each edit, though only those
   in the edited chunks can change. Limit it to those before splits (M3) bring more windows.
-- `Editor::message` has no cap on a message's length. Add one with its first callers
-  (M2-7).
+- After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
+  cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
+  scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
+- `Editor::message` has no cap on a message's length. Its callers so far pass short text and
+  file names. Add one by M2-7.
+- By M2-7: a command that fails leaves a message and asks for no frame, so the echo area would
+  not show it until something else draws. "C-x C-z is undefined" has no way to the echo area
+  either: `Editor::message` always logs, and typed keys stay out of the `info` log
+  ([ADR 0056](adr/0056-typing.md)).
+- `S-RET`, `S-DEL` and other shifted named keys with no binding do nothing. Emacs falls back to
+  the unshifted key, so holding Shift a moment too long still types. Decide whether
+  `KeyResolver` does the same, or record that oso differs.
 
-- By M2-4: key handling ignores winit's `is_synthetic`. On X11 and Windows, winit
-  generates presses for keys held when the window gains focus, so a held key runs
-  its command without a real press, and would insert text once typing lands.
 - By M2-9: `MouseScrollDelta::LineDelta` is rounded per event with no accumulator,
   so small wheel deltas are dropped. Only `PixelDelta` adds up.
 - By M2-9: the wheel can leave the cursor out of view sideways. `Window::set_top`
