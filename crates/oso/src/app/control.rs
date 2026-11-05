@@ -35,9 +35,18 @@ impl App {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
-                let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
+                // Each key on its own: one may show or leave a buffer that may hold
+                // secrets (ADR 0060).
+                let timings = &mut self.timings;
+                let mut shown = self.editor.shows_secret();
+                let effects =
+                    self.dispatcher
+                        .handle_keys_with(&mut self.editor, keys, |editor, effects| {
+                            let now = editor.shows_secret();
+                            timings.keys_handled(received, 1, effects.redraw, shown || now);
+                            shown = now;
+                        });
                 log::trace!("key handled in {:?}", started.elapsed());
-                self.time_keys(received, count, effects.redraw);
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }

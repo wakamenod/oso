@@ -500,6 +500,7 @@ fn big_file_run(
     let keys = spec.keys;
     let mut app = App::start(exe, Some(file))?;
     app.wait_until("first frame", FRAME_TIMEOUT, has_frame)?;
+    app.wait_until_judged(FRAME_TIMEOUT)?;
     let mut rng = Lcg(seed);
     let mut numbers = Vec::new();
 
@@ -518,7 +519,9 @@ fn big_file_run(
             break;
         }
     }
-    if !loading.is_empty() {
+    if loading.is_empty() {
+        log_step("no key was timed while the file loaded: no keys_loading_max_ms this run");
+    } else {
         numbers.push(("keys_loading_max_ms", max(&loading)));
     }
     numbers.push(("trip_loading_max_ms", max(&trips)));

@@ -68,10 +68,11 @@ impl Timings {
         }
     }
 
-    /// `count` keys received at `received` were handled. Only keys that
-    /// need a frame have a frame to wait for.
-    pub fn keys_handled(&mut self, received: Instant, count: usize, redraw: bool) {
-        if !redraw {
+    /// `count` keys received at `received` were handled. Only keys that need a
+    /// frame have a frame to wait for. `withheld` says a buffer that may hold
+    /// secrets was shown before or after them, and they leave nothing (ADR 0060).
+    pub fn keys_handled(&mut self, received: Instant, count: usize, redraw: bool, withheld: bool) {
+        if !redraw || withheld {
             return;
         }
         for _ in 0..count {
@@ -99,31 +100,11 @@ impl Timings {
     }
 
     /// A frame was presented, reflecting every key handled so far. `complete`
-    /// is false if glyphs were left for the next frame.
-    pub fn frame_presented(&mut self, complete: bool) {
-        self.frames += 1;
-        self.note_first_frames(complete);
-        for received in self.waiting_keys.drain(..) {
-            if self.key_latency_us.len() < MAX_KEY_SAMPLES {
-                let micros = received.elapsed().as_micros();
-                self.key_latency_us
-                    .push(u32::try_from(micros).unwrap_or(u32::MAX));
-            } else {
-                self.dropped_keys += 1;
-            }
-        }
-    }
-
-    /// A frame was presented while a buffer that may hold secrets is shown. It
-    /// counts only as the first frame or the first screen of a load, since a file
-    /// counts as such until it is judged. Keys waiting for it leave no sample.
-    pub fn frame_presented_withheld(&mut self, complete: bool) {
-        self.waiting_keys.clear();
-        self.note_first_frames(complete);
-    }
-
-    /// Remembers the first frame, and the first complete screen of a load.
-    fn note_first_frames(&mut self, complete: bool) {
+    /// is false if glyphs were left for the next frame. `withheld` says a buffer that
+    /// may hold secrets is shown: the frame then counts only as the first one, or the
+    /// first screen of a load, since a file counts as such until it is judged, and
+    /// keys waiting for it leave no sample (ADR 0060).
+    pub fn frame_presented(&mut self, complete: bool, withheld: bool) {
         self.first_frame.get_or_insert_with(|| FirstFrame {
             after_start: self.started.elapsed(),
             unix: unix_now(),
@@ -134,6 +115,20 @@ impl Timings {
         {
             self.load.first_screen = Some(began.elapsed());
             self.load.first_screen_after_start = Some(self.started.elapsed());
+        }
+        if withheld {
+            self.waiting_keys.clear();
+            return;
+        }
+        self.frames += 1;
+        for received in self.waiting_keys.drain(..) {
+            if self.key_latency_us.len() < MAX_KEY_SAMPLES {
+                let micros = received.elapsed().as_micros();
+                self.key_latency_us
+                    .push(u32::try_from(micros).unwrap_or(u32::MAX));
+            } else {
+                self.dropped_keys += 1;
+            }
         }
     }
 
@@ -183,10 +178,10 @@ mod tests {
     fn a_key_is_sampled_at_the_first_frame_after_it() {
         let mut timings = timings();
         let received = Instant::now();
-        timings.keys_handled(received, 1, true);
+        timings.keys_handled(received, 1, true, false);
         assert_eq!(timings.take()["keys_waiting"], 1);
         std::thread::sleep(Duration::from_millis(2));
-        timings.frame_presented(true);
+        timings.frame_presented(true, false);
         let result = timings.take();
         assert_eq!(result["keys_waiting"], 0);
         let samples = result["key_latency_us"].as_array().unwrap();
@@ -197,9 +192,9 @@ mod tests {
     #[test]
     fn a_later_frame_does_not_sample_a_key_again() {
         let mut timings = timings();
-        timings.keys_handled(Instant::now(), 1, true);
-        timings.frame_presented(true);
-        timings.frame_presented(true);
+        timings.keys_handled(Instant::now(), 1, true, false);
+        timings.frame_presented(true, false);
+        timings.frame_presented(true, false);
         assert_eq!(
             timings.take()["key_latency_us"].as_array().unwrap().len(),
             1
@@ -211,16 +206,17 @@ mod tests {
         let mut timings = timings();
         let began = Instant::now();
         timings.load_first_content(began);
-        timings.keys_handled(Instant::now(), 1, true);
-        timings.frame_presented_withheld(true);
+        timings.keys_handled(Instant::now(), 1, true, false);
+        timings.frame_presented(true, true);
+        timings.keys_handled(Instant::now(), 1, true, true);
         let taken = timings.take();
         assert_eq!(taken["frames"], 0);
         assert_eq!(taken["keys_waiting"], 0, "the key leaves no sample");
         assert_eq!(taken["key_latency_us"], json!([]));
         assert!(taken["startup_us"].as_u64().is_some(), "the first frame");
         assert!(taken["load"]["first_screen_us"].as_u64().is_some());
-        timings.keys_handled(Instant::now(), 1, true);
-        timings.frame_presented(true);
+        timings.keys_handled(Instant::now(), 1, true, false);
+        timings.frame_presented(true, false);
         let taken = timings.take();
         assert_eq!(taken["frames"], 1, "once it is no longer shown");
         assert_eq!(taken["key_latency_us"].as_array().map(Vec::len), Some(1));
@@ -229,16 +225,16 @@ mod tests {
     #[test]
     fn keys_without_a_redraw_have_no_sample() {
         let mut timings = timings();
-        timings.keys_handled(Instant::now(), 3, false);
-        timings.frame_presented(true);
+        timings.keys_handled(Instant::now(), 3, false, false);
+        timings.frame_presented(true, false);
         assert_eq!(timings.take()["key_latency_us"], json!([]));
     }
 
     #[test]
     fn take_hands_over_samples_but_keeps_the_rest() {
         let mut timings = timings();
-        timings.keys_handled(Instant::now(), 2, true);
-        timings.frame_presented(true);
+        timings.keys_handled(Instant::now(), 2, true, false);
+        timings.frame_presented(true, false);
         let first = timings.take();
         assert_eq!(first["key_latency_us"].as_array().unwrap().len(), 2);
         let second = timings.take();
@@ -251,12 +247,12 @@ mod tests {
     fn startup_waits_for_a_presented_frame() {
         let mut timings = timings();
         assert_eq!(timings.take()["startup_us"], Value::Null);
-        timings.frame_presented(true);
+        timings.frame_presented(true, false);
         let first = timings.take();
         assert!(first["startup_us"].is_u64());
         assert!(first["first_frame_unix_us"].as_u64().unwrap() > 0);
         std::thread::sleep(Duration::from_millis(2));
-        timings.frame_presented(true);
+        timings.frame_presented(true, false);
         let second = timings.take();
         assert_eq!(second["startup_us"], first["startup_us"], "only the first");
     }
@@ -264,11 +260,11 @@ mod tests {
     #[test]
     fn samples_and_waiting_keys_are_bounded() {
         let mut timings = timings();
-        timings.keys_handled(Instant::now(), MAX_KEY_SAMPLES + 5, true);
+        timings.keys_handled(Instant::now(), MAX_KEY_SAMPLES + 5, true, false);
         assert_eq!(timings.waiting_keys.len(), MAX_KEY_SAMPLES);
-        timings.frame_presented(true);
-        timings.keys_handled(Instant::now(), 2, true);
-        timings.frame_presented(true);
+        timings.frame_presented(true, false);
+        timings.keys_handled(Instant::now(), 2, true, false);
+        timings.frame_presented(true, false);
         let result = timings.take();
         assert_eq!(
             result["key_latency_us"].as_array().unwrap().len(),
@@ -289,14 +285,14 @@ mod tests {
     fn the_first_screen_ends_when_it_is_complete() {
         let mut timings = timings();
         // A frame before the content arrived is not part of the first screen.
-        timings.frame_presented(true);
+        timings.frame_presented(true, false);
         assert_eq!(timings.take()["load"]["first_screen_us"], Value::Null);
         let began = Instant::now();
         timings.load_first_content(began);
-        timings.frame_presented(false);
+        timings.frame_presented(false, false);
         assert_eq!(timings.take()["load"]["first_screen_us"], Value::Null);
         std::thread::sleep(Duration::from_millis(2));
-        timings.frame_presented(true);
+        timings.frame_presented(true, false);
         let load = timings.take()["load"].clone();
         let screen = load["first_screen_us"].clone();
         assert!(screen.as_u64().unwrap() >= 2000, "{load}");
@@ -304,7 +300,7 @@ mod tests {
         assert!(load["first_screen_after_start_us"].as_u64() >= screen.as_u64());
         // Measured once.
         std::thread::sleep(Duration::from_millis(2));
-        timings.frame_presented(true);
+        timings.frame_presented(true, false);
         assert_eq!(timings.take()["load"]["first_screen_us"], screen);
     }
 

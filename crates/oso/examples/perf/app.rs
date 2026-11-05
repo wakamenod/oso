@@ -126,6 +126,19 @@ impl App {
         }
     }
 
+    /// Waits until the file is no longer counted as secret, which takes its first
+    /// read. Until then keys leave no timing (ADR 0060).
+    pub fn wait_until_judged(&mut self, timeout: Duration) -> Result<(), String> {
+        let started = Instant::now();
+        while self.call("get-state", None)?["buffer"]["secret"] != false {
+            if started.elapsed() > timeout {
+                return Err(format!("the file still counts as secret after {timeout:?}"));
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        Ok(())
+    }
+
     /// From just before the process started to `first_frame_unix_us`, in
     /// milliseconds. This includes the time before `main`.
     pub fn spawn_to(&self, first_frame_unix_us: u64) -> f64 {

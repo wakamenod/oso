@@ -45,19 +45,23 @@ impl App {
     /// path, through [`crate::dispatch::Dispatcher::handle_keys`].
     fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyPress) {
         let started = Instant::now();
+        #[cfg(feature = "dev")]
+        let secret_before = self.editor.shows_secret();
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
         log::trace!("key handled in {:?}", started.elapsed());
         #[cfg(feature = "dev")]
-        self.time_keys(started, 1, effects.redraw);
+        self.time_key(started, secret_before, effects.redraw);
         self.apply(event_loop, effects);
     }
 
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &ActiveEventLoop, text: &str) {
         let started = Instant::now();
+        #[cfg(feature = "dev")]
+        let secret_before = self.editor.shows_secret();
         let effects = self.dispatcher.insert_text(&mut self.editor, text);
         #[cfg(feature = "dev")]
-        self.time_keys(started, 1, effects.redraw);
+        self.time_key(started, secret_before, effects.redraw);
         log::trace!("text handled in {:?}", started.elapsed());
         self.apply(event_loop, effects);
     }

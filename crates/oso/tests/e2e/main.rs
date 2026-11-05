@@ -16,6 +16,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use harness::{App, FAKE_SECRET, Scratch, process_exists};
 use png::Foreground;
@@ -286,6 +287,16 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     let timings = app.call("take-timings", None);
     assert_eq!(timings["keys_waiting"], 0, "a key waits to be timed");
     assert_eq!(timings["key_latency_us"], json!([]), "a key was timed");
+    // Nor do frames count. This checks for something not happening, so it waits for
+    // the key's frame by time, and only a frame that should not count can fail it.
+    let frames = timings["frames"].clone();
+    app.send_keys("C-f");
+    thread::sleep(Duration::from_millis(300));
+    assert_eq!(
+        app.call("take-timings", None)["frames"],
+        frames,
+        "a frame was counted"
+    );
     app.show_buffer(&plain_id);
     app.send_keys("C-f");
     let timings = app.call("take-timings", None);

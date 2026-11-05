@@ -59,17 +59,30 @@ impl Dispatcher {
         }
     }
 
-    /// Handles key presses in order, as from the control socket's
-    /// `send-keys`. Keys after one that exits are dropped.
-    #[cfg(any(test, feature = "dev"))]
+    /// Handles key presses in order. Keys after one that exits are dropped.
+    #[cfg(test)]
     pub fn handle_keys(
         &mut self,
         editor: &mut Editor,
         keys: impl IntoIterator<Item = KeyPress>,
     ) -> Effects {
+        self.handle_keys_with(editor, keys, |_, _| {})
+    }
+
+    /// Handles key presses in order, as from the control socket's `send-keys`,
+    /// calling `each` after each one. Keys after one that exits are dropped.
+    #[cfg(any(test, feature = "dev"))]
+    pub fn handle_keys_with(
+        &mut self,
+        editor: &mut Editor,
+        keys: impl IntoIterator<Item = KeyPress>,
+        mut each: impl FnMut(&Editor, Effects),
+    ) -> Effects {
         let mut effects = Effects::default();
         for key in keys {
-            effects = effects.union(self.handle_key(editor, key));
+            let key_effects = self.handle_key(editor, key);
+            each(editor, key_effects);
+            effects = effects.union(key_effects);
             if effects.exit {
                 break;
             }
@@ -429,6 +442,29 @@ mod tests {
         assert!(effects.exit);
         assert_eq!(cursor(&editor), 1);
         assert!(dispatcher.pending().is_empty());
+    }
+
+    #[test]
+    fn each_key_of_a_batch_is_reported_on_its_own_up_to_an_exit() {
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = editor("abc");
+        let keys: KeySequence = "C-f <f35> C-f C-x C-c C-f".parse().unwrap();
+        let mut seen = Vec::new();
+        let effects = dispatcher.handle_keys_with(&mut editor, keys.0, |editor, effects| {
+            seen.push((cursor(editor), effects.redraw, effects.exit));
+        });
+        assert!(effects.exit);
+        assert_eq!(
+            seen,
+            [
+                (1, true, false),
+                (1, false, false),
+                (2, true, false),
+                (2, false, false),
+                (2, false, true),
+            ],
+        );
+        assert_eq!(cursor(&editor), 2, "the key after the exit did not run");
     }
 
     fn explode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

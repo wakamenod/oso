@@ -106,12 +106,12 @@ impl App {
         }
     }
 
-    /// Records keys for the benchmarks, unless a buffer that may hold secrets is
-    /// shown (ADR 0060).
+    /// Records a key for the benchmarks, unless a buffer that may hold secrets was
+    /// shown before it, `secret_before` says, or is after it (ADR 0060).
     #[cfg(feature = "dev")]
-    fn time_keys(&mut self, received: Instant, count: usize, redraw: bool) {
-        let redraw = redraw && !self.editor.shows_secret();
-        self.timings.keys_handled(received, count, redraw);
+    fn time_key(&mut self, received: Instant, secret_before: bool, redraw: bool) {
+        let withheld = secret_before || self.editor.shows_secret();
+        self.timings.keys_handled(received, 1, redraw, withheld);
     }
 
     fn request_redraw(&self) {
