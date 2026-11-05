@@ -120,6 +120,15 @@ item notes when it must be settled.
   the unshifted key, so holding Shift a moment too long still types. Decide whether
   `KeyResolver` does the same, or record that oso differs.
 
+- `Editor::set_frame_size` pulls the view back when the selected window gets taller:
+  - After M2-9: the comment on `Window::set_scroll` should name a resize too, and the limit
+    should be a pure function beside `window::wheel`, used by both.
+  - By M2-16 and M3: "taller" compares the selected window alone. A selected minibuffer, or
+    splits of different heights, need it per window.
+  - Narrowing and widening do not do the same for `left`. With the cursor far to the right,
+    a window made very narrow and wide again stays scrolled sideways, with shorter rows blank.
+    Decide whether growing sideways follows the same rule.
+
 - By M2-9: `MouseScrollDelta::LineDelta` is rounded per event with no accumulator,
   so small wheel deltas are dropped. Only `PixelDelta` adds up.
 - By M2-9: the wheel can leave the cursor out of view sideways. `Window::set_top`
