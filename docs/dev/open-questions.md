@@ -70,6 +70,12 @@ item notes when it must be settled.
 - By M2-11: a kill or a power cut during a save leaves a `.oso-save-*.tmp` beside the file, and
   nothing removes it. Decide whether finding one is part of recovery, keeping in mind that one
   may hold a secret buffer's text ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- By M2-22: the exit guard counts modified buffers and running saves, and cannot tell that an unmodified
+  buffer's file was deleted, since that needs the disk. `C-x C-s` writes such a file again, but
+  `C-x C-c` exits at once, and its text is then gone. The watcher in M2-22 can tell it
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- `loader/resolve.rs` has two walkers along symbolic links: `Walk`, which keeps each target for the secret
+  verdict, and `follow_links`, which a save uses. They differ on a link to nothing. Decide whether one can do both.
 - By M2-18: two buffers visiting one file can each pass the check while the other writes.
   `C-x C-f` should find the buffer already visiting a file. And `C-x C-w` must decide what writing
   a secret buffer to a new path means over the socket, since `save-buffer` writes only where the

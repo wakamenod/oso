@@ -29,6 +29,7 @@ use crate::dispatch::Dispatcher;
 use crate::saver::SaveReport;
 use draw::View;
 use loads::Load;
+use saves::Leaving;
 
 /// Events sent to the event loop from other threads.
 #[derive(Debug)]
@@ -57,8 +58,10 @@ pub struct App {
     modifiers: ModifiersState,
     proxy: EventLoopProxy<UserEvent>,
     loads: Vec<Load>,
-    /// When to stop waiting for running saves, once this instance has agreed to go.
-    leaving: Option<Instant>,
+    /// The exit waiting for running saves, once this instance has agreed to go.
+    leaving: Option<Leaving>,
+    /// A save outlived a leave, so the next exit does not wait for it again.
+    save_stuck: bool,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Trackpad scrolling not yet worth a whole row, in pixels.
@@ -86,6 +89,7 @@ impl App {
             proxy,
             loads: Vec::new(),
             leaving: None,
+            save_stuck: false,
             started: Some(started),
             wheel_pixels: 0.0,
             #[cfg(feature = "dev")]
@@ -110,7 +114,7 @@ impl App {
             self.request_redraw();
         }
         if effects.exit {
-            self.leave(event_loop);
+            self.leave(event_loop, false);
         }
     }
 

@@ -13,7 +13,7 @@
 //! replaces it.
 
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{Editor, clip_cursors};
 use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp, ReadOnly, Replacement};
@@ -35,6 +35,9 @@ pub struct SaveJob {
     /// Where the file must still be and what it must still hold to be replaced. A
     /// buffer the host never told about has none, and its save refuses.
     pub baseline: Option<Baseline>,
+    /// The buffer is unmodified, so write only if the file has gone from where it was.
+    /// Whether it has needs the disk, so the host finds out.
+    pub only_if_gone: bool,
 }
 
 /// Why a save did not start. Nothing was written, and nothing changed.
@@ -106,13 +109,22 @@ fn refusal(buffer: &Buffer) -> Option<SaveRefused> {
         Some(SaveRefused::ReadOnly(reason))
     } else if buffer.is_saving() {
         Some(SaveRefused::AlreadySaving)
-    } else if !buffer.is_modified() {
+    } else if !buffer.is_modified() && !may_have_lost_its_file(buffer) {
         Some(SaveRefused::Unmodified)
     } else if buffer.path().is_none() {
         Some(SaveRefused::NoFile)
     } else {
         None
     }
+}
+
+/// Whether `buffer` read a file that may be gone by now. Its text would then exist nowhere
+/// else, so a save of it is worth asking the disk about, as Emacs does.
+fn may_have_lost_its_file(buffer: &Buffer) -> bool {
+    buffer.path().is_some()
+        && buffer
+            .baseline()
+            .is_some_and(|baseline| baseline.file.is_some())
 }
 
 /// The line break `buffer` needs at its end, if any: a text with something in it that
@@ -139,26 +151,29 @@ impl Editor {
         if let Some(refused) = refusal(buffer) {
             return Err(refused);
         }
-        let edited = match missing_final_newline(buffer) {
-            Some(line_break) => {
-                self.insert_final_newline(id, line_break);
-                true
-            }
-            None => false,
-        };
-        let job = self.buffer_mut(id).and_then(|buffer| {
-            buffer.set_saving(true);
-            Some(SaveJob {
+        // An unmodified buffer stays as it is unless the file has gone, which only the
+        // host can tell, and then it holds what the file held.
+        let only_if_gone = !buffer.is_modified();
+        let line_break = missing_final_newline(buffer).filter(|_| !only_if_gone);
+        if let Some(line_break) = line_break {
+            self.insert_final_newline(id, line_break);
+        }
+        if let Some(buffer) = self.buffer_mut(id)
+            && let Some(path) = buffer.path().map(Path::to_path_buf)
+        {
+            let job = SaveJob {
                 buffer: id,
-                path: buffer.path()?.to_path_buf(),
+                path,
                 text: buffer.text().clone(),
                 bom: buffer.file_info().bom,
                 content: buffer.content_id(),
                 baseline: buffer.baseline().cloned(),
-            })
-        });
-        self.save_jobs.extend(job);
-        Ok(edited)
+                only_if_gone,
+            };
+            buffer.set_saving(true);
+            self.save_jobs.push(job);
+        }
+        Ok(line_break.is_some())
     }
 
     /// Adds `line_break` at the end of `id`, the selected window's buffer, and
@@ -204,6 +219,13 @@ impl Editor {
         buffer.set_written(stamp);
         if buffer.is_modified() {
             self.reset_exit_guard();
+        }
+    }
+
+    /// A save of `id` found nothing to write: its file was there all along.
+    pub fn save_unneeded(&mut self, id: BufferId) {
+        if let Some(buffer) = self.buffer_mut(id) {
+            buffer.set_saving(false);
         }
     }
 

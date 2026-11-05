@@ -541,6 +541,37 @@ fn the_quit_key_refuses_once_with_unsaved_text_and_a_save_needs_no_repeat() {
     assert_eq!(names, 1, "nothing is left beside the file");
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_failed_save_after_a_confirmed_exit_keeps_the_instance_and_the_text() {
+    let scratch = Scratch::new("exit-failed-save");
+    let file = scratch.write("notes.txt", b"on disk\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    std::fs::write(&file, b"another program\n").expect("the file changes on disk");
+    // One batch on the UI thread, so the exit is confirmed before any report arrives.
+    let keys = format!("{UNSAVED_KEYS} C-x C-s C-x C-c C-x C-c");
+    app.send_keys(&keys);
+    let state = loop {
+        match app.try_call("get-state", None) {
+            Ok(state) if state["buffer"]["saving"] == false => break state,
+            Ok(_) => {}
+            Err(error) => assert!(error.contains("shutting down"), "{error}"),
+        }
+        assert!(process_exists(app.pid()), "the instance went with the text");
+    };
+    assert_eq!(state["buffer"]["modified"], true);
+    assert_eq!(
+        std::fs::read(&file).expect("the file is there"),
+        b"another program\n",
+        "the other program's text stays",
+    );
+    let names = std::fs::read_dir(scratch.path())
+        .expect("the directory")
+        .count();
+    assert_eq!(names, 1, "nothing is left beside the file");
+}
+
 /// The event loop goes on delivering what is queued after an exit, so this can
 /// only fail when the two land together, which a few tries make likely.
 #[test]

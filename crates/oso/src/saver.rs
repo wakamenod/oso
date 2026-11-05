@@ -16,7 +16,8 @@
 //! 3. Create a temporary file with `create_new` and mode 0600 in that file's
 //!    directory, so that the rename stays on one file system.
 //! 4. Write the BOM and the text. Line endings are already in the text.
-//! 5. Give it the owner, the group and the mode of the file it replaces, and fsync.
+//! 5. Give it the owner, the group and the mode of the file it replaces, fsync and close
+//!    it, and read back what the file is now.
 //! 6. Check the baseline again, right before the rename, and that the file's mode and
 //!    owner did not change meanwhile.
 //! 7. Rename it over the file, then fsync the directory.
@@ -24,6 +25,9 @@
 //! Up to the rename the file on disk is untouched, and after it the file holds the
 //! whole new text. Whatever fails or panics on the way, the temporary file is removed.
 //! Only an end to the process itself can leave one behind.
+//!
+//! A save of an unmodified buffer only asks whether its file has gone, and writes if it
+//! has, since the text may then exist nowhere else.
 //!
 //! Errors and messages name the path and never quote the text (ADR 0028).
 
@@ -35,7 +39,7 @@ use std::time::SystemTime;
 
 use oso_core::buffer::{Baseline, BufferId, ContentId, FileStamp};
 use oso_core::decode::BOM;
-use oso_core::editor::{Editor, SaveJob};
+use oso_core::editor::{Editor, SaveJob, SaveRefused};
 
 use crate::loader::{follow_links, location, parent, stamp_of};
 
@@ -65,6 +69,9 @@ pub enum SaveError {
     /// The path no longer leads to where the buffer's file was: a link or a directory on
     /// it has changed. Nothing is written at the new place.
     Elsewhere,
+    /// Where the buffer's file is could not be told when it was read, so no place is safe
+    /// to write. Nothing changed on disk.
+    UnknownLocation,
     /// The file system refused.
     Io(io::Error),
     /// The saving thread panicked. This holds none of its message, which may quote text.
@@ -84,7 +91,7 @@ pub struct Written {
     content: ContentId,
     /// The file as it now is.
     stamp: FileStamp,
-    /// The rename happened, but may not last a power cut.
+    /// The file is in place, but this reached no disk for sure: it may not last a power cut.
     unsynced: Option<io::Error>,
 }
 
@@ -94,16 +101,14 @@ pub struct SaveReport {
     buffer: BufferId,
     /// The path the buffer visits, as the messages name it.
     path: PathBuf,
-    outcome: Result<Written, SaveError>,
+    /// `Ok(None)` if there was nothing to write.
+    outcome: Result<Option<Written>, SaveError>,
 }
 
 impl SaveReport {
-    /// Logs a failure above what messages reach, for when no window is left to show one.
-    /// `Debug` escapes what a path may hold, and a report holds no text.
-    pub fn log_if_failed(&self) {
-        if let Err(e) = &self.outcome {
-            log::error!("Saving {:?} failed during the exit: {e:?}", self.path);
-        }
+    /// Whether the text this was meant to put on disk is not there.
+    pub fn failed(&self) -> bool {
+        self.outcome.is_err()
     }
 
     /// The report of a save whose thread could not start.
@@ -139,7 +144,7 @@ pub fn run(job: SaveJob) -> SaveReport {
 /// Runs `job` through `write`. A panic must not leave the buffer saving for good.
 fn run_with(
     job: SaveJob,
-    write: impl FnOnce(&SaveJob) -> Result<Written, SaveError>,
+    write: impl FnOnce(&SaveJob) -> Result<Option<Written>, SaveError>,
 ) -> SaveReport {
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| write(&job)))
         .unwrap_or(Err(SaveError::Panicked));
@@ -152,6 +157,37 @@ fn run_with(
     }
 }
 
+/// What a report means for an exit agreed to while a save ran.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AfterSave {
+    /// Another save is still running.
+    KeepWaiting,
+    /// Nothing is left to wait for.
+    Exit,
+    /// Take the exit back: the window returns, with the buffer and a message.
+    StayOpen,
+}
+
+/// What to do when a save ends while leaving. A failed save means the text is only in this
+/// process, which a person asked to leave believing it would be on disk, so they get it
+/// back at once, whatever else runs. The socket's `exit` asks for no such thing
+/// (ADR 0055).
+pub fn after_save_while_leaving(failed: bool, anyway: bool, still_saving: bool) -> AfterSave {
+    if failed && !anyway {
+        AfterSave::StayOpen
+    } else if still_saving {
+        AfterSave::KeepWaiting
+    } else {
+        AfterSave::Exit
+    }
+}
+
+/// What to do when a save has held a leave past its limit: as for a failure, since nobody
+/// can tell where the text is.
+pub fn at_leaving_deadline(anyway: bool) -> AfterSave {
+    after_save_while_leaving(true, anyway, false)
+}
+
 /// Takes a report in: updates the buffer, and says how it went. Never quotes text.
 pub fn apply(editor: &mut Editor, report: SaveReport) {
     let SaveReport {
@@ -161,7 +197,11 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
     } = report;
     let path = path.display();
     let message = match outcome {
-        Ok(written) => {
+        Ok(None) => {
+            editor.save_unneeded(buffer);
+            SaveRefused::Unmodified.to_string()
+        }
+        Ok(Some(written)) => {
             editor.save_finished(buffer, written.content, written.stamp);
             match written.unsynced {
                 None => format!("Wrote {path}"),
@@ -177,6 +217,9 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
                 SaveError::Elsewhere => format!(
                     "{path} now leads somewhere other than when it was read. Nothing was written, and the buffer is not saved"
                 ),
+                SaveError::UnknownLocation => format!(
+                    "Cannot save {path}: where it leads could not be told when it was read. Nothing was written. Open the file again to save it"
+                ),
                 SaveError::Io(e) => format!("Cannot save {path}: {e}"),
                 SaveError::Panicked => format!("Saving {path} failed. The buffer is not saved"),
             }
@@ -185,24 +228,47 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
     editor.message(message);
 }
 
-fn write(job: &SaveJob) -> Result<Written, SaveError> {
-    prepare(job)?.commit(job)
+fn write(job: &SaveJob) -> Result<Option<Written>, SaveError> {
+    if job.only_if_gone && !file_is_gone(job)? {
+        return Ok(None);
+    }
+    prepare(job)?.commit(job).map(Some)
 }
 
-/// The temporary file holding the whole text, durably, and not yet in place.
+/// Whether the file of an unmodified buffer has gone from where it was. If the path now
+/// leads elsewhere, or anything is there, the buffer has nothing to say about it.
+fn file_is_gone(job: &SaveJob) -> Result<bool, SaveError> {
+    let baseline = baseline_of(job)?;
+    let target = follow_links(&job.path)?;
+    if location(&target)? != baseline.location {
+        return Ok(false);
+    }
+    match fs::symlink_metadata(&target) {
+        Ok(_) => Ok(false),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(true),
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn baseline_of(job: &SaveJob) -> Result<&Baseline, SaveError> {
+    job.baseline.as_ref().ok_or(SaveError::UnknownLocation)
+}
+
+/// The temporary file holding the whole text, closed, and not yet in place.
 struct Prepared {
-    file: File,
     temporary: Temporary,
     target: PathBuf,
     /// The file it replaces, as it was before the write.
     replaced: Option<Metadata>,
     stamp: FileStamp,
+    /// Why the text may not be on the disk yet.
+    unsynced: Option<io::Error>,
 }
 
 /// Steps 1 to 5 of the order at the top. The file on disk is not touched.
 fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
     let target = follow_links(&job.path)?;
-    let baseline = job.baseline.as_ref().ok_or(SaveError::Conflict)?;
+    let baseline = baseline_of(job)?;
     let replaced = unchanged_file(&target, baseline)?;
     if replaced.is_some() {
         // A rename needs only the directory, so it would replace a file the user has
@@ -213,35 +279,63 @@ fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
     let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
     write_text(&file, job)?;
     keep_attributes(&file, replaced.as_ref(), baseline.file, directory)?;
-    file.sync_all()?;
-    let stamp = stamp_of(&file.metadata()?)?;
+    let unsynced = unless_unsupported(file.sync_all())?;
+    // Read after closing it, as Windows may settle the modification time only then. The
+    // name is ours until the rename, and that comes after, so a change made right after the
+    // rename still counts as a change.
+    drop(file);
+    let stamp = stamp_of(&fs::symlink_metadata(&temporary.path)?)?;
     Ok(Prepared {
-        file,
         temporary,
         target,
         replaced,
         stamp,
+        unsynced,
     })
 }
 
 impl Prepared {
-    /// Steps 6 and 7. The stamp this returns was read from the open file before the
-    /// rename, so a change made right after the rename still counts as a change.
+    /// Steps 6 and 7.
     fn commit(self, job: &SaveJob) -> Result<Written, SaveError> {
-        let baseline = job.baseline.as_ref().ok_or(SaveError::Conflict)?;
+        let baseline = baseline_of(job)?;
         let now = unchanged_file(&self.target, baseline)?;
         if attributes_moved(self.replaced.as_ref(), now.as_ref()) {
             return Err(SaveError::Conflict);
         }
-        // Windows cannot rename an open file.
-        drop(self.file);
         self.temporary.rename_over(&self.target)?;
+        let directory = sync_directory(parent(&self.target)).err();
         Ok(Written {
             content: job.content,
             stamp: self.stamp,
-            unsynced: sync_directory(parent(&self.target)).err(),
+            unsynced: self.unsynced.or(directory),
         })
     }
+}
+
+/// The result of syncing a file, as what to say about it: nothing, or that a file system
+/// cannot do it. Any other error fails the save, as the disk has refused the text.
+///
+/// `std` makes `sync_all` a bare `F_FULLFSYNC` on macOS, with no fallback, and some network
+/// and FUSE mounts refuse that. So nothing could ever be saved there.
+fn unless_unsupported(synced: io::Result<()>) -> io::Result<Option<io::Error>> {
+    match synced {
+        Ok(()) => Ok(None),
+        Err(e) if sync_is_unsupported(&e) => Ok(Some(e)),
+        Err(e) => Err(e),
+    }
+}
+
+/// Whether `error` says the file system has no such thing as syncing this file.
+fn sync_is_unsupported(error: &io::Error) -> bool {
+    // On Apple systems `ENOTSUP` differs from the `EOPNOTSUPP` that `std` knows.
+    #[cfg(target_vendor = "apple")]
+    if error.raw_os_error() == Some(45) {
+        return true;
+    }
+    matches!(
+        error.kind(),
+        io::ErrorKind::Unsupported | io::ErrorKind::InvalidInput
+    )
 }
 
 /// Whether the attributes the new file took are out of date by now, as the rename would

@@ -237,7 +237,7 @@ what you type goes into their buffers, which can fail a flow.
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
-| exit guard | `C-x C-c` refuses once with unsaved text, and repeating ends the process and leaves the file as it was; after a save it needs no repeat. What resets it is tested through the `Dispatcher` |
+| exit guard | `C-x C-c` refuses once with unsaved text, and repeating ends the process and leaves the file as it was; after a save it needs no repeat, and a save that fails after a confirmed exit keeps the instance and the text. What resets it is tested through the `Dispatcher` |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend

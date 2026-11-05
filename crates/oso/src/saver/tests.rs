@@ -16,8 +16,8 @@ use oso_core::load::decode_all;
 use crate::loader::{location, stamp_of};
 
 use super::{
-    PRIVATE_MODE, SaveError, SaveReport, TEMPORARY_PREFIX, Temporary, apply, prepare, run,
-    run_with, spawn, write_text,
+    AfterSave, PRIVATE_MODE, SaveError, SaveReport, Temporary, after_save_while_leaving, apply,
+    at_leaving_deadline, prepare, run, run_with, spawn, unless_unsupported, write_text,
 };
 
 /// A scratch directory, with no links in its path, removed at the end of the test.
@@ -263,18 +263,6 @@ fn a_directory_in_the_files_place_is_a_conflict() {
 }
 
 #[test]
-fn a_buffer_the_host_never_told_about_replaces_nothing() {
-    let scratch = Scratch::new("no-baseline");
-    let path = scratch.file("notes.txt", b"old\n");
-    let mut buffer = Buffer::visiting(path.clone());
-    buffer.apply_load(decode_all(b"old\n", TabWidth::default()));
-    let mut editor = Editor::with_buffer(buffer);
-    assert_conflict(&run(job_of(&mut editor, "new\n")));
-    assert_eq!(fs::read(&path).unwrap(), b"old\n");
-    assert_eq!(scratch.names(), ["notes.txt"]);
-}
-
-#[test]
 fn a_missing_directory_is_an_error_and_is_not_created() {
     let scratch = Scratch::new("no-directory");
     let directory = scratch.path().join("no-such-directory");
@@ -353,6 +341,121 @@ fn a_failing_write_is_an_error() {
 }
 
 #[test]
+fn a_person_leaving_gets_the_text_back_if_the_save_fails() {
+    use AfterSave::{Exit, KeepWaiting, StayOpen};
+    // Failed, the socket's `exit`, another save running.
+    assert_eq!(after_save_while_leaving(false, false, false), Exit);
+    assert_eq!(after_save_while_leaving(false, false, true), KeepWaiting);
+    assert_eq!(after_save_while_leaving(true, false, false), StayOpen);
+    assert_eq!(
+        after_save_while_leaving(true, false, true),
+        StayOpen,
+        "at once"
+    );
+    assert_eq!(after_save_while_leaving(true, true, false), Exit);
+    assert_eq!(after_save_while_leaving(true, true, true), KeepWaiting);
+    assert_eq!(after_save_while_leaving(false, true, false), Exit);
+    assert_eq!(at_leaving_deadline(false), StayOpen);
+    assert_eq!(at_leaving_deadline(true), Exit);
+}
+
+#[test]
+fn a_report_says_whether_the_text_is_on_disk() {
+    let scratch = Scratch::new("failed");
+    let path = scratch.file("notes.txt", b"old\n");
+    let written = run(job(&path, "new\n"));
+    assert!(!written.failed());
+    let job = job(&path, "other\n");
+    fs::write(&path, b"another program\n").unwrap();
+    assert!(run(job).failed());
+}
+
+#[test]
+fn a_sync_a_file_system_cannot_do_is_said_and_others_fail_the_save() {
+    use std::io::{Error, ErrorKind};
+    assert!(unless_unsupported(Ok(())).unwrap().is_none());
+    let unsupported = Error::from(ErrorKind::Unsupported);
+    assert!(unless_unsupported(Err(unsupported)).unwrap().is_some());
+    let invalid = Error::from(ErrorKind::InvalidInput);
+    assert!(unless_unsupported(Err(invalid)).unwrap().is_some());
+    assert!(unless_unsupported(Err(Error::other("the disk failed"))).is_err());
+    assert!(unless_unsupported(Err(Error::from(ErrorKind::StorageFull))).is_err());
+    #[cfg(unix)]
+    {
+        use super::sync_is_unsupported;
+        #[cfg(target_vendor = "apple")]
+        assert!(
+            sync_is_unsupported(&Error::from_raw_os_error(45)),
+            "ENOTSUP"
+        );
+        assert!(sync_is_unsupported(&Error::from_raw_os_error(22)), "EINVAL");
+        assert!(!sync_is_unsupported(&Error::from_raw_os_error(5)), "EIO");
+        assert!(
+            !sync_is_unsupported(&Error::from_raw_os_error(28)),
+            "ENOSPC"
+        );
+    }
+}
+
+#[test]
+fn an_unmodified_buffer_writes_only_if_its_file_has_gone() {
+    let scratch = Scratch::new("gone");
+    let path = scratch.file("notes.txt", b"held only here");
+    let mut editor = visit(&path);
+    let there = {
+        editor.start_save().unwrap();
+        editor.take_save_jobs().pop().unwrap()
+    };
+    assert!(there.only_if_gone);
+    let report = run(there);
+    assert!(matches!(report.outcome, Ok(None)), "{report:?}");
+    assert_eq!(
+        applied(&mut editor, report),
+        "(No changes need to be saved)"
+    );
+    assert_eq!(fs::read(&path).unwrap(), b"held only here");
+
+    // Changed on disk is no business of an unmodified buffer's until it reloads.
+    fs::write(&path, b"another program").unwrap();
+    editor.start_save().unwrap();
+    let report = run(editor.take_save_jobs().pop().unwrap());
+    assert!(matches!(report.outcome, Ok(None)), "{report:?}");
+    apply(&mut editor, report);
+    assert_eq!(fs::read(&path).unwrap(), b"another program");
+
+    fs::remove_file(&path).unwrap();
+    editor.start_save().unwrap();
+    let report = run(editor.take_save_jobs().pop().unwrap());
+    let message = applied(&mut editor, report);
+    assert!(message.starts_with("Wrote"), "{message}");
+    assert_eq!(
+        fs::read(&path).unwrap(),
+        b"held only here",
+        "as it was, with no final newline added to an unmodified buffer"
+    );
+    assert!(!editor.current().1.is_modified());
+}
+
+#[test]
+fn a_buffer_with_no_baseline_says_so_and_does_not_call_it_a_change() {
+    let scratch = Scratch::new("no-baseline-message");
+    let path = scratch.file("notes.txt", b"old\n");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.apply_load(decode_all(b"old\n", TabWidth::default()));
+    let mut editor = Editor::with_buffer(buffer);
+    let job = job_of(&mut editor, "new\n");
+    let report = run(job);
+    assert!(
+        matches!(report.outcome, Err(SaveError::UnknownLocation)),
+        "{report:?}"
+    );
+    let message = applied(&mut editor, report);
+    assert!(!message.contains("changed on disk"), "{message}");
+    assert!(message.contains("could not be told"), "{message}");
+    assert_eq!(fs::read(&path).unwrap(), b"old\n");
+}
+
+#[test]
 fn a_thread_reports_as_the_seam_does() {
     let scratch = Scratch::new("thread");
     let path = scratch.file("notes.txt", b"old\n");
@@ -415,11 +518,11 @@ fn a_flush_that_failed_after_the_rename_counts_as_written_and_says_so() {
     let report = SaveReport {
         buffer: job.buffer,
         path: path.clone(),
-        outcome: Ok(super::Written {
+        outcome: Ok(Some(super::Written {
             content,
             stamp: stamp_of(&fs::metadata(&path).unwrap()).unwrap(),
             unsynced: Some(std::io::Error::other("no flush here")),
-        }),
+        })),
     };
     let message = applied(&mut editor, report);
     assert!(

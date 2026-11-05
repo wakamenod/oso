@@ -90,7 +90,7 @@ impl App {
             // top), so no edit can come between the check and the exit.
             dev::UiOp::Exit { generation } => {
                 handoff::exit_allowed(&self.editor, generation).map(|()| {
-                    self.leave(event_loop);
+                    self.leave(event_loop, true);
                     json!({ "exiting": true })
                 })
             }

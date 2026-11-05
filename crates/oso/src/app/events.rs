@@ -18,7 +18,6 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
-        let _ = event_loop;
         match event {
             UserEvent::Load(buffer) => {
                 self.load_updated(buffer);

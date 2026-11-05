@@ -10,13 +10,22 @@ use oso_core::editor::ExitAction;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 
 use super::{App, UserEvent};
-use crate::saver::{self, SaveReport};
+use crate::saver::{self, AfterSave, SaveReport};
 
 /// How long a save still running may hold the process once the window is hidden. It
 /// is long enough for many gigabytes on a slow disk, and abandoning a save that is
 /// getting somewhere is the worse mistake: a process with no window costs little. A
 /// save that hangs past it (a stuck network file system) cannot keep it for good.
 const FINISH_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// An exit agreed to while a save runs.
+#[derive(Clone, Copy)]
+pub(super) struct Leaving {
+    /// When to stop waiting for the save.
+    deadline: Instant,
+    /// Go even if the save fails, as the socket's `exit` asks.
+    anyway: bool,
+}
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
@@ -36,22 +45,27 @@ impl App {
         }
     }
 
-    /// A saving thread has ended: takes in how it went, and ends the event loop if that
-    /// was all it was waiting for.
+    /// A saving thread has ended: takes in how it went. If this instance is leaving, that
+    /// may mean going, or coming back.
     pub(super) fn save_ended(&mut self, event_loop: &ActiveEventLoop, report: SaveReport) {
-        if self.leaving.is_some() {
-            report.log_if_failed();
-        }
+        let failed = report.failed();
         saver::apply(&mut self.editor, report);
-        if self.leaving.is_some() && self.editor.buffers().all(|(_, b)| !b.is_saving()) {
-            event_loop.exit();
+        let still_saving = self.is_saving();
+        self.save_stuck &= still_saving;
+        let Some(leaving) = self.leaving else {
+            return;
+        };
+        match saver::after_save_while_leaving(failed, leaving.anyway, still_saving) {
+            AfterSave::KeepWaiting => {}
+            AfterSave::Exit => event_loop.exit(),
+            AfterSave::StayOpen => self.stay_open(event_loop),
         }
     }
 
     /// The window's close button, guarded as `C-x C-c` is (ADR 0059).
     pub(super) fn close_requested(&mut self, event_loop: &ActiveEventLoop) {
         match self.editor.confirm_exit(ExitAction::CloseWindow) {
-            Ok(()) => self.leave(event_loop),
+            Ok(()) => self.leave(event_loop, false),
             Err(refused) => self.editor.message(refused.to_string()),
         }
     }
@@ -60,17 +74,24 @@ impl App {
     /// for should not depend on how fast they leave, and a process that ends mid-write
     /// would leave its temporary file behind. The event loop keeps running until then, so
     /// that the window really goes and the process keeps answering the window system.
-    pub(super) fn leave(&mut self, event_loop: &ActiveEventLoop) {
-        if self.editor.buffers().all(|(_, buffer)| !buffer.is_saving()) {
+    ///
+    /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold. A
+    /// person's exit comes back if the save fails, as the text is then only here.
+    pub(super) fn leave(&mut self, event_loop: &ActiveEventLoop, anyway: bool) {
+        if !self.is_saving() || self.save_stuck {
             event_loop.exit();
             return;
         }
         let deadline = Instant::now() + FINISH_TIMEOUT;
-        self.leaving = Some(deadline);
+        self.leaving = Some(Leaving { deadline, anyway });
         event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         if let Some(view) = &self.view {
             view.window.set_visible(false);
         }
+    }
+
+    fn is_saving(&self) -> bool {
+        self.editor.buffers().any(|(_, buffer)| buffer.is_saving())
     }
 
     /// Whether this instance has agreed to go. Nothing that could still be lost with the
@@ -79,16 +100,42 @@ impl App {
         event_loop.exiting() || self.leaving.is_some()
     }
 
-    /// Ends the event loop if a save has held it for too long.
-    pub(super) fn check_leaving(&self, event_loop: &ActiveEventLoop) {
-        if self
-            .leaving
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            log::error!(
-                "leaving with a save that has not finished. Its file may or may not be replaced, and a .oso-save-*.tmp may remain"
-            );
-            event_loop.exit();
+    /// Acts on a save that has held the leaving for too long. Nobody can tell whether the
+    /// text reached the disk, so a person gets the window and the buffer back, and exiting
+    /// again then goes without waiting. The socket's `exit` goes now.
+    pub(super) fn check_leaving(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(leaving) = self.leaving else {
+            return;
+        };
+        if Instant::now() < leaving.deadline {
+            return;
         }
+        match saver::at_leaving_deadline(leaving.anyway) {
+            AfterSave::Exit => {
+                log::error!(
+                    "leaving with a save that has not finished. Its file may or may not be replaced, and a .oso-save-*.tmp may remain"
+                );
+                event_loop.exit();
+            }
+            _ => {
+                self.save_stuck = true;
+                self.editor.reset_exit_guard();
+                self.editor.message(
+                    "A save has not finished after 10 minutes. The buffer may not be on disk. Exiting again will not wait for it",
+                );
+                self.stay_open(event_loop);
+            }
+        }
+    }
+
+    /// Takes a leave back: the window returns, with the message that says why.
+    fn stay_open(&mut self, event_loop: &ActiveEventLoop) {
+        self.leaving = None;
+        event_loop.set_control_flow(ControlFlow::Wait);
+        if let Some(view) = &self.view {
+            view.window.set_visible(true);
+            view.window.focus_window();
+        }
+        self.request_redraw();
     }
 }

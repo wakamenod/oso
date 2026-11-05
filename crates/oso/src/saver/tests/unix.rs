@@ -5,7 +5,7 @@
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{MetadataExt, symlink};
 
-use super::super::{attributes_moved, kept_mode, open_new};
+use super::super::{TEMPORARY_PREFIX, attributes_moved, kept_mode, open_new};
 use super::*;
 use crate::loader::follow_links;
 

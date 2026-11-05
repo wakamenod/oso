@@ -722,6 +722,7 @@ pub fn oso_core::editor::Editor::exit_attempt(&self) -> core::option::Option<oso
 pub fn oso_core::editor::Editor::reset_exit_guard(&mut self)
 pub fn oso_core::editor::Editor::save_failed(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::save_finished(&mut self, oso_core::buffer::BufferId, oso_core::buffer::ContentId, oso_core::buffer::FileStamp)
+pub fn oso_core::editor::Editor::save_unneeded(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::start_save(&mut self) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::take_save_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::SaveJob>
 impl core::default::Default for oso_core::editor::Editor
@@ -745,6 +746,7 @@ pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::
 pub oso_core::editor::SaveJob::bom: bool
 pub oso_core::editor::SaveJob::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::SaveJob::content: oso_core::buffer::ContentId
+pub oso_core::editor::SaveJob::only_if_gone: bool
 pub oso_core::editor::SaveJob::path: std::path::PathBuf
 pub oso_core::editor::SaveJob::text: oso_core::rope::Rope
 pub const oso_core::editor::SCRATCH: &str

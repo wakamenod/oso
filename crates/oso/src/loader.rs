@@ -224,9 +224,9 @@ pub fn stamp_of(metadata: &Metadata) -> io::Result<FileStamp> {
     })
 }
 
-/// Opens `path` if it is a regular file. Returns it with its stamp, read from the open
+/// Opens `path` if it is a regular file. Returns it with its metadata, read from the open
 /// file, so it describes what is read even if the path now leads elsewhere.
-fn open(path: &Path) -> Result<(File, FileStamp), LoadError> {
+fn open(path: &Path) -> Result<(File, Metadata), LoadError> {
     let not_found = |e: io::Error| match e.kind() {
         io::ErrorKind::NotFound => LoadError::NotFound,
         _ => LoadError::Io(e),
@@ -240,23 +240,52 @@ fn open(path: &Path) -> Result<(File, FileStamp), LoadError> {
     if !metadata.is_file() {
         return Err(LoadError::NotAFile);
     }
-    let stamp = stamp_of(&metadata).map_err(LoadError::Io)?;
-    Ok((file, stamp))
+    Ok((file, metadata))
 }
 
 /// The baseline of `path`, given how opening it went. `None` if it cannot be resolved, or
 /// could not be opened for a reason other than not being there.
 fn baseline_after_open(
     path: &Path,
-    opened: &Result<(File, FileStamp), LoadError>,
+    opened: &Result<(File, Metadata), LoadError>,
 ) -> Option<Baseline> {
-    let file = match opened {
-        Ok((_, stamp)) => Some(*stamp),
-        Err(LoadError::NotFound) => None,
-        Err(_) => return None,
-    };
     let location = location(path).ok()?;
+    match opened {
+        Ok((_, metadata)) => baseline_of_opened(location, metadata),
+        Err(LoadError::NotFound) => Some(Baseline {
+            location,
+            file: None,
+        }),
+        Err(_) => None,
+    }
+}
+
+/// The baseline of a file opened with `opened` as its metadata, if `location` holds that
+/// very file. The location is worked out after the open, so a link switched in between would
+/// otherwise pair one file's text with another place, where a save would then write it.
+fn baseline_of_opened(location: PathBuf, opened: &Metadata) -> Option<Baseline> {
+    let there = std::fs::metadata(&location).ok()?;
+    if !same_file(opened, &there) {
+        return None;
+    }
+    let file = Some(stamp_of(opened).ok()?);
     Some(Baseline { location, file })
+}
+
+/// Whether two sets of metadata are of one file: its device and inode.
+#[cfg(unix)]
+fn same_file(a: &Metadata, b: &Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    a.dev() == b.dev() && a.ino() == b.ino()
+}
+
+/// `std` keeps a file's identity unstable here, so this goes by what a save compares.
+#[cfg(not(unix))]
+fn same_file(a: &Metadata, b: &Metadata) -> bool {
+    match (stamp_of(a), stamp_of(b)) {
+        (Ok(a), Ok(b)) => a.same_content(b),
+        _ => false,
+    }
 }
 
 /// Reads, decodes and sends the file. Returns early, without an error,
@@ -269,8 +298,8 @@ fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Resu
     let opened = open(path);
     *shared.resolved() = Some(resolve(path));
     *shared.baseline() = baseline_after_open(path, &opened);
-    let (file, stamp) = opened?;
-    let total = stamp.len;
+    let (file, metadata) = opened?;
+    let total = metadata.len();
     let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];
@@ -434,6 +463,23 @@ mod tests {
         );
         assert_eq!(handle.take_baseline(), None, "taken once");
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_location_holding_another_file_gives_no_baseline() {
+        let opened = scratch_file("opened.txt", b"abc");
+        let other = scratch_file("other.txt", b"abc");
+        let metadata = std::fs::metadata(&opened).unwrap();
+        let location = std::fs::canonicalize(&opened).unwrap();
+        assert!(baseline_of_opened(location.clone(), &metadata).is_some());
+        // A link switched to another file between the open and the look.
+        #[cfg(unix)]
+        assert_eq!(baseline_of_opened(other.clone(), &metadata), None);
+        // To nowhere: the text must not count as a file deleted from there.
+        let missing = location.with_file_name("oso-no-such-file-after-the-open");
+        assert_eq!(baseline_of_opened(missing, &metadata), None);
+        std::fs::remove_file(opened).unwrap();
+        std::fs::remove_file(other).unwrap();
     }
 
     #[test]

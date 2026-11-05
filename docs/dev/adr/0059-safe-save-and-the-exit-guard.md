@@ -37,12 +37,16 @@ On a thread of its own, each step before the next:
    for the system, and `create_new` means it is never a link someone left there.
 4. **Write** the BOM if the file had one, then the rope's chunks through a 1 MiB buffer. Line endings
    are already in the rope.
-5. **Set the attributes and fsync.** One fsync after the attributes, so that a crash cannot leave the
-   new file in place with mode `0600`.
+5. **Set the attributes, fsync and close.** One fsync after the attributes, so that a crash cannot leave
+   the new file in place with mode `0600`. If the file system says it cannot sync at all, the save goes on
+   and the message says it may not survive a power cut. `std` makes `sync_all` a bare `F_FULLFSYNC` on macOS,
+   with no fallback, and some network and FUSE mounts refuse it, so otherwise nothing could be saved there. Any
+   other error fails the save. The stamp to record next is read here, by the temporary file's name, after the
+   close, as Windows may settle the modification time only then.
 6. **Check the baseline again,** right before the rename. A file whose mode or owner changed during the
    write counts as changed too, since the rename would undo a `chmod`, and so does one that came back
-   after being gone at step 2. The stamp to record next has by then been read from the open file, so that a
-   change made just after the rename still counts as a change at the next save.
+   after being gone at step 2. The stamp to record next has by then been read, so that a change made just
+   after the rename still counts as a change at the next save.
 7. **Rename, then fsync the directory.** If that fsync fails, the file has still been replaced, so the
    save counts as done and the message adds that it may not survive a power cut. Some network file
    systems cannot do it at all.
@@ -58,8 +62,12 @@ new text.
   there was none. The loader finds these for the file it opened, the stamp from the open file itself, and hands them
   over before the first update, as it does the resolved path. `oso dev`'s handoff reads the file again, so a fresh
   baseline comes with it.
-- A buffer has no baseline until the host says, and without one a save refuses. So a bug that loses it cannot replace a
-  file.
+- **The location must hold the opened file.** It is worked out after the open, so a link switched in between would pair
+  one file's text with another place. The loader checks that the location holds the very file it opened, by device and
+  inode on Unix. `std` keeps a file's identity unstable on Windows, so there it compares the stamp. If they differ, or nothing is
+  there, no baseline is recorded.
+- A buffer has no baseline until the host says, and without one a save refuses, and says that where the file leads could
+  not be told. So a bug that loses it cannot replace a file.
 - **The text goes only where the file was.** A path that now leads elsewhere, because a link or a directory on the way
   changed, writes nothing at the new place, and the message says so. This holds even if nothing is there, so what
   follows about deleted files cannot redirect a buffer. It also keeps a secret buffer's text where it was judged
@@ -109,6 +117,9 @@ A rename puts a new file in the old one's place, so nothing carries over by itse
 - **Unmodified** says `(No changes need to be saved)` and writes nothing, also for a new file left untouched.
   This comes before the next rule, as in Emacs, so `C-x C-s` in an untouched `*scratch*` has nothing to do.
   It is a message and not a failure.
+- **Except a file that has gone.** An unmodified buffer that read a file may hold the only copy of it, as Emacs knows.
+  Whether the file is there needs the disk, so the command queues a job that writes only if nothing is at the file's
+  location, and otherwise reports that there is nothing to save. It adds no final newline: the text goes back as it was.
 - **No file** says `Buffer has no file name`. `C-x C-w` comes in M2-18.
 
 Then:
@@ -158,11 +169,20 @@ Then:
   exits at once.
 - **A save still running at a confirmed exit gets to finish.** The user asked for it, and a process that ends mid-write
   would leave its temporary file behind. The window is hidden, and the event loop keeps running until the last save has
-  reported, for at most 10 minutes. It has to keep running: a window closed or hidden after the loop stops stays on the
-  screen, frozen, as a slow save on macOS showed. In that time the instance counts as exiting: window events are ignored
-  and every control request is refused, as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) asks. A failed save then logs
-  at the `error` level, as no window is left to show it. `exit` over the socket takes this path too. An exit the OS
-  makes (Dock quit, logout) does not, and is M2-10's.
+  reported. It has to keep running: a window closed or hidden after the loop stops stays on the screen, frozen, as a slow
+  save on macOS showed. In that time the instance counts as exiting: window events are ignored and every control request
+  is refused, as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) asks.
+- **A failed save takes the exit back.** The person left believing the text would reach the disk, and with a conflict or a
+  full disk it did not. So the window returns with the message, the buffer stays modified, and the guard starts over,
+  at once, whatever other saves still run.
+- **After 10 minutes a person gets the window back too,** as nobody can tell where the text is, with a message that says so.
+  The save may still be running, so saving that buffer stays refused until it ends. Exiting again is guarded as usual,
+  and then does not wait for that save.
+- **`exit` over the socket goes whatever happens,** as ADR 0055 defines it. It waits for a running save too, for at most the 10
+  minutes, and a failure logs nothing beyond the message at the `info` level. An exit the OS makes (Dock quit, logout) does not
+  take this path, and is M2-10's.
+- A deleted file does not count for the guard, as telling needs the disk. A person can exit with the only copy of such a text
+  until M2-22, recorded in `open-questions.md`.
 - The state lives on `Editor`, like the rest of what commands read. The proper prompt replaces this in M2-16.
 - `exit` over the socket stays as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) defines it. winit's `exiting` (Dock
   quit, logout) is M2-10.
@@ -175,8 +195,8 @@ Then:
   elsewhere. `C-x C-w` (M2-18) must keep to that.
 - **`get-state` gains `modified` and `saving`** for each buffer. They tell nothing new: `bytes` and a refused handover already
   gave the first away.
-- **Dev builds trust the same user to write, as they do to read.** This settles what [ADR 0056](0056-typing.md) and
-  `open-questions.md` left to M2-8, and the author decides it by accepting this ADR. `open-file`, `send-keys` and `save-buffer`
+- **Dev builds trust the same user to write, as they do to read.** This extends that trust and settles what
+  [ADR 0056](0056-typing.md) and `open-questions.md` left to M2-8. There is no dev-only list of places it may write. `open-file`, `send-keys` and `save-buffer`
   together can write any file the dev instance may write, secret or not. That includes files whose edits an agent's tool would
   ask about, such as the check definitions in `AGENTS.md` and git hooks, and a sandboxed client given the socket can write outside its
   sandbox. Refusing would mean telling keys from the socket from keys from the window, which `send-keys` is there not to do
@@ -245,6 +265,10 @@ Then:
 - **A cancel flag, so that a confirmed exit drops a running save:** the user would lose a save they asked for, for a wait that is usually
   milliseconds.
 - **Waiting without a limit at exit:** a stuck network file system would leave a process with no window, for good.
+- **A dev-only list of places the socket may write:** would confine a client, but `send-keys` would then differ from a key,
+  and a list is one more thing to keep up for a tool only the same user can reach.
+- **Exiting anyway when a save fails after a confirmed exit:** simpler, and the message did say "exit anyway", but the person
+  left with the text in a save they had asked for, and the text would be gone.
 - **Waiting after the event loop has ended:** simpler, with no state for leaving, but the window stays on the screen, frozen,
   until the save ends, and macOS may report the app as not responding.
 - **A limit on the time with no progress, rather than in all:** never abandons a slow save, but needs a shared counter and its own

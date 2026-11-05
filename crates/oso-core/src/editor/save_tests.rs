@@ -135,11 +135,45 @@ fn refusals_say_why_and_change_nothing() {
         refused(Editor::with_buffer(Buffer::visiting(path()))),
         SaveRefused::ReadOnly(ReadOnly::Loading)
     );
-    assert_eq!(refused(visiting(b"abc")), SaveRefused::Unmodified);
+    let no_baseline = visiting(b"abc");
+    assert_eq!(refused(no_baseline), SaveRefused::Unmodified);
+    let mut new_file = Editor::with_buffer(Buffer::visiting(path()));
+    let id = new_file.window().buffer();
+    let buffer = new_file.buffer_mut(id).unwrap();
+    buffer.finish_empty();
+    buffer.set_baseline(Baseline {
+        location: path(),
+        file: None,
+    });
+    assert_eq!(refused(new_file), SaveRefused::Unmodified);
     assert_eq!(refused(Editor::default()), SaveRefused::Unmodified);
     let mut scratch = Editor::default();
     insert(&mut scratch, 0, "x");
     assert_eq!(refused(scratch), SaveRefused::NoFile);
+}
+
+#[test]
+fn an_unmodified_buffer_that_read_a_file_asks_the_host_and_changes_nothing() {
+    let mut editor = visiting(b"no final newline");
+    let id = editor.window().buffer();
+    let baseline = Baseline {
+        location: path(),
+        file: Some(stamp(16)),
+    };
+    editor.buffer_mut(id).unwrap().set_baseline(baseline);
+    assert_eq!(editor.start_save(), Ok(false));
+    assert_eq!(text(&editor), "no final newline");
+    assert!(!editor.current().1.is_modified());
+    assert!(editor.current().1.is_saving());
+    assert_eq!(editor.start_save(), Err(SaveRefused::AlreadySaving));
+    assert!(job(&mut editor).only_if_gone);
+    editor.save_unneeded(id);
+    assert!(!editor.current().1.is_saving());
+    assert!(!editor.current().1.is_modified());
+
+    insert(&mut editor, 0, "x");
+    assert_eq!(editor.start_save(), Ok(true));
+    assert!(!job(&mut editor).only_if_gone);
 }
 
 #[test]

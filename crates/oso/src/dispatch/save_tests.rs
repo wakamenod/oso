@@ -88,10 +88,25 @@ fn an_unmodified_buffer_says_so_and_writes_nothing() {
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     let effects = send(&mut dispatcher, &mut editor, "C-x C-s");
     assert!(!effects.redraw);
-    assert!(editor.take_save_jobs().is_empty());
+    finish_saves(&mut editor);
+    assert!(!editor.current().1.is_saving());
     assert_eq!(last_message(&editor), "(No changes need to be saved)");
     assert_eq!(text(&editor), "no final newline");
     assert_eq!(fs::read(&path).unwrap(), b"no final newline");
+}
+
+#[test]
+fn an_unmodified_buffer_whose_file_was_deleted_is_written_again() {
+    let scratch = Scratch::new("dispatch-deleted");
+    let path = scratch.file("notes.txt", b"the only copy\n");
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
+    fs::remove_file(&path).unwrap();
+    send(&mut dispatcher, &mut editor, "C-x C-s");
+    assert!(editor.current().1.is_saving());
+    finish_saves(&mut editor);
+    assert_eq!(fs::read(&path).unwrap(), b"the only copy\n");
+    assert_eq!(last_message(&editor), format!("Wrote {}", path.display()));
+    assert!(!modified(&editor));
 }
 
 #[test]
