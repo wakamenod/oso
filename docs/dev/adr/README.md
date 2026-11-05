@@ -63,6 +63,7 @@ old one's status.
 | 0054 | [Limits on a display cluster](0054-limits-on-a-display-cluster.md) | Accepted |
 | 0055 | [`oso dev` never loses unsaved text](0055-oso-dev-never-loses-unsaved-text.md) | Accepted |
 | 0056 | [Typing](0056-typing.md) | Accepted |
+| 0057 | [The layout of a frame into regions](0057-frame-layout.md) | Accepted |
 | 0058 | [Word motion, the prefix argument and positions in secret buffers](0058-word-motion-prefix-argument-and-secret-positions.md) | Proposed |
 
 ## Template

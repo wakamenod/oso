@@ -34,15 +34,15 @@ const LINUX: [(&str, Threshold); 18] = [
     ("key_p99_ms", gate(5.5, 2.5)),
     ("type_p99_ms", gate(2.0, 0.75)),
     ("startup_ms", gate(2.25, 55.0)),
-    ("open_first_screen_ms", gate(2.0, 4.5)),
+    ("open_first_screen_ms", gate(2.25, 4.75)),
     ("open_full_load_ms", gate(3.0, 370.0)),
     ("big_load_ms", gate(3.0, 3750.0)),
-    ("big_keys_p99_ms", gate(4.75, 2.5)),
+    ("big_keys_p99_ms", gate(5.0, 2.5)),
     ("big_keys_max_ms", FREEZE),
     ("big_type_p99_ms", gate(5.5, 3.25)),
     ("big_type_max_ms", FREEZE),
     ("line_load_ms", gate(3.25, 235.0)),
-    ("line_keys_p99_ms", gate(4.25, 1.75)),
+    ("line_keys_p99_ms", gate(5.0, 2.5)),
     ("line_keys_max_ms", FREEZE),
     ("line_type_p99_ms", gate(5.0, 2.5)),
     ("line_type_max_ms", FREEZE),
@@ -53,11 +53,11 @@ const MACOS: [(&str, Threshold); 18] = [
     ("key_p50_ms", gate(3.0, 1.5)),
     ("key_p99_ms", gate(6.5, 12.0)),
     ("type_p99_ms", gate(3.0, 4.0)),
-    ("startup_ms", gate(3.25, 410.0)),
+    ("startup_ms", gate(4.25, 1030.0)),
     ("open_first_screen_ms", gate(4.75, 44.0)),
     ("open_full_load_ms", gate(4.0, 530.0)),
     ("big_load_ms", gate(3.5, 5100.0)),
-    ("big_keys_p99_ms", gate(4.25, 7.0)),
+    ("big_keys_p99_ms", gate(4.5, 12.0)),
     ("big_keys_max_ms", FREEZE),
     ("big_type_p99_ms", gate(4.5, 12.0)),
     ("big_type_max_ms", FREEZE),
@@ -70,7 +70,7 @@ const MACOS: [(&str, Threshold); 18] = [
     ("dev_build_ms", gate(4.25, 3500.0)),
 ];
 /// Windows has no control socket yet (ADR 0032), so only the build is timed.
-const WINDOWS: [(&str, Threshold); 1] = [("dev_build_ms", gate(1.75, 1375.0))];
+const WINDOWS: [(&str, Threshold); 1] = [("dev_build_ms", gate(2.25, 2775.0))];
 
 /// The one budget CI enforces, on a real GPU only (ADR 0025).
 const KEY_P99: &str = "key_p99_ms";

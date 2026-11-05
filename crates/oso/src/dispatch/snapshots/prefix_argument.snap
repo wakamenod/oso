@@ -6,33 +6,47 @@ keys: none
 │                    │
 :^                   :
 │                    │
+=                    =
+"                    "
 
 keys: C-u x
 │xxxx                │
 :    ^               :
 │                    │
+=                    =
+"                    "
 
 keys: C-u 3 y
 │xxxxyyy             │
 :       ^            :
 │                    │
+=                    =
+"                    "
 
 keys: C-u 2 C-u 5
 │xxxxyyy55           │
 :         ^          :
 │                    │
+=                    =
+"                    "
 
 keys: M-- C-d
 │xxxxyyy5            │
 :        ^           :
 │                    │
+=                    =
+"                    "
 
 keys: C-u C-b
 │xxxxyyy5            │
 :    ^               :
 │                    │
+=                    =
+"                    "
 
 keys: M-2 DEL
 │xxyyy5              │
 :  ^                 :
 │                    │
+=                    =
+"                    "

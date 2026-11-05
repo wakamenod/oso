@@ -165,10 +165,9 @@ impl Window {
 }
 
 /// Whether a view whose top row is `top` reaches `row` or the rows after
-/// it, counting the partly shown row below the full ones. A buffer that
-/// grew from `row` on needs a new frame only then.
+/// it. A buffer that grew from `row` on needs a new frame only then.
 pub fn reaches(top: usize, size: ViewSize, row: usize) -> bool {
-    top.saturating_add(size.rows) >= row
+    top.saturating_add(size.rows) > row
 }
 
 /// The scroll position that shows the cursor at `cursor`, whose cluster
@@ -401,10 +400,10 @@ mod tests {
     }
 
     #[test]
-    fn a_view_reaches_the_partly_shown_row_below_it() {
+    fn a_view_reaches_only_the_rows_it_shows_in_full() {
         assert!(reaches(10, SIZE, 15));
-        assert!(reaches(10, SIZE, 20), "the partly shown row");
-        assert!(!reaches(10, SIZE, 21));
+        assert!(reaches(10, SIZE, 19), "its last row");
+        assert!(!reaches(10, SIZE, 20), "the row below it");
         assert!(reaches(30, SIZE, 21), "below the old end");
     }
 

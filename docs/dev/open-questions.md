@@ -116,9 +116,6 @@ item notes when it must be settled.
   the unshifted key, so holding Shift a moment too long still types. Decide whether
   `KeyResolver` does the same, or record that oso differs.
 
-- By M2-6: with the view sideways, a cursor one column to its left can show in the
-  window's margin, as panes have no bounds of their own yet
-  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - By M2-21: each cursor gets a stop's worth of reading, about 2 ms on a long run with no
   boundary, so several cursors on such runs can pass the 8 ms budget and a few dozen spend
   the command's ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
@@ -146,6 +143,9 @@ item notes when it must be settled.
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
   ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+- Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
+  M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
+  ([ADR 0057](adr/0057-frame-layout.md)).
 
 ## M3
 

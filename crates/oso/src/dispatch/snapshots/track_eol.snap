@@ -8,6 +8,8 @@ keys: none
 │                │
 │much longer     │
 │                │
+=                =
+"                "
 
 keys: C-e
 │short           │
@@ -15,6 +17,8 @@ keys: C-e
 │                │
 │much longer     │
 │                │
+=                =
+"                "
 
 keys: C-n
 │short           │
@@ -22,6 +26,8 @@ keys: C-n
 :^               :
 │much longer     │
 │                │
+=                =
+"                "
 
 keys: C-n
 │short           │
@@ -29,6 +35,8 @@ keys: C-n
 │much longer     │
 :           ^    :
 │                │
+=                =
+"                "
 
 keys: C-n
 │short           │
@@ -36,6 +44,8 @@ keys: C-n
 │much longer     │
 │                │
 :^               :
+=                =
+"                "
 
 keys: C-p
 │short           │
@@ -43,6 +53,8 @@ keys: C-p
 │much longer     │
 :           ^    :
 │                │
+=                =
+"                "
 
 keys: C-a
 │short           │
@@ -50,3 +62,5 @@ keys: C-a
 │much longer     │
 :^               :
 │                │
+=                =
+"                "

@@ -6,28 +6,40 @@ keys: none
 │          code      │
 :^                   :
 │                    │
+=                    =
+"                    "
 
 keys: C-a
 │          code      │
 :          ^         :
 │                    │
+=                    =
+"                    "
 
 keys: C-a
 │          code      │
 :^                   :
 │                    │
+=                    =
+"                    "
 
 keys: C-e
 │          code      │
 :              ^     :
 │                    │
+=                    =
+"                    "
 
 keys: C-e
 │          code      │
 :                ^   :
 │                    │
+=                    =
+"                    "
 
 keys: C-a
 │          code      │
 :          ^         :
 │                    │
+=                    =
+"                    "

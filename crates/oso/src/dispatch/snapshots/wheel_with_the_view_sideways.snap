@@ -7,15 +7,21 @@ keys: C-n C-e
 │ length │
 :       ^:
 │ length │
+=        =
+"        "
 
 wheel: 1, the cursor stays
 │ length │
 :       ^:
 │ length │
 │ length │
+=        =
+"        "
 
 wheel: 1, it moves
 │line 2 o│
 :^       :
 │line 3 o│
 │line 4 o│
+=        =
+"        "

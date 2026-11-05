@@ -7,18 +7,24 @@ keys: none
 :^               :
 │                │
 │                │
+=                =
+"                "
 
 keys: a b SPC c
 │ab c            │
 :    ^           :
 │                │
 │                │
+=                =
+"                "
 
 keys: 日 本
 │ab c日本        │
 :    <><>^       :
 │                │
 │                │
+=                =
+"                "
 
 keys: RET 🍣
 │ab c日本        │
@@ -26,6 +32,8 @@ keys: RET 🍣
 │🍣              │
 :<>^             :
 │                │
+=                =
+"                "
 
 keys: DEL
 │ab c日本        │
@@ -33,6 +41,8 @@ keys: DEL
 │                │
 :^               :
 │                │
+=                =
+"                "
 
 keys: C-a TAB
 │ab c日本        │
@@ -40,6 +50,8 @@ keys: C-a TAB
 │                │
 :        ^       :
 │                │
+=                =
+"                "
 
 keys: C-z C-z
 │ab c日本        │
@@ -47,6 +59,8 @@ keys: C-z C-z
 │🍣              │
 :<>^             :
 │                │
+=                =
+"                "
 
 keys: C-M-z
 │ab c日本        │
@@ -54,3 +68,5 @@ keys: C-M-z
 │                │
 :^               :
 │                │
+=                =
+"                "

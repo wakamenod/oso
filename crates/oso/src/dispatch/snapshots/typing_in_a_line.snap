@@ -8,6 +8,8 @@ keys: none
 │cd      │
 │        │
 │        │
+=        =
+"        "
 
 keys: C-f x
 │axb     │
@@ -15,6 +17,8 @@ keys: C-f x
 │cd      │
 │        │
 │        │
+=        =
+"        "
 
 keys: RET
 │ax      │
@@ -22,6 +26,8 @@ keys: RET
 :^       :
 │cd      │
 │        │
+=        =
+"        "
 
 keys: C-d
 │ax      │
@@ -29,6 +35,8 @@ keys: C-d
 :^       :
 │cd      │
 │        │
+=        =
+"        "
 
 keys: C-z
 │ax      │
@@ -36,6 +44,8 @@ keys: C-z
 :^       :
 │cd      │
 │        │
+=        =
+"        "
 
 keys: C-z
 │axb     │
@@ -43,6 +53,8 @@ keys: C-z
 │cd      │
 │        │
 │        │
+=        =
+"        "
 
 keys: C-z
 │ab      │
@@ -50,3 +62,5 @@ keys: C-z
 │cd      │
 │        │
 │        │
+=        =
+"        "

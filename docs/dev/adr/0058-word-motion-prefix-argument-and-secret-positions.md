@@ -178,7 +178,8 @@ These ADRs stay as they are; this one changes the following:
   `Recenter` are new, as the API snapshot shows.
 - `C-a` and `C-e` read their row one way, so wrapped rows (M2-25) must keep them on logical lines, with the rest
   of [`open-questions.md`](../open-questions.md)'s item on motion.
-- While the view is sideways, a cursor one column to the left of it can show in the window's margin, until M2-6.
+- The wheel no longer leaves a cursor it moved on a cluster cut by the left edge, since the view follows it. Only the
+  sideways wheel can now ([ADR 0057](0057-frame-layout.md) draws the part in view).
 - M2-14 turns `delete_words` into kills, and its bindings and names stay. It needs a rule for pieces when cursors'
   ranges overlap, and `Ctx::repeats` will not do for appending kills across different commands.
 
