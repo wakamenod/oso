@@ -14,11 +14,13 @@ use oso_core::motion::{self, Edge, WalkBudget};
 use oso_core::selection::Selection;
 use oso_core::word;
 
+use super::budget_left;
+
 /// The motion commands.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "forward-char",
-        doc: "Move point N characters forward (backward if N is negative).\n\nA character is what the screen shows as one: a grapheme cluster such as `が` or an emoji sequence, a tab, a line break or an escape. At the end of the buffer, signal \"End of buffer\".",
+        doc: "Move point N characters forward (backward if N is negative).\n\nA character is what the screen shows as one: a grapheme cluster such as `が` or an emoji sequence, a tab, a line break or an escape. At the end of the buffer, signal \"End of buffer\". A count that would read too much goes as far as it may and signals \"Count too large\".",
         args: ArgSpec::Count,
         run: forward_char,
     },
@@ -30,7 +32,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "forward-word",
-        doc: "Move point to the end of the next word, N times (backward if N is negative).\n\nPoint passes what is not part of a word first. Words break where the script changes, but kanji followed by kana stays one word, and at camelCase boundaries. A run with no boundary stops after about 32,000 characters, and the next key goes on. At the end of the buffer, stay there.",
+        doc: "Move point to the end of the next word, N times (backward if N is negative).\n\nPoint passes what is not part of a word first. Words break where the script changes, but kanji followed by kana stays one word, and at camelCase boundaries. A very long run with no boundary stops partway, and the next key goes on. At the end of the buffer, stay there. A count that would read too much goes as far as it may and signals \"Count too large\".",
         args: ArgSpec::Count,
         run: forward_word,
     },
@@ -118,15 +120,7 @@ fn move_chars(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     move_cursors(ctx, |display, s| {
         motion::move_clusters(display, s, n, &mut budget)
     })?;
-    spent(budget)
-}
-
-/// The signal for a budget that ran out.
-fn spent(budget: WalkBudget) -> Result<(), CommandError> {
-    if budget.is_spent() {
-        return Err(CommandError::new(motion::TOO_MUCH));
-    }
-    Ok(())
+    budget_left(budget)
 }
 
 fn forward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -145,7 +139,7 @@ fn move_words(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
         *s = Selection::at(word::move_words(display, s.cursor, n, &mut budget));
         Ok(())
     })?;
-    spent(budget)
+    budget_left(budget)
 }
 
 fn forward_word(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -186,7 +180,8 @@ fn mwim_beginning(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     move_cursors(ctx, |display, s| {
         motion::toggle_line_start(display, s, args.count(), &mut budget);
         Ok(())
-    })
+    })?;
+    budget_left(budget)
 }
 
 fn mwim_end(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -194,7 +189,8 @@ fn mwim_end(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     move_cursors(ctx, |display, s| {
         motion::toggle_line_end(display, s, args.count(), &mut budget);
         Ok(())
-    })
+    })?;
+    budget_left(budget)
 }
 
 /// `n` tenths, clamped to 0 to 10.

@@ -136,6 +136,7 @@ impl oso_core::command::Prefix
 pub const fn oso_core::command::Prefix::digit(core::option::Option<Self>, u32) -> Self
 pub const fn oso_core::command::Prefix::negative(core::option::Option<Self>) -> core::option::Option<Self>
 pub const fn oso_core::command::Prefix::reads_digits(self) -> bool
+pub const fn oso_core::command::Prefix::reads_minus(self) -> bool
 pub const fn oso_core::command::Prefix::universal(core::option::Option<Self>) -> Self
 pub const fn oso_core::command::Prefix::value(self) -> isize
 impl core::clone::Clone for oso_core::command::Prefix
@@ -232,7 +233,6 @@ pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
 pub fn oso_core::command::Ctx<'a>::repeats(&self) -> usize
 pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
 pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
-pub fn oso_core::command::Ctx<'a>::with_input(&'a mut oso_core::editor::Editor, &'a str) -> Self
 pub struct oso_core::command::Effects
 pub oso_core::command::Effects::exit: bool
 pub oso_core::command::Effects::prefix: core::option::Option<oso_core::command::Prefix>
@@ -1003,7 +1003,6 @@ pub struct oso_core::motion::WalkBudget
 impl oso_core::motion::WalkBudget
 pub const fn oso_core::motion::WalkBudget::is_spent(self) -> bool
 pub const fn oso_core::motion::WalkBudget::new() -> Self
-pub fn oso_core::motion::WalkBudget::spend(&mut self, usize) -> bool
 impl core::clone::Clone for oso_core::motion::WalkBudget
 pub fn oso_core::motion::WalkBudget::clone(&self) -> oso_core::motion::WalkBudget
 impl core::cmp::Eq for oso_core::motion::WalkBudget
@@ -1287,10 +1286,8 @@ impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub mod oso_core::window
 pub enum oso_core::window::Recenter
-pub oso_core::window::Recenter::Bottom
 pub oso_core::window::Recenter::Line(isize)
 pub oso_core::window::Recenter::Middle
-pub oso_core::window::Recenter::Top
 impl core::clone::Clone for oso_core::window::Recenter
 pub fn oso_core::window::Recenter::clone(&self) -> oso_core::window::Recenter
 impl core::cmp::Eq for oso_core::window::Recenter
@@ -1369,7 +1366,6 @@ pub fn oso_core::window::screen_lines(oso_core::window::ViewSize) -> usize
 pub fn oso_core::window::scroll_down(usize, usize) -> core::result::Result<usize, oso_core::motion::Edge>
 pub fn oso_core::window::scroll_up(usize, usize, usize) -> core::result::Result<usize, oso_core::motion::Edge>
 pub fn oso_core::window::wheel(usize, oso_core::window::ViewSize, usize, isize) -> usize
-pub fn oso_core::window::wheel_sideways(usize, oso_core::window::ViewSize, usize, isize) -> usize
 pub mod oso_core::word
 pub fn oso_core::word::backward_word(&oso_core::display_map::DisplaySnapshot, usize, &mut oso_core::motion::WalkBudget) -> usize
 pub fn oso_core::word::forward_word(&oso_core::display_map::DisplaySnapshot, usize, &mut oso_core::motion::WalkBudget) -> usize

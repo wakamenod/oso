@@ -539,12 +539,23 @@ impl Editor {
         let (window, buffer) = self.current_mut();
         let display = buffer.display();
         let scroll = window.scroll();
-        let end = scroll.top.saturating_add(window.size().rows);
-        let widest = (scroll.top..end)
-            .map(|row| display.row_cells(row))
-            .max()
-            .unwrap_or(0);
-        let left = window::wheel_sideways(scroll.left, window.size(), widest, columns);
+        let size = window.size();
+        // How wide a row must be to go all the way, so that the search can stop
+        // there. Going left needs no row at all.
+        let wanted = scroll
+            .left
+            .saturating_add(columns.unsigned_abs())
+            .saturating_add(size.columns);
+        let mut widest = 0;
+        if columns > 0 {
+            for row in scroll.top..scroll.top.saturating_add(size.rows) {
+                widest = widest.max(display.row_cells(row));
+                if widest >= wanted {
+                    break;
+                }
+            }
+        }
+        let left = window::wheel_sideways(scroll.left, size, widest, columns);
         window.set_scroll(Scroll { left, ..scroll });
         left != scroll.left
     }

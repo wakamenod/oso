@@ -15,7 +15,7 @@ use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "universal-argument",
-        doc: "Begin a numeric argument for the next command: 4, and 4 times more with each repeat.\n\nDigits and `-` after it make another number. After digits it ends them, so that `C-u 5 C-u 3` inserts five 3s.",
+        doc: "Begin a numeric argument for the next command: 4, and 4 times more with each repeat.\n\nDigits and `-` after it make another number. After digits it ends them, so that `C-u 5 C-u 3` inserts five 3s, and a further one starts over.",
         args: ArgSpec::Count,
         run: universal_argument,
     },

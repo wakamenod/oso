@@ -235,7 +235,7 @@ pub fn wheel(top: usize, size: ViewSize, row_count: usize, rows: isize) -> usize
 /// (toward the ends of lines if positive). It stops at the first column, and going
 /// right stops once the end of the widest of the rows in view, `widest` cells, shows
 /// with a cell for a cursor after it, though a view already past that stays.
-pub fn wheel_sideways(left: usize, size: ViewSize, widest: usize, columns: isize) -> usize {
+pub(crate) fn wheel_sideways(left: usize, size: ViewSize, widest: usize, columns: isize) -> usize {
     if columns < 0 {
         return left.saturating_sub(columns.unsigned_abs());
     }
@@ -243,9 +243,13 @@ pub fn wheel_sideways(left: usize, size: ViewSize, widest: usize, columns: isize
     left.saturating_add(columns.unsigned_abs()).min(right)
 }
 
+/// About how many columns take as much of the screen as a row: a cell is about half
+/// as wide as it is high.
+const COLUMNS_PER_ROW: f64 = 2.0;
+
 /// Wheel and trackpad scrolling not yet worth a whole row or column, so that small
 /// deltas add up. A wheel event moves the view along one axis, whichever it moved
-/// most on, so that a gesture a little off straight stays on its axis.
+/// furthest on, so that a gesture a little off straight stays on its axis.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WheelRemainder {
     rows: f64,
@@ -255,10 +259,10 @@ pub struct WheelRemainder {
 impl WheelRemainder {
     /// Adds a delta in rows and columns, and takes out the whole ones.
     pub fn add(&mut self, rows: f64, columns: f64) -> (isize, isize) {
-        if !rows.is_finite() || !columns.is_finite() {
+        if !rows.is_finite() || !columns.is_finite() || (rows == 0.0 && columns == 0.0) {
             return (0, 0);
         }
-        if rows.abs() >= columns.abs() {
+        if rows.abs() * COLUMNS_PER_ROW >= columns.abs() {
             self.columns = 0.0;
             self.rows += rows;
             let whole = self.rows.trunc();
@@ -278,8 +282,6 @@ impl WheelRemainder {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Recenter {
     Middle,
-    Top,
-    Bottom,
     /// Counting from the top, or from the bottom if negative: -1 is the last.
     Line(isize),
 }
@@ -289,8 +291,6 @@ pub enum Recenter {
 pub fn recenter_top(row: usize, size: ViewSize, target: Recenter) -> usize {
     let line = match target {
         Recenter::Middle => size.rows / 2,
-        Recenter::Top => 0,
-        Recenter::Bottom => size.rows - 1,
         Recenter::Line(line) if line >= 0 => line.unsigned_abs().min(size.rows - 1),
         Recenter::Line(line) => size.rows.saturating_sub(line.unsigned_abs()),
     };
@@ -507,6 +507,10 @@ mod tests {
         assert_eq!(wheel.add(0.1, 5.0), (0, 5), "sideways");
         assert_eq!(wheel.add(0.5, 0.0), (0, 0), "what was held went");
         assert_eq!(wheel.add(2.0, 1.0), (2, 0), "down");
+        assert_eq!(wheel.add(1.0, 2.0), (1, 0), "as far on the screen: down");
+        assert_eq!(wheel.add(1.0, 2.5), (0, 2), "further sideways");
+        assert_eq!(wheel.add(0.0, 0.5), (0, 1), "the remainder adds up");
+        assert_eq!(wheel.add(0.0, 0.0), (0, 0), "an empty event keeps it");
     }
 
     #[test]
@@ -520,14 +524,17 @@ mod tests {
     #[test]
     fn recentering_puts_the_cursor_on_the_row_asked_for() {
         assert_eq!(recenter_top(50, SIZE, Recenter::Middle), 45);
-        assert_eq!(recenter_top(50, SIZE, Recenter::Top), 50);
-        assert_eq!(recenter_top(50, SIZE, Recenter::Bottom), 41);
+        assert_eq!(recenter_top(50, SIZE, Recenter::Line(0)), 50);
         assert_eq!(recenter_top(50, SIZE, Recenter::Line(3)), 47);
         assert_eq!(recenter_top(50, SIZE, Recenter::Line(99)), 41);
         assert_eq!(recenter_top(50, SIZE, Recenter::Line(-1)), 41);
         assert_eq!(recenter_top(50, SIZE, Recenter::Line(-3)), 43);
         assert_eq!(recenter_top(50, SIZE, Recenter::Line(isize::MIN)), 50);
-        assert_eq!(recenter_top(2, SIZE, Recenter::Bottom), 0, "the first row");
+        assert_eq!(
+            recenter_top(2, SIZE, Recenter::Line(-1)),
+            0,
+            "the first row"
+        );
     }
 
     #[test]

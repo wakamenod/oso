@@ -212,10 +212,9 @@ and below the row, and a label's glyphs keep their own cells
   edits any buffer it can show, in memory, secret or not ([ADR 0056](adr/0056-typing.md)).
 - Secret-pattern buffers give no text and no pixels over the socket: while
   one is shown, `screenshot` fails, `get-text` fails and `get-state` returns
-  only its metadata. That leaves out where it is, since the cursor's place after a
-  motion says something of the text: `cursor`, `scroll` and the window's selections,
-  and later the modeline and match counts ([ADR 0051](adr/0051-m2-plan-decisions.md)).
-  Its size stays only while it is not modified
+  only its metadata, without `cursor`, `scroll` or the window's selections, and later
+  the modeline and match counts ([ADR 0051](adr/0051-m2-plan-decisions.md)), and
+  without its size while it is modified
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). The path as opened, each symlink's target and the
   canonical path all count, so a link to a key or through a secret path is
   caught, and a path that cannot be resolved counts as secret. A file counts as

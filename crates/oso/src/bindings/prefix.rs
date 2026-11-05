@@ -22,8 +22,7 @@ pub const BINDINGS: &[(&str, &str)] = &[
 /// Keys that build on a prefix argument while it reads digits, in the keymap
 /// active then. Any other key does what it always does, with the prefix as its
 /// argument.
-pub const WHILE_READING: &[(&str, &str)] = &[
-    ("-", "negative-argument"),
+pub const DIGITS: &[(&str, &str)] = &[
     ("0", "digit-argument"),
     ("1", "digit-argument"),
     ("2", "digit-argument"),
@@ -35,3 +34,7 @@ pub const WHILE_READING: &[(&str, &str)] = &[
     ("8", "digit-argument"),
     ("9", "digit-argument"),
 ];
+
+/// What builds on a prefix argument with no number yet, in a keymap active only
+/// then: after a number `-` is text, as in Emacs.
+pub const MINUS: &[(&str, &str)] = &[("-", "negative-argument")];

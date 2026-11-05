@@ -24,8 +24,9 @@ use crate::{bindings, commands};
 pub struct Dispatcher {
     registry: Registry,
     global: Keymap,
-    /// Active while the prefix argument reads digits.
-    prefix_keys: Keymap,
+    /// Active while the prefix argument reads digits, and a minus sign. They come
+    /// first among the minor modes, as what is being typed is for them.
+    prefix_keys: [Keymap; 2],
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
@@ -44,8 +45,9 @@ impl Dispatcher {
 
     /// A dispatcher over `registry`, with `global` as the global keymap.
     pub fn with(registry: Registry, global: Keymap) -> Self {
+        let (digits, minus) = bindings::prefix_keymaps(&registry);
         Self {
-            prefix_keys: bindings::prefix_keymap(&registry),
+            prefix_keys: [digits, minus],
             registry,
             global,
             resolver: KeyResolver::new(),
@@ -213,10 +215,14 @@ impl Dispatcher {
     /// keys resolve to. Returns what the host should do: redraw only when a
     /// command changed something visible, and exit when one asked to.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
-        let reading = [&self.prefix_keys];
-        let reads_digits = self.prefix.is_some_and(Prefix::reads_digits);
+        let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
+        let minor: &[&Keymap] = match self.prefix {
+            Some(prefix) if prefix.reads_minus() => &reading,
+            Some(prefix) if prefix.reads_digits() => &reading[..1],
+            _ => &[],
+        };
         let layers = Layers {
-            minor: if reads_digits { &reading } else { &[] },
+            minor,
             ..Layers::global(&self.global)
         };
         match self.resolver.feed(&layers, key) {
@@ -264,6 +270,8 @@ mod edit_tests;
 mod grid_tests;
 #[cfg(test)]
 mod motion_tests;
+#[cfg(test)]
+mod prefix_tests;
 
 #[cfg(test)]
 mod tests {

@@ -328,11 +328,27 @@ fn word_motion_costs() {
         "10 MB of marks",
         &("e".to_owned() + &"\u{301}".repeat(5 * MB)),
     );
+    word_costs(
+        "10 MB of e + 8 marks",
+        &format!("e{}", "\u{301}".repeat(8)).repeat(MB / 2),
+    );
+    let chain = ["👨"; 8].join("\u{200d}");
+    word_costs("10 MB of ZWJ chains", &chain.repeat(10 * MB / chain.len()));
+    word_costs("10 MB line of д", &"д".repeat(5 * MB));
+    word_costs("10 MB line of 한", &"한".repeat(10 * MB / 3));
+    word_costs("10 MB line of ZWSP", &"\u{200b}".repeat(10 * MB / 3));
+    word_costs(
+        "10 MB of rows of 、",
+        &("、".repeat(300) + "\n").repeat(10 * MB / 901),
+    );
     println!();
     println!("== Word motion with a count past what a command reads");
     word_count_costs("100 MB file", &file_text(100 * MB));
     word_count_costs("10 MB of empty lines", &"\n".repeat(10 * MB));
     word_count_costs("10 MB of `a `", &"a ".repeat(5 * MB));
+    word_count_costs("10 MB line of 語", &"語".repeat(10 * MB / 3));
+    let chain = ["👨"; 8].join("\u{200d}");
+    word_count_costs("10 MB of ZWJ chains", &chain.repeat(10 * MB / chain.len()));
 }
 
 #[expect(

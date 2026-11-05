@@ -7,10 +7,9 @@
 //!
 //! The state holds paths and positions and never any text, so a secret file's
 //! content cannot leave through it (ADR 0044), and a response line is enough
-//! to carry it (ADR 0032). Where a window showing such a file has its cursors is
-//! not in it either, since the socket can ask for the state and positions say
-//! something of the text: it starts over from the top (ADR 0051, ADR 0058). The
-//! new instance reads each file from disk, so a
+//! to carry it (ADR 0032). It holds no position in such a file either, so a window
+//! showing one starts over from the top (ADR 0051, ADR 0058). The new instance reads
+//! each file from disk, so a
 //! buffer with text no file holds cannot be handed over. Exporting one is an
 //! error that names it and quotes nothing, and the old instance stays
 //! (ADR 0051, ADR 0055). Carrying the text is M2-15.

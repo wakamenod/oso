@@ -15,7 +15,7 @@ some choices open:
   [ADR 0056](0056-typing.md) left open whether a count needs a limit: a cluster read by seeking
   costs about 0.3 µs, so `C-u 500000000 C-d` in a 1 GB file walks for over 2 minutes.
 - [ADR 0051](0051-m2-plan-decisions.md) decides that `get-state` omits positions in a secret
-  buffer once word motion exists, and `export-state` can be asked for the same thing.
+  buffer once word motion exists, and any client can call `export-state` too.
 
 ## Decision
 
@@ -23,15 +23,16 @@ some choices open:
 
 - **A new public module, `word`,** holds pure functions over a display snapshot:
   `forward_word`, `backward_word` and `move_words`. In `guardrails/layers.txt` it sits beside
-  `window`, above `motion`. The script table is written by hand, with no dependency, as ADR 0030
-  allows.
+  `window`, above `motion`. The script table is written by hand, with no dependency.
 - **A cluster has a class and a case,** from its first character. The classes are Han, hiragana,
   katakana with `ー`, Latin letters and digits, full-width letters and digits, emoji, other
-  letters and digits, marks, and what is not a word: white space, punctuation, symbols, controls,
-  boxed invisible characters and invalid bytes.
+  letters and digits, marks, and what is not a word: white space, punctuation, symbols such as
+  `★` and `♪`, controls, boxed invisible characters and invalid bytes. An emoji is what Unicode
+  shows as one by default, or anything with a variation selector asking for one.
 - **A word breaks** where the class changes, except kanji followed by kana, as ADR 0030 has it,
-  and at camelCase boundaries as `subword-mode` does: `fooBar` is `foo|Bar`, `HTTPServer` is
-  `HTTP|Server`, and `UTF8` is `UT|F8`, as in Emacs, since digits stay with what they follow.
+  and at camelCase boundaries as `subword-mode` does going forward: `fooBar` is `foo|Bar`,
+  `HTTPServer` is `HTTP|Server`, and `UTF8` is `UT|F8`, since digits stay with what they follow.
+  Backward motion stops at the same places, where Emacs's own backward rule differs a little.
   `subword-mode` is always on, since ADR 0030 carries it over and nothing configures it yet.
 - **Emoji are words of their own,** so `M-f` stops around them and `M-d` takes them. Marks with no
   base of their own, such as a boxed one past a cluster's limits ([ADR 0054](0054-limits-on-a-display-cluster.md)),
@@ -49,11 +50,12 @@ some choices open:
 - **The limit is on the work, not on the number.** A count as such costs nothing: `C-u 99999 C-n`
   is a few tree lookups. So a prefix argument saturates and is otherwise free, and each command that
   repeats work bounds that work.
-- **`WalkBudget`** in `motion` counts what a command reads, in clusters read in order, which take
-  about 8 to 40 ns each. Going somewhere else in the text costs 128 of them: a line break, a window of
-  a row read backward, the start of a word. A command has 2^21 across all its cursors and its
-  count, about 80 ms at most, under the 100 ms that counts as a freeze.
-- **Finding one stop has 2^16 of these,** about 3 ms at most. Past it a motion stops where it got to
+- **`WalkBudget`** in `motion` counts what a command reads, in bytes read in order, at about 8 to
+  13 ns each. Bytes, because a cluster can hold many characters and the cost per byte stays about the
+  same. Going somewhere else in the text costs 512: a line break, a window of a row read backward, the
+  start of a word. A command has 4 MiB across all its cursors and its count, about 50 ms at most,
+  under the 100 ms that counts as a freeze.
+- **Finding one stop has 128 KiB of this,** about 2 ms at most. Past it a motion stops where it got to
   with no signal, and the next key goes on. So a run with no boundary, of text, blanks, marks or empty
   lines, is passed a piece at a time. `M-d` deletes that piece.
 - **When a command's budget runs out,** a motion leaves its cursors where they got to and signals
@@ -61,8 +63,9 @@ some choices open:
   have deleted, as a deletion that cannot go all the way does (ADR 0056).
 - **`C-f`, `C-b`, `C-d` and `DEL` with a count now read in order** instead of seeking per cluster,
   and spend from the budget. A count past the buffer's edge in bytes still needs no walk.
-- **Undo crosses at most 10,000 steps,** then signals. The history is bounded in bytes, but it can hold
-  many small steps. A larger count on a shorter history ends with the history, as it did.
+- **Undo crosses at most 256 steps,** then signals. The history is bounded in bytes, but it can hold
+  many small steps, and a step of joined typing is 20 small edits. A larger count on a shorter history
+  ends with the history, as it did.
 - Typing keeps its 16 MiB bound (ADR 0056), and commands with no walk keep no limit.
 - `run-command`'s limit of 10,000 stays ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)).
 
@@ -72,15 +75,17 @@ some choices open:
   `negative-argument` (`M--`) are commands that leave a prefix through `Effects`, and the dispatcher
   holds it next to the pending prefix keys. It takes it out of the effects, so the host never sees it.
 - **`Prefix` in `command`** holds Emacs's rules as pure functions. `C-u` is 4, and each repeat multiplies
-  by 4. A digit starts a number, and digits go on building it. `-` makes it negative. `C-u` after digits ends
-  the number, so that `C-u 5 C-u 3` types five 3s. Two `M--` in a row cancel, where Emacs stays ready
-  for digits.
-- **While it reads digits, a keymap of `0` to `9` and `-` is active,** in the minor mode layer. Any other
-  key resolves as usual, so `C-u C-x C-c` still works and `C-u a` types four of them. The layer is why a
-  digit after `C-x` is not read as part of the count.
+  by 4. A digit starts a number, and digits go on building it. `-` makes it negative until a number starts, and
+  after that it is text: `C-u 5 -` types five of them, and `M--` changes the sign. `C-u` after digits ends the
+  number, so that `C-u 5 C-u 3` types five 3s, and one more starts over at 4. Two `M--` in a row cancel, where
+  Emacs stays ready for digits.
+- **While it reads digits, a keymap of `0` to `9` is active,** and one of `-` while it can read that, first among
+  the minor mode layers. Any other key resolves as usual, so `C-u C-x C-c` still works and `C-u a` types four of
+  them. The layer is why a digit after `C-x` is not read as part of the count.
 - **`Args` holds the `Prefix`.** `Args::numeric` is unchanged, `count` and `prefix` read its number, and the
-  new `raw` is for the three commands above and for `C-u C-l`, which treats `C-u` apart from a number.
-- **`Ctx::invoked` takes an `Invocation`:** the text, as before; `key_char`, the character on the key whatever
+  new `raw` is for the three commands above, for `C-u C-l`, which treats `C-u` apart from a number, and for
+  `M-- C-v`, which scrolls a screen the other way, as in Emacs.
+- **`Ctx::invoked` takes an `Invocation`, replacing `Ctx::with_input`:** the text, as before; `key_char`, the character on the key whatever
   modifiers are held, since `M-5` types nothing; and `repeats`, for a command that does something else when
   repeated, since a command keeps no state. `command` still knows nothing of key presses.
 - **`C-g` cancels it** by being a command that ignores its argument. An undefined or cancelled sequence drops
@@ -106,18 +111,19 @@ some choices open:
 
 `recenter-top-bottom` cycles through the middle, top and bottom row, starting over after any other command. A number
 puts the cursor on that row, from the bottom if negative, and a plain `C-u` in the middle. The cycle is
-`Ctx::repeats` modulo 3, so nothing is stored. The view stops at the first row, as it does everywhere, so near it the
-cursor may stay above that place, and nothing is drawn if the view does not move.
+`Ctx::repeats` modulo 3, so nothing is stored. The wheel is no command here, so it does not end the cycle. The view
+stops at the first row, as it does everywhere, so near it the cursor may stay above that place, and nothing is drawn if
+the view does not move.
 
 ### The wheel
 
 - **`WheelRemainder` in `window`** adds up what is not yet worth a whole row or column, for lines and pixels alike, so
-  small deltas count. An event moves the view along the axis it moved most on, and drops the other's remainder, so a
-  trackpad gesture a little off straight stays on its axis.
+  small deltas count. An event moves the view along the axis it moved furthest on, counting 2 columns as a row, and
+  drops the other's remainder, so a trackpad gesture a little off straight stays on its axis.
 - **The sideways wheel** moves `left` by 6 columns a notch, about as far as 3 rows, or by trackpad pixels.
   `Editor::scroll_view_sideways` stops once the widest row in view shows its end and a cell for the cursor. That bound
-  costs one conversion per visible row, so no summary needs the widest row in the buffer, and it is what the view can
-  show. A view already past it stays.
+  costs a conversion per visible row at most, and none going left, so no summary needs the widest row in the buffer,
+  and it is what the view can show. A view already past it stays.
 - **Sideways scrolling leaves the cursors where they are, even out of view,** and the next command brings the view back,
   which `follow_cursor` already does. A cursor moved into view would have no place to go on a row too short to reach it.
 - **`Window::set_top` stops at the last row, and follows the primary cursor sideways if it moved that cursor.** It moves a
@@ -127,39 +133,53 @@ cursor may stay above that place, and nothing is drawn if the view does not move
 
 ### The control socket
 
-This is a human gate ([`REVIEW.md`](../../../REVIEW.md)). It applies ADR 0051, "Control socket", and accepted ADRs stay as
-they are.
+This is a human gate ([`REVIEW.md`](../../../REVIEW.md)). It applies ADR 0051, "Control socket", and goes further; see below.
 
 - **While a window shows a secret buffer, `get-state` leaves out where it is:** `cursor` and `scroll`, and each such
   window's `scroll`, `primary` and `selections`. The rest stays, including the window's size.
-- **`bytes` and `lines` of a secret buffer are null while it is modified.** An edit changes them by what it took out, and
-  `M-d` takes a word. They return once the buffer is back to its saved state. This goes a step past ADR 0051's list.
-- **`export-state` holds no position in a secret buffer.** Any client can ask for it, so it would undo the first rule.
-  Such a window is exported with one cursor at the start and no scroll, which needs no change to the format or its version.
+- **`bytes` and `lines` of a secret buffer are null while it is modified,** and return once it is back to its saved state.
+- **`export-state` holds no position in a secret buffer.** Such a window is exported with one cursor at the start and no
+  scroll, which needs no change to the format or its version.
 - **Positions still waiting for a file to load are exported as they are,** though the file counts as secret until it is
   judged. They came with the import, and say nothing of its text.
 - `generation` and the refusal to hand over stay.
 
+### Where this differs from accepted ADRs
+
+These ADRs stay as they are; this one changes the following:
+
+- [ADR 0030](0030-m2-editing-commands.md), a table "generated from Unicode data": it is written by hand.
+- [ADR 0034](0034-command-registry-and-keymaps.md), `Args` holds a numeric argument: it holds a `Prefix`.
+- [ADR 0040](0040-buffers-loading-motion-and-scrolling.md), "every other motion clears" the goal: `C-e` and `<end>`
+  set it. "Horizontal wheel scrolling is not handled yet": it is.
+- [ADR 0044](0044-control-socket-trust-and-secret-buffers.md), metadata including "size, positions" stays: positions
+  go, as ADR 0051 says, and size goes while a buffer is modified. A secret buffer handed over "by path and position":
+  by path only.
+- [ADR 0056](0056-typing.md), `undo` with any count ends at the end of its history: past 256 steps it signals.
+
 ## Consequences
 
-- One word costs about 1 to 4 µs on a screen of real text, and at most about 3 ms on 10 MB of one
-  character in `text_perf`, which measures each way (`cargo run --release -p oso-core --example text_perf
-  -- words`). A count that spends all a command may takes about 20 to 60 ms.
+- One word costs about 1 to 4 µs on real text, and at most about 1.8 ms on 10 MB of one character or a run of
+  marks, sequences, empty lines or punctuation, each way, measured by `text_perf`
+  (`cargo run --release -p oso-core --example text_perf -- words`). A count that spends all a command may takes up to
+  about 45 ms.
 - A motion past a stop's limit can stop in the middle of a word, and forward and backward motion do not
-  agree there. Only a run longer than about 65,000 clusters forward, or half that backward, gets there.
-- `C-u 9000 M-b` on a very long line, or a count past about 16,000 line breaks, signals "Count too large".
-  Going back reads a whole window per word, whatever the word's length.
+  agree there. Only a run longer than about 128 KiB forward, or about 26 KiB backward, gets there. `C-a` and
+  `C-e` cannot reach text past that many blanks in one row.
+- A count past about 8,000 line breaks signals "Count too large", and so does about `C-u 6000 M-b` on any text, since
+  going back reads a whole window per word, whatever the word's length.
 - A restart loses a secret buffer's cursor position, which goes to the start of the file.
 - Tests of secret buffers over the socket can check only what remains. `oso ctl` shows no size for one with
   unsaved edits.
-- `らーめん` reads as `ら|ー|めん`, since ADR 0030 makes `ー` katakana. This is rare in real text.
+- `すごーい` reads as `すご|ー|い`, since ADR 0030 makes `ー` katakana, as `ラーメン` needs.
 - Until M2-7 draws it, nothing shows that a prefix is being typed.
 - `Effects`, `Args` and `Ctx` changed, and `Prefix`, `Invocation`, `WalkBudget`, `WheelRemainder` and
   `Recenter` are new, as the API snapshot shows.
 - `C-a` and `C-e` read their row one way, so wrapped rows (M2-25) must keep them on logical lines, with the rest
   of [`open-questions.md`](../open-questions.md)'s item on motion.
-- While the view is sideways, a cursor one column to the left of it can show in the window's margin, until M2-6 clips
-  panes.
+- While the view is sideways, a cursor one column to the left of it can show in the window's margin, until M2-6.
+- M2-14 turns `delete_words` into kills, and its bindings and names stay. It needs a rule for pieces when cursors'
+  ranges overlap, and `Ctx::repeats` will not do for appending kills across different commands.
 
 ## Alternatives considered
 

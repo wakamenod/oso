@@ -10,7 +10,7 @@
 //! looks like one character, and the cursor never lands inside one. Rows are
 //! buffer lines (no soft wrap, ADR 0006).
 //!
-//! A motion that reads clusters one by one is limited, so that a count or a long
+//! A motion that reads text cluster by cluster is limited, so that a count or a long
 //! run of one kind of character cannot stall a key ([`WalkBudget`], ADR 0058).
 
 use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot};
@@ -36,29 +36,30 @@ impl Edge {
     }
 }
 
-/// What one command may read, in clusters read in order, about 8 to 40 ns each:
-/// about 80 ms at most, under the 100 ms that counts as a freeze. It holds across
-/// all its cursors and its count.
-const MAX_COMMAND_WALK: usize = 1 << 21;
+/// What one command may read, in bytes read in order, at about 8 to 13 ns each:
+/// about 50 ms at most, under the 100 ms that counts as a freeze. It holds across
+/// all its cursors and its count. Bytes, not clusters: a cluster can hold many
+/// characters, and the cost per byte stays about the same.
+const MAX_COMMAND_WALK: usize = 1 << 22;
 
 /// What finding one stop may read, such as the end of a word: a key stays within
-/// its budget on a long line with no word boundary, at about 3 ms at most. Past it
+/// its budget on a long line with no word boundary, at about 2 ms at most. Past it
 /// the motion stops where it got to, and the next key goes on from there.
-pub(crate) const MAX_STOP_WALK: usize = 1 << 16;
+pub(crate) const MAX_STOP_WALK: usize = 1 << 17;
 
-/// What going to another place in the text costs, in clusters read in order: it
+/// What going to another place in the text costs, in bytes read in order: it
 /// searches the display model and scans part of a chunk.
-pub(crate) const SEEK_COST: usize = 128;
+pub(crate) const SEEK_COST: usize = 512;
 
 /// The columns read at a time when looking backward along a row. Clusters read
 /// only forward, so a backward search reads this much and moves back by it.
 pub(crate) const BACK_WINDOW: usize = 128;
 
-/// What a command signals when a count would read too much.
+/// What a command signals when its count asks for too much work.
 pub const TOO_MUCH: &str = "Count too large";
 
-/// The clusters a command may still read (ADR 0058). A command makes one and
-/// passes it to each cursor's motion.
+/// What a command may still read (ADR 0058). A command makes one and passes it to
+/// each cursor's motion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WalkBudget {
     left: usize,
@@ -72,11 +73,11 @@ impl WalkBudget {
         }
     }
 
-    /// Takes `clusters` from the budget. If it does not hold that many, it is left
+    /// Takes `bytes` from the budget. If it does not hold that many, it is left
     /// empty and this returns false.
-    pub fn spend(&mut self, clusters: usize) -> bool {
-        let enough = clusters <= self.left;
-        self.left = if enough { self.left - clusters } else { 0 };
+    pub(crate) fn spend(&mut self, bytes: usize) -> bool {
+        let enough = bytes <= self.left;
+        self.left = if enough { self.left - bytes } else { 0 };
         enough
     }
 
@@ -107,10 +108,10 @@ pub(crate) struct StopWalk<'a> {
 }
 
 impl StopWalk<'_> {
-    /// Takes `clusters`, or returns false if the stop or the command has no more.
-    pub(crate) fn spend(&mut self, clusters: usize) -> bool {
-        let enough = clusters <= self.left && self.budget.spend(clusters);
-        self.left = if enough { self.left - clusters } else { 0 };
+    /// Takes `bytes`, or returns false if the stop or the command has no more.
+    pub(crate) fn spend(&mut self, bytes: usize) -> bool {
+        let enough = bytes <= self.left && self.budget.spend(bytes);
+        self.left = if enough { self.left - bytes } else { 0 };
         enough
     }
 }
@@ -211,7 +212,7 @@ pub fn move_clusters(
             selection.cursor = 0;
             return Err(Edge::Start);
         }
-        if n > 0 && count > end - selection.cursor {
+        if n > 0 && count > end.saturating_sub(selection.cursor) {
             selection.cursor = end;
             return Err(Edge::End);
         }
@@ -247,11 +248,14 @@ fn walk_forward(
     mut count: usize,
     budget: &mut WalkBudget,
 ) -> Result<usize, Edge> {
+    if !budget.spend(SEEK_COST) {
+        return Ok(offset);
+    }
     let mut at = offset;
     let mut point = display.offset_to_display_point(offset);
     loop {
         for cluster in display.clusters(point) {
-            if count == 0 || !budget.spend(1) {
+            if count == 0 || !budget.spend(cluster.text.len()) {
                 return Ok(at);
             }
             at = cluster.offset + cluster.text.len();
@@ -280,6 +284,9 @@ fn walk_backward(
     mut count: usize,
     budget: &mut WalkBudget,
 ) -> Result<usize, Edge> {
+    if !budget.spend(SEEK_COST) {
+        return Ok(offset);
+    }
     let mut at = offset;
     let mut point = display.offset_to_display_point(offset);
     while count > 0 {
@@ -295,25 +302,25 @@ fn walk_backward(
             count -= 1;
             continue;
         }
-        let mut read = 0;
+        let (mut clusters, mut bytes) = (0, 0);
         let mut first = None;
         for cluster in clusters_before(display, point, at) {
             first.get_or_insert((cluster.offset, cluster.column));
-            read += 1;
+            clusters += 1;
+            bytes += cluster.text.len();
         }
-        if !budget.spend(read + SEEK_COST) {
+        if !budget.spend(bytes + SEEK_COST) {
             return Ok(at);
         }
         let Some((offset, column)) = first else {
             return Ok(at);
         };
-        if read >= count {
+        if clusters >= count {
             let mut window = clusters_before(display, point, at);
-            return Ok(window
-                .nth(read - count)
-                .map_or(at, |cluster| cluster.offset));
+            let target = window.nth(clusters - count);
+            return Ok(target.map_or(at, |cluster| cluster.offset));
         }
-        count -= read;
+        count -= clusters;
         at = offset;
         point = DisplayPoint::new(point.row, column);
     }
@@ -442,7 +449,7 @@ fn first_non_blank(display: &DisplaySnapshot, row: usize, budget: &mut WalkBudge
         return end;
     }
     for cluster in display.clusters(DisplayPoint::new(row, 0)) {
-        if !is_blank(&cluster) || !walk.spend(1) {
+        if !is_blank(&cluster) || !walk.spend(cluster.text.len()) {
             return cluster.offset;
         }
         end = cluster.offset + cluster.text.len();
@@ -463,7 +470,7 @@ fn end_before_blanks(display: &DisplaySnapshot, row: usize, budget: &mut WalkBud
         let mut read = 0;
         for cluster in clusters_before(display, point, earliest) {
             first.get_or_insert((cluster.offset, cluster.column));
-            read += 1;
+            read += cluster.text.len();
             if !is_blank(&cluster) {
                 text_end = Some(cluster.offset + cluster.text.len());
             }
@@ -624,12 +631,12 @@ mod tests {
         let n = isize::try_from(d.row_count() - 1).unwrap();
         assert_eq!(move_clusters(&d, &mut s, n, &mut budget), Ok(()));
         assert!(budget.is_spent());
-        assert_eq!(s.cursor, MAX_COMMAND_WALK / SEEK_COST);
+        assert_eq!(s.cursor, MAX_COMMAND_WALK / SEEK_COST - 1);
         let mut budget = WalkBudget::new();
         let mut s = Selection::at(d.row_count() - 1);
         assert_eq!(move_clusters(&d, &mut s, -n, &mut budget), Ok(()));
         assert!(budget.is_spent());
-        assert_eq!(s.cursor, d.row_count() - 1 - MAX_COMMAND_WALK / SEEK_COST);
+        assert_eq!(s.cursor, d.row_count() - MAX_COMMAND_WALK / SEEK_COST);
     }
 
     #[test]

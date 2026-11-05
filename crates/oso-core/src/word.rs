@@ -10,15 +10,15 @@
 //! - where the script changes, but kanji followed by kana stays one word, as
 //!   Emacs's `word-combining-categories` does, so `書く` is one word and
 //!   `日本語の|文章で` splits as shown;
-//! - at camelCase boundaries, as `subword-mode` does: `fooBar` is `foo|Bar`, and
-//!   `HTTPServer` is `HTTP|Server`.
+//! - at camelCase boundaries, as `subword-mode` does going forward: `fooBar` is
+//!   `foo|Bar`, and `HTTPServer` is `HTTP|Server`.
 //!
 //! Whether a word breaks between two clusters depends on them and the one after, so
 //! a word is found by reading from the cursor, and forward and backward motion
 //! agree. Motion stops after what a stop may read in any case (`motion`,
 //! `WalkBudget`), as a long run with no boundary must not stall a key.
 
-use crate::display_map::cell::is_mark;
+use crate::display_map::cell::{is_mark, takes_no_cells};
 use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, SEEK_COST, WalkBudget};
 use crate::sum_tree::Bias;
@@ -43,7 +43,7 @@ enum Class {
     /// Full-width letters and digits.
     FullWidth,
     /// Emoji make words of their own, so a motion stops around them and `M-d`
-    /// takes them, in Emacs too, whose syntax table counts them as word characters.
+    /// takes them.
     Emoji,
     /// Letters and digits of every other script. These are not told apart, as they
     /// rarely touch.
@@ -64,21 +64,61 @@ enum Case {
 type ScriptRange = (u32, u32, Class);
 
 /// The non-ASCII ranges word motion tells apart, sorted. Written by hand, with no
-/// dependency, as ADR 0030 allows: other letters need only `char::is_alphanumeric`.
+/// dependency (ADR 0030, ADR 0058). Other letters need only
+/// `char::is_alphanumeric`; the common ones and common punctuation are here because
+/// the table answers faster. Below U+1F000 emoji are those Unicode shows as emoji by
+/// default (`Emoji_Presentation`), so that `★` and `♪` stay symbols.
 const SCRIPTS: &[ScriptRange] = &[
     (0x00C0, 0x00D6, Class::Latin),
     (0x00D8, 0x00F6, Class::Latin),
     (0x00F8, 0x024F, Class::Latin),
+    (0x0391, 0x03C9, Class::Other),
+    (0x0400, 0x0482, Class::Other),
+    (0x048A, 0x052F, Class::Other),
     (0x1E00, 0x1EFF, Class::Latin),
+    (0x2010, 0x2027, Class::NotWord),
+    (0x2030, 0x205E, Class::NotWord),
     (0x231A, 0x231B, Class::Emoji),
-    (0x23E9, 0x23F3, Class::Emoji),
-    (0x2600, 0x27BF, Class::Emoji),
+    (0x23E9, 0x23EC, Class::Emoji),
+    (0x23F0, 0x23F0, Class::Emoji),
+    (0x23F3, 0x23F3, Class::Emoji),
+    (0x25FD, 0x25FE, Class::Emoji),
+    (0x2614, 0x2615, Class::Emoji),
+    (0x2648, 0x2653, Class::Emoji),
+    (0x267F, 0x267F, Class::Emoji),
+    (0x2693, 0x2693, Class::Emoji),
+    (0x26A1, 0x26A1, Class::Emoji),
+    (0x26AA, 0x26AB, Class::Emoji),
+    (0x26BD, 0x26BE, Class::Emoji),
+    (0x26C4, 0x26C5, Class::Emoji),
+    (0x26CE, 0x26CE, Class::Emoji),
+    (0x26D4, 0x26D4, Class::Emoji),
+    (0x26EA, 0x26EA, Class::Emoji),
+    (0x26F2, 0x26F3, Class::Emoji),
+    (0x26F5, 0x26F5, Class::Emoji),
+    (0x26FA, 0x26FA, Class::Emoji),
+    (0x26FD, 0x26FD, Class::Emoji),
+    (0x2705, 0x2705, Class::Emoji),
+    (0x270A, 0x270B, Class::Emoji),
+    (0x2728, 0x2728, Class::Emoji),
+    (0x274C, 0x274C, Class::Emoji),
+    (0x274E, 0x274E, Class::Emoji),
+    (0x2753, 0x2755, Class::Emoji),
+    (0x2757, 0x2757, Class::Emoji),
+    (0x2795, 0x2797, Class::Emoji),
+    (0x27B0, 0x27B0, Class::Emoji),
+    (0x27BF, 0x27BF, Class::Emoji),
+    (0x2B1B, 0x2B1C, Class::Emoji),
     (0x2B50, 0x2B50, Class::Emoji),
     (0x2B55, 0x2B55, Class::Emoji),
     (0x2C60, 0x2C7F, Class::Latin),
     (0x2E80, 0x2FD5, Class::Han),
+    // Ideographic space and punctuation.
+    (0x3000, 0x3004, Class::NotWord),
     // 々, 〆 and 〇.
     (0x3005, 0x3007, Class::Han),
+    // Brackets and marks.
+    (0x3008, 0x3020, Class::NotWord),
     (0x3021, 0x3029, Class::Han),
     (0x3038, 0x303B, Class::Han),
     (0x3041, 0x3096, Class::Hiragana),
@@ -94,6 +134,7 @@ const SCRIPTS: &[ScriptRange] = &[
     (0x4E00, 0x9FFF, Class::Han),
     (0xA720, 0xA7FF, Class::Latin),
     (0xAB30, 0xAB6F, Class::Latin),
+    (0xAC00, 0xD7A3, Class::Other),
     (0xF900, 0xFAFF, Class::Han),
     (0xFB00, 0xFB06, Class::Latin),
     (0xFF10, 0xFF19, Class::FullWidth),
@@ -118,8 +159,8 @@ fn class_of(c: char) -> Class {
     let index = SCRIPTS.partition_point(|&(_, last, _)| last < code);
     match SCRIPTS.get(index) {
         Some(&(first, _, class)) if first <= code => class,
+        _ if c.is_alphanumeric() && !takes_no_cells(c) => Class::Other,
         _ if is_mark(c) => Class::Mark,
-        _ if c.is_alphanumeric() => Class::Other,
         _ => Class::NotWord,
     }
 }
@@ -145,7 +186,13 @@ impl Kind {
                 .chars()
                 .next()
                 .map_or(Self::NOT_WORD, |c| Self {
-                    class: class_of(c),
+                    // A variation selector asks for an emoji: `☀️` and `1️⃣`.
+                    class: if cluster.text.len() > c.len_utf8() && cluster.text.contains('\u{fe0f}')
+                    {
+                        Class::Emoji
+                    } else {
+                        class_of(c)
+                    },
                     case: if c.is_uppercase() {
                         Case::Upper
                     } else if c.is_lowercase() || c.is_numeric() {
@@ -205,12 +252,15 @@ pub fn forward_word(display: &DisplaySnapshot, offset: usize, budget: &mut WalkB
     let mut word: Option<Kind> = None;
     loop {
         let mut clusters = display.clusters(point).peekable();
+        // The kind of the next cluster, found by looking ahead.
+        let mut peeked = None;
         while let Some(cluster) = clusters.next() {
-            if !walk.spend(1) {
+            if !walk.spend(cluster.text.len()) {
                 return end;
             }
-            let kind = Kind::of(&cluster);
+            let kind = peeked.take().unwrap_or_else(|| Kind::of(&cluster));
             let after = clusters.peek().map_or(Kind::NOT_WORD, Kind::of);
+            peeked = Some(after);
             match word {
                 Some(before) if !kind.is_word() || splits(before, kind, after) => {
                     return cluster.offset;
@@ -232,6 +282,7 @@ pub fn forward_word(display: &DisplaySnapshot, offset: usize, budget: &mut WalkB
 struct Read {
     offset: usize,
     column: usize,
+    len: usize,
     kind: Kind,
 }
 
@@ -240,6 +291,9 @@ struct Read {
 /// short if the stop or the command has read all it may.
 pub fn backward_word(display: &DisplaySnapshot, offset: usize, budget: &mut WalkBudget) -> usize {
     let mut walk = budget.stop();
+    if !walk.spend(SEEK_COST) {
+        return offset;
+    }
     let mut point = display.offset_to_display_point(offset);
     let mut earliest = display.display_point_to_offset(point, Bias::Left);
     // What follows the window: its first cluster's next neighbor decides the last
@@ -262,10 +316,11 @@ pub fn backward_word(display: &DisplaySnapshot, offset: usize, budget: &mut Walk
         let window = motion::clusters_before(display, point, earliest).map(|cluster| Read {
             offset: cluster.offset,
             column: cluster.column,
+            len: cluster.text.len(),
             kind: Kind::of(&cluster),
         });
         for next in window.chain(waiting) {
-            read += 1;
+            read += next.len;
             if first.is_some() && second.is_none() {
                 second = Some(next.kind);
             }
@@ -408,6 +463,7 @@ mod tests {
         );
         assert_eq!(forward_pieces("ａｂｃ１２３abc"), ["ａｂｃ１２３", "abc"]);
         assert_eq!(forward_pieces("ＡＢＣ語"), ["ＡＢＣ", "語"]);
+        assert_eq!(forward_pieces("ａｂ語"), ["ａｂ", "語"]);
     }
 
     #[test]
@@ -460,6 +516,9 @@ mod tests {
         // A combining mark stays on its base, and dakuten on its kana.
         assert_eq!(forward_pieces("e\u{301}a b"), ["e\u{301}a", " b"]);
         assert_eq!(forward_pieces("か\u{3099}か語"), ["か\u{3099}か", "語"]);
+        // A variation selector makes a symbol an emoji; alone it is a symbol.
+        assert_eq!(forward_pieces("☀\u{fe0f}a"), ["☀\u{fe0f}", "a"]);
+        assert_eq!(forward_pieces("★a"), ["★a"]);
         // Emoji are words of their own, whole.
         let family = "👨\u{200d}👩\u{200d}👧";
         let text = format!("abc{family}🇯🇵 def");
@@ -522,11 +581,8 @@ mod tests {
         assert_eq!(forward_word(&d, first, &mut budget), 2 * first);
         let back = backward_word(&d, text.len(), &mut budget);
         let read = text.len() - back;
-        // Half of what it reads, each window costing a seek as well.
-        assert!(
-            read > motion::MAX_STOP_WALK / 2 - motion::BACK_WINDOW,
-            "{read}"
-        );
+        // Less than it reads, as each window costs a seek as well.
+        assert!(read > motion::MAX_STOP_WALK / 8, "{read}");
         assert!(read <= motion::MAX_STOP_WALK, "{read}");
         assert!(!budget.is_spent(), "the command can go on");
         // Spaces and line breaks count too.
@@ -554,7 +610,7 @@ mod tests {
     #[test]
     fn a_stop_on_a_long_run_stays_on_a_display_cluster() {
         // Wide characters and tabs are read in windows of columns.
-        let text = "語\t".repeat(motion::MAX_STOP_WALK);
+        let text = "語\t".repeat(motion::MAX_STOP_WALK / 2);
         let d = display(&text);
         let stops = all_stops(&d);
         let mut budget = WalkBudget::new();
@@ -717,6 +773,11 @@ mod tests {
             ('！', Class::NotWord),
             ('😀', Class::Emoji),
             ('✅', Class::Emoji),
+            ('★', Class::NotWord),
+            ('♪', Class::NotWord),
+            ('✓', Class::NotWord),
+            ('…', Class::NotWord),
+            ('α', Class::Other),
             ('д', Class::Other),
             ('한', Class::Other),
             ('\u{301}', Class::Mark),

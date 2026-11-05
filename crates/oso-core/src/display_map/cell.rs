@@ -144,10 +144,15 @@ pub(crate) fn is_hidden_extend(c: char, base: char) -> bool {
     !allowed
 }
 
+/// Whether `c` takes no cells of its own.
+pub(crate) fn takes_no_cells(c: char) -> bool {
+    c.width() == Some(0)
+}
+
 /// Whether `c` is a mark: it takes no cells, or it extends the character before
 /// it, as spacing marks and emoji modifiers do.
 pub(crate) fn is_mark(c: char) -> bool {
-    if c.width() == Some(0) {
+    if takes_no_cells(c) {
         return true;
     }
     let mut text = [0; 5];

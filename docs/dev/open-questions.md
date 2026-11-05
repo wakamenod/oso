@@ -117,8 +117,13 @@ item notes when it must be settled.
   `KeyResolver` does the same, or record that oso differs.
 
 - By M2-6: with the view sideways, a cursor one column to its left can show in the
-  window's margin, since panes are not clipped yet
+  window's margin, as panes have no bounds of their own yet
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
+- By M2-21: each cursor gets a stop's worth of reading, about 2 ms on a long run with no
+  boundary, so several cursors on such runs can pass the 8 ms budget and a few dozen spend
+  the command's ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
+  `TAB` on a row with several cursors walks what lies between them with no budget
+  ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
 - By M2-7: nothing shows that a prefix argument is being typed
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the

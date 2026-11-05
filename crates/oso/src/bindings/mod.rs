@@ -42,16 +42,17 @@ pub fn global_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
-/// The keymap active while a prefix argument reads digits, above the global one
-/// (ADR 0058). Empty for a registry without its commands, as in tests that bring
-/// their own: such a prefix never starts.
-pub fn prefix_keymap(registry: &Registry) -> Keymap {
-    Keymap::from_table(registry, prefix::WHILE_READING).unwrap_or_default()
+/// The keymaps active while a prefix argument reads digits and a minus sign, above
+/// the global one (ADR 0058). Empty for a registry without their commands, as in
+/// tests that bring their own: such a prefix never starts.
+pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
+    let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
+    (keymap(prefix::DIGITS), keymap(prefix::MINUS))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{TABLES, global_keymap, prefix, prefix_keymap};
+    use super::{TABLES, global_keymap, prefix, prefix_keymaps};
     use crate::commands;
     use oso_core::key::KeySequence;
     use oso_core::keymap::{Binding, Keymap};
@@ -70,9 +71,10 @@ mod tests {
     }
 
     #[test]
-    fn the_prefix_keymap_binds_all_its_rows() {
-        let keymap = prefix_keymap(&commands::registry());
-        assert_eq!(keymap.len(), prefix::WHILE_READING.len());
+    fn the_prefix_keymaps_bind_all_their_rows() {
+        let (digits, minus) = prefix_keymaps(&commands::registry());
+        assert_eq!(digits.len(), prefix::DIGITS.len());
+        assert_eq!(minus.len(), prefix::MINUS.len());
     }
 
     /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means

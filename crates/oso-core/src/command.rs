@@ -85,9 +85,15 @@ impl Prefix {
         }
     }
 
-    /// Whether plain digits and `-` still build it.
+    /// Whether plain digits still build it.
     pub const fn reads_digits(self) -> bool {
         !matches!(self, Self::Closed(_))
+    }
+
+    /// Whether a plain `-` still builds it. After digits it is text, as in Emacs:
+    /// `C-u 5 -` types five of them, and `M--` changes the number's sign.
+    pub const fn reads_minus(self) -> bool {
+        matches!(self, Self::Universal(_) | Self::Negative)
     }
 
     /// `current` after `C-u`. Counts saturate, since commands limit their work.
@@ -96,11 +102,13 @@ impl Prefix {
             None => Self::Universal(4),
             Some(Self::Universal(n)) => Self::Universal(n.saturating_mul(4)),
             Some(Self::Negative) => Self::Universal(-4),
-            Some(Self::Number(n) | Self::Closed(n)) => Self::Closed(n),
+            Some(Self::Number(n)) => Self::Closed(n),
+            Some(Self::Closed(_)) => Self::Universal(4),
         }
     }
 
-    /// `current` after `M--` or `-`. A second one in a row cancels the first.
+    /// `current` after `M--` or `-`. A second one in a row cancels the first, and
+    /// after a number it changes the sign.
     pub const fn negative(current: Option<Self>) -> Option<Self> {
         match current {
             None | Some(Self::Universal(_)) => Some(Self::Negative),
@@ -227,16 +235,7 @@ pub struct Ctx<'a> {
 impl<'a> Ctx<'a> {
     /// A context over `editor`, with no input and no requests yet.
     pub fn new(editor: &'a mut Editor) -> Self {
-        Self::with_input(editor, "")
-    }
-
-    /// A context over `editor` for a command invoked by typing `input`.
-    pub fn with_input(editor: &'a mut Editor, input: &'a str) -> Self {
-        let invocation = Invocation {
-            input,
-            ..Invocation::default()
-        };
-        Self::invoked(editor, invocation)
+        Self::invoked(editor, Invocation::default())
     }
 
     /// A context over `editor` for a command invoked as `invocation` says.
@@ -596,7 +595,11 @@ mod tests {
     fn a_context_carries_the_input_it_was_made_with() {
         let mut editor = Editor::default();
         assert_eq!(Ctx::new(&mut editor).input(), "");
-        assert_eq!(Ctx::with_input(&mut editor, "語").input(), "語");
+        let invocation = Invocation {
+            input: "語",
+            ..Invocation::default()
+        };
+        assert_eq!(Ctx::invoked(&mut editor, invocation).input(), "語");
     }
 
     #[test]
@@ -641,6 +644,9 @@ mod tests {
         let closed = Prefix::universal(Some(five));
         assert_eq!(closed, Prefix::Closed(5));
         assert!(!closed.reads_digits() && five.reads_digits());
+        assert_eq!(Prefix::universal(Some(closed)), Prefix::Universal(4));
+        assert!(!five.reads_minus() && !closed.reads_minus());
+        assert!(Prefix::Negative.reads_minus() && Prefix::Universal(4).reads_minus());
         assert_eq!(Prefix::digit(Some(closed), 3), Prefix::Number(53), "M-3");
         assert_eq!(
             Prefix::digit(Some(Prefix::Number(isize::MAX)), 9),

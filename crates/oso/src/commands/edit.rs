@@ -17,15 +17,17 @@ use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot, TabWidth};
 use oso_core::motion::{self, Edge, WalkBudget};
 use oso_core::word;
 
+use super::budget_left;
+
 /// The most text one command inserts across all cursors, so that a count cannot
 /// run the process out of memory, which aborts it with no emergency save
 /// (ADR 0051). It takes about 40 ms to insert, which is no freeze.
 const MAX_INSERT: usize = 16 * 1024 * 1024;
 
-/// The most undo steps one command crosses, each of which costs a few microseconds
-/// and more for the text it puts back. The history is bounded in bytes, but it can
-/// hold many small steps.
-const MAX_CROSSINGS: usize = 10_000;
+/// The most undo steps one command crosses. A step of joined typing has 20 small
+/// edits at about 9 µs each, so this takes about 50 ms, and more for text it puts
+/// back. The history is bounded in bytes, but it can hold many small steps.
+const MAX_CROSSINGS: usize = 256;
 
 /// The editing commands.
 pub const COMMANDS: &[Command] = &[
@@ -43,13 +45,13 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "delete-backward-char",
-        doc: "Delete the N characters before every cursor (after it if N is negative).\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters before it deletes nothing and signals \"Beginning of buffer\"; other cursors still delete.",
+        doc: "Delete the N characters before every cursor (after it if N is negative).\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters before it deletes nothing and signals \"Beginning of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
         args: ArgSpec::Count,
         run: delete_backward_char,
     },
     Command {
         name: "delete-char",
-        doc: "Delete the N characters after every cursor (before it if N is negative).\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters after it deletes nothing and signals \"End of buffer\"; other cursors still delete.",
+        doc: "Delete the N characters after every cursor (before it if N is negative).\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters after it deletes nothing and signals \"End of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
         args: ArgSpec::Count,
         run: delete_char,
     },
@@ -73,7 +75,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "undo",
-        doc: "Undo the last N changes to the buffer (redo them if N is negative).\n\nThe cursors go back to where they were. With nothing more to undo, signal \"No further undo information\".",
+        doc: "Undo the last N changes to the buffer (redo them if N is negative).\n\nThe cursors go back to where they were. With nothing more to undo, signal \"No further undo information\". After 256 changes, stop and signal \"Count too large\".",
         args: ArgSpec::Count,
         run: undo,
     },
@@ -226,10 +228,7 @@ fn delete_words(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
         ctx.editor.apply_edits(buffer, &edits)?;
         ctx.request_redraw();
     }
-    if budget.is_spent() {
-        return Err(CommandError::new(motion::TOO_MUCH));
-    }
-    Ok(())
+    budget_left(budget)
 }
 
 fn kill_word(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

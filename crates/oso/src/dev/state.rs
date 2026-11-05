@@ -1,8 +1,8 @@
 //! What the control socket reads from and does to the editor state on the UI
 //! thread, apart from running commands (ADR 0023, ADR 0044). It never returns
-//! the text of a buffer that may hold secrets, whichever way it is asked, nor
-//! where its cursors are, what it scrolled to or its size once edited, which say
-//! something of its text (ADR 0051, ADR 0058).
+//! the text of a buffer that may hold secrets, whichever way it is asked, and
+//! `get-state` gives no position in one, and no size once it is edited (ADR 0051,
+//! ADR 0058).
 //!
 //! Must not depend on: `app`, winit or sockets; these are plain functions of
 //! the editor state.
@@ -57,7 +57,7 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 /// prefix, and the surface size if there is a window.
 ///
 /// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`
-/// are left out. Its other metadata stays.
+/// are left out. Its other metadata stays, as [`buffer_state`] has it.
 pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     let (window, buffer) = editor.current();
     let display = buffer.display();
@@ -97,8 +97,8 @@ fn scroll_state(window: &Window) -> Value {
     json!({ "top": window.scroll().top, "left": window.scroll().left })
 }
 
-/// A buffer's metadata. An edit to a buffer that may hold secrets says how much it
-/// took out, so such a buffer's size goes until it is back to what was saved.
+/// A buffer's metadata. A buffer that may hold secrets gives no size while it is
+/// modified (ADR 0058).
 fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
     let info = buffer.file_info();
     let size_shown = !(buffer.is_secret() && buffer.is_modified());
