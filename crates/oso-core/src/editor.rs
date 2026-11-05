@@ -29,31 +29,13 @@ use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
 use crate::window::{self, Scroll, ViewSize, Window};
 
+mod messages;
 mod save;
 
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
-
-/// The messages the editor keeps, as Emacs's `message-log-max`.
-const MAX_MESSAGES: usize = 1000;
-
-/// A message as the log shows it: control and non-printable characters are
-/// escaped, so that a name in it cannot move a terminal's cursor or reorder the
-/// line. Quotes and backslashes stay as they are.
-fn log_text(text: &str) -> String {
-    let mut shown = String::with_capacity(text.len());
-    for part in text.split_inclusive(['\'', '"', '\\']) {
-        let (body, last) = match part.chars().next_back() {
-            Some(last @ ('\'' | '"' | '\\')) => (&part[..part.len() - 1], Some(last)),
-            _ => (part, None),
-        };
-        shown.extend(body.escape_debug());
-        shown.extend(last);
-    }
-    shown
-}
 
 /// What the selected window's cursors do when a buffer it shows changes.
 #[derive(Clone, Copy)]
@@ -485,24 +467,6 @@ impl Editor {
         Ok(())
     }
 
-    /// Adds a message, for the echo area and `*Messages*`, and writes it to the
-    /// log. Save completion and recovery offers arrive outside commands, so it
-    /// is here and not on [`Ctx`](crate::command::Ctx). Messages reach the log:
-    /// they must never quote buffer text (ADR 0028).
-    pub fn message(&mut self, text: impl Into<String>) {
-        let text = text.into();
-        log::info!("{}", log_text(&text));
-        if self.messages.len() == MAX_MESSAGES {
-            self.messages.pop_front();
-        }
-        self.messages.push_back(text);
-    }
-
-    /// The messages kept, oldest first; the last is the newest.
-    pub fn messages(&self) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator {
-        self.messages.iter().map(String::as_str)
-    }
-
     /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
     /// the selected one then scrolls to show its primary cursor. Rows it gained
     /// also show the text above any empty space below the buffer's last row.
@@ -601,6 +565,7 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
+    use super::messages::{MAX_MESSAGES, log_text};
     use super::*;
     use crate::display_map::TabWidth;
     use crate::load::Builder;
