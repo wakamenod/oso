@@ -490,6 +490,7 @@ impl RenderState {
         // The box cursor covers the whole character under it, two cells for
         // a full-width one (ADR 0026).
         let cursor_cells = motion::cursor_cells(display, text.cursor);
+        let cursor_rect = frame::cursor_rect(text.area, text.scroll, text.cursor, cursor_cells);
         let grid = self.pixel_grid();
         let area = grid.rect(text.area);
         let layout = Layout {
@@ -497,7 +498,8 @@ impl RenderState {
             viewport: [self.config.width as f32, area.y + area.height],
             metrics,
             scroll: text.scroll,
-            cursor: (text.cursor, cursor_cells),
+            // Glyphs take the box's color only where the box is.
+            cursor: (text.cursor, cursor_rect.map_or(0, |cells| cells.columns)),
             color: FOREGROUND,
             escape_color: ESCAPE,
             cursor_color: BACKGROUND,
@@ -534,8 +536,8 @@ impl RenderState {
                 color: ESCAPE_BOX,
             });
         }
-        if let Some(cell) = frame::cursor_cell(text.area, text.scroll, text.cursor, cursor_cells) {
-            let cursor = grid.rect(cell);
+        if let Some(cells) = cursor_rect {
+            let cursor = grid.rect(cells);
             self.rects.push(Rect {
                 position: [cursor.x, cursor.y],
                 size: [cursor.width, cursor.height],

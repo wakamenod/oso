@@ -491,7 +491,8 @@ impl Editor {
     }
 
     /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
-    /// scroll to keep each cursor in view. Returns whether a view moved.
+    /// the selected one then scrolls to show its primary cursor. Returns whether
+    /// the view moved.
     pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
         self.frame = frame::layout(size);
         let view = self.frame.window.text.view_size();
@@ -501,8 +502,8 @@ impl Editor {
         self.follow_cursor()
     }
 
-    /// Lays out the frame whose text area is `size`, in rows and columns shown in
-    /// full. Returns whether a view moved.
+    /// Lays out the frame whose text area is `size`, for tests that think in text
+    /// rows. Returns whether the view moved.
     pub fn set_view_size(&mut self, size: ViewSize) -> bool {
         self.set_frame_size(FrameSize::holding(size))
     }
@@ -520,7 +521,7 @@ impl Editor {
         let display = buffer.display();
         let point = window.cursor_point(&display);
         let cells = motion::cursor_cells(&display, point);
-        let cell = frame::cursor_cell(self.frame.window.text, window.scroll(), point, cells)?;
+        let cell = frame::cursor_rect(self.frame.window.text, window.scroll(), point, cells)?;
         Some(grid.rect(cell))
     }
 

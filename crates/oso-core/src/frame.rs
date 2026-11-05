@@ -3,7 +3,7 @@
 //! Must not depend on: `editor`, `command`, or any GPU or window-system type.
 //! Sizes come in as plain numbers, and nothing here draws.
 //!
-//! A frame is a grid of whole cells. From the top: the selected window's text
+//! A frame is a grid of whole cells. From the top: the one tiled window's text
 //! area, its modeline, then the echo area. A frame too small for all of them
 //! gives up the modeline first and the echo area next, so the text keeps a row
 //! as long as there is one. The regions always add up to the frame, and never
@@ -20,8 +20,7 @@ use crate::window::{Scroll, ViewSize};
 /// area.
 const RESERVED_ROWS: usize = 2;
 
-// Top-left margin, in physical pixels (will become the line-number gutter
-// offset in the future).
+// Top-left margin, in physical pixels.
 const MARGIN_X: f32 = 8.0;
 const MARGIN_Y: f32 = 8.0;
 
@@ -72,7 +71,7 @@ pub struct WindowRegions {
 /// A frame divided into regions.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FrameLayout {
-    /// The selected window, the only one until splits arrive (M3).
+    /// The one tiled window, until splits arrive (M3).
     pub window: WindowRegions,
     pub echo: CellRect,
     /// Floating windows, back to front, above all the other regions and free to
@@ -106,7 +105,7 @@ pub fn layout(size: FrameSize) -> FrameLayout {
 /// The cells of a cursor at `point`, whose cluster takes `cells` cells, in a
 /// window with this `text` area and `scroll`. `None` if it is out of view. A
 /// cluster that the right edge cuts ends there.
-pub fn cursor_cell(
+pub fn cursor_rect(
     text: CellRect,
     scroll: Scroll,
     point: DisplayPoint,
@@ -142,7 +141,9 @@ pub struct PixelGrid {
 }
 
 impl PixelGrid {
-    /// The grid for cells of this size, in physical pixels.
+    /// The grid for cells of this size, in whole physical pixels, as
+    /// `CellMetrics` gives them. A row count then survives the trip to pixels and
+    /// back exactly.
     pub fn new(cell_width: f32, cell_height: f32) -> Self {
         Self {
             origin: [MARGIN_X, MARGIN_Y],
@@ -303,11 +304,11 @@ mod tests {
         let text = rect(0, 0, 10, 20);
         let scroll = Scroll { top: 5, left: 2 };
         assert_eq!(
-            cursor_cell(text, scroll, DisplayPoint::new(7, 3), 1),
+            cursor_rect(text, scroll, DisplayPoint::new(7, 3), 1),
             Some(rect(2, 1, 1, 1))
         );
         assert_eq!(
-            cursor_cell(text, scroll, DisplayPoint::new(5, 2), 2),
+            cursor_rect(text, scroll, DisplayPoint::new(5, 2), 2),
             Some(rect(0, 0, 1, 2)),
             "a wide cluster takes both cells",
         );
@@ -319,18 +320,18 @@ mod tests {
         let scroll = Scroll { top: 5, left: 2 };
         for (row, column) in [(4, 3), (15, 3), (7, 1), (7, 22)] {
             let point = DisplayPoint::new(row, column);
-            assert_eq!(cursor_cell(text, scroll, point, 1), None, "{point:?}");
+            assert_eq!(cursor_rect(text, scroll, point, 1), None, "{point:?}");
         }
         let empty = rect(0, 0, 0, 20);
         let point = DisplayPoint::new(0, 0);
-        assert_eq!(cursor_cell(empty, Scroll::default(), point, 1), None);
+        assert_eq!(cursor_rect(empty, Scroll::default(), point, 1), None);
     }
 
     #[test]
     fn a_cursor_cell_stops_at_the_right_edge() {
         let text = rect(0, 0, 10, 20);
         let point = DisplayPoint::new(0, 19);
-        let cell = cursor_cell(text, Scroll::default(), point, 2);
+        let cell = cursor_rect(text, Scroll::default(), point, 2);
         assert_eq!(cell, Some(rect(0, 19, 1, 1)));
     }
 
@@ -359,7 +360,7 @@ mod tests {
         ) {
             let text = frame(rows, columns).window.text;
             let scroll = Scroll { top, left };
-            if let Some(cell) = cursor_cell(text, scroll, DisplayPoint::new(row, column), cells) {
+            if let Some(cell) = cursor_rect(text, scroll, DisplayPoint::new(row, column), cells) {
                 prop_assert!(cell.rows == 1 && cell.columns >= 1);
                 prop_assert!(cell.row + cell.rows <= text.rows);
                 prop_assert!(cell.column + cell.columns <= text.columns);

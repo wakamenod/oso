@@ -7,7 +7,7 @@
 //! The tests live here because `oso` is a binary crate, so `tests/` cannot
 //! reach the `Dispatcher`. The grid draws through the code the renderer uses
 //! (`DisplayCluster::for_each_run`, `Window::cursor_point`,
-//! `motion::cursor_cells`), so a snapshot fails when
+//! `motion::cursor_cells`, `frame::cursor_rect`), so a snapshot fails when
 //! the cells on screen change. Pixels are not covered (ADR 0037, layer 4).
 //!
 //! A frame is its regions from the top (ADR 0057). Each row of the text area is
@@ -16,9 +16,11 @@
 //! `docs/dev/testing.md`.
 
 use oso_core::buffer::Buffer;
+use std::ops::Range;
+
 use oso_core::display_map::{CellRun, CellStyle, DisplayPoint, DisplaySnapshot};
 use oso_core::editor::Editor;
-use oso_core::frame::{CellRect, FrameSize};
+use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
 use oso_core::motion;
 use oso_core::window::{Scroll, ViewSize};
@@ -29,9 +31,6 @@ use super::Dispatcher;
 const LEFT_HALF: char = '▌';
 /// The right half of a wide cluster cut off by the left edge of the window.
 const RIGHT_HALF: char = '▐';
-
-/// The cursor as the renderer draws it: where, and how many cells.
-type CursorBox = (DisplayPoint, usize);
 
 /// The frame's screen: its regions from the top, one line per row and one per
 /// marked row.
@@ -48,10 +47,19 @@ fn text_grid(editor: &Editor) -> String {
 fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let (window, buffer) = editor.current();
     let display = buffer.display();
-    let cursor = window.cursor_point(&display);
-    let cursor = (cursor, motion::cursor_cells(&display, cursor));
-    for row in window.scroll().top..window.scroll().top + area.rows {
-        let (text, marks) = draw_row(&display, row, window.scroll(), window.size(), cursor);
+    let scroll = window.scroll();
+    let point = window.cursor_point(&display);
+    // The cursor box as the renderer draws it.
+    let cursor = frame::cursor_rect(area, scroll, point, motion::cursor_cells(&display, point));
+    for index in 0..area.rows {
+        let row = scroll.top + index;
+        let cursor = cursor
+            .filter(|cells| cells.row == area.row + index)
+            .map_or(0..0, |cells| {
+                let start = cells.column - area.column;
+                start..start + cells.columns
+            });
+        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor);
         lines.push(format!("│{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
@@ -67,17 +75,18 @@ fn draw_blank(area: CellRect, edge: char, lines: &mut Vec<String>) {
     }
 }
 
-/// The text of one row of the window and a mark for each of its cells.
+/// The text of one row of `columns` cells and a mark for each of them. `cursor`
+/// holds the cells under the cursor box, counted from the row's left edge.
 fn draw_row(
     display: &DisplaySnapshot,
     row: usize,
     scroll: Scroll,
-    size: ViewSize,
-    cursor: CursorBox,
+    columns: usize,
+    cursor: Range<usize>,
 ) -> (String, Vec<char>) {
-    let view = scroll.left..scroll.left + size.columns;
+    let view = scroll.left..scroll.left + columns;
     let mut text = String::new();
-    let mut marks = vec![' '; size.columns];
+    let mut marks = vec![' '; columns];
     let mut drawn = view.start;
     for cluster in display.clusters(DisplayPoint::new(row, view.start)) {
         if cluster.column >= view.end {
@@ -94,12 +103,7 @@ fn draw_row(
         });
     }
     text.extend(std::iter::repeat_n(' ', view.end - drawn));
-    let (point, cells) = cursor;
-    if point.row == row {
-        for column in (point.column..point.column + cells).filter(|c| view.contains(c)) {
-            marks[column - view.start] = '^';
-        }
-    }
+    marks[cursor].fill('^');
     (text, marks)
 }
 

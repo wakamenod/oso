@@ -92,7 +92,7 @@ hand if its test is gone.
 
 The grid draws through the code the renderer uses
 (`DisplayCluster::for_each_run`, `Window::cursor_point`,
-`motion::cursor_cells`). Anything drawn that a test cannot see this way belongs
+`motion::cursor_cells`, `frame::cursor_rect`). Anything drawn that a test cannot see this way belongs
 in the same code, not in the renderer. What happens after the cells, such as
 glyph placement and colors, is left to pixel snapshots.
 

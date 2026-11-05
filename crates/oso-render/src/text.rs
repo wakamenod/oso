@@ -470,6 +470,7 @@ impl TextRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oso_core::frame::{self, FrameSize, PixelGrid};
     use oso_platform::text::{FontId, GlyphId, GlyphKey};
 
     const WHITE: [f32; 4] = [1.0; 4];
@@ -759,6 +760,27 @@ mod tests {
             ..l
         };
         assert_eq!(tiny.visible_rows(), 0);
+    }
+
+    #[test]
+    fn a_text_area_draws_exactly_its_rows() {
+        let metrics = layout().metrics;
+        let grid = PixelGrid::new(metrics.width, metrics.height);
+        for frame_rows in [0, 1, 2, 3, 40, 1000] {
+            let text = frame::layout(FrameSize {
+                rows: frame_rows,
+                columns: 80,
+            })
+            .window
+            .text;
+            let area = grid.rect(text);
+            let l = Layout {
+                origin: [area.x, area.y],
+                viewport: [200.0, area.y + area.height],
+                ..layout()
+            };
+            assert_eq!(l.visible_rows(), text.rows, "a frame of {frame_rows} rows");
+        }
     }
 
     #[test]

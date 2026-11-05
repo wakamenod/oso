@@ -35,16 +35,17 @@ floating windows.
 - `floating` is a list of rectangles, back to front, above the other regions and
   free to cover them. It stays empty until M2-16, which decides how a feature asks
   for a place.
-- There is one window until splits arrive (M3). Splits divide the window's part of
-  the frame, and each keeps a text area and a modeline.
+- `window` is the one tiled window until splits arrive (M3). Splits divide its part
+  of the frame, and each keeps a text area and a modeline.
 
 ### Who holds what
 
 - `Editor` holds the layout. `Editor::set_frame_size` sets it, and gives every
   window its text area as its `ViewSize`, so the two cannot disagree. Scrolling,
   `C-v`, the wheel and following the cursor work with that size and need no change.
-- `Editor::set_view_size` stays, for tests and callers that think in text rows. It
-  lays out the frame that holds that text area.
+- `Editor::set_view_size` stays, for tests that think in text rows. It lays out the
+  frame that holds that text area. It can go once the branches adding to those test
+  helpers have landed.
 
 ### Pixels
 
@@ -56,7 +57,7 @@ leave `oso-render`. It takes the cell's width and height as plain numbers, becau
 - `RenderState::frame_size` replaces `text_area`, and `RenderState::pixel_grid`
   hands over the grid.
 - `TextView::area` says which cells a view is drawn in. Text stops at its bottom,
-  and the cursor box comes from the same `frame::cursor_cell` as the rectangle
+  and the cursor box comes from the same `frame::cursor_rect` as the rectangle
   below.
 - `Editor::cursor_area(grid)` gives the selected window's primary cursor as a
   physical rectangle, or `None` when it is out of view, for `set_ime_cursor_area`
@@ -83,13 +84,19 @@ leave `oso-render`. It takes the cell's width and height as plain numbers, becau
 ## Consequences
 
 - A window shows two rows fewer. They are blank until M2-7.
+- `Editor::cursor_area` and `text_view` pair the selected window with
+  `FrameLayout::window`, which is right only while the selected window is the tiled
+  one. M2-16's minibuffer and M3's splits must look up the selected window's regions.
+- `floating` is room, not a settled shape. A rectangle does not say which window it
+  holds, and `set_frame_size` rebuilds the layout and gives every window the tiled
+  text area, so M2-16 is expected to change the type and that path.
 - Every text-grid frame gains two lines. Branches in progress need `just snapshots`
   after merging this.
 - A surface too short for one whole row shows no text and no cursor, where it used to
   show part of a row. `ViewSize` stays at least 1, so commands still work.
-- A glyph in the last text row may still paint its band below the row
-  ([ADR 0052](0052-glyphs-stay-in-their-cells.md)), which reaches the modeline's row.
-  The pane clip in M2-6 settles that.
+- Clipping each region to its own cells is M2-6's, with the list of panes.
+- Below three rows there is no modeline, so what it shows has no place. M2-7 decides
+  where its warnings go then.
 - `window::reaches` no longer counts a partly shown row, so a load that grows only
   the rows below the view asks for one frame fewer. M2-7 must ask for a frame when
   the modeline's loading progress changes.
@@ -115,8 +122,8 @@ leave `oso-render`. It takes the cell's width and height as plain numbers, becau
   shown row is one the cursor can never reach.
 - **Stretching the bottom rows to fill the leftover:** no strip at the bottom, but
   rows of different heights break the cell grid.
-- **The modeline outlasting the echo area:** it keeps the buffer's name and warnings,
-  but a frame of two rows has no room to use them, and errors would have nowhere to go.
+- **The modeline outlasting the echo area:** it keeps the buffer's name and warnings
+  in a frame of two rows, but errors would have nowhere to go.
 - **Dropping `set_view_size`:** one way in, but it would touch every test helper while
   other branches add to them.
 - **A trait or an enum of regions, or a `floating` type of its own:** more to change
