@@ -1,6 +1,6 @@
 # 0057. The layout of a frame into regions
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-05
 
 ## Context
@@ -24,17 +24,15 @@ Until now the renderer drew one view over the whole surface:
 
 `oso_core::frame` is a new public module, above `window` and below `editor`.
 `frame::layout` is a pure function from a frame's size in whole cells to its
-regions: the window's text area, its modeline, the echo area and a list of
-floating windows.
+regions: the window's text area, its modeline and the echo area.
 
 - From the top: text, one modeline row, one echo row.
 - **A small frame gives up the modeline first and the echo area next.** Three rows
   or more hold all three, two rows hold text and echo, and one row holds text. The
   echo area outlasts the modeline because errors appear there.
 - The regions never overlap, and their rows add up to the frame's.
-- `floating` is a list of rectangles, back to front, above the other regions and
-  free to cover them. It stays empty until M2-16, which decides how a feature asks
-  for a place.
+- Floating windows are not in the layout yet. M2-16 adds them, above the other regions
+  and free to cover them, once it knows what a feature needs to ask for a place.
 - `window` is the one tiled window until splits arrive (M3). Splits divide its part
   of the frame, and each keeps a text area and a modeline.
 
@@ -45,7 +43,7 @@ floating windows.
   `C-v`, the wheel and following the cursor work with that size and need no change.
 - `Editor::set_view_size` stays, for tests that think in text rows. It lays out the
   frame that holds that text area. It can go once the branches adding to those test
-  helpers have landed.
+  helpers have landed (`open-questions.md`).
 
 ### Pixels
 
@@ -56,13 +54,13 @@ leave `oso-render`. It takes the cell's width and height as plain numbers, becau
 
 - `RenderState::frame_size` replaces `text_area`, and `RenderState::pixel_grid`
   hands over the grid.
-- `TextView::area` says which cells a view is drawn in. Text stops at its bottom,
-  and the cursor box comes from the same `frame::cursor_rect` as the rectangle
-  below.
+- `TextView::area` says which cells a view is drawn in. Its rows stop at the area's
+  bottom, and clipping to the region comes with M2-6. The cursor box comes from the
+  same `frame::cursor_rect` as the rectangle below.
 - `Editor::cursor_area(grid)` gives the selected window's primary cursor as a
   physical rectangle, or `None` when it is out of view, for `set_ime_cursor_area`
-  in M2-12. It covers the cursor's cells, cut at the right edge. No `Ime` call and
-  no winit are involved yet.
+  in M2-12. It covers the part of the cursor's cells in view. No `Ime` call and no winit are
+  involved yet.
 
 ### Leftover pixels
 
@@ -83,13 +81,12 @@ leave `oso-render`. It takes the cell's width and height as plain numbers, becau
 
 ## Consequences
 
+- The app compares the renderer's frame size with the editor's after each frame, so a
+  surface the renderer configured again on its own does not wait for `Resized`.
 - A window shows two rows fewer. They are blank until M2-7.
 - `Editor::cursor_area` and `text_view` pair the selected window with
   `FrameLayout::window`, which is right only while the selected window is the tiled
   one. M2-16's minibuffer and M3's splits must look up the selected window's regions.
-- `floating` is room, not a settled shape. A rectangle does not say which window it
-  holds, and `set_frame_size` rebuilds the layout and gives every window the tiled
-  text area, so M2-16 is expected to change the type and that path.
 - Every text-grid frame gains two lines. Branches in progress need `just snapshots`
   after merging this.
 - A surface too short for one whole row shows no text and no cursor, where it used to
@@ -126,5 +123,8 @@ leave `oso-render`. It takes the cell's width and height as plain numbers, becau
   in a frame of two rows, but errors would have nowhere to go.
 - **Dropping `set_view_size`:** one way in, but it would touch every test helper while
   other branches add to them.
-- **A trait or an enum of regions, or a `floating` type of its own:** more to change
-  when M2-16 knows what it needs, and nothing uses them now.
+- **A list of floating rectangles in the layout now:** it would always be empty, cost
+  `FrameLayout` its `Copy` and add to the public API. A rectangle does not say which
+  window it holds, and a resize rebuilds the layout, so M2-16 would replace it anyway.
+- **A trait or an enum of regions:** more to change when M2-16 and M3 know what they
+  need, and nothing uses them now.

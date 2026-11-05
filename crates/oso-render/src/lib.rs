@@ -499,7 +499,10 @@ impl RenderState {
             metrics,
             scroll: text.scroll,
             // Glyphs take the box's color only where the box is.
-            cursor: (text.cursor, cursor_rect.map_or(0, |cells| cells.columns)),
+            cursor: cursor_rect.map_or((text.cursor, 0), |cells| {
+                let column = text.scroll.left + (cells.column - text.area.column);
+                (DisplayPoint::new(text.cursor.row, column), cells.columns)
+            }),
             color: FOREGROUND,
             escape_color: ESCAPE,
             cursor_color: BACKGROUND,

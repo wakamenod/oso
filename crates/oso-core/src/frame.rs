@@ -7,7 +7,7 @@
 //! area, its modeline, then the echo area. A frame too small for all of them
 //! gives up the modeline first and the echo area next, so the text keeps a row
 //! as long as there is one. The regions always add up to the frame, and never
-//! overlap.
+//! overlap. Floating windows, which go above them, arrive with M2-16.
 //!
 //! [`PixelGrid`] says where those cells are on the surface. The grid starts at
 //! the top-left margin and holds whole cells only. The pixels left over at the
@@ -69,15 +69,11 @@ pub struct WindowRegions {
 }
 
 /// A frame divided into regions.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrameLayout {
     /// The one tiled window, until splits arrive (M3).
     pub window: WindowRegions,
     pub echo: CellRect,
-    /// Floating windows, back to front, above all the other regions and free to
-    /// cover them (ADR 0008). Each feature decides where its own goes, so this is
-    /// empty until M2-16.
-    pub floating: Vec<CellRect>,
 }
 
 /// Divides a frame of `size` into regions.
@@ -98,13 +94,12 @@ pub fn layout(size: FrameSize) -> FrameLayout {
             modeline: rows(text_rows, modeline_rows),
         },
         echo: rows(window_rows, echo_rows),
-        floating: Vec::new(),
     }
 }
 
 /// The cells of a cursor at `point`, whose cluster takes `cells` cells, in a
-/// window with this `text` area and `scroll`. `None` if it is out of view. A
-/// cluster that the right edge cuts ends there.
+/// window with this `text` area and `scroll`. A cluster that an edge of the area
+/// cuts keeps the part in view, and `None` means none of it is.
 pub fn cursor_rect(
     text: CellRect,
     scroll: Scroll,
@@ -112,15 +107,19 @@ pub fn cursor_rect(
     cells: usize,
 ) -> Option<CellRect> {
     let row = point.row.checked_sub(scroll.top)?;
-    let column = point.column.checked_sub(scroll.left)?;
-    if row >= text.rows || column >= text.columns {
+    let start = point.column.max(scroll.left);
+    let end = point
+        .column
+        .saturating_add(cells.max(1))
+        .min(scroll.left.saturating_add(text.columns));
+    if row >= text.rows || start >= end {
         return None;
     }
     Some(CellRect {
         row: text.row + row,
-        column: text.column + column,
+        column: text.column + (start - scroll.left),
         rows: 1,
-        columns: cells.clamp(1, text.columns - column),
+        columns: end - start,
     })
 }
 
@@ -203,7 +202,6 @@ mod tests {
         assert_eq!(layout.window.text, rect(0, 0, 22, 80));
         assert_eq!(layout.window.modeline, rect(22, 0, 1, 80));
         assert_eq!(layout.echo, rect(23, 0, 1, 80));
-        assert!(layout.floating.is_empty());
     }
 
     #[test]
@@ -328,11 +326,55 @@ mod tests {
     }
 
     #[test]
-    fn a_cursor_cell_stops_at_the_right_edge() {
+    fn a_cursor_rectangle_stops_at_the_right_edge() {
         let text = rect(0, 0, 10, 20);
         let point = DisplayPoint::new(0, 19);
-        let cell = cursor_rect(text, Scroll::default(), point, 2);
-        assert_eq!(cell, Some(rect(0, 19, 1, 1)));
+        let cells = cursor_rect(text, Scroll::default(), point, 2);
+        assert_eq!(cells, Some(rect(0, 19, 1, 1)));
+    }
+
+    #[test]
+    fn a_cursor_rectangle_stops_at_the_left_edge() {
+        let text = rect(0, 0, 10, 20);
+        let scroll = Scroll { top: 0, left: 5 };
+        let at = |column, cells| cursor_rect(text, scroll, DisplayPoint::new(0, column), cells);
+        assert_eq!(
+            at(4, 2),
+            Some(rect(0, 0, 1, 1)),
+            "the right half of a wide one"
+        );
+        assert_eq!(at(3, 6), Some(rect(0, 0, 1, 4)), "the end of a long label");
+        assert_eq!(at(3, 2), None, "it ends just before the edge");
+    }
+
+    #[test]
+    fn a_cursor_rectangle_cut_on_both_sides_fills_the_area() {
+        let text = rect(0, 0, 10, 4);
+        let scroll = Scroll { top: 0, left: 5 };
+        let cells = cursor_rect(text, scroll, DisplayPoint::new(0, 3), 64);
+        assert_eq!(cells, Some(rect(0, 0, 1, 4)));
+    }
+
+    #[test]
+    fn a_cursor_rectangle_keeps_to_an_area_away_from_the_origin() {
+        let text = rect(3, 7, 10, 20);
+        let scroll = Scroll { top: 5, left: 2 };
+        let cells = cursor_rect(text, scroll, DisplayPoint::new(6, 1), 2);
+        assert_eq!(cells, Some(rect(4, 7, 1, 1)));
+    }
+
+    #[test]
+    fn huge_positions_do_not_overflow() {
+        let text = rect(0, 0, 10, 20);
+        let far = DisplayPoint::new(0, usize::MAX);
+        let scroll = Scroll { top: 0, left: 5 };
+        assert_eq!(cursor_rect(text, scroll, far, usize::MAX), None);
+        let scroll = Scroll {
+            top: 0,
+            left: usize::MAX,
+        };
+        let cells = cursor_rect(text, scroll, far, 1);
+        assert_eq!(cells, None, "the column past the last one is not in view");
     }
 
     proptest! {
@@ -351,18 +393,25 @@ mod tests {
             }
         }
 
-        /// The cursor's cells are always inside the text area.
+        /// The cursor's cells are inside the text area, and are exactly the part of
+        /// its cluster in view.
         #[test]
-        fn prop_a_cursor_cell_stays_in_the_text_area(
+        fn prop_a_cursor_rectangle_is_the_part_in_view(
             rows in 0usize..100, columns in 0usize..100,
             top in 0usize..100, left in 0usize..100,
             row in 0usize..200, column in 0usize..200, cells in 1usize..70,
         ) {
             let text = frame(rows, columns).window.text;
             let scroll = Scroll { top, left };
-            if let Some(cell) = cursor_rect(text, scroll, DisplayPoint::new(row, column), cells) {
-                prop_assert!(cell.rows == 1 && cell.columns >= 1);
-                prop_assert!(cell.row + cell.rows <= text.rows);
+            let found = cursor_rect(text, scroll, DisplayPoint::new(row, column), cells);
+            let visible = (left..left + text.columns)
+                .filter(|c| (column..column + cells).contains(c))
+                .count();
+            let in_rows = (top..top + text.rows).contains(&row);
+            prop_assert_eq!(found.is_some(), in_rows && visible > 0);
+            if let Some(cell) = found {
+                prop_assert_eq!((cell.rows, cell.columns), (1, visible));
+                prop_assert_eq!(cell.row, row - top);
                 prop_assert!(cell.column + cell.columns <= text.columns);
             }
         }

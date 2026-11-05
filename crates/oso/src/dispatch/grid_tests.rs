@@ -299,6 +299,18 @@ mod scenarios {
     }
 
     #[test]
+    fn the_wheel_can_leave_the_cursor_on_a_cluster_cut_at_the_left_edge() {
+        let text = "0123456789\n日本語\n";
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = open(text.as_bytes(), (1, 10));
+        dispatcher.handle_keys(&mut editor, "C-e".parse::<KeySequence>().unwrap().0);
+        let mut frames = vec![format!("keys: C-e\n{}", text_grid(&editor))];
+        editor.scroll_view(1);
+        frames.push(format!("wheel: 1\n{}", text_grid(&editor)));
+        assert_frames("cursor_cut_at_the_left_edge", text.as_bytes(), &frames);
+    }
+
+    #[test]
     fn a_small_frame_gives_up_the_reserved_rows_before_the_text() {
         let text = "one\ntwo\nthree\n";
         check_frame("frame_of_3_rows", text, (3, 8), &["", "C-n", "M->"]);

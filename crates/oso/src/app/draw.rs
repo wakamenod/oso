@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use oso_core::editor::Editor;
+use oso_core::frame;
 use oso_render::{Redraw, RenderState, TextView};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
@@ -125,7 +126,16 @@ impl App {
         let text = text_view(&self.editor);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
-        match view.render_state.render(&text, &window_size) {
+        let result = view.render_state.render(&text, &window_size);
+        // Recovering from a surface error can configure it to a new size before
+        // `Resized` says so, and text stops at the text area, so the editor catches
+        // up now.
+        let size = view.render_state.frame_size();
+        if frame::layout(size) != self.editor.frame() {
+            self.editor.set_frame_size(size);
+            view.window.request_redraw();
+        }
+        match result {
             Ok(redraw) => {
                 view.redraw_if(redraw);
                 #[cfg(feature = "dev")]

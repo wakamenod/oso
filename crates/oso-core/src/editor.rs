@@ -509,8 +509,8 @@ impl Editor {
     }
 
     /// The frame's regions.
-    pub fn frame(&self) -> &FrameLayout {
-        &self.frame
+    pub fn frame(&self) -> FrameLayout {
+        self.frame
     }
 
     /// Where the selected window's primary cursor is on the surface, in physical
@@ -593,7 +593,7 @@ mod tests {
             columns: 40,
         };
         editor.set_frame_size(frame);
-        assert_eq!(editor.frame(), &frame::layout(frame));
+        assert_eq!(editor.frame(), frame::layout(frame));
         assert_eq!(editor.window().size(), ViewSize::new(10, 40));
     }
 

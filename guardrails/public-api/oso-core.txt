@@ -641,7 +641,7 @@ pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) 
 pub fn oso_core::editor::Editor::end_undo_group(&mut self)
 pub fn oso_core::editor::Editor::end_undo_group_after_panic(&mut self)
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
-pub fn oso_core::editor::Editor::frame(&self) -> &oso_core::frame::FrameLayout
+pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages(&self) -> impl core::iter::traits::double_ended::DoubleEndedIterator<Item = &str> + core::iter::traits::exact_size::ExactSizeIterator
@@ -682,7 +682,6 @@ impl core::marker::Copy for oso_core::frame::CellRect
 impl core::marker::StructuralPartialEq for oso_core::frame::CellRect
 pub struct oso_core::frame::FrameLayout
 pub oso_core::frame::FrameLayout::echo: oso_core::frame::CellRect
-pub oso_core::frame::FrameLayout::floating: alloc::vec::Vec<oso_core::frame::CellRect>
 pub oso_core::frame::FrameLayout::window: oso_core::frame::WindowRegions
 impl core::clone::Clone for oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::clone(&self) -> oso_core::frame::FrameLayout
@@ -693,6 +692,7 @@ impl core::fmt::Debug for oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::hash::Hash for oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::frame::FrameLayout
 impl core::marker::StructuralPartialEq for oso_core::frame::FrameLayout
 pub struct oso_core::frame::FrameSize
 pub oso_core::frame::FrameSize::columns: usize
