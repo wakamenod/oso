@@ -742,7 +742,7 @@ impl core::hash::Hash for oso_core::frame::WindowRegions
 pub fn oso_core::frame::WindowRegions::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
-pub fn oso_core::frame::cursor_cell(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
 pub mod oso_core::key
 pub enum oso_core::key::Key
