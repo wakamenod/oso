@@ -114,9 +114,20 @@ item notes when it must be settled.
   `set_top` follow the primary cursor, and test the wheel with `left` above 0.
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
-- Whether `set_ime_allowed(false)` is enough to switch the IME off on macOS, or
-  oso must switch the input source itself. The logging branch beside M2-4 finds
-  out.
+- By M2-12, from trying the macOS IME by hand (winit 0.30), with its ADR to record
+  them:
+  - `set_ime_allowed(false)` is enough to switch the IME off, so no new `unsafe` is
+    needed. The OS indicator stays on the input source.
+  - With the IME on and a Japanese input source, Option-a starts a composition
+    instead of arriving as `s-a`. Try `set_option_as_alt` first, then switching the
+    IME off while Option is held.
+  - A plain letter can start a composition, so the IME goes off while a prefix is
+    pending too, as in the minibuffer, isearch and menus. Check this at the keyboard.
+  - Space arrives as `SPC`, and winit cannot deliver a full-width one. Space stays
+    half-width, and a command, `insert-full-width-space`, inserts the other.
+  - Switching off during a composition leaves it with the OS, and the next key brings
+    it back. Defer switching off until the composition ends.
+  - With several cursors, decide which one shows the preedit.
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
