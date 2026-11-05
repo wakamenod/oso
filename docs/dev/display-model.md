@@ -152,6 +152,13 @@ one layer:
 - Floating windows are positioned freely above the tree. They show the
   minibuffer, menus, completion popups and hover documentation. Their
   placement is decided per feature.
+- `oso_core::frame` lays out a frame in whole cells: the window's text area and
+  modeline, the echo area, and room for floating windows. `Editor` holds the layout,
+  and a window's `ViewSize` is its text area, so scrolling and the cursor stop above
+  the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).
+- `frame::PixelGrid` maps cells to physical pixels. The renderer draws in the cells
+  it is given, and `Editor::cursor_area` gives the input method the cursor's
+  rectangle.
 
 ## Terminal views
 

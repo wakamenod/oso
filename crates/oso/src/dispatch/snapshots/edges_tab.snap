@@ -5,7 +5,11 @@ description: "text: abc\\tdef"
 keys: none
 │abc  │
 :^    :
+=     =
+"     "
 
 keys: C-e
 │ def │
 :    ^:
+=     =
+"     "

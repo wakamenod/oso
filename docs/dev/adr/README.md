@@ -62,6 +62,7 @@ old one's status.
 | 0053 | [Edit core: edits, selection mapping and undo](0053-edit-core.md) | Accepted |
 | 0054 | [Limits on a display cluster](0054-limits-on-a-display-cluster.md) | Accepted |
 | 0055 | [`oso dev` never loses unsaved text](0055-oso-dev-never-loses-unsaved-text.md) | Accepted |
+| 0057 | [The layout of a frame into regions](0057-frame-layout.md) | Proposed |
 
 ## Template
 

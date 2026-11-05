@@ -7,27 +7,37 @@ wheel: none
 :^       :
 │line 1  │
 │line 2  │
+=        =
+"        "
 
 wheel: 2
 │line 2  │
 :^       :
 │line 3  │
 │line 4  │
+=        =
+"        "
 
 wheel: 100
 │line 6  │
 :^       :
 │line 7  │
 │        │
+=        =
+"        "
 
 wheel: -1
 │line 5  │
 │line 6  │
 :^       :
 │line 7  │
+=        =
+"        "
 
 wheel: -100
 │line 0  │
 │line 1  │
 │line 2  │
 :^       :
+=        =
+"        "

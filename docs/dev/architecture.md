@@ -106,7 +106,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   history. A window
   (`oso_core::window`) shows one buffer with its own selection set and
   scroll position. There is one window until splits (M3). See
-  [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).
+  [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md). A pure function,
+  `oso_core::frame::layout`, divides the frame into whole cells: its size is the
+  window's text area, above a modeline row and the echo area
+  ([ADR 0057](adr/0057-frame-layout.md)).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
   goal column for vertical motion and, from M2, its own mark. See

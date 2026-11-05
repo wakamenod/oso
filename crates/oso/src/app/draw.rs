@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use oso_core::editor::Editor;
-use oso_core::window::ViewSize;
 use oso_render::{Redraw, RenderState, TextView};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
@@ -24,6 +23,7 @@ pub(super) fn text_view(editor: &Editor) -> TextView {
         display,
         buffer: window.buffer(),
         revision: buffer.revision(),
+        area: editor.frame().window.text,
         scroll: window.scroll(),
         cursor,
     }
@@ -78,7 +78,7 @@ impl App {
                 log::debug!("resumed {:?} after start", started.elapsed());
             }
             self.view = Some(View::open(event_loop));
-            self.update_view_size();
+            self.update_frame_size();
             // Content that loaded while the window opened shows in the
             // first frame.
             self.poll_loads();
@@ -90,7 +90,7 @@ impl App {
         if let Some(view) = &mut self.view {
             let redraw = view.render_state.resize(width, height);
             view.redraw_if(redraw);
-            self.update_view_size();
+            self.update_frame_size();
         }
     }
 
@@ -99,15 +99,14 @@ impl App {
         if let Some(view) = &mut self.view {
             let redraw = view.render_state.set_text_system(text::load(scale_factor));
             view.redraw_if(redraw);
-            self.update_view_size();
+            self.update_frame_size();
         }
     }
 
-    /// Tells the editor how many rows and columns the window shows.
-    fn update_view_size(&mut self) {
+    /// Tells the editor how many whole cells the window holds.
+    fn update_frame_size(&mut self) {
         if let Some(view) = &self.view {
-            let (rows, columns) = view.render_state.text_area();
-            self.editor.set_view_size(ViewSize::new(rows, columns));
+            self.editor.set_frame_size(view.render_state.frame_size());
         }
     }
 

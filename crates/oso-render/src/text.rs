@@ -88,7 +88,8 @@ fn clip_axis(start: f32, len: f32, min: f32, max: f32) -> Option<(f32, f32)> {
 pub(crate) struct Layout {
     /// Top-left corner of the first cell, in whole pixels.
     pub(crate) origin: [f32; 2],
-    /// The surface size; rows and glyphs outside it are skipped.
+    /// The right edge of the surface and the bottom of the text area; rows and
+    /// glyphs past them are skipped.
     pub(crate) viewport: [f32; 2],
     pub(crate) metrics: CellMetrics,
     /// The display row and column at the top-left cell.

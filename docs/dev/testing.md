@@ -37,18 +37,21 @@ tests; higher layers have few.
 The screen is rendered as a grid of characters and compared as text with
 `insta` ([ADR 0045](adr/0045-text-grid-snapshots.md)). They need no GPU, so
 they run on every OS in `just ci`, and both people and agents can read the
-diffs. Decorations, the modeline and the minibuffer will show up once they
-exist.
+diffs. Decorations and the minibuffer will show up once they exist.
 
 ```
 keys: C-f
 │日本語 a\xFF        │
 :<>^^<>  ~~~~        :
 │                    │
+=                    =
+"                    "
 ```
 
-Each row of the window is a line between `│`. Below a row that needs it, a
-line between `:` marks its cells:
+A frame is its regions from the top ([ADR 0057](adr/0057-frame-layout.md)). Each
+row of the text area is a line between `│`, the modeline's is between `=` and the
+echo area's between `"`. Those two are blank until they have something to show.
+Below a row that needs it, a line between `:` marks its cells:
 
 | Mark | Meaning |
 |---|---|
@@ -71,13 +74,14 @@ lives there because `oso` is a binary crate, so `tests/` cannot reach the
 #[test]
 fn page_keys_scroll_by_a_screen() {
     let text: String = (0..12).map(|i| format!("line {i:02}\n")).collect();
-    // A name, the file's bytes, rows and columns, and the keys of each frame.
-    // "" is a frame with no new keys. Keys add up from frame to frame.
+    // A name, the file's bytes, the text area's rows and columns, and the keys of
+    // each frame. "" is a frame with no new keys. Keys add up from frame to frame.
     check("page_scrolling", text, (5, 12), &["", "C-v", "M-v"]);
 }
 ```
 
-Use a small window, write control and invisible characters as escapes in the
+`check_frame` takes the rows and columns of the whole frame instead, for scenarios
+about the frame itself. Use a small window, write control and invisible characters as escapes in the
 test, and keep a scenario to one idea.
 
 **To update them,** run `just snapshots`, read `git diff` as you would code,
