@@ -40,7 +40,7 @@ impl Dispatcher {
     }
 
     /// The keys of the pending prefix, empty if none is pending. Only
-    /// `get-state` shows them until the echo area (M2) does.
+    /// `get-state` shows them until the echo area (M2-7) does.
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
@@ -105,23 +105,63 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
-        let (effects, result) = self.execute(editor, id, args);
+        let (effects, result) = self.execute(editor, id, args, "");
         (effects, result.map_err(|e| e.to_string()))
     }
 
-    /// Runs one command, then scrolls the selected window to keep its cursor
-    /// in view, as Emacs's redisplay does.
+    /// Inserts `text`, which may hold several characters, as a key that types
+    /// them would: through the text command of the active keymaps, as one command
+    /// and one undo step. A pending prefix makes it an undefined key sequence.
+    /// Input method commits come through here (M2-12).
+    #[cfg(test)]
+    pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        if !self.resolver.pending().is_empty() {
+            log::debug!(
+                "{} and text are undefined",
+                display_keys(self.resolver.pending())
+            );
+            self.resolver.reset();
+            return Effects::default();
+        }
+        match Layers::global(&self.global).text_command() {
+            Some(id) if !text.is_empty() => self.execute(editor, id, Args::NONE, text).0,
+            _ => Effects::default(),
+        }
+    }
+
+    /// Runs one command with `input` as the text that invoked it, in an undo
+    /// group of its own, so that it undoes as one step across all cursors. Then
+    /// scrolls the selected window to keep its cursor in view, as Emacs's
+    /// redisplay does. A failure is not fatal (ADR 0014), and leaves a message.
     fn execute(
         &self,
         editor: &mut Editor,
         id: CommandId,
         args: Args,
+        input: &str,
     ) -> (Effects, Result<(), ExecuteError>) {
-        let mut ctx = Ctx::new(editor);
+        editor.begin_undo_group();
+        let mut ctx = Ctx::with_input(editor, input);
         let result = self.registry.execute(id, &mut ctx, args);
         let mut effects = ctx.effects();
-        // What a panicking command changed may be visible.
-        effects.redraw |= matches!(result, Err(ExecuteError::Panicked { .. }));
+        match &result {
+            Ok(()) => editor.end_undo_group(),
+            Err(ExecuteError::Failed { error, .. }) => {
+                editor.end_undo_group();
+                editor.message(error.message());
+            }
+            Err(error @ ExecuteError::Panicked { .. }) => {
+                editor.end_undo_group_after_panic();
+                log::error!("{error}");
+                editor.message(error.to_string());
+                // What it changed may be visible.
+                effects.redraw = true;
+            }
+            Err(error @ ExecuteError::UnknownId(_)) => {
+                editor.end_undo_group();
+                editor.message(error.to_string());
+            }
+        }
         effects.redraw |= editor.follow_cursor();
         (effects, result)
     }
@@ -133,22 +173,27 @@ impl Dispatcher {
         let layers = Layers::global(&self.global);
         match self.resolver.feed(&layers, key) {
             Resolution::Command(id) => {
+                // The text comes from the key, so keys from the window and from
+                // the socket type the same. `KeyEvent.text` would type `q` for an
+                // unbound `C-q` (ADR 0051).
+                let mut utf8 = [0; 4];
+                let input = key.text().map_or("", |c| c.encode_utf8(&mut utf8));
                 // Prefix arguments (`C-u`) are not read yet.
-                let (effects, result) = self.execute(editor, id, Args::NONE);
-                // Not fatal (ADR 0014). The echo area shows these from M2.
-                match result {
-                    Ok(()) => {}
-                    Err(e @ ExecuteError::Panicked { .. }) => log::error!("{e}"),
-                    Err(e) => log::warn!("{e}"),
-                }
-                effects
+                self.execute(editor, id, Args::NONE, input).0
             }
             Resolution::Pending => {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
                 Effects::default()
             }
             Resolution::Unbound(keys) => {
-                log::debug!("{} is undefined", display_keys(keys));
+                // A key that types a character may be text meant for the buffer,
+                // which stays out of the log (ADR 0028).
+                match keys.split_last() {
+                    Some((last, prefix)) if last.text().is_some() => {
+                        log::debug!("{} <char> is undefined", display_keys(prefix));
+                    }
+                    _ => log::debug!("{} is undefined", display_keys(keys)),
+                }
                 Effects::default()
             }
             Resolution::Cancelled => {
@@ -159,6 +204,8 @@ impl Dispatcher {
     }
 }
 
+#[cfg(test)]
+mod edit_tests;
 #[cfg(test)]
 mod grid_tests;
 

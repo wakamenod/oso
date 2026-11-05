@@ -299,6 +299,45 @@ mod scenarios {
     }
 
     #[test]
+    fn typing_draws_what_was_typed_with_the_cursor_after_it() {
+        let steps = [
+            "",
+            "a b SPC c",
+            "日 本",
+            "RET 🍣",
+            "DEL",
+            "C-a TAB",
+            "C-z C-z",
+            "C-M-z",
+        ];
+        check("typing", "", (3, 16), &steps);
+    }
+
+    #[test]
+    fn typing_in_a_line_pushes_its_text_and_a_line_break_its_rows() {
+        let steps = ["", "C-f x", "RET", "C-d", "C-z", "C-z", "C-z"];
+        check("typing_in_a_line", "ab\ncd\n", (4, 8), &steps);
+    }
+
+    #[test]
+    fn a_crlf_file_breaks_lines_as_it_does() {
+        let steps = ["", "C-f RET", "DEL"];
+        check("typing_crlf", "ab\r\ncd\r\n", (3, 8), &steps);
+    }
+
+    #[test]
+    fn a_typed_mark_joins_its_cluster_and_del_takes_them_together() {
+        let steps = ["", "か", "\u{3099}", "x", "DEL", "DEL"];
+        check("typing_marks", "", (1, 8), &steps);
+    }
+
+    #[test]
+    fn typing_past_the_edge_scrolls_sideways() {
+        let steps = ["", "a b c d e f", "語", "DEL DEL DEL DEL DEL"];
+        check("typing_scrolls_sideways", "012", (1, 8), &steps);
+    }
+
+    #[test]
     fn the_wheel_moves_the_view_and_takes_the_cursor_along() {
         let text: String = (0..8).map(|i| format!("line {i}\n")).collect();
         let mut editor = open(text.as_bytes(), (3, 8));

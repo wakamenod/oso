@@ -16,14 +16,14 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso.\n\nNothing can be unsaved yet; asking to save buffers comes with editing.",
+        doc: "Exit oso.\n\nUnsaved text is lost: asking to save buffers comes with saving.",
         args: ArgSpec::None,
         run: save_buffers_kill_terminal,
     },
 ];
 
 fn keyboard_quit(_: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    // The echo area (M2) shows "Quit"; deactivating the mark comes with it.
+    // The echo area shows "Quit" from M2-7. Deactivating the mark comes with marks.
     log::debug!("Quit");
     Ok(())
 }

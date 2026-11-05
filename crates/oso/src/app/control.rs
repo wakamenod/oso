@@ -86,11 +86,6 @@ impl App {
             ),
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::ImportState(state) => self.import_state(*state),
-            dev::UiOp::InsertText(text) => {
-                let result = dev::insert_text(&mut self.editor, &text);
-                self.request_redraw();
-                result
-            }
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
             dev::UiOp::Exit { generation } => {

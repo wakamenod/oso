@@ -27,33 +27,43 @@ const FREEZE: Threshold = gate(3.0, 100.0);
 /// Anything else is only reported. The code ran 6 times on each runner:
 /// a threshold is at least twice the spread seen there, as a ratio over 1 and
 /// as a difference (ADR 0046).
-const LINUX: [(&str, Threshold); 13] = [
+const LINUX: [(&str, Threshold); 18] = [
     ("key_p50_ms", gate(3.5, 0.75)),
     ("key_p99_ms", gate(5.5, 2.5)),
+    ("type_p99_ms", gate(5.5, 2.5)),
     ("startup_ms", gate(2.25, 55.0)),
     ("open_first_screen_ms", gate(2.0, 4.5)),
     ("open_full_load_ms", gate(3.0, 370.0)),
     ("big_load_ms", gate(3.0, 3750.0)),
     ("big_keys_p99_ms", gate(4.75, 2.5)),
     ("big_keys_max_ms", FREEZE),
+    ("big_type_p99_ms", gate(4.75, 2.5)),
+    ("big_type_max_ms", FREEZE),
     ("line_load_ms", gate(3.25, 235.0)),
     ("line_keys_p99_ms", gate(4.25, 1.75)),
     ("line_keys_max_ms", FREEZE),
+    ("line_type_p99_ms", gate(4.25, 1.75)),
+    ("line_type_max_ms", FREEZE),
     ("big_trip_max_ms", FREEZE),
     ("dev_build_ms", gate(2.0, 1400.0)),
 ];
-const MACOS: [(&str, Threshold); 13] = [
+const MACOS: [(&str, Threshold); 18] = [
     ("key_p50_ms", gate(3.0, 1.5)),
     ("key_p99_ms", gate(6.5, 12.0)),
+    ("type_p99_ms", gate(6.5, 12.0)),
     ("startup_ms", gate(3.25, 410.0)),
     ("open_first_screen_ms", gate(4.75, 44.0)),
     ("open_full_load_ms", gate(4.0, 530.0)),
     ("big_load_ms", gate(3.5, 5100.0)),
     ("big_keys_p99_ms", gate(4.25, 7.0)),
     ("big_keys_max_ms", FREEZE),
+    ("big_type_p99_ms", gate(4.25, 7.0)),
+    ("big_type_max_ms", FREEZE),
     ("line_load_ms", gate(2.25, 235.0)),
     ("line_keys_p99_ms", gate(2.75, 3.5)),
     ("line_keys_max_ms", FREEZE),
+    ("line_type_p99_ms", gate(2.75, 3.5)),
+    ("line_type_max_ms", FREEZE),
     ("big_trip_max_ms", FREEZE),
     ("dev_build_ms", gate(4.25, 3500.0)),
 ];

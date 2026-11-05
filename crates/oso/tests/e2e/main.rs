@@ -186,6 +186,24 @@ fn a_file_with_invalid_bytes_opens_read_only() {
 /// Checks that an instance showing a secret file gives away none of it.
 #[track_caller]
 fn assert_withheld(app: &mut App) {
+    let state = assert_text_withheld(app);
+    let line = app
+        .exchange("export-state", None)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_no_secret(&line, "export-state");
+    let exported: Value = serde_json::from_str(&line).expect("a JSON response");
+    let path = &state["result"]["buffer"]["path"];
+    let buffers = exported["result"]["buffers"].as_array();
+    assert!(
+        buffers.is_some_and(|buffers| buffers.iter().any(|buffer| buffer["path"] == *path)),
+        "export-state did not hand over the secret buffer by its path",
+    );
+}
+
+/// Checks that no request gives the shown buffer's text or pixels. Returns the
+/// response to `get-state`.
+#[track_caller]
+fn assert_text_withheld(app: &mut App) -> Value {
     let state = app
         .exchange("get-state", None)
         .unwrap_or_else(|e| panic!("{e}"));
@@ -211,17 +229,7 @@ fn assert_withheld(app: &mut App) {
             "{method} was not refused: {message:?}",
         );
     }
-    let line = app
-        .exchange("export-state", None)
-        .unwrap_or_else(|e| panic!("{e}"));
-    assert_no_secret(&line, "export-state");
-    let exported: Value = serde_json::from_str(&line).expect("a JSON response");
-    let path = &parsed["result"]["buffer"]["path"];
-    let buffers = exported["result"]["buffers"].as_array();
-    assert!(
-        buffers.is_some_and(|buffers| buffers.iter().any(|buffer| buffer["path"] == *path)),
-        "export-state did not hand over the secret buffer by its path",
-    );
+    parsed
 }
 
 /// Checks that the text and pixels of an ordinary buffer can be read.
@@ -272,8 +280,25 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     app.show_buffer(&env_id);
     assert_withheld(&mut app);
 
+    // An edit does not make it readable, and a restart names it and quotes nothing.
+    app.send_keys("a");
+    assert_text_withheld(&mut app);
+    for method in ["check-handover", "export-state"] {
+        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_no_secret(&line, method);
+        let response: Value = serde_json::from_str(&line).expect("a JSON response");
+        let message = response["error"]["message"].as_str();
+        assert!(
+            message.is_some_and(|message| message.contains(".env")),
+            "{method} did not refuse by name: {message:?}",
+        );
+    }
+    // A character typed by mistake after a prefix stays out of the log.
+    app.send_keys("C-x Ж");
+
     let log = app.stop_and_read_log();
     assert_no_secret(&log, "the log");
+    assert!(!log.contains('Ж'), "the log quotes a typed key");
     // It logs this at the level `just e2e` sets, so the log is worth checking.
     assert!(
         log.contains("listening on"),
@@ -330,6 +355,31 @@ fn the_state_moves_to_a_new_instance_and_a_wrong_version_changes_nothing() {
 
 /// Text no response may quote.
 const UNSAVED: &str = "UNSAVED-E2E-TEXT";
+/// The keys that type [`UNSAVED`], in the notation of `send-keys`.
+const UNSAVED_KEYS: &str = "U N S A V E D - E 2 E - T E X T";
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn typed_keys_reach_the_text_and_hold_the_handover_until_undone() {
+    let scratch = Scratch::new("typing");
+    let file = scratch.write("notes.txt", b"on disk\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    let clean = app.call("check-handover", None)["generation"].clone();
+
+    app.send_keys("a 語 RET");
+    let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2 })));
+    assert_eq!(text["rows"], json!(["a語", "on disk"]));
+    assert!(
+        app.try_call("check-handover", None).is_err(),
+        "a modified buffer holds a restart",
+    );
+
+    app.send_keys("C-z C-z");
+    let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1 })));
+    assert_eq!(text["rows"], json!(["on disk"]));
+    assert_eq!(app.call("check-handover", None)["generation"], clean);
+}
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
@@ -342,7 +392,7 @@ fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
     let exported = app.call("export-state", None);
     assert_eq!(exported["generation"], checked);
 
-    app.call("insert-text", Some(json!({ "text": UNSAVED })));
+    app.send_keys(UNSAVED_KEYS);
 
     // No way of asking gives the text, and each names the buffer.
     for method in ["check-handover", "export-state"] {
@@ -386,7 +436,7 @@ fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
     let state = old.call("export-state", None);
     let mut new = App::start(None, scratch.path());
     new.wait_until_ready();
-    new.call("insert-text", Some(json!({ "text": UNSAVED })));
+    new.send_keys(UNSAVED_KEYS);
     let line = new
         .exchange("import-state", Some(json!({ "state": state })))
         .unwrap_or_else(|e| panic!("{e}"));
@@ -411,10 +461,10 @@ fn an_edit_is_never_confirmed_and_then_lost_with_an_exit() {
         let generation = app.call("check-handover", None)["generation"].clone();
         let (exit, edit) = app.race(
             &json!({ "id": 1, "method": "exit", "params": { "generation": generation } }),
-            &json!({ "id": 2, "method": "insert-text", "params": { "text": UNSAVED } }),
+            &json!({ "id": 2, "method": "send-keys", "params": { "keys": UNSAVED_KEYS } }),
         );
         assert!(
-            !(exit.contains("\"exiting\":true") && edit.contains("\"bytes\"")),
+            !(exit.contains("\"exiting\":true") && edit.contains("\"keys\"")),
             "the instance agreed to exit and also confirmed an edit",
         );
     }

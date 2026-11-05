@@ -7,8 +7,15 @@
 //! the logo key is Super (architecture.md, Layers).
 
 use oso_core::key::{Key, KeyPress, Modifiers, NamedKey};
-use winit::event::KeyEvent;
+use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{self, ModifiersState};
+
+/// Whether a key event is a press the user made now. On X11 and Windows, winit
+/// generates presses for keys already held when the window gains focus, and one
+/// of those would run a command or type text nobody asked for.
+pub fn is_real_press(state: ElementState, is_synthetic: bool) -> bool {
+    state == ElementState::Pressed && !is_synthetic
+}
 
 /// The key press for `event`, or `None` for keys oso does not handle yet:
 /// lone modifiers, dead keys, composed text and keys with no Emacs name.
@@ -159,8 +166,9 @@ fn function_number(key: keyboard::NamedKey) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::translate;
+    use super::{is_real_press, translate};
     use oso_core::key::KeyPress;
+    use winit::event::ElementState;
     use winit::keyboard::{Key, ModifiersState, NamedKey, NativeKey};
 
     fn ch(s: &str) -> Key {
@@ -183,6 +191,14 @@ mod tests {
     const NONE: ModifiersState = ModifiersState::empty();
     const SHIFT: ModifiersState = ModifiersState::SHIFT;
     const CONTROL: ModifiersState = ModifiersState::CONTROL;
+
+    #[test]
+    fn only_a_real_press_counts() {
+        assert!(is_real_press(ElementState::Pressed, false));
+        assert!(!is_real_press(ElementState::Pressed, true), "held at focus");
+        assert!(!is_real_press(ElementState::Released, false));
+        assert!(!is_real_press(ElementState::Released, true));
+    }
 
     #[test]
     fn plain_keys() {

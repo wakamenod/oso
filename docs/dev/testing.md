@@ -205,7 +205,8 @@ the build, and it is a reason to run `just test-time` on the Mac, which decides.
 [ADR 0049](adr/0049-end-to-end-test-harness.md)). `just e2e 20` repeats the
 suite. It runs on the author's Mac, on Linux CI with Xvfb and lavapipe, and on macOS
 CI, and it is not part of `just ci`, because windows open and take the focus. Leave
-the keyboard and mouse alone while it runs: real input reaches its windows too.
+the keyboard and mouse alone while it runs: real input reaches its windows too, and
+what you type goes into their buffers, which can fail a flow.
 
 | Flow | The seam it checks |
 |---|---|
@@ -267,7 +268,6 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   `exit` with a `generation` exits only if that is still current. Without one, `exit`
   goes whatever the buffers hold, which is what flows and agents want
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
-- `insert-text` inserts text at the primary cursor, until typing arrives in M2-4.
 - `oso [FILE]` and `open-file` open a file, so test files (generated in a scratch
   directory, never committed) can be driven this way.
 - `take-timings` reads key latency, startup and load times for benchmarks.
@@ -299,15 +299,18 @@ JSON to `target/perf/perf.json`; `just perf OUT --quick` is for trying it out.
 |---|---|---|
 | `startup_ms` | just before the process starts, to its first presented frame | 9, plus a first launch reported alone |
 | `key_p50_ms`, `key_p99_ms` | key received to first frame presented, on a screen of mixed text | 5, 400 keys each |
+| `type_p50_ms`, `type_p99_ms`, `del_p99_ms` | the same while typing there (ASCII, Japanese, an emoji and line breaks), and while `DEL` removes it | 5, 400 keys each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
-| `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, and edits without a window | 3 |
+| `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |
 
 - Key latency is measured inside the app and ends when the frame is presented
   ([ADR 0025](adr/0025-latency-measurement.md)). The display's refresh and the
   compositor come after that, and real photon latency is checked by hand.
-- Nothing inserts text before M2, so typing is measured in two halves: the
-  unbound key's trip, and the cost of an edit in the core structures.
+- Typing is measured from key to frame ([ADR 0056](adr/0056-typing.md)). A run fails
+  unless each key drew a frame and the text grew by what the keys type. The unbound
+  key's trip stays as an alarm for a UI thread that freezes, and the cost of an edit in
+  the core structures as a view of that one part.
 - `just perf-compare BASE NEW` applies the thresholds. CI catches large
   regressions. Its runners have no hardware GPU, so the budgets are read by hand
   on the author's Mac, where `just perf` lists them beside the results

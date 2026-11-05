@@ -45,6 +45,14 @@ impl LineEnding {
             Self::Crlf => "crlf",
         }
     }
+
+    /// The line break itself: `"\n"` or `"\r\n"`.
+    pub fn text(self) -> &'static str {
+        match self {
+            Self::Lf => "\n",
+            Self::Crlf => "\r\n",
+        }
+    }
 }
 
 /// What the decoder learned about a file.

@@ -64,7 +64,11 @@ impl ApplicationHandler<UserEvent> for App {
 
             // ---- Keyboard input ----
             WindowEvent::ModifiersChanged(modifiers) => self.set_modifiers(modifiers.state()),
-            WindowEvent::KeyboardInput { event, .. } => self.handle_key_event(event_loop, &event),
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic,
+                ..
+            } => self.handle_key_event(event_loop, &event, is_synthetic),
 
             _ => {}
         }

@@ -237,6 +237,15 @@ impl KeyPress {
         }
     }
 
+    /// The character this press types: a character key with no Control, Meta
+    /// or Super. Shift is already part of the character.
+    pub const fn text(self) -> Option<char> {
+        match self.key {
+            Key::Char(c) if self.modifiers.is_empty() => Some(c),
+            _ => None,
+        }
+    }
+
     /// A key press, with Shift folded into a character as described in the
     /// module docs. Returns `None` for Shift on a character other than an
     /// ASCII letter, or for a character that cannot be a key.
@@ -383,6 +392,18 @@ mod tests {
 
     fn ch(c: char) -> Key {
         Key::char(c).unwrap()
+    }
+
+    #[test]
+    fn a_press_types_a_character_only_without_control_meta_or_super() {
+        let text = |keys: &str| keys.parse::<KeyPress>().unwrap().text();
+        assert_eq!(text("a"), Some('a'));
+        assert_eq!(text("A"), Some('A'));
+        assert_eq!(text("SPC"), Some(' '));
+        assert_eq!(text("語"), Some('語'));
+        for keys in ["C-a", "M-a", "s-a", "C-A", "RET", "TAB", "DEL", "S-<left>"] {
+            assert_eq!(text(keys), None, "{keys}");
+        }
     }
 
     #[test]

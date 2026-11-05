@@ -1,0 +1,27 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: "
+---
+keys: none
+│        │
+:^       :
+
+keys: か
+│か      │
+:<>^     :
+
+keys: ゙
+│が      │
+:<>^     :
+
+keys: x
+│がx     │
+:<> ^    :
+
+keys: DEL
+│が      │
+:<>^     :
+
+keys: DEL
+│        │
+:^       :

@@ -6,6 +6,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+mod edit;
 mod motion;
 mod scroll;
 mod session;
@@ -18,6 +19,7 @@ use oso_core::command::{Command, Registry};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    edit::COMMANDS,
     motion::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,

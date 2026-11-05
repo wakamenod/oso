@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 use oso_core::key::KeyPress;
-use winit::event::{ElementState, KeyEvent, MouseScrollDelta};
+use winit::event::{KeyEvent, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
 
@@ -24,9 +24,13 @@ impl App {
     }
 
     /// Turns a key event from the window into a key press, and handles it.
-    pub(super) fn handle_key_event(&mut self, event_loop: &ActiveEventLoop, event: &KeyEvent) {
-        // Process key-press events only.
-        if event.state != ElementState::Pressed {
+    pub(super) fn handle_key_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        event: &KeyEvent,
+        is_synthetic: bool,
+    ) {
+        if !keys::is_real_press(event.state, is_synthetic) {
             return;
         }
         if let Some(key) = keys::from_event(event, self.modifiers) {
