@@ -21,7 +21,7 @@
 //! swapped in before the open is what gets judged. It also hands over the file's
 //! baseline: where the path really leads, and the modification time, size and mode read
 //! from the open file, which a save checks before it replaces the file (ADR 0029,
-//! ADR 0057).
+//! ADR 0059).
 //!
 //! Loading only reads the file. Nothing in it is run or interpreted
 //! (security.md, T1).

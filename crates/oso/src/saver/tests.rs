@@ -17,7 +17,7 @@ use crate::loader::{location, stamp_of};
 
 use super::{
     PRIVATE_MODE, SaveError, SaveReport, TEMPORARY_PREFIX, Temporary, apply, prepare, run,
-    run_with, spawn, wait_for, write_text,
+    run_with, spawn, write_text,
 };
 
 /// A scratch directory, with no links in its path, removed at the end of the test.
@@ -353,30 +353,13 @@ fn a_failing_write_is_an_error() {
 }
 
 #[test]
-fn waiting_for_saves_ends_when_they_do_or_at_the_limit() {
-    let (release, released) = mpsc::channel::<()>();
-    let running = std::thread::spawn(move || {
-        let _ = released.recv();
-    });
-    let saves = [running];
-    assert!(
-        !wait_for(&saves, Duration::from_millis(20)),
-        "still running"
-    );
-    drop(release);
-    assert!(wait_for(&saves, Duration::from_secs(10)));
-    assert!(wait_for(&[], Duration::ZERO), "nothing to wait for");
-}
-
-#[test]
 fn a_thread_reports_as_the_seam_does() {
     let scratch = Scratch::new("thread");
     let path = scratch.file("notes.txt", b"old\n");
     let (tx, rx) = mpsc::channel();
-    let handle = spawn(job(&path, "new\n"), move |report| tx.send(report).unwrap()).unwrap();
+    spawn(job(&path, "new\n"), move |report| tx.send(report).unwrap()).unwrap();
     let report = rx.recv_timeout(Duration::from_secs(10)).unwrap();
     assert_written(&report);
-    handle.join().unwrap();
     assert_eq!(fs::read(&path).unwrap(), b"new\n");
 }
 

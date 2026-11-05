@@ -22,6 +22,7 @@ use std::collections::VecDeque;
 
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::DisplaySnapshot;
+use crate::frame::{self, FrameLayout, FrameSize, PixelGrid, PixelRect};
 use crate::motion;
 use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
@@ -100,6 +101,8 @@ pub struct Editor {
     buffers: Vec<(BufferId, Buffer)>,
     windows: Vec<Window>,
     selected: usize,
+    /// The frame's regions. Every window's size is its text area.
+    frame: FrameLayout,
     next_id: u64,
     undo_scope: Option<UndoScope>,
     /// The previous command allowed the next one to join its undo group.
@@ -126,6 +129,7 @@ impl Editor {
             buffers: Vec::new(),
             windows: Vec::new(),
             selected: 0,
+            frame: frame::layout(FrameSize::holding(ViewSize::default())),
             next_id: 0,
             undo_scope: None,
             join_ready: false,
@@ -499,13 +503,39 @@ impl Editor {
         self.messages.iter().map(String::as_str)
     }
 
-    /// Sets the size of the windows in rows and columns shown in full, and
-    /// scrolls to keep each cursor in view. Returns whether a view moved.
-    pub fn set_view_size(&mut self, size: ViewSize) -> bool {
+    /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
+    /// the selected one then scrolls to show its primary cursor. Returns whether
+    /// the view moved.
+    pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
+        self.frame = frame::layout(size);
+        let view = self.frame.window.text.view_size();
         for window in &mut self.windows {
-            window.set_size(size);
+            window.set_size(view);
         }
         self.follow_cursor()
+    }
+
+    /// Lays out the frame whose text area is `size`, for tests that think in text
+    /// rows. Returns whether the view moved.
+    pub fn set_view_size(&mut self, size: ViewSize) -> bool {
+        self.set_frame_size(FrameSize::holding(size))
+    }
+
+    /// The frame's regions.
+    pub fn frame(&self) -> FrameLayout {
+        self.frame
+    }
+
+    /// Where the selected window's primary cursor is on the surface, in physical
+    /// pixels, for the OS's input method to place its candidate window. `None` if
+    /// it is out of view.
+    pub fn cursor_area(&self, grid: PixelGrid) -> Option<PixelRect> {
+        let (window, buffer) = self.current();
+        let display = buffer.display();
+        let point = window.cursor_point(&display);
+        let cells = motion::cursor_cells(&display, point);
+        let cell = frame::cursor_rect(self.frame.window.text, window.scroll(), point, cells)?;
+        Some(grid.rect(cell))
     }
 
     /// Scrolls the selected window by the fewest rows and columns that show
@@ -563,6 +593,86 @@ mod tests {
         editor.restore_positions(SelectionSet::new(0), saved);
         assert_eq!(editor.window().scroll(), Scroll::default(), "back to it");
         assert_eq!(editor.window().selections.primary().cursor, 0);
+    }
+
+    #[test]
+    fn a_frame_gives_the_windows_its_text_area() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        assert_eq!(editor.window().size(), ViewSize::default());
+        assert_eq!(editor.frame().window.text.view_size(), ViewSize::default());
+
+        let frame = FrameSize {
+            rows: 12,
+            columns: 40,
+        };
+        editor.set_frame_size(frame);
+        assert_eq!(editor.frame(), frame::layout(frame));
+        assert_eq!(editor.window().size(), ViewSize::new(10, 40));
+    }
+
+    #[test]
+    fn a_smaller_frame_scrolls_to_keep_the_cursor_above_the_reserved_rows() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_frame_size(FrameSize {
+            rows: 12,
+            columns: 40,
+        });
+        editor.current_mut().0.selections = SelectionSet::new(9 * "line 000\n".len());
+        assert!(!editor.follow_cursor(), "the last row of the text area");
+        assert!(editor.set_frame_size(FrameSize {
+            rows: 11,
+            columns: 40,
+        }));
+        assert_eq!(editor.window().scroll().top, 1);
+    }
+
+    #[test]
+    fn a_frame_too_small_for_a_row_still_has_a_view_to_scroll() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_frame_size(FrameSize {
+            rows: 0,
+            columns: 0,
+        });
+        assert_eq!(editor.window().size(), ViewSize::new(1, 1));
+        assert!(editor.scroll_view(3));
+        let grid = PixelGrid::new(10.0, 20.0);
+        assert_eq!(editor.cursor_area(grid), None, "nothing is shown");
+    }
+
+    #[test]
+    fn the_cursor_area_is_the_cursors_cells_in_pixels() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "ab\n日本\n"));
+        editor.set_view_size(ViewSize::new(10, 20));
+        let grid = PixelGrid::new(10.0, 20.0);
+        let area = |x, y, width| PixelRect {
+            x,
+            y,
+            width,
+            height: 20.0,
+        };
+        assert_eq!(editor.cursor_area(grid), Some(area(8.0, 8.0, 10.0)));
+        editor.current_mut().0.selections = SelectionSet::new("ab\n".len());
+        assert_eq!(
+            editor.cursor_area(grid),
+            Some(area(8.0, 28.0, 20.0)),
+            "wide"
+        );
+        editor.current_mut().0.selections = SelectionSet::new("ab\n日".len());
+        assert_eq!(editor.cursor_area(grid), Some(area(28.0, 28.0, 20.0)));
+    }
+
+    #[test]
+    fn the_cursor_area_moves_with_the_view() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        editor.current_mut().0.selections = SelectionSet::new(5 * "line 000\n".len());
+        editor.follow_cursor();
+        let grid = PixelGrid::new(10.0, 20.0);
+        let before = editor.cursor_area(grid).map(|area| area.y);
+        assert_eq!(before, Some(8.0 + 5.0 * 20.0));
+        assert!(editor.scroll_view(2));
+        let after = editor.cursor_area(grid).map(|area| area.y);
+        assert_eq!(after, Some(8.0 + 3.0 * 20.0));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 //! Scenario tests of saving and of the exit guard, with their keys, through the
-//! [`Dispatcher`] (ADR 0037, ADR 0057). The save runs where the test says, with no
+//! [`Dispatcher`] (ADR 0037, ADR 0059). The save runs where the test says, with no
 //! thread, so what happens while one runs is deterministic.
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU.

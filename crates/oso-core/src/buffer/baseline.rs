@@ -1,4 +1,4 @@
-//! What a buffer last knew of its file on disk (ADR 0029, ADR 0057). A save compares
+//! What a buffer last knew of its file on disk (ADR 0029, ADR 0059). A save compares
 //! this with what is there right before it replaces the file, so that a change made
 //! by anything else is kept.
 //!

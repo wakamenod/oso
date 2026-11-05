@@ -1,4 +1,4 @@
-//! Saving the buffer (ADR 0013, ADR 0057).
+//! Saving the buffer (ADR 0013, ADR 0059).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or files; the command decides and
 //! queues, and the host writes on a thread of its own.

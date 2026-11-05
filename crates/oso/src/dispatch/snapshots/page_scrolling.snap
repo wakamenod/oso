@@ -9,6 +9,8 @@ keys: none
 │line 02     │
 │line 03     │
 │line 04     │
+=            =
+"            "
 
 keys: C-v
 │line 03     │
@@ -17,6 +19,8 @@ keys: C-v
 │line 05     │
 │line 06     │
 │line 07     │
+=            =
+"            "
 
 keys: C-v
 │line 06     │
@@ -25,6 +29,8 @@ keys: C-v
 │line 08     │
 │line 09     │
 │line 10     │
+=            =
+"            "
 
 keys: C-v
 │line 09     │
@@ -33,6 +39,8 @@ keys: C-v
 │line 11     │
 │            │
 │            │
+=            =
+"            "
 
 keys: M-v
 │line 06     │
@@ -41,6 +49,8 @@ keys: M-v
 │line 09     │
 :^           :
 │line 10     │
+=            =
+"            "
 
 keys: M-v
 │line 03     │
@@ -49,6 +59,8 @@ keys: M-v
 │line 06     │
 │line 07     │
 :^           :
+=            =
+"            "
 
 keys: M-v
 │line 00     │
@@ -57,6 +69,8 @@ keys: M-v
 │line 03     │
 │line 04     │
 :^           :
+=            =
+"            "
 
 keys: M->
 │line 08     │
@@ -65,6 +79,8 @@ keys: M->
 │line 11     │
 │            │
 :^           :
+=            =
+"            "
 
 keys: M-<
 │line 00     │
@@ -73,3 +89,5 @@ keys: M-<
 │line 02     │
 │line 03     │
 │line 04     │
+=            =
+"            "

@@ -1,5 +1,5 @@
 //! Commands for the session as a whole: cancelling what is in progress, and
-//! exiting (ADR 0034, ADR 0057).
+//! exiting (ADR 0034, ADR 0059).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.

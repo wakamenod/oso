@@ -23,10 +23,14 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::Load(buffer) => {
                 self.load_updated(buffer);
             }
-            UserEvent::Save(report) => self.save_ended(report),
+            UserEvent::Save(report) => self.save_ended(event_loop, report),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.check_leaving(event_loop);
     }
 
     fn window_event(
@@ -38,7 +42,7 @@ impl ApplicationHandler<UserEvent> for App {
         // An exit only sets a flag, and winit still delivers what is queued. Input
         // handled now, by any path, would be lost with the process, and nothing
         // else here matters to a window about to go.
-        if self.view.is_none() || event_loop.exiting() {
+        if self.view.is_none() || self.is_leaving(event_loop) {
             return;
         }
 

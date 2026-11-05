@@ -1,4 +1,4 @@
-//! What a save and an exit need from the editor state (ADR 0057).
+//! What a save and an exit need from the editor state (ADR 0059).
 //!
 //! Must not depend on: threads or the file system, which the host owns, or
 //! `command` and `keymap`.

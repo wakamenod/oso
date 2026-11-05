@@ -7,7 +7,6 @@
 //! Must not depend on: wgpu or OS bindings. Editor logic belongs in oso-core
 //! and commands, not here.
 
-use std::thread::JoinHandle;
 use std::time::Instant;
 
 use oso_core::buffer::BufferId;
@@ -50,7 +49,6 @@ pub enum UserEvent {
 /// - `dispatcher`: keymaps and commands, which turn keys into changes.
 /// - `modifiers`: the modifier keys held, as winit last reported them.
 /// - `loads`: files loading in the background.
-/// - `saves`: files being written in the background.
 /// - `dev`: the control socket, in dev builds where it started.
 pub struct App {
     view: Option<View>,
@@ -59,7 +57,8 @@ pub struct App {
     modifiers: ModifiersState,
     proxy: EventLoopProxy<UserEvent>,
     loads: Vec<Load>,
-    saves: Vec<JoinHandle<()>>,
+    /// When to stop waiting for running saves, once this instance has agreed to go.
+    leaving: Option<Instant>,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Trackpad scrolling not yet worth a whole row, in pixels.
@@ -86,7 +85,7 @@ impl App {
             modifiers: ModifiersState::default(),
             proxy,
             loads: Vec::new(),
-            saves: Vec::new(),
+            leaving: None,
             started: Some(started),
             wheel_pixels: 0.0,
             #[cfg(feature = "dev")]
@@ -111,7 +110,7 @@ impl App {
             self.request_redraw();
         }
         if effects.exit {
-            event_loop.exit();
+            self.leave(event_loop);
         }
     }
 

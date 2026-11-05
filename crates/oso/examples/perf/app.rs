@@ -135,7 +135,7 @@ impl App {
     /// Asks the app to exit as a user would, so that it removes its socket,
     /// and kills it if it does not.
     pub fn stop(mut self) {
-        // Twice, since the benchmarks leave buffers modified (ADR 0057).
+        // Twice, since the benchmarks leave buffers modified (ADR 0059).
         let _ = self.send_keys("C-x C-c C-x C-c");
         let started = Instant::now();
         while started.elapsed() < EXIT_TIMEOUT {

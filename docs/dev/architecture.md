@@ -49,7 +49,7 @@ How file-system code splits between the loader and `oso-platform` is
 settled when the first piece that needs `libc` (opening with `O_NONBLOCK`)
 arrives; see `open-questions.md`. Saving uses `std`'s Unix file calls in
 the tip crate until then
-([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
+([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
 depends on `oso-core` and `oso-platform`, and neither of those depends on
@@ -108,7 +108,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   history. A window
   (`oso_core::window`) shows one buffer with its own selection set and
   scroll position. There is one window until splits (M3). See
-  [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).
+  [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md). A pure function,
+  `oso_core::frame::layout`, divides the frame into whole cells: its size is the
+  window's text area, above a modeline row and the echo area
+  ([ADR 0057](adr/0057-frame-layout.md)).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
   goal column for vertical motion and, from M2, its own mark. See
@@ -313,7 +316,7 @@ The UI thread never blocks on I/O or parsing:
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
-  its report ([ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
+  its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - The event loop's user event is an enum: loader wake-ups and save reports in every
   build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
@@ -344,7 +347,7 @@ size, the baseline on `Buffer`), rename, and fsync of the directory. A file chan
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button refuse once while a buffer is modified
 or a save runs, and a save still running at exit gets to finish. See
-[ADR 0057](adr/0057-safe-save-and-the-exit-guard.md).
+[ADR 0059](adr/0059-safe-save-and-the-exit-guard.md).
 
 ## Security architecture (summary)
 

@@ -1,4 +1,4 @@
-# 0057. Safe save and the exit guard
+# 0059. Safe save and the exit guard
 
 - Status: Proposed
 - Date: 2026-11-05
@@ -157,9 +157,12 @@ Then:
   and differing from the disk only once the save ends. A save that leaves nothing at risk does not need to: the next try
   exits at once.
 - **A save still running at a confirmed exit gets to finish.** The user asked for it, and a process that ends mid-write
-  would leave its temporary file behind. Once the event loop has ended, the window closes and the process waits for the
-  thread, for at most 10 minutes, with no UI left to block. A failure then reaches the log at most. This holds for every
-  way of ending the event loop, including `exit` over the socket.
+  would leave its temporary file behind. The window is hidden, and the event loop keeps running until the last save has
+  reported, for at most 10 minutes. It has to keep running: a window closed or hidden after the loop stops stays on the
+  screen, frozen, as a slow save on macOS showed. In that time the instance counts as exiting: window events are ignored
+  and every control request is refused, as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) asks. A failed save then logs
+  at the `error` level, as no window is left to show it. `exit` over the socket takes this path too. An exit the OS
+  makes (Dock quit, logout) does not, and is M2-10's.
 - The state lives on `Editor`, like the rest of what commands read. The proper prompt replaces this in M2-16.
 - `exit` over the socket stays as [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md) defines it. winit's `exiting` (Dock
   quit, logout) is M2-10.
@@ -240,6 +243,8 @@ Then:
 - **A cancel flag, so that a confirmed exit drops a running save:** the user would lose a save they asked for, for a wait that is usually
   milliseconds.
 - **Waiting without a limit at exit:** a stuck network file system would leave a process with no window, for good.
+- **Waiting after the event loop has ended:** simpler, with no state for leaving, but the window stays on the screen, frozen,
+  until the save ends, and macOS may report the app as not responding.
 - **A limit on the time with no progress, rather than in all:** never abandons a slow save, but needs a shared counter and its own
   allowance for fsync, which reports no progress, for a case 10 minutes already covers.
 - **Requests in `Effects`:** one channel for everything a command asks of the host, but it could no longer be `Copy`, and every

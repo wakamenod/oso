@@ -524,6 +524,21 @@ fn the_quit_key_refuses_once_with_unsaved_text_and_a_save_needs_no_repeat() {
     });
     let _ = app.exchange("send-keys", Some(json!({ "keys": "C-x C-c" })));
     assert_eq!(app.wait_for_exit().code(), Some(0));
+
+    // A save asked for just before a confirmed exit still lands, and whole.
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    let _ = app.exchange(
+        "send-keys",
+        Some(json!({ "keys": "x C-x C-s C-x C-c C-x C-c" })),
+    );
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+    let on_disk = std::fs::read_to_string(&file).expect("the file is there");
+    assert!(on_disk.starts_with('x'), "the save did not land");
+    let names = std::fs::read_dir(scratch.path())
+        .expect("the directory")
+        .count();
+    assert_eq!(names, 1, "nothing is left beside the file");
 }
 
 /// The event loop goes on delivering what is queued after an exit, so this can

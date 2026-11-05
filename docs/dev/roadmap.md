@@ -148,15 +148,19 @@ throughout.
   - **M2-8**: safe save (`C-x C-s`) on a background thread, and a guard on exiting
     with unsaved work ([ADR 0013](adr/0013-persistence.md),
     [ADR 0029](adr/0029-file-changes-on-disk.md),
-    [ADR 0057](adr/0057-safe-save-and-the-exit-guard.md)).
+    [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
   - **M2-9**: word motion with Japanese rules, `C-a`/`C-e` as in mwim, `track-eol`,
     `C-u` and `M-<digit>`, `C-l`, and the horizontal wheel.
 - **M2-6** (after M2-5, and after the work in progress in the renderer's text pass
   merges): a list of panes drawn with clipping and layers, the base of everything
-  below that draws ([ADR 0008](adr/0008-floating-ui.md)).
+  below that draws ([ADR 0008](adr/0008-floating-ui.md)). It decides the partly shown
+  column on the right ([ADR 0057](adr/0057-frame-layout.md)).
 - **M2-7** (after M2-6): modeline, echo area, `*Messages*` and internal buffers,
   which `oso dev`'s check, generation and import must skip
-  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
+  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). A load that grows rows
+  below the view no longer asks for a frame, so the modeline's loading progress must
+  ask for its own, and a frame too small for a modeline needs a place for its warnings
+  ([ADR 0057](adr/0057-frame-layout.md)).
 - **M2-10** (after M2-8): emergency save on a panic or an OS-initiated exit, the
   panic hook, which must ignore a failed write since `oso dev`'s instances can outlive
   their terminal ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)), and no core

@@ -74,7 +74,6 @@ fn main() {
         app.open(file);
     }
     event_loop.run_app(&mut app).unwrap();
-    app.finish_saves();
 }
 
 /// Exits with an error: `oso ctl` and `oso dev` need a dev build.

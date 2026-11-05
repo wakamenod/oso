@@ -2,7 +2,7 @@
 //! (ADR 0044). It walks the path as `fs::canonicalize` does, but keeps each
 //! symbolic link's target, so a chain through a secret path is caught wherever
 //! it ends. Also the place a save of the path writes, which the load records and
-//! the save compares (ADR 0057).
+//! the save compares (ADR 0059).
 //!
 //! Must not depend on: `app` or the UI thread; this touches the file system
 //! and runs on the loading thread.

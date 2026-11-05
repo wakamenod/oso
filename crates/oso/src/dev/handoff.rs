@@ -1,6 +1,6 @@
 //! The state one instance hands to the next on a restart, and whether it may
 //! hand over and go: `export-state`, `import-state`, `check-handover` and the
-//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055, ADR 0057).
+//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055, ADR 0059).
 //!
 //! Must not depend on: `app`, `server`, winit or sockets; these are plain
 //! functions of the editor state, and the caller opens the files.

@@ -59,16 +59,18 @@ impl oso_render::RenderState
 pub fn oso_render::RenderState::capture(&mut self, &oso_render::TextView) -> core::result::Result<oso_render::Capture, oso_render::CaptureError>
 impl oso_render::RenderState
 pub fn oso_render::RenderState::cell_metrics(&self) -> oso_platform::text::CellMetrics
+pub fn oso_render::RenderState::frame_size(&self) -> oso_core::frame::FrameSize
 pub async fn oso_render::RenderState::new(alloc::sync::Arc<dyn wgpu::api::surface::DisplayAndWindowHandle>, u32, u32, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> Self
+pub fn oso_render::RenderState::pixel_grid(&self) -> oso_core::frame::PixelGrid
 pub fn oso_render::RenderState::presented_frames(&self) -> u64
 pub fn oso_render::RenderState::render(&mut self, &oso_render::TextView, &dyn core::ops::function::Fn() -> (u32, u32)) -> core::result::Result<oso_render::Redraw, oso_render::RenderError>
 pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redraw
 pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
-pub fn oso_render::RenderState::text_area(&self) -> (usize, usize)
 impl oso_render::RenderState
 pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo
 pub struct oso_render::TextView
+pub oso_render::TextView::area: oso_core::frame::CellRect
 pub oso_render::TextView::buffer: oso_core::buffer::BufferId
 pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
 pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot

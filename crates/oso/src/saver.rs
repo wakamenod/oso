@@ -1,5 +1,5 @@
 //! Safe save: writing a buffer's snapshot over its file on a background thread
-//! (ADR 0013, ADR 0029, ADR 0057). Losing or damaging a file is what this is
+//! (ADR 0013, ADR 0029, ADR 0059). Losing or damaging a file is what this is
 //! designed against.
 //!
 //! Must not depend on: `app`, winit or the GPU; the caller supplies the report's way
@@ -31,7 +31,7 @@ use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::SystemTime;
 
 use oso_core::buffer::{Baseline, BufferId, ContentId, FileStamp};
 use oso_core::decode::BOM;
@@ -56,9 +56,6 @@ const PRIVATE_MODE: u32 = 0o600;
 /// The mode a program asks for a new file, which the umask then narrows.
 #[cfg(unix)]
 const DEFAULT_MODE: u32 = 0o666;
-
-/// How often [`wait_for`] looks at the threads. `JoinHandle` has no timed join.
-const WAIT_POLL: Duration = Duration::from_millis(10);
 
 /// Why a save wrote nothing. The file on disk is as it was.
 #[derive(Debug)]
@@ -101,6 +98,14 @@ pub struct SaveReport {
 }
 
 impl SaveReport {
+    /// Logs a failure above what messages reach, for when no window is left to show one.
+    /// `Debug` escapes what a path may hold, and a report holds no text.
+    pub fn log_if_failed(&self) {
+        if let Err(e) = &self.outcome {
+            log::error!("Saving {:?} failed during the exit: {e:?}", self.path);
+        }
+    }
+
     /// The report of a save whose thread could not start.
     pub fn not_started(buffer: BufferId, path: PathBuf, error: io::Error) -> Self {
         Self {
@@ -116,13 +121,14 @@ impl SaveReport {
 /// # Errors
 ///
 /// If the thread cannot start. The job is gone, and nothing was written.
-pub fn spawn<R>(job: SaveJob, report: R) -> io::Result<thread::JoinHandle<()>>
+pub fn spawn<R>(job: SaveJob, report: R) -> io::Result<()>
 where
     R: FnOnce(SaveReport) + Send + 'static,
 {
     thread::Builder::new()
         .name("oso-save".into())
         .spawn(move || report(run(job)))
+        .map(drop)
 }
 
 /// Runs `job` here and now.
@@ -144,19 +150,6 @@ fn run_with(
         path: job.path,
         outcome,
     }
-}
-
-/// Waits for the threads of `saves` to end, for at most `timeout`. Returns whether
-/// they all did. This blocks, so it is only for after the event loop has ended.
-pub fn wait_for(saves: &[thread::JoinHandle<()>], timeout: Duration) -> bool {
-    let started = Instant::now();
-    while saves.iter().any(|save| !save.is_finished()) {
-        if started.elapsed() > timeout {
-            return false;
-        }
-        thread::sleep(WAIT_POLL);
-    }
-    true
 }
 
 /// Takes a report in: updates the buffer, and says how it went. Never quotes text.
@@ -311,7 +304,7 @@ fn write_text(file: impl Write, job: &SaveJob) -> io::Result<()> {
 /// Gives `file` the owner, group and mode of the file it replaces. If that file was
 /// deleted since it was `read`, it gets its mode back, as if its group were lost, and a
 /// file that never existed gets the default mode. Extended attributes, ACLs and other
-/// hard links do not carry over (ADR 0057).
+/// hard links do not carry over (ADR 0059).
 #[cfg(unix)]
 fn keep_attributes(
     file: &File,
