@@ -34,7 +34,7 @@ use serde_json::{Value, json};
 use super::Reply;
 
 /// The most visible text `get-state` returns, in bytes. A cell usually holds
-/// a few bytes but can hold a thousand (combining marks), and a response this
+/// a few bytes but can hold dozens (combining marks), and a response this
 /// size still fits a line if every byte needs escaping, so the metadata that
 /// comes with it always gets through.
 pub const MAX_VISIBLE_TEXT: usize = 128 * 1024;
@@ -433,8 +433,9 @@ mod tests {
 
     #[test]
     fn rows_of_combining_marks_are_cut_and_the_metadata_survives() {
-        // Each cell holds up to a chunk of bytes, far more than it looks.
-        let row = format!("a{}\n", "\u{301}".repeat(10_000));
+        // Each cell holds 33 bytes, more than it looks.
+        let cell = format!("a{}", "\u{1d165}".repeat(8));
+        let row = cell.repeat(200) + "\n";
         let editor = editor(&row.repeat(100), 50, 200);
         let state = state(&editor, &[]);
         assert_eq!(state["text"]["truncated"], true);

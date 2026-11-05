@@ -55,7 +55,7 @@ line between `:` marks its cells:
 | `^` | the cursor box, over any other mark |
 | `<>` | the two cells of a wide cluster |
 | `~` | a cell of an escape (`^M`, `\xFF`) |
-| `#` | a cell of a boxed invisible character (`U+202E`) |
+| `#` | a cell of a boxed character: invisible (`U+202E`), or past a display cluster's limits (`U+0301`) |
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `#`
