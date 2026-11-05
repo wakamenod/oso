@@ -303,13 +303,15 @@ impl TabMap {
         self.locate(target, bias).0
     }
 
-    /// [`TabMap::to_offset`], and the point of the offset it returns.
-    fn locate(&self, target: TabPoint, bias: Bias) -> (usize, TabPoint) {
+    /// [`TabMap::to_offset`], the point of the offset it returns, and the buffer
+    /// offset before which characters are past a display cluster's limits, as
+    /// they were when the scan reached that offset.
+    fn locate(&self, target: TabPoint, bias: Bias) -> (usize, TabPoint, usize) {
         let mut cursor = self.tree.cursor::<(TabPoint, usize)>();
         cursor.seek(&target, Bias::Right);
         let (mut point, start) = *cursor.start();
         let Some(item) = cursor.item() else {
-            return (start, point);
+            return (start, point, 0);
         };
         // Skip to the start of the target row within the chunk.
         let text = &*item.text;
@@ -320,26 +322,27 @@ impl TabMap {
             from = newline + 1;
             point = TabPoint::new(target.row, 0);
         }
-        for (index, cluster, kind, cells) in
-            Clusters::with_invalid(&text[from..], start + from, &self.invalid)
-        {
+        let mut clusters = Clusters::with_invalid(&text[from..], start + from, &self.invalid);
+        while let Some((index, cluster, kind, cells)) = clusters.next() {
             let offset = start + from + index;
+            let past_limit_until =
+                |clusters: &Clusters<'_>| start + from + clusters.past_limit_until_at(index);
             if point.row == target.row {
                 if kind == CellKind::LineBreak || point.column >= target.column {
-                    return (offset, point);
+                    return (offset, point, past_limit_until(&clusters));
                 }
                 let mut next = point;
                 self.advance(&mut next, kind, cells);
                 if next.column > target.column {
                     return match bias {
-                        Bias::Left => (offset, point),
-                        Bias::Right => (offset + cluster.len(), next),
+                        Bias::Left => (offset, point, past_limit_until(&clusters)),
+                        Bias::Right => (offset + cluster.len(), next, 0),
                     };
                 }
             }
             self.advance(&mut point, kind, cells);
         }
-        (start + text.len(), point)
+        (start + text.len(), point, 0)
     }
 
     /// Moves `point` past one cluster.
@@ -353,6 +356,7 @@ impl TabMap {
             CellKind::Text
             | CellKind::Control(_)
             | CellKind::Invisible(_)
+            | CellKind::PastLimit(_)
             | CellKind::InvalidByte(_) => {
                 point.column = point.column.saturating_add(cells);
             }
@@ -362,16 +366,22 @@ impl TabMap {
     /// The clusters of `start.row`, from the one at `start.column` to the
     /// end of the row.
     pub fn clusters(&self, start: TabPoint) -> RowClusters<'_> {
-        let (offset, point) = self.locate(start, Bias::Left);
+        let (offset, point, past_limit_until) = self.locate(start, Bias::Left);
         let mut cursor = self.tree.cursor::<usize>();
         cursor.seek(&offset, Bias::Right);
         let base = *cursor.start();
         let clusters = match cursor.item() {
-            // Chunks end on grapheme cluster boundaries, so the chunk is all
-            // the context a cluster needs.
-            Some(item) => {
-                Clusters::with_invalid_from(&item.text, base, offset - base, &self.invalid)
-            }
+            // Chunks end on grapheme cluster boundaries, and a grapheme cluster
+            // longer than a chunk is measured piece by piece, so the chunk is
+            // all the context a cluster needs. The scan says if `offset` is past
+            // a limit.
+            Some(item) => Clusters::with_invalid_from(
+                &item.text,
+                base,
+                offset - base,
+                past_limit_until.saturating_sub(base),
+                &self.invalid,
+            ),
             None => Clusters::new(""),
         };
         RowClusters {
@@ -416,6 +426,7 @@ impl<'a> Iterator for RowClusters<'a> {
                     CellKind::Text
                     | CellKind::Control(_)
                     | CellKind::Invisible(_)
+                    | CellKind::PastLimit(_)
                     | CellKind::InvalidByte(_) => cells,
                 };
                 let cluster = DisplayCluster {

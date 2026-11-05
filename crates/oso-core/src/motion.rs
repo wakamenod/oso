@@ -5,9 +5,10 @@
 //!
 //! Positions step over display clusters, the units the cell grid draws: a
 //! grapheme cluster (`が`, a flag, a ZWJ emoji family), a tab, a `\r\n`
-//! line break, a control escape, a boxed invisible character or an invalid
-//! byte. So one `C-f` passes what looks like one character, and the cursor
-//! never lands inside one. Rows are buffer lines (no soft wrap, ADR 0006).
+//! line break, a control escape, a boxed invisible character, a boxed character
+//! past a cluster's limits (ADR 0054) or an invalid byte. So one `C-f` passes what
+//! looks like one character, and the cursor never lands inside one. Rows are
+//! buffer lines (no soft wrap, ADR 0006).
 
 use crate::display_map::{CellKind, DisplayPoint, DisplaySnapshot};
 use crate::selection::{Goal, Selection};

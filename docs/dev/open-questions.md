@@ -44,9 +44,6 @@ item notes when it must be settled.
   stack, and every visible glyph hashes its key in the atlas with SipHash.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
   stack and a cheaper hash are the next steps if a profile shows them.
-- Segmenting hostile text: a cell holding a 1 KB piece of combining marks
-  costs about 1 KB of segmentation, so a screen of it takes about 36 ms on
-  first view. Real text is unaffected.
 - `unicode-width` 0.2 and 0.1 (through naga) are both in the build.
   Re-check when wgpu is upgraded.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).

@@ -81,7 +81,8 @@ supported.
 
 The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
 
-- A grapheme cluster takes 1 or 2 cells. Emoji sequences take 2.
+- A grapheme cluster takes 1 or 2 cells, unless it goes past the limits below.
+  Emoji sequences take 2.
 - Ambiguous-width characters take 1 cell.
 - Bidi controls and invisible characters (ZWSP, ZWNJ, tag characters,
   U+2028) are boxed code points such as `U+202E`, one cell per label
@@ -89,6 +90,10 @@ The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
   emoji sequences and after non-ASCII text.
 - Every other cluster takes at least 1 cell, so a lone combining mark stays
   visible.
+- A display cluster holds at most 8 marks after its first character and 16
+  characters. Each character past that, to the end of the grapheme cluster, is
+  a boxed code point, but ASCII, which stays text. A new chunk starts the limits
+  over ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)).
 - Control characters are shown as escapes, as in Emacs: `^@` to `^_`, `^?`
   (2 cells) and `\200` to `\237` (4 cells). A lone `\r` is shown as `^M`.
 - An invalid byte of the file is shown as `\xNN` in 4 cells, in the escape

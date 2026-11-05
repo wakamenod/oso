@@ -79,7 +79,7 @@ pub struct DisplayCluster<'a> {
     /// The cluster's text in the buffer.
     pub text: &'a str,
     /// What to draw: the text, blank cells for a tab, or an escape (boxed
-    /// for an invisible character).
+    /// for an invisible character or one past a cluster's limits).
     pub kind: CellKind,
 }
 
@@ -109,9 +109,12 @@ impl DisplayCluster<'_> {
             // draws nothing.
             CellKind::Tab => " ",
             CellKind::LineBreak => return,
-            CellKind::Control(_) | CellKind::Invisible(_) | CellKind::InvalidByte(_) => {
+            CellKind::Control(_)
+            | CellKind::Invisible(_)
+            | CellKind::PastLimit(_)
+            | CellKind::InvalidByte(_) => {
                 let style = match self.kind {
-                    CellKind::Invisible(_) => CellStyle::Boxed,
+                    CellKind::Invisible(_) | CellKind::PastLimit(_) => CellStyle::Boxed,
                     _ => CellStyle::Escape,
                 };
                 let escape = self.kind.escape();
@@ -215,7 +218,7 @@ impl DisplaySnapshot {
         self.tab_map.max_point().into()
     }
 
-    /// The display point of a buffer offset. An offset inside a grapheme
+    /// The display point of a buffer offset. An offset inside a display
     /// cluster, including between the `\r` and `\n` of a line break, gives
     /// the point where the cluster starts. An offset past the end gives the
     /// end.
@@ -294,8 +297,7 @@ pub(crate) mod tests {
             let pieces = text[line_start..content_end]
                 .grapheme_indices(true)
                 .flat_map(|(index, cluster)| display_pieces(cluster, index));
-            for (index, cluster) in pieces {
-                let (kind, cells) = cell::classify(cluster);
+            for (index, cluster, (kind, cells)) in pieces {
                 let cells = match kind {
                     CellKind::Tab => tab_width.next_stop(column) - column,
                     _ => cells,
@@ -322,13 +324,23 @@ pub(crate) mod tests {
         }
     }
 
-    /// A grapheme cluster split into display clusters, with offsets.
-    fn display_pieces(cluster: &str, offset: usize) -> Vec<(usize, &str)> {
+    /// A grapheme cluster split into display clusters, with offsets, kinds and
+    /// cells.
+    fn display_pieces(cluster: &str, offset: usize) -> Vec<(usize, &str, (CellKind, usize))> {
         let mut pieces = Vec::new();
         let mut start = 0;
+        let mut past_limit = false;
         while start < cluster.len() {
-            let len = cell::first_display_cluster(&cluster[start..]);
-            pieces.push((offset + start, &cluster[start..start + len]));
+            let rest = &cluster[start..];
+            let (len, cell) = match rest.chars().next() {
+                Some(c) if past_limit => (c.len_utf8(), cell::classify_past_limit(c)),
+                _ => {
+                    let first = cell::first_display_cluster(rest);
+                    past_limit = first.at_limit;
+                    (first.len, cell::classify(&rest[..first.len]))
+                }
+            };
+            pieces.push((offset + start, &rest[..len], cell));
             start += len;
         }
         pieces
@@ -462,6 +474,49 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn mappings_hold_past_a_clusters_limits() {
+        // 21 bytes, so the whole grapheme cluster stays in one test chunk.
+        let text = format!("e{}x\nab", "\u{301}".repeat(10));
+        let snapshot = DisplayMap::new(&Rope::from(text.as_str()), TabWidth::default()).snapshot();
+        check_against(&snapshot, &text, TabWidth::default());
+        assert_eq!(snapshot.row_cells(0), 1 + 2 * 6 + 1);
+        let boxed = snapshot.clusters(DisplayPoint::new(0, 7)).next();
+        assert_eq!(boxed.map(|c| c.column), Some(7));
+        assert_eq!(
+            boxed.map(|c| c.kind),
+            Some(CellKind::PastLimit('\u{301}')),
+            "a pass resumed past the limit knows it"
+        );
+    }
+
+    #[test]
+    fn a_new_chunk_starts_a_clusters_limits_over() {
+        let text = "e".to_owned() + &"\u{301}".repeat(crate::rope::MAX_CHUNK_BYTES * 4);
+        let rope = Rope::from(text.as_str());
+        let snapshot = DisplayMap::new(&rope, TabWidth::default()).snapshot();
+        let stacks = snapshot
+            .clusters(DisplayPoint::default())
+            .filter(|c| c.kind == CellKind::Text)
+            .count();
+        assert_eq!(stacks, rope.chunks().count());
+    }
+
+    #[test]
+    fn a_past_limit_character_draws_its_label_in_a_box() {
+        let cluster = DisplayCluster {
+            offset: 0,
+            column: 2,
+            cells: 6,
+            text: "\u{301}",
+            kind: CellKind::PastLimit('\u{301}'),
+        };
+        let labels: String = runs(&cluster).iter().map(|run| run.2.as_str()).collect();
+        assert_eq!(labels, "U+0301");
+        assert!(runs(&cluster).iter().all(|run| run.3 == CellStyle::Boxed));
+        assert_eq!(runs(&cluster)[5].0, 7);
+    }
+
+    #[test]
     fn changing_the_tab_width_rebuilds() {
         let text = "\tx\n";
         let rope = Rope::from(text);
@@ -584,12 +639,12 @@ pub(crate) mod tests {
         /// Whatever the text holds, no run draws a control character or a
         /// bidi control (T3 in security.md).
         #[test]
-        fn runs_never_draw_controls(pieces in prop::collection::vec(0usize..14, 0..40)) {
+        fn runs_never_draw_controls(pieces in prop::collection::vec((0usize..14, 1usize..12), 0..40)) {
             const PIECES: [&str; 14] = [
                 "a", "日", "\n", "\t", "\r", "\u{7f}", "\u{85}", "\u{202e}", "\u{2066}",
                 "\u{200f}", "\u{61c}", "\u{301}", "\u{200d}", "👨\u{200d}👩",
             ];
-            let text: String = pieces.into_iter().map(|piece| PIECES[piece]).collect();
+            let text: String = pieces.into_iter().map(|(piece, n)| PIECES[piece].repeat(n)).collect();
             let snapshot = DisplayMap::new(&Rope::from(text.as_str()), TabWidth::default()).snapshot();
             for row in 0..snapshot.row_count() {
                 for cluster in snapshot.clusters(DisplayPoint::new(row, 0)) {

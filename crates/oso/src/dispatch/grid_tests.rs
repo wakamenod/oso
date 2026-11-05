@@ -212,6 +212,15 @@ mod scenarios {
     }
 
     #[test]
+    fn characters_past_a_clusters_limits_are_boxed() {
+        let at_limit = format!("e{}", "\u{301}".repeat(8));
+        let past_limit = format!("o{}", "\u{301}".repeat(10));
+        let text = format!("{at_limit}x\n{past_limit}x\n");
+        let steps = ["", "C-n C-f", "C-f", "C-f", "C-f"];
+        check("past_cluster_limits", &text, (3, 24), &steps);
+    }
+
+    #[test]
     fn invalid_bytes_are_escapes() {
         check(
             "invalid_bytes",

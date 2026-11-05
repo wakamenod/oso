@@ -11,9 +11,9 @@
 use oso_core::display_map::CellStyle;
 use oso_platform::text::{GlyphKey, ShapedGlyph};
 
-/// The most glyphs drawn for one span. Real text stacks a few marks on a
-/// letter; text stacking thousands ("Zalgo") is cut off here rather than
-/// drawing them all in one cell.
+/// The most glyphs drawn for one span. The display model bounds how many
+/// characters a cluster holds, but a shaper's output for them has no such
+/// bound, so it is cut off here rather than drawing it all in one cell.
 const MAX_GLYPHS_PER_SPAN: u32 = 32;
 
 /// A glyph placed on the grid.
@@ -326,7 +326,15 @@ mod tests {
         let text: String = std::iter::once('e')
             .chain(std::iter::repeat_n('\u{301}', 10_000))
             .collect();
-        let placed = place(&text, &shape_naively(&text));
+        // One cluster, however many glyphs the shaper gives for it.
+        let cluster = Grapheme {
+            byte: 0,
+            column: 0,
+            cells: 1,
+            style: CellStyle::Text,
+        };
+        let mut placed = Vec::new();
+        Placer::default().place(&[cluster], &shape_naively(&text), CELL, &mut placed);
         assert_eq!(placed.len(), MAX_GLYPHS_PER_SPAN as usize);
         assert!(placed.iter().all(|g| g.column == 0));
     }

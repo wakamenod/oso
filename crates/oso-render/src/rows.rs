@@ -14,7 +14,8 @@
 //! - Control characters, invalid bytes and invisible characters are never
 //!   shaped. Their escapes from the display model (`^M`, `\xFF`,
 //!   `U+202E`) are shaped instead, as plain ASCII labels (security.md, T3),
-//!   and invisible characters get a box.
+//!   and invisible characters get a box, as do characters past a display
+//!   cluster's limits (ADR 0054).
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -25,25 +26,17 @@ use oso_platform::text::{ShapedGlyph, TextSystem};
 
 use crate::grid::{Grapheme, PlacedGlyph, Placer};
 
-/// The most characters of one cluster passed to the shaper: enough for
-/// the longest emoji sequences and Indic clusters. A cluster of a base and
-/// thousands of combining marks takes one cell; shaping all of it on the
-/// UI thread would let a small file stall a frame.
-const MAX_CLUSTER_CHARS: usize = 16;
-
 /// The characters shaped per row, per column shaped. Real text has at most
 /// three or so; past this budget, clusters are shaped by their first
 /// character only. A row's text then has at most this many characters per
 /// column plus one more, and one cluster: hostile text costs a bounded
-/// amount per row, about 20 bytes per column at worst.
+/// amount per row, about 20 bytes per column at worst. The display model
+/// bounds a cluster's length (ADR 0054).
 const CHARS_PER_COLUMN: usize = 4;
 
-/// `text` cut to its first `chars` characters.
-fn clip_cluster(text: &str, chars: usize) -> &str {
-    match text.char_indices().nth(chars) {
-        Some((end, _)) => &text[..end],
-        None => text,
-    }
+/// The first character of `text`.
+fn first_char(text: &str) -> &str {
+    text.chars().next().map_or("", |c| &text[..c.len_utf8()])
 }
 
 /// One display row's shaped columns. No `Debug`: it holds buffer text
@@ -64,7 +57,7 @@ pub(crate) struct ShapedRow {
     graphemes: Vec<Grapheme>,
     /// Sorted by column.
     pub(crate) glyphs: Vec<PlacedGlyph>,
-    /// Boxed invisible characters: their first column and cells.
+    /// Boxed characters: their first column and cells.
     pub(crate) boxes: Vec<(usize, usize)>,
 }
 
@@ -163,9 +156,9 @@ impl Rows {
             if cluster.column >= columns.end {
                 break;
             }
-            let chars = if spent < budget { MAX_CLUSTER_CHARS } else { 1 };
+            let whole = spent < budget;
             cluster.for_each_run(|run| {
-                // One box per invisible character, across its label's runs.
+                // One box per boxed character, across its label's runs.
                 if run.style == CellStyle::Boxed {
                     if run.column == cluster.column {
                         self.boxes.push((run.column, run.cells));
@@ -179,7 +172,11 @@ impl Rows {
                     cells: u32::try_from(run.cells).unwrap_or(u32::MAX),
                     style: run.style,
                 });
-                let text = clip_cluster(run.text, chars);
+                let text = if whole {
+                    run.text
+                } else {
+                    first_char(run.text)
+                };
                 spent += text.chars().count();
                 self.text.push_str(text);
             });
@@ -290,20 +287,17 @@ mod tests {
     }
 
     #[test]
-    fn huge_clusters_are_cut_before_shaping() {
-        let zalgo = format!("e{}", "\u{301}".repeat(100_000));
-        let text = format!("{zalgo}\n{zalgo}");
+    fn marks_past_a_clusters_limit_are_shaped_as_labels_in_boxes() {
+        let marks = format!("e{}", "\u{301}".repeat(100_000));
+        let text = format!("{marks}\n{marks}");
         let buffer = Buffer::from_text("t", &text);
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        rows.row(&buffer.display(), 0, 0..256, &mut system);
-        let shaped = system.shaped[0].chars().count();
-        // The rope splits the cluster into 1 KB pieces of one cell each,
-        // and each piece is cut to a few characters.
-        assert!(
-            shaped <= 256 * (CHARS_PER_COLUMN + 1) + MAX_CLUSTER_CHARS,
-            "{shaped} characters shaped"
-        );
+        let row = rows.row(&buffer.display(), 0, 0..253, &mut system);
+        assert_eq!(row.boxes.first(), Some(&(1, 6)));
+        assert_eq!(row.boxes.len(), 42);
+        let stack = format!("e{}", "\u{301}".repeat(8));
+        assert_eq!(system.shaped[0], stack + &"U+0301".repeat(42));
     }
 
     /// `cluster` repeated, shaped in two windows of a row: all of its text
@@ -332,24 +326,30 @@ mod tests {
 
     #[test]
     fn the_budget_bounds_the_characters_of_a_row() {
-        // Clusters of the longest characters, each over the cluster limit.
-        let cluster = format!("e{}", "\u{1d165}".repeat(MAX_CLUSTER_CHARS * 2));
-        let buffer = Buffer::from_text("t", &cluster.repeat(512));
-        let mut rows = Rows::default();
-        let mut system = Recorder::default();
-        rows.row(&buffer.display(), 0, 0..128, &mut system);
-        let shaped = &system.shaped[0];
-        let bound = 128 * (CHARS_PER_COLUMN + 1) + MAX_CLUSTER_CHARS;
-        assert!(
-            shaped.chars().count() <= bound,
-            "{}",
-            shaped.chars().count()
-        );
-        assert!(shaped.len() <= bound * 4, "{} bytes", shaped.len());
-        assert!(
-            shaped.chars().count() >= 128 * CHARS_PER_COLUMN,
-            "the budget is spent before clusters are cut"
-        );
+        // Clusters at the display model's limits: on marks, with the longest
+        // characters, and on characters.
+        for cluster in [
+            format!("e{}", "\u{1d165}".repeat(8)),
+            "\u{600}".repeat(15) + "a",
+        ] {
+            let buffer = Buffer::from_text("t", &cluster.repeat(512));
+            let mut rows = Rows::default();
+            let mut system = Recorder::default();
+            rows.row(&buffer.display(), 0, 0..128, &mut system);
+            let shaped = &system.shaped[0];
+            assert!(
+                shaped.starts_with(&cluster),
+                "the display model keeps it whole"
+            );
+            let bound = 128 * (CHARS_PER_COLUMN + 1) + cluster.chars().count();
+            let chars = shaped.chars().count();
+            assert!(chars <= bound, "{chars}");
+            assert!(shaped.len() <= bound * 4, "{} bytes", shaped.len());
+            assert!(
+                chars >= 128 * CHARS_PER_COLUMN,
+                "the budget is spent before clusters are cut: {chars}"
+            );
+        }
     }
 
     #[test]

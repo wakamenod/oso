@@ -7,7 +7,8 @@
 //! - A cluster takes the East Asian Width of its text: 1 cell for half
 //!   width, 2 for full width, with emoji sequences counted as one 2-cell
 //!   glyph. Ambiguous-width characters take 1 cell.
-//! - Every other cluster takes at least 1 cell and at most 2.
+//! - Every other cluster takes at least 1 cell and at most 2, but for the
+//!   boxes below.
 //! - Control characters are shown as escapes, as in Emacs: caret notation in
 //!   2 cells for C0 and DEL (`^@`, `^M`, `^?`), and an octal escape in 4
 //!   cells for C1 (`\200`). A lone `\r` is a control character.
@@ -17,6 +18,10 @@
 //!   out of the cluster it would extend, except where it is part of an emoji
 //!   or a script (see `is_hidden_extend`), so `a` followed by tag
 //!   characters or a ZWNJ shows every hidden code point.
+//! - A display cluster holds at most `MAX_CLUSTER_MARKS` marks after its first
+//!   character and `MAX_CLUSTER_CHARS` characters. Each character past that, to
+//!   the end of the grapheme cluster, is shown as its code point in a box
+//!   (`U+0301`), but ASCII, which stays text. A new chunk starts the limits over.
 //! - An invalid byte of the file, held as U+FFFD with its value in
 //!   [`InvalidBytes`], is shown as `\xNN` in 4 cells (ADR 0040).
 //! - A tab advances to the next tab stop. `\n` and `\r\n` end the row and
@@ -25,9 +30,17 @@
 use std::num::NonZeroU32;
 
 use unicode_segmentation::GraphemeCursor;
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::decode::{InvalidBytes, InvalidIter, REPLACEMENT};
+
+/// The most marks a display cluster holds after its first character: as many
+/// as the longest real clusters tested, Tibetan stacks.
+const MAX_CLUSTER_MARKS: usize = 8;
+
+/// The most characters a display cluster holds: enough for the longest emoji
+/// sequences and Indic clusters.
+const MAX_CLUSTER_CHARS: usize = 16;
 
 /// What a grapheme cluster is on the cell grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -41,6 +54,11 @@ pub enum CellKind {
     /// A bidi control or invisible character, drawn as its [`escape`] in a
     /// box.
     Invisible(char),
+    /// A character past a display cluster's limits, drawn as its code point
+    /// in a box. ASCII past them stays [`CellKind::Text`], and invisible
+    /// characters stay [`CellKind::Invisible`]. The limits start over at the next
+    /// grapheme cluster and at a new chunk.
+    PastLimit(char),
     /// An invalid byte of the file, drawn as `\xNN`. Its
     /// text in the buffer is U+FFFD.
     InvalidByte(u8),
@@ -56,7 +74,8 @@ pub enum CellStyle {
     /// The label of an escape: a control character (`^M`) or an invalid
     /// byte (`\xFF`), drawn in the escape color.
     Escape,
-    /// The label of a boxed invisible character (`U+202E`).
+    /// The label of a boxed character: invisible (`U+202E`), or past a display
+    /// cluster's limits (`U+0301`).
     Boxed,
 }
 
@@ -125,20 +144,89 @@ pub(crate) fn is_hidden_extend(c: char, base: char) -> bool {
     !allowed
 }
 
-/// The length of the first display cluster in a grapheme cluster: the whole
-/// cluster, or the part before an invisible character it would hide, or the
-/// invisible character itself.
-pub(crate) fn first_display_cluster(cluster: &str) -> usize {
+/// Whether `c` is a mark: it takes no cells, or it extends the character before
+/// it, as spacing marks and emoji modifiers do.
+fn is_mark(c: char) -> bool {
+    if c.width() == Some(0) {
+        return true;
+    }
+    let mut text = [0; 5];
+    text[0] = b'a';
+    let len = 1 + c.encode_utf8(&mut text[1..]).len();
+    let text = std::str::from_utf8(&text[..len]).unwrap_or_default();
+    GraphemeCursor::new(1, len, true).is_boundary(text, 0) == Ok(false)
+}
+
+/// The first display cluster in a grapheme cluster.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FirstCluster {
+    /// Its length: the whole grapheme cluster, or the part before an invisible
+    /// character it would hide or before its limits, or the invisible character
+    /// itself.
+    pub(crate) len: usize,
+    /// Whether it stopped at its limits, so that the rest of the grapheme
+    /// cluster is past them.
+    pub(crate) at_limit: bool,
+}
+
+/// Where `piece`, with no hidden characters in it, reaches a display cluster's
+/// limits, if it does. Telling a mark costs more than scanning, and real clusters
+/// are too short to reach the limit on marks, so the marks are only looked at in
+/// a piece long enough to hold too many.
+fn limit_in(piece: &str) -> Option<usize> {
+    piece.chars().nth(MAX_CLUSTER_MARKS + 1)?;
+    let mut marks = 0;
+    for (held, (index, c)) in (0..).zip(piece.char_indices()).skip(1) {
+        marks += usize::from(is_mark(c));
+        if marks > MAX_CLUSTER_MARKS || held == MAX_CLUSTER_CHARS {
+            return Some(index);
+        }
+    }
+    None
+}
+
+/// Finds the first display cluster in a grapheme cluster.
+pub(crate) fn first_display_cluster(cluster: &str) -> FirstCluster {
     let mut chars = cluster.char_indices();
     let Some((_, base)) = chars.next() else {
-        return 0;
+        return FirstCluster {
+            len: 0,
+            at_limit: false,
+        };
     };
     if is_invisible(base) {
-        return base.len_utf8();
+        return FirstCluster {
+            len: base.len_utf8(),
+            at_limit: false,
+        };
     }
-    chars
+    let end = chars
         .find(|&(_, c)| is_hidden_extend(c, base))
-        .map_or(cluster.len(), |(index, _)| index)
+        .map_or(cluster.len(), |(index, _)| index);
+    match limit_in(&cluster[..end]) {
+        Some(len) => FirstCluster {
+            len,
+            at_limit: true,
+        },
+        None => FirstCluster {
+            len: end,
+            at_limit: false,
+        },
+    }
+}
+
+/// What a character past a display cluster's limits is on the cell grid. ASCII
+/// stays text: it can only follow a prepended character, and it reads the same.
+pub(crate) fn classify_past_limit(c: char) -> (CellKind, usize) {
+    if c.is_ascii() {
+        return classify_ascii(c as u8);
+    }
+    let kind = if is_invisible(c) {
+        CellKind::Invisible(c)
+    } else {
+        CellKind::PastLimit(c)
+    };
+    (kind, Escape::code_point(c).len)
 }
 
 /// The cells one ASCII byte takes, for the fast path. `\r\n` is handled by
@@ -154,10 +242,12 @@ fn classify_ascii(byte: u8) -> (CellKind, usize) {
 
 impl CellKind {
     /// The escape this cluster is drawn as, instead of its text: for
-    /// control and invisible characters and invalid bytes.
+    /// control and invisible characters, characters past a cluster's limits
+    /// and invalid bytes.
     pub fn escape(self) -> Option<Escape> {
         match self {
             Self::Control(c) | Self::Invisible(c) => escape(c),
+            Self::PastLimit(c) => Some(Escape::code_point(c)),
             Self::InvalidByte(byte) => Some(Escape::byte(byte)),
             Self::Text | Self::Tab | Self::LineBreak => None,
         }
@@ -190,22 +280,14 @@ pub fn escape(c: char) -> Option<Escape> {
             bytes[3] = b'0' + (code & 7) as u8;
             4
         }
-        _ if is_invisible(c) => {
-            let digits = if code > 0xffff { 5 } else { 4 };
-            bytes[0] = b'U';
-            bytes[1] = b'+';
-            for index in 0..digits {
-                let shift = 4 * (digits - 1 - index);
-                bytes[2 + index] = HEX[((code >> shift) & 0xf) as usize];
-            }
-            2 + digits
-        }
+        _ if is_invisible(c) => return Some(Escape::code_point(c)),
         _ => return None,
     };
     Some(Escape { bytes, len })
 }
 
-/// The escape text of a control or invisible character. See [`escape`].
+/// The escape text of a control, invisible or past-limit character, or of an
+/// invalid byte. See [`escape`] and [`CellKind::escape`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Escape {
     bytes: [u8; 8],
@@ -213,6 +295,27 @@ pub struct Escape {
 }
 
 impl Escape {
+    /// The code point of `c`: `U+0301`, up to `U+10FFFF`.
+    fn code_point(c: char) -> Self {
+        let code = u32::from(c);
+        let digits = match code {
+            0..=0xffff => 4,
+            0x1_0000..=0xf_ffff => 5,
+            _ => 6,
+        };
+        let mut bytes = [0; 8];
+        bytes[0] = b'U';
+        bytes[1] = b'+';
+        for index in 0..digits {
+            let shift = 4 * (digits - 1 - index);
+            bytes[2 + index] = HEX[((code >> shift) & 0xf) as usize];
+        }
+        Self {
+            bytes,
+            len: 2 + digits,
+        }
+    }
+
     /// The escape of an invalid byte: `\xNN`, in upper-case hex.
     pub(crate) fn byte(byte: u8) -> Self {
         let mut bytes = [0; 8];
@@ -290,6 +393,10 @@ pub struct Clusters<'a> {
     /// reads when it looks back is not counted.
     #[cfg(test)]
     segmented: usize,
+    /// Characters before this offset are past the limits of a display cluster,
+    /// the one that started at `limit_reached_at`.
+    past_limit_until: usize,
+    limit_reached_at: usize,
     /// The invalid bytes after `position`, and where the text starts in
     /// the buffer.
     invalid: Option<InvalidIter<'a>>,
@@ -307,6 +414,8 @@ impl<'a> Clusters<'a> {
             cursor: GraphemeCursor::new(0, text.len(), true),
             #[cfg(test)]
             segmented: 0,
+            past_limit_until: 0,
+            limit_reached_at: usize::MAX,
             invalid: None,
             base: 0,
             next_invalid: None,
@@ -316,27 +425,41 @@ impl<'a> Clusters<'a> {
     /// The clusters of `text`, which starts at `base` in a buffer whose
     /// invalid bytes are `invalid`.
     pub(crate) fn with_invalid(text: &'a str, base: usize, invalid: &'a InvalidBytes) -> Self {
-        Self::with_invalid_from(text, base, 0, invalid)
+        Self::with_invalid_from(text, base, 0, 0, invalid)
     }
 
     /// Like [`Clusters::with_invalid`], going on from `position`, where a
-    /// cluster starts. The text before it stays as context: where a cluster
-    /// ends can depend on what comes before its start, when an earlier part
-    /// of a grapheme cluster was split out.
+    /// cluster starts, with `past_limit_until` from the pass that found it (see
+    /// [`Clusters::past_limit_until_at`]). The text before it stays as context:
+    /// where a cluster ends can depend on what comes before its start, when an
+    /// earlier part of a grapheme cluster was split out.
     pub(crate) fn with_invalid_from(
         text: &'a str,
         base: usize,
         position: usize,
+        past_limit_until: usize,
         invalid: &'a InvalidBytes,
     ) -> Self {
         let mut clusters = Self::new(text);
         clusters.position = position;
+        clusters.past_limit_until = past_limit_until;
         if !invalid.is_empty() {
             clusters.invalid = Some(invalid.range(base + position..base + text.len()));
             clusters.base = base;
             clusters.advance_invalid();
         }
         clusters
+    }
+
+    /// What a pass that resumes at `start` needs to know, given that `start` is
+    /// the cluster this pass has just returned: the offset before which
+    /// characters were past a display cluster's limits there.
+    pub(crate) fn past_limit_until_at(&self, start: usize) -> usize {
+        if start == self.limit_reached_at {
+            0
+        } else {
+            self.past_limit_until
+        }
     }
 
     fn advance_invalid(&mut self) {
@@ -412,6 +535,11 @@ impl<'a> Iterator for Clusters<'a> {
         } else if byte.is_ascii() && next.is_none_or(|next| next.is_ascii()) {
             let (kind, cells) = classify_ascii(byte);
             (start + 1, kind, cells)
+        } else if start < self.past_limit_until
+            && let Some(c) = text[start..].chars().next()
+        {
+            let (kind, cells) = classify_past_limit(c);
+            (start + c.len_utf8(), kind, cells)
         } else {
             let mut cluster_end = self.cluster_end(start);
             // An invalid byte's U+FFFD is never part of a larger cluster.
@@ -421,7 +549,12 @@ impl<'a> Iterator for Clusters<'a> {
             {
                 cluster_end = at;
             }
-            let end = start + first_display_cluster(&text[start..cluster_end]);
+            let first = first_display_cluster(&text[start..cluster_end]);
+            if first.at_limit {
+                self.past_limit_until = self.cursor.cur_cursor();
+                self.limit_reached_at = start;
+            }
+            let end = start + first.len;
             let (kind, cells) = classify(&text[start..end]);
             (end, kind, cells)
         };
@@ -434,6 +567,7 @@ impl<'a> Iterator for Clusters<'a> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use unicode_segmentation::UnicodeSegmentation;
 
     fn cells(cluster: &str) -> usize {
         classify(cluster).1
@@ -546,7 +680,6 @@ mod tests {
 
     #[test]
     fn fast_path_matches_segmentation() {
-        use unicode_segmentation::UnicodeSegmentation;
         let text: String = (0u8..0x80).map(char::from).collect::<String>()
             + "a\r\nb\r\r\ne\u{301}x日本\u{301}\r\u{301}🇯🇵🇯🇵b\u{300}👍👨\u{200d}👩\n";
         let fast: Vec<_> = Clusters::new(&text).collect();
@@ -587,6 +720,130 @@ mod tests {
         }
     }
 
+    #[test]
+    fn clusters_past_their_limits_show_each_character() {
+        let run = |marks: usize| format!("e{}", "\u{301}".repeat(marks));
+        assert_eq!(display_clusters(&run(8)), [run(8)], "at the limit");
+        let ten = run(10);
+        let past: Vec<_> = Clusters::new(&ten).collect();
+        assert_eq!(past.len(), 3);
+        assert_eq!(past[0].1, run(8));
+        let boxed = (CellKind::PastLimit('\u{301}'), 6);
+        assert_eq!((past[1].2, past[1].3), boxed);
+        assert_eq!((past[2].2, past[2].3), boxed);
+        let (next, whole) = (run(9) + "x", run(8));
+        assert_eq!(
+            display_clusters(&next),
+            [whole.as_str(), "\u{301}", "x"],
+            "the next grapheme cluster starts over"
+        );
+    }
+
+    #[test]
+    fn spacing_marks_count_toward_the_limit() {
+        let text = format!("क{}", "\u{93e}".repeat(9));
+        let clusters: Vec<_> = Clusters::new(&text).collect();
+        assert_eq!(clusters.len(), 2);
+        assert_eq!(clusters[1].2, CellKind::PastLimit('\u{93e}'));
+    }
+
+    #[test]
+    fn long_clusters_without_marks_stop_at_the_character_limit() {
+        let text = "\u{600}".repeat(18);
+        let clusters: Vec<_> = Clusters::new(&text).collect();
+        assert_eq!(clusters[0].1.chars().count(), 16);
+        assert_eq!(clusters.len(), 3);
+        assert_eq!(clusters[1].2, CellKind::PastLimit('\u{600}'));
+    }
+
+    #[test]
+    fn real_clusters_stay_whole() {
+        for whole in [
+            "a\u{323}\u{302}",
+            "क्ष्म्य",
+            "བསྒྲུབས",
+            "ཧྐྵྨླྺྼྻྂ",
+            "שִׁ֖",
+            "ខ្ញុំ",
+            "ಕ್ರೌ",
+            "👩🏽\u{200d}❤\u{fe0f}\u{200d}💋\u{200d}👨🏿",
+            "\u{1f3f4}\u{e0067}\u{e0062}\u{e0065}\u{e006e}\u{e0067}\u{e007f}",
+        ] {
+            let graphemes = whole.graphemes(true).collect::<Vec<_>>();
+            assert_eq!(display_clusters(whole), graphemes, "{whole}");
+            assert!(
+                Clusters::new(whole).all(|(_, _, kind, _)| kind == CellKind::Text),
+                "{whole}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_past_limit_character_shows_its_whole_code_point() {
+        // After a prepended character, anything is part of the cluster.
+        let text = "\u{600}".repeat(16) + "\u{10fffd}";
+        let got: Vec<_> = Clusters::new(&text).skip(1).map(|c| (c.2, c.3)).collect();
+        assert_eq!(got, [(CellKind::PastLimit('\u{10fffd}'), 8)]);
+        let text = "\u{600}".repeat(16) + "a\u{301}";
+        let got: Vec<_> = Clusters::new(&text).skip(1).map(|c| (c.2, c.3)).collect();
+        assert_eq!(
+            got,
+            [(CellKind::Text, 1), (CellKind::PastLimit('\u{301}'), 6)],
+            "ASCII reads the same as text"
+        );
+        let label = CellKind::PastLimit('\u{10fffd}').escape();
+        assert_eq!(label.as_ref().map(Escape::as_str), Some("U+10FFFD"));
+    }
+
+    #[test]
+    fn invisible_characters_past_a_limit_stay_invisible_kinds() {
+        // ZWJ is allowed after non-ASCII text, so only the limit splits it out.
+        let text = format!("日{}\u{200d}\u{301}", "\u{301}".repeat(8));
+        let got: Vec<_> = Clusters::new(&text).skip(1).map(|c| (c.2, c.3)).collect();
+        assert_eq!(
+            got,
+            [
+                (CellKind::Invisible('\u{200d}'), 6),
+                (CellKind::PastLimit('\u{301}'), 6)
+            ]
+        );
+    }
+
+    #[test]
+    fn invalid_bytes_at_and_past_a_limit_stay_invalid_bytes() {
+        let held = "\u{600}".repeat(16);
+        // Right at the limit, and with one more character past it.
+        for (before, at) in [(held.clone(), 32), (held.clone() + "\u{600}", 34)] {
+            let text = before + "\u{fffd}";
+            let mut invalid = InvalidBytes::new();
+            invalid.extend(0, &[(at, 0xfe)]);
+            let last = Clusters::with_invalid(&text, 0, &invalid).last();
+            assert_eq!(
+                last.map(|c| (c.0, c.2, c.3)),
+                Some((at, CellKind::InvalidByte(0xfe), 4))
+            );
+        }
+        // A U+FFFD that was valid in the file is a character like any other.
+        let text = held + "\u{fffd}";
+        let last = Clusters::new(&text).last();
+        assert_eq!(last.map(|c| c.2), Some(CellKind::PastLimit('\u{fffd}')));
+    }
+
+    #[test]
+    fn a_limit_ends_with_its_grapheme_cluster() {
+        let text = format!("e{}\ne\u{301}", "\u{301}".repeat(10));
+        let last = Clusters::new(&text).last();
+        assert_eq!(last.map(|c| (c.1, c.2)), Some(("e\u{301}", CellKind::Text)));
+    }
+
+    #[test]
+    fn a_run_past_the_limit_is_segmented_once() {
+        let text = format!("e{}", "\u{301}".repeat(300));
+        let (pieces, segmented) = one_pass(&text);
+        assert_eq!(pieces.len(), 1 + 292);
+        assert_eq!(segmented, text.len());
+    }
+
     /// The display clusters of `text`, finding each grapheme cluster's end
     /// with a new cursor at every start, as a scan without memory does.
     fn clusters_by_fresh_cursors<'a>(
@@ -595,12 +852,16 @@ mod tests {
     ) -> Vec<(usize, &'a str, CellKind, usize)> {
         let mut clusters = Vec::new();
         let mut start = 0;
+        let mut past_limit_until = 0;
         while start < text.len() {
             let byte = invalid
                 .get(start)
                 .filter(|_| text[start..].starts_with(REPLACEMENT));
+            let past_kind = start < past_limit_until;
             let end = if byte.is_some() {
                 start + REPLACEMENT.len_utf8()
+            } else if past_kind {
+                start + text[start..].chars().next().map_or(1, char::len_utf8)
             } else {
                 let mut cursor = GraphemeCursor::new(start, text.len(), true);
                 let mut end = cursor
@@ -614,12 +875,17 @@ mod tests {
                 if let Some(at) = replacement.filter(|&at| invalid.get(at).is_some()) {
                     end = at;
                 }
-                start + first_display_cluster(&text[start..end])
+                let first = first_display_cluster(&text[start..end]);
+                if first.at_limit {
+                    past_limit_until = cursor.cur_cursor();
+                }
+                start + first.len
             };
-            let (kind, cells) = byte.map_or_else(
-                || classify(&text[start..end]),
-                |byte| (CellKind::InvalidByte(byte), INVALID_BYTE_CELLS),
-            );
+            let (kind, cells) = match (byte, text[start..end].chars().next()) {
+                (Some(byte), _) => (CellKind::InvalidByte(byte), INVALID_BYTE_CELLS),
+                (None, Some(c)) if past_kind => classify_past_limit(c),
+                _ => classify(&text[start..end]),
+            };
             clusters.push((start, &text[start..end], kind, cells));
             start = end;
         }
@@ -647,8 +913,16 @@ mod tests {
             "\u{600}",
             "\u{fffd}",
         ];
-        prop::collection::vec(prop::sample::select(&PIECES[..]), 0..60)
-            .prop_map(|pieces| pieces.concat())
+        // Repeats reach the limits; most pieces stay short.
+        let repeats = prop_oneof![4 => Just(1usize), 1 => 2usize..24];
+        prop::collection::vec((prop::sample::select(&PIECES[..]), repeats), 0..30).prop_map(
+            |pieces| {
+                pieces
+                    .into_iter()
+                    .map(|(piece, n)| piece.repeat(n))
+                    .collect()
+            },
+        )
     }
 
     proptest! {
@@ -671,9 +945,12 @@ mod tests {
                 let fresh = clusters_by_fresh_cursors(&text, &invalid);
                 prop_assert_eq!(&got, &fresh, "{:?}", text);
                 prop_assert!(clusters.segmented <= text.len(), "{:?}", text);
+                let mut resuming = Clusters::with_invalid(&text, 0, &invalid);
                 for (index, &(start, ..)) in fresh.iter().enumerate() {
+                    resuming.next();
+                    let until = resuming.past_limit_until_at(start);
                     let tail: Vec<_> =
-                        Clusters::with_invalid_from(&text, 0, start, &invalid).collect();
+                        Clusters::with_invalid_from(&text, 0, start, until, &invalid).collect();
                     prop_assert_eq!(&tail[..], &fresh[index..], "{:?} from {}", text, start);
                 }
             }
@@ -691,7 +968,7 @@ mod tests {
             let mut invalid = InvalidBytes::new();
             invalid.extend(0, &entries);
             let from = text.floor_char_boundary(from);
-            let clusters = Clusters::with_invalid_from(&text, 0, from, &invalid);
+            let clusters = Clusters::with_invalid_from(&text, 0, from, 0, &invalid);
             let mut next = from;
             for (offset, piece, _, _) in clusters {
                 prop_assert_eq!(offset, next, "{:?}", text);
