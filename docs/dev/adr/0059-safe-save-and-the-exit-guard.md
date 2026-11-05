@@ -185,9 +185,11 @@ Then:
 
 ## Consequences
 
-- On the author's Mac, with its internal SSD, `C-x C-s` on a 1 GB buffer costs the UI thread about 20 µs for the command and 8 to 14
-  µs to start the thread. The whole save takes about 170 ms, and keys typed meanwhile took about 0.5 ms each. No benchmark tracks
-  this yet, so these numbers come from one script run for the pull request.
+- On the author's Mac, with its internal SSD, `C-x C-s` on a 1 GB buffer costs the UI thread about 20 µs for the command, about 45
+  µs if it adds the final newline, and 8 to 14 µs to start the thread. The whole save takes 150 to 170 ms, and keys typed meanwhile
+  took 0.3 to 6.4 ms from the socket to a presented frame. With `trace` logging to a file on the same disk, one key per save took 25 to 30 ms:
+  the UI thread's log write waits for the save's fsync. No benchmark tracks any of this yet, so these numbers come from one script run
+  for the pull request.
 - **A conflict has no way out yet.** Until M2-16 can ask and M2-22 can reload, or M2-18 can write elsewhere, such a buffer
   cannot be saved, and `oso dev` holds restarts for it. Moving the changed file away and saving again is what is left. A file
   owned by someone else cannot be saved that way either.
