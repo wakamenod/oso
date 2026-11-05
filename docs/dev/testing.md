@@ -119,10 +119,10 @@ The conflict marker check reads every UTF-8 file in the repository and names eac
 marker by file and line. It cannot ask git what is tracked, so it keeps its own copy
 of what `.gitignore` covers, other sessions' worktrees included. A file not yet added
 counts too, such as an editor's backup of a conflicted file. Delete it: adding it to
-`.gitignore` does not stop the check. The check does not look for the separator line
-of `=` signs, which is also a Markdown heading underline, so a conflict resolved by
-deleting only the outer markers can leave one behind. To show a marker in a doc,
-indent it.
+`.gitignore` does not stop the check. A line of exactly seven `=` fails too, as a
+conflict resolved by deleting only the outer markers leaves it behind. That also
+fails a Markdown heading underlined at that length, so write headings with `#`. To
+show a marker in a doc, indent it.
 
 ### Test quality
 

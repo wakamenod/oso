@@ -7,14 +7,15 @@
 
 /// How long a marker is, and the characters it repeats. Markers are built from
 /// these at run time, so this file holds none for the check to trip on.
-///
-/// The separator, seven `=`, is left out on purpose. It underlines a Markdown
-/// heading of any length, so alone it proves nothing. Between the other markers
-/// it would catch nothing new, because they already fail the file. The cost is a
-/// conflict resolved by deleting only the outer markers: its separator stays
-/// unnoticed where nothing parses the file.
 const LENGTH: usize = 7;
 const MARKS: [char; 3] = ['<', '|', '>'];
+
+/// What the separator repeats. A conflict resolved by deleting only the outer
+/// markers leaves the separator alone, and in a table of ADRs, where keeping both
+/// sides is the natural resolution, nothing else would notice. It also underlines
+/// a Markdown heading, so a line of exactly this length fails there too: the docs
+/// write headings with `#`.
+const SEPARATOR: char = '=';
 
 /// The end of a path from each place the walk must reach, most of them hidden
 /// or not Rust. If the walk loses one, the check fails instead of passing on
@@ -30,14 +31,28 @@ const MUST_SEE: [&str; 7] = [
 ];
 
 /// The marker that `line` starts with: a mark repeated [`LENGTH`] times, then a
-/// space and git's label, or nothing.
+/// space and git's label, or nothing. The separator has no label, so it must be
+/// the whole line.
 fn marker(line: &str) -> Option<&str> {
     let (head, rest) = line.split_at_checked(LENGTH)?;
     let first = head.chars().next()?;
-    let is_marker = MARKS.contains(&first)
-        && head.chars().all(|c| c == first)
-        && (rest.is_empty() || rest.starts_with(' '));
-    is_marker.then_some(head)
+    let ends_well = if first == SEPARATOR {
+        rest.is_empty()
+    } else {
+        MARKS.contains(&first) && (rest.is_empty() || rest.starts_with(' '))
+    };
+    (ends_well && head.chars().all(|c| c == first)).then_some(head)
+}
+
+/// The report of `marker` at `line` of `at`. Only the separator can be something
+/// else, a heading underline, so its report says what to do then.
+fn problem(at: &str, line: usize, marker: &str) -> String {
+    let heading = if marker.starts_with(SEPARATOR) {
+        ", or write the heading with `#`"
+    } else {
+        ""
+    };
+    format!("{at}:{line}: conflict marker `{marker}`; finish resolving the merge{heading}")
 }
 
 /// What is wrong with `files`, given as paths and text: every marker, by file
@@ -52,10 +67,7 @@ pub fn problems(files: &[(String, String)]) -> Vec<String> {
     for (at, text) in files {
         for (index, line) in text.lines().enumerate() {
             if let Some(marker) = marker(line) {
-                let line = index + 1;
-                problems.push(format!(
-                    "{at}:{line}: conflict marker `{marker}`; finish resolving the merge"
-                ));
+                problems.push(problem(at, index + 1, marker));
             }
         }
     }
@@ -64,7 +76,7 @@ pub fn problems(files: &[(String, String)]) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{LENGTH, MUST_SEE, problems};
+    use super::{LENGTH, MUST_SEE, problem, problems};
 
     fn marker(mark: char) -> String {
         mark.to_string().repeat(LENGTH)
@@ -84,14 +96,13 @@ mod tests {
     }
 
     fn found(at: &str, line: usize, mark: char) -> String {
-        let marker = marker(mark);
-        format!("{at}:{line}: conflict marker `{marker}`; finish resolving the merge")
+        problem(at, line, &marker(mark))
     }
 
     #[test]
     fn every_marker_is_named_by_file_and_line_without_its_label() {
         let (ours, base, theirs) = (marker('<'), marker('|'), marker('>'));
-        let separator = "=".repeat(LENGTH);
+        let separator = marker('=');
         let text = format!(
             "intro\n{ours} HEAD\na\n{base} merged common ancestors\nb\n{separator}\nc\n\
              {theirs} origin/main\n"
@@ -101,9 +112,11 @@ mod tests {
             [
                 found("docs/a.md", 2, '<'),
                 found("docs/a.md", 4, '|'),
+                found("docs/a.md", 6, '='),
                 found("docs/a.md", 8, '>'),
                 found("b.snap", 2, '<'),
                 found("b.snap", 4, '|'),
+                found("b.snap", 6, '='),
                 found("b.snap", 8, '>'),
             ]
         );
@@ -119,9 +132,27 @@ mod tests {
     }
 
     #[test]
-    fn a_lone_separator_is_a_heading_underline_and_passes() {
-        let text = format!("Title\n{}\n\nText.\n", "=".repeat(LENGTH));
-        assert_eq!(problems(&files(&[("a.md", &text)])), Vec::<String>::new());
+    fn a_lone_separator_fails_and_says_what_to_do_about_a_heading() {
+        let separator = marker('=');
+        // Both sides of a conflict kept, on any line ending or at the end of a file.
+        for text in [
+            format!("| a |\n{separator}\n| b |\n"),
+            format!("| a |\r\n{separator}\r\n| b |\r\n"),
+            format!("| a |\n{separator}"),
+        ] {
+            assert_eq!(
+                problems(&files(&[("a.md", &text)])),
+                [format!(
+                    "a.md:2: conflict marker `{separator}`; finish resolving the merge, or write \
+                     the heading with `#`"
+                )]
+            );
+        }
+    }
+
+    #[test]
+    fn the_other_markers_do_not_mention_a_heading() {
+        assert!(!found("a.md", 1, '<').contains("heading"));
     }
 
     #[test]
@@ -135,6 +166,14 @@ mod tests {
             format!(" {ours} HEAD"),
             format!("see {ours} HEAD"),
             format!("{ours}HEAD"),
+            // The separator at another length, not alone on its line, or indented.
+            "=".repeat(LENGTH - 1),
+            "=".repeat(LENGTH + 1),
+            "===".to_owned(),
+            format!("{} ", marker('=')),
+            format!("{} label", marker('=')),
+            format!(" {}", marker('=')),
+            format!("text {}", marker('=')),
             // Mixed marks, and characters wider than a byte across the length.
             "<<<>>>> a".to_owned(),
             "日本語のテキスト".to_owned(),
