@@ -193,13 +193,11 @@ These ADRs stay as they are; this one changes the following:
   the band below its last row, so nothing paints on the next pane's row.
 - Up to a cell's width less text shows on the right, depending on the window's size.
 - A frame's CPU cost goes up a little, on a window of 99 x 32 cells of ASCII in a release
-  build (medians of 3 runs, before and after): moving the cursor 87 to 97 µs, scrolling
-  115 to 130 µs, and typing, where every row is read again, 200 to 289 µs. Key and typing
-  latency show no change at p99. A profile did not pin down the cost of typing, and
-  inlining alone moves it by 35 µs, so it stays open until it matters. The first screen
-  of a 100 MB file looks 1 to 3 ms later, not yet explained or told apart from noise.
-- `Lines` cost what reading their rows costs, each frame. M2-7's modeline is short, and
-  `*Messages*` is a buffer. A large float of `Lines` would need a cheap check first.
+  build (medians of 3 runs, before and after): moving the cursor 87 to 99 µs, scrolling
+  116 to 129 µs, and typing, where every row is read again, 200 to 222 µs. Key and typing
+  latency show no change at p99. A profile did not pin these down, and an earlier build
+  measured 289 µs for typing with no change to what it does, so code layout plays a part.
+  The first screen of a 100 MB file looks up to about 1 ms later, not told apart from noise.
 - A row with many changes of face costs more to shape, on a change only: a cold screen of
   60 x 128 cells alternating a control character and a letter takes 5.4 ms, against 0.6 ms
   for ASCII, on a fast machine with the real shaper. Reading a screen again is unchanged.
