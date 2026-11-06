@@ -66,7 +66,7 @@ old one's status.
 | 0057 | [The layout of a frame into regions](0057-frame-layout.md) | Accepted |
 | 0058 | [Word motion, the prefix argument and positions in secret buffers](0058-word-motion-prefix-argument-and-secret-positions.md) | Accepted |
 | 0059 | [Safe save and the exit guard](0059-safe-save-and-the-exit-guard.md) | Accepted |
-| 0061 | [Panes: drawing a frame as a list with clipping and layers](0061-panes-clipping-and-layers.md) | Proposed |
+| 0061 | [Panes: drawing a frame as a list with clipping and layers](0061-panes-clipping-and-layers.md) | Accepted |
 
 ## Template
 

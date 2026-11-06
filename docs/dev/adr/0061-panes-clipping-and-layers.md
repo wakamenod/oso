@@ -1,6 +1,6 @@
 # 0061. Panes: drawing a frame as a list with clipping and layers
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-05
 
 ## Context
