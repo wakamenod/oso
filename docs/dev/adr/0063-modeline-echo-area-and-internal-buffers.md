@@ -35,7 +35,7 @@ this step:
   strings as spans and calls back with the list. `Face` gains `Modeline` and `Warning`. Only
   the modeline's pane has a `background`, as ADR 0057 wants nothing to mark the leftover
   pixels below the echo area.
-- **The renderer does not change,** as ADR 0061 meant.
+- **The renderer changes in one place,** the band below. ADR 0061 meant it not to change at all.
 - **Building a `Status` reuses its strings,** so it allocates nothing once they have grown.
   It reads the buffer through the cursor's position and a summary: O(log n) plus a scan of
   one chunk, what drawing the cursor already costs.
@@ -149,10 +149,17 @@ repeating it leaves the `Status` the same, so it draws nothing more.
 
 ### The band above a one-row pane
 
-**The modeline and the echo area keep losing the band above their row,** as ADR 0061 has it. Their text is
-names and short messages, on a row of its own. It needs no renderer change, and a name from disk never paints
-on the row above it. Vietnamese capitals lose the top of their accents there, which is checked on screen, as
-reported in the pull request. M2-16 and M3 still decide this for their panes.
+**A pane of one row keeps the band above its row, on the row above.** This is a small change to the
+renderer (`Layout::top_band`), against ADR 0061's expectation, and here is why. Cut at the pane's top, a
+file named `Ế` read as `Ê` and `Ỗ` as `Ô` on the modeline, at scale 1 in the running app: letters can differ
+only there (ADR 0052), and a modeline that names the wrong file is worth a line of code.
+
+- It does for these rows what ADR 0052 already does between the rows of a text pane: at most
+  `CellMetrics::descent` pixels of ink, and no rectangle. So a name from disk can reach no further into the
+  last text row than the next text row could, and a message no further into the modeline. The
+  modeline's warnings keep all but those pixels.
+- The modeline's rectangle stays in its row, so an accent stands up out of the bar.
+- A text pane's first row still loses it when the pane has more rows. M2-16 and M3 decide those.
 
 ### The control socket
 
@@ -166,6 +173,8 @@ These ADRs stay as they are; this one changes the following:
 - [ADR 0056](0056-typing.md): a failed command's message does not reach the log or `*Messages*` while a
   secret buffer is shown, and a failed or undefined key gets a frame.
 - [ADR 0057](0057-frame-layout.md): with two rows, the echo row also holds what the modeline warned of.
+- [ADR 0061](0061-panes-clipping-and-layers.md): "a glyph stays in its pane" gains a second exception, and
+  the renderer's half of this step was not all built there.
 - `ui.md`, "Every message is also appended to `*Messages*`": but those above.
 
 ## Consequences
@@ -199,8 +208,8 @@ These ADRs stay as they are; this one changes the following:
   the rest, and a narrow window then cuts the name to nothing.
 - **Warnings on the text row of a frame of one row, in a layer above:** it could hide the cursor, and it
   would be code for a window nobody can work in.
-- **Keeping the band above a one-row pane by painting on the row above:** keeps accents whole, but needs a
-  renderer change and an exception to "a glyph stays in its pane", for names and messages alone.
+- **Losing the band above a one-row pane, as ADR 0061 has it:** no renderer change, and a glyph stays in its pane
+  with no exception, but `Ế` reads as `Ê` in the name of a file.
 - **`*Messages*` listed by `Editor::buffers`, with each reader skipping it:** the plain reading of ADR 0055, but
   one forgotten filter holds every restart or writes it in an emergency copy.
 - **A filter on the secret check only for positional messages:** "Buffer is read-only" says nothing, but

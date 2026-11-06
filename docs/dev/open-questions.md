@@ -129,7 +129,7 @@ item notes when it must be settled.
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
 - What panes below the frame's top row do with the band above their first row, which they
-  lose today: by M2-16 and M3. One-row panes keep losing it
+  lose today: by M2-16 and M3. Panes of one row keep it
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)). By M2-16, also what a
   float on the top row does about the top margin
   ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).

@@ -11,7 +11,9 @@ pub enum oso_render::Face
 pub oso_render::Face::Boxed
 pub oso_render::Face::Cursor
 pub oso_render::Face::Escape
+pub oso_render::Face::Modeline
 pub oso_render::Face::Text
+pub oso_render::Face::Warning
 impl core::clone::Clone for oso_render::Face
 pub fn oso_render::Face::clone(&self) -> oso_render::Face
 impl core::cmp::Eq for oso_render::Face

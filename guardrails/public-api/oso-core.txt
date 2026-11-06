@@ -23,6 +23,7 @@ impl core::marker::Copy for oso_core::buffer::EditError
 impl core::marker::StructuralPartialEq for oso_core::buffer::EditError
 pub enum oso_core::buffer::ReadOnly
 pub oso_core::buffer::ReadOnly::Binary
+pub oso_core::buffer::ReadOnly::Internal
 pub oso_core::buffer::ReadOnly::InvalidUtf8
 pub oso_core::buffer::ReadOnly::Loading
 impl oso_core::buffer::ReadOnly
@@ -53,6 +54,7 @@ pub struct oso_core::buffer::Buffer
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::apply_load(&mut self, oso_core::load::LoadSnapshot)
 pub fn oso_core::buffer::Buffer::baseline(&self) -> core::option::Option<&oso_core::buffer::Baseline>
+pub fn oso_core::buffer::Buffer::changed_on_disk(&self) -> bool
 pub fn oso_core::buffer::Buffer::content_id(&self) -> oso_core::buffer::ContentId
 pub fn oso_core::buffer::Buffer::display(&self) -> oso_core::display_map::DisplaySnapshot
 pub fn oso_core::buffer::Buffer::file_info(&self) -> oso_core::decode::FileInfo
@@ -75,6 +77,8 @@ pub fn oso_core::buffer::Buffer::set_baseline(&mut self, oso_core::buffer::Basel
 pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell::TabWidth
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId
 pub const fn oso_core::buffer::BufferId::get(self) -> u64
@@ -437,6 +441,7 @@ impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
 pub const oso_core::display_map::cell::MAX_CLUSTER_BYTES: usize
 pub fn oso_core::display_map::cell::classify(&str) -> (oso_core::display_map::cell::CellKind, usize)
 pub fn oso_core::display_map::cell::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
+pub fn oso_core::display_map::cell::is_bidi_control(char) -> bool
 pub fn oso_core::display_map::cell::is_invisible(char) -> bool
 pub mod oso_core::display_map::tab_map
 pub struct oso_core::display_map::tab_map::RowClusters<'a>
@@ -485,6 +490,7 @@ impl oso_core::sum_tree::Dimension<oso_core::display_map::tab_map::TabSummary> f
 pub fn oso_core::display_map::tab_map::TabPoint::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary)
 pub fn oso_core::display_map::tab_map::TabPoint::from_summary(&S) -> Self
 pub struct oso_core::display_map::tab_map::TabSummary
+pub oso_core::display_map::tab_map::TabSummary::bidi_controls: usize
 pub oso_core::display_map::tab_map::TabSummary::bytes: usize
 pub oso_core::display_map::tab_map::TabSummary::lines: usize
 impl core::clone::Clone for oso_core::display_map::tab_map::TabSummary
@@ -618,6 +624,7 @@ impl oso_core::display_map::DisplaySnapshot
 pub fn oso_core::display_map::DisplaySnapshot::clip_point(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> oso_core::display_map::DisplayPoint
 pub fn oso_core::display_map::DisplaySnapshot::clusters(&self, oso_core::display_map::DisplayPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
 pub fn oso_core::display_map::DisplaySnapshot::display_point_to_offset(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> usize
+pub fn oso_core::display_map::DisplaySnapshot::has_bidi_controls(&self) -> bool
 pub fn oso_core::display_map::DisplaySnapshot::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::display_map::DisplaySnapshot::max_point(&self) -> oso_core::display_map::DisplayPoint
 pub fn oso_core::display_map::DisplaySnapshot::offset_to_display_point(&self, usize) -> oso_core::display_map::DisplayPoint
@@ -753,8 +760,18 @@ pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
 pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::clear_echo(&mut self)
+pub fn oso_core::editor::Editor::echo(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::echo_withheld(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::messages(&self) -> impl core::iter::traits::double_ended::DoubleEndedIterator<Item = &str> + core::iter::traits::exact_size::ExactSizeIterator
+pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::set_typing(&mut self, &str)
+pub fn oso_core::editor::Editor::toggle_messages(&mut self)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::confirm_exit(&mut self, oso_core::editor::ExitAction) -> core::result::Result<(), oso_core::editor::ExitRefused>
 pub fn oso_core::editor::Editor::exit_attempt(&self) -> core::option::Option<oso_core::editor::ExitAction>
+pub fn oso_core::editor::Editor::file_changed_on_disk(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::reset_exit_guard(&mut self)
 pub fn oso_core::editor::Editor::save_failed(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::save_finished(&mut self, oso_core::buffer::BufferId, oso_core::buffer::ContentId, oso_core::buffer::FileStamp)
@@ -771,8 +788,7 @@ pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
-pub fn oso_core::editor::Editor::messages(&self) -> impl core::iter::traits::double_ended::DoubleEndedIterator<Item = &str> + core::iter::traits::exact_size::ExactSizeIterator
+pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
 pub struct oso_core::editor::ExitRefused
@@ -797,6 +813,25 @@ pub oso_core::editor::SaveJob::content: oso_core::buffer::ContentId
 pub oso_core::editor::SaveJob::only_if_gone: bool
 pub oso_core::editor::SaveJob::path: std::path::PathBuf
 pub oso_core::editor::SaveJob::text: oso_core::rope::Rope
+pub struct oso_core::editor::Status
+pub oso_core::editor::Status::echo: alloc::string::String
+pub oso_core::editor::Status::name: alloc::string::String
+pub oso_core::editor::Status::state: alloc::string::String
+pub oso_core::editor::Status::warnings: alloc::string::String
+impl oso_core::editor::Status
+pub fn oso_core::editor::Status::modeline(&self) -> alloc::string::String
+impl core::clone::Clone for oso_core::editor::Status
+pub fn oso_core::editor::Status::clone(&self) -> oso_core::editor::Status
+impl core::cmp::Eq for oso_core::editor::Status
+impl core::cmp::PartialEq for oso_core::editor::Status
+pub fn oso_core::editor::Status::eq(&self, &oso_core::editor::Status) -> bool
+impl core::default::Default for oso_core::editor::Status
+pub fn oso_core::editor::Status::default() -> oso_core::editor::Status
+impl core::fmt::Debug for oso_core::editor::Status
+pub fn oso_core::editor::Status::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::Status
+pub const oso_core::editor::MAX_MESSAGE_BYTES: usize
+pub const oso_core::editor::MESSAGES: &str
 pub const oso_core::editor::SCRATCH: &str
 pub mod oso_core::frame
 pub struct oso_core::frame::CellRect

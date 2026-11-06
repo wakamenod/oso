@@ -121,10 +121,11 @@ pub enum PaneContent<'a> {
 }
 
 /// A region of the frame and what it shows. Nothing of it is drawn outside the
-/// region, and nothing of what is under it shows through its background. The one
-/// exception is the frame's top row, whose glyphs keep the band above their row
-/// in the top margin (ADR 0052). Tiled panes do not overlap there. A pane in front
-/// on that row does not cover the margin (ADR 0061).
+/// region, and nothing of what is under it shows through its background. The
+/// exceptions are the frame's top row, whose glyphs keep the band above their row
+/// in the top margin (ADR 0052), and a pane of one row, whose glyphs keep it on the
+/// row above (ADR 0063). Tiled panes do not overlap there. A pane in front on the top
+/// row does not cover the margin (ADR 0061).
 ///
 /// A frame's list needs no order between layers. Inside a layer, later panes come
 /// first if a frame runs out of room for glyphs or rectangles, so what must always

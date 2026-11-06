@@ -201,9 +201,12 @@ impl Layout {
         self.clip(self.grid.rect(cells))
     }
 
-    /// The pixels above the region that its glyphs may paint.
+    /// The pixels above the region that its glyphs may paint: in the top margin on
+    /// the frame's top row, and on the row above for a pane of one row, which has no
+    /// other row to lose them to and reads a capital's accents wrong without them
+    /// (ADR 0063).
     fn top_band(&self) -> f32 {
-        if self.region.row == 0 && self.region.rows > 0 {
+        if self.region.rows == 1 || (self.region.row == 0 && self.region.rows > 0) {
             self.metrics.descent
         } else {
             0.0
@@ -230,7 +233,8 @@ impl Layout {
     /// and `Ẳ`. Below the row it keeps half that, in whole pixels: marks
     /// under a descender end there (ADR 0052). All of this stops at the edges
     /// of the pane, but the frame's top row keeps its band in the top margin,
-    /// where no other pane draws (ADR 0061).
+    /// where no other pane draws (ADR 0061), and a pane of one row keeps it on the
+    /// row above (ADR 0063).
     pub(crate) fn quad(
         &self,
         row: usize,
@@ -776,15 +780,33 @@ mod tests {
         let cells = CellRect {
             row: 3,
             column: 0,
-            rows: 1,
+            rows: 2,
             columns: 20,
         };
         let l = Layout::new(METRICS, cells, Scroll::default());
-        // The pane spans y 68..88, with its baseline at 84: nothing above 68.
+        // The pane starts at y 68, with its first baseline at 84: nothing above 68.
         let q = l.quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24])).unwrap();
         assert_eq!(q.position, [18.0, 68.0]);
         assert_eq!(q.size, [8.0, 16.0]);
         assert_eq!(q.uv, [5.0, 15.0]);
+    }
+
+    #[test]
+    fn a_pane_of_one_row_keeps_its_band_on_the_row_above() {
+        let cells = CellRect {
+            row: 3,
+            column: 0,
+            rows: 1,
+            columns: 20,
+        };
+        let l = Layout::new(METRICS, cells, Scroll::default());
+        // The pane spans y 68..88. A bitmap from y 60 is kept from y 64, 4 px up.
+        let q = l.quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24])).unwrap();
+        assert_eq!(q.position, [18.0, 64.0]);
+        assert_eq!(q.size, [8.0, 20.0]);
+        assert_eq!(q.uv, [5.0, 11.0]);
+        // Rectangles stay in the region.
+        assert_eq!(l.frame_cells(cells).unwrap().y, 68.0);
     }
 
     #[test]

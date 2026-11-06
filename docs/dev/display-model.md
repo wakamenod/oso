@@ -112,7 +112,8 @@ descender end. Anything further out is cut, including the sides of a fallback
 font's letter wider than its cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)). These bands stop at a pane's
 edges, but for the band above the frame's top row
-([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
+([ADR 0061](adr/0061-panes-clipping-and-layers.md)) and above a pane of one row
+([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 
 ## Row heights
 
@@ -164,8 +165,9 @@ one layer:
 - `Editor::status_into` says what the modeline and the echo area read, and the app draws
   those as spans ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - `frame::PixelGrid` maps cells to physical pixels. The renderer draws a list of
-  panes, each in its region, apart from the band above the frame's top row
-  ([ADR 0061](adr/0061-panes-clipping-and-layers.md)), and `Editor::cursor_area` gives
+  panes, each in its region, apart from the band above the frame's top row and above a
+  pane of one row ([ADR 0061](adr/0061-panes-clipping-and-layers.md),
+  [ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and `Editor::cursor_area` gives
   the input method the cursor's rectangle.
 
 ## Terminal views

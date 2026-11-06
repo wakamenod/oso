@@ -459,7 +459,7 @@ mod tests {
     proptest::proptest! {
         /// Whatever the regions, the scroll position and the glyphs' bitmaps,
         /// everything a pane draws stays in its region, but for the band above
-        /// the frame's top row.
+        /// the frame's top row or a pane of one row.
         #[test]
         fn prop_a_pane_draws_only_in_its_region(
             (row, column, rows, columns) in (0usize..6, 0usize..12, 0usize..6, 0usize..12),
@@ -494,7 +494,7 @@ mod tests {
             build(&mut scene, &panes, &mut atlas);
             let (x0, y0) = (8.0 + column as f32 * 10.0, 8.0 + row as f32 * 20.0);
             let (x1, y1) = (x0 + columns as f32 * 10.0, y0 + rows as f32 * 20.0);
-            let band = if row == 0 { 4.0 } else { 0.0 };
+            let band = if row == 0 || rows == 1 { 4.0 } else { 0.0 };
             for rect in scene.rects() {
                 let ([x, y], [w, h]) = (rect.position, rect.size);
                 proptest::prop_assert!(x >= x0 && y >= y0 && x + w <= x1 && y + h <= y1);

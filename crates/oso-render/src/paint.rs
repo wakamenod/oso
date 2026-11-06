@@ -401,7 +401,13 @@ mod tests {
         assert_is(&pixels, (47, 47), INK(), "the last pixel in the pane");
         assert_is(&pixels, (7, 38), PAPER(), "the left margin");
         assert_is(&pixels, (48, 38), PAPER(), "past the right edge");
-        assert_is(&pixels, (20, 27), PAPER(), "above the pane");
+        assert_is(&pixels, (20, 27), INK(), "the band above a pane of one row");
+        assert_is(&pixels, (20, 23), PAPER(), "above the band");
         assert_is(&pixels, (20, 48), PAPER(), "below the pane");
+
+        let panes = [pane(0, (1, 0, 2, 4), 0, None, &lines)];
+        let pixels = draw(&panes);
+        assert_is(&pixels, (20, 28), INK(), "the first row of a taller pane");
+        assert_is(&pixels, (20, 27), PAPER(), "above a taller pane");
     }
 }
