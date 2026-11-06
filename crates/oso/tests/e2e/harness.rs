@@ -13,6 +13,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -470,6 +471,9 @@ impl Scratch {
         let path = temp.join(name);
         let _ = fs::remove_dir_all(&path);
         fs::create_dir(&path).expect("cannot create the scratch directory");
+        // So that what a private directory checks does not depend on the umask.
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+            .expect("cannot set the scratch directory's mode");
         Self { path }
     }
 

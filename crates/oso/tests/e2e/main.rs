@@ -854,6 +854,37 @@ fn an_end_nobody_agreed_to_writes_copies_and_a_confirmed_exit_writes_nothing() {
     assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_refused_directory_is_said_at_startup_and_a_panic_then_writes_nothing() {
+    use std::os::unix::fs::PermissionsExt;
+    let scratch = Scratch::new("refused");
+    let directory = emergency_dir(scratch.path());
+    fs::create_dir_all(&directory).expect("cannot make the directory");
+    fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))
+        .expect("cannot loosen the directory");
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    let _ = app.exchange("dev-panic", None);
+    assert!(!app.wait_for_exit().success());
+    assert_eq!(
+        fs::read_dir(&directory).expect("it is still there").count(),
+        0,
+        "nothing goes in a directory that is not safe",
+    );
+    let log = app.stop_and_read_log();
+    assert!(
+        log.contains("No emergency copy can be written if oso crashes"),
+        "it said so at startup",
+    );
+    assert!(
+        log.contains("could not write 1 emergency copy"),
+        "and at the crash"
+    );
+    assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
+}
+
 /// What the Dock's Quit and a logout send: a real `applicationWillTerminate`.
 #[cfg(target_os = "macos")]
 #[test]

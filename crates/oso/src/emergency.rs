@@ -38,8 +38,21 @@ pub use publish::Publisher;
 
 /// How long writing the copies may show no progress before oso goes on without them. A
 /// write that is getting somewhere is never abandoned, but a stuck network home directory
-/// must not hang a process that is ending.
-const STALL_LIMIT: Duration = Duration::from_secs(30);
+/// must not hang a process that is ending. A sync says nothing until it is done, however
+/// far it has got, so it has an allowance of its own: 2 GiB at 10 MB/s takes under 4 minutes.
+const LIMITS: Limits = Limits {
+    stall: Duration::from_secs(30),
+    sync: Duration::from_secs(300),
+};
+
+/// How long the writing thread may go without a word.
+#[derive(Clone, Copy)]
+struct Limits {
+    /// While it writes.
+    stall: Duration,
+    /// While it syncs.
+    sync: Duration,
+}
 
 /// The owner of what the panic hook and the exit share. The UI thread makes this.
 pub struct Emergency {
@@ -78,6 +91,20 @@ impl Emergency {
         self.shared.agreement.clone()
     }
 
+    /// Finds out on a thread of its own, soon after startup, whether copies could be written,
+    /// and tells `report` if not, as finding out at the crash loses the text. Creates nothing.
+    pub fn check_directory(&self, report: impl FnOnce(String) + Send + 'static) {
+        let directory = self.shared.directory.clone();
+        // With no thread there is no finding out now, and a crash still says why.
+        let _ = thread::Builder::new()
+            .name("oso-emergency-check".into())
+            .spawn(move || {
+                if let Some(problem) = directory_problem(directory.as_deref()) {
+                    report(problem);
+                }
+            });
+    }
+
     /// The event loop is ending. Writes what nobody agreed to lose, and says so if there
     /// is anything to say.
     pub fn on_exit(&self) {
@@ -86,6 +113,20 @@ impl Emergency {
             hook::say_to(io::stderr(), move || report.to_string(), hook::SAY_LIMIT);
         }
     }
+}
+
+/// Why no copy could be written now, as far as can be told without creating anything.
+fn directory_problem(directory: Option<&Path>) -> Option<String> {
+    let Some(directory) = directory else {
+        return Some(
+            "No emergency copy can be written if oso crashes: no place for them could be told"
+                .to_owned(),
+        );
+    };
+    let problem = PrivateDir::check(directory).err()?;
+    Some(format!(
+        "No emergency copy can be written if oso crashes: {problem}"
+    ))
 }
 
 /// What the hook, the exit and the UI thread share.
@@ -262,15 +303,15 @@ impl Shared {
     /// a state already written is not written again.
     fn write_copies(&self, why: Why) -> Report {
         let now = SystemTime::now();
-        self.write_copies_with(STALL_LIMIT, move |directory, entry, tick| {
-            write::write_copy(directory, entry, why, now, tick)
+        self.write_copies_with(LIMITS, move |directory, entry, ticks| {
+            write::write_copy(directory, entry, why, now, ticks)
         })
     }
 
-    /// [`Shared::write_copies`], through `write`, giving up after `stall` with no progress.
-    fn write_copies_with<W>(&self, stall: Duration, write: W) -> Report
+    /// [`Shared::write_copies`], through `write`, giving up past `limits` with no progress.
+    fn write_copies_with<W>(&self, limits: Limits, write: W) -> Report
     where
-        W: Fn(&Path, &Entry, &dyn Fn()) -> io::Result<()> + Send + Sync + 'static,
+        W: Fn(&Path, &Entry, &Ticks<'_>) -> io::Result<()> + Send + Sync + 'static,
     {
         let Some((entries, withheld)) = self.select() else {
             return Report {
@@ -300,7 +341,7 @@ impl Shared {
             entries,
             write,
         });
-        let done = run_bounded(&work, stall);
+        let done = run_bounded(&work, limits);
         report.wrote = done.written.len();
         report.failed = count - report.wrote;
         report.problem = done.problem;
@@ -322,9 +363,24 @@ struct Work<W> {
 enum Tick {
     /// Still getting somewhere.
     Progress,
+    /// About to sync, which says nothing until it is done.
+    Syncing,
     Wrote(BufferId, ContentId),
     Failed(String),
     Finished,
+}
+
+/// The writer's way of saying that it still gets somewhere.
+struct Ticks<'a>(&'a mpsc::Sender<Tick>);
+
+impl Ticks<'_> {
+    fn progress(&self) {
+        let _ = self.0.send(Tick::Progress);
+    }
+
+    fn before_sync(&self) {
+        let _ = self.0.send(Tick::Syncing);
+    }
 }
 
 /// What came of [`Work`] by the time it finished, or was given up on.
@@ -335,7 +391,7 @@ struct Done {
 
 impl<W> Work<W>
 where
-    W: Fn(&Path, &Entry, &dyn Fn()) -> io::Result<()>,
+    W: Fn(&Path, &Entry, &Ticks<'_>) -> io::Result<()>,
 {
     /// Writes each buffer on its own, past any failure, and past a panic: another thread's
     /// panic can be caught, where one inside a panic hook aborts at once, whatever
@@ -349,12 +405,9 @@ where
                 return;
             }
         };
-        let tick = || {
-            let _ = ticks.send(Tick::Progress);
-        };
         for entry in &self.entries {
             let written = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                (self.write)(directory.path(), entry, &tick)
+                (self.write)(directory.path(), entry, &Ticks(ticks))
             }));
             let _ = ticks.send(match written {
                 Ok(Ok(())) => Tick::Wrote(entry.buffer, entry.content),
@@ -368,9 +421,9 @@ where
 
 /// Runs `work` on another thread, and waits for as long as it gets somewhere. If no thread
 /// can start, it runs here, where only a panic could cost the rest.
-fn run_bounded<W>(work: &Arc<Work<W>>, stall: Duration) -> Done
+fn run_bounded<W>(work: &Arc<Work<W>>, limits: Limits) -> Done
 where
-    W: Fn(&Path, &Entry, &dyn Fn()) -> io::Result<()> + Send + Sync + 'static,
+    W: Fn(&Path, &Entry, &Ticks<'_>) -> io::Result<()> + Send + Sync + 'static,
 {
     let (ticks, heard) = mpsc::channel();
     let spawned = {
@@ -388,9 +441,15 @@ where
         written: Vec::new(),
         problem: None,
     };
+    let mut wait = limits.stall;
     loop {
-        match heard.recv_timeout(stall) {
-            Ok(Tick::Progress) => {}
+        let tick = heard.recv_timeout(wait);
+        wait = match tick {
+            Ok(Tick::Syncing) => limits.sync,
+            _ => limits.stall,
+        };
+        match tick {
+            Ok(Tick::Progress | Tick::Syncing) => {}
             Ok(Tick::Wrote(buffer, content)) => done.written.push((buffer, content)),
             Ok(Tick::Failed(problem)) => {
                 done.problem.get_or_insert(problem);

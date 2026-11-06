@@ -67,6 +67,7 @@ impl Dispatcher {
 
     /// Tells the emergency save what has changed. A command's end does this itself; the
     /// host calls this for anything else that changes a buffer: a save reporting, a load.
+    /// That takes in nothing a panicking command left.
     pub fn publish_for_emergency(&self, editor: &Editor) {
         if let Some(publisher) = &self.publisher {
             publisher.publish(editor);
@@ -185,8 +186,8 @@ impl Dispatcher {
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
     /// failure is not fatal (ADR 0014), and leaves a message.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
-    /// What a panicking command left is not published for the emergency save, though a
-    /// later command's publish takes it in, as the person then sees it and goes on from it.
+    /// What a panicking command left is held back from the emergency save until a command
+    /// ends normally, as the person has then seen it and gone on from it.
     fn execute(
         &mut self,
         editor: &mut Editor,
@@ -235,8 +236,12 @@ impl Dispatcher {
             editor.reset_exit_guard();
         }
         effects.redraw |= editor.follow_cursor();
-        if !matches!(result, Err(ExecuteError::Panicked { .. })) {
-            self.publish_for_emergency(editor);
+        if let Some(publisher) = &self.publisher {
+            if matches!(result, Err(ExecuteError::Panicked { .. })) {
+                publisher.command_panicked(editor);
+            } else {
+                publisher.command_ended(editor);
+            }
         }
         (effects, result)
     }

@@ -55,24 +55,26 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
     }
 }
 
-/// Makes sure of the directory at `path`, creating it if missing. What leads to it is made
-/// with mode `0700` too, and nothing on the way may let another user replace it.
+/// Whether the directory at `path` would be refused, creating nothing.
+pub(super) fn check_private(path: &Path) -> io::Result<()> {
+    check_ancestors(path)?;
+    match fs::symlink_metadata(path) {
+        Ok(meta) => check_itself(path, &meta),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(with_path(&e, "cannot inspect", path)),
+    }
+}
+
+/// Makes sure of the directory at `path`, creating it if missing, and what leads to it with
+/// mode `0700` too, once nothing on the way lets another user replace it.
 pub(super) fn open_private(path: &Path) -> io::Result<()> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
-    DirBuilder::new()
-        .mode(0o700)
-        .recursive(true)
-        .create(parent)
-        .map_err(|e| with_path(&e, "cannot create", parent))?;
-    for ancestor in parent.ancestors().filter(|a| !a.as_os_str().is_empty()) {
-        // A link on the way counts as where it leads, and its own directory comes next.
-        let meta = fs::metadata(ancestor).map_err(|e| with_path(&e, "cannot inspect", ancestor))?;
-        if !ancestor_is_safe(meta.mode(), meta.uid(), euid()) {
-            return Err(refused(ancestor, "can be changed by other users"));
-        }
+    check_ancestors(path)?;
+    if let Some(parent) = path.parent() {
+        DirBuilder::new()
+            .mode(0o700)
+            .recursive(true)
+            .create(parent)
+            .map_err(|e| with_path(&e, "cannot create", parent))?;
     }
     match DirBuilder::new().mode(0o700).create(path) {
         Ok(()) => {}
@@ -80,6 +82,45 @@ pub(super) fn open_private(path: &Path) -> io::Result<()> {
         Err(e) => return Err(with_path(&e, "cannot create", path)),
     }
     let meta = fs::symlink_metadata(path).map_err(|e| with_path(&e, "cannot inspect", path))?;
+    check_itself(path, &meta)
+}
+
+/// Checks what exists on the way to `path`, as written and as it really is. As written, a
+/// link counts as where it leads and its own directory comes next. Then the real path, since
+/// a link can lead through directories that are not on the written path at all.
+fn check_ancestors(path: &Path) -> io::Result<()> {
+    let mut deepest = None;
+    for ancestor in path.ancestors().skip(1) {
+        match fs::metadata(ancestor) {
+            Ok(meta) => {
+                check_ancestor(ancestor, &meta)?;
+                deepest.get_or_insert(ancestor);
+            }
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(with_path(&e, "cannot inspect", ancestor)),
+        }
+    }
+    let Some(deepest) = deepest else {
+        return Ok(());
+    };
+    let real = fs::canonicalize(deepest).map_err(|e| with_path(&e, "cannot resolve", deepest))?;
+    for ancestor in real.ancestors() {
+        let meta = fs::metadata(ancestor).map_err(|e| with_path(&e, "cannot inspect", ancestor))?;
+        check_ancestor(ancestor, &meta)?;
+    }
+    Ok(())
+}
+
+fn check_ancestor(ancestor: &Path, meta: &fs::Metadata) -> io::Result<()> {
+    if ancestor_is_safe(meta.mode(), meta.uid(), euid()) {
+        Ok(())
+    } else {
+        Err(refused(ancestor, "can be changed by other users"))
+    }
+}
+
+/// Checks the directory itself, from its `lstat` results.
+fn check_itself(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
     check_dir(
         meta.file_type().is_symlink(),
         meta.is_dir(),
@@ -221,7 +262,51 @@ mod tests {
         let path = shared.join("oso").join("emergency");
         let err = PrivateDir::open(&path).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::PermissionDenied);
-        assert!(!path.exists(), "the directory itself is not made");
+        assert!(!shared.join("oso").exists(), "nothing new appears");
+        let err = PrivateDir::check(&path).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn a_link_on_the_way_is_judged_by_all_it_really_leads_through() {
+        let scratch = Scratch::new();
+        let shared = scratch.join("shared");
+        let state = shared.join("state");
+        fs::create_dir(&shared).unwrap();
+        fs::create_dir(&state).unwrap();
+        fs::set_permissions(&state, Permissions::from_mode(0o700)).unwrap();
+        let link = scratch.join("link");
+        std::os::unix::fs::symlink(&state, &link).unwrap();
+        // The link's target is private, and the written path is fine. Only the real one tells.
+        fs::set_permissions(&shared, Permissions::from_mode(0o777)).unwrap();
+        let err = PrivateDir::open(link.join("oso").join("emergency")).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+        assert!(!state.join("oso").exists(), "nothing new appears");
+
+        // With nothing wrong on the way, a link is fine.
+        fs::set_permissions(&shared, Permissions::from_mode(0o700)).unwrap();
+        PrivateDir::open(link.join("oso").join("emergency")).unwrap();
+        assert!(state.join("oso").join("emergency").is_dir());
+    }
+
+    #[test]
+    fn checking_says_what_opening_would_and_creates_nothing() {
+        let scratch = Scratch::new();
+        let path = scratch.join("state/oso/emergency");
+        PrivateDir::check(&path).unwrap();
+        assert!(!scratch.join("state").exists(), "nothing is created");
+        PrivateDir::open(&path).unwrap();
+        PrivateDir::check(&path).unwrap();
+        fs::set_permissions(&path, Permissions::from_mode(0o750)).unwrap();
+        assert!(PrivateDir::check(&path).is_err());
+    }
+
+    #[test]
+    fn a_relative_path_is_refused() {
+        let err = PrivateDir::open("relative/emergency").unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(PrivateDir::check(Path::new("relative")).is_err());
+        assert!(!Path::new("relative").exists());
     }
 
     #[test]

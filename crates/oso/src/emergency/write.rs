@@ -29,7 +29,7 @@ use std::time::SystemTime;
 use oso_core::buffer::FileStamp;
 use oso_core::rope::Rope;
 
-use super::{Entry, Identity, Why};
+use super::{Entry, Identity, Ticks, Why};
 use crate::saver::{PRIVATE_MODE, Temporary, WRITE_SIZE, sync_directory, unless_unsupported};
 
 /// The first line of every metadata file, with the format's version.
@@ -38,13 +38,13 @@ const META_HEADER: &str = "oso-emergency-copy 1";
 /// How many stems to try before giving up.
 const STEM_ATTEMPTS: u32 = 64;
 
-/// Writes a copy of `entry` in `directory`. `tick` is called as it gets somewhere.
+/// Writes a copy of `entry` in `directory`, saying through `ticks` that it gets somewhere.
 pub(super) fn write_copy(
     directory: &Path,
     entry: &Entry,
     why: Why,
     now: SystemTime,
-    tick: &dyn Fn(),
+    ticks: &Ticks<'_>,
 ) -> io::Result<()> {
     let Some(text) = &entry.text else {
         return Err(io::Error::other("this text may not be copied"));
@@ -55,9 +55,10 @@ pub(super) fn write_copy(
     let stem = free_stem(directory, &entry.identity, seconds)?;
 
     let (text_file, file) = Temporary::create(directory, PRIVATE_MODE)?;
-    write_text(&file, text, tick)?;
+    write_text(&file, text, ticks)?;
+    ticks.before_sync();
     unless_unsupported(file.sync_all())?;
-    tick();
+    ticks.progress();
     drop(file);
     if fs::symlink_metadata(text_file.path())?.len() != text.len() as u64 {
         return Err(io::Error::other(
@@ -68,17 +69,20 @@ pub(super) fn write_copy(
     let (meta_file, mut file) = Temporary::create(directory, PRIVATE_MODE)?;
     let meta = meta_text(&entry.identity, entry.file, text.len(), why, seconds);
     file.write_all(meta.as_bytes())?;
+    ticks.before_sync();
     unless_unsupported(file.sync_all())?;
+    ticks.progress();
     drop(file);
 
     text_file.rename_over(&directory.join(format!("{stem}.txt")))?;
     meta_file.rename_over(&directory.join(format!("{stem}.meta")))?;
     // The copy is there either way, and all a failure could cost is a power cut's worth.
+    ticks.before_sync();
     let _ = sync_directory(directory);
     Ok(())
 }
 
-fn write_text(file: &File, text: &Rope, tick: &dyn Fn()) -> io::Result<()> {
+fn write_text(file: &File, text: &Rope, ticks: &Ticks<'_>) -> io::Result<()> {
     let mut out = BufWriter::with_capacity(WRITE_SIZE, file);
     let mut since_tick = 0;
     for chunk in text.chunks() {
@@ -86,7 +90,7 @@ fn write_text(file: &File, text: &Rope, tick: &dyn Fn()) -> io::Result<()> {
         since_tick += chunk.len();
         if since_tick >= WRITE_SIZE {
             since_tick = 0;
-            tick();
+            ticks.progress();
         }
     }
     out.flush()

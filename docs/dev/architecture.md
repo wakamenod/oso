@@ -347,8 +347,8 @@ directory (mode `0700`, files `0600`), skipping secret-looking files. See
 [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md).
 
 The panic hook cannot read the editor, so the UI thread publishes to it (`emergency::Publisher`): after each
-command that did not panic, a save's report and a load, an O(1) rope snapshot of each buffer that is modified or
-being saved, for only what changed. The hook owns an `Arc` of that, and nothing is global. It tells where the panic
+command, a save's report and a load's event, an O(1) rope snapshot of each buffer that is modified or
+being saved, for only what changed. What a panicking command left is held back until a command ends normally, but for a save it started. The hook owns an `Arc` of that, and nothing is global. It tells where the panic
 happened: outside a command on the UI thread it writes the copies before unwinding, on threads of its
 own so that a panic in the writer costs one buffer and a blocked stderr holds nothing up. `exiting` writes the same
 way unless the app agreed to the end (`saver::Agreement`). A copy is `<stem>.txt`, the exact text, and `<stem>.meta`, which says where it

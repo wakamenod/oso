@@ -50,22 +50,47 @@ pub struct PrivateDir {
 }
 
 impl PrivateDir {
-    /// Opens the directory at `path`, creating it and what leads to it if missing. A
-    /// directory found with a looser mode is refused, and not repaired, as something
-    /// may already have read what is in it.
+    /// Opens the directory at `path`, creating it and what leads to it if missing, once
+    /// [`Self::check`] has passed, so that a refused place gets nothing new. A directory
+    /// found with a looser mode is refused, and not repaired, as something may already have
+    /// read what is in it.
     ///
     /// # Errors
     ///
     /// If it cannot be created, or cannot be made safe. The message names the path and why.
     pub fn open(path: impl Into<PathBuf>) -> io::Result<Self> {
         let path = path.into();
+        must_be_absolute(&path)?;
         backend::open_private(&path)?;
         Ok(Self { path })
+    }
+
+    /// Whether [`Self::open`] would refuse the directory at `path`, creating nothing. It
+    /// touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// Why it would be refused. The message names the path and why.
+    pub fn check(path: &Path) -> io::Result<()> {
+        must_be_absolute(path)?;
+        backend::check_private(path)
     }
 
     /// The directory's path.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+}
+
+/// A relative path would be judged by whatever the current directory is.
+fn must_be_absolute(path: &Path) -> io::Result<()> {
+    if path.is_absolute() {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not an absolute path", path.display()),
+        ))
     }
 }
 

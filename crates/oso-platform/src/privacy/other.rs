@@ -27,8 +27,18 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
 
 /// Makes sure the directory at `path` is a real directory, creating it if missing.
 pub(super) fn open_private(path: &Path) -> io::Result<()> {
+    check_private(path)?;
     fs::create_dir_all(path)?;
-    let meta = fs::symlink_metadata(path)?;
+    check_private(path)
+}
+
+/// Whether what is at `path`, if anything, is a real directory.
+pub(super) fn check_private(path: &Path) -> io::Result<()> {
+    let meta = match fs::symlink_metadata(path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,

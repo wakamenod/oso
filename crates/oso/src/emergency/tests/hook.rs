@@ -8,38 +8,95 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::{Scratch, published, scratch_editor, texts};
-use crate::emergency::Why;
 use crate::emergency::hook::{Place, on_panic, place_of, say_to};
+use crate::emergency::{Limits, Why};
+
+/// A writer that blocks until the test drops the sender it returns.
+fn stuck() -> (
+    std::sync::mpsc::Sender<()>,
+    Mutex<std::sync::mpsc::Receiver<()>>,
+) {
+    let (release, stuck) = std::sync::mpsc::channel();
+    (release, Mutex::new(stuck))
+}
 
 #[test]
-fn a_write_that_stops_getting_anywhere_is_given_up_on_but_one_that_ticks_is_not() {
+fn a_write_that_stops_getting_anywhere_is_given_up_on() {
     let scratch = Scratch::new();
-    let editor = scratch_editor("stuck");
-    let emergency = published(&scratch.copies(), &editor);
+    let emergency = published(&scratch.copies(), &scratch_editor("stuck"));
     let started = Instant::now();
-    let (release, stuck) = std::sync::mpsc::channel::<()>();
-    let stuck = Mutex::new(stuck);
-    let report = emergency
-        .shared
-        .write_copies_with(Duration::from_millis(50), move |_, _, _| {
-            let _ = stuck.lock().unwrap().recv();
-            Ok(())
-        });
+    let (release, stuck) = stuck();
+    let limits = Limits {
+        stall: Duration::from_millis(50),
+        sync: Duration::from_secs(600),
+    };
+    let report = emergency.shared.write_copies_with(limits, move |_, _, _| {
+        let _ = stuck.lock().unwrap().recv();
+        Ok(())
+    });
     assert!(started.elapsed() < Duration::from_secs(10));
     assert_eq!((report.wrote, report.failed), (0, 1));
     assert!(report.to_string().contains("stopped getting anywhere"));
     drop(release);
+}
 
+#[test]
+fn a_slow_write_that_ticks_is_not_given_up_on() {
+    let scratch = Scratch::new();
+    let emergency = published(&scratch.copies(), &scratch_editor("slow"));
+    // Longer than the limit in all, with far less than it between ticks.
+    let limits = Limits {
+        stall: Duration::from_secs(2),
+        sync: Duration::from_secs(600),
+    };
+    let report = emergency.shared.write_copies_with(limits, |_, _, ticks| {
+        for _ in 0..11 {
+            std::thread::sleep(Duration::from_millis(200));
+            ticks.progress();
+        }
+        Ok(())
+    });
+    assert_eq!(report.wrote, 1);
+}
+
+#[test]
+fn a_long_sync_has_its_own_allowance_and_a_stuck_one_still_ends() {
+    let scratch = Scratch::new();
+    let emergency = published(&scratch.copies(), &scratch_editor("syncing"));
+    let limits = Limits {
+        stall: Duration::from_millis(50),
+        sync: Duration::from_secs(600),
+    };
+    let report = emergency.shared.write_copies_with(limits, |_, _, ticks| {
+        ticks.before_sync();
+        std::thread::sleep(Duration::from_millis(300));
+        ticks.progress();
+        Ok(())
+    });
+    assert_eq!(
+        report.wrote, 1,
+        "past the stall limit, as a sync says nothing"
+    );
+
+    let emergency = published(&scratch.copies(), &scratch_editor("stuck syncing"));
+    let (release, stuck) = stuck();
+    let limits = Limits {
+        stall: Duration::from_secs(600),
+        sync: Duration::from_millis(50),
+    };
     let report = emergency
         .shared
-        .write_copies_with(Duration::from_millis(100), |_, _, tick| {
-            for _ in 0..6 {
-                std::thread::sleep(Duration::from_millis(50));
-                tick();
-            }
+        .write_copies_with(limits, move |_, _, ticks| {
+            ticks.before_sync();
+            let _ = stuck.lock().unwrap().recv();
             Ok(())
         });
-    assert_eq!(report.wrote, 1, "slow, and getting somewhere");
+    assert_eq!(
+        (report.wrote, report.failed),
+        (0, 1),
+        "a stuck sync does not hang"
+    );
+    drop(release);
 }
 
 #[test]

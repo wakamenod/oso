@@ -7,7 +7,7 @@
 //! waiting for, and a binary search. Nothing allocates unless a buffer has just come to be
 //! at risk.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, MutexGuard, PoisonError};
 
@@ -39,11 +39,31 @@ impl Seen {
     }
 }
 
+/// What is published of a buffer while a panicking command's state is held back, given what
+/// `old` already is. The rule: until a command ends normally, the only text that enters the
+/// shared state is what a running save is writing, as that text was asked to reach the disk.
+/// Any other buffer keeps the text it had, or none. The facts stay true: whether a save
+/// runs, and a buffer that now holds what its file does is no longer at risk.
+fn held_back(mut now: Seen, old: Option<Seen>) -> Seen {
+    if now.at_risk && !now.saving {
+        match old.filter(|old| old.at_risk) {
+            Some(old) => {
+                now.content = old.content;
+                now.verdict = old.verdict;
+            }
+            None => now.at_risk = false,
+        }
+    }
+    now
+}
+
 /// The UI thread's end of the shared state.
 pub struct Publisher {
     shared: Arc<Shared>,
     /// In the order of [`Editor::buffers`], whose ids only grow.
     seen: RefCell<Vec<Seen>>,
+    /// The last command panicked, and no command has ended normally since.
+    held: Cell<bool>,
 }
 
 /// Marks a command as running, until dropped, also on the way out of a panic.
@@ -61,6 +81,7 @@ impl Publisher {
         Self {
             shared,
             seen: RefCell::default(),
+            held: Cell::new(false),
         }
     }
 
@@ -71,28 +92,42 @@ impl Publisher {
         CommandScope(&self.shared)
     }
 
-    /// Brings the shared state up to date with `editor`, for what changed since last time.
-    /// After each command that did not panic, and after anything else that changes a
-    /// buffer's text or whether it is modified: a save reporting, a load.
+    /// A command ended without panicking: the state takes in all that changed.
+    pub fn command_ended(&self, editor: &Editor) {
+        self.held.set(false);
+        self.publish(editor);
+    }
+
+    /// A command panicked. What it left is held back until a command ends normally, which is
+    /// when the person has seen that text and gone on from it. A save it started still counts.
+    pub fn command_panicked(&self, editor: &Editor) {
+        self.held.set(true);
+        self.publish(editor);
+    }
+
+    /// Brings the shared state up to date with `editor`, for what changed since last time,
+    /// after anything but a command that changes a buffer: a save reporting, a load. What a
+    /// panicking command left stays held back: see [`held_back`].
     pub fn publish(&self, editor: &Editor) {
+        let held = self.held.get();
         let mut seen = self.seen.borrow_mut();
         let mut index = 0;
         for (id, buffer) in editor.buffers() {
             while seen.get(index).is_some_and(|gone| gone.id < id) {
                 self.forget(seen.remove(index));
             }
-            let now = Seen::of(id, buffer);
-            match seen.get_mut(index) {
-                Some(old) if *old == now => {}
-                Some(old) if old.id == id => {
-                    let was_at_risk = old.at_risk;
-                    *old = now;
-                    self.update(&now, buffer, was_at_risk);
-                }
-                _ => {
+            let old = seen.get(index).filter(|old| old.id == id).copied();
+            let mut now = Seen::of(id, buffer);
+            if held {
+                now = held_back(now, old);
+            }
+            if old != Some(now) {
+                if old.is_some() {
+                    seen[index] = now;
+                } else {
                     seen.insert(index, now);
-                    self.update(&now, buffer, false);
                 }
+                self.update(&now, buffer, old);
             }
             index += 1;
         }
@@ -110,20 +145,27 @@ impl Publisher {
         }
     }
 
-    fn update(&self, now: &Seen, buffer: &Buffer, was_at_risk: bool) {
+    /// Brings a buffer's entry to `now`, where `old` is what was last seen of it. Text goes in
+    /// only if it is another text from the entry's, which is what lets a held-back one stay.
+    fn update(&self, now: &Seen, buffer: &Buffer, old: Option<Seen>) {
+        let old = old.filter(|old| old.at_risk);
         if !now.at_risk {
-            if was_at_risk {
+            if old.is_some() {
                 self.remove(now.id);
             }
             return;
         }
-        let mut text = now.verdict.may_be_copied().then(|| buffer.text().clone());
         let file = buffer.baseline().and_then(|baseline| baseline.file);
-        if was_at_risk {
+        let same_text =
+            old.is_some_and(|old| old.content == now.content && old.verdict == now.verdict);
+        let mut text = (!same_text && now.verdict.may_be_copied()).then(|| buffer.text().clone());
+        if old.is_some() {
             let mut state = self.lock();
             if let Ok(index) = index_of(&state, now.id) {
                 let entry = &mut state.entries[index];
-                std::mem::swap(&mut entry.text, &mut text);
+                if !same_text {
+                    std::mem::swap(&mut entry.text, &mut text);
+                }
                 entry.content = now.content;
                 entry.saving = now.saving;
                 entry.file = file;

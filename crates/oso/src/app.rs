@@ -39,6 +39,8 @@ pub enum UserEvent {
     Load(BufferId),
     /// A saving thread has ended.
     Save(SaveReport),
+    /// No emergency copy could be written, for this reason (ADR 0062).
+    NoEmergencyCopies(String),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),

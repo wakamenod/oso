@@ -43,6 +43,7 @@ pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io:
 pub mod oso_platform::privacy
 pub struct oso_platform::privacy::PrivateDir
 impl oso_platform::privacy::PrivateDir
+pub fn oso_platform::privacy::PrivateDir::check(&std::path::Path) -> std::io::error::Result<()>
 pub fn oso_platform::privacy::PrivateDir::open(impl core::convert::Into<std::path::PathBuf>) -> std::io::error::Result<Self>
 pub fn oso_platform::privacy::PrivateDir::path(&self) -> &std::path::Path
 impl core::clone::Clone for oso_platform::privacy::PrivateDir

@@ -7,12 +7,11 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use oso_core::buffer::{Baseline, Buffer, BufferId, Replacement};
 use oso_core::editor::Editor;
 
-use super::{Emergency, Entry, Report, Why, write};
+use super::{Emergency, Entry, LIMITS, Report, Why, directory_problem, write};
 use crate::saver::Agreement;
 
 mod hook;
@@ -30,6 +29,19 @@ pub(crate) fn published_text(emergency: &Emergency, id: BufferId) -> Option<Stri
         .and_then(|entry| entry.text.as_ref().map(ToString::to_string))
 }
 
+/// Whether the entry for `id` says a save of it is running, if there is an entry.
+pub(crate) fn published_saving(emergency: &Emergency, id: BufferId) -> Option<bool> {
+    emergency
+        .shared
+        .state
+        .lock()
+        .unwrap()
+        .entries
+        .iter()
+        .find(|entry| entry.buffer == id)
+        .map(|entry| entry.saving)
+}
+
 /// Whether the command boundary is marked now.
 pub(crate) fn in_command(emergency: &Emergency) -> bool {
     emergency.shared.in_command.load(Ordering::Relaxed)
@@ -40,7 +52,8 @@ pub(crate) fn in_command(emergency: &Emergency) -> bool {
 pub(super) struct Scratch(pub(super) PathBuf);
 
 impl Scratch {
-    /// Named after the test: each runs on a thread with its name, or one at a time.
+    /// Named after the test: each runs on a thread with its name, or one at a time. Its mode
+    /// is set, so that what is checked does not depend on the umask.
     pub(super) fn new() -> Self {
         let test = std::thread::current();
         let test = test.name().unwrap_or("test").replace("::", "-");
@@ -48,6 +61,11 @@ impl Scratch {
         let path = fs::canonicalize(std::env::temp_dir()).unwrap().join(name);
         let _ = fs::remove_dir_all(&path);
         fs::create_dir(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+        }
         Self(path)
     }
 
@@ -342,11 +360,11 @@ fn a_failure_or_a_panic_on_one_buffer_does_not_stop_the_next() {
     let emergency = published(&scratch.copies(), &editor);
     let report = emergency
         .shared
-        .write_copies_with(Duration::from_secs(30), |dir, entry, tick| {
+        .write_copies_with(LIMITS, |dir, entry, ticks| {
             match entry.identity.name.as_str() {
                 "fails.txt" => Err(io::Error::other("no room")),
                 "panics.txt" => panic!("deliberate panic in a test's writer"),
-                _ => write::write_copy(dir, entry, Why::Panic, std::time::SystemTime::now(), tick),
+                _ => write::write_copy(dir, entry, Why::Panic, std::time::SystemTime::now(), ticks),
             }
         });
     assert_eq!((report.wrote, report.failed), (2, 2));
@@ -376,6 +394,29 @@ fn an_unsafe_directory_gets_nothing_and_says_so() {
     let report = emergency.shared.write_copies(Why::Panic);
     assert_eq!(report.failed, 1);
     assert!(report.to_string().contains("no place"));
+}
+
+#[test]
+fn a_directory_that_would_be_refused_is_found_out_before_any_crash_and_nothing_is_created() {
+    assert!(
+        directory_problem(None).is_some_and(|problem| problem.contains("no place")),
+        "no place could be told"
+    );
+    let scratch = Scratch::new();
+    assert_eq!(directory_problem(Some(&scratch.copies())), None);
+    assert!(!scratch.copies().exists(), "nothing is created");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(scratch.copies()).unwrap();
+        fs::set_permissions(scratch.copies(), fs::Permissions::from_mode(0o755)).unwrap();
+        let problem = directory_problem(Some(&scratch.copies())).unwrap();
+        assert!(
+            problem.contains("No emergency copy can be written"),
+            "{problem}"
+        );
+        assert!(problem.contains("refusing to use"), "{problem}");
+    }
 }
 
 #[cfg(unix)]
@@ -503,7 +544,8 @@ fn metadata_says_what_the_file_was_so_that_a_change_since_can_be_told() {
     let mut editor = Editor::default();
     let id = file_buffer(&mut editor, "/p/a.txt", Some(&[]), "x");
     let stamp = FileStamp {
-        modified: SystemTime::UNIX_EPOCH + Duration::new(5, 7),
+        // Whole hundreds of nanoseconds, all that Windows keeps.
+        modified: SystemTime::UNIX_EPOCH + Duration::new(5, 700),
         len: 3,
         mode: 0o644,
     };
@@ -522,7 +564,7 @@ fn metadata_says_what_the_file_was_so_that_a_change_since_can_be_told() {
         .unwrap();
     let meta = write::meta_text(&entry.identity, entry.file, 1, Why::Panic, 7);
     assert!(
-        meta.contains("\nfile-bytes 3\nfile-modified 5.000000007\nbytes 1\n"),
+        meta.contains("\nfile-bytes 3\nfile-modified 5.000000700\nbytes 1\n"),
         "{meta}"
     );
 }

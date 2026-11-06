@@ -36,8 +36,10 @@ What remains is how it can work at all:
 - **Copies are written on a thread of their own, and each buffer under its own `catch_unwind`.** That is the only way a
   panic in the writer can cost one buffer and not all of them, as a panic inside the hook itself would abort. If no thread can
   start, it writes on the panicking thread, where a panic does cost the rest. The hook waits as long as the writer gets
-  somewhere: it ticks every megabyte, and after 30 s without one the hook goes on. A stuck network home directory
-  cannot hang a process that is ending.
+  somewhere: it ticks every megabyte, and after 30 s without one the hook goes on. A sync says nothing until it is done, however
+  far it has got, so it has an allowance of its own, 5 minutes, which covers 2 GiB at 10 MB/s. So the biggest buffer on a slow disk keeps its
+  copy, and a stuck network home directory still cannot hang a process that is ending for good. What is given up on leaves its temporary file.
+- **The stack is captured after the copies too,** as a capture walks the stack and takes a lock of `std`'s, either of which must not stand before them.
 - **Printing comes after, also on a thread of its own, and is waited for at most 5 s.** A caught panic does not wait at all, as
   the editor runs on and must not wait for a terminal. A failed write is ignored. If no thread can start, nothing is printed, as printing here could
   hang. The stack is captured on the panicking thread and resolved on the printing one. A `stty tostop` stops the whole process,
@@ -59,8 +61,10 @@ What remains is how it can work at all:
 - The check walks the buffers and compares `ContentId`, modified, saving and the verdict. That is the small per-key
   work that grows with the number of buffers. A buffer that did not change takes no lock, and one that did finds its entry by a binary
   search.
-- **A panicking command's state is not published.** The next command's publish takes it in, as the person then sees that text
-  and goes on from it.
+- **A panicking command's state is held back until a command ends normally.** That holds for every way of publishing: a save's report and a load take in none of it,
+  and only the next command that ends does, as the person has then seen that text and gone on from it. **The one exception is a save that command started:** that text was
+  asked to reach the disk and is on its way, so it is published, and the buffer counts as being saved. The facts stay true throughout: whether a save runs, and a buffer
+  that now holds what its file does is no longer at risk. A buffer with nothing published yet gets nothing.
 - **A secret buffer's entry holds no text.** Only the fact of it is shared, so that the hook can say one was left out.
 - Neither the hook nor the exit reads the editor. An exit writes what was last published, for the same reason.
 
@@ -100,9 +104,13 @@ What remains is how it can work at all:
 - `oso_platform::privacy::state_home` says where per-user state goes, and `PrivateDir` makes the directory: mode `0700` for it and what it creates on the way,
   refusing a symlink, another owner or a looser mode, or anything on the way another user can change, which is checked all the way to the root. A home directory
   that its group can write therefore gets no copies, and the report says why. A looser mode is refused and not repaired, as something may already have read what is
-  there. `control` now uses the same checks of one directory, and keeps its own, narrower, walk: it looks at the socket directory's parent only, and that
+  there. The walk covers the path as written and, as a link can lead through directories not on it, the real one. It runs before anything is created, so a refused
+  place gets nothing new. `control` now uses the same checks of one directory, and keeps its own, narrower, walk: it looks at the socket directory's parent only, and that
   is a dev tool's. Windows has no modes, and relies on the per-user place, whose access list the directory inherits.
 - If it cannot be made safe, nothing is written, and the report says so and names it.
+- **This is also found out at startup,** by `PrivateDir::check` on a thread of its own, which creates nothing, and said with `Editor::message`, as finding out at the crash would lose all the text. A
+  group-writable directory on the way is refused even if that group holds only this user, as with user-private groups and `umask 002`. Knowing that it does means reading the group and user
+  databases, through more `unsafe` and whatever name service they use, and being wrong costs the copies' safety. So the person is told at startup, and can `chmod g-w` it.
 - In dev builds `--emergency-dir DIR`, as the first argument, puts it elsewhere. The end-to-end harness always passes it, so that a
   test never touches real copies.
 
@@ -191,6 +199,9 @@ What remains is how it can work at all:
 - **`catch_unwind` around the buffers inside the hook:** cannot work, as a panic in a hook aborts at once.
 - **Writing after unwinding, with `catch_unwind` at the top of `main`:** a `Drop` that panics during unwinding aborts first, and winit's own catch on macOS sits between.
 - **Reading the editor from the hook:** it may be in the middle of anything, and borrowing it needs a global. Publishing is what lets the hook own its state.
+- **Publishing a panicking command's state at the next publish of any kind:** a save's report would then take in text the person has not seen, depending on timing.
+- **Holding a whole panicking command's state back, saves included:** a save it started would have no copy if the OS then ended the app, though that text was on its way to the disk.
+- **Counting a group as safe when its number equals the user's:** the usual shape of a user-private group, but only a convention, and it would pass a real group of that number.
 - **`ArcSwap`, or two slots flipped by an atomic, so that a panic with the lock held still leaves a state to read:** a new dependency or more code, for a case that only moves can reach,
   and they cannot panic.
 - **Marking changed buffers in `Editor`, so that a key costs O(1) with any number of buffers:** `buffer_mut` hands out buffers, so anything could change one without marking it, and a missed mark

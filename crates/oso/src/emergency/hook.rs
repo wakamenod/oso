@@ -77,8 +77,10 @@ pub(super) fn on_panic(shared: &Shared, location: String, out: impl Write + Send
             say_to(out, text, Duration::ZERO);
         }
         Place::OutsideCommand => {
-            let stack = Backtrace::force_capture();
+            // After the copies, as a capture takes a lock of `std`'s that could be held, and
+            // walks the stack, either of which must not stand before them.
             let report = shared.write_copies(Why::Panic);
+            let stack = Backtrace::force_capture();
             let text = move || format!("oso panicked at {location}\n{stack}\n{report}");
             say_to(out, text, SAY_LIMIT);
         }

@@ -35,6 +35,10 @@ impl ApplicationHandler<UserEvent> for App {
                 self.load_updated(buffer);
             }
             UserEvent::Save(report) => self.save_ended(event_loop, report),
+            UserEvent::NoEmergencyCopies(problem) => {
+                self.editor.message(problem);
+                self.request_redraw();
+            }
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
