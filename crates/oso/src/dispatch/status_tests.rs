@@ -13,6 +13,7 @@ use oso_core::load::decode_all;
 use oso_core::window::ViewSize;
 
 use super::Dispatcher;
+use crate::commands::kept_messages;
 
 fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str) {
     let keys: KeySequence = keys.parse().unwrap();
@@ -48,10 +49,10 @@ fn a_failed_command_shows_until_the_next_key() {
     let mut editor = editor("ab");
     send(&mut dispatcher, &mut editor, "C-b");
     assert_eq!(echo(&editor), "Beginning of buffer");
-    assert_eq!(editor.messages().count(), 1);
+    assert_eq!(kept_messages(&editor).len(), 1);
     send(&mut dispatcher, &mut editor, "C-f");
     assert_eq!(echo(&editor), "");
-    assert_eq!(editor.messages().count(), 1, "it stays in *Messages*");
+    assert_eq!(kept_messages(&editor).len(), 1, "it stays in *Messages*");
 }
 
 #[test]
@@ -74,7 +75,7 @@ fn an_undefined_key_reaches_the_echo_area_and_nothing_else() {
     assert_eq!(echo(&editor), "C-x Ж is undefined");
     send(&mut dispatcher, &mut editor, "<f35>");
     assert_eq!(echo(&editor), "<f35> is undefined");
-    assert_eq!(editor.messages().count(), 0);
+    assert_eq!(kept_messages(&editor).len(), 0);
 }
 
 #[test]
@@ -84,7 +85,7 @@ fn text_after_a_prefix_is_not_quoted() {
     send(&mut dispatcher, &mut editor, "C-x");
     dispatcher.insert_text(&mut editor, "typed");
     assert_eq!(echo(&editor), "C-x is undefined");
-    assert_eq!(editor.messages().count(), 0);
+    assert_eq!(kept_messages(&editor).len(), 0);
 }
 
 #[test]
@@ -152,11 +153,15 @@ fn a_failure_around_a_secret_stays_in_the_echo_area() {
     let mut editor = on_a_secret("KEY=value\n");
     send(&mut dispatcher, &mut editor, "C-b");
     assert_eq!(echo(&editor), "Beginning of buffer", "for the person there");
-    assert_eq!(editor.messages().count(), 0, "not in the log or *Messages*");
+    assert_eq!(
+        kept_messages(&editor).len(),
+        0,
+        "not in the log or *Messages*"
+    );
     send(&mut dispatcher, &mut editor, "M->");
     send(&mut dispatcher, &mut editor, "C-f");
     assert_eq!(echo(&editor), "End of buffer");
-    assert_eq!(editor.messages().count(), 0);
+    assert_eq!(kept_messages(&editor).len(), 0);
 
     // Out of view, it no longer shows, whichever way the buffer went.
     let other = editor.add_buffer(Buffer::new("other"));
@@ -177,7 +182,7 @@ fn a_message_a_command_leaves_around_a_secret_stays_out_of_the_log_too() {
     // Saving an unmodified buffer calls `Editor::message` itself, and returns no error.
     send(&mut dispatcher, &mut editor, "C-x C-s");
     let _ = editor.take_save_jobs();
-    assert_eq!(editor.messages().count(), 0);
+    assert_eq!(kept_messages(&editor).len(), 0);
 }
 
 #[test]

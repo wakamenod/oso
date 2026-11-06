@@ -399,7 +399,6 @@ mod tests {
         assert_eq!(status(&editor).echo, "two");
         editor.clear_echo();
         assert_eq!(status(&editor).echo, "");
-        assert_eq!(editor.messages().count(), 2);
     }
 
     #[test]

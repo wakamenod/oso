@@ -14,6 +14,8 @@ mod save;
 mod scroll;
 mod session;
 
+#[cfg(test)]
+pub(crate) use messages::kept_messages;
 use oso_core::command::{Command, CommandError, Registry};
 use oso_core::motion::{TOO_MUCH, WalkBudget};
 

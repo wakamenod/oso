@@ -72,7 +72,7 @@ fn what_the_disk_did_not_confirm_is_said_as_it_is_and_counts_as_written() {
             })),
         };
         let message = applied(&mut editor, report);
-        assert!(!message.starts_with("Wrote"), "{message}");
+        assert!(message.starts_with("Wrote the file, but"), "{message}");
         assert!(message.contains(said), "{message}");
         assert!(message.ends_with(&path.display().to_string()), "{message}");
         assert!(!editor.current().1.is_modified());
@@ -107,7 +107,7 @@ fn each_outcome_says_so_by_path_and_quotes_no_text() {
     let message = applied(&mut editor, report);
     assert_eq!(message, format!("Not saved: no threads: {shown}"));
     assert!(editor.current().1.is_modified());
-    for message in editor.messages() {
+    for message in crate::commands::kept_messages(&editor) {
         assert!(!message.contains(SECRET.trim()), "{message}");
     }
 }

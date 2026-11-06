@@ -32,7 +32,7 @@ use oso_core::key::{KeyPress, KeySequence};
 use oso_core::keymap::display_keys;
 use oso_core::selection::{Goal, Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
-use oso_core::window::Scroll;
+use oso_core::window::{Scroll, Window};
 use serde_json::{Map, Value, json};
 
 use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
@@ -77,10 +77,10 @@ pub fn export(
     for (id, buffer) in editor.buffers() {
         buffers.push(buffer_state(id, buffer)?);
     }
-    // Internal buffers are not handed over (ADR 0051). A window showing one comes back
-    // on `*scratch*`, which this entry stands for.
+    // Internal buffers are not handed over (ADR 0051). A window on one with nothing to go
+    // back to comes back on `*scratch*`, which this entry stands for.
     for window in editor.windows() {
-        if editor.shown(window).is_internal() {
+        if editor.shown(window).is_internal() && editor.place_behind_messages().is_none() {
             buffers.push(json!({ "id": window.buffer().get(), "path": null }));
         }
     }
@@ -88,18 +88,20 @@ pub fn export(
     let windows: Vec<Value> = editor
         .windows()
         .map(|window| {
+            let (buffer, selections, scroll) = handed_over(editor, window);
             // Positions still waiting came in with the import, and so say nothing
             // of the text, even while a file counts as secret until it is judged.
-            let waiting = restore.filter(|r| r.buffer == window.buffer());
+            let waiting = restore.filter(|r| r.buffer == buffer);
+            let withheld = editor
+                .buffer(buffer)
+                .is_none_or(|shown| shown.is_secret() || shown.is_internal());
             let (selections, scroll) = match waiting {
                 Some(restore) => (&restore.selections, restore.scroll),
-                None if editor.shown(window).is_secret() || editor.shown(window).is_internal() => {
-                    (&at_the_top, Scroll::default())
-                }
-                None => (&window.selections, window.scroll()),
+                None if withheld => (&at_the_top, Scroll::default()),
+                None => (selections, scroll),
             };
             json!({
-                "buffer": window.buffer().get(),
+                "buffer": buffer.get(),
                 "primary": selections.primary_index(),
                 "selections": selections.iter().map(|selection| json!({
                     "cursor": selection.cursor,
@@ -130,6 +132,16 @@ pub fn export(
         ));
     }
     Ok(state)
+}
+
+/// What `window` hands over: what it shows, or from an internal buffer, where it goes back
+/// to, since no key could reach that again otherwise.
+fn handed_over<'a>(editor: &'a Editor, window: &'a Window) -> (BufferId, &'a SelectionSet, Scroll) {
+    let behind = editor.shown(window).is_internal();
+    behind
+        .then(|| editor.place_behind_messages())
+        .flatten()
+        .unwrap_or((window.buffer(), &window.selections, window.scroll()))
 }
 
 fn buffer_state(id: BufferId, buffer: &Buffer) -> Result<Value, String> {

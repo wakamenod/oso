@@ -4,6 +4,8 @@
 //! host-owned state and does not know its keys.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+#[cfg(test)]
+use oso_core::editor::Editor;
 
 /// The commands for messages.
 pub const COMMANDS: &[Command] = &[Command {
@@ -17,6 +19,15 @@ fn view_echo_area_messages(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandErro
     ctx.editor.toggle_messages();
     ctx.request_redraw();
     Ok(())
+}
+
+/// What `*Messages*` holds, oldest first, for tests of what commands say.
+#[cfg(test)]
+pub(crate) fn kept_messages(editor: &Editor) -> Vec<String> {
+    let id = editor.messages_buffer();
+    let text = editor.buffer(id).map(|buffer| buffer.text().to_string());
+    let text = text.unwrap_or_default();
+    text.lines().map(str::to_owned).collect()
 }
 
 #[cfg(test)]

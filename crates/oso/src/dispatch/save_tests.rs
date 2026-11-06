@@ -14,6 +14,7 @@ use oso_core::key::KeySequence;
 use oso_core::window::ViewSize;
 
 use super::Dispatcher;
+use crate::commands::kept_messages;
 use crate::saver;
 use crate::saver::tests::{Scratch, visit};
 
@@ -35,8 +36,8 @@ fn finish_saves(editor: &mut Editor) {
     }
 }
 
-fn last_message(editor: &Editor) -> &str {
-    editor.messages().next_back().unwrap_or("")
+fn last_message(editor: &Editor) -> String {
+    kept_messages(editor).pop().unwrap_or_default()
 }
 
 fn text(editor: &Editor) -> String {

@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
+use crate::commands::kept_messages;
 use oso_core::buffer::{Baseline, Buffer, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::{Editor, SaveJob};
@@ -495,7 +496,7 @@ fn set_mode(path: &Path, mode: u32) {
 fn applied(editor: &mut Editor, report: SaveReport) -> String {
     apply(editor, report);
     assert!(!editor.current().1.is_saving());
-    editor.messages().next_back().unwrap().to_owned()
+    kept_messages(editor).pop().unwrap()
 }
 
 mod outcomes;

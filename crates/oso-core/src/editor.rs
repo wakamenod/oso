@@ -22,8 +22,6 @@
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use std::collections::VecDeque;
-
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::DisplaySnapshot;
 use crate::frame::{self, FrameLayout, FrameSize};
@@ -99,10 +97,10 @@ pub struct Editor {
     undo_scope: Option<UndoScope>,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
-    /// Oldest first.
-    messages: VecDeque<String>,
-    /// The internal buffer that shows them.
+    /// The internal buffer that keeps every message.
     messages_buffer: BufferId,
+    /// While a command runs, whether a buffer that may hold secrets was shown as it began.
+    command_began_on_secret: Option<bool>,
     /// Where the selected window was before it showed `*Messages*`.
     before_messages: Option<messages::Place>,
     /// The echo area's line, until the next key.
@@ -134,8 +132,8 @@ impl Editor {
             next_id: 0,
             undo_scope: None,
             join_ready: false,
-            messages: VecDeque::new(),
             messages_buffer: BufferId(0),
+            command_began_on_secret: None,
             before_messages: None,
             echo: None,
             keys_in_progress: String::new(),
@@ -508,7 +506,7 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::messages::{MAX_MESSAGES, log_text};
+    use super::messages::log_text;
     use super::*;
     use crate::display_map::TabWidth;
     use crate::frame::{PixelGrid, PixelRect};
@@ -886,22 +884,6 @@ mod tests {
         assert_eq!(log_text(message), message);
         assert_eq!(log_text("'\u{1b}'"), "'\\u{1b}'");
         assert_eq!(log_text(""), "");
-    }
-
-    #[test]
-    fn messages_are_kept_in_order_up_to_a_bound() {
-        let mut editor = Editor::default();
-        assert_eq!(editor.messages().count(), 0);
-        editor.message("Saved");
-        editor.message(String::from("Quit"));
-        assert_eq!(editor.messages().collect::<Vec<_>>(), ["Saved", "Quit"]);
-        assert_eq!(editor.messages().next_back(), Some("Quit"));
-        for index in 0..MAX_MESSAGES {
-            editor.message(format!("{index}"));
-        }
-        assert_eq!(editor.messages().len(), MAX_MESSAGES);
-        assert_eq!(editor.messages().next(), Some("0"));
-        assert_eq!(editor.messages().next_back(), Some("999"));
     }
 }
 

@@ -12,6 +12,7 @@ use oso_core::selection::{Selection, SelectionSet};
 use oso_core::window::{Scroll, ViewSize};
 
 use super::Dispatcher;
+use crate::commands::kept_messages;
 
 const REDRAW: Effects = Effects {
     redraw: true,
@@ -160,10 +161,10 @@ mod word_motion {
     fn at_the_edges_deleting_a_word_does_nothing_and_says_nothing() {
         let (mut d, mut editor) = at("ab", &[2]);
         assert_eq!(send(&mut d, &mut editor, "M-d"), NOTHING);
-        assert!(editor.messages().next().is_none());
+        assert!(kept_messages(&editor).is_empty());
         place(&mut editor, &[0]);
         assert_eq!(send(&mut d, &mut editor, "M-DEL"), NOTHING);
-        assert!(editor.messages().next().is_none());
+        assert!(kept_messages(&editor).is_empty());
         assert_eq!(text(&editor), "ab");
     }
 
@@ -203,9 +204,9 @@ mod word_motion {
         editor.set_view_size(ViewSize::new(10, 20));
         let mut d = Dispatcher::new();
         assert_eq!(send(&mut d, &mut editor, "M-d"), NOTHING);
-        assert_eq!(editor.messages().count(), 1);
+        assert_eq!(kept_messages(&editor).len(), 1);
         send(&mut d, &mut editor, "M-DEL");
-        assert_eq!(editor.messages().count(), 2);
+        assert_eq!(kept_messages(&editor).len(), 2);
         assert_eq!(editor.current().1.text().len(), 6);
     }
 
@@ -216,13 +217,16 @@ mod word_motion {
         let (mut d, mut editor) = at(&lines, &[0]);
         send(&mut d, &mut editor, "C-u 8 1 9 1 C-d");
         assert_eq!(text(&editor), "");
-        assert!(editor.messages().next().is_none());
+        assert!(kept_messages(&editor).is_empty());
         // One more goes past what it may read: nothing, and a signal.
         let lines = "\n".repeat(8193);
         let (mut d, mut editor) = at(&lines, &[0]);
         send(&mut d, &mut editor, "C-u 8 1 9 2 C-d");
         assert_eq!(text(&editor).len(), 8193);
-        assert_eq!(editor.messages().next_back(), Some("Count too large"));
+        assert_eq!(
+            kept_messages(&editor).last().map(String::as_str),
+            Some("Count too large")
+        );
     }
 
     #[test]

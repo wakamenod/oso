@@ -134,7 +134,7 @@ impl Layout {
     }
 
     /// The same, for a tiled row that is no buffer's: glyphs keep the band above it on
-    /// the row above, since a capital's accents read wrong without it (ADR 0063).
+    /// the row above, as accents on capitals need it (ADR 0063).
     pub(crate) fn with_band_above(self) -> Self {
         Self {
             keeps_band_above: true,

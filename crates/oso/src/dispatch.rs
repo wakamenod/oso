@@ -227,10 +227,9 @@ impl Dispatcher {
     /// character on its key, in an undo group of its own, so that it undoes as one
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
-    /// failure is not fatal (ADR 0014), and leaves a message, while the undo group is
-    /// still open: that is what keeps one out of the log around a secret buffer, as a
-    /// failure can say where a cursor is. A panic names only the command, and is a bug
-    /// to find.
+    /// failure is not fatal (ADR 0014), and leaves a message, which stays out of the log
+    /// around a secret buffer, as it can say where a cursor is. A panic names only the
+    /// command, and is a bug to find, so it comes after the command is marked as ended.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
     fn execute(
         &mut self,
@@ -246,6 +245,7 @@ impl Dispatcher {
         };
         self.last = Some((id, repeats));
         let exit_attempt = editor.exit_attempt();
+        editor.begin_command();
         editor.begin_undo_group();
         let invocation = Invocation {
             input,
@@ -259,11 +259,12 @@ impl Dispatcher {
         match &result {
             Ok(()) => editor.end_undo_group(),
             Err(ExecuteError::Failed { error, .. }) => {
-                editor.message(error.message());
                 editor.end_undo_group();
+                editor.message(error.message());
             }
             Err(error @ ExecuteError::Panicked { .. }) => {
                 editor.end_undo_group_after_panic();
+                editor.end_command();
                 // This names the command and nothing else (ADR 0028).
                 editor.message(error.to_string());
                 // What it changed may be visible.
@@ -274,6 +275,7 @@ impl Dispatcher {
                 editor.message(error.to_string());
             }
         }
+        editor.end_command();
         if editor.exit_attempt() == exit_attempt {
             editor.reset_exit_guard();
         }

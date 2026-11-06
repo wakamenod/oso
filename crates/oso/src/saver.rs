@@ -190,10 +190,10 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
             match written.unsynced {
                 None => format!("Wrote {path}"),
                 Some(Unsynced::File(e)) => format!(
-                    "The file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}: {path}"
+                    "Wrote the file, but the file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}: {path}"
                 ),
                 Some(Unsynced::Directory(e)) => format!(
-                    "The disk did not confirm the rename. A power cut could bring back what was there: {e}: {path}"
+                    "Wrote the file, but the disk did not confirm the rename. A power cut could bring back what was there: {e}: {path}"
                 ),
             }
         }

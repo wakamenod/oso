@@ -130,9 +130,14 @@ item notes when it must be settled.
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
 - What panes below the frame's top row do with the band above their first row, which they
   lose today: by M2-16 and M3. The modeline and the echo row keep it
-  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)). By M2-16, also what a
-  float on the top row does about the top margin
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), which `draw_pane` tells by
+  `rows == 1` for now. By M2-16, also what a float on the top row does about the top margin
   ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
+- `C-h e` while a handed-over file loads ends the wait for its positions, so they are not restored
+  (`handoff.rs`). Decide with M2-15, which carries more through a restart.
+- A visited file counts as secret until its load's first update judges it, so for that moment its
+  modeline says `secret`. Look at this again with the verdict of M2-10
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - By M2-16: `Buffer::is_internal` also means read-only with no undo, and the minibuffer's buffer
   is internal but takes typing. Split the two.
 - By M2-19: whether `C-x b` lists `*Messages*`, and whether `kill-buffer` may kill it, which today
