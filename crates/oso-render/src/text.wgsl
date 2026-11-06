@@ -1,4 +1,4 @@
-// Pass 2: glyph quads from the atlas. One instance per glyph; the quad's
+// Glyph quads from the atlas. One instance per glyph; the quad's
 // four corners come from the vertex index (a triangle strip).
 
 struct Uniforms {

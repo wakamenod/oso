@@ -7,6 +7,23 @@ impl core::fmt::Debug for oso_render::CaptureError
 pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for oso_render::CaptureError
 pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_render::Face
+pub oso_render::Face::Boxed
+pub oso_render::Face::Cursor
+pub oso_render::Face::Escape
+pub oso_render::Face::Text
+impl core::clone::Clone for oso_render::Face
+pub fn oso_render::Face::clone(&self) -> oso_render::Face
+impl core::cmp::Eq for oso_render::Face
+impl core::cmp::PartialEq for oso_render::Face
+pub fn oso_render::Face::eq(&self, &oso_render::Face) -> bool
+impl core::fmt::Debug for oso_render::Face
+pub fn oso_render::Face::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::Face
+impl core::marker::StructuralPartialEq for oso_render::Face
+pub enum oso_render::PaneContent<'a>
+pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
+pub oso_render::PaneContent::Text(oso_render::TextView)
 pub enum oso_render::Redraw
 pub oso_render::Redraw::Needed
 pub oso_render::Redraw::NotNeeded
@@ -54,23 +71,57 @@ pub fn oso_render::Image::eq(&self, &oso_render::Image) -> bool
 impl core::fmt::Debug for oso_render::Image
 pub fn oso_render::Image::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_render::Image
+pub struct oso_render::Layer(pub u8)
+impl oso_render::Layer
+pub const oso_render::Layer::TILED: Self
+impl core::clone::Clone for oso_render::Layer
+pub fn oso_render::Layer::clone(&self) -> oso_render::Layer
+impl core::cmp::Eq for oso_render::Layer
+impl core::cmp::Ord for oso_render::Layer
+pub fn oso_render::Layer::cmp(&self, &oso_render::Layer) -> core::cmp::Ordering
+impl core::cmp::PartialEq for oso_render::Layer
+pub fn oso_render::Layer::eq(&self, &oso_render::Layer) -> bool
+impl core::cmp::PartialOrd for oso_render::Layer
+pub fn oso_render::Layer::partial_cmp(&self, &oso_render::Layer) -> core::option::Option<core::cmp::Ordering>
+impl core::fmt::Debug for oso_render::Layer
+pub fn oso_render::Layer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::Layer
+impl core::marker::StructuralPartialEq for oso_render::Layer
+pub struct oso_render::Pane<'a>
+pub oso_render::Pane::background: core::option::Option<oso_render::Face>
+pub oso_render::Pane::content: oso_render::PaneContent<'a>
+pub oso_render::Pane::id: oso_render::PaneId
+pub oso_render::Pane::layer: oso_render::Layer
+pub oso_render::Pane::region: oso_core::frame::CellRect
+pub struct oso_render::PaneId(pub u32)
+impl core::clone::Clone for oso_render::PaneId
+pub fn oso_render::PaneId::clone(&self) -> oso_render::PaneId
+impl core::cmp::Eq for oso_render::PaneId
+impl core::cmp::PartialEq for oso_render::PaneId
+pub fn oso_render::PaneId::eq(&self, &oso_render::PaneId) -> bool
+impl core::fmt::Debug for oso_render::PaneId
+pub fn oso_render::PaneId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::PaneId
+impl core::marker::StructuralPartialEq for oso_render::PaneId
 pub struct oso_render::RenderState
 impl oso_render::RenderState
-pub fn oso_render::RenderState::capture(&mut self, &oso_render::TextView) -> core::result::Result<oso_render::Capture, oso_render::CaptureError>
+pub fn oso_render::RenderState::capture(&mut self, &[oso_render::Pane<'_>]) -> core::result::Result<oso_render::Capture, oso_render::CaptureError>
 impl oso_render::RenderState
 pub fn oso_render::RenderState::cell_metrics(&self) -> oso_platform::text::CellMetrics
 pub fn oso_render::RenderState::frame_size(&self) -> oso_core::frame::FrameSize
 pub async fn oso_render::RenderState::new(alloc::sync::Arc<dyn wgpu::api::surface::DisplayAndWindowHandle>, u32, u32, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> Self
 pub fn oso_render::RenderState::pixel_grid(&self) -> oso_core::frame::PixelGrid
 pub fn oso_render::RenderState::presented_frames(&self) -> u64
-pub fn oso_render::RenderState::render(&mut self, &oso_render::TextView, &dyn core::ops::function::Fn() -> (u32, u32)) -> core::result::Result<oso_render::Redraw, oso_render::RenderError>
+pub fn oso_render::RenderState::render(&mut self, &[oso_render::Pane<'_>], &dyn core::ops::function::Fn() -> (u32, u32)) -> core::result::Result<oso_render::Redraw, oso_render::RenderError>
 pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redraw
 pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
 impl oso_render::RenderState
 pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo
+pub struct oso_render::Span<'a>
+pub oso_render::Span::face: oso_render::Face
+pub oso_render::Span::text: &'a str
 pub struct oso_render::TextView
-pub oso_render::TextView::area: oso_core::frame::CellRect
 pub oso_render::TextView::buffer: oso_core::buffer::BufferId
 pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
 pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot

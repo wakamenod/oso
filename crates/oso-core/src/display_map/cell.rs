@@ -42,6 +42,9 @@ const MAX_CLUSTER_MARKS: usize = 8;
 /// sequences and Indic clusters.
 const MAX_CLUSTER_CHARS: usize = 16;
 
+/// The most bytes a display cluster holds, at 4 bytes a character.
+pub const MAX_CLUSTER_BYTES: usize = MAX_CLUSTER_CHARS * 4;
+
 /// What a grapheme cluster is on the cell grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CellKind {

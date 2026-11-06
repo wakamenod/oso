@@ -99,6 +99,8 @@ The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
 - An invalid byte of the file is shown as `\xNN` in 4 cells, in the escape
   color, so it is not mistaken for text that reads `\x41`.
 - A tab advances to the next tab stop. `\n` and `\r\n` end the row.
+- Text that is no buffer's, such as a modeline's, is one row: there a tab and a line
+  break are escapes as well (`display_map::text_clusters`).
 
 A glyph paints only the cells of its cluster and only its row. When the shaper
 draws several clusters as one ligature, its glyph paints the cells of all of
@@ -107,7 +109,9 @@ baseline, in pixels, because accents on capitals reach there and letters can
 differ only there. Below the row it keeps half that, where marks under a
 descender end. Anything further out is cut, including the sides of a fallback
 font's letter wider than its cells
-([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)). These bands stop at a pane's
+edges, but for the band above the frame's top row
+([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
 
 ## Row heights
 
@@ -156,9 +160,10 @@ one layer:
   modeline, and the echo area. M2-16 adds floating windows. `Editor` holds the layout,
   and a window's `ViewSize` is its text area, so scrolling and the cursor stop above
   the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).
-- `frame::PixelGrid` maps cells to physical pixels. The renderer draws the rows of
-  the text area it is given, and `Editor::cursor_area` gives the input method the
-  cursor's rectangle.
+- `frame::PixelGrid` maps cells to physical pixels. The renderer draws a list of
+  panes, each in its region, apart from the band above the frame's top row
+  ([ADR 0061](adr/0061-panes-clipping-and-layers.md)), and `Editor::cursor_area` gives
+  the input method the cursor's rectangle.
 
 ## Terminal views
 

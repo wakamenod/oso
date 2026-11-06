@@ -8,55 +8,27 @@ mod atlas;
 #[cfg(feature = "dev")]
 mod capture;
 mod grid;
+mod paint;
+mod pane;
 mod rows;
+mod scene;
 mod shape;
 mod text;
 use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
-use rows::Rows;
-use shape::{Rect, ShapeRenderer};
-use text::{Layout, TextRenderer};
+use paint::Painter;
+pub use pane::{Face, Layer, Pane, PaneContent, PaneId, Span, TextView};
 
 use std::sync::Arc;
 
-use oso_core::buffer::BufferId;
-use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
-use oso_core::frame::{self, CellRect, FrameSize, PixelGrid};
-use oso_core::motion;
-use oso_core::window::Scroll;
+use oso_core::frame::{FrameSize, PixelGrid};
 use oso_platform::text::{CellMetrics, TextSystem};
-
-// Colors in linear RGB, until the theme of ADR 0027.
-const BACKGROUND: [f32; 4] = [0.05, 0.05, 0.07, 1.0];
-const FOREGROUND: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
-const CURSOR: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
-/// Escapes (`^M`, `\xFF`) and boxed code points (`U+202E`), so they are
-/// not mistaken for text that reads the same.
-const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
-const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
 
 /// New glyphs a frame rasterizes at most. Each takes tens of
 /// microseconds, so a screen of new CJK text fills in over a few frames
 /// instead of stalling one (ADR 0040).
 const GLYPHS_PER_FRAME: usize = 64;
-
-/// What to draw: a window's view of a buffer.
-pub struct TextView {
-    /// The buffer's display model.
-    pub display: DisplaySnapshot,
-    /// The buffer, so that cached shaping of another one is not reused.
-    pub buffer: BufferId,
-    /// The buffer's revision: while it holds, cached rows are reused
-    /// without looking at the buffer.
-    pub revision: u64,
-    /// The frame's cells it is drawn in. No row is drawn below them.
-    pub area: CellRect,
-    /// The display row and column at the top left.
-    pub scroll: Scroll,
-    /// Where the cursor box goes.
-    pub cursor: DisplayPoint,
-}
 
 /// The single wgpu backend used on this OS (ADR 0003). There is no GL fallback.
 ///
@@ -166,9 +138,8 @@ pub enum Redraw {
 
 /// Manages the wgpu device, queue, and surface; issues frame draws.
 ///
-/// Render passes (architecture.md, "GPU rendering"):
-///   Pass 1: ShapeRenderer — clear background + cursor box
-///   Pass 2: TextRenderer  — glyph quads from the atlas
+/// A frame is a list of panes, drawn layer by layer: each layer's rectangles,
+/// then its glyph quads (architecture.md, "GPU rendering").
 pub struct RenderState {
     /// The window the surface draws to, kept to create the surface again
     /// after it is lost.
@@ -179,16 +150,9 @@ pub struct RenderState {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    shape_renderer: ShapeRenderer,
-    text_renderer: TextRenderer,
+    painter: Painter,
     /// Shapes and rasterizes text; see `oso_platform::text`.
     text_system: Box<dyn TextSystem>,
-    /// Shaped rows of the buffer shown, by display row.
-    rows: Rows,
-    /// Boxes behind invisible characters this frame, and the rectangles
-    /// drawn in pass 1; reused across frames.
-    boxes: Vec<(usize, usize, usize)>,
-    rects: Vec<Rect>,
     /// Frames in a row that failed to draw; see `count_failed_frame`.
     failed_frames: u8,
     /// Frames presented so far.
@@ -279,9 +243,7 @@ impl RenderState {
         );
 
         // 6. Initialize the shape and text renderers.
-        let shape_renderer =
-            ShapeRenderer::new(&device, surface_format, width as f32, height as f32);
-        let text_renderer = TextRenderer::new(&device, surface_format, width as f32, height as f32);
+        let painter = Painter::new(&device, surface_format, width as f32, height as f32);
 
         Self {
             target,
@@ -290,12 +252,8 @@ impl RenderState {
             device,
             queue,
             config,
-            shape_renderer,
-            text_renderer,
+            painter,
             text_system,
-            rows: Rows::default(),
-            boxes: Vec::new(),
-            rects: Vec::new(),
             failed_frames: 0,
             presented: 0,
             #[cfg(feature = "dev")]
@@ -313,8 +271,7 @@ impl RenderState {
     /// next frame.
     pub fn set_text_system(&mut self, text_system: Box<dyn TextSystem>) -> Redraw {
         self.text_system = text_system;
-        self.text_renderer.atlas.clear();
-        self.rows.invalidate();
+        self.painter.invalidate();
         Redraw::Needed
     }
 
@@ -362,9 +319,7 @@ impl RenderState {
         if let Some(surface) = &self.surface {
             surface.configure(&self.device, &self.config);
         }
-        self.shape_renderer
-            .resize(&self.queue, width as f32, height as f32);
-        self.text_renderer
+        self.painter
             .resize(&self.queue, width as f32, height as f32);
         true
     }
@@ -411,7 +366,7 @@ impl RenderState {
         }
     }
 
-    /// Renders a single frame.
+    /// Renders a single frame of `panes`.
     ///
     /// `window_size` returns the window's current size in physical pixels.
     /// It is called only when the surface must be configured again, since
@@ -422,14 +377,14 @@ impl RenderState {
     /// to rasterize.
     pub fn render(
         &mut self,
-        view: &TextView,
+        panes: &[Pane<'_>],
         window_size: &dyn Fn() -> (u32, u32),
     ) -> Result<Redraw, RenderError> {
         // The CPU work (shaping, rasterizing, building quads) comes first,
         // so it overlaps the wait for a drawable instead of adding to it.
         let started = std::time::Instant::now();
         let mut budget = RasterBudget::new(GLYPHS_PER_FRAME);
-        self.prepare_frame(view, &mut budget);
+        self.prepare_frame(panes, &mut budget);
         log::trace!("frame prepared in {:?}", started.elapsed());
 
         // Acquire the next surface texture, or recover as wgpu documents.
@@ -456,7 +411,7 @@ impl RenderState {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        self.encode_passes(&mut encoder, &target);
+        self.painter.encode(&mut encoder, &target);
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -482,117 +437,16 @@ impl RenderState {
         })
     }
 
-    /// Shapes, rasterizes and uploads what one frame of `text` draws,
-    /// with at most `budget` new glyphs. Touches the queue, not the surface.
-    fn prepare_frame(&mut self, text: &TextView, budget: &mut RasterBudget) {
-        let metrics = self.text_system.metrics();
-        let display = &text.display;
-        // The box cursor covers the whole character under it, two cells for
-        // a full-width one (ADR 0026).
-        let cursor_cells = motion::cursor_cells(display, text.cursor);
-        let cursor_rect = frame::cursor_rect(text.area, text.scroll, text.cursor, cursor_cells);
-        let grid = self.pixel_grid();
-        let area = grid.rect(text.area);
-        let layout = Layout {
-            origin: [area.x, area.y],
-            viewport: [self.config.width as f32, area.y + area.height],
-            metrics,
-            scroll: text.scroll,
-            // Glyphs take the box's color only where the box is.
-            cursor: cursor_rect.map_or((text.cursor, 0), |cells| {
-                let column = text.scroll.left + (cells.column - text.area.column);
-                (DisplayPoint::new(text.cursor.row, column), cells.columns)
-            }),
-            color: FOREGROUND,
-            escape_color: ESCAPE,
-            cursor_color: BACKGROUND,
-        };
-
-        let rasterized = self.text_renderer.atlas.rasterized();
-        let shaped = self.rows.shaped_count();
-        let started = std::time::Instant::now();
-        self.rows.begin(text.buffer, text.revision);
-        self.text_renderer.prepare(
+    /// Shapes, rasterizes and uploads what one frame of `panes` draws, with at
+    /// most `budget` new glyphs. Touches the queue, not the surface.
+    fn prepare_frame(&mut self, panes: &[Pane<'_>], budget: &mut RasterBudget) {
+        self.painter.prepare(
             &self.device,
             &self.queue,
             &mut *self.text_system,
-            &mut self.rows,
-            display,
-            &layout,
+            panes,
             budget,
-            &mut self.boxes,
         );
-        let new_glyphs = self.text_renderer.atlas.rasterized() - rasterized;
-        let new_rows = self.rows.shaped_count() - shaped;
-        if new_glyphs > 0 || new_rows > 0 {
-            log::debug!(
-                "shaped {new_rows} rows and rasterized {new_glyphs} glyphs in {:?}",
-                started.elapsed()
-            );
-        }
-
-        self.rects.clear();
-        for &(row, column, cells) in &self.boxes {
-            self.rects.push(Rect {
-                position: layout.cell(row, column),
-                size: [metrics.width * cells as f32, metrics.height],
-                color: ESCAPE_BOX,
-            });
-        }
-        if let Some(cells) = cursor_rect {
-            let cursor = grid.rect(cells);
-            self.rects.push(Rect {
-                position: [cursor.x, cursor.y],
-                size: [cursor.width, cursor.height],
-                color: CURSOR,
-            });
-        }
-        self.shape_renderer
-            .prepare(&self.device, &self.queue, &self.rects);
-    }
-
-    /// Records the passes of the prepared frame into `view`.
-    fn encode_passes(&mut self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
-        // --- Pass 1: clear background, boxes and the cursor (ShapeRenderer) ---
-        let [r, g, b, a] = BACKGROUND.map(f64::from);
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Pass 1: Shape"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    // Clear with the editor background color.
-                    load: wgpu::LoadOp::Clear(wgpu::Color { r, g, b, a }),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-        self.shape_renderer.render(&mut pass);
-        drop(pass);
-
-        // --- Pass 2: glyphs from the atlas (TextRenderer) ---
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Pass 2: Text"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-        self.text_renderer.render(&mut pass);
     }
 }
 

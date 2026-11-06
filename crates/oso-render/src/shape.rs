@@ -1,8 +1,10 @@
-//! Pass 1: filled rectangles under the text: the background boxes of
-//! invisible characters and the cursor box.
+//! Filled rectangles under the text: panes' backgrounds, the boxes of invisible
+//! characters and the cursor box.
 //!
 //! Must not depend on: `atlas`, `grid`, `text` or anything else about text; it
 //! knows pixels and colors.
+
+use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
@@ -87,8 +89,6 @@ pub struct ShapeRenderer {
     vertex_buffer: wgpu::Buffer,
     /// Rectangles `vertex_buffer` holds.
     capacity: usize,
-    /// Rectangles drawn this frame.
-    count: usize,
     /// This frame's vertices, reused across frames.
     vertices: Vec<Vertex>,
     uniform_buffer: wgpu::Buffer,
@@ -111,7 +111,7 @@ const INITIAL_RECTS: usize = 64;
 
 /// The most rectangles in one frame: a screen of boxed characters needs
 /// far fewer.
-const MAX_RECTS: usize = 1 << 14;
+pub(crate) const MAX_RECTS: usize = 1 << 14;
 
 impl ShapeRenderer {
     pub fn new(
@@ -200,7 +200,6 @@ impl ShapeRenderer {
             pipeline,
             vertex_buffer: Self::vertex_buffer(device, INITIAL_RECTS),
             capacity: INITIAL_RECTS,
-            count: 0,
             vertices: Vec::with_capacity(INITIAL_RECTS * RECT_VERTICES),
             uniform_buffer,
             bind_group,
@@ -222,10 +221,9 @@ impl ShapeRenderer {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// Uploads this frame's rectangles, drawn in order. Must be called
-    /// before the render pass begins.
+    /// Uploads this frame's rectangles, at most [`MAX_RECTS`] of them. Must be
+    /// called before the render pass begins.
     pub(crate) fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, rects: &[Rect]) {
-        let rects = &rects[..rects.len().min(MAX_RECTS)];
         self.vertices.clear();
         for rect in rects {
             let ([x, y], [w, h], color) = (rect.position, rect.size, rect.color);
@@ -246,20 +244,20 @@ impl ShapeRenderer {
             self.capacity = rects.len().next_power_of_two().min(MAX_RECTS);
             self.vertex_buffer = Self::vertex_buffer(device, self.capacity);
         }
-        self.count = rects.len();
         if !self.vertices.is_empty() {
             queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.vertices));
         }
     }
 
-    /// Records this frame's rectangles into the given render pass.
-    pub fn render<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        if self.count == 0 {
+    /// Records the rectangles in `range`, in order, into the given render pass.
+    pub(crate) fn render(&self, pass: &mut wgpu::RenderPass<'_>, range: Range<u32>) {
+        if range.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        pass.draw(0..(self.count * RECT_VERTICES) as u32, 0..1);
+        let vertices = RECT_VERTICES as u32;
+        pass.draw(range.start * vertices..range.end * vertices, 0..1);
     }
 }

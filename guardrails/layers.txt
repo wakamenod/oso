@@ -39,9 +39,12 @@ privacy
 [oso-render]
 capture
 crate
+paint
+scene
 text
 rows
 atlas grid shape
+pane
 
 [oso]
 crate

@@ -8,13 +8,14 @@
 //! lists the display clusters of the text it shaped; the text system only
 //! says which cluster each glyph draws and where the font puts it.
 
-use oso_core::display_map::CellStyle;
 use oso_platform::text::{GlyphKey, ShapedGlyph};
 
-/// The most glyphs drawn for one span. The display model bounds how many
+use crate::pane::Face;
+
+/// The most glyphs drawn for one run. The display model bounds how many
 /// characters a cluster holds, but a shaper's output for them has no such
 /// bound, so it is cut off here rather than drawing it all in one cell.
-const MAX_GLYPHS_PER_SPAN: u32 = 32;
+const MAX_GLYPHS_PER_RUN: u32 = 32;
 
 /// A glyph placed on the grid.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -30,7 +31,7 @@ pub(crate) struct PlacedGlyph {
     /// in whole pixels; y grows downwards. Centers glyphs whose advance is
     /// not exactly `cells` cells, such as CJK from a fallback font.
     pub(crate) offset: [f32; 2],
-    pub(crate) style: CellStyle,
+    pub(crate) face: Face,
 }
 
 /// A display cluster of the shaped text: where it starts in the text, and
@@ -40,19 +41,19 @@ pub(crate) struct Grapheme {
     pub(crate) byte: u32,
     pub(crate) column: usize,
     pub(crate) cells: u32,
-    pub(crate) style: CellStyle,
+    pub(crate) face: Face,
 }
 
 /// A run of display clusters that the shaper drew as one unit: usually one
 /// cluster, several for a ligature.
 #[derive(Debug, Clone, Copy)]
-struct Span {
+struct ShapedRun {
     column: usize,
     cells: u32,
-    style: CellStyle,
+    face: Face,
     /// Glyphs placed so far.
     glyphs: u32,
-    /// Leftmost pen position of the span's glyphs, and their total advance.
+    /// Leftmost pen position of the run's glyphs, and their total advance.
     x: f32,
     advance: f32,
 }
@@ -62,9 +63,9 @@ struct Span {
 pub(crate) struct Placer {
     /// Whether a glyph's cluster starts at each grapheme.
     starts: Vec<bool>,
-    /// The span each grapheme belongs to.
-    span_of: Vec<u32>,
-    spans: Vec<Span>,
+    /// The run each grapheme belongs to.
+    run_of: Vec<u32>,
+    runs: Vec<ShapedRun>,
 }
 
 impl Placer {
@@ -103,56 +104,56 @@ impl Placer {
             }
         }
 
-        // Group graphemes into spans, from one shaper cluster start to the
-        // next, or to where the style changes: an escape's label keeps its
+        // Group graphemes into runs, from one shaper cluster start to the
+        // next, or to where the face changes: an escape's label keeps its
         // own cells whatever follows it.
-        self.spans.clear();
-        self.span_of.clear();
+        self.runs.clear();
+        self.run_of.clear();
         for (i, g) in graphemes.iter().enumerate() {
-            match self.spans.last_mut() {
-                Some(span) if !self.starts[i] && span.style == g.style => {
-                    span.cells = span.cells.saturating_add(g.cells);
+            match self.runs.last_mut() {
+                Some(run) if !self.starts[i] && run.face == g.face => {
+                    run.cells = run.cells.saturating_add(g.cells);
                 }
-                _ => self.spans.push(Span {
+                _ => self.runs.push(ShapedRun {
                     column: g.column,
                     cells: g.cells,
-                    style: g.style,
+                    face: g.face,
                     glyphs: 0,
                     x: f32::INFINITY,
                     advance: 0.0,
                 }),
             }
-            self.span_of.push(self.spans.len() as u32 - 1);
+            self.run_of.push(self.runs.len() as u32 - 1);
         }
 
-        let span_index =
-            |placer: &Self, byte: u32| placer.span_of.get(grapheme_of(byte)).map(|&s| s as usize);
+        let run_index =
+            |placer: &Self, byte: u32| placer.run_of.get(grapheme_of(byte)).map(|&s| s as usize);
         for glyph in glyphs {
-            if let Some(s) = span_index(self, glyph.cluster) {
-                let span = &mut self.spans[s];
-                span.x = span.x.min(glyph.x);
-                span.advance += glyph.advance;
+            if let Some(s) = run_index(self, glyph.cluster) {
+                let run = &mut self.runs[s];
+                run.x = run.x.min(glyph.x);
+                run.advance += glyph.advance;
             }
         }
         out.reserve(glyphs.len());
         for glyph in glyphs {
-            let Some(s) = span_index(self, glyph.cluster) else {
+            let Some(s) = run_index(self, glyph.cluster) else {
                 continue;
             };
-            let span = &mut self.spans[s];
-            if span.glyphs >= MAX_GLYPHS_PER_SPAN {
+            let run = &mut self.runs[s];
+            if run.glyphs >= MAX_GLYPHS_PER_RUN {
                 continue;
             }
-            span.glyphs += 1;
-            let span = *span;
-            let cells = span.cells.max(1);
-            let centering = (cells as f32 * cell_width - span.advance) / 2.0;
+            run.glyphs += 1;
+            let run = *run;
+            let cells = run.cells.max(1);
+            let centering = (cells as f32 * cell_width - run.advance) / 2.0;
             out.push(PlacedGlyph {
                 key: glyph.key,
-                column: span.column,
+                column: run.column,
                 cells,
-                offset: [(glyph.x - span.x + centering).round(), (-glyph.y).round()],
-                style: span.style,
+                offset: [(glyph.x - run.x + centering).round(), (-glyph.y).round()],
+                face: run.face,
             });
         }
         // Right-to-left runs come in visual order; drawing and lookups by
@@ -215,7 +216,7 @@ mod tests {
                     byte: byte as u32,
                     column,
                     cells: cells as u32,
-                    style: CellStyle::Text,
+                    face: Face::Text,
                 };
                 column += cells;
                 g
@@ -331,35 +332,32 @@ mod tests {
             byte: 0,
             column: 0,
             cells: 1,
-            style: CellStyle::Text,
+            face: Face::Text,
         };
         let mut placed = Vec::new();
         Placer::default().place(&[cluster], &shape_naively(&text), CELL, &mut placed);
-        assert_eq!(placed.len(), MAX_GLYPHS_PER_SPAN as usize);
+        assert_eq!(placed.len(), MAX_GLYPHS_PER_RUN as usize);
         assert!(placed.iter().all(|g| g.column == 0));
     }
 
     #[test]
-    fn styles_follow_their_graphemes() {
+    fn faces_follow_their_graphemes() {
         let text = "a^M";
         let mut graphemes = graphemes(text);
-        graphemes[1].style = CellStyle::Escape;
-        graphemes[2].style = CellStyle::Escape;
+        graphemes[1].face = Face::Escape;
+        graphemes[2].face = Face::Escape;
         let mut out = Vec::new();
         Placer::default().place(&graphemes, &shape_naively(text), CELL, &mut out);
-        let styles: Vec<_> = out.iter().map(|g| g.style).collect();
-        assert_eq!(
-            styles,
-            [CellStyle::Text, CellStyle::Escape, CellStyle::Escape]
-        );
+        let faces: Vec<_> = out.iter().map(|g| g.face).collect();
+        assert_eq!(faces, [Face::Text, Face::Escape, Face::Escape]);
     }
 
     #[test]
-    fn a_span_ends_where_the_style_changes() {
+    fn a_run_ends_where_the_face_changes() {
         // Text with no glyph of its own follows the last cell of a label.
         let text = "Ex";
         let mut graphemes = graphemes(text);
-        graphemes[0].style = CellStyle::Boxed;
+        graphemes[0].face = Face::Boxed;
         let mut glyphs = shape_naively(text);
         glyphs.pop();
         let mut out = Vec::new();
