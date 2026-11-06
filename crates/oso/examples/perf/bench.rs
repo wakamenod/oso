@@ -264,7 +264,8 @@ fn paced_keys(
 
 /// Waits until no key waits for a frame, and returns the key latencies. A
 /// key that never gets a frame, or a dropped sample, would flatter the result,
-/// so both are errors.
+/// so both are errors. A key withheld around a secret buffer counts as neither
+/// (ADR 0060), and the checks on how many keys drew catch that.
 fn settle(app: &mut App) -> Result<Vec<f64>, String> {
     let mut samples = Vec::new();
     let started = Instant::now();
@@ -500,6 +501,7 @@ fn big_file_run(
     let keys = spec.keys;
     let mut app = App::start(exe, Some(file))?;
     app.wait_until("first frame", FRAME_TIMEOUT, has_frame)?;
+    app.wait_until_judged(FRAME_TIMEOUT)?;
     let mut rng = Lcg(seed);
     let mut numbers = Vec::new();
 
@@ -518,7 +520,9 @@ fn big_file_run(
             break;
         }
     }
-    if !loading.is_empty() {
+    if loading.is_empty() {
+        log_step("no key was timed while the file loaded: no keys_loading_max_ms this run");
+    } else {
         numbers.push(("keys_loading_max_ms", max(&loading)));
     }
     numbers.push(("trip_loading_max_ms", max(&trips)));

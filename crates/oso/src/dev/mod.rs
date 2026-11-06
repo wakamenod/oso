@@ -27,7 +27,7 @@ use serde_json::json;
 pub use protocol::{Reply, UiOp};
 pub use server::UiRequest;
 pub use state::{get_state, get_text, screenshot_allowed, show_buffer};
-pub use timing::Timings;
+pub use timing::{HandledKey, SecretWatch, Timings};
 
 /// Appears in every binary built with the `dev` feature, and in no other.
 /// `just release-safety` looks for it in release binaries.
