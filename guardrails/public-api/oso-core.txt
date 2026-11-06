@@ -771,6 +771,7 @@ pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::confirm_exit(&mut self, oso_core::editor::ExitAction) -> core::result::Result<(), oso_core::editor::ExitRefused>
 pub fn oso_core::editor::Editor::exit_attempt(&self) -> core::option::Option<oso_core::editor::ExitAction>
+pub fn oso_core::editor::Editor::queued_saves(&self) -> impl core::iter::traits::iterator::Iterator<Item = &oso_core::editor::SaveJob>
 pub fn oso_core::editor::Editor::reset_exit_guard(&mut self)
 pub fn oso_core::editor::Editor::save_failed(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::save_finished(&mut self, oso_core::buffer::BufferId, oso_core::buffer::ContentId, oso_core::buffer::FileStamp)

@@ -2,13 +2,17 @@
 //!
 //! Must not depend on: `control`, `process` or `text`.
 
+use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder};
 use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use super::{ancestor_is_safe, check_dir};
+
+/// The most symbolic links the way to a private directory may pass through, as in Linux.
+const MAX_LINKS: usize = 40;
 
 /// Sets `RLIMIT_CORE` to 0, both soft and hard, so that nothing in this process can
 /// raise it again.
@@ -57,7 +61,7 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
 
 /// Whether the directory at `path` would be refused, creating nothing.
 pub(super) fn check_private(path: &Path) -> io::Result<()> {
-    check_ancestors(path)?;
+    check_the_way(path)?;
     match fs::symlink_metadata(path) {
         Ok(meta) => check_itself(path, &meta),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -66,9 +70,10 @@ pub(super) fn check_private(path: &Path) -> io::Result<()> {
 }
 
 /// Makes sure of the directory at `path`, creating it if missing, and what leads to it with
-/// mode `0700` too, once nothing on the way lets another user replace it.
+/// mode `0700` too, once nothing on the way lets another user replace it. The way is walked
+/// again after that, as what did not exist before has been judged only now.
 pub(super) fn open_private(path: &Path) -> io::Result<()> {
-    check_ancestors(path)?;
+    check_the_way(path)?;
     if let Some(parent) = path.parent() {
         DirBuilder::new()
             .mode(0o700)
@@ -81,38 +86,79 @@ pub(super) fn open_private(path: &Path) -> io::Result<()> {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
         Err(e) => return Err(with_path(&e, "cannot create", path)),
     }
+    check_the_way(path)?;
     let meta = fs::symlink_metadata(path).map_err(|e| with_path(&e, "cannot inspect", path))?;
     check_itself(path, &meta)
 }
 
-/// Checks what exists on the way to `path`, as written and as it really is. As written, a
-/// link counts as where it leads and its own directory comes next. Then the real path, since
-/// a link can lead through directories that are not on the written path at all.
-fn check_ancestors(path: &Path) -> io::Result<()> {
-    let mut deepest = None;
-    for ancestor in path.ancestors().skip(1) {
-        match fs::metadata(ancestor) {
-            Ok(meta) => {
-                check_ancestor(ancestor, &meta)?;
-                deepest.get_or_insert(ancestor);
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(with_path(&e, "cannot inspect", ancestor)),
+/// One step of the walk: a part of a path, and whether it came from a link's target.
+struct Step {
+    part: OsString,
+    from_link: bool,
+}
+
+/// Walks the way to the directory at `path`, one name at a time and as the system would,
+/// through every link and every directory it passes, whether or not they are on the path as
+/// written. Each must keep other users out. A name still missing is what `open_private` will
+/// create, unless a link led to it, as a link to nothing can be made to lead anywhere.
+fn check_the_way(path: &Path) -> io::Result<()> {
+    let parent = path.parent().unwrap_or(Path::new(""));
+    let mut steps: VecDeque<Step> = steps_of(parent, false);
+    let mut current = PathBuf::new();
+    let mut links = 0;
+    while let Some(step) = steps.pop_front() {
+        if step.part == ".." {
+            current.pop();
+            continue;
         }
-    }
-    let Some(deepest) = deepest else {
-        return Ok(());
-    };
-    let real = fs::canonicalize(deepest).map_err(|e| with_path(&e, "cannot resolve", deepest))?;
-    for ancestor in real.ancestors() {
-        let meta = fs::metadata(ancestor).map_err(|e| with_path(&e, "cannot inspect", ancestor))?;
-        check_ancestor(ancestor, &meta)?;
+        let next = current.join(&step.part);
+        let meta = match fs::symlink_metadata(&next) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == io::ErrorKind::NotFound && !step.from_link => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                return Err(refused(&next, "is missing, where a link leads"));
+            }
+            Err(e) => return Err(with_path(&e, "cannot inspect", &next)),
+        };
+        check_ancestor(&next, &meta)?;
+        if meta.file_type().is_symlink() {
+            links += 1;
+            if links > MAX_LINKS {
+                return Err(refused(&next, "is one link too many"));
+            }
+            let target = fs::read_link(&next).map_err(|e| with_path(&e, "cannot read", &next))?;
+            for step in steps_of(&target, true).into_iter().rev() {
+                steps.push_front(step);
+            }
+        } else if meta.is_dir() {
+            current = next;
+        } else {
+            return Err(refused(&next, "is not a directory"));
+        }
     }
     Ok(())
 }
 
+/// The steps of `path`. A root stays a step, and joining it starts again from there.
+fn steps_of(path: &Path, from_link: bool) -> VecDeque<Step> {
+    path.components()
+        .filter(|component| *component != Component::CurDir)
+        .map(|component| Step {
+            part: component.as_os_str().to_owned(),
+            from_link,
+        })
+        .collect()
+}
+
+/// Checks a directory or a link on the way. A link's own mode means nothing, but its owner can
+/// change where it leads.
 fn check_ancestor(ancestor: &Path, meta: &fs::Metadata) -> io::Result<()> {
-    if ancestor_is_safe(meta.mode(), meta.uid(), euid()) {
+    let mode = if meta.file_type().is_symlink() {
+        0o700
+    } else {
+        meta.mode()
+    };
+    if ancestor_is_safe(mode, meta.uid(), euid()) {
         Ok(())
     } else {
         Err(refused(ancestor, "can be changed by other users"))
@@ -287,6 +333,102 @@ mod tests {
         fs::set_permissions(&shared, Permissions::from_mode(0o700)).unwrap();
         PrivateDir::open(link.join("oso").join("emergency")).unwrap();
         assert!(state.join("oso").join("emergency").is_dir());
+    }
+
+    #[test]
+    fn a_link_between_the_written_path_and_the_real_one_counts_too() {
+        use std::os::unix::fs::symlink;
+        let scratch = Scratch::new();
+        let shared = scratch.join("shared");
+        let real = scratch.join("real");
+        fs::create_dir(&shared).unwrap();
+        fs::create_dir(&real).unwrap();
+        fs::set_permissions(&real, Permissions::from_mode(0o700)).unwrap();
+        // Neither the written path nor the real one holds `shared`: only this link does.
+        symlink(&real, shared.join("middle")).unwrap();
+        let link = scratch.join("link");
+        symlink(shared.join("middle"), &link).unwrap();
+        fs::set_permissions(&shared, Permissions::from_mode(0o777)).unwrap();
+        let path = link.join("oso").join("emergency");
+        assert!(PrivateDir::check(&path).is_err());
+        assert!(PrivateDir::open(&path).is_err());
+        assert!(!real.join("oso").exists(), "nothing new appears");
+    }
+
+    #[test]
+    fn a_link_for_the_directory_is_refused_however_it_is_spelled() {
+        let scratch = Scratch::new();
+        let target = scratch.join("real");
+        PrivateDir::open(&target).unwrap();
+        std::os::unix::fs::symlink(&target, scratch.join("link")).unwrap();
+        for spelled in ["link/", "link/.", "link/./"] {
+            let path = scratch.0.join(spelled);
+            let err = PrivateDir::open(&path).unwrap_err();
+            assert!(err.to_string().contains("symlink"), "{spelled}: {err}");
+            assert!(PrivateDir::check(&path).is_err(), "{spelled}");
+        }
+    }
+
+    #[test]
+    fn a_parent_directory_in_a_links_target_leads_where_it_really_does() {
+        let scratch = Scratch::new();
+        let shared = scratch.join("shared");
+        let real = shared.join("real");
+        fs::create_dir(&shared).unwrap();
+        fs::create_dir(&real).unwrap();
+        fs::set_permissions(&real, Permissions::from_mode(0o700)).unwrap();
+        fs::create_dir(scratch.join("elsewhere")).unwrap();
+        std::os::unix::fs::symlink("../shared/real", scratch.join("elsewhere/link")).unwrap();
+        fs::set_permissions(&shared, Permissions::from_mode(0o777)).unwrap();
+        let err = PrivateDir::open(scratch.join("elsewhere/link/d")).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::PermissionDenied);
+        assert!(!real.join("d").exists(), "nothing new appears");
+    }
+
+    #[test]
+    fn a_relative_link_is_followed_from_where_it_is() {
+        let scratch = Scratch::new();
+        fs::create_dir(scratch.join("real")).unwrap();
+        fs::set_permissions(scratch.join("real"), Permissions::from_mode(0o700)).unwrap();
+        std::os::unix::fs::symlink("real", scratch.join("link")).unwrap();
+        PrivateDir::open(scratch.join("link").join("oso").join("d")).unwrap();
+        assert!(scratch.join("real").join("oso").join("d").is_dir());
+    }
+
+    #[test]
+    fn a_link_to_nothing_on_the_way_is_found_by_checking_too() {
+        let scratch = Scratch::new();
+        let link = scratch.join("oso");
+        std::os::unix::fs::symlink(scratch.join("gone"), &link).unwrap();
+        let path = link.join("emergency");
+        assert!(PrivateDir::check(&path).is_err());
+        assert!(PrivateDir::open(&path).is_err());
+        assert!(!scratch.join("gone").exists(), "nothing new appears");
+    }
+
+    #[test]
+    fn a_loop_of_links_on_the_way_is_refused() {
+        use std::os::unix::fs::symlink;
+        let scratch = Scratch::new();
+        symlink(scratch.join("b"), scratch.join("a")).unwrap();
+        symlink(scratch.join("a"), scratch.join("b")).unwrap();
+        assert!(PrivateDir::check(&scratch.join("a").join("d")).is_err());
+    }
+
+    #[test]
+    fn a_file_on_the_way_is_refused() {
+        let scratch = Scratch::new();
+        fs::write(scratch.join("file"), b"").unwrap();
+        assert!(PrivateDir::check(&scratch.join("file").join("d")).is_err());
+    }
+
+    #[test]
+    fn a_path_through_a_parent_directory_is_refused_and_creates_nothing() {
+        let scratch = Scratch::new();
+        let path = scratch.join("missing").join("..").join("d");
+        let err = PrivateDir::open(&path).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+        assert!(!scratch.join("missing").exists());
     }
 
     #[test]

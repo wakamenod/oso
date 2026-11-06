@@ -26,9 +26,15 @@ fn edit_then_panic(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     panic!("deliberate panic in a test command");
 }
 
-/// Starts a save, then panics.
+/// Starts a save, edits on, then panics.
 fn save_then_panic(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ctx.editor.start_save().unwrap();
+    let id = ctx.editor.window().buffer();
+    let edit = Replacement {
+        range: 0..0,
+        text: "after the save ",
+    };
+    ctx.editor.apply_edits(id, &[edit])?;
     panic!("deliberate panic in a test command");
 }
 
@@ -159,6 +165,31 @@ fn what_a_panicking_command_left_stays_held_back_through_a_report_until_a_comman
 fn a_save_a_panicking_command_started_counts_with_the_text_it_is_writing() {
     let emergency = Emergency::new(None);
     let mut dispatcher = dispatcher(&emergency);
+    let mut editor = editor_with_a_file("text");
+    let id = editor.window().buffer();
+
+    let (_, result) = dispatcher.run_command(&mut editor, "save-then-panic", None);
+    assert!(result.is_err());
+    assert_eq!(published_saving(&emergency, id), Some(true));
+    assert_eq!(
+        published_text(&emergency, id).as_deref(),
+        Some("text\n"),
+        "the text on its way to the disk, with the final newline the save added, and no more"
+    );
+    assert_eq!(
+        editor.current().1.text().to_string(),
+        "after the save text\n"
+    );
+
+    // The save fails: the facts stay true, and the text stays.
+    editor.save_failed(id);
+    dispatcher.publish_for_emergency(&editor);
+    assert_eq!(published_saving(&emergency, id), Some(false));
+    assert_eq!(published_text(&emergency, id).as_deref(), Some("text\n"));
+}
+
+/// A file buffer with `text` typed into it, judged ordinary, in an editor showing it.
+fn editor_with_a_file(text: &str) -> Editor {
     let mut buffer = Buffer::visiting(PathBuf::from("/p/a.txt"));
     buffer.finish_empty();
     buffer.judge_secret(Some(&[]));
@@ -168,26 +199,90 @@ fn a_save_a_panicking_command_started_counts_with_the_text_it_is_writing() {
     });
     let mut editor = Editor::with_buffer(buffer);
     let id = editor.window().buffer();
-    let edit = Replacement {
-        range: 0..0,
-        text: "text",
-    };
+    let edit = Replacement { range: 0..0, text };
     editor.apply_edits(id, &[edit]).unwrap();
+    editor
+}
 
-    let (_, result) = dispatcher.run_command(&mut editor, "save-then-panic", None);
-    assert!(result.is_err());
+#[test]
+fn a_save_already_running_lets_no_text_through_a_panicking_command() {
+    let emergency = Emergency::new(None);
+    let mut dispatcher = dispatcher(&emergency);
+    let mut editor = editor_with_a_file("good\n");
+    let id = editor.window().buffer();
+    let (_, result) = dispatcher.run_command(&mut editor, "save-buffer", None);
+    assert_eq!(result, Ok(()));
+    // As the app takes the job, right after that command.
+    drop(editor.take_save_jobs());
+    assert_eq!(published_saving(&emergency, id), Some(true));
+
+    send(&mut dispatcher, &mut editor, "C-c p");
+    assert_eq!(editor.current().1.text().to_string(), "half done good\n");
     assert_eq!(published_saving(&emergency, id), Some(true));
     assert_eq!(
         published_text(&emergency, id).as_deref(),
-        Some("text\n"),
-        "the text on its way to the disk, with the final newline the save added"
+        Some("good\n"),
+        "the save is writing what it was, and not what the command left"
+    );
+}
+
+#[test]
+fn a_save_an_earlier_key_in_the_batch_started_takes_nothing_back() {
+    let emergency = Emergency::new(None);
+    let mut dispatcher = dispatcher(&emergency);
+    let mut editor = editor_with_a_file("good\n");
+    let id = editor.window().buffer();
+    let (_, result) = dispatcher.run_command(&mut editor, "save-buffer", None);
+    assert_eq!(result, Ok(()));
+    // The queue is not taken between keys of one `send-keys`.
+    let edit = Replacement {
+        range: 0..0,
+        text: "better ",
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
+    send(&mut dispatcher, &mut editor, "C-f");
+    assert_eq!(
+        published_text(&emergency, id).as_deref(),
+        Some("better good\n")
     );
 
-    // The save fails: the facts stay true, and the text stays.
-    editor.save_failed(id);
+    send(&mut dispatcher, &mut editor, "C-c p");
+    assert_eq!(
+        published_text(&emergency, id).as_deref(),
+        Some("better good\n"),
+        "neither what the panic left nor the older text of the save"
+    );
+}
+
+#[test]
+fn a_secret_buffers_text_stays_out_even_if_a_panicking_command_started_its_save() {
+    let emergency = Emergency::new(None);
+    let mut dispatcher = dispatcher(&emergency);
+    let mut editor = editor_with_a_file("secret");
+    let id = editor.window().buffer();
+    let secret = [PathBuf::from("/h/.ssh/id_rsa")];
+    editor.buffer_mut(id).unwrap().judge_secret(Some(&secret));
+    let (_, result) = dispatcher.run_command(&mut editor, "save-then-panic", None);
+    assert!(result.is_err());
+    assert_eq!(published_saving(&emergency, id), Some(true), "known");
+    assert_eq!(published_text(&emergency, id), None);
+}
+
+#[test]
+fn a_verdict_that_forbids_a_copy_drops_the_text_even_while_held_back() {
+    let emergency = Emergency::new(None);
+    let mut dispatcher = dispatcher(&emergency);
+    let mut editor = editor_with_a_file("text");
+    let id = editor.window().buffer();
+    send(&mut dispatcher, &mut editor, "C-f");
+    assert_eq!(published_text(&emergency, id).as_deref(), Some("text"));
+
+    send(&mut dispatcher, &mut editor, "C-c p");
+    let secret = [PathBuf::from("/h/.ssh/id_rsa")];
+    editor.buffer_mut(id).unwrap().judge_secret(Some(&secret));
     dispatcher.publish_for_emergency(&editor);
-    assert_eq!(published_saving(&emergency, id), Some(false));
-    assert_eq!(published_text(&emergency, id).as_deref(), Some("text\n"));
+    assert_eq!(published_text(&emergency, id), None);
+    assert_eq!(published_saving(&emergency, id), Some(false), "still known");
 }
 
 // That the mark is there while a command runs shows in the end-to-end flow: a command's

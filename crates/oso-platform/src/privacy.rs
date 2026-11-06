@@ -8,7 +8,7 @@
 #![cfg_attr(not(unix), allow(dead_code, reason = "used only by the Unix backend"))]
 
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 #[cfg(not(unix))]
 mod other;
@@ -59,8 +59,7 @@ impl PrivateDir {
     ///
     /// If it cannot be created, or cannot be made safe. The message names the path and why.
     pub fn open(path: impl Into<PathBuf>) -> io::Result<Self> {
-        let path = path.into();
-        must_be_absolute(&path)?;
+        let path = plain(&path.into())?;
         backend::open_private(&path)?;
         Ok(Self { path })
     }
@@ -72,8 +71,7 @@ impl PrivateDir {
     ///
     /// Why it would be refused. The message names the path and why.
     pub fn check(path: &Path) -> io::Result<()> {
-        must_be_absolute(path)?;
-        backend::check_private(path)
+        backend::check_private(&plain(path)?)
     }
 
     /// The directory's path.
@@ -82,14 +80,17 @@ impl PrivateDir {
     }
 }
 
-/// A relative path would be judged by whatever the current directory is.
-fn must_be_absolute(path: &Path) -> io::Result<()> {
-    if path.is_absolute() {
-        Ok(())
+/// `path`, spelled so that its last name is the directory itself: a final `/` or `/.` would
+/// make the system follow a link there. A relative path would be judged by whatever the current
+/// directory is, and `..` makes what is written differ from what would be created.
+fn plain(path: &Path) -> io::Result<PathBuf> {
+    let parent_dir = path.components().any(|c| c == Component::ParentDir);
+    if path.is_absolute() && !parent_dir {
+        Ok(path.components().collect())
     } else {
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("{} is not an absolute path", path.display()),
+            format!("{} is not an absolute path without ..", path.display()),
         ))
     }
 }

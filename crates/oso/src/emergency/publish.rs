@@ -12,7 +12,8 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, MutexGuard, PoisonError};
 
 use oso_core::buffer::{Buffer, BufferId, ContentId, Verdict};
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, SaveJob};
+use oso_core::rope::Rope;
 
 use super::{Entry, Identity, Shared, State};
 
@@ -40,16 +41,22 @@ impl Seen {
 }
 
 /// What is published of a buffer while a panicking command's state is held back, given what
-/// `old` already is. The rule: until a command ends normally, the only text that enters the
-/// shared state is what a running save is writing, as that text was asked to reach the disk.
-/// Any other buffer keeps the text it had, or none. The facts stay true: whether a save
-/// runs, and a buffer that now holds what its file does is no longer at risk.
-fn held_back(mut now: Seen, old: Option<Seen>) -> Seen {
-    if now.at_risk && !now.saving {
+/// `old` already is and the save that command started of it, if any. The rule: until a command
+/// ends normally, the only text that enters the shared state is what such a save is writing,
+/// as that text was asked to reach the disk. Any other buffer keeps the text it had, or none. The
+/// facts stay true: whether a save runs, whether the text may be copied at all, and a buffer that
+/// now holds what its file does is no longer at risk.
+fn held_back(mut now: Seen, old: Option<Seen>, started: Option<&SaveJob>) -> Seen {
+    if let Some(job) = started {
+        now.content = job.content;
+        now.at_risk = true;
+    } else if now.at_risk {
         match old.filter(|old| old.at_risk) {
             Some(old) => {
                 now.content = old.content;
-                now.verdict = old.verdict;
+                if now.verdict.may_be_copied() {
+                    now.verdict = old.verdict;
+                }
             }
             None => now.at_risk = false,
         }
@@ -99,7 +106,8 @@ impl Publisher {
     }
 
     /// A command panicked. What it left is held back until a command ends normally, which is
-    /// when the person has seen that text and gone on from it. A save it started still counts.
+    /// when the person has seen that text and gone on from it, but for the text of a save it
+    /// started, whose job is still queued now.
     pub fn command_panicked(&self, editor: &Editor) {
         self.held.set(true);
         self.publish(editor);
@@ -118,8 +126,12 @@ impl Publisher {
             }
             let old = seen.get(index).filter(|old| old.id == id).copied();
             let mut now = Seen::of(id, buffer);
+            // Started by the command that panicked: one already seen is an earlier command's.
+            let started = editor
+                .queued_saves()
+                .find(|job| held && job.buffer == id && !old.is_some_and(|old| old.saving));
             if held {
-                now = held_back(now, old);
+                now = held_back(now, old, started);
             }
             if old != Some(now) {
                 if old.is_some() {
@@ -127,7 +139,8 @@ impl Publisher {
                 } else {
                     seen.insert(index, now);
                 }
-                self.update(&now, buffer, old);
+                let text = started.map_or_else(|| buffer.text(), |job| &job.text);
+                self.update(&now, buffer, text, old);
             }
             index += 1;
         }
@@ -145,9 +158,9 @@ impl Publisher {
         }
     }
 
-    /// Brings a buffer's entry to `now`, where `old` is what was last seen of it. Text goes in
+    /// Brings a buffer's entry to `now`, where `old` is what was last seen of it. `text` goes in
     /// only if it is another text from the entry's, which is what lets a held-back one stay.
-    fn update(&self, now: &Seen, buffer: &Buffer, old: Option<Seen>) {
+    fn update(&self, now: &Seen, buffer: &Buffer, text: &Rope, old: Option<Seen>) {
         let old = old.filter(|old| old.at_risk);
         if !now.at_risk {
             if old.is_some() {
@@ -158,7 +171,7 @@ impl Publisher {
         let file = buffer.baseline().and_then(|baseline| baseline.file);
         let same_text =
             old.is_some_and(|old| old.content == now.content && old.verdict == now.verdict);
-        let mut text = (!same_text && now.verdict.may_be_copied()).then(|| buffer.text().clone());
+        let mut text = (!same_text && now.verdict.may_be_copied()).then(|| text.clone());
         if old.is_some() {
             let mut state = self.lock();
             if let Ok(index) = index_of(&state, now.id) {

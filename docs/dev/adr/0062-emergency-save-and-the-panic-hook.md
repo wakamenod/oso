@@ -63,8 +63,9 @@ What remains is how it can work at all:
   search.
 - **A panicking command's state is held back until a command ends normally.** That holds for every way of publishing: a save's report and a load take in none of it,
   and only the next command that ends does, as the person has then seen that text and gone on from it. **The one exception is a save that command started:** that text was
-  asked to reach the disk and is on its way, so it is published, and the buffer counts as being saved. The facts stay true throughout: whether a save runs, and a buffer
-  that now holds what its file does is no longer at risk. A buffer with nothing published yet gets nothing.
+  asked to reach the disk and is on its way, so the job's own text is published, and the buffer counts as being saved. A save already running lets nothing through. The facts
+  stay true throughout: whether a save runs, whether the text may be copied at all, and a buffer that now holds what its file does is no longer at risk. A buffer with nothing
+  published yet gets nothing. `Editor::queued_saves` is new public API for this.
 - **A secret buffer's entry holds no text.** Only the fact of it is shared, so that the hook can say one was left out.
 - Neither the hook nor the exit reads the editor. An exit writes what was last published, for the same reason.
 
@@ -104,11 +105,12 @@ What remains is how it can work at all:
 - `oso_platform::privacy::state_home` says where per-user state goes, and `PrivateDir` makes the directory: mode `0700` for it and what it creates on the way,
   refusing a symlink, another owner or a looser mode, or anything on the way another user can change, which is checked all the way to the root. A home directory
   that its group can write therefore gets no copies, and the report says why. A looser mode is refused and not repaired, as something may already have read what is
-  there. The walk covers the path as written and, as a link can lead through directories not on it, the real one. It runs before anything is created, so a refused
-  place gets nothing new. `control` now uses the same checks of one directory, and keeps its own, narrower, walk: it looks at the socket directory's parent only, and that
-  is a dev tool's. Windows has no modes, and relies on the per-user place, whose access list the directory inherits.
+  there. The walk goes one name at a time as the system would, through every link and directory it passes, whether on the written path or not, and each link's owner counts too.
+  A link to nothing on the way is refused, and so is a path with `..`. It runs before anything is created, so a refused place gets nothing new, and again after, for what it judged only then. `control`
+  uses the same checks of one directory, and has its own walk, as a dev tool's. Windows has no modes, and relies on the per-user place, whose access list the directory inherits.
 - If it cannot be made safe, nothing is written, and the report says so and names it.
-- **This is also found out at startup,** by `PrivateDir::check` on a thread of its own, which creates nothing, and said with `Editor::message`, as finding out at the crash would lose all the text. A
+- **This is also found out at startup,** by `PrivateDir::check` on a thread of its own, which creates nothing, and said with `Editor::message` and in the log at the `error` level, which reaches
+  a terminal with no `RUST_LOG`, as nothing shows messages until M2-7, and finding out at the crash would lose all the text. A
   group-writable directory on the way is refused even if that group holds only this user, as with user-private groups and `umask 002`. Knowing that it does means reading the group and user
   databases, through more `unsafe` and whatever name service they use, and being wrong costs the copies' safety. So the person is told at startup, and can `chmod g-w` it.
 - In dev builds `--emergency-dir DIR`, as the first argument, puts it elsewhere. The end-to-end harness always passes it, so that a
