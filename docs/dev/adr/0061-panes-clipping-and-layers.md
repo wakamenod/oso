@@ -53,11 +53,11 @@ pub enum PaneContent<'a> {
   escape in the modeline too, and never reaches the shaper. A row of its own has no tab
   stops and no next line, so tabs and line breaks are escapes as well, and neither ends
   the row early. The face of an escape's label wins over the span's.
-- **Each span, and each face within it, is shaped on its own.** A shaper joins what it
-  is given, so one string would let a mark, a ligature or a join form across a span, and
-  text from one source could change how another reads. The row's cache also compares
-  where it was cut, since the same text cut otherwise shapes otherwise. A buffer's row
-  stays one string.
+- **Each span, and each face within it, is shaped on its own,** on a buffer's rows too.
+  A shaper joins what it is given, so one string would let text change how a label or
+  another span reads. Each span also has its own budget of characters. The row's cache
+  compares where it was cut, since the same text cut otherwise shapes otherwise. A row of
+  one face, which is nearly every row, stays one string.
 - `Lines` carry no revision. Each row is read and compared with what was shaped, the
   same comparison a buffer's row gets after a change. It stops at the pane's last
   column, and each span is first cut to 64 bytes per column, as much as a display
@@ -200,6 +200,9 @@ These ADRs stay as they are; this one changes the following:
   of a 100 MB file looks 1 to 3 ms later, not yet explained or told apart from noise.
 - `Lines` cost what reading their rows costs, each frame. M2-7's modeline is short, and
   `*Messages*` is a buffer. A large float of `Lines` would need a cheap check first.
+- A row with many changes of face costs more to shape, on a change only: a cold screen of
+  60 x 128 cells alternating a control character and a letter takes 5.4 ms, against 0.6 ms
+  for ASCII, on a fast machine with the real shaper. Reading a screen again is unchanged.
 - A `Scene` holds one `Rows` per pane id, and each is empty until the pane draws text.
 - The `oso-render` public API gains `Pane`, `PaneContent`, `PaneId`, `Layer`, `Span` and
   `Face`, and `TextView` loses `area`. `oso-core` gains `PixelGrid::cell`,

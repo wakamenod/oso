@@ -17,9 +17,10 @@
 //!   and invisible characters get a box, as do characters past a display
 //!   cluster's limits (ADR 0054).
 //! - Text that is no buffer's comes as spans, through the same clusters. Its
-//!   row is compared with what was shaped each frame. Each span and each face in
-//!   it is shaped on its own, so that nothing forms across them, and text from
-//!   one source cannot change another's (ADR 0061).
+//!   row is compared with what was shaped each frame (ADR 0061).
+//! - A row is shaped in pieces where the face changes, and at each span, so that
+//!   nothing forms across them: text cannot change how a label or another span
+//!   reads. A row of one piece is shaped whole.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -42,8 +43,8 @@ use crate::pane::{Face, Span};
 const CHARS_PER_COLUMN: usize = 4;
 
 /// The part of `text` that can show in `columns` columns: a display cluster takes
-/// at least one cell. A span is cut to this before it is read, since such text is
-/// read every frame and one long grapheme cluster would be scanned to its end.
+/// at least one cell. A span is cut to this before it is read, since nothing past
+/// it can show.
 fn visible_part(text: &str, columns: usize) -> &str {
     let bytes = columns.saturating_mul(MAX_CLUSTER_BYTES);
     &text[..text.floor_char_boundary(bytes)]
@@ -101,8 +102,8 @@ pub(crate) struct ShapedRow {
     /// stays valid wherever its text moves in the buffer.
     text: String,
     graphemes: Vec<Grapheme>,
-    /// Where the text was cut into pieces shaped on their own. Empty for a
-    /// buffer's row, which is shaped whole.
+    /// Where the text was cut into pieces shaped on their own. Empty for a row
+    /// of one piece, which is shaped whole.
     breaks: Vec<u32>,
     /// Sorted by column.
     pub(crate) glyphs: Vec<PlacedGlyph>,
@@ -209,6 +210,9 @@ impl Rows {
         columns: Range<usize>,
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
+        if self.breaks.len() == 1 {
+            self.breaks.clear();
+        }
         let revision = self.revision;
         let shaped = self.rows.entry(row).or_default();
         if shaped.text != self.text
@@ -245,24 +249,27 @@ impl Rows {
         self.clear_scratch();
         let budget = columns.len().saturating_mul(CHARS_PER_COLUMN);
         let mut spent = 0;
+        let mut face = None;
         for cluster in display.clusters(DisplayPoint::new(row, columns.start)) {
             if cluster.column >= columns.end {
                 break;
             }
+            let first = self.graphemes.len();
             self.push_cluster(&cluster, Face::Text, budget, &mut spent);
+            self.break_at_faces(first, &mut face);
         }
     }
 
     /// Reads the clusters of `spans` that start before column `end`, and no
     /// further, into the scratch space. Each span is segmented on its own, and
-    /// its columns follow the last one's. A piece to shape starts at each span and
-    /// wherever the face changes.
+    /// its columns follow the last one's, and has its own budget of characters.
+    /// A piece to shape starts at each span and wherever the face changes.
     fn read_line(&mut self, spans: &[Span<'_>], end: usize) {
         self.clear_scratch();
         let budget = end.saturating_mul(CHARS_PER_COLUMN);
-        let mut spent = 0;
         let mut column = 0;
         for span in spans {
+            let mut spent = 0;
             let mut face = None;
             for cluster in text_clusters(visible_part(span.text, end), column) {
                 if cluster.column >= end {
@@ -271,12 +278,18 @@ impl Rows {
                 column = cluster.column.saturating_add(cluster.cells);
                 let first = self.graphemes.len();
                 self.push_cluster(&cluster, span.face, budget, &mut spent);
-                for grapheme in &self.graphemes[first..] {
-                    if face != Some(grapheme.face) {
-                        face = Some(grapheme.face);
-                        self.breaks.push(grapheme.byte);
-                    }
-                }
+                self.break_at_faces(first, &mut face);
+            }
+        }
+    }
+
+    /// Starts a piece to shape wherever the graphemes from `first` on change from
+    /// `face`, the last one's.
+    fn break_at_faces(&mut self, first: usize, face: &mut Option<Face>) {
+        for grapheme in &self.graphemes[first..] {
+            if *face != Some(grapheme.face) {
+                *face = Some(grapheme.face);
+                self.breaks.push(grapheme.byte);
             }
         }
     }
@@ -380,7 +393,7 @@ pub(crate) mod tests {
         let mut rows = Rows::default();
         let mut system = Recorder::default();
         let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
-        assert_eq!(system.shaped, ["aU+202Eb^M^G\\xFF c"]);
+        assert_eq!(system.shaped, ["a", "U+202E", "b", "^M^G\\xFF", " c"]);
         assert_eq!(shaped.boxes, [(1, 6)]);
         let faces: Vec<_> = shaped.glyphs.iter().map(|g| (g.column, g.face)).collect();
         assert_eq!(faces[0], (0, Face::Text));
@@ -437,7 +450,8 @@ pub(crate) mod tests {
         assert_eq!(row.boxes.first(), Some(&(1, 6)));
         assert_eq!(row.boxes.len(), 42);
         let stack = format!("e{}", "\u{301}".repeat(8));
-        assert_eq!(system.shaped[0], stack + &"U+0301".repeat(42));
+        assert_eq!(system.shaped[0], stack);
+        assert_eq!(system.shaped[1], "U+0301".repeat(42));
     }
 
     /// `cluster` repeated, shaped in two windows of a row: all of its text
@@ -757,8 +771,8 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         let id = buffer_id();
         for (revision, (buffer, label)) in [
-            (&one, "a\\xFE"),
-            (&other, "a\\xFF"),
+            (&one, "\\xFE"),
+            (&other, "\\xFF"),
             (&replacement, "a\u{fffd}"),
         ]
         .into_iter()
@@ -818,7 +832,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn nothing_in_a_span_hides_the_spans_after_it() {
+    fn line_breaks_and_tabs_in_a_span_do_not_end_the_row() {
         let mut rows = Rows::default();
         let mut system = Recorder::default();
         let spans = [span("a\nb\tc\r\n", Face::Cursor), span("warn", Face::Text)];
@@ -917,10 +931,32 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_label_is_shaped_apart_from_a_mark_after_it_in_a_span() {
-        let glyphs = joined(&[span("\r\u{301}", Face::Text)]);
-        assert_eq!(glyphs[..2], [('^', 0, 1), ('M', 1, 1)]);
-        assert_eq!(glyphs[2], ('\u{301}', 2, 1));
+    fn a_label_is_shaped_apart_from_a_mark_after_it() {
+        let expected = [('^', 0, 1), ('M', 1, 1), ('\u{301}', 2, 1)];
+        assert_eq!(joined(&[span("\r\u{301}", Face::Text)])[..3], expected);
+        let buffer = Buffer::from_text("t", "\r\u{301}");
+        let row = Rows::default()
+            .row(&buffer.display(), 0, 0..128, &mut Joiner)
+            .glyphs
+            .clone();
+        let shown: Vec<_> = row
+            .iter()
+            .map(|g| {
+                let c = char::from_u32(u32::from(g.key.glyph.0)).unwrap();
+                (c, g.column, g.cells)
+            })
+            .collect();
+        assert_eq!(shown[..3], expected);
+    }
+
+    #[test]
+    fn a_later_span_keeps_its_budget_of_characters() {
+        let long = ("\u{600}".repeat(15) + "a").repeat(25);
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let spans = [span(&long, Face::Text), span("e\u{301}", Face::Cursor)];
+        rows.line(0, &spans, 100, &mut system);
+        assert_eq!(system.shaped.last().unwrap(), "e\u{301}");
     }
 
     #[test]
@@ -936,11 +972,28 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_buffers_row_is_still_shaped_whole() {
-        let buffer = Buffer::from_text("t", "->\r\u{301}");
+    fn a_row_of_one_face_is_shaped_whole() {
+        let buffer = Buffer::from_text("t", "one row\t->");
         let mut rows = Rows::default();
-        rows.row(&buffer.display(), 0, 0..128, &mut Recorder::default());
+        let mut system = Recorder::default();
+        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        assert_eq!(system.shaped.len(), 1);
         assert!(rows.breaks.is_empty());
+        let mut system = Recorder::default();
+        rows.line(0, &[span("one row", Face::Text)], 128, &mut system);
+        assert_eq!(system.shaped, ["one row"]);
+        assert!(rows.breaks.is_empty());
+    }
+
+    #[test]
+    fn a_buffers_row_is_shaped_in_pieces_where_the_face_changes() {
+        let buffer = Buffer::from_text("t", "a\rb");
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let columns: Vec<_> = shaped.glyphs.iter().map(|g| g.column).collect();
+        assert_eq!(columns, [0, 1, 2, 3]);
+        assert_eq!(system.shaped, ["a", "^M", "b"]);
     }
 
     #[test]
@@ -1061,6 +1114,27 @@ pub(crate) mod tests {
             }
         }
 
+        /// Whatever the text and however it is split, a row read again shows what a
+        /// new cache shapes.
+        #[test]
+        fn prop_a_cached_line_shows_the_same_as_a_new_one(
+            frames in proptest::collection::vec(
+                (proptest::collection::vec(proptest::sample::select(LINE_PIECES), 0..12), 0usize..12, 1usize..32),
+                1..8,
+            ),
+        ) {
+            let mut cached = Rows::default();
+            for (pieces, split, end) in frames {
+                let split = split.min(pieces.len());
+                let (first, second) = (pieces[..split].concat(), pieces[split..].concat());
+                let spans = [span(&first, Face::Cursor), span(&second, Face::Text)];
+                let old = cached.line(0, &spans, end, &mut Joiner).glyphs.clone();
+                let mut fresh = Rows::default();
+                let new = fresh.line(0, &spans, end, &mut Joiner).glyphs.clone();
+                proptest::prop_assert_eq!(old, new);
+            }
+        }
+
         /// Cutting text to what its columns can show lays out those columns the
         /// same, for clusters at their limits too.
         #[test]
@@ -1082,6 +1156,7 @@ pub(crate) mod tests {
         fn prop_a_line_never_gives_the_shaper_controls(
             pieces in proptest::collection::vec(0usize..12, 0..60),
             splits in proptest::collection::vec(0usize..60, 0..6),
+            end in 1usize..256,
         ) {
             const PIECES: [&str; 12] = ["a", "あ", "\r", "\n", "\r\n", "\t", "\u{202e}", "\u{2066}",
                                         "\u{200b}", "\u{7}", "\u{85}", "e\u{301}"];
@@ -1096,7 +1171,7 @@ pub(crate) mod tests {
             let spans: Vec<_> = spans.iter().map(|text| span(text, Face::Text)).collect();
             let mut rows = Rows::default();
             let mut system = Recorder::default();
-            let shaped = rows.line(0, &spans, 256, &mut system);
+            let shaped = rows.line(0, &spans, end, &mut system);
             let mut last = 0;
             for g in &shaped.glyphs {
                 proptest::prop_assert!(g.column >= last, "columns are in order");
@@ -1169,6 +1244,10 @@ pub(crate) mod tests {
         }
         Ok(())
     }
+
+    const LINE_PIECES: &[&str] = &[
+        "a", "->", "-", ">", "あ", "\r\n", "\t", "\u{202e}", "\u{301}", "e\u{301}",
+    ];
 
     /// Text with line breaks, tabs, wide and combining characters, and
     /// characters that are drawn as escapes.
