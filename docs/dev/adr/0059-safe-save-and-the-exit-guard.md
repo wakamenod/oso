@@ -1,6 +1,6 @@
 # 0059. Safe save and the exit guard
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-05
 
 ## Context
@@ -146,6 +146,8 @@ Then:
 - **A job is not an `Effects` request.** `Effects` ([ADR 0034](0034-command-registry-and-keymaps.md)) is `Copy`, and compares in
   every command test, while a job holds a rope and a path. So requests that carry data wait on `Editor`, and `Effects` stays for
   plain flags.
+- **What an exit under way does is decided in `saver::Leaving`,** with no window, and `app/saves.rs` only acts on it. So every case
+  has a test through the `Dispatcher`.
 - `saver` is a new top-level module of the tip crate, in a layer of its own just above `loader` in `guardrails/layers.txt`,
   since the two must agree on how a path resolves and on what is recorded of a file. `app/saves.rs`
   sits beside `app/loads.rs`, and `UserEvent::Save` carries the report, which holds no text.
@@ -179,6 +181,11 @@ Then:
 - **A failed save takes the exit back.** The person left believing the text would reach the disk, and with a conflict or a
   full disk it did not. So the window returns with the message, the buffer stays modified, and the guard starts over,
   at once, whatever other saves still run.
+- **So does a buffer that comes to differ from the disk while the exit waits.** After an undo during a save, a buffer looks
+  unmodified, and the refusal speaks only of the save. Once it lands, the disk holds the text that was undone, and what the person
+  sees exists only in this process. They never agreed to lose that. So the exit remembers which buffers were modified when it was
+  agreed, and any other that is modified when a save ends takes it back. A buffer that was already modified, and was counted in the
+  refusal, does not.
 - **After 10 minutes a person gets the window back too,** as nobody can tell where the text is, with a message that says so.
   The save may still be running, so saving that buffer stays refused until it ends. Exiting again is guarded as usual,
   and then does not wait for that save.

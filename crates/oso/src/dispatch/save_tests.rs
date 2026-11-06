@@ -417,3 +417,5 @@ fn run_command_reports_a_refused_exit() {
     assert!(effects.exit);
     assert_eq!(result, Ok(()));
 }
+
+mod leaving;

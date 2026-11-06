@@ -4,7 +4,7 @@
 //! Must not depend on: key presses or how a frame is drawn. Files are written on the
 //! saver's threads, never here.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use oso_core::editor::ExitAction;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
@@ -13,21 +13,6 @@ use winit::window::UserAttentionType;
 
 use super::{App, UserEvent};
 use crate::saver::{self, AfterSave, SaveReport};
-
-/// How long a save still running may hold the process once the window is hidden. It
-/// is long enough for many gigabytes on a slow disk, and abandoning a save that is
-/// getting somewhere is the worse mistake: a process with no window costs little. A
-/// save that hangs past it (a stuck network file system) cannot keep it for good.
-const FINISH_TIMEOUT: Duration = Duration::from_secs(600);
-
-/// An exit agreed to while a save runs.
-#[derive(Clone, Copy)]
-pub(super) struct Leaving {
-    /// When to stop waiting for the save.
-    deadline: Instant,
-    /// Go even if the save fails, as the socket's `exit` asks.
-    anyway: bool,
-}
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
@@ -47,24 +32,19 @@ impl App {
         }
     }
 
-    /// A saving thread has ended: takes in how it went. If this instance is leaving, that
-    /// may mean going, or coming back.
+    /// A saving thread has ended: takes in how it went. If an exit is under way, that may
+    /// mean going, or coming back.
     pub(super) fn save_ended(&mut self, event_loop: &ActiveEventLoop, report: SaveReport) {
         let failed = report.failed();
         saver::apply(&mut self.editor, report);
-        self.stuck_saves.retain(|id| {
-            self.editor
-                .buffer(*id)
-                .is_some_and(|buffer| buffer.is_saving())
-        });
-        let still_saving = saver::any_worth_waiting_for(&self.editor, &self.stuck_saves);
-        let Some(leaving) = self.leaving else {
-            return;
-        };
-        match saver::after_save_while_leaving(failed, leaving.anyway, still_saving) {
-            AfterSave::KeepWaiting => {}
-            AfterSave::Exit => event_loop.exit(),
-            AfterSave::StayOpen => self.stay_open(event_loop),
+        match self.leaving.save_ended(&self.editor, failed) {
+            None | Some(AfterSave::KeepWaiting) => {}
+            Some(AfterSave::Exit) => event_loop.exit(),
+            Some(AfterSave::StayOpen) => {
+                self.editor
+                    .message("The exit was taken back, as a buffer differs from what is on disk");
+                self.stay_open(event_loop);
+            }
         }
     }
 
@@ -81,15 +61,12 @@ impl App {
     /// would leave its temporary file behind. The event loop keeps running until then, so
     /// that the window really goes and the process keeps answering the window system.
     ///
-    /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold. A
-    /// person's exit comes back if the save fails, as the text is then only here.
+    /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold.
     pub(super) fn leave(&mut self, event_loop: &ActiveEventLoop, anyway: bool) {
-        if !saver::any_worth_waiting_for(&self.editor, &self.stuck_saves) {
+        let Some(deadline) = self.leaving.begin(&self.editor, anyway, Instant::now()) else {
             event_loop.exit();
             return;
-        }
-        let deadline = Instant::now() + FINISH_TIMEOUT;
-        self.leaving = Some(Leaving { deadline, anyway });
+        };
         event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         if let Some(view) = &self.view {
             view.window.set_visible(false);
@@ -99,33 +76,20 @@ impl App {
     /// Whether this instance has agreed to go. Nothing that could still be lost with the
     /// process may be accepted from then on.
     pub(super) fn is_leaving(&self, event_loop: &ActiveEventLoop) -> bool {
-        event_loop.exiting() || self.leaving.is_some()
+        event_loop.exiting() || self.leaving.is_under_way()
     }
 
-    /// Acts on a save that has held the leaving for too long. Nobody can tell whether the
-    /// text reached the disk, so a person gets the window and the buffer back, and exiting
-    /// again then goes without waiting. The socket's `exit` goes now.
+    /// Acts on a save that has held an exit for too long.
     pub(super) fn check_leaving(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(leaving) = self.leaving else {
-            return;
-        };
-        if Instant::now() < leaving.deadline {
-            return;
-        }
-        match saver::at_leaving_deadline(leaving.anyway) {
-            AfterSave::Exit => {
+        match self.leaving.check_deadline(&self.editor, Instant::now()) {
+            None | Some(AfterSave::KeepWaiting) => {}
+            Some(AfterSave::Exit) => {
                 log::error!(
                     "leaving with a save that has not finished. Its file may or may not be replaced, and a .oso-save-*.tmp may remain"
                 );
                 event_loop.exit();
             }
-            _ => {
-                self.stuck_saves = self
-                    .editor
-                    .buffers()
-                    .filter(|(_, buffer)| buffer.is_saving())
-                    .map(|(id, _)| id)
-                    .collect();
+            Some(AfterSave::StayOpen) => {
                 self.editor.reset_exit_guard();
                 self.editor.message(
                     "A save has not finished after 10 minutes. The buffer may not be on disk. Exiting again will not wait for it",
@@ -137,7 +101,6 @@ impl App {
 
     /// Takes a leave back: the window returns, with the message that says why.
     fn stay_open(&mut self, event_loop: &ActiveEventLoop) {
-        self.leaving = None;
         event_loop.set_control_flow(ControlFlow::Wait);
         // The key that confirmed the exit may have held Control. Its release, if it reached
         // the hidden window at all, may be gone, and the system says again when one is held.

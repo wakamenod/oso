@@ -8,25 +8,6 @@ use super::*;
 const SECRET: &str = "S3CRET-TEXT\n";
 
 #[test]
-fn a_person_leaving_gets_the_text_back_if_the_save_fails() {
-    use AfterSave::{Exit, KeepWaiting, StayOpen};
-    // Failed, the socket's `exit`, another save running.
-    assert_eq!(after_save_while_leaving(false, false, false), Exit);
-    assert_eq!(after_save_while_leaving(false, false, true), KeepWaiting);
-    assert_eq!(after_save_while_leaving(true, false, false), StayOpen);
-    assert_eq!(
-        after_save_while_leaving(true, false, true),
-        StayOpen,
-        "at once"
-    );
-    assert_eq!(after_save_while_leaving(true, true, false), Exit);
-    assert_eq!(after_save_while_leaving(true, true, true), KeepWaiting);
-    assert_eq!(after_save_while_leaving(false, true, false), Exit);
-    assert_eq!(at_leaving_deadline(false), StayOpen);
-    assert_eq!(at_leaving_deadline(true), Exit);
-}
-
-#[test]
 fn a_report_says_whether_the_text_is_on_disk() {
     let scratch = Scratch::new("failed");
     let path = scratch.file("notes.txt", b"old\n");
@@ -62,32 +43,6 @@ fn a_sync_a_file_system_cannot_do_is_said_and_others_fail_the_save() {
             "ENOSPC"
         );
     }
-}
-
-#[test]
-fn a_save_that_outlived_a_leave_is_not_waited_for_again_but_others_are() {
-    let scratch = Scratch::new("stuck");
-    let path = scratch.file("notes.txt", b"old\n");
-    let mut editor = visit(&path);
-    let first = editor.window().buffer();
-    assert!(!any_worth_waiting_for(&editor, &[]), "nothing runs");
-    let job = job_of(&mut editor, "new\n");
-    assert!(any_worth_waiting_for(&editor, &[]));
-    assert!(!any_worth_waiting_for(&editor, &[first]), "stuck");
-
-    let other = scratch.file("other.txt", b"old\n");
-    let mut buffer = Buffer::visiting(other.clone());
-    buffer.apply_load(decode_all(b"old\n", TabWidth::default()));
-    buffer.set_baseline(baseline(&other));
-    let second = editor.add_buffer(buffer);
-    editor.show(second);
-    let _other_job = job_of(&mut editor, "new\n");
-    assert!(
-        any_worth_waiting_for(&editor, &[first]),
-        "another save runs"
-    );
-    assert!(!any_worth_waiting_for(&editor, &[first, second]));
-    drop(job);
 }
 
 #[test]

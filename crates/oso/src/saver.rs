@@ -44,6 +44,10 @@ use oso_core::editor::{Editor, SaveJob, SaveRefused};
 
 use crate::loader::{location, parent, stamp_of};
 
+mod leaving;
+
+pub use leaving::{AfterSave, Leaving};
+
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
 /// a million.
 const WRITE_SIZE: usize = 1024 * 1024;
@@ -168,45 +172,6 @@ fn run_with(
     }
 }
 
-/// What a report means for an exit agreed to while a save ran.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AfterSave {
-    /// Another save is still running.
-    KeepWaiting,
-    /// Nothing is left to wait for.
-    Exit,
-    /// Take the exit back: the window returns, with the buffer and a message.
-    StayOpen,
-}
-
-/// Whether a save is running that is worth waiting for: not one that has already outlived
-/// a leave, in `stuck`.
-pub fn any_worth_waiting_for(editor: &Editor, stuck: &[BufferId]) -> bool {
-    editor
-        .buffers()
-        .any(|(id, buffer)| buffer.is_saving() && !stuck.contains(&id))
-}
-
-/// What to do when a save ends while leaving. A failed save means the text is only in this
-/// process, which a person asked to leave believing it would be on disk, so they get it
-/// back at once, whatever else runs. The socket's `exit` asks for no such thing
-/// (ADR 0055).
-pub fn after_save_while_leaving(failed: bool, anyway: bool, still_saving: bool) -> AfterSave {
-    if failed && !anyway {
-        AfterSave::StayOpen
-    } else if still_saving {
-        AfterSave::KeepWaiting
-    } else {
-        AfterSave::Exit
-    }
-}
-
-/// What to do when a save has held a leave past its limit: as for a failure, since nobody
-/// can tell where the text is.
-pub fn at_leaving_deadline(anyway: bool) -> AfterSave {
-    after_save_while_leaving(true, anyway, false)
-}
-
 /// Takes a report in: updates the buffer, and says how it went. Never quotes text.
 pub fn apply(editor: &mut Editor, report: SaveReport) {
     let SaveReport {
@@ -291,6 +256,14 @@ struct Prepared {
 
 /// Steps 1 to 5 of the order at the top. The file on disk is not touched.
 fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
+    prepare_with(job, File::sync_all)
+}
+
+/// [`prepare`], with `sync` to bring the file to the disk.
+fn prepare_with(
+    job: &SaveJob,
+    sync: impl FnOnce(&File) -> io::Result<()>,
+) -> Result<Prepared, SaveError> {
     let baseline = baseline_of(job)?;
     let replaced = unchanged_file(&job.path, baseline)?;
     if replaced.is_some() {
@@ -304,7 +277,7 @@ fn prepare(job: &SaveJob) -> Result<Prepared, SaveError> {
     let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
     write_text(&file, job)?;
     keep_attributes(&file, replaced.as_ref(), baseline.file, directory)?;
-    let unsynced = unless_unsupported(file.sync_all())?;
+    let unsynced = unless_unsupported(sync(&file))?;
     // Read after closing it, as Windows may settle the modification time only then. The
     // name is ours until the rename, and that comes after, so a change made right after the
     // rename still counts as a change.

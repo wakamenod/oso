@@ -16,9 +16,8 @@ use oso_core::load::decode_all;
 use crate::loader::{location, stamp_of};
 
 use super::{
-    AfterSave, PRIVATE_MODE, SaveError, SaveReport, Temporary, Unsynced, after_save_while_leaving,
-    any_worth_waiting_for, apply, at_leaving_deadline, check_whole, prepare, run, run_with, spawn,
-    unless_unsupported, write_text,
+    PRIVATE_MODE, SaveError, SaveReport, Temporary, Unsynced, apply, check_whole, prepare,
+    prepare_with, run, run_with, spawn, unless_unsupported, write_text,
 };
 
 /// A scratch directory, with no links in its path, removed at the end of the test.
@@ -70,8 +69,8 @@ fn baseline(path: &Path) -> Baseline {
     }
 }
 
-/// An editor that has loaded `path`, or found it missing, as the app does.
-pub(crate) fn visit(path: &Path) -> Editor {
+/// A buffer that has loaded `path`, or found it missing, as the app does.
+pub(crate) fn visited(path: &Path) -> Buffer {
     let mut buffer = Buffer::visiting(path.to_path_buf());
     match fs::read(path) {
         Ok(content) => buffer.apply_load(decode_all(&content, TabWidth::default())),
@@ -80,7 +79,12 @@ pub(crate) fn visit(path: &Path) -> Editor {
     if location(path).is_ok() {
         buffer.set_baseline(baseline(path));
     }
-    Editor::with_buffer(buffer)
+    buffer
+}
+
+/// An editor showing `path`, as [`visited`].
+pub(crate) fn visit(path: &Path) -> Editor {
+    Editor::with_buffer(visited(path))
 }
 
 /// A job writing `text` over what `editor` shows.
@@ -374,6 +378,42 @@ fn a_file_shorter_than_the_text_is_refused_before_it_replaces_anything() {
     assert!(check_whole(4, &job).is_err(), "without the BOM");
     assert!(check_whole(6, &job).is_err(), "cut short");
     assert!(check_whole(8, &job).is_err(), "more than was written");
+}
+
+#[test]
+fn a_file_cut_short_while_it_was_written_never_replaces_anything() {
+    let scratch = Scratch::new("cut-short");
+    let path = scratch.file("notes.txt", b"old\n");
+    let job = job(&path, "new text\n");
+    let cut = prepare_with(&job, |file| file.set_len(1));
+    assert!(matches!(cut, Err(SaveError::Io(_))), "not refused");
+    assert_eq!(fs::read(&path).unwrap(), b"old\n");
+    assert_eq!(scratch.names(), ["notes.txt"]);
+}
+
+#[test]
+fn a_sync_the_file_system_cannot_do_still_saves_and_says_so_through_prepare() {
+    let scratch = Scratch::new("no-sync");
+    let path = scratch.file("notes.txt", b"old\n");
+    let job = job(&path, "new\n");
+    let prepared = prepare_with(&job, |_| Err(std::io::ErrorKind::Unsupported.into()));
+    let Ok(prepared) = prepared else {
+        panic!("an unsupported sync failed the save");
+    };
+    let written = prepared.commit(&job).map_err(|_| "no commit").unwrap();
+    assert!(matches!(written.unsynced, Some(Unsynced::File(_))));
+    assert_eq!(fs::read(&path).unwrap(), b"new\n");
+}
+
+#[test]
+fn a_sync_that_really_failed_fails_the_save_through_prepare() {
+    let scratch = Scratch::new("bad-sync");
+    let path = scratch.file("notes.txt", b"old\n");
+    let job = job(&path, "new\n");
+    let failed = prepare_with(&job, |_| Err(std::io::Error::other("the disk failed")));
+    assert!(matches!(failed, Err(SaveError::Io(_))), "not refused");
+    assert_eq!(fs::read(&path).unwrap(), b"old\n");
+    assert_eq!(scratch.names(), ["notes.txt"]);
 }
 
 #[test]

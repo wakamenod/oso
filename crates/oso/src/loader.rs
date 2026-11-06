@@ -282,6 +282,12 @@ fn same_file(a: &Metadata, b: &Metadata) -> bool {
 /// `std` keeps a file's identity unstable here, so this goes by what a save compares.
 #[cfg(not(unix))]
 fn same_file(a: &Metadata, b: &Metadata) -> bool {
+    same_stamp(a, b)
+}
+
+/// Whether two sets of metadata show one modification time and size.
+#[cfg(any(not(unix), test))]
+fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
     match (stamp_of(a), stamp_of(b)) {
         (Ok(a), Ok(b)) => a.same_content(b),
         _ => false,
@@ -480,6 +486,36 @@ mod tests {
         assert_eq!(baseline_of_opened(missing, &metadata), None);
         std::fs::remove_file(opened).unwrap();
         std::fs::remove_file(other).unwrap();
+    }
+
+    #[test]
+    fn a_location_holding_a_file_of_another_size_gives_no_baseline_on_any_system() {
+        let opened = scratch_file("sized.txt", b"abc");
+        let other = scratch_file("other-size.txt", b"abcd");
+        let metadata = std::fs::metadata(&opened).unwrap();
+        assert_eq!(baseline_of_opened(other.clone(), &metadata), None);
+        std::fs::remove_file(opened).unwrap();
+        std::fs::remove_file(other).unwrap();
+    }
+
+    #[test]
+    fn stamps_tell_another_file_by_its_time_or_size() {
+        let path = scratch_file("stamp.txt", b"abc");
+        let longer = scratch_file("stamp-longer.txt", b"abcd");
+        let older = scratch_file("stamp-older.txt", b"abc");
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&older)
+            .unwrap();
+        file.set_modified(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        let metadata = std::fs::metadata(&path).unwrap();
+        assert!(same_stamp(&metadata, &std::fs::metadata(&path).unwrap()));
+        assert!(!same_stamp(&metadata, &std::fs::metadata(&longer).unwrap()));
+        assert!(!same_stamp(&metadata, &std::fs::metadata(&older).unwrap()));
+        for path in [path, longer, older] {
+            std::fs::remove_file(path).unwrap();
+        }
     }
 
     #[test]
