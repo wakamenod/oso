@@ -1,6 +1,6 @@
 # 0060. Timings while a secret buffer is shown
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-05
 
 ## Context
