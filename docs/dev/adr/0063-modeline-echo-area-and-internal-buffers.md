@@ -105,17 +105,23 @@ in such a file, with the text itself on the same screen.
   the command, and comes after the end is marked, as it is a bug to find. This changes ADR 0056's "A failed
   command's message goes to `Editor::message`, whatever invoked it" in what it reaches.
 - **What was echoed around a secret buffer goes as the window moves on,** for good, so that it does not
-  come back with the next such buffer. A frame also checks this as it reads the echo area, for a verdict that
-  changes under it. A message from outside a command, such as a finished save, names a file and quotes no
-  text, so it stays.
+  come back with the next such buffer. A message from outside a command, such as a finished save, names a file
+  and quotes no text, so it stays.
+- **A file not yet judged (`Verdict::Unjudged`) counts as secret, and fails closed:** nothing about it reaches the
+  log or `*Messages*`. What was said around it stays in the echo area if it turns out ordinary, until the next key,
+  since no text of it had arrived. If it turns out secret, it is as above. Its modeline shows no position and does
+  not say `secret`, as nothing is known yet.
 - **A message says what happened before it names a path,** "Not saved: the file changed on disk…: path", so
   that a long path cannot hide it, on the echo row or at the cap. So save failures read differently. A save
   the disk did not confirm begins "Wrote the file, but", as the buffer then counts as saved.
 - **A panic while adding a row to `*Messages*` is not caught.** `Editor::message` runs outside the command
   boundary of ADR 0014, also just after a panic it reports, and now edits a rope. So such a panic does what any
   panic outside a command does: ADR 0062's hook writes the emergency copies and the process ends. The log and the
-  echo area are set first. The edit is made on clones of a small buffer, so this takes a bug in the rope.
-- **The next key empties the echo area,** as in Emacs, and so does `run-command`. The wheel does not.
+  echo area are set first. The edit is made on clones of a small buffer, so this takes a bug in the rope. This is the
+  author's choice.
+- **The next key empties the echo area,** as in Emacs, and so does `run-command`. The wheel does not. A message
+  that arrived behind keys in progress has not been seen, so it stays until they end and the key after that, and
+  what those keys echo, such as "Quit", does not replace it.
 - **What is being typed comes first,** ahead of any message, as Emacs does while a key sequence is
   under way: `C-x-`, `C-u-`, `C-u 16-`, `C-u 5 C-x-`. The dispatcher owns it and tells the editor after
   each key, so that a frame only reads the editor. A number is shown as a number however it was typed.
@@ -166,7 +172,7 @@ repeating it leaves the `Status` the same, so it draws nothing more.
 **The modeline and the echo row keep the band above them,** as accents on capitals need it (ADR 0052). That is
 a tiled pane of `PaneContent::Lines` with one row. The modeline's rectangle stays in its row. This is a small
 change to the renderer (`Layout::with_band_above`, chosen in `draw_pane`), against ADR 0061's expectation. A text
-pane and a float keep ADR 0061's rule, and M2-16 and M3 decide for theirs.
+pane and a float keep ADR 0061's rule, and M2-16 and M3 decide for theirs. This is the author's choice.
 
 ### The control socket
 

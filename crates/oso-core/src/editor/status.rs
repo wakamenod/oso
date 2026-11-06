@@ -19,7 +19,7 @@ use std::fmt::Write;
 
 use super::Editor;
 use super::messages::CUT;
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, Verdict};
 use crate::decode::{FileInfo, LineEnding};
 use crate::display_map::text_clusters;
 use crate::window::Window;
@@ -134,8 +134,12 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             None => write!(out, "Loading {} MiB{GAP}", progress.read >> 20),
         };
     }
-    if buffer.is_secret() {
+    if buffer.verdict() == Verdict::Unjudged {
+        // Nothing has loaded, and whether it may hold secrets is not known yet, so no
+        // position shows and nothing calls it a secret.
+    } else if buffer.is_secret() {
         out.push_str(NO_POSITION);
+        out.push_str(GAP);
     } else {
         let point = window.cursor_point(&buffer.display());
         let _ = write!(out, "{}:{}", point.row + 1, point.column);
@@ -143,8 +147,8 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
         if cursors > 1 {
             let _ = write!(out, " ({cursors} cursors)");
         }
+        out.push_str(GAP);
     }
-    out.push_str(GAP);
     out.push_str(MODE);
     out.push_str(GAP);
     push_encoding(out, buffer.file_info(), !buffer.invalid_bytes().is_empty());
@@ -388,6 +392,23 @@ mod tests {
         let status = status(&editor);
         assert_eq!(status.state, "secret  Fundamental  UTF-8 LF");
         assert_eq!(status.name, "-- .env  ");
+    }
+
+    #[test]
+    fn an_unjudged_file_says_no_position_and_does_not_say_secret() {
+        let path = PathBuf::from("/tmp/notes.txt");
+        let mut editor = Editor::with_buffer(Buffer::visiting(path.clone()));
+        editor.set_view_size(ViewSize::new(10, 80));
+        assert_eq!(
+            status(&editor).state,
+            "Loading 0 MiB  Fundamental  UTF-8 LF"
+        );
+        let id = editor.window().buffer();
+        editor.buffer_mut(id).unwrap().judge_secret(Some(&[path]));
+        assert_eq!(
+            status(&editor).state,
+            "Loading 0 MiB  1:0  Fundamental  UTF-8 LF"
+        );
     }
 
     #[test]

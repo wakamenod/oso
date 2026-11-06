@@ -249,3 +249,28 @@ fn a_failed_run_command_around_a_secret_stays_in_the_echo_area() {
     assert_eq!(echo(&editor), "Beginning of buffer");
     assert_eq!(kept_messages(&editor).len(), 0);
 }
+
+#[test]
+fn a_message_from_outside_a_command_behind_a_pending_key_shows_when_it_ends() {
+    let mut dispatcher = Dispatcher::new();
+    let mut editor = editor("ab");
+    send(&mut dispatcher, &mut editor, "C-x");
+    editor.message("Not saved: no space: /p/a.txt");
+    assert_eq!(echo(&editor), "C-x-");
+    send(&mut dispatcher, &mut editor, "C-g");
+    assert_eq!(echo(&editor), "Not saved: no space: /p/a.txt");
+    send(&mut dispatcher, &mut editor, "C-f");
+    assert_eq!(echo(&editor), "");
+    assert_eq!(kept_messages(&editor), ["Not saved: no space: /p/a.txt"]);
+}
+
+#[test]
+fn going_to_the_messages_and_back_keeps_the_goal_of_c_n() {
+    let mut dispatcher = Dispatcher::new();
+    let mut editor = editor("ab\ncdef\n");
+    send(&mut dispatcher, &mut editor, "C-e C-h e C-h e C-n");
+    assert_eq!(
+        editor.window().selections.primary().cursor,
+        "ab\ncdef".len()
+    );
+}

@@ -80,7 +80,7 @@ with hydra-posframe today.
 - The warnings come first, so that no name can push them off the row. A long name is
   cut to what the rest leaves.
 - A buffer that may hold secrets shows `secret` for the line, the column and the cursor
-  count.
+  count, and a file not yet judged shows none of them.
 - A frame of two rows has no modeline, and its warnings go first on the echo row. A frame of
   one row has no place for them ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - M3 adds the project trust indicator.

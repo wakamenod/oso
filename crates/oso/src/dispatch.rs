@@ -284,20 +284,19 @@ impl Dispatcher {
                 editor.end_undo_group();
                 editor.message(error.message());
             }
-            Err(error @ ExecuteError::Panicked { .. }) => {
-                editor.end_undo_group_after_panic();
-                editor.end_command();
-                // This names the command and nothing else (ADR 0028).
-                editor.message(error.to_string());
-                // What it changed may be visible.
-                effects.redraw = true;
-            }
+            Err(ExecuteError::Panicked { .. }) => editor.end_undo_group_after_panic(),
             Err(error @ ExecuteError::UnknownId(_)) => {
                 editor.end_undo_group();
                 editor.message(error.to_string());
             }
         }
         editor.end_command();
+        if let Err(error @ ExecuteError::Panicked { .. }) = &result {
+            // This names the command and nothing else (ADR 0028).
+            editor.message(error.to_string());
+            // What it changed may be visible.
+            effects.redraw = true;
+        }
         if editor.exit_attempt() == exit_attempt {
             editor.reset_exit_guard();
         }

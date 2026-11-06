@@ -10,8 +10,9 @@
 //! marks where a command begins and ends. The echo area keeps its text until the next
 //! key, and what was echoed around such a buffer goes as soon as it is out of view.
 
-use super::{Editor, Selected, clip_cursors};
-use crate::buffer::{BufferId, Replacement};
+use super::{Editor, Selected};
+use crate::buffer::{BufferId, Replacement, Verdict};
+use crate::motion;
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
 
@@ -54,12 +55,23 @@ fn capped(mut text: String) -> String {
     text
 }
 
+/// What was shown when something was echoed, which decides how long it may show.
+#[derive(Clone, Copy)]
+enum Around {
+    /// Nothing that may hold secrets. It shows until the next key.
+    Nothing,
+    /// A buffer that may hold secrets, which may have been left already. It shows only
+    /// while one is shown.
+    Secret,
+    /// This file, not yet judged, and not a buffer known to hold secrets. No text of it has
+    /// arrived, so what was said is free to show if it turns out ordinary.
+    Unjudged(BufferId),
+}
+
 /// The echo area's line, until the next key.
 pub(super) struct Echo {
     text: String,
-    /// It was said around a buffer that may hold secrets, so it shows only while one
-    /// is shown, and goes when the window moves on.
-    withheld: bool,
+    around: Around,
 }
 
 /// Where a window was before it showed `*Messages*`, to go back to. M2-19 removes this
@@ -94,7 +106,7 @@ impl Editor {
         log::info!("{shown}");
         self.echo = Some(Echo {
             text,
-            withheld: false,
+            around: Around::Nothing,
         });
         // Last, so that the log and the echo area have it if this panics. That is a panic
         // outside the command boundary like any other: the hook writes the emergency copies,
@@ -118,23 +130,52 @@ impl Editor {
 
     /// Shows `text` in the echo area alone, for what must stay out of the log and
     /// `*Messages*`, such as keys the user typed (ADR 0056). If a buffer that may hold
-    /// secrets is shown, it goes when no such buffer is.
+    /// secrets is shown, it goes when no such buffer is. A message waiting to be seen behind
+    /// keys in progress comes first, as what is echoed says less.
     pub fn echo(&mut self, text: impl Into<String>) {
+        if !self.keys_in_progress.is_empty() && self.echo.is_some() {
+            return;
+        }
         self.echo = Some(Echo {
             text: capped(text.into()),
-            withheld: self.shows_secret() || self.command_began_on_secret == Some(true),
+            around: self.what_is_around(),
         });
     }
 
-    /// Empties the echo area. The next key does this, as in Emacs.
+    /// What an echo now is said around.
+    fn what_is_around(&self) -> Around {
+        let shown = || self.windows.iter().map(|window| self.shown(window));
+        if self.command_began_on_secret == Some(true) && !self.shows_secret() {
+            return Around::Secret;
+        }
+        let decided = |buffer: &crate::buffer::Buffer| buffer.verdict() != Verdict::Unjudged;
+        if shown().any(|buffer| buffer.is_secret() && decided(buffer)) {
+            return Around::Secret;
+        }
+        let unjudged = self
+            .windows
+            .iter()
+            .find(|window| self.shown(window).verdict() == Verdict::Unjudged);
+        unjudged.map_or(Around::Nothing, |window| Around::Unjudged(window.buffer()))
+    }
+
+    /// Empties the echo area, as the next key does in Emacs. While keys are in progress they
+    /// show in its place, and what is there came after the key that began them and has not
+    /// been seen, so it stays for when they end.
     pub fn clear_echo(&mut self) {
-        self.echo = None;
+        if self.keys_in_progress.is_empty() {
+            self.echo = None;
+        }
     }
 
     /// Forgets what was echoed around a buffer that may hold secrets, as the window
     /// moves on, so that it does not come back with the next such buffer.
     pub(super) fn forget_withheld_echo(&mut self) {
-        if self.echo.as_ref().is_some_and(|echo| echo.withheld) {
+        if self
+            .echo
+            .as_ref()
+            .is_some_and(|echo| !matches!(echo.around, Around::Nothing))
+        {
             self.echo = None;
         }
     }
@@ -152,8 +193,22 @@ impl Editor {
             return &self.keys_in_progress;
         }
         match &self.echo {
-            Some(echo) if !echo.withheld || self.shows_secret() => &echo.text,
+            Some(echo) if self.may_show(echo.around) => &echo.text,
             _ => "",
+        }
+    }
+
+    /// Whether what was echoed around `around` may show now.
+    fn may_show(&self, around: Around) -> bool {
+        match around {
+            Around::Nothing => true,
+            Around::Secret => self.shows_secret(),
+            Around::Unjudged(id) => {
+                self.shows_secret()
+                    || self
+                        .buffer(id)
+                        .is_some_and(|buffer| buffer.verdict() == Verdict::Ordinary)
+            }
         }
     }
 
@@ -195,8 +250,17 @@ impl Editor {
                 scroll,
             }) => {
                 self.show(buffer);
-                // The buffer may have changed behind `*Messages*`.
-                clip_cursors(&mut selections, &self.current().1.display(), &[]);
+                // The buffer may have changed behind `*Messages*`. A cursor that stays where
+                // it was keeps its goal, as `C-n` then has it to go on.
+                let display = self.current().1.display();
+                selections.update(|selection| {
+                    let start = motion::cluster_start(&display, selection.cursor);
+                    if start != selection.cursor {
+                        selection.cursor = start;
+                        selection.goal = None;
+                    }
+                    Ok::<(), ()>(())
+                });
                 self.restore_positions(selections, scroll);
             }
             None => {
@@ -252,7 +316,7 @@ mod tests {
     use super::*;
     use crate::buffer::{Buffer, EditError, ReadOnly};
     use crate::editor::MESSAGES;
-    use crate::selection::Selection;
+    use crate::selection::{Goal, Selection};
     use crate::window::ViewSize;
     use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::path::PathBuf;
@@ -268,7 +332,10 @@ mod tests {
 
     /// An editor showing a file that may hold secrets.
     fn on_a_secret() -> Editor {
-        Editor::with_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")))
+        let path = PathBuf::from("/tmp/.env");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.judge_secret(Some(&[path]));
+        Editor::with_buffer(buffer)
     }
 
     #[test]
@@ -538,15 +605,89 @@ mod tests {
     }
 
     #[test]
-    fn what_was_echoed_before_a_file_is_judged_ordinary_goes() {
-        let mut editor = on_a_secret();
-        editor.echo("End of buffer");
-        let id = editor.window().buffer();
+    fn what_was_said_around_an_unjudged_file_stays_once_it_is_ordinary() {
         let plain = PathBuf::from("/tmp/plain.txt");
-        let buffer = editor.buffer_mut(id).unwrap();
-        *buffer = Buffer::visiting(plain.clone());
-        buffer.judge_secret(Some(&[plain]));
+        let mut editor = Editor::with_buffer(Buffer::visiting(plain.clone()));
+        let id = editor.window().buffer();
+        editor.begin_command();
+        editor.message("Cannot save a file that is still loading");
+        editor.end_command();
+        assert_eq!(echo(&editor), "Cannot save a file that is still loading");
+        assert_eq!(
+            messages_text(&editor),
+            "",
+            "nothing leaves before it is judged"
+        );
+
+        editor.buffer_mut(id).unwrap().judge_secret(Some(&[plain]));
+        assert_eq!(echo(&editor), "Cannot save a file that is still loading");
+        assert_eq!(
+            messages_text(&editor),
+            "",
+            "it did not reach them at the time"
+        );
+        editor.clear_echo();
         assert_eq!(echo(&editor), "");
+    }
+
+    #[test]
+    fn what_was_said_around_an_unjudged_file_is_withheld_once_it_is_secret() {
+        let env = PathBuf::from("/tmp/.env");
+        let mut editor = Editor::with_buffer(Buffer::visiting(env.clone()));
+        let id = editor.window().buffer();
+        editor.echo("Cannot save a file that is still loading");
+        editor.buffer_mut(id).unwrap().judge_secret(Some(&[env]));
+        assert_eq!(echo(&editor), "Cannot save a file that is still loading");
+        let other = editor.add_buffer(Buffer::new("other"));
+        editor.show(other);
+        assert_eq!(echo(&editor), "");
+    }
+
+    #[test]
+    fn what_was_said_around_an_unjudged_file_goes_when_the_window_moves_on() {
+        let mut editor = Editor::with_buffer(Buffer::visiting(PathBuf::from("/tmp/plain.txt")));
+        editor.echo("Cannot save a file that is still loading");
+        let other = editor.add_buffer(Buffer::new("other"));
+        editor.show(other);
+        assert_eq!(echo(&editor), "");
+    }
+
+    #[test]
+    fn a_message_behind_keys_in_progress_waits_for_them_to_end() {
+        let mut editor = Editor::default();
+        editor.set_keys_in_progress("C-x-");
+        editor.message("Not saved");
+        assert_eq!(echo(&editor), "C-x-");
+        editor.clear_echo();
+        editor.echo("Quit");
+        editor.set_keys_in_progress("");
+        assert_eq!(echo(&editor), "Not saved", "not yet seen");
+        editor.clear_echo();
+        assert_eq!(echo(&editor), "", "the next key takes it");
+    }
+
+    #[test]
+    fn going_back_keeps_the_goal_of_a_cursor_that_stays_and_clears_that_of_one_that_moves() {
+        let text = "ab\ncde\u{301}f\n";
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", text));
+        let goal = Some(Goal::Column(9));
+        let at = |cursor| Selection { cursor, goal };
+        let set = SelectionSet::from_parts(vec![at(1), at(6)], 0).unwrap();
+        editor.current_mut().0.selections = set;
+        editor.toggle_messages();
+        editor.toggle_messages();
+        let cursors: Vec<_> = editor.window().selections.iter().copied().collect();
+        // Offset 6 is the middle of the cluster that starts at 5, a letter with its mark.
+        assert_eq!(
+            cursors,
+            [
+                at(1),
+                Selection {
+                    cursor: 5,
+                    goal: None
+                }
+            ]
+        );
     }
 
     #[test]

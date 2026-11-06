@@ -151,9 +151,12 @@ item notes when it must be settled.
   ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
 - `C-h e` while a handed-over file loads ends the wait for its positions, so they are not restored
   (`handoff.rs`). Decide with M2-15, which carries more through a restart.
-- A visited file counts as secret until its load's first update judges it, so for that moment its
-  modeline says `secret`. Look at this again with the verdict of M2-10
+- Identical messages are not merged in `*Messages*`, so holding a key that fails evicts its older rows in
+  about 35 s. Emacs counts repeats on one row.
+- `Status` is built twice for a key that redraws, in `draw_frame` and in `about_to_wait`
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+- By M2-12: `dispatch.rs` wraps `handle_key`, `insert_text` and `run_command` the same way, emptying the echo
+  area and then showing the keys in progress. Tidy this with the input method's way in.
 - By M2-16: `Buffer::is_internal` also means read-only with no undo, and the minibuffer's buffer
   is internal but takes typing. Split the two.
 - By M2-19: whether `C-x b` lists `*Messages*`, and whether `kill-buffer` may kill it, which today

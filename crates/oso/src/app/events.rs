@@ -36,11 +36,9 @@ impl ApplicationHandler<UserEvent> for App {
             }
             UserEvent::Save(report) => self.save_ended(event_loop, report),
             UserEvent::NoEmergencyCopies(problem) => {
-                // Nothing shows messages until the echo area (M2-7), and only this level
-                // reaches a terminal with no `RUST_LOG`.
+                // Only this level reaches a terminal with no `RUST_LOG`.
                 log::error!("{}", problem.escape_debug());
                 self.editor.message(problem);
-                self.request_redraw();
             }
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
