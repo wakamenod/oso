@@ -235,7 +235,7 @@ what you type goes into their buffers, which can fail a flow.
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
 | screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
-| secret files | path judgment to every way out: `get-state`, `get-text`, `screenshot`, `export-state` and the log, also through a symlink, and `show-buffer` allows them again |
+| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
@@ -281,19 +281,22 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
 - `send-keys` sends input in Emacs notation, through the same path as keys from
   the window ([ADR 0033](adr/0033-key-presses-and-notation.md)).
 - `run-command` runs a registered command by name, with a numeric argument of at
-  most 10,000 if it takes one. Command errors and panics come back as error
-  responses.
+  most 10,000 if it takes one, or else a prefix argument the keys left. Command errors
+  and panics come back as error responses.
 - `get-state` reads the state as JSON: every buffer (name, path, whether it may
   hold secrets, read-only reason, whether it is modified or being saved, line ending,
   BOM, invalid-byte count, loading progress, size), every window with its selections, the selected window's
   buffer, cursor and scroll position, its visible text, the keys of a pending
   prefix and the surface size. The visible text stops at 128 KiB and says so with
-  `truncated`. The modeline comes with M2.
+  `truncated`. The modeline comes with M2. A secret buffer has no text, no cursor,
+  no scroll position and no selections, and no size while it has edits
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
-- Secret-pattern buffers give no text and no screenshot
-  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). Any file
+- Secret-pattern buffers give no text, no screenshot and no positions
+  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
+  [ADR 0051](adr/0051-m2-plan-decisions.md)). Any file
   counts as secret until its path is resolved, so wait for `loading` to become
   null before reading it.
 - `export-state` and `import-state` hand the state to a new instance, and `exit`

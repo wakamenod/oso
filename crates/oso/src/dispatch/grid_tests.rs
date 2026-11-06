@@ -299,14 +299,14 @@ mod scenarios {
     }
 
     #[test]
-    fn the_wheel_can_leave_the_cursor_on_a_cluster_cut_at_the_left_edge() {
-        let text = "0123456789\n日本語\n";
-        let mut dispatcher = Dispatcher::new();
+    fn the_sideways_wheel_can_leave_the_cursor_on_a_cluster_cut_at_the_left_edge() {
+        let text = "日本語日本語日本語\n";
         let mut editor = open(text.as_bytes(), (1, 10));
-        dispatcher.handle_keys(&mut editor, "C-e".parse::<KeySequence>().unwrap().0);
-        let mut frames = vec![format!("keys: C-e\n{}", text_grid(&editor))];
-        editor.scroll_view(1);
-        frames.push(format!("wheel: 1\n{}", text_grid(&editor)));
+        let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
+        editor.scroll_view_sideways(1);
+        frames.push(format!("sideways: 1\n{}", text_grid(&editor)));
+        editor.scroll_view_sideways(1);
+        frames.push(format!("sideways: 1, out of view\n{}", text_grid(&editor)));
         assert_frames("cursor_cut_at_the_left_edge", text.as_bytes(), &frames);
     }
 
@@ -423,5 +423,97 @@ mod scenarios {
             frames.push(format!("wheel: {rows}\n{}", text_grid(&editor)));
         }
         assert_frames("wheel", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn the_wheel_takes_a_cursor_it_moves_back_into_view_sideways() {
+        let text: String = (0..8)
+            .map(|i| format!("line {i} of some length\n"))
+            .collect();
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = open(text.as_bytes(), (3, 8));
+        let keys: KeySequence = "C-n C-e".parse().unwrap();
+        dispatcher.handle_keys(&mut editor, keys.0);
+        let mut frames = vec![format!("keys: C-n C-e\n{}", text_grid(&editor))];
+        editor.scroll_view(1);
+        frames.push(format!(
+            "wheel: 1, the cursor stays\n{}",
+            text_grid(&editor)
+        ));
+        editor.scroll_view(1);
+        frames.push(format!("wheel: 1, it moves\n{}", text_grid(&editor)));
+        assert_frames("wheel_with_the_view_sideways", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn the_sideways_wheel_moves_the_view_and_the_next_key_comes_back() {
+        let text = "日本語の文章で書いている長い行です\nabc\n";
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = open(text.as_bytes(), (3, 12));
+        let mut frames = vec![format!("wheel: none\n{}", text_grid(&editor))];
+        for columns in [5, 100, -3] {
+            editor.scroll_view_sideways(columns);
+            frames.push(format!("sideways: {columns}\n{}", text_grid(&editor)));
+        }
+        let keys: KeySequence = "C-f".parse().unwrap();
+        dispatcher.handle_keys(&mut editor, keys.0);
+        frames.push(format!("keys: C-f\n{}", text_grid(&editor)));
+        assert_frames("wheel_sideways", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn word_motion_stops_on_whole_clusters_and_deletes_them() {
+        let steps = ["", "M-f", "M-f", "M-f", "M-b", "M-d", "C-z", "M-DEL"];
+        check(
+            "word_motion",
+            "か\u{3099}き語の文章で😀 end",
+            (1, 24),
+            &steps,
+        );
+    }
+
+    #[test]
+    fn word_motion_reaches_a_past_limit_box_and_passes_it() {
+        let marks = "\u{301}".repeat(10);
+        let steps = ["", "M-f", "C-b", "C-b", "M-b", "M-f", "M-DEL"];
+        check(
+            "word_motion_past_limit",
+            format!("a{marks}b c"),
+            (1, 32),
+            &steps,
+        );
+    }
+
+    #[test]
+    fn c_a_and_c_e_toggle_where_the_cursor_goes() {
+        let steps = ["", "C-a", "C-a", "C-e", "C-e", "C-a"];
+        check("mwim", "\t  code  \n", (2, 20), &steps);
+    }
+
+    #[test]
+    fn line_motion_stays_at_line_ends() {
+        let steps = ["", "C-e", "C-n", "C-n", "C-n", "C-p", "C-a"];
+        check("track_eol", "short\n\nmuch longer\n", (4, 16), &steps);
+    }
+
+    #[test]
+    fn a_count_repeats_what_a_key_does_on_screen() {
+        let steps = [
+            "",
+            "C-u x",
+            "C-u 3 y",
+            "C-u 2 C-u 5",
+            "M-- C-d",
+            "C-u C-b",
+            "M-2 DEL",
+        ];
+        check("prefix_argument", "", (2, 20), &steps);
+    }
+
+    #[test]
+    fn c_l_cycles_where_the_cursors_row_goes() {
+        let text: String = (0..20).map(|i| format!("line {i}\n")).collect();
+        let steps = ["", "C-u 8 C-n", "C-l", "C-l", "C-l", "M-1 C-l", "C-u C-l"];
+        check("recenter", text, (5, 8), &steps);
     }
 }

@@ -1,25 +1,31 @@
 //! Commands that scroll the selected window by screens or lines, moving
-//! cursors that would leave it (ADR 0040).
+//! cursors that would leave it, and that recenter it (ADR 0040, ADR 0058).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
-use oso_core::window;
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
+use oso_core::window::{self, Recenter};
 
 /// The scrolling commands.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "scroll-up-command",
-        doc: "Scroll the text up by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (down if N is negative). Point moves to the top line if it would leave the window. When the end of the buffer cannot scroll further up, signal \"End of buffer\".",
+        doc: "Scroll the text up by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (down if N is negative), and with `M--` alone a screen down. Point moves to the top line if it would leave the window. When the end of the buffer cannot scroll further up, signal \"End of buffer\".",
         args: ArgSpec::Count,
         run: scroll_up_command,
     },
     Command {
         name: "scroll-down-command",
-        doc: "Scroll the text down by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (up if N is negative). Point moves to the bottom line if it would leave the window. At the start of the buffer, signal \"Beginning of buffer\".",
+        doc: "Scroll the text down by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (up if N is negative), and with `M--` alone a screen up. Point moves to the bottom line if it would leave the window. At the start of the buffer, signal \"Beginning of buffer\".",
         args: ArgSpec::Count,
         run: scroll_down_command,
+    },
+    Command {
+        name: "recenter-top-bottom",
+        doc: "Scroll so that point's line is in the middle of the window; repeated, at the top, then the bottom, then round again.\n\nWith a numeric argument N, put it on line N of the window, counting from the bottom if N is negative. With a plain `C-u`, in the middle.",
+        args: ArgSpec::Count,
+        run: recenter_top_bottom,
     },
 ];
 
@@ -42,13 +48,16 @@ fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// The lines a screen command scrolls: the numeric argument, or a screen
-/// less the context lines.
+/// The lines a screen command scrolls: the numeric argument, or a screen less the
+/// context lines. `M--` alone is a screen the other way, as in Emacs.
 fn screen_or_count(ctx: &Ctx<'_>, args: Args) -> isize {
-    args.prefix().unwrap_or_else(|| {
-        let lines = window::screen_lines(ctx.editor.window().size());
-        isize::try_from(lines).unwrap_or(isize::MAX)
-    })
+    let lines = window::screen_lines(ctx.editor.window().size());
+    let screen = isize::try_from(lines).unwrap_or(isize::MAX);
+    match args.raw() {
+        None => screen,
+        Some(Prefix::Negative) => -screen,
+        Some(prefix) => prefix.value(),
+    }
 }
 
 fn scroll_up_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -59,6 +68,26 @@ fn scroll_up_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> 
 fn scroll_down_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let lines = screen_or_count(ctx, args);
     scroll(ctx, lines.saturating_neg())
+}
+
+fn recenter_top_bottom(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let target = match args.raw() {
+        None => match ctx.repeats() % 3 {
+            0 => Recenter::Middle,
+            1 => Recenter::Line(0),
+            _ => Recenter::Line(-1),
+        },
+        Some(Prefix::Universal(_)) => Recenter::Middle,
+        Some(prefix) => Recenter::Line(prefix.value()),
+    };
+    let (window, buffer) = ctx.editor.current_mut();
+    let display = buffer.display();
+    let row = window.cursor_point(&display).row;
+    let top = window::recenter_top(row, window.size(), target);
+    if window.set_top(top, &display) {
+        ctx.request_redraw();
+    }
+    Ok(())
 }
 
 #[cfg(test)]

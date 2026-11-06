@@ -24,7 +24,7 @@ keymap
 command
 editor
 frame
-window
+window word
 buffer motion
 undo
 load selection

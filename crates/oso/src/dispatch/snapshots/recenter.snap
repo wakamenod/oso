@@ -1,0 +1,73 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: line 0\\nline 1\\nline 2\\nline 3\\nline 4\\nline 5\\nline 6\\nline 7\\nline 8\\nline 9\\nline 10\\nline 11\\nline 12\\nline 13\\nline 14\\nline 15\\nline 16\\nline 17\\nline 18\\nline 19\\n"
+---
+keys: none
+│line 0  │
+:^       :
+│line 1  │
+│line 2  │
+│line 3  │
+│line 4  │
+=        =
+"        "
+
+keys: C-u 8 C-n
+│line 4  │
+│line 5  │
+│line 6  │
+│line 7  │
+│line 8  │
+:^       :
+=        =
+"        "
+
+keys: C-l
+│line 6  │
+│line 7  │
+│line 8  │
+:^       :
+│line 9  │
+│line 10 │
+=        =
+"        "
+
+keys: C-l
+│line 8  │
+:^       :
+│line 9  │
+│line 10 │
+│line 11 │
+│line 12 │
+=        =
+"        "
+
+keys: C-l
+│line 4  │
+│line 5  │
+│line 6  │
+│line 7  │
+│line 8  │
+:^       :
+=        =
+"        "
+
+keys: M-1 C-l
+│line 7  │
+│line 8  │
+:^       :
+│line 9  │
+│line 10 │
+│line 11 │
+=        =
+"        "
+
+keys: C-u C-l
+│line 6  │
+│line 7  │
+│line 8  │
+:^       :
+│line 9  │
+│line 10 │
+=        =
+"        "

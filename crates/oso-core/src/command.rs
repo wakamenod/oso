@@ -60,11 +60,85 @@ pub enum ArgSpec {
     Count,
 }
 
+/// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher
+/// holds it between keys, and these rules are Emacs's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prefix {
+    /// `C-u` alone: 4, and 4 times more with each one after it. A command may treat
+    /// it apart from a number, as `C-u C-l` does.
+    Universal(isize),
+    /// `M--` or `C-u -` alone: -1, and digits make it a negative number.
+    Negative,
+    /// A number, which more digits go on to build.
+    Number(isize),
+    /// A number that `C-u` ended: digits after it are text, so that `C-u 5 C-u 3`
+    /// types five 3s.
+    Closed(isize),
+}
+
+impl Prefix {
+    /// The number a command reads.
+    pub const fn value(self) -> isize {
+        match self {
+            Self::Universal(n) | Self::Number(n) | Self::Closed(n) => n,
+            Self::Negative => -1,
+        }
+    }
+
+    /// Whether plain digits still build it.
+    pub const fn reads_digits(self) -> bool {
+        !matches!(self, Self::Closed(_))
+    }
+
+    /// Whether a plain `-` still builds it. After digits it is text, as in Emacs:
+    /// `C-u 5 -` types five of them, and `M--` changes the number's sign.
+    pub const fn reads_minus(self) -> bool {
+        matches!(self, Self::Universal(_) | Self::Negative)
+    }
+
+    /// `current` after `C-u`. Counts saturate, since commands limit their work.
+    pub const fn universal(current: Option<Self>) -> Self {
+        match current {
+            None => Self::Universal(4),
+            Some(Self::Universal(n)) => Self::Universal(n.saturating_mul(4)),
+            Some(Self::Negative) => Self::Universal(-4),
+            Some(Self::Number(n)) => Self::Closed(n),
+            Some(Self::Closed(_)) => Self::Universal(4),
+        }
+    }
+
+    /// `current` after `M--` or `-`. A second one in a row cancels the first, and
+    /// after a number it changes the sign.
+    pub const fn negative(current: Option<Self>) -> Option<Self> {
+        match current {
+            None | Some(Self::Universal(_)) => Some(Self::Negative),
+            Some(Self::Negative) => None,
+            Some(Self::Number(n) | Self::Closed(n)) => Some(Self::Number(n.saturating_neg())),
+        }
+    }
+
+    /// `current` after a digit. `-0` stays negative, so that `-05` is -5.
+    pub const fn digit(current: Option<Self>, digit: u32) -> Self {
+        let digit = digit as isize;
+        match current {
+            Some(Self::Number(n) | Self::Closed(n)) if n < 0 => {
+                Self::Number(n.saturating_mul(10).saturating_sub(digit))
+            }
+            Some(Self::Number(n) | Self::Closed(n)) => {
+                Self::Number(n.saturating_mul(10).saturating_add(digit))
+            }
+            Some(Self::Negative) if digit == 0 => Self::Negative,
+            Some(Self::Negative) => Self::Number(-digit),
+            None | Some(Self::Universal(_)) => Self::Number(digit),
+        }
+    }
+}
+
 /// The arguments one invocation of a command gets. Built by the caller:
 /// the key dispatcher, `M-x` or `run-command`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Args {
-    prefix: Option<isize>,
+    prefix: Option<Prefix>,
 }
 
 impl Args {
@@ -73,18 +147,34 @@ impl Args {
 
     /// A numeric prefix argument of `n`.
     pub const fn numeric(n: isize) -> Self {
-        Self { prefix: Some(n) }
+        Self {
+            prefix: Some(Prefix::Number(n)),
+        }
+    }
+
+    /// The prefix argument as the keys built it.
+    pub const fn with_prefix(prefix: Option<Prefix>) -> Self {
+        Self { prefix }
+    }
+
+    /// The prefix argument as the keys built it, for the commands that build on it
+    /// and those that treat `C-u` apart from a number.
+    pub const fn raw(self) -> Option<Prefix> {
+        self.prefix
     }
 
     /// The numeric prefix argument, or `None` if none was given.
     pub const fn prefix(self) -> Option<isize> {
-        self.prefix
+        match self.prefix {
+            Some(prefix) => Some(prefix.value()),
+            None => None,
+        }
     }
 
     /// The repeat count: the numeric prefix argument, or 1.
     pub const fn count(self) -> isize {
         match self.prefix {
-            Some(n) => n,
+            Some(prefix) => prefix.value(),
             None => 1,
         }
     }
@@ -97,6 +187,9 @@ pub struct Effects {
     pub redraw: bool,
     /// Exit the editor.
     pub exit: bool,
+    /// The prefix argument the next command gets. The dispatcher takes this and
+    /// holds it next to the pending prefix keys, so the host never sees it.
+    pub prefix: Option<Prefix>,
 }
 
 impl Effects {
@@ -106,33 +199,50 @@ impl Effects {
         Self {
             redraw: self.redraw || other.redraw,
             exit: self.exit || other.exit,
+            prefix: match other.prefix {
+                Some(prefix) => Some(prefix),
+                None => self.prefix,
+            },
         }
     }
 }
 
-/// What a command gets to work with: the host's editor state, the text that
-/// invoked it, and a place to leave requests for the host.
+/// How a command was invoked, from what the caller knows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Invocation<'a> {
+    /// The text that invoked it: the character a key types, or text from an input
+    /// method.
+    pub input: &'a str,
+    /// The character on the key that invoked it, whatever modifiers are held: `5`
+    /// for `M-5`.
+    pub key_char: Option<char>,
+    /// How many times in a row this command has just run before now.
+    pub repeats: usize,
+}
+
+/// What a command gets to work with: the host's editor state, how it was
+/// invoked, and a place to leave requests for the host.
 ///
 /// New state reaches commands as new fields of [`Editor`] or new methods
 /// here, so existing commands keep compiling.
 pub struct Ctx<'a> {
     /// The editor state.
     pub editor: &'a mut Editor,
-    input: &'a str,
+    invocation: Invocation<'a>,
     effects: Effects,
 }
 
 impl<'a> Ctx<'a> {
     /// A context over `editor`, with no input and no requests yet.
     pub fn new(editor: &'a mut Editor) -> Self {
-        Self::with_input(editor, "")
+        Self::invoked(editor, Invocation::default())
     }
 
-    /// A context over `editor` for a command invoked by typing `input`.
-    pub fn with_input(editor: &'a mut Editor, input: &'a str) -> Self {
+    /// A context over `editor` for a command invoked as `invocation` says.
+    pub fn invoked(editor: &'a mut Editor, invocation: Invocation<'a>) -> Self {
         Self {
             editor,
-            input,
+            invocation,
             effects: Effects::default(),
         }
     }
@@ -140,7 +250,24 @@ impl<'a> Ctx<'a> {
     /// The text that invoked the command: the character a key types, or text
     /// from an input method. Empty for a command invoked in any other way.
     pub fn input(&self) -> &'a str {
-        self.input
+        self.invocation.input
+    }
+
+    /// The character on the key that invoked the command, whatever modifiers are
+    /// held. `None` for a command invoked in any other way.
+    pub fn key_char(&self) -> Option<char> {
+        self.invocation.key_char
+    }
+
+    /// How many times in a row the command has just run before now, for a command
+    /// that does something else when repeated, as `C-l` does. It keeps no state.
+    pub fn repeats(&self) -> usize {
+        self.invocation.repeats
+    }
+
+    /// Leaves `prefix` for the next command, in place of the one this command got.
+    pub fn leave_prefix(&mut self, prefix: Option<Prefix>) {
+        self.effects.prefix = prefix;
     }
 
     /// Asks for a new frame. Call it when the command changed something
@@ -354,8 +481,8 @@ fn is_command_name(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ArgSpec, Args, Command, CommandError, CommandId, Ctx, Effects, ExecuteError, RegisterError,
-        Registry,
+        ArgSpec, Args, Command, CommandError, CommandId, Ctx, Effects, ExecuteError, Invocation,
+        Prefix, RegisterError, Registry,
     };
     use crate::editor::Editor;
     use crate::window::Scroll;
@@ -428,17 +555,18 @@ mod tests {
     fn effects_union_keeps_each_request() {
         let redraw = Effects {
             redraw: true,
-            exit: false,
+            ..Effects::default()
         };
         let exit = Effects {
-            redraw: false,
             exit: true,
+            ..Effects::default()
         };
         assert_eq!(
             redraw.union(exit),
             Effects {
                 redraw: true,
-                exit: true
+                exit: true,
+                prefix: None,
             }
         );
         assert_eq!(redraw.union(Effects::default()), redraw);
@@ -467,7 +595,102 @@ mod tests {
     fn a_context_carries_the_input_it_was_made_with() {
         let mut editor = Editor::default();
         assert_eq!(Ctx::new(&mut editor).input(), "");
-        assert_eq!(Ctx::with_input(&mut editor, "語").input(), "語");
+        let invocation = Invocation {
+            input: "語",
+            ..Invocation::default()
+        };
+        assert_eq!(Ctx::invoked(&mut editor, invocation).input(), "語");
+    }
+
+    #[test]
+    fn a_context_carries_how_the_command_was_invoked() {
+        let mut editor = Editor::default();
+        assert_eq!(Ctx::new(&mut editor).key_char(), None);
+        let invocation = Invocation {
+            key_char: Some('5'),
+            repeats: 2,
+            ..Invocation::default()
+        };
+        let mut ctx = Ctx::invoked(&mut editor, invocation);
+        assert_eq!((ctx.key_char(), ctx.repeats()), (Some('5'), 2));
+        ctx.leave_prefix(Some(Prefix::Negative));
+        assert_eq!(ctx.effects().prefix, Some(Prefix::Negative));
+    }
+
+    #[test]
+    fn c_u_is_four_and_each_more_multiplies() {
+        let once = Prefix::universal(None);
+        assert_eq!(once, Prefix::Universal(4));
+        assert_eq!(Prefix::universal(Some(once)), Prefix::Universal(16));
+        assert_eq!(
+            Prefix::universal(Some(Prefix::Universal(isize::MAX))),
+            Prefix::Universal(isize::MAX),
+            "it saturates"
+        );
+        assert_eq!(
+            Prefix::universal(Some(Prefix::Negative)),
+            Prefix::Universal(-4)
+        );
+    }
+
+    #[test]
+    fn digits_build_a_number_and_c_u_ends_it() {
+        let five = Prefix::digit(Some(Prefix::Universal(4)), 5);
+        assert_eq!(five, Prefix::Number(5), "a digit replaces what C-u means");
+        let fifty_three = Prefix::digit(Some(five), 3);
+        assert_eq!(fifty_three, Prefix::Number(53));
+        assert_eq!(Prefix::digit(None, 7), Prefix::Number(7));
+        assert_eq!(Prefix::digit(Some(Prefix::Number(0)), 7), Prefix::Number(7));
+        let closed = Prefix::universal(Some(five));
+        assert_eq!(closed, Prefix::Closed(5));
+        assert!(!closed.reads_digits() && five.reads_digits());
+        assert_eq!(Prefix::universal(Some(closed)), Prefix::Universal(4));
+        assert!(!five.reads_minus() && !closed.reads_minus());
+        assert!(Prefix::Negative.reads_minus() && Prefix::Universal(4).reads_minus());
+        assert_eq!(Prefix::digit(Some(closed), 3), Prefix::Number(53), "M-3");
+        assert_eq!(
+            Prefix::digit(Some(Prefix::Number(isize::MAX)), 9),
+            Prefix::Number(isize::MAX),
+            "it saturates"
+        );
+        assert_eq!(
+            Prefix::digit(Some(Prefix::Number(isize::MIN)), 9),
+            Prefix::Number(isize::MIN),
+        );
+    }
+
+    #[test]
+    fn minus_makes_a_negative_number() {
+        let minus = Prefix::negative(None).unwrap();
+        assert_eq!((minus, minus.value()), (Prefix::Negative, -1));
+        assert_eq!(
+            Prefix::negative(Some(Prefix::Universal(4))),
+            Some(Prefix::Negative)
+        );
+        assert_eq!(Prefix::negative(Some(minus)), None, "two cancel");
+        assert_eq!(Prefix::digit(Some(minus), 5), Prefix::Number(-5));
+        assert_eq!(Prefix::digit(Some(minus), 0), Prefix::Negative, "-0");
+        assert_eq!(
+            Prefix::digit(Some(Prefix::Number(-5)), 3),
+            Prefix::Number(-53)
+        );
+        assert_eq!(
+            Prefix::negative(Some(Prefix::Number(5))),
+            Some(Prefix::Number(-5))
+        );
+        assert_eq!(
+            Prefix::negative(Some(Prefix::Number(isize::MIN))),
+            Some(Prefix::Number(isize::MAX))
+        );
+    }
+
+    #[test]
+    fn args_read_a_prefix_as_its_number() {
+        let args = Args::with_prefix(Some(Prefix::Universal(16)));
+        assert_eq!((args.count(), args.prefix()), (16, Some(16)));
+        assert_eq!(args.raw(), Some(Prefix::Universal(16)));
+        assert_eq!(Args::with_prefix(Some(Prefix::Negative)).count(), -1);
+        assert_eq!(Args::with_prefix(None), Args::NONE);
     }
 
     #[test]
@@ -538,13 +761,7 @@ mod tests {
         let (result, effects) = run(&registry, &mut editor, "forward", Args::NONE);
         assert_eq!(result, Ok(()));
         assert_eq!(editor.window().scroll().top, 1);
-        assert_eq!(
-            effects,
-            Effects {
-                redraw: true,
-                exit: false
-            }
-        );
+        assert!(effects.redraw && !effects.exit);
         assert_eq!(
             run(&registry, &mut editor, "forward", Args::numeric(5)).0,
             Ok(())
@@ -557,13 +774,7 @@ mod tests {
         assert_eq!(editor.window().scroll().top, 4);
 
         let (_, effects) = run(&registry, &mut editor, "quit", Args::NONE);
-        assert_eq!(
-            effects,
-            Effects {
-                redraw: false,
-                exit: true
-            }
-        );
+        assert!(effects.exit && !effects.redraw);
     }
 
     #[test]
