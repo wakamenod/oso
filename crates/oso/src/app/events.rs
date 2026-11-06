@@ -11,6 +11,18 @@ use winit::window::WindowId;
 
 use super::{App, UserEvent};
 
+/// Whether `event` keeps what the app knows of the window true, rather than being input or a
+/// frame. Missing a change of modifiers would leave Control held after a leave is taken back,
+/// and every letter would then run a command.
+fn keeps_state_true(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::ModifiersChanged(_)
+            | WindowEvent::Resized(_)
+            | WindowEvent::ScaleFactorChanged { .. }
+    )
+}
+
 impl ApplicationHandler<UserEvent> for App {
     /// Called when the OS signals that the window is ready to be created (or resumed).
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -18,14 +30,18 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
-        let _ = event_loop;
         match event {
             UserEvent::Load(buffer) => {
                 self.load_updated(buffer);
             }
+            UserEvent::Save(report) => self.save_ended(event_loop, report),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.check_leaving(event_loop);
     }
 
     fn window_event(
@@ -35,17 +51,15 @@ impl ApplicationHandler<UserEvent> for App {
         event: WindowEvent,
     ) {
         // An exit only sets a flag, and winit still delivers what is queued. Input
-        // handled now, by any path, would be lost with the process, and nothing
-        // else here matters to a window about to go.
-        if self.view.is_none() || event_loop.exiting() {
+        // handled now, by any path, would be lost with the process. But a leave can be
+        // taken back, so what the window's state depends on still counts.
+        if self.view.is_none() || (self.is_leaving(event_loop) && !keeps_state_true(&event)) {
             return;
         }
 
         match event {
             // ---- Close window ----
-            WindowEvent::CloseRequested => {
-                event_loop.exit();
-            }
+            WindowEvent::CloseRequested => self.close_requested(event_loop),
 
             // ---- Resize ----
             WindowEvent::Resized(size) => self.resize(size.width, size.height),
@@ -72,5 +86,26 @@ impl ApplicationHandler<UserEvent> for App {
 
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use winit::dpi::PhysicalSize;
+    use winit::event::{Modifiers, WindowEvent};
+
+    use super::keeps_state_true;
+
+    #[test]
+    fn only_what_keeps_the_windows_state_true_passes_while_leaving() {
+        assert!(keeps_state_true(&WindowEvent::ModifiersChanged(
+            Modifiers::default()
+        )));
+        assert!(keeps_state_true(&WindowEvent::Resized(PhysicalSize::new(
+            1, 1
+        ))));
+        assert!(!keeps_state_true(&WindowEvent::RedrawRequested));
+        assert!(!keeps_state_true(&WindowEvent::CloseRequested));
+        assert!(!keeps_state_true(&WindowEvent::Focused(true)));
     }
 }

@@ -210,6 +210,9 @@ the build, and it is a reason to run `just test-time` on the Mac, which decides.
   - buffer edits on Japanese text and emoji
   - display-model mappings in both directions, with folds, inlays and wraps
   - keymap resolution and command dispatch
+  - safe save on a scratch directory, with no window and no thread (`saver::run`):
+    permissions, links, conflicts and that nothing is left beside the file. Modes that
+    need another owner or group are pure functions, as tests cannot make those files
 - Reach every command through the registry, as a user would. Key
   sequences run through the tip crate's `Dispatcher` with no window, for
   example `C-f C-f C-b` to a cursor position (`crates/oso/src/dispatch.rs`).
@@ -229,10 +232,12 @@ what you type goes into their buffers, which can fail a flow.
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
 | screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
-| secret files | path judgment to every way out: `get-state`, `get-text`, `screenshot`, `export-state`, `take-timings` and the log, also through a symlink, and `show-buffer` allows them again |
+| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions, `take-timings` and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
+| save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
+| exit guard | `C-x C-c` refuses once with unsaved text, and repeating ends the process and leaves the file as it was; after a save it needs no repeat, and a save that fails after a confirmed exit keeps the instance and the text. What resets it is tested through the `Dispatcher` |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend
@@ -252,8 +257,9 @@ quote buffer text, so use `assert_visible_row`, and do not `assert_eq!` on a sta
 that holds text.
 
 **What is still manual,** through the `verify-in-app` skill or by hand: resizing
-the window, the mouse wheel, real OS key events, IME, and `oso dev`'s build loop,
-with Ctrl-C and closing the terminal.
+the window, the mouse wheel, real OS key events, the window's close button, leaving
+while a save runs, IME, and `oso dev`'s build loop, with Ctrl-C and closing the
+terminal.
 
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
@@ -262,19 +268,22 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
 - `send-keys` sends input in Emacs notation, through the same path as keys from
   the window ([ADR 0033](adr/0033-key-presses-and-notation.md)).
 - `run-command` runs a registered command by name, with a numeric argument of at
-  most 10,000 if it takes one. Command errors and panics come back as error
-  responses.
+  most 10,000 if it takes one, or else a prefix argument the keys left. Command errors
+  and panics come back as error responses.
 - `get-state` reads the state as JSON: every buffer (name, path, whether it may
-  hold secrets, read-only reason, line ending, BOM, invalid-byte count, loading
-  progress, size), every window with its selections, the selected window's
+  hold secrets, read-only reason, whether it is modified or being saved, line ending,
+  BOM, invalid-byte count, loading progress, size), every window with its selections, the selected window's
   buffer, cursor and scroll position, its visible text, the keys of a pending
   prefix and the surface size. The visible text stops at 128 KiB and says so with
-  `truncated`. The modeline comes with M2.
+  `truncated`. The modeline comes with M2. A secret buffer has no text, no cursor,
+  no scroll position and no selections, and no size while it has edits
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
-- Secret-pattern buffers give no text and no screenshot
-  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). Any file
+- Secret-pattern buffers give no text, no screenshot and no positions
+  ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
+  [ADR 0051](adr/0051-m2-plan-decisions.md)). Any file
   counts as secret until its path is resolved, so wait for `loading` to become
   null before reading it.
 - `export-state` and `import-state` hand the state to a new instance, and `exit`

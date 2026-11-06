@@ -26,3 +26,4 @@ pub mod selection;
 pub mod sum_tree;
 mod undo;
 pub mod window;
+pub mod word;

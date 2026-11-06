@@ -1,15 +1,21 @@
 ---
 source: crates/oso/src/dispatch/grid_tests.rs
-description: "text: 0123456789\\n日本語\\n"
+description: "text: 日本語日本語日本語\\n"
 ---
-keys: C-e
-│123456789 │
-:         ^:
+wheel: none
+│日本語日本│
+:^^<><><><>:
 =          =
 "          "
 
-wheel: 1
-│▐本語     │
-:^<><>     :
+sideways: 1
+│▐本語日本▌│
+:^<><><><> :
+=          =
+"          "
+
+sideways: 1, out of view
+│本語日本語│
+:<><><><><>:
 =          =
 "          "

@@ -1,13 +1,15 @@
 //! The state one instance hands to the next on a restart, and whether it may
 //! hand over and go: `export-state`, `import-state`, `check-handover` and the
-//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055).
+//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055, ADR 0059).
 //!
 //! Must not depend on: `app`, `server`, winit or sockets; these are plain
 //! functions of the editor state, and the caller opens the files.
 //!
 //! The state holds paths and positions and never any text, so a secret file's
 //! content cannot leave through it (ADR 0044), and a response line is enough
-//! to carry it (ADR 0032). The new instance reads each file from disk, so a
+//! to carry it (ADR 0032). It holds no position in such a file either, so a window
+//! showing one starts over from the top (ADR 0051, ADR 0058). The new instance reads
+//! each file from disk, so a
 //! buffer with text no file holds cannot be handed over. Exporting one is an
 //! error that names it and quotes nothing, and the old instance stays
 //! (ADR 0051, ADR 0055). Carrying the text is M2-15.
@@ -75,11 +77,16 @@ pub fn export(
     for (id, buffer) in editor.buffers() {
         buffers.push(buffer_state(id, buffer)?);
     }
+    let at_the_top = SelectionSet::default();
     let windows: Vec<Value> = editor
         .windows()
         .map(|window| {
-            let (selections, scroll) = match restore.filter(|r| r.buffer == window.buffer()) {
+            // Positions still waiting came in with the import, and so say nothing
+            // of the text, even while a file counts as secret until it is judged.
+            let waiting = restore.filter(|r| r.buffer == window.buffer());
+            let (selections, scroll) = match waiting {
                 Some(restore) => (&restore.selections, restore.scroll),
+                None if editor.shown(window).is_secret() => (&at_the_top, Scroll::default()),
                 None => (&window.selections, window.scroll()),
             };
             json!({
@@ -125,6 +132,11 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Result<Value, String> {
 /// none of its text, if the new instance would not end up with the same text.
 fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
     match buffer.path() {
+        // The disk may end up holding what this buffer no longer does.
+        Some(_) if buffer.is_saving() => Err(format!(
+            "cannot hand over {}: it is being saved",
+            buffer.name()
+        )),
         Some(_) if buffer.is_modified() => Err(format!(
             "cannot hand over {}: it has unsaved edits",
             buffer.name()
@@ -174,9 +186,13 @@ pub fn generation(editor: &Editor) -> u64 {
 }
 
 /// Whether `exit` may go ahead. Without a generation it always may: that is a
-/// person or an agent saying so. With one, only if nothing has changed since.
+/// person or an agent saying so. With one, only if nothing has changed since and
+/// no save is running, as a new instance may already have read the old file.
 pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String> {
     match expected {
+        Some(_) if editor.buffers().any(|(_, buffer)| buffer.is_saving()) => {
+            Err(format!("{EXIT_REFUSED}: a save is running"))
+        }
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),

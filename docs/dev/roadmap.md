@@ -147,9 +147,11 @@ throughout.
     reserved.
   - **M2-8**: safe save (`C-x C-s`) on a background thread, and a guard on exiting
     with unsaved work ([ADR 0013](adr/0013-persistence.md),
-    [ADR 0029](adr/0029-file-changes-on-disk.md)).
+    [ADR 0029](adr/0029-file-changes-on-disk.md),
+    [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
   - **M2-9**: word motion with Japanese rules, `C-a`/`C-e` as in mwim, `track-eol`,
-    `C-u` and `M-<digit>`, `C-l`, and the horizontal wheel.
+    `C-u` and `M-<digit>`, `C-l`, and the horizontal wheel
+    ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - **M2-6** (after M2-5, and after the work in progress in the renderer's text pass
   merges): a list of panes drawn with clipping and layers, the base of everything
   below that draws ([ADR 0008](adr/0008-floating-ui.md)). It decides the partly shown
@@ -178,7 +180,7 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 **Everyday editing.**
 
 - **M2-13** (after M2-6): mark and region, drawn as pane decorations.
-- **M2-14** (after M2-13): kill ring, `C-w`, `M-w`, `C-k`, `C-y`, typing over a
+- **M2-14** (after M2-13): kill ring, with `M-d` and `M-DEL` as kills, `C-w`, `M-w`, `C-k`, `C-y`, typing over a
   region, per-cursor kills and the OS clipboard.
 - **M2-15** (after M2-2, M2-7, M2-13 and M2-14): `oso dev` carries unsaved text, and
   sends build errors to the echo area

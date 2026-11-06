@@ -46,8 +46,10 @@ fastest. Stable foundations live in library crates. See
 Files are read today with portable `std::fs` calls in the tip crate's
 loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 How file-system code splits between the loader and `oso-platform` is
-settled when the first OS-specific piece (opening with `O_NONBLOCK`)
-arrives; see `open-questions.md`.
+settled when the first piece that needs `libc` (opening with `O_NONBLOCK`)
+arrives; see `open-questions.md`. Saving uses `std`'s Unix file calls in
+the tip crate until then
+([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
 depends on `oso-core` and `oso-platform`, and neither of those depends on
@@ -124,8 +126,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   committed by moves that cannot panic, so a panic caught at the command boundary
   leaves nothing half applied. Read-only buffers refuse edits. See
   [ADR 0053](adr/0053-edit-core.md).
-- **Motion and scrolling** are pure functions in `oso_core::motion` and
-  `oso_core::window`. Motion steps over display clusters. After every
+- **Motion and scrolling** are pure functions in `oso_core::motion`,
+  `oso_core::word` and `oso_core::window`. Motion steps over display clusters, and what a
+  command reads is limited by a `WalkBudget`
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). After every
   command the dispatcher scrolls the window by the fewest rows and columns
   that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
   mouse wheel set the window's top row with `Window::set_top`, the one
@@ -133,7 +137,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   puts back cursors and a view saved together and then follows the cursor. A
   selected window that gets taller also pulls its top row back by at most the rows
   it gained, to fill empty rows below the last one, so one that was short at the
-  end of a buffer shows its text again. No public method sets the view alone.
+  end of a buffer shows its text again. `Editor::scroll_view_sideways`, for the wheel,
+  is the one public method that moves the view and leaves the cursor, even out of
+  view, until the next command.
 - **Undo** is linear (`oso_core::undo`, [ADR 0030](adr/0030-m2-editing-commands.md)):
   an edit after an undo discards the redo groups. A group holds one command's
   edits across all cursors, and the selected window's cursors before and after.
@@ -161,7 +167,9 @@ See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 
 - `oso_core::command`: `Command`, `Registry`, and `Ctx`, which lends a
   command the host's `Editor` and collects its requests to the host
-  (redraw, exit). `Args` carries the numeric prefix argument.
+  (redraw, exit). A request that carries data waits on the `Editor`, as a save
+  does. `Args` carries the numeric prefix argument, which the dispatcher holds between
+  keys ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - Commands live in the tip crate, one module per feature under
   `crates/oso/src/commands/`, each with a `const` table. `TABLES` in `mod.rs`
   lists the tables. Registering a name twice is an error, and the tests build
@@ -186,7 +194,8 @@ A panicking command is caught at the command boundary
   ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
-  whole key sequence decides. Only the global layer exists so far.
+  whole key sequence decides. So far the global layer exists, and a minor mode layer of
+  digits while a prefix argument is typed.
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.
@@ -313,8 +322,11 @@ The UI thread never blocks on I/O or parsing:
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
-- The event loop's user event is an enum: loader wake-ups in every build,
-  and control socket requests in dev builds.
+- Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
+  snapshot of the rope. The thread frees what only the snapshot held, then sends
+  its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- The event loop's user event is an enum: loader wake-ups and save reports in every
+  build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in
@@ -330,9 +342,20 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 There is no periodic auto-save and there are no backup files. If oso panics or
 the OS ends it, unsaved buffers are written to a private directory (mode
-`0700`, files `0600`), skipping secret-looking files. Saving uses a temporary
-file, fsync and rename. See [ADR 0013](adr/0013-persistence.md) and
-[ADR 0051](adr/0051-m2-plan-decisions.md).
+`0700`, files `0600`), skipping secret-looking files. See
+[ADR 0013](adr/0013-persistence.md) and [ADR 0051](adr/0051-m2-plan-decisions.md).
+
+Saving never touches the file until the whole new text is safely beside it. A
+command checks the buffer, ensures its final newline as an edit, and queues a job
+with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
+after the command and runs it on a thread (`saver`): a temporary file in the file's
+own directory, the file's owner and mode, fsync, a check that the file on disk is
+where and what the buffer last read or wrote (its real location, modification time and
+size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
+anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
+break. `C-x C-c` and the window's close button refuse once while a buffer is modified
+or a save runs, and a save still running at exit gets to finish. See
+[ADR 0059](adr/0059-safe-save-and-the-exit-guard.md).
 
 ## Security architecture (summary)
 
@@ -361,8 +384,8 @@ Full details are in [`security.md`](security.md).
     reads every file from disk. Unsaved content joins it with M2-15
     ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)); undo history
     does not ([ADR 0051](adr/0051-m2-plan-decisions.md)).
-  - Until then a modified buffer holds the restart, and the supervisor asks before
-    it starts anything. An instance goes only when it says so itself: the supervisor
+  - Until then a modified buffer holds the restart, as a running save does, and the
+    supervisor asks before it starts anything. An instance goes only when it says so itself: the supervisor
     never kills, the `exit` it sends carries the generation of the export, and an
     instance whose text has changed since refuses. If the old one refuses, the new
     one goes unless it has been edited too, and then both stay. Instances run in

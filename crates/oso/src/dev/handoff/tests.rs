@@ -7,7 +7,7 @@ use super::{
     exit_allowed, export, generation, import_allowed, parse,
 };
 use crate::dev::protocol::EXIT_REFUSED;
-use oso_core::buffer::{Buffer, Replacement};
+use oso_core::buffer::{Buffer, FileStamp, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::{Editor, SCRATCH};
 use oso_core::key::KeySequence;
@@ -131,6 +131,35 @@ fn a_state_never_holds_text_secret_or_not() {
         assert!(!line.contains("SECRET-VALUE"), "{line}");
         assert!(line.contains(path), "{line}");
     }
+}
+
+#[test]
+fn a_secret_files_positions_stay_out_of_the_state_and_it_starts_from_the_top() {
+    let path = absolute("/p/.env");
+    let mut editor = visiting(&path, &"line\n".repeat(50));
+    let selections = SelectionSet::new(25);
+    editor.restore_positions(selections, Scroll { top: 2, left: 1 });
+    assert_ne!(editor.window().selections.primary().cursor, 0);
+    let exported = export(&editor, &[], None, None).unwrap();
+    let state = parse(&exported).unwrap();
+    assert_eq!(state.buffers[state.shown], Some(PathBuf::from(&path)));
+    assert_eq!(state.selections, SelectionSet::default());
+    assert_eq!(state.scroll, Scroll::default());
+}
+
+#[test]
+fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
+    let mut editor = visiting(&absolute("/p/.env"), &"line\n".repeat(50));
+    editor.restore_positions(SelectionSet::new(25), Scroll { top: 2, left: 1 });
+    let other = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
+    let waiting = Restore {
+        buffer: other,
+        selections: SelectionSet::new(600),
+        scroll: Scroll { top: 40, left: 0 },
+    };
+    let state = parse(&export(&editor, &[], None, Some(&waiting)).unwrap()).unwrap();
+    assert_eq!(state.selections, SelectionSet::default());
+    assert_eq!(state.scroll, Scroll::default());
 }
 
 #[test]
@@ -456,4 +485,54 @@ fn positions_are_dropped_if_the_window_moved_on() {
     editor.show(scratch);
     assert!(restore.try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 0);
+}
+
+/// What a save reports of the file it put in place.
+fn written() -> FileStamp {
+    FileStamp {
+        modified: std::time::SystemTime::UNIX_EPOCH,
+        len: 0,
+        mode: 0o644,
+    }
+}
+
+#[test]
+fn a_running_save_holds_the_handover_and_a_guarded_exit_by_name() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let clean = generation(&editor);
+    type_text(&mut editor);
+    editor.start_save().unwrap();
+    let job = editor.take_save_jobs().pop().unwrap();
+    // An undo leaves the buffer unmodified, but the disk is about to differ from it.
+    editor.undo().unwrap();
+    assert!(!editor.current().1.is_modified());
+    assert_eq!(generation(&editor), clean);
+
+    for message in [
+        check(&editor).unwrap_err(),
+        export(&editor, &[], None, None).unwrap_err(),
+    ] {
+        assert!(message.contains("a.txt"), "{message}");
+        assert!(message.contains("being saved"), "{message}");
+        assert!(!message.contains(TYPED), "{message}");
+    }
+    let message = exit_allowed(&editor, Some(clean)).unwrap_err();
+    assert!(message.starts_with(EXIT_REFUSED), "{message}");
+    assert_eq!(exit_allowed(&editor, None), Ok(()), "a person or an agent");
+
+    editor.save_finished(job.buffer, job.content, written());
+    assert!(check(&editor).is_err(), "now modified");
+}
+
+#[test]
+fn a_finished_save_lets_the_handover_through() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    type_text(&mut editor);
+    assert!(check(&editor).is_err());
+    editor.start_save().unwrap();
+    let job = editor.take_save_jobs().pop().unwrap();
+    assert!(check(&editor).is_err());
+    editor.save_finished(job.buffer, job.content, written());
+    assert!(check(&editor).is_ok());
+    assert!(export(&editor, &[], None, None).is_ok());
 }

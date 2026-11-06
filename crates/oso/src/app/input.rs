@@ -17,7 +17,11 @@ use crate::dev;
 use crate::keys;
 
 /// Rows one notch of a mouse wheel scrolls.
-const WHEEL_ROWS: f32 = 3.0;
+const WHEEL_ROWS: f64 = 3.0;
+
+/// Columns one notch of a sideways wheel scrolls: about as far as the rows, since a
+/// cell is about half as wide as it is high.
+const WHEEL_COLUMNS: f64 = 6.0;
 
 impl App {
     /// Remembers the modifier keys held, as winit reports them.
@@ -82,21 +86,27 @@ impl App {
 
     /// Scrolls the view for the mouse wheel or the trackpad.
     pub(super) fn handle_wheel(&mut self, delta: MouseScrollDelta) {
-        // Positive deltas move the content down: the view moves up.
-        let rows = match delta {
-            MouseScrollDelta::LineDelta(_, y) => (-y * WHEEL_ROWS).round() as isize,
+        // Positive deltas move the content down and right: the view moves the other
+        // way.
+        let (rows, columns) = match delta {
+            MouseScrollDelta::LineDelta(x, y) => {
+                (-f64::from(y) * WHEEL_ROWS, -f64::from(x) * WHEEL_COLUMNS)
+            }
             MouseScrollDelta::PixelDelta(position) => {
                 let Some(view) = &self.view else {
                     return;
                 };
-                let height = f64::from(view.render_state.cell_metrics().height).max(1.0);
-                self.wheel_pixels -= position.y;
-                let rows = (self.wheel_pixels / height).trunc();
-                self.wheel_pixels -= rows * height;
-                rows as isize
+                let metrics = view.render_state.cell_metrics();
+                (
+                    -position.y / f64::from(metrics.height).max(1.0),
+                    -position.x / f64::from(metrics.width).max(1.0),
+                )
             }
         };
-        if rows != 0 && self.editor.scroll_view(rows) {
+        let (rows, columns) = self.wheel.add(rows, columns);
+        let moved_rows = rows != 0 && self.editor.scroll_view(rows);
+        let moved_columns = columns != 0 && self.editor.scroll_view_sideways(columns);
+        if moved_rows || moved_columns {
             self.request_redraw();
         }
     }
