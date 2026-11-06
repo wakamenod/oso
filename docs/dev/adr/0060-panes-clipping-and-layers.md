@@ -184,6 +184,11 @@ These ADRs stay as they are; this one changes the following:
 - A pane below the frame's top row loses the band above its first row, and every pane
   the band below its last row, so nothing paints on the next pane's row.
 - Up to a cell's width less text shows on the right, depending on the window's size.
+- A frame's CPU cost goes up a little, on a window of 99 x 32 cells of ASCII in a release
+  build (medians of 3 runs, before and after): moving the cursor 87 to 97 µs, scrolling
+  115 to 130 µs, and typing, where every row is read again, 200 to 289 µs. Key and typing
+  latency show no change at p99. A profile did not pin down the cost of typing, and
+  inlining alone moves it by 35 µs, so it stays open until it matters.
 - `Lines` cost what reading their rows costs, each frame. M2-7's modeline is short, and
   `*Messages*` is a buffer. A large float of `Lines` would need a cheap check first.
 - A `Scene` holds one `Rows` per pane id, and each is empty until the pane draws text.
