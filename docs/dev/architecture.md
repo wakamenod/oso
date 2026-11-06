@@ -416,7 +416,9 @@ Full details are in [`security.md`](security.md).
   - `take-timings` reports key latency, startup and load times to benchmarks,
     and `open-file` visits a file with the window up, so that opening can be
     timed apart from startup
-    ([ADR 0046](adr/0046-performance-regression-checks.md)).
+    ([ADR 0046](adr/0046-performance-regression-checks.md)). Keys and frames around a
+    buffer that may hold secrets stay out of them
+    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

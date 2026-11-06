@@ -35,9 +35,18 @@ impl App {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
-                let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
+                let timings = &mut self.timings;
+                let mut watch = dev::SecretWatch::new(&self.editor);
+                let effects =
+                    self.dispatcher
+                        .handle_keys_with(&mut self.editor, keys, |editor, effects| {
+                            let key = dev::HandledKey {
+                                redraw: effects.redraw,
+                                withheld: watch.after_key(editor),
+                            };
+                            timings.key_handled(received, key);
+                        });
                 log::trace!("key handled in {:?}", started.elapsed());
-                self.timings.keys_handled(received, count, effects.redraw);
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }
