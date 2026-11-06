@@ -5,13 +5,17 @@
 //!
 //! [`Editor::message`] reaches the echo area, `*Messages*` and the log. [`Editor::echo`]
 //! reaches the echo area alone, for what must stay out of the other two. So does a
-//! message from a command that began or runs around a buffer that may hold secrets,
-//! whatever the command is, since what it says can depend on the text. The dispatcher
-//! marks where a command begins and ends. The echo area keeps its text until the next
-//! key, and what was echoed around such a buffer goes as soon as it is out of view.
+//! message from a command run around a buffer that may hold secrets, whatever the command
+//! is, since what it says can depend on the text, and one from a command that took such a
+//! buffer off the screen goes nowhere. The dispatcher marks where a command begins and ends.
+//!
+//! The echo area keeps its text until the next key. What was echoed around such a buffer,
+//! or a file not yet judged, goes when the window moves on. A file judged ordinary keeps
+//! it until the next key, as no text of it had arrived. What arrives behind keys in
+//! progress waits for them to end, since they show in its place.
 
 use super::{Editor, Selected};
-use crate::buffer::{BufferId, Replacement, Verdict};
+use crate::buffer::{BufferId, Replacement};
 use crate::motion;
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
@@ -55,23 +59,12 @@ fn capped(mut text: String) -> String {
     text
 }
 
-/// What was shown when something was echoed, which decides how long it may show.
-#[derive(Clone, Copy)]
-enum Around {
-    /// Nothing that may hold secrets. It shows until the next key.
-    Nothing,
-    /// A buffer that may hold secrets, which may have been left already. It shows only
-    /// while one is shown.
-    Secret,
-    /// This file, not yet judged, and not a buffer known to hold secrets. No text of it has
-    /// arrived, so what was said is free to show if it turns out ordinary.
-    Unjudged(BufferId),
-}
-
 /// The echo area's line, until the next key.
 pub(super) struct Echo {
     text: String,
-    around: Around,
+    /// It was said around a buffer that may hold secrets, or a file not yet judged, so it
+    /// goes when the window moves on, for good.
+    goes_with_the_window: bool,
 }
 
 /// Where a window was before it showed `*Messages*`, to go back to. M2-19 removes this
@@ -90,73 +83,61 @@ impl Editor {
     /// A long one is cut, so what it says comes before any path it names.
     ///
     /// From a command run around a buffer that may hold secrets, this only reaches the
-    /// echo area, as [`Editor::echo`] does, or nothing if that buffer has left the screen.
-    /// What a command says can depend on the text: "End of buffer" says where a cursor is.
+    /// echo area, or nothing if the command took that buffer off the screen. What a command
+    /// says can depend on the text: "End of buffer" says where a cursor is.
     pub fn message(&mut self, text: impl Into<String>) {
-        match self.command_began_on_secret {
-            Some(_) if self.shows_secret() => {
-                self.echo(text);
+        if let Some(left_secret) = self.command_left_secret {
+            if left_secret {
                 return;
             }
-            Some(true) => return,
-            _ => {}
+            if self.shows_secret() {
+                self.set_echo(text);
+                return;
+            }
         }
         let text = capped(text.into());
         let shown = capped(log_text(&text));
         log::info!("{shown}");
         self.echo = Some(Echo {
             text,
-            around: Around::Nothing,
+            goes_with_the_window: false,
         });
-        // Last, so that the log and the echo area have it if this panics. That is a panic
-        // outside the command boundary like any other: the hook writes the emergency copies,
-        // and the process ends (ADR 0062). So nothing here may catch it.
+        // Last, so that the log and the echo area have it if this panics. Outside a command
+        // that is a panic like any other: the hook writes the emergency copies, and the process
+        // ends (ADR 0062). So nothing here may catch it. Inside one, the boundary catches it.
         self.add_to_messages_buffer(&shown);
     }
 
-    /// Marks that a command begins, and records whether a buffer that may hold secrets
-    /// is shown. The record holds, whatever the command does to that buffer, until
-    /// [`Editor::end_command`].
+    /// Marks that a command begins. Until [`Editor::end_command`], what it says is
+    /// held to what a buffer that may hold secrets allows.
     pub fn begin_command(&mut self) {
-        self.command_began_on_secret = Some(self.shows_secret());
+        self.command_left_secret = Some(false);
     }
 
     /// Marks that the command has ended, so that messages reach `*Messages*` and the log
     /// again. What a panic leaves comes after this: it names only the command, and is
     /// a bug to find.
     pub fn end_command(&mut self) {
-        self.command_began_on_secret = None;
+        self.command_left_secret = None;
     }
 
     /// Shows `text` in the echo area alone, for what must stay out of the log and
-    /// `*Messages*`, such as keys the user typed (ADR 0056). If a buffer that may hold
-    /// secrets is shown, it goes when no such buffer is. A message waiting to be seen behind
-    /// keys in progress comes first, as what is echoed says less.
+    /// `*Messages*`, such as keys the user typed (ADR 0056). Around a buffer that may hold
+    /// secrets, it goes when the window moves on. A command that took one off the screen
+    /// says nothing, and what waits behind keys in progress is not replaced by what
+    /// they echo, such as "Quit", which says less.
     pub fn echo(&mut self, text: impl Into<String>) {
-        if !self.keys_in_progress.is_empty() && self.echo.is_some() {
-            return;
+        let waiting = !self.keys_in_progress.is_empty() && self.echo.is_some();
+        if !waiting && self.command_left_secret != Some(true) {
+            self.set_echo(text);
         }
-        self.echo = Some(Echo {
-            text: capped(text.into()),
-            around: self.what_is_around(),
-        });
     }
 
-    /// What an echo now is said around.
-    fn what_is_around(&self) -> Around {
-        let shown = || self.windows.iter().map(|window| self.shown(window));
-        if self.command_began_on_secret == Some(true) && !self.shows_secret() {
-            return Around::Secret;
-        }
-        let decided = |buffer: &crate::buffer::Buffer| buffer.verdict() != Verdict::Unjudged;
-        if shown().any(|buffer| buffer.is_secret() && decided(buffer)) {
-            return Around::Secret;
-        }
-        let unjudged = self
-            .windows
-            .iter()
-            .find(|window| self.shown(window).verdict() == Verdict::Unjudged);
-        unjudged.map_or(Around::Nothing, |window| Around::Unjudged(window.buffer()))
+    fn set_echo(&mut self, text: impl Into<String>) {
+        self.echo = Some(Echo {
+            text: capped(text.into()),
+            goes_with_the_window: self.shows_secret(),
+        });
     }
 
     /// Empties the echo area, as the next key does in Emacs. While keys are in progress they
@@ -168,15 +149,19 @@ impl Editor {
         }
     }
 
-    /// Forgets what was echoed around a buffer that may hold secrets, as the window
-    /// moves on, so that it does not come back with the next such buffer.
-    pub(super) fn forget_withheld_echo(&mut self) {
+    /// A window is about to stop showing its buffer: what was echoed around one that may hold
+    /// secrets goes, and does not come back with the next such buffer, and a command
+    /// running then has left it.
+    pub(super) fn window_moves_on(&mut self) {
         if self
             .echo
             .as_ref()
-            .is_some_and(|echo| !matches!(echo.around, Around::Nothing))
+            .is_some_and(|echo| echo.goes_with_the_window)
         {
             self.echo = None;
+        }
+        if self.command_left_secret.is_some() && self.shows_secret() {
+            self.command_left_secret = Some(true);
         }
     }
 
@@ -192,24 +177,7 @@ impl Editor {
         if !self.keys_in_progress.is_empty() {
             return &self.keys_in_progress;
         }
-        match &self.echo {
-            Some(echo) if self.may_show(echo.around) => &echo.text,
-            _ => "",
-        }
-    }
-
-    /// Whether what was echoed around `around` may show now.
-    fn may_show(&self, around: Around) -> bool {
-        match around {
-            Around::Nothing => true,
-            Around::Secret => self.shows_secret(),
-            Around::Unjudged(id) => {
-                self.shows_secret()
-                    || self
-                        .buffer(id)
-                        .is_some_and(|buffer| buffer.verdict() == Verdict::Ordinary)
-            }
-        }
+        self.echo.as_ref().map_or("", |echo| &echo.text)
     }
 
     /// The internal buffer that keeps every message, one per row, oldest first, as the
@@ -708,6 +676,38 @@ mod tests {
             "one\ntwo\n",
             "the row went in first"
         );
+    }
+
+    #[test]
+    fn what_a_command_says_after_leaving_a_secret_for_an_unjudged_file_goes_nowhere() {
+        let mut editor = on_a_secret();
+        let plain = PathBuf::from("/tmp/plain.txt");
+        let unjudged = editor.add_buffer(Buffer::visiting(plain.clone()));
+        editor.begin_command();
+        editor.show(unjudged);
+        editor.message("End of buffer");
+        editor.echo("End of buffer");
+        editor.end_command();
+        editor
+            .buffer_mut(unjudged)
+            .unwrap()
+            .judge_secret(Some(&[plain]));
+        assert_eq!(echo(&editor), "");
+        assert_eq!(messages_text(&editor), "");
+    }
+
+    #[test]
+    fn what_a_command_says_after_passing_through_a_secret_goes_nowhere() {
+        let mut editor = Editor::with_buffer(Buffer::new("plain"));
+        let plain = editor.window().buffer();
+        let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
+        editor.begin_command();
+        editor.show(secret);
+        editor.show(plain);
+        editor.message("End of buffer");
+        editor.end_command();
+        assert_eq!(echo(&editor), "");
+        assert_eq!(messages_text(&editor), "");
     }
 
     #[test]

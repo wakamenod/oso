@@ -165,7 +165,7 @@ fn a_failure_around_a_secret_stays_in_the_echo_area() {
     assert_eq!(echo(&editor), "End of buffer");
     assert_eq!(kept_messages(&editor).len(), 0);
 
-    // Out of view, it no longer shows, whichever way the buffer went.
+    // Out of view, it no longer shows.
     let other = editor.add_buffer(Buffer::new("other"));
     editor.show(other);
     assert_eq!(echo(&editor), "");
@@ -178,7 +178,7 @@ fn a_failure_around_a_secret_stays_in_the_echo_area() {
 }
 
 #[test]
-fn a_message_a_command_leaves_around_a_secret_stays_out_of_the_log_too() {
+fn a_message_a_command_leaves_around_a_secret_stays_out_of_the_messages_too() {
     let mut dispatcher = Dispatcher::new();
     let mut editor = on_a_secret("KEY=value\n");
     // Saving an unmodified buffer calls `Editor::message` itself, and returns no error.
@@ -273,4 +273,16 @@ fn going_to_the_messages_and_back_keeps_the_goal_of_c_n() {
         editor.window().selections.primary().cursor,
         "ab\ncdef".len()
     );
+}
+
+#[test]
+fn a_refused_exit_around_a_secret_replaces_a_message_waiting_behind_its_keys() {
+    let mut dispatcher = Dispatcher::new();
+    let mut editor = on_a_secret("KEY=value\n");
+    send(&mut dispatcher, &mut editor, "a C-x");
+    editor.message("Wrote /tmp/.env");
+    send(&mut dispatcher, &mut editor, "C-c");
+    assert_eq!(echo(&editor), "1 modified buffer; repeat to exit anyway");
+    send(&mut dispatcher, &mut editor, "C-f");
+    assert_eq!(echo(&editor), "");
 }

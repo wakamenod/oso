@@ -314,7 +314,8 @@ impl Dispatcher {
     /// Handles one key press: waits on a prefix, or runs the command the
     /// keys resolve to. Returns what the host should do: redraw only when a
     /// command changed something visible, and exit when one asked to. The echo
-    /// area empties first, as in Emacs, and then says what the key left.
+    /// area empties first, as in Emacs, but for what waits behind keys in progress, and
+    /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         editor.clear_echo();
         let effects = self.resolve_key(editor, key);

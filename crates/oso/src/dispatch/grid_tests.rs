@@ -598,6 +598,21 @@ mod scenarios {
     }
 
     #[test]
+    fn a_secret_buffers_modeline_says_no_position() {
+        let path = std::path::PathBuf::from("/tmp/.env");
+        let mut buffer = Buffer::visiting(path.clone());
+        let text = b"KEY=value\n";
+        buffer.apply_load(oso_core::load::decode_all(text, Default::default()));
+        buffer.judge_secret(Some(&[path]));
+        let mut editor = Editor::with_buffer(buffer);
+        editor.set_frame_size(FrameSize {
+            rows: 4,
+            columns: 40,
+        });
+        assert_frames("status_secret_buffer", text, &[text_grid(&editor)]);
+    }
+
+    #[test]
     fn the_messages_buffer_shows_what_was_said() {
         check_frame(
             "status_messages_buffer",

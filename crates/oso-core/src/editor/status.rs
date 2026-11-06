@@ -28,7 +28,8 @@ use crate::window::Window;
 const BIDI_WARNING: &str = "[bidi controls] ";
 /// Says that the file changed under unsaved edits (ADR 0029).
 const DISK_WARNING: &str = "[changed on disk] ";
-/// What the modeline says in place of a position, while a buffer may hold secrets.
+/// What the modeline says in place of a position, in a buffer judged to hold secrets, or
+/// that may.
 const NO_POSITION: &str = "secret";
 /// The major mode, until modes arrive (M3).
 const MODE: &str = "Fundamental";
@@ -134,20 +135,22 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             None => write!(out, "Loading {} MiB{GAP}", progress.read >> 20),
         };
     }
-    if buffer.verdict() == Verdict::Unjudged {
-        // Nothing has loaded, and whether it may hold secrets is not known yet, so no
-        // position shows and nothing calls it a secret.
-    } else if buffer.is_secret() {
-        out.push_str(NO_POSITION);
-        out.push_str(GAP);
-    } else {
-        let point = window.cursor_point(&buffer.display());
-        let _ = write!(out, "{}:{}", point.row + 1, point.column);
-        let cursors = window.selections.len();
-        if cursors > 1 {
-            let _ = write!(out, " ({cursors} cursors)");
+    match buffer.verdict() {
+        // Nothing has loaded, and whether it may hold secrets is not known yet.
+        Verdict::Unjudged => {}
+        Verdict::Ordinary => {
+            let point = window.cursor_point(&buffer.display());
+            let _ = write!(out, "{}:{}", point.row + 1, point.column);
+            let cursors = window.selections.len();
+            if cursors > 1 {
+                let _ = write!(out, " ({cursors} cursors)");
+            }
+            out.push_str(GAP);
         }
-        out.push_str(GAP);
+        Verdict::Unresolved | Verdict::SecretName => {
+            out.push_str(NO_POSITION);
+            out.push_str(GAP);
+        }
     }
     out.push_str(MODE);
     out.push_str(GAP);
@@ -392,6 +395,17 @@ mod tests {
         let status = status(&editor);
         assert_eq!(status.state, "secret  Fundamental  UTF-8 LF");
         assert_eq!(status.name, "-- .env  ");
+    }
+
+    #[test]
+    fn a_file_that_could_not_be_judged_counts_as_secret() {
+        let mut buffer = Buffer::visiting(PathBuf::from("/tmp/notes.txt"));
+        buffer.judge_unresolved(&[]);
+        let editor = Editor::with_buffer(buffer);
+        assert_eq!(
+            status(&editor).state,
+            "Loading 0 MiB  secret  Fundamental  UTF-8 LF"
+        );
     }
 
     #[test]

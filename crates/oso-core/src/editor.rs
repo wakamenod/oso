@@ -99,8 +99,9 @@ pub struct Editor {
     join_ready: bool,
     /// The internal buffer that keeps every message.
     messages_buffer: BufferId,
-    /// While a command runs, whether a buffer that may hold secrets was shown as it began.
-    command_began_on_secret: Option<bool>,
+    /// While a command runs, whether it has taken a buffer that may hold secrets off the
+    /// screen. This holds whatever then becomes of that buffer.
+    command_left_secret: Option<bool>,
     /// Where the selected window was before it showed `*Messages*`.
     before_messages: Option<messages::Place>,
     /// The echo area's line, until the next key.
@@ -133,7 +134,7 @@ impl Editor {
             undo_scope: None,
             join_ready: false,
             messages_buffer: BufferId(0),
-            command_began_on_secret: None,
+            command_left_secret: None,
             before_messages: None,
             echo: None,
             keys_in_progress: String::new(),
@@ -181,8 +182,8 @@ impl Editor {
     /// for an id that does not exist.
     pub fn show(&mut self, buffer: BufferId) {
         if self.buffer(buffer).is_some() {
+            self.window_moves_on();
             self.windows[self.selected].show(buffer);
-            self.forget_withheld_echo();
         }
     }
 
@@ -192,11 +193,14 @@ impl Editor {
         if self.buffer(id).is_some_and(Buffer::is_internal) {
             return;
         }
+        let shown = self.windows.iter().any(|window| window.buffer() == id);
+        if shown {
+            self.window_moves_on();
+        }
         self.buffers.retain(|(other, _)| *other != id);
-        if self.windows.iter().all(|window| window.buffer() != id) {
+        if !shown {
             return;
         }
-        self.forget_withheld_echo();
         let scratch = self.scratch();
         for window in &mut self.windows {
             if window.buffer() == id {

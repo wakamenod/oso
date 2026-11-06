@@ -237,6 +237,9 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
 /// window then has no `*scratch*` to start from.
 pub fn import_allowed(editor: &Editor) -> Result<(), String> {
     let (_, scratch) = editor.current();
+    if scratch.is_internal() {
+        return Err(format!("this instance's window has no {SCRATCH} in view"));
+    }
     if editor.buffers().count() > 1 || scratch.name() != SCRATCH {
         return Err("this instance has already opened something".into());
     }
