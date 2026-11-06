@@ -57,7 +57,8 @@ fn main() {
 
     env_logger::init();
     if let Err(e) = core_dumps {
-        log::warn!("cannot turn core dumps off: {e}");
+        // Only this level reaches a terminal with no `RUST_LOG`.
+        log::error!("cannot turn core dumps off: {e}");
     }
     let emergency = Emergency::new(emergency_directory.or_else(emergency::default_directory));
     emergency.install_hook();

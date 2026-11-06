@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::{Scratch, published, scratch_editor, texts};
+use super::{Scratch, file_buffer, published, scratch_editor, texts};
 use crate::emergency::hook::{Place, on_panic, place_of, say_to};
 use crate::emergency::{Limits, Why};
 
@@ -57,6 +57,38 @@ fn a_slow_write_that_ticks_is_not_given_up_on() {
         Ok(())
     });
     assert_eq!(report.wrote, 1);
+}
+
+#[test]
+fn the_smallest_go_first_so_that_a_huge_buffer_stuck_on_a_slow_disk_costs_only_itself() {
+    let scratch = Scratch::new();
+    let mut editor = scratch_editor(&"huge".repeat(100));
+    file_buffer(&mut editor, "/p/small.txt", Some(&[]), "s");
+    file_buffer(&mut editor, "/p/medium.txt", Some(&[]), "medium");
+    let emergency = published(&scratch.copies(), &editor);
+    let (release, stuck) = stuck();
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let seen = Arc::clone(&order);
+    let limits = Limits {
+        stall: Duration::from_millis(100),
+        sync: Duration::from_secs(600),
+    };
+    let report = emergency
+        .shared
+        .write_copies_with(limits, move |_, entry, _| {
+            seen.lock().unwrap().push(entry.identity.name.clone());
+            if entry.identity.name == "*scratch*" {
+                let _ = stuck.lock().unwrap().recv();
+            }
+            Ok(())
+        });
+    assert_eq!(
+        *order.lock().unwrap(),
+        ["small.txt", "medium.txt", "*scratch*"],
+        "by the length of the text and not the order of the buffers"
+    );
+    assert_eq!((report.wrote, report.failed), (2, 1));
+    drop(release);
 }
 
 #[test]

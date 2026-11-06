@@ -72,6 +72,11 @@ item notes when it must be settled.
   declined, or after some time. A copy of a state that a save finished at that same moment equals its file, and should not be offered. A `.txt`
   with no `.meta` is a whole text from a crash between the two renames. On a file system that ignores case or normalizes names, a file opened under
   another spelling has another hash and location, so a copy could go unoffered: decide whether a location should take the file's own spelling, or recovery should compare files.
+- The emergency save, small things to settle ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)):
+  - `write_copy` drops what `unless_unsupported` returns, so its report says nothing when a file system cannot confirm a sync, as a save's message does.
+  - A panic that cannot unwind under a command aborts without the copies, as the hook takes the first panic under a command to be caught.
+  - A caught panic does not wait for its printing thread, so these threads can pile up while stderr is blocked.
+  - `write_copies_with` records what it wrote only if `try_lock` gives `Ok`, while `select` also takes a poisoned lock. At worst a copy is written twice.
 - `saver::write_text` and `emergency::write`'s `write_text` are near copies, as are their checks that the whole text was kept. Join them if a third user arrives.
 - By M2-14 and M2-18: `Verdict` gains a variant for a tainting yank, which judging a path again must not clear, M2-14 decides whether a kill from an `Unresolved`
   buffer taints, and `C-x C-w` must give an entry in the emergency state a new identity, as its path changes with no text change

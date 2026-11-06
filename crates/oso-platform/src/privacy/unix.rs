@@ -59,14 +59,47 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
     }
 }
 
-/// Whether the directory at `path` would be refused, creating nothing.
+/// Whether the directory at `path` could not be used, as far as can be told creating nothing:
+/// it would be refused, or this user could not write to it or create it. The modes say that, and
+/// an access list could say otherwise, which is why this only warns, and opening does not ask.
 pub(super) fn check_private(path: &Path) -> io::Result<()> {
-    check_the_way(path)?;
+    let deepest = check_the_way(path)?;
     match fs::symlink_metadata(path) {
-        Ok(meta) => check_itself(path, &meta),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Ok(meta) => {
+            check_itself(path, &meta)?;
+            check_writable(path, &meta)
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let meta =
+                fs::metadata(&deepest).map_err(|e| with_path(&e, "cannot inspect", &deepest))?;
+            check_writable(&deepest, &meta)
+        }
         Err(e) => Err(with_path(&e, "cannot inspect", path)),
     }
+}
+
+/// Refuses a directory where this user could not make a file.
+fn check_writable(directory: &Path, meta: &fs::Metadata) -> io::Result<()> {
+    if can_write_in(meta.mode(), meta.uid(), euid()) {
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("this user cannot write in {}", directory.display()),
+        ))
+    }
+}
+
+/// Whether `euid` can make a file in a directory with `mode` and `owner`, which needs writing and
+/// searching. Whose group it is cannot be told simply, but what leads to a private directory
+/// cannot be group-writable unless sticky, so only the other bits are left to look at.
+fn can_write_in(mode: u32, owner: u32, euid: u32) -> bool {
+    euid == 0
+        || if owner == euid {
+            mode & 0o300 == 0o300
+        } else {
+            mode & 0o003 == 0o003
+        }
 }
 
 /// Makes sure of the directory at `path`, creating it if missing, and what leads to it with
@@ -100,8 +133,9 @@ struct Step {
 /// Walks the way to the directory at `path`, one name at a time and as the system would,
 /// through every link and every directory it passes, whether or not they are on the path as
 /// written. Each must keep other users out. A name still missing is what `open_private` will
-/// create, unless a link led to it, as a link to nothing can be made to lead anywhere.
-fn check_the_way(path: &Path) -> io::Result<()> {
+/// create, unless a link led to it, as a link to nothing can be made to lead anywhere. Returns
+/// the deepest directory that exists on the way, with no links in it.
+fn check_the_way(path: &Path) -> io::Result<PathBuf> {
     let parent = path.parent().unwrap_or(Path::new(""));
     let mut steps: VecDeque<Step> = steps_of(parent, false);
     let mut current = PathBuf::new();
@@ -114,7 +148,9 @@ fn check_the_way(path: &Path) -> io::Result<()> {
         let next = current.join(&step.part);
         let meta = match fs::symlink_metadata(&next) {
             Ok(meta) => meta,
-            Err(e) if e.kind() == io::ErrorKind::NotFound && !step.from_link => return Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound && !step.from_link => {
+                return Ok(current);
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 return Err(refused(&next, "is missing, where a link leads"));
             }
@@ -136,7 +172,7 @@ fn check_the_way(path: &Path) -> io::Result<()> {
             return Err(refused(&next, "is not a directory"));
         }
     }
-    Ok(())
+    Ok(current)
 }
 
 /// The steps of `path`. A root stays a step, and joining it starts again from there.
@@ -199,7 +235,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::{disable_core_dumps, euid};
+    use super::{can_write_in, disable_core_dumps, euid};
     use crate::privacy::PrivateDir;
 
     /// A fresh scratch directory for one test, removed when dropped.
@@ -441,6 +477,64 @@ mod tests {
         PrivateDir::check(&path).unwrap();
         fs::set_permissions(&path, Permissions::from_mode(0o750)).unwrap();
         assert!(PrivateDir::check(&path).is_err());
+    }
+
+    #[test]
+    fn who_can_make_a_file_in_a_directory_goes_by_the_owners_or_others_bits() {
+        // Mode, owner, this user.
+        assert!(can_write_in(0o700, 501, 501));
+        assert!(!can_write_in(0o500, 501, 501), "no writing");
+        assert!(!can_write_in(0o600, 501, 501), "no searching");
+        assert!(!can_write_in(0o755, 0, 501), "root's");
+        assert!(can_write_in(0o1777, 0, 501), "like /tmp");
+        assert!(
+            !can_write_in(0o1775, 0, 501),
+            "a sticky one only its group can write"
+        );
+        assert!(can_write_in(0o500, 501, 0), "root writes anywhere");
+    }
+
+    #[test]
+    fn checking_finds_a_directory_this_user_could_not_write_and_creates_nothing() {
+        // Root can write anywhere, so nothing here would be refused.
+        if euid() == 0 {
+            return;
+        }
+        let scratch = Scratch::new();
+        let closed = scratch.join("closed");
+        fs::create_dir(&closed).unwrap();
+
+        fs::set_permissions(&closed, Permissions::from_mode(0o500)).unwrap();
+        let err = PrivateDir::check(&closed).unwrap_err();
+        assert!(err.to_string().contains("cannot write in"), "{err}");
+
+        let inside = closed.join("oso").join("emergency");
+        let err = PrivateDir::check(&inside).unwrap_err();
+        assert!(err.to_string().contains("cannot write in"), "{err}");
+        assert!(!closed.join("oso").exists(), "nothing new appears");
+        // Opening does not ask: the system's answer is the one that counts there.
+        assert!(PrivateDir::open(&inside).is_err());
+
+        fs::set_permissions(&closed, Permissions::from_mode(0o700)).unwrap();
+        PrivateDir::check(&inside).unwrap();
+        // Mode `0500` passes as a control socket's directory: this rule is not in `check_dir`.
+        fs::set_permissions(&closed, Permissions::from_mode(0o500)).unwrap();
+        assert!(PrivateDir::open(&closed).is_ok());
+        fs::set_permissions(&closed, Permissions::from_mode(0o700)).unwrap();
+    }
+
+    #[test]
+    fn checking_follows_a_link_to_the_directory_it_really_would_write_in() {
+        if euid() == 0 {
+            return;
+        }
+        let scratch = Scratch::new();
+        let closed = scratch.join("closed");
+        fs::create_dir(&closed).unwrap();
+        fs::set_permissions(&closed, Permissions::from_mode(0o500)).unwrap();
+        std::os::unix::fs::symlink(&closed, scratch.join("link")).unwrap();
+        assert!(PrivateDir::check(&scratch.join("link").join("d")).is_err());
+        fs::set_permissions(&closed, Permissions::from_mode(0o700)).unwrap();
     }
 
     #[test]

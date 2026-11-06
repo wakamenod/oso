@@ -113,7 +113,7 @@ fn edit(editor: &mut Editor, id: BufferId, text: &str) {
 }
 
 /// A file buffer, loaded and judged, with `text` typed into it.
-fn file_buffer(
+pub(super) fn file_buffer(
     editor: &mut Editor,
     path: &str,
     resolved: Option<&[PathBuf]>,

@@ -64,12 +64,13 @@ impl PrivateDir {
         Ok(Self { path })
     }
 
-    /// Whether [`Self::open`] would refuse the directory at `path`, creating nothing. It
-    /// touches the disk, so it belongs off the UI thread.
+    /// Whether the directory at `path` could not be used, as far as can be told creating
+    /// nothing: [`Self::open`] would refuse it, or by its mode this user could not write to it
+    /// or create it. It touches the disk, so it belongs off the UI thread.
     ///
     /// # Errors
     ///
-    /// Why it would be refused. The message names the path and why.
+    /// Why it could not be used. The message names the path and why.
     pub fn check(path: &Path) -> io::Result<()> {
         backend::check_private(&plain(path)?)
     }

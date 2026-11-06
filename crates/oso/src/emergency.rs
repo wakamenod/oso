@@ -283,13 +283,16 @@ impl Shared {
         let new = |entry: &&Entry| {
             wanted(agreement, entry) && !state.written.contains(&(entry.buffer, entry.content))
         };
-        let to_write = state
+        let mut to_write: Vec<Entry> = state
             .entries
             .iter()
             .filter(new)
             .filter(|entry| entry.text.is_some())
             .cloned()
             .collect();
+        // Smallest first, as giving up on a stall ends the whole run: one huge buffer on a slow
+        // disk must not cost the small ones behind it.
+        to_write.sort_by_key(|entry| entry.text.as_ref().map_or(0, Rope::len));
         let withheld = state
             .entries
             .iter()

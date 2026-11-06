@@ -36,7 +36,8 @@ What remains is how it can work at all:
 - **Copies are written on a thread of their own, and each buffer under its own `catch_unwind`.** That is the only way a
   panic in the writer can cost one buffer and not all of them, as a panic inside the hook itself would abort. If no thread can
   start, it writes on the panicking thread, where a panic does cost the rest. The hook waits as long as the writer gets
-  somewhere: it ticks every megabyte, and after 30 s without one the hook goes on. A sync says nothing until it is done, however
+  somewhere: it ticks every megabyte, and after 30 s without one the hook goes on. **The smallest go first, by the length of the text,** as giving up ends the whole run, so one huge
+  buffer on a slow disk costs only itself. A sync says nothing until it is done, however
   far it has got, so it has an allowance of its own, 5 minutes, which covers 2 GiB at 10 MB/s. So the biggest buffer on a slow disk keeps its
   copy, and a stuck network home directory still cannot hang a process that is ending for good. What is given up on leaves its temporary file.
 - **The stack is captured after the copies too,** as a capture walks the stack and takes a lock of `std`'s, either of which must not stand before them.
@@ -109,7 +110,9 @@ What remains is how it can work at all:
   A link to nothing on the way is refused, and so is a path with `..`. It runs before anything is created, so a refused place gets nothing new, and again after, for what it judged only then. `control`
   uses the same checks of one directory, and has its own walk, as a dev tool's. Windows has no modes, and relies on the per-user place, whose access list the directory inherits.
 - If it cannot be made safe, nothing is written, and the report says so and names it.
-- **This is also found out at startup,** by `PrivateDir::check` on a thread of its own, which creates nothing, and said with `Editor::message` and in the log at the `error` level, which reaches
+- **This is also found out at startup,** by `PrivateDir::check` on a thread of its own, which creates nothing. Besides what opening refuses, it says when by their modes this user could not write in the
+  directory, or in the last directory that exists on the way, as a directory of mode `0500` or a `~/.local` of root's would otherwise fail only at the crash. An access list could say otherwise, so this
+  only warns: opening does not ask, and `check_dir` and the control socket are as they were. It is said with `Editor::message` and in the log at the `error` level, which reaches
   a terminal with no `RUST_LOG`, as nothing shows messages until M2-7, and finding out at the crash would lose all the text. A
   group-writable directory on the way is refused even if that group holds only this user, as with user-private groups and `umask 002`. Knowing that it does means reading the group and user
   databases, through more `unsafe` and whatever name service they use, and being wrong costs the copies' safety. So the person is told at startup, and can `chmod g-w` it.
