@@ -20,10 +20,12 @@ use crate::{bindings, commands};
 const REDRAW: Effects = Effects {
     redraw: true,
     exit: false,
+    prefix: None,
 };
 const NOTHING: Effects = Effects {
     redraw: false,
     exit: false,
+    prefix: None,
 };
 
 fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str) -> Effects {
@@ -71,17 +73,17 @@ fn cursors(editor: &Editor) -> Vec<usize> {
     selections.map(|selection| selection.cursor).collect()
 }
 
-/// Runs a command with a numeric argument and input, as a key press will once
-/// `C-u` is read.
+/// Runs a command with a numeric argument and input, as a key press after `C-u`
+/// does.
 fn run(
-    dispatcher: &Dispatcher,
+    dispatcher: &mut Dispatcher,
     editor: &mut Editor,
     name: &str,
     count: isize,
     input: &str,
 ) -> (Effects, Result<(), String>) {
     let id = dispatcher.registry.lookup(name).unwrap();
-    let (effects, result) = dispatcher.execute(editor, id, Args::numeric(count), input);
+    let (effects, result) = dispatcher.execute(editor, id, Args::numeric(count), input, None);
     (effects, result.map_err(|e| e.to_string()))
 }
 
@@ -170,12 +172,12 @@ mod scenarios {
 
     #[test]
     fn a_numeric_argument_repeats_what_is_typed() {
-        let (dispatcher, mut editor) = at("xy", &[1]);
-        let (effects, result) = run(&dispatcher, &mut editor, "self-insert-command", 3, "語");
+        let (mut dispatcher, mut editor) = at("xy", &[1]);
+        let (effects, result) = run(&mut dispatcher, &mut editor, "self-insert-command", 3, "語");
         assert_eq!((effects, result), (REDRAW, Ok(())));
         assert_eq!(text(&editor), "x語語語y");
         assert_eq!(cursor(&editor), 10);
-        let (effects, result) = run(&dispatcher, &mut editor, "self-insert-command", 0, "語");
+        let (effects, result) = run(&mut dispatcher, &mut editor, "self-insert-command", 0, "語");
         assert_eq!((effects, result), (NOTHING, Ok(())), "nothing to draw");
         for (count, message) in [
             (-1, "Negative repetition argument -1"),
@@ -185,8 +187,13 @@ mod scenarios {
             ),
             (isize::MAX, "Too much text to insert"),
         ] {
-            let (effects, result) =
-                run(&dispatcher, &mut editor, "self-insert-command", count, "a");
+            let (effects, result) = run(
+                &mut dispatcher,
+                &mut editor,
+                "self-insert-command",
+                count,
+                "a",
+            );
             assert_eq!(effects, NOTHING, "{count}");
             assert_eq!(result, Err(format!("self-insert-command: {message}")));
         }
@@ -198,8 +205,8 @@ mod scenarios {
         const LIMIT: isize = 16 * 1024 * 1024;
         let too_much = Err("self-insert-command: Too much text to insert".to_owned());
         let insert = |editor: &mut Editor, count, input| {
-            let dispatcher = Dispatcher::new();
-            run(&dispatcher, editor, "self-insert-command", count, input)
+            let mut dispatcher = Dispatcher::new();
+            run(&mut dispatcher, editor, "self-insert-command", count, input)
         };
         let (_, mut editor) = at("ab", &[0, 1]);
         assert_eq!(
@@ -218,7 +225,7 @@ mod scenarios {
 
     #[test]
     fn self_insert_with_no_text_signals() {
-        let dispatcher = Dispatcher::new();
+        let mut dispatcher = Dispatcher::new();
         let mut editor = editor("");
         let (effects, result) = dispatcher.run_command(&mut editor, "self-insert-command", None);
         assert_eq!(effects, NOTHING);
@@ -300,8 +307,8 @@ mod scenarios {
         assert_eq!(cursor(&editor), 1);
 
         // At every cursor, and with a count.
-        let (dispatcher, mut editor) = at("ab\r\n", &[0, 1]);
-        let (_, result) = run(&dispatcher, &mut editor, "newline", 2, "");
+        let (mut dispatcher, mut editor) = at("ab\r\n", &[0, 1]);
+        let (_, result) = run(&mut dispatcher, &mut editor, "newline", 2, "");
         assert_eq!(result, Ok(()));
         assert_eq!(text(&editor), "\r\n\r\na\r\n\r\nb\r\n");
         assert_eq!(cursors(&editor), [4, 9]);
@@ -309,10 +316,10 @@ mod scenarios {
 
     #[test]
     fn ret_takes_counts_as_typing_does() {
-        let (dispatcher, mut editor) = at("", &[0]);
-        let (effects, result) = run(&dispatcher, &mut editor, "newline", 0, "");
+        let (mut dispatcher, mut editor) = at("", &[0]);
+        let (effects, result) = run(&mut dispatcher, &mut editor, "newline", 0, "");
         assert_eq!((effects, result), (NOTHING, Ok(())));
-        let (effects, result) = run(&dispatcher, &mut editor, "newline", isize::MIN, "");
+        let (effects, result) = run(&mut dispatcher, &mut editor, "newline", isize::MIN, "");
         assert_eq!(effects, NOTHING);
         assert!(result.unwrap_err().contains("Negative repetition"));
         assert_eq!(text(&editor), "");
@@ -354,8 +361,8 @@ mod scenarios {
 
     #[test]
     fn a_count_deletes_that_many_or_nothing() {
-        let (dispatcher, mut editor) = at("a日本語cd", &[10]);
-        let mut del = |name, count| run(&dispatcher, &mut editor, name, count, "");
+        let (mut dispatcher, mut editor) = at("a日本語cd", &[10]);
+        let mut del = |name, count| run(&mut dispatcher, &mut editor, name, count, "");
         assert_eq!(del("delete-char", 0), (NOTHING, Ok(())));
         assert_eq!(del("delete-backward-char", 0), (NOTHING, Ok(())));
         assert_eq!(del("delete-backward-char", 2), (REDRAW, Ok(())));
@@ -394,8 +401,8 @@ mod scenarios {
         assert_eq!(cursors(&editor), [0]);
 
         // Ranges that overlap become their union.
-        let (dispatcher, mut editor) = at("abcdef", &[1, 2]);
-        let (_, result) = run(&dispatcher, &mut editor, "delete-char", 2, "");
+        let (mut dispatcher, mut editor) = at("abcdef", &[1, 2]);
+        let (_, result) = run(&mut dispatcher, &mut editor, "delete-char", 2, "");
         assert_eq!(result, Ok(()));
         assert_eq!(text(&editor), "aef");
         assert_eq!(cursors(&editor), [1]);
@@ -620,8 +627,8 @@ mod scenarios {
     fn only_a_single_character_joins() {
         let (mut dispatcher, mut editor) = at("", &[0]);
         let typed = |editor: &mut Editor, count| {
-            let dispatcher = Dispatcher::new();
-            let _ = run(&dispatcher, editor, "self-insert-command", count, "a");
+            let mut dispatcher = Dispatcher::new();
+            let _ = run(&mut dispatcher, editor, "self-insert-command", count, "a");
         };
         // As in Emacs, a count over 1 joins nothing and nothing joins it.
         send(&mut dispatcher, &mut editor, "b");
@@ -652,11 +659,12 @@ mod scenarios {
 
     #[test]
     fn counts_cross_several_steps_and_stop_at_the_end_of_the_history() {
-        let (dispatcher, mut editor) = at("", &[0]);
+        let (mut dispatcher, mut editor) = at("", &[0]);
         for _ in 0..3 {
-            let _ = run(&dispatcher, &mut editor, "newline", 1, "");
+            let _ = run(&mut dispatcher, &mut editor, "newline", 1, "");
         }
-        let cross = |editor: &mut Editor, name, count| run(&dispatcher, editor, name, count, "");
+        let mut cross =
+            |editor: &mut Editor, name, count| run(&mut dispatcher, editor, name, count, "");
         assert_eq!(cross(&mut editor, "undo", 0), (NOTHING, Ok(())));
         assert_eq!(cross(&mut editor, "undo", 2), (REDRAW, Ok(())));
         assert_eq!(cross(&mut editor, "undo-redo", 1), (REDRAW, Ok(())));

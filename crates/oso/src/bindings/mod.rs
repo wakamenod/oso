@@ -6,6 +6,7 @@
 
 mod edit;
 mod motion;
+mod prefix;
 mod save;
 mod scroll;
 mod session;
@@ -21,6 +22,7 @@ use oso_core::keymap::Keymap;
 const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
     motion::BINDINGS,
+    prefix::BINDINGS,
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
@@ -42,9 +44,17 @@ pub fn global_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
+/// The keymaps active while a prefix argument reads digits and a minus sign, above
+/// the global one (ADR 0058). Empty for a registry without their commands, as in
+/// tests that bring their own: such a prefix never starts.
+pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
+    let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
+    (keymap(prefix::DIGITS), keymap(prefix::MINUS))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{TABLES, global_keymap};
+    use super::{TABLES, global_keymap, prefix, prefix_keymaps};
     use crate::commands;
     use oso_core::key::KeySequence;
     use oso_core::keymap::{Binding, Keymap};
@@ -60,6 +70,13 @@ mod tests {
             };
             assert_eq!(registry.get(id).unwrap().name, name);
         }
+    }
+
+    #[test]
+    fn the_prefix_keymaps_bind_all_their_rows() {
+        let (digits, minus) = prefix_keymaps(&commands::registry());
+        assert_eq!(digits.len(), prefix::DIGITS.len());
+        assert_eq!(minus.len(), prefix::MINUS.len());
     }
 
     /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means

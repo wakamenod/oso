@@ -126,8 +126,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   committed by moves that cannot panic, so a panic caught at the command boundary
   leaves nothing half applied. Read-only buffers refuse edits. See
   [ADR 0053](adr/0053-edit-core.md).
-- **Motion and scrolling** are pure functions in `oso_core::motion` and
-  `oso_core::window`. Motion steps over display clusters. After every
+- **Motion and scrolling** are pure functions in `oso_core::motion`,
+  `oso_core::word` and `oso_core::window`. Motion steps over display clusters, and what a
+  command reads is limited by a `WalkBudget`
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). After every
   command the dispatcher scrolls the window by the fewest rows and columns
   that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
   mouse wheel set the window's top row with `Window::set_top`, the one
@@ -135,7 +137,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   puts back cursors and a view saved together and then follows the cursor. A
   selected window that gets taller also pulls its top row back by at most the rows
   it gained, to fill empty rows below the last one, so one that was short at the
-  end of a buffer shows its text again. No public method sets the view alone.
+  end of a buffer shows its text again. `Editor::scroll_view_sideways`, for the wheel,
+  is the one public method that moves the view and leaves the cursor, even out of
+  view, until the next command.
 - **Undo** is linear (`oso_core::undo`, [ADR 0030](adr/0030-m2-editing-commands.md)):
   an edit after an undo discards the redo groups. A group holds one command's
   edits across all cursors, and the selected window's cursors before and after.
@@ -164,7 +168,8 @@ See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 - `oso_core::command`: `Command`, `Registry`, and `Ctx`, which lends a
   command the host's `Editor` and collects its requests to the host
   (redraw, exit). A request that carries data waits on the `Editor`, as a save
-  does. `Args` carries the numeric prefix argument.
+  does. `Args` carries the numeric prefix argument, which the dispatcher holds between
+  keys ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - Commands live in the tip crate, one module per feature under
   `crates/oso/src/commands/`, each with a `const` table. `TABLES` in `mod.rs`
   lists the tables. Registering a name twice is an error, and the tests build
@@ -189,7 +194,8 @@ A panicking command is caught at the command boundary
   ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
-  whole key sequence decides. Only the global layer exists so far.
+  whole key sequence decides. So far the global layer exists, and a minor mode layer of
+  digits while a prefix argument is typed.
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.

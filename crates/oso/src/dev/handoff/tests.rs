@@ -134,6 +134,35 @@ fn a_state_never_holds_text_secret_or_not() {
 }
 
 #[test]
+fn a_secret_files_positions_stay_out_of_the_state_and_it_starts_from_the_top() {
+    let path = absolute("/p/.env");
+    let mut editor = visiting(&path, &"line\n".repeat(50));
+    let selections = SelectionSet::new(25);
+    editor.restore_positions(selections, Scroll { top: 2, left: 1 });
+    assert_ne!(editor.window().selections.primary().cursor, 0);
+    let exported = export(&editor, &[], None, None).unwrap();
+    let state = parse(&exported).unwrap();
+    assert_eq!(state.buffers[state.shown], Some(PathBuf::from(&path)));
+    assert_eq!(state.selections, SelectionSet::default());
+    assert_eq!(state.scroll, Scroll::default());
+}
+
+#[test]
+fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
+    let mut editor = visiting(&absolute("/p/.env"), &"line\n".repeat(50));
+    editor.restore_positions(SelectionSet::new(25), Scroll { top: 2, left: 1 });
+    let other = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
+    let waiting = Restore {
+        buffer: other,
+        selections: SelectionSet::new(600),
+        scroll: Scroll { top: 40, left: 0 },
+    };
+    let state = parse(&export(&editor, &[], None, Some(&waiting)).unwrap()).unwrap();
+    assert_eq!(state.selections, SelectionSet::default());
+    assert_eq!(state.scroll, Scroll::default());
+}
+
+#[test]
 fn text_with_no_file_is_refused_not_lost() {
     let editor = Editor::with_buffer(Buffer::from_text("notes", "unsaved"));
     let message = export(&editor, &[], None, None).unwrap_err();

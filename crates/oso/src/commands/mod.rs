@@ -10,11 +10,13 @@
 mod dev_tools;
 mod edit;
 mod motion;
+mod prefix;
 mod save;
 mod scroll;
 mod session;
 
-use oso_core::command::{Command, Registry};
+use oso_core::command::{Command, CommandError, Registry};
+use oso_core::motion::{TOO_MUCH, WalkBudget};
 
 /// Every feature's commands. A new feature adds a module and one line here, in
 /// alphabetical order and never joined with another, so that features added at
@@ -26,10 +28,19 @@ const TABLES: &[&[Command]] = &[
     dev_tools::COMMANDS,
     edit::COMMANDS,
     motion::COMMANDS,
+    prefix::COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
 ];
+
+/// The signal for a command whose budget ran out, after it did what it could.
+fn budget_left(budget: WalkBudget) -> Result<(), CommandError> {
+    if budget.is_spent() {
+        return Err(CommandError::new(TOO_MUCH));
+    }
+    Ok(())
+}
 
 /// A registry with every command in [`TABLES`].
 ///

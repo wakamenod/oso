@@ -1,0 +1,66 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: short\\n\\nmuch longer\\n"
+---
+keys: none
+│short           │
+:^               :
+│                │
+│much longer     │
+│                │
+=                =
+"                "
+
+keys: C-e
+│short           │
+:     ^          :
+│                │
+│much longer     │
+│                │
+=                =
+"                "
+
+keys: C-n
+│short           │
+│                │
+:^               :
+│much longer     │
+│                │
+=                =
+"                "
+
+keys: C-n
+│short           │
+│                │
+│much longer     │
+:           ^    :
+│                │
+=                =
+"                "
+
+keys: C-n
+│short           │
+│                │
+│much longer     │
+│                │
+:^               :
+=                =
+"                "
+
+keys: C-p
+│short           │
+│                │
+│much longer     │
+:           ^    :
+│                │
+=                =
+"                "
+
+keys: C-a
+│short           │
+│                │
+│much longer     │
+:^               :
+│                │
+=                =
+"                "

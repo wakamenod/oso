@@ -217,7 +217,8 @@ and below the row, and a label's glyphs keep their own cells
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
 - The state handoff holds paths and positions, never text, so it cannot carry a
-  secret buffer's content
+  secret buffer's content, and no position in one either, so a restart starts it
+  from the top ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md))
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)). A buffer with
   unsaved edits holds the restart, and the refusal names it without quoting it. The
   generation that guards `exit` is not reported while a file holds edits
@@ -235,7 +236,10 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - Secret-pattern buffers give no text and no pixels over the socket: while
   one is shown, `screenshot` fails, `get-text` fails and `get-state` returns
-  only its metadata. The path as opened, each symlink's target and the
+  only its metadata, without `cursor`, `scroll` or the window's selections, and later
+  the modeline and match counts ([ADR 0051](adr/0051-m2-plan-decisions.md)), and
+  without its size while it is modified
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). The path as opened, each symlink's target and the
   canonical path all count, so a link to a key or through a secret path is
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved

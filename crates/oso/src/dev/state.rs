@@ -1,6 +1,8 @@
 //! What the control socket reads from and does to the editor state on the UI
 //! thread, apart from running commands (ADR 0023, ADR 0044). It never returns
-//! the text of a buffer that may hold secrets, whichever way it is asked.
+//! the text of a buffer that may hold secrets, whichever way it is asked, and
+//! `get-state` gives no position in one, and no size once it is edited (ADR 0051,
+//! ADR 0058).
 //!
 //! Must not depend on: `app`, winit or sockets; these are plain functions of
 //! the editor state.
@@ -54,23 +56,15 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 /// buffer, cursor, scroll position and visible text, the keys of a pending
 /// prefix, and the surface size if there is a window.
 ///
-/// `text` is null for a buffer that may hold secrets. Its metadata stays.
+/// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`
+/// are left out. Its other metadata stays, as [`buffer_state`] has it.
 pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     let (window, buffer) = editor.current();
     let display = buffer.display();
-    let cursor = window.selections.primary().cursor;
-    let point = display.offset_to_display_point(cursor);
     let size = window.size();
     let text = (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &display));
-    json!({
+    let mut state = json!({
         "buffer": buffer_state(window.buffer(), buffer),
-        "cursor": {
-            "offset": cursor,
-            "row": point.row,
-            "column": point.column,
-            "count": window.selections.len(),
-        },
-        "scroll": { "top": window.scroll().top, "left": window.scroll().left },
         "window": { "rows": size.rows, "columns": size.columns },
         "text": text,
         "buffers": editor
@@ -84,11 +78,30 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             .collect::<Vec<_>>(),
         "keys": { "pending": display_keys(pending).to_string() },
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
-    })
+    });
+    if !buffer.is_secret() {
+        let cursor = window.selections.primary().cursor;
+        let point = display.offset_to_display_point(cursor);
+        state["cursor"] = json!({
+            "offset": cursor,
+            "row": point.row,
+            "column": point.column,
+            "count": window.selections.len(),
+        });
+        state["scroll"] = scroll_state(window);
+    }
+    state
 }
 
+fn scroll_state(window: &Window) -> Value {
+    json!({ "top": window.scroll().top, "left": window.scroll().left })
+}
+
+/// A buffer's metadata. A buffer that may hold secrets gives no size while it is
+/// modified (ADR 0058).
 fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
     let info = buffer.file_info();
+    let size_shown = !(buffer.is_secret() && buffer.is_modified());
     json!({
         "id": id.get(),
         "name": buffer.name(),
@@ -100,8 +113,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
         "line_ending": info.line_ending.as_str(),
         "bom": info.bom,
         "invalid_bytes": buffer.invalid_bytes().len(),
-        "bytes": buffer.text().len(),
-        "lines": buffer.display().row_count(),
+        "bytes": size_shown.then(|| buffer.text().len()),
+        "lines": size_shown.then(|| buffer.display().row_count()),
         "loading": buffer.loading().map(|progress| json!({
             "read": progress.read,
             "total": progress.total,
@@ -111,20 +124,24 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
 
 fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
     let size = window.size();
-    let display = editor.shown(window).display();
-    let selections = &window.selections;
-    json!({
+    let shown = editor.shown(window);
+    let mut state = json!({
         "buffer": window.buffer().get(),
         "selected": index == editor.selected_window(),
         "rows": size.rows,
         "columns": size.columns,
-        "scroll": { "top": window.scroll().top, "left": window.scroll().left },
-        "primary": selections.primary_index(),
-        "selections": selections
+    });
+    if !shown.is_secret() {
+        let display = shown.display();
+        let selections = &window.selections;
+        state["scroll"] = scroll_state(window);
+        state["primary"] = json!(selections.primary_index());
+        state["selections"] = selections
             .iter()
             .map(|selection| selection_state(selection, &display))
-            .collect::<Vec<_>>(),
-    })
+            .collect();
+    }
+    state
 }
 
 fn selection_state(selection: &Selection, display: &DisplaySnapshot) -> Value {
@@ -294,7 +311,7 @@ mod tests {
         MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, screenshot_allowed,
         show_buffer,
     };
-    use oso_core::buffer::{Buffer, BufferId};
+    use oso_core::buffer::{Buffer, BufferId, Replacement};
     use oso_core::editor::Editor;
     use oso_core::key::KeySequence;
     use oso_core::selection::SelectionSet;
@@ -521,7 +538,6 @@ mod tests {
             assert_eq!(state["buffer"]["secret"], true, "{path}");
             assert_eq!(state["buffer"]["path"], path);
             assert_eq!(state["buffer"]["bytes"], CONTENT.len());
-            assert_eq!(state["cursor"]["offset"], 0);
             assert!(!state.to_string().contains("SECRET-VALUE"), "{path}");
             assert!(text(&editor, 0, 1).unwrap_err().contains("ADR 0044"));
             assert!(
@@ -533,6 +549,56 @@ mod tests {
     }
 
     #[test]
+    fn a_secret_buffer_shows_no_positions() {
+        let (mut editor, _) = visiting("/p/.env", Some("/p/.env"), "ONE\nTWO THREE\n");
+        editor.restore_positions(SelectionSet::new(6), Scroll { top: 1, left: 0 });
+        let state = state(&editor, &[]);
+        let result = state.as_object().unwrap();
+        assert!(!result.contains_key("cursor"));
+        assert!(!result.contains_key("scroll"));
+        let window = state["windows"][0].as_object().unwrap();
+        for hidden in ["scroll", "primary", "selections"] {
+            assert!(!window.contains_key(hidden), "{hidden}");
+        }
+        // What the window is stays, and so does the rest.
+        assert_eq!(state["window"]["rows"], state["windows"][0]["rows"]);
+        assert_eq!(state["windows"][0]["buffer"], state["buffer"]["id"]);
+        assert_eq!(state["buffer"]["lines"], 3);
+        assert_eq!(state["keys"]["pending"], "");
+    }
+
+    #[test]
+    fn an_edit_to_a_secret_buffer_hides_its_size_until_undone() {
+        let content = "ONE TWO\n";
+        let (mut editor, id) = visiting("/p/.env", Some("/p/.env"), content);
+        let edit = Replacement {
+            range: 0..3,
+            text: "",
+        };
+        editor.apply_edits(id, &[edit]).unwrap();
+        let shown = state(&editor, &[]);
+        assert_eq!(shown["buffer"]["bytes"], json!(null));
+        assert_eq!(shown["buffer"]["lines"], json!(null));
+        assert_eq!(shown["buffers"][1]["bytes"], json!(null), "in the list too");
+        assert!(!shown.to_string().contains("\"bytes\":5"));
+        editor.undo().unwrap();
+        assert_eq!(state(&editor, &[])["buffer"]["bytes"], content.len());
+    }
+
+    #[test]
+    fn positions_come_back_with_an_ordinary_buffer_and_a_secret_one_in_another_window_stays_out() {
+        let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
+        let scratch = editor.buffers().next().unwrap().0;
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let shown = state(&editor, &[]);
+        assert_eq!(shown["cursor"]["offset"], 0);
+        assert_eq!(shown["scroll"]["top"], 0);
+        assert_eq!(shown["windows"][0]["selections"][0]["cursor"], 0);
+        show_buffer(&mut editor, secret.get()).unwrap();
+        assert_eq!(state(&editor, &[])["cursor"], json!(null));
+    }
+
+    #[test]
     fn a_file_is_withheld_until_its_path_is_resolved() {
         let mut editor = Editor::default();
         let id = editor.add_buffer(Buffer::visiting(PathBuf::from("/p/notes.txt")));
@@ -540,12 +606,14 @@ mod tests {
         assert_eq!(state(&editor, &[])["text"], json!(null));
         assert!(screenshot_allowed(&editor).is_err());
         assert!(text(&editor, 0, 1).is_err());
+        assert_eq!(state(&editor, &[])["cursor"], json!(null));
         editor
             .buffer_mut(id)
             .unwrap()
             .judge_secret(Some(&[PathBuf::from("/p/notes.txt")]));
         assert!(screenshot_allowed(&editor).is_ok());
         assert!(text(&editor, 0, 1).is_ok());
+        assert_eq!(state(&editor, &[])["cursor"]["offset"], 0);
     }
 
     #[test]

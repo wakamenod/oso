@@ -1,14 +1,19 @@
 //! From key presses to commands: the keymaps, the key resolver and the
 //! command registry, wired together without a window so that key sequences
-//! can be tested as plain functions of the editor state.
+//! can be tested as plain functions of the editor state. The prefix argument a
+//! command leaves waits here for the next one, next to the pending prefix keys
+//! (ADR 0034, ADR 0058).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a
 //! window.
 
 #[cfg(any(test, feature = "dev"))]
 use oso_core::command::ArgSpec;
-use oso_core::command::{Args, CommandId, Ctx, Effects, ExecuteError, Registry};
+use oso_core::command::{
+    Args, CommandId, Ctx, Effects, ExecuteError, Invocation, Prefix, Registry,
+};
 use oso_core::editor::Editor;
+use oso_core::key::Key;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
 
@@ -20,7 +25,15 @@ use crate::{bindings, commands};
 pub struct Dispatcher {
     registry: Registry,
     global: Keymap,
+    /// Active while the prefix argument reads digits, and a minus sign. They come
+    /// first among the minor modes, as what is being typed is for them.
+    prefix_keys: [Keymap; 2],
     resolver: KeyResolver,
+    /// The prefix argument for the next command.
+    prefix: Option<Prefix>,
+    /// The command that ran last, with no undefined or cancelled key since, and
+    /// how many times in a row it had run before that.
+    last: Option<(CommandId, usize)>,
     /// Keeps the emergency save up to date, in the running app (ADR 0062).
     publisher: Option<Publisher>,
 }
@@ -35,10 +48,14 @@ impl Dispatcher {
 
     /// A dispatcher over `registry`, with `global` as the global keymap.
     pub fn with(registry: Registry, global: Keymap) -> Self {
+        let (digits, minus) = bindings::prefix_keymaps(&registry);
         Self {
+            prefix_keys: [digits, minus],
             registry,
             global,
             resolver: KeyResolver::new(),
+            prefix: None,
+            last: None,
             publisher: None,
         }
     }
@@ -95,12 +112,13 @@ impl Dispatcher {
     }
 
     /// Runs the command named `name`, as the control socket's `run-command`
-    /// does, with `arg` as its numeric argument. Returns what the host
-    /// should do, which matters even if the command failed: a motion that
-    /// hits the buffer end still moves as far as it can.
+    /// does, with `arg` as its numeric argument, or else a prefix argument left by
+    /// the keys before it. Returns what the host should do, which matters even if
+    /// the command failed: a motion that hits the buffer end still moves as far as
+    /// it can.
     #[cfg(any(test, feature = "dev"))]
     pub fn run_command(
-        &self,
+        &mut self,
         editor: &mut Editor,
         name: &str,
         arg: Option<isize>,
@@ -116,13 +134,16 @@ impl Dispatcher {
             );
         };
         let args = match (command.args, arg) {
-            (_, None) => Args::NONE,
-            (ArgSpec::Count, Some(n)) => Args::numeric(n),
+            (_, None) => Args::with_prefix(self.prefix.take()),
+            (ArgSpec::Count, Some(n)) => {
+                self.prefix = None;
+                Args::numeric(n)
+            }
             (ArgSpec::None, Some(_)) => {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
-        let (effects, result) = self.execute(editor, id, args, "");
+        let (effects, result) = self.execute(editor, id, args, "", None);
         (effects, result.map_err(|e| e.to_string()))
     }
 
@@ -139,35 +160,59 @@ impl Dispatcher {
                 display_keys(self.resolver.pending())
             );
             self.resolver.reset();
+            self.forget_keys();
             return Effects::default();
         }
         match Layers::global(&self.global).text_command() {
-            Some(id) if !text.is_empty() => self.execute(editor, id, Args::NONE, text).0,
+            Some(id) if !text.is_empty() => {
+                let args = Args::with_prefix(self.prefix.take());
+                self.execute(editor, id, args, text, None).0
+            }
             _ => Effects::default(),
         }
     }
 
-    /// Runs one command with `input` as the text that invoked it, in an undo
-    /// group of its own, so that it undoes as one step across all cursors. Then
-    /// scrolls the selected window to keep its cursor in view, as Emacs's
-    /// redisplay does. A failure is not fatal (ADR 0014), and leaves a message.
+    /// An undefined or cancelled key sequence drops the prefix argument and ends a
+    /// run of one command.
+    fn forget_keys(&mut self) {
+        self.prefix = None;
+        self.last = None;
+    }
+
+    /// Runs one command with `input` as the text that invoked it and `key_char` the
+    /// character on its key, in an undo group of its own, so that it undoes as one
+    /// step across all cursors. Then keeps the prefix argument it left, and scrolls
+    /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
+    /// failure is not fatal (ADR 0014), and leaves a message.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
     /// What a panicking command left is not published for the emergency save, though a
     /// later command's publish takes it in, as the person then sees it and goes on from it.
     fn execute(
-        &self,
+        &mut self,
         editor: &mut Editor,
         id: CommandId,
         args: Args,
         input: &str,
+        key_char: Option<char>,
     ) -> (Effects, Result<(), ExecuteError>) {
+        let repeats = match self.last {
+            Some((last, repeats)) if last == id => repeats.saturating_add(1),
+            _ => 0,
+        };
+        self.last = Some((id, repeats));
         let exit_attempt = editor.exit_attempt();
         editor.begin_undo_group();
-        let mut ctx = Ctx::with_input(editor, input);
+        let invocation = Invocation {
+            input,
+            key_char,
+            repeats,
+        };
+        let mut ctx = Ctx::invoked(editor, invocation);
         let boundary = self.publisher.as_ref().map(Publisher::enter_command);
         let result = self.registry.execute(id, &mut ctx, args);
         drop(boundary);
         let mut effects = ctx.effects();
+        self.prefix = effects.prefix.take();
         match &result {
             Ok(()) => editor.end_undo_group(),
             Err(ExecuteError::Failed { error, .. }) => {
@@ -200,7 +245,16 @@ impl Dispatcher {
     /// keys resolve to. Returns what the host should do: redraw only when a
     /// command changed something visible, and exit when one asked to.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
-        let layers = Layers::global(&self.global);
+        let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
+        let minor: &[&Keymap] = match self.prefix {
+            Some(prefix) if prefix.reads_minus() => &reading,
+            Some(prefix) if prefix.reads_digits() => &reading[..1],
+            _ => &[],
+        };
+        let layers = Layers {
+            minor,
+            ..Layers::global(&self.global)
+        };
         match self.resolver.feed(&layers, key) {
             Resolution::Command(id) => {
                 // The text comes from the key, so keys from the window and from
@@ -208,8 +262,12 @@ impl Dispatcher {
                 // unbound `C-q` (ADR 0051).
                 let mut utf8 = [0; 4];
                 let input = key.text().map_or("", |c| c.encode_utf8(&mut utf8));
-                // Prefix arguments (`C-u`) are not read yet.
-                self.execute(editor, id, Args::NONE, input).0
+                let key_char = match key.key {
+                    Key::Char(c) => Some(c),
+                    Key::Named(_) => None,
+                };
+                let args = Args::with_prefix(self.prefix.take());
+                self.execute(editor, id, args, input, key_char).0
             }
             Resolution::Pending => {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
@@ -225,11 +283,13 @@ impl Dispatcher {
                     }
                     _ => log::debug!("{} is undefined", display_keys(keys)),
                 }
+                self.forget_keys();
                 Effects::default()
             }
             Resolution::Cancelled => {
                 editor.reset_exit_guard();
                 log::debug!("Quit");
+                self.forget_keys();
                 Effects::default()
             }
         }
@@ -242,6 +302,10 @@ mod edit_tests;
 mod emergency_tests;
 #[cfg(test)]
 mod grid_tests;
+#[cfg(test)]
+mod motion_tests;
+#[cfg(test)]
+mod prefix_tests;
 #[cfg(test)]
 mod save_tests;
 
@@ -266,6 +330,7 @@ mod tests {
     const REDRAW: Effects = Effects {
         redraw: true,
         exit: false,
+        prefix: None,
     };
 
     fn editor(text: &str) -> Editor {
@@ -452,7 +517,8 @@ mod tests {
             send(&mut dispatcher, &mut editor, "C-x C-c"),
             Effects {
                 redraw: false,
-                exit: true
+                exit: true,
+                prefix: None,
             }
         );
     }
@@ -497,7 +563,7 @@ mod tests {
 
     #[test]
     fn run_command_runs_by_name_with_its_argument() {
-        let dispatcher = Dispatcher::new();
+        let mut dispatcher = Dispatcher::new();
         let mut editor = editor("abcdef");
         let (effects, result) = dispatcher.run_command(&mut editor, "forward-char", None);
         assert_eq!((effects, result), (REDRAW, Ok(())));
@@ -512,7 +578,7 @@ mod tests {
 
     #[test]
     fn run_command_scrolls_to_the_cursor_and_asks_to_exit() {
-        let dispatcher = Dispatcher::new();
+        let mut dispatcher = Dispatcher::new();
         let text: String = (0..100).map(|i| format!("{i}\n")).collect();
         let mut editor = editor(&text);
         let (_, result) = dispatcher.run_command(&mut editor, "next-line", Some(50));
@@ -526,7 +592,7 @@ mod tests {
 
     #[test]
     fn run_command_reports_errors_and_keeps_what_they_changed() {
-        let dispatcher = Dispatcher::new();
+        let mut dispatcher = Dispatcher::new();
         let mut editor = editor("abc");
         let (effects, result) = dispatcher.run_command(&mut editor, "no-such-command", None);
         assert_eq!(effects, Effects::default());
@@ -548,7 +614,7 @@ mod tests {
                 run: explode,
             })
             .unwrap();
-        let dispatcher = Dispatcher::with(registry, Keymap::new());
+        let mut dispatcher = Dispatcher::with(registry, Keymap::new());
         let mut editor = editor("abc");
         let (effects, result) = dispatcher.run_command(&mut editor, "explode", None);
         assert_eq!(result, Err("explode panicked".into()));
