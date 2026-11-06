@@ -27,7 +27,8 @@
 //!   a [`TabPoint`]: one buffer line can span several rows.
 //!
 //! Callers use only [`DisplayMap`] and [`DisplaySnapshot`], so adding a
-//! layer does not change their code.
+//! layer does not change their code. Text that is no buffer's has no layers, and
+//! goes through [`text_clusters`].
 
 pub mod cell;
 pub mod tab_map;
@@ -36,11 +37,9 @@ use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
-pub use cell::{CellKind, CellStyle, Clusters, Escape, TabWidth, escape};
+use cell::CONTROL_CELLS;
+pub use cell::{CellKind, CellStyle, Clusters, Escape, MAX_CLUSTER_BYTES, TabWidth, escape};
 pub use tab_map::{TabMap, TabPoint};
-
-/// The cells of `^J`, the escape of an ASCII control character.
-const CONTROL_CELLS: usize = 2;
 
 /// A position on screen: a display row and a cell column.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -80,7 +79,8 @@ pub struct DisplayCluster<'a> {
     pub column: usize,
     /// How many cells it takes. A tab takes the cells up to its tab stop.
     pub cells: usize,
-    /// The cluster's text in the buffer.
+    /// The cluster's text in the buffer, or in the text given to
+    /// [`text_clusters`].
     pub text: &'a str,
     /// What to draw: the text, blank cells for a tab, or an escape (boxed
     /// for an invisible character or one past a cluster's limits).
@@ -145,8 +145,8 @@ impl DisplayCluster<'_> {
 
 /// The clusters of `text` that is no buffer's, such as a modeline's, as one row
 /// from `column`. A row of its own has no tab stops and no next line, so tabs and
-/// line breaks are escapes like other control characters, and nothing in the text
-/// can hide what follows it. Offsets are in `text`.
+/// line breaks are escapes like other control characters, and neither ends the row
+/// early. Offsets are in `text`.
 pub fn text_clusters(text: &str, mut column: usize) -> impl Iterator<Item = DisplayCluster<'_>> {
     let mut clusters = Clusters::new(text);
     // The line feed of a `\r\n`.

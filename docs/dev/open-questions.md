@@ -136,8 +136,10 @@ item notes when it must be settled.
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
 - `Editor::message` has no cap on a message's length. Its callers so far pass short text and
   file names. Add one by M2-7.
-- By M2-7: what one-row panes below the text do with the band above their row, which
-  they lose today ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
+- What panes below the frame's top row do with the band above their first row, which
+  they lose today: by M2-7 for the one-row panes, by M2-16 and M3 for the rest. By M2-16,
+  also what a float on the top row does about the top margin
+  ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
 - By M2-7: a command that fails leaves a message and asks for no frame, so the echo area would
   not show it until something else draws. "C-x C-z is undefined" has no way to the echo area
   either: `Editor::message` always logs, and typed keys stay out of the `info` log

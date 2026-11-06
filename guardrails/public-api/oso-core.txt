@@ -392,6 +392,7 @@ impl core::hash::Hash for oso_core::display_map::cell::TabWidth
 pub fn oso_core::display_map::cell::TabWidth::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::display_map::cell::TabWidth
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
+pub const oso_core::display_map::cell::MAX_CLUSTER_BYTES: usize
 pub fn oso_core::display_map::cell::classify(&str) -> (oso_core::display_map::cell::CellKind, usize)
 pub fn oso_core::display_map::cell::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
 pub fn oso_core::display_map::cell::is_invisible(char) -> bool
@@ -654,6 +655,7 @@ impl core::hash::Hash for oso_core::display_map::cell::TabWidth
 pub fn oso_core::display_map::cell::TabWidth::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::display_map::cell::TabWidth
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
+pub const oso_core::display_map::MAX_CLUSTER_BYTES: usize
 pub fn oso_core::display_map::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
 pub fn oso_core::display_map::text_clusters(&str, usize) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::display_map::DisplayCluster<'_>>
 pub mod oso_core::editor

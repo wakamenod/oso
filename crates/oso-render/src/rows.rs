@@ -24,7 +24,7 @@ use std::ops::Range;
 
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{
-    CellStyle, DisplayCluster, DisplayPoint, DisplaySnapshot, text_clusters,
+    CellStyle, DisplayCluster, DisplayPoint, DisplaySnapshot, MAX_CLUSTER_BYTES, text_clusters,
 };
 use oso_platform::text::{ShapedGlyph, TextSystem};
 
@@ -39,15 +39,11 @@ use crate::pane::{Face, Span};
 /// bounds a cluster's length (ADR 0054).
 const CHARS_PER_COLUMN: usize = 4;
 
-/// The most bytes a column of text that is no buffer's can need: a display
-/// cluster holds at most 16 characters of 4 bytes (ADR 0054) and takes at least
-/// one cell. A span is cut to this before it is read, since such text is read
-/// every frame and one long grapheme cluster would be scanned to its end.
-const BYTES_PER_COLUMN: usize = 64;
-
-/// The part of `text` that can show in `columns` columns.
+/// The part of `text` that can show in `columns` columns: a display cluster takes
+/// at least one cell. A span is cut to this before it is read, since such text is
+/// read every frame and one long grapheme cluster would be scanned to its end.
 fn visible_part(text: &str, columns: usize) -> &str {
-    let bytes = columns.saturating_mul(BYTES_PER_COLUMN);
+    let bytes = columns.saturating_mul(MAX_CLUSTER_BYTES);
     &text[..text.floor_char_boundary(bytes)]
 }
 
@@ -799,25 +795,29 @@ pub(crate) mod tests {
         let cut = visible_part(&marks, 2);
         assert_eq!(
             cut.len(),
-            127,
-            "1 byte for the base, and 2 for each of 63 marks"
+            2 * MAX_CLUSTER_BYTES - 1,
+            "1 byte for the base, and 2 for each mark"
         );
         assert_eq!(visible_part(&marks, usize::MAX), marks);
     }
 
+    /// What `text` lays out in the columns before `end`.
+    fn clusters_before(text: &str, end: usize) -> Vec<(usize, usize, String)> {
+        text_clusters(text, 0)
+            .take_while(|cluster| cluster.column < end)
+            .map(|cluster| (cluster.column, cluster.cells, cluster.text.to_owned()))
+            .collect()
+    }
+
     #[test]
-    fn cutting_a_span_keeps_what_a_row_shows() {
-        // Clusters at the display model's limits, in the longest characters.
-        let cluster = "\u{1f468}\u{200d}".repeat(7) + "\u{1f468}";
-        assert!(cluster.len() <= BYTES_PER_COLUMN);
-        let text = cluster.repeat(100);
-        let (mut cut, mut whole) = (Rows::default(), Rows::default());
-        let mut system = Recorder::default();
-        let columns = 4;
-        let shown_cut = shown(cut.line(0, &[span(&text, Face::Text)], columns, &mut system));
-        let display = Buffer::from_text("t", &text).display();
-        let shown_whole = shown(whole.row(&display, 0, 0..columns, &mut system));
-        assert_eq!(shown_cut, shown_whole);
+    fn cutting_a_span_keeps_a_cluster_of_the_most_bytes_in_one_column() {
+        // A character that joins what follows it, 4 bytes long and 1 cell wide.
+        let text = "\u{110bd}".repeat(40);
+        let first = text_clusters(&text, 0).next().unwrap();
+        assert_eq!(first.text.len(), MAX_CLUSTER_BYTES, "the limit is reached");
+        assert_eq!(visible_part(&text, 1).len(), MAX_CLUSTER_BYTES);
+        let (cut, whole) = (visible_part(&text, 1), text.as_str());
+        assert_eq!(clusters_before(cut, 1), clusters_before(whole, 1));
     }
 
     #[test]
@@ -887,6 +887,22 @@ pub(crate) mod tests {
                     proptest::prop_assert!(!c.is_control() && !bidi, "{c:?} in {shaped:?}");
                 }
             }
+        }
+
+        /// Cutting text to what its columns can show lays out those columns the
+        /// same, for clusters at their limits too.
+        #[test]
+        fn prop_cutting_a_span_keeps_the_columns_it_can_show(
+            pieces in proptest::collection::vec(0usize..10, 0..80),
+            end in 1usize..16,
+        ) {
+            const PIECES: [&str; 10] = ["a", "あ", "\r\n", "\n", "\t", "\u{202e}", "\u{110bd}",
+                                        "e\u{301}\u{301}", "\u{1f468}\u{200d}", "\u{1d165}"];
+            let text: String = pieces.iter().map(|&i| PIECES[i]).collect();
+            proptest::prop_assert_eq!(
+                clusters_before(visible_part(&text, end), end),
+                clusters_before(&text, end)
+            );
         }
 
         /// The same for text that is no buffer's, however it is split into spans.

@@ -143,7 +143,7 @@ mod tests {
     const WIDTH: u32 = 128;
     const HEIGHT: u32 = 128;
 
-    /// One glyph per character. Its bitmap fills its cell, 2 px above it and
+    /// One glyph per character. Its bitmap fills its cell, 6 px above it and
     /// 8 px below it, past the bands of ADR 0052 on both sides.
     struct Blocks;
 
@@ -176,11 +176,11 @@ mod tests {
         fn rasterize(&mut self, _key: GlyphKey) -> Option<GlyphBitmap> {
             Some(GlyphBitmap {
                 width: 10,
-                height: 30,
+                height: 34,
                 left: 0,
-                top: 18,
+                top: 22,
                 format: GlyphFormat::Coverage,
-                data: vec![255; 300],
+                data: vec![255; 340],
             })
         }
     }
@@ -379,15 +379,15 @@ mod tests {
         let lines: [&[Span<'_>]; 1] = [&word];
         let panes = [pane(0, (0, 0, 1, 4), 0, None, &lines)];
         let pixels = draw(&panes);
-        // Row 0 starts at y 8, and the bitmap at y 6, 2 px up, inside the band.
-        assert_is(&pixels, (12, 6), INK(), "the band in the top margin");
-        assert_is(&pixels, (12, 5), PAPER(), "above the bitmap");
+        // Row 0 starts at y 8, the band at y 4 and the bitmap at y 2.
+        assert_is(&pixels, (12, 4), INK(), "the band in the top margin");
+        assert_is(&pixels, (12, 3), PAPER(), "the bitmap above the band");
         assert_is(&pixels, (7, 12), PAPER(), "the left margin");
     }
 
     #[test]
     #[ignore = "needs a GPU"]
-    fn a_glyph_stays_in_its_pane_and_nothing_reaches_the_margins() {
+    fn a_glyph_stays_in_its_pane() {
         let word = [Span {
             text: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
             face: Face::Text,

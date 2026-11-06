@@ -145,9 +145,10 @@ impl Layout {
         self.scroll.left..self.scroll.left.saturating_add(self.region.columns)
     }
 
-    /// The top-left corner of a cell, in pixels. Cells left of or above the
-    /// region get coordinates outside it, even negative ones.
-    pub(crate) fn cell(&self, row: usize, column: usize) -> [f32; 2] {
+    /// The top-left corner of the cell at display `row` and `column`, in pixels.
+    /// Cells left of or above the region get coordinates outside it, even negative
+    /// ones.
+    fn display_cell(&self, row: usize, column: usize) -> [f32; 2] {
         let column = column as i64 - self.scroll.left as i64;
         let row = row as i64 - self.scroll.top as i64;
         self.grid.cell(
@@ -186,7 +187,7 @@ impl Layout {
         column: usize,
         cells: usize,
     ) -> Option<PixelRect> {
-        let [x, y] = self.cell(row, column);
+        let [x, y] = self.display_cell(row, column);
         self.clip(PixelRect {
             x,
             y,
@@ -202,7 +203,7 @@ impl Layout {
 
     /// The pixels above the region that its glyphs may paint.
     fn top_band(&self) -> f32 {
-        if self.region.row == 0 {
+        if self.region.row == 0 && self.region.rows > 0 {
             self.metrics.descent
         } else {
             0.0
@@ -242,7 +243,7 @@ impl Layout {
             ascent,
             descent,
         } = self.metrics;
-        let [cell_x, cell_y] = self.cell(row, glyph.column);
+        let [cell_x, cell_y] = self.display_cell(row, glyph.column);
         let x = cell_x + glyph.offset[0] + entry.left as f32;
         let y = cell_y + ascent + glyph.offset[1] - entry.top as f32;
         let right = cell_x + glyph.cells as f32 * width;
@@ -531,15 +532,15 @@ mod tests {
     #[test]
     fn cells_are_column_times_width_from_the_scroll_position() {
         let mut l = layout();
-        assert_eq!(l.cell(0, 0), [8.0, 8.0]);
-        assert_eq!(l.cell(0, 3), [38.0, 8.0]);
-        assert_eq!(l.cell(2, 1), [18.0, 48.0]);
+        assert_eq!(l.display_cell(0, 0), [8.0, 8.0]);
+        assert_eq!(l.display_cell(0, 3), [38.0, 8.0]);
+        assert_eq!(l.display_cell(2, 1), [18.0, 48.0]);
         l.scroll = Scroll { top: 10, left: 20 };
-        assert_eq!(l.cell(10, 20), [8.0, 8.0]);
-        assert_eq!(l.cell(11, 19), [-2.0, 28.0]);
+        assert_eq!(l.display_cell(10, 20), [8.0, 8.0]);
+        assert_eq!(l.display_cell(11, 19), [-2.0, 28.0]);
         // Far columns keep whole-pixel precision.
         l.scroll.left = 20_000_000;
-        assert_eq!(l.cell(10, 20_000_001), [18.0, 8.0]);
+        assert_eq!(l.display_cell(10, 20_000_001), [18.0, 8.0]);
     }
 
     #[test]
@@ -795,7 +796,7 @@ mod tests {
             columns: 4,
         };
         let l = Layout::new(METRICS, cells, Scroll::default());
-        assert_eq!(l.cell(0, 0), [38.0, 48.0]);
+        assert_eq!(l.display_cell(0, 0), [38.0, 48.0]);
         let q = l.quad(0, &glyph(1, 1), &entry()).unwrap();
         assert_eq!(q.position, [49.0, 52.0]);
         assert!(
@@ -834,6 +835,7 @@ mod tests {
         };
         let l = Layout::new(METRICS, cells, Scroll::default());
         assert!(l.quad(0, &glyph(0, 1), &entry()).is_none());
+        assert!(l.quad(0, &glyph(0, 1), &bitmap(0, 24, [8, 24])).is_none());
         assert!(l.display_cells(0, 0, 1).is_none());
     }
 

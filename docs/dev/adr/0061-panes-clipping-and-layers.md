@@ -51,12 +51,12 @@ pub enum PaneContent<'a> {
 - **`Span` text goes through the display model,** through the new
   `display_map::text_clusters`, so a control or bidi character in a file name is an
   escape in the modeline too, and never reaches the shaper. A row of its own has no tab
-  stops and no next line, so tabs and line breaks are escapes as well, and nothing in
-  one span can hide the next. The face of an escape's label wins over the span's.
+  stops and no next line, so tabs and line breaks are escapes as well, and neither ends
+  the row early. The face of an escape's label wins over the span's.
 - `Lines` carry no revision. Each row is read and compared with what was shaped, the
   same comparison a buffer's row gets after a change. It stops at the pane's last
-  column, and each span is first cut to 64 bytes per column, which is more than a
-  display cluster can hold in a cell ([ADR 0054](0054-limits-on-a-display-cluster.md)).
+  column, and each span is first cut to 64 bytes per column, as much as a display
+  cluster can hold ([ADR 0054](0054-limits-on-a-display-cluster.md)).
   A list of short rows costs little and a caller has nothing to get wrong. Large and
   long-lived text belongs in a buffer.
 
@@ -72,7 +72,7 @@ stays in `oso-render` unless M2-7 builds its spans in `oso-core`.
 `Face` is a semantic enum: `Text`, `Escape`, `Boxed` and `Cursor`. Each has a foreground
 for coverage glyphs and a background for rectangles, with today's constants until the
 theme (M2-23). It replaces passing colors one by one. `PlacedGlyph` and `Grapheme`
-hold a `Face` instead of a `CellStyle`, so a span of a shaper's cluster also ends
+hold a `Face` instead of a `CellStyle`, so what a shaper drew as one unit is also cut
 where the face changes.
 
 `Face` lives in `oso-render`, because nothing in `oso-core` names one yet. If M3's
@@ -93,9 +93,10 @@ cuts to the pane's pixels, and rectangles are cut the same way. There is no scis
 **A glyph stays in its pane.** The bands of ADR 0052 hold between rows of one pane and
 stop at its edges, so a pane's last row loses the band below it and a pane's first row
 the band above it, **with one exception: a pane on the frame's top row keeps that band
-in the top margin.** No pane owns the margin, so nothing there can be painted over, and
-ADR 0052 keeps this band for real text. Rectangles stay in the region. M2-7 decides what
-one-row panes below the text do with theirs.
+in the top margin.** No pane owns the margin and tiled panes do not overlap, so nothing
+tiled there is painted over, and ADR 0052 keeps this band for real text. Rectangles stay
+in the region. M2-7 decides what one-row panes below the text do with the band above
+them, and M2-16 and M3 what their panes below the top row do.
 
 ### Layers: one draw per layer per pipeline
 
@@ -151,7 +152,7 @@ the same whole columns.
 Beyond the renderer's half of M2-7, these are not built. Each adds a little to what
 this ADR has:
 
-- **M2-7:** `PaneContent::Lines` with `Span`s, a `background` and a new `Face` or two.
+- **M2-7:** fills the two empty panes, gives them a `background`, and adds a `Face` or two.
 - **M2-13, a selection:** a list of rectangles on `TextView`, added to the pane's
   rectangles after its background and before its boxes, in a new `Face`. They are in
   cells, computed in `oso-core`, and cut like the rest.
@@ -160,8 +161,10 @@ this ADR has:
   into the cursor's row and moves the later columns. The comparison of what was shaped
   then covers it, and the check that skips reading while the revision holds must also
   compare the preedit. The underline is a thin rectangle, in pixels of the row.
-- **M2-16, a float:** a pane in a higher layer with a `background`. A read-only view,
-  such as a preview, makes `TextView::cursor` optional. If a popup comes and goes with
+- **M2-16, a float:** a pane in a higher layer with a `background`. A float on the
+  frame's top row must also decide about the top margin, since its background stops at
+  its region and the band above that row is shared. A read-only view, such as a preview,
+  makes `TextView::cursor` optional. If a popup comes and goes with
   each key, the scratch space in `Rows` moves to `Scene`, so it is not allocated again.
 
 ## Where this differs from accepted ADRs
@@ -194,8 +197,8 @@ These ADRs stay as they are; this one changes the following:
   `*Messages*` is a buffer. A large float of `Lines` would need a cheap check first.
 - A `Scene` holds one `Rows` per pane id, and each is empty until the pane draws text.
 - The `oso-render` public API gains `Pane`, `PaneContent`, `PaneId`, `Layer`, `Span` and
-  `Face`, and `TextView` loses `area`. `oso-core` gains `PixelGrid::cell` and
-  `display_map::text_clusters`.
+  `Face`, and `TextView` loses `area`. `oso-core` gains `PixelGrid::cell`,
+  `display_map::text_clusters` and `MAX_CLUSTER_BYTES`.
 - Five tests in `paint` draw on a real GPU and read pixels. They are ignored by
   default, since `cargo test` must not need a GPU, and run with `cargo test -p
   oso-render -- --ignored`. CI does not run them.
