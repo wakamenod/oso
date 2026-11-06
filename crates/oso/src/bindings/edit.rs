@@ -13,6 +13,8 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("DEL", "delete-backward-char"),
     ("C-d", "delete-char"),
     ("<delete>", "delete-char"),
+    ("M-d", "kill-word"),
+    ("M-DEL", "backward-kill-word"),
     ("TAB", "tab-to-tab-stop"),
     ("C-z", "undo"),
     ("C-M-z", "undo-redo"),

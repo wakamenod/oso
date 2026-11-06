@@ -106,7 +106,8 @@ impl Window {
     }
 
     /// Moves the view and leaves every cursor where it is, for following the
-    /// cursor. Anything that moves the view on its own uses [`Window::set_top`].
+    /// cursor, for the sideways wheel and for a window that gets taller. Anything
+    /// else that moves the view on its own uses [`Window::set_top`].
     pub(crate) fn set_scroll(&mut self, scroll: Scroll) {
         self.scroll = scroll;
     }
@@ -132,15 +133,21 @@ impl Window {
         display.offset_to_display_point(self.selections.primary().cursor)
     }
 
-    /// Shows rows from `top` on, and moves every cursor the view left
-    /// behind to the start of the nearest row in view, as Emacs does after
-    /// `C-v`, `M-v` and the mouse wheel. Returns whether the view moved.
+    /// Shows rows from `top` on, or from the last row if that is past it, and
+    /// moves every cursor the view left behind to the start of the nearest row in
+    /// view, as Emacs does after `C-v`, `M-v` and the mouse wheel. The view follows
+    /// the primary cursor sideways if it moved, so that it stays in view with
+    /// `left` above 0. A cursor that did not move stays as it is, since the sideways
+    /// wheel may have left it out of view on purpose. Returns whether the view moved.
     pub fn set_top(&mut self, top: usize, display: &DisplaySnapshot) -> bool {
+        let row_count = display.row_count();
+        let top = top.min(row_count.saturating_sub(1));
         if top == self.scroll.top {
             return false;
         }
         self.scroll.top = top;
-        let (size, row_count) = (self.size, display.row_count());
+        let size = self.size;
+        let primary = self.selections.primary().cursor;
         self.selections.update(|selection| {
             let row = display.offset_to_display_point(selection.cursor).row;
             if let Some(row) = row_in_view(row, top, size, row_count) {
@@ -148,6 +155,11 @@ impl Window {
             }
             Ok::<(), ()>(())
         });
+        if self.selections.primary().cursor != primary {
+            let point = self.cursor_point(display);
+            let cells = motion::cursor_cells(display, point);
+            self.scroll = follow(self.scroll, size, point, cells);
+        }
         true
     }
 }
@@ -216,6 +228,72 @@ pub fn wheel(top: usize, size: ViewSize, row_count: usize, rows: isize) -> usize
     }
     let bottom = row_count.saturating_sub(size.rows).max(top);
     top.saturating_add(rows.unsigned_abs()).min(bottom)
+}
+
+/// The left column after the sideways wheel or trackpad moved the view by `columns`
+/// (toward the ends of lines if positive). It stops at the first column, and going
+/// right stops once the end of the widest of the rows in view, `widest` cells, shows
+/// with a cell for a cursor after it, though a view already past that stays.
+pub(crate) fn wheel_sideways(left: usize, size: ViewSize, widest: usize, columns: isize) -> usize {
+    if columns < 0 {
+        return left.saturating_sub(columns.unsigned_abs());
+    }
+    let right = (widest + 1).saturating_sub(size.columns).max(left);
+    left.saturating_add(columns.unsigned_abs()).min(right)
+}
+
+/// About how many columns take as much of the screen as a row: a cell is about half
+/// as wide as it is high.
+const COLUMNS_PER_ROW: f64 = 2.0;
+
+/// Wheel and trackpad scrolling not yet worth a whole row or column, so that small
+/// deltas add up. A wheel event counts along one axis, whichever it moved furthest
+/// on, so that a gesture a little off straight stays on its axis. What the other
+/// axis holds stays, so that a slow gesture keeps its progress, and one whose main
+/// axis alternates still moves.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct WheelRemainder {
+    rows: f64,
+    columns: f64,
+}
+
+impl WheelRemainder {
+    /// Adds a delta in rows and columns, and takes out the whole ones.
+    pub fn add(&mut self, rows: f64, columns: f64) -> (isize, isize) {
+        if !rows.is_finite() || !columns.is_finite() {
+            return (0, 0);
+        }
+        if rows.abs() * COLUMNS_PER_ROW >= columns.abs() {
+            self.rows += rows;
+            let whole = self.rows.trunc();
+            self.rows -= whole;
+            (whole as isize, 0)
+        } else {
+            self.columns += columns;
+            let whole = self.columns.trunc();
+            self.columns -= whole;
+            (0, whole as isize)
+        }
+    }
+}
+
+/// Which row of the window `C-l` puts the cursor on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Recenter {
+    Middle,
+    /// Counting from the top, or from the bottom if negative: -1 is the last.
+    Line(isize),
+}
+
+/// The top row that puts a cursor on `row` where `target` says. The view stops at
+/// the first row, so a cursor near it may stay above that place.
+pub fn recenter_top(row: usize, size: ViewSize, target: Recenter) -> usize {
+    let line = match target {
+        Recenter::Middle => size.rows / 2,
+        Recenter::Line(line) if line >= 0 => line.unsigned_abs().min(size.rows - 1),
+        Recenter::Line(line) => size.rows.saturating_sub(line.unsigned_abs()),
+    };
+    row.saturating_sub(line)
 }
 
 /// The row a cursor on `row` moves to so that it stays in a view whose top
@@ -353,6 +431,131 @@ mod tests {
         assert!(window.set_top(0, &display));
         assert_eq!(window.selections.primary().cursor, 8 * 3);
         assert!(!window.set_top(0, &display));
+    }
+
+    fn numbered_rows(rows: usize) -> DisplaySnapshot {
+        use crate::display_map::{DisplayMap, TabWidth};
+        let text: String = (0..rows).map(|i| format!("{i:02}\n")).collect();
+        DisplayMap::new(&crate::rope::Rope::from(text.as_str()), TabWidth::default()).snapshot()
+    }
+
+    #[test]
+    fn set_top_stops_at_the_last_row() {
+        let display = numbered_rows(30);
+        let mut window = Window::new(BufferId(0));
+        window.set_size(SIZE);
+        assert!(window.set_top(usize::MAX, &display));
+        assert_eq!(window.scroll.top, 30, "the empty row after the last line");
+        assert_eq!(window.selections.primary().cursor, 30 * 3);
+        assert!(!window.set_top(99, &display), "already there");
+    }
+
+    #[test]
+    fn set_top_follows_a_primary_cursor_it_moves_with_the_view_sideways() {
+        let display = numbered_rows(30);
+        let mut window = Window::new(BufferId(0));
+        window.set_size(SIZE);
+        window.selections = SelectionSet::new(1);
+        window.scroll.left = 1;
+        assert!(window.set_top(5, &display));
+        assert_eq!(window.selections.primary().cursor, 5 * 3, "at column 0");
+        assert_eq!(window.scroll, Scroll { top: 5, left: 0 }, "and in view");
+    }
+
+    #[test]
+    fn set_top_leaves_the_view_sideways_if_the_cursor_stays() {
+        let display = numbered_rows(30);
+        let mut window = Window::new(BufferId(0));
+        window.set_size(SIZE);
+        window.selections = SelectionSet::new(5 * 3);
+        window.scroll.left = 7;
+        assert!(window.set_top(3, &display));
+        assert_eq!(window.scroll, Scroll { top: 3, left: 7 });
+        assert_eq!(window.selections.primary().cursor, 5 * 3);
+    }
+
+    #[test]
+    fn the_sideways_wheel_stops_at_both_ends() {
+        assert_eq!(wheel_sideways(5, SIZE, 100, -2), 3);
+        assert_eq!(wheel_sideways(1, SIZE, 100, -2), 0);
+        assert_eq!(wheel_sideways(0, SIZE, 100, 6), 6);
+        assert_eq!(wheel_sideways(80, SIZE, 100, 6), 81, "the widest row's end");
+        assert_eq!(wheel_sideways(90, SIZE, 100, 6), 90, "past that stays");
+        assert_eq!(wheel_sideways(90, SIZE, 100, -6), 84);
+        assert_eq!(wheel_sideways(0, SIZE, 10, 6), 0, "rows that fit");
+        assert_eq!(wheel_sideways(0, SIZE, 100, isize::MAX), 81);
+        assert_eq!(wheel_sideways(5, SIZE, 100, isize::MIN), 0);
+    }
+
+    #[test]
+    fn small_wheel_deltas_add_up_on_each_axis() {
+        let mut wheel = WheelRemainder::default();
+        assert_eq!(wheel.add(0.4, 0.0), (0, 0));
+        assert_eq!(wheel.add(0.4, 0.0), (0, 0));
+        assert_eq!(wheel.add(0.4, 0.0), (1, 0));
+        assert_eq!(wheel.add(-3.5, 0.0), (-3, 0));
+        assert_eq!(wheel.add(0.0, 2.5), (0, 2));
+        assert_eq!(wheel.add(0.0, 0.5), (0, 1), "the half left over");
+        assert_eq!(wheel.add(0.0, -7.0), (0, -7));
+    }
+
+    #[test]
+    fn a_wheel_event_moves_along_its_main_axis_only() {
+        let mut wheel = WheelRemainder::default();
+        assert_eq!(wheel.add(0.1, 5.0), (0, 5), "sideways: the 0.1 goes");
+        assert_eq!(wheel.add(2.0, 1.0), (2, 0), "down: the 1.0 goes");
+        assert_eq!(wheel.add(1.0, 2.0), (1, 0), "as far on the screen: down");
+        assert_eq!(wheel.add(1.0, 2.5), (0, 2), "further sideways");
+        assert_eq!(wheel.add(0.0, 0.5), (0, 1), "the remainder adds up");
+        assert_eq!(wheel.add(0.0, 0.0), (0, 0));
+    }
+
+    /// Pixels of 10 by 20 cells: a slow drag across, whose main axis takes turns.
+    #[test]
+    fn a_slow_gesture_whose_main_axis_alternates_still_moves() {
+        let mut wheel = WheelRemainder::default();
+        let (mut rows, mut columns) = (0, 0);
+        for _ in 0..10 {
+            for (x, y) in [(4.0, 3.0), (3.0, 4.0)] {
+                let (down, across) = wheel.add(y / 20.0, x / 10.0);
+                rows += down;
+                columns += across;
+            }
+        }
+        assert!(columns > 0, "it went sideways");
+        assert!(rows > 0, "and down");
+    }
+
+    #[test]
+    fn a_stray_sideways_event_keeps_a_slow_scrolls_progress() {
+        let mut wheel = WheelRemainder::default();
+        assert_eq!(wheel.add(0.6, 0.0), (0, 0));
+        assert_eq!(wheel.add(0.0, 0.3), (0, 0), "a stray event");
+        assert_eq!(wheel.add(0.6, 0.0), (1, 0), "nothing was lost");
+    }
+
+    #[test]
+    fn a_bad_wheel_delta_is_ignored() {
+        let mut wheel = WheelRemainder::default();
+        assert_eq!(wheel.add(f64::NAN, 0.0), (0, 0));
+        assert_eq!(wheel.add(0.0, f64::INFINITY), (0, 0));
+        assert_eq!(wheel.add(1.5, 0.0), (1, 0));
+    }
+
+    #[test]
+    fn recentering_puts_the_cursor_on_the_row_asked_for() {
+        assert_eq!(recenter_top(50, SIZE, Recenter::Middle), 45);
+        assert_eq!(recenter_top(50, SIZE, Recenter::Line(0)), 50);
+        assert_eq!(recenter_top(50, SIZE, Recenter::Line(3)), 47);
+        assert_eq!(recenter_top(50, SIZE, Recenter::Line(99)), 41);
+        assert_eq!(recenter_top(50, SIZE, Recenter::Line(-1)), 41);
+        assert_eq!(recenter_top(50, SIZE, Recenter::Line(-3)), 43);
+        assert_eq!(recenter_top(50, SIZE, Recenter::Line(isize::MIN)), 50);
+        assert_eq!(
+            recenter_top(2, SIZE, Recenter::Line(-1)),
+            0,
+            "the first row"
+        );
     }
 
     #[test]

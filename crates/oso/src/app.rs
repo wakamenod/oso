@@ -12,6 +12,7 @@ use std::time::Instant;
 use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
 use oso_core::editor::Editor;
+use oso_core::window::WheelRemainder;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::ModifiersState;
 
@@ -61,8 +62,8 @@ pub struct App {
     leaving: Leaving,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
-    /// Trackpad scrolling not yet worth a whole row, in pixels.
-    wheel_pixels: f64,
+    /// Wheel and trackpad scrolling not yet worth a whole row or column.
+    wheel: WheelRemainder,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -87,7 +88,7 @@ impl App {
             loads: Vec::new(),
             leaving: Leaving::default(),
             started: Some(started),
-            wheel_pixels: 0.0,
+            wheel: WheelRemainder::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]

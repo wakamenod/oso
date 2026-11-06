@@ -198,6 +198,15 @@ fn assert_withheld(app: &mut App) {
         buffers.is_some_and(|buffers| buffers.iter().any(|buffer| buffer["path"] == *path)),
         "export-state did not hand over the secret buffer by its path",
     );
+    let window = &exported["result"]["windows"][0];
+    assert_eq!(
+        (
+            window["selections"][0]["cursor"].as_u64(),
+            &window["scroll"]
+        ),
+        (Some(0), &json!({ "top": 0, "left": 0 })),
+        "export-state gave a position in the secret buffer",
+    );
 }
 
 /// Checks that no request gives the shown buffer's text or pixels. Returns the
@@ -214,6 +223,18 @@ fn assert_text_withheld(app: &mut App) -> Value {
         parsed["result"]["text"].is_null(),
         "get-state returned text"
     );
+    for hidden in ["cursor", "scroll"] {
+        assert!(
+            parsed["result"].get(hidden).is_none(),
+            "get-state returned the {hidden}"
+        );
+    }
+    for hidden in ["scroll", "primary", "selections"] {
+        assert!(
+            parsed["result"]["windows"][0].get(hidden).is_none(),
+            "get-state returned the window's {hidden}"
+        );
+    }
     for (method, params) in [
         ("get-text", Some(json!({ "start_row": 0, "rows": 5 }))),
         ("screenshot", None),
@@ -279,10 +300,17 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     assert_readable(&mut app, "plain text");
     app.show_buffer(&env_id);
     assert_withheld(&mut app);
+    // A motion gives no position away, by either way of asking.
+    app.send_keys("M-f");
+    assert_withheld(&mut app);
 
     // An edit does not make it readable, and a restart names it and quotes nothing.
     app.send_keys("a");
-    assert_text_withheld(&mut app);
+    let state = assert_text_withheld(&mut app);
+    assert!(
+        state["result"]["buffer"]["bytes"].is_null(),
+        "get-state gave an edited secret buffer's size",
+    );
     for method in ["check-handover", "export-state"] {
         let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
         assert_no_secret(&line, method);
