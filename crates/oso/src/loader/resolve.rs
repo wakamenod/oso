@@ -1,7 +1,8 @@
 //! Where a path really leads, for telling whether a file may hold secrets
 //! (ADR 0044). It walks the path as `fs::canonicalize` does, but keeps each
 //! symbolic link's target, so a chain through a secret path is caught wherever
-//! it ends.
+//! it ends. Also the place a save of the path writes, which the load records and
+//! the save compares (ADR 0059).
 //!
 //! Must not depend on: `app` or the UI thread; this touches the file system
 //! and runs on the loading thread.
@@ -53,6 +54,57 @@ pub fn resolve(path: &Path) -> Resolved {
         Err(_) => return Resolved::Unknown,
     }
     Resolved::Paths(walk.visited)
+}
+
+/// Where `path` leads through symbolic links, one at a time. Unlike
+/// `fs::canonicalize`, this also goes through a link to a file that does not exist,
+/// which a save creates.
+///
+/// # Errors
+///
+/// On a loop of links, or if a link cannot be read.
+pub fn follow_links(path: &Path) -> io::Result<PathBuf> {
+    let mut current = path.to_path_buf();
+    for _ in 0..=MAX_LINKS {
+        match fs::symlink_metadata(&current) {
+            // Relative to the link's directory, whatever that directory leads through.
+            Ok(metadata) if metadata.is_symlink() => {
+                let target = fs::read_link(&current)?;
+                current = parent(&current).join(target);
+            }
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => return Ok(current),
+        }
+    }
+    Err(io::Error::other("too many levels of symbolic links"))
+}
+
+/// The real place `path` leads, whether or not anything is there: its links followed,
+/// and the part of its directory that exists canonical. Two paths have the same answer
+/// only if a file made through either lands in one place.
+///
+/// # Errors
+///
+/// If it cannot be told: as for [`follow_links`], or a directory that cannot be read.
+pub fn location(path: &Path) -> io::Result<PathBuf> {
+    let target = follow_links(path)?;
+    let name = target
+        .file_name()
+        .ok_or_else(|| io::Error::other("the path names no file"))?;
+    let directory = parent(&target);
+    match fs::canonicalize(directory) {
+        Ok(real) => Ok(real.join(name)),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(location(directory)?.join(name)),
+        Err(e) => Err(e),
+    }
+}
+
+/// The directory holding `path`.
+pub fn parent(path: &Path) -> &Path {
+    match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    }
 }
 
 /// A walk along a path, one name at a time, following links. It is the same
@@ -119,6 +171,33 @@ mod tests {
         let _ = fs::remove_dir_all(&path);
         fs::create_dir(&path).unwrap();
         path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn following_links_goes_as_far_as_the_limit_and_no_further() {
+        use std::os::unix::fs::symlink;
+        let dir = scratch_dir("follow-limit");
+        let real = dir.join("real.txt");
+        fs::write(&real, b"text").unwrap();
+        let mut target = "real.txt".to_owned();
+        for index in 1..=MAX_LINKS + 1 {
+            let name = format!("link{index}");
+            symlink(&target, dir.join(&name)).unwrap();
+            target = name;
+        }
+        let longest = dir.join(format!("link{MAX_LINKS}"));
+        assert_eq!(follow_links(&longest).unwrap(), real);
+        assert!(follow_links(&dir.join(format!("link{}", MAX_LINKS + 1))).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_location_needs_no_file_or_directory_there_yet() {
+        let dir = scratch_dir("new-location");
+        let deep = dir.join("not").join("yet").join("file.txt");
+        assert_eq!(location(&deep).unwrap(), deep);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

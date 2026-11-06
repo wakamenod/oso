@@ -11,7 +11,7 @@ often, so it must rebuild within 2 s.
   a module in `src/commands/` and, if it has default keys, one of the same name
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
-  the concerns: `events` routes, `input`, `draw` and `loads` do the work, and
+  the concerns: `events` routes, `input`, `draw`, `loads` and `saves` do the work, and
   `control` answers the dev socket.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
