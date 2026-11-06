@@ -1,5 +1,6 @@
 //! Saving files and leaving: starting the saves commands asked for, taking in how they
-//! ended, the window's close button, and ending the event loop once saves have finished.
+//! ended, the window's close button, and ending the event loop once saves have finished. An
+//! end nobody here agreed to is the OS's, and writes emergency copies (ADR 0062).
 //!
 //! Must not depend on: key presses or how a frame is drawn. Files are written on the
 //! saver's threads, never here.
@@ -28,6 +29,7 @@ impl App {
             log::trace!("save started in {:?}", started.elapsed());
             if let Err(e) = spawned {
                 saver::apply(&mut self.editor, SaveReport::not_started(buffer, path, e));
+                self.dispatcher.publish_for_emergency(&self.editor);
             }
         }
     }
@@ -37,9 +39,10 @@ impl App {
     pub(super) fn save_ended(&mut self, event_loop: &ActiveEventLoop, report: SaveReport) {
         let failed = report.failed();
         saver::apply(&mut self.editor, report);
+        self.dispatcher.publish_for_emergency(&self.editor);
         match self.leaving.save_ended(&self.editor, failed) {
             None | Some(AfterSave::KeepWaiting) => {}
-            Some(AfterSave::Exit) => event_loop.exit(),
+            Some(AfterSave::Exit) => self.go(event_loop),
             Some(AfterSave::StayOpen) => {
                 self.editor
                     .message("The exit was taken back, as a buffer differs from what is on disk");
@@ -64,13 +67,26 @@ impl App {
     /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold.
     pub(super) fn leave(&mut self, event_loop: &ActiveEventLoop, anyway: bool) {
         let Some(deadline) = self.leaving.begin(&self.editor, anyway, Instant::now()) else {
-            event_loop.exit();
+            self.go(event_loop);
             return;
         };
         event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         if let Some(view) = &self.view {
             view.window.set_visible(false);
         }
+    }
+
+    /// Ends the event loop, as this instance has agreed to, so that nothing is written.
+    fn go(&mut self, event_loop: &ActiveEventLoop) {
+        self.leaving.go();
+        event_loop.exit();
+    }
+
+    /// The event loop is ending. Unless this instance agreed to that, it is the OS's doing,
+    /// and the process goes with this call, so what is at risk is written here. A save
+    /// running now may or may not finish, and nobody can tell, so its buffer gets a copy too.
+    pub(super) fn ending(&self) {
+        self.emergency.on_exit();
     }
 
     /// Whether this instance has agreed to go. Nothing that could still be lost with the
@@ -87,7 +103,7 @@ impl App {
                 log::error!(
                     "leaving with a save that has not finished. Its file may or may not be replaced, and a .oso-save-*.tmp may remain"
                 );
-                event_loop.exit();
+                self.go(event_loop);
             }
             Some(AfterSave::StayOpen) => {
                 self.editor.reset_exit_guard();

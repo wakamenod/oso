@@ -13,6 +13,9 @@ often, so it must rebuild within 2 s.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `events` routes, `input`, `draw`, `loads` and `saves` do the work, and
   `control` answers the dev socket.
+- `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
+  (ADR 0062). Their writer sits above `saver`, and nothing there may hold text in a
+  message or a log.
 - Keep logic that can be tested without a window in `oso-core`. This crate
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays

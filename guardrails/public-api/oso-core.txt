@@ -38,6 +38,23 @@ impl core::hash::Hash for oso_core::buffer::ReadOnly
 pub fn oso_core::buffer::ReadOnly::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::buffer::ReadOnly
 impl core::marker::StructuralPartialEq for oso_core::buffer::ReadOnly
+pub enum oso_core::buffer::Verdict
+pub oso_core::buffer::Verdict::Ordinary
+pub oso_core::buffer::Verdict::SecretName
+pub oso_core::buffer::Verdict::Unjudged
+pub oso_core::buffer::Verdict::Unresolved
+impl oso_core::buffer::Verdict
+pub const fn oso_core::buffer::Verdict::is_withheld(self) -> bool
+pub const fn oso_core::buffer::Verdict::may_be_copied(self) -> bool
+impl core::clone::Clone for oso_core::buffer::Verdict
+pub fn oso_core::buffer::Verdict::clone(&self) -> oso_core::buffer::Verdict
+impl core::cmp::Eq for oso_core::buffer::Verdict
+impl core::cmp::PartialEq for oso_core::buffer::Verdict
+pub fn oso_core::buffer::Verdict::eq(&self, &oso_core::buffer::Verdict) -> bool
+impl core::fmt::Debug for oso_core::buffer::Verdict
+pub fn oso_core::buffer::Verdict::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::buffer::Verdict
+impl core::marker::StructuralPartialEq for oso_core::buffer::Verdict
 pub struct oso_core::buffer::Baseline
 pub oso_core::buffer::Baseline::file: core::option::Option<oso_core::buffer::FileStamp>
 pub oso_core::buffer::Baseline::location: std::path::PathBuf
@@ -64,6 +81,7 @@ pub fn oso_core::buffer::Buffer::is_modified(&self) -> bool
 pub fn oso_core::buffer::Buffer::is_saving(&self) -> bool
 pub fn oso_core::buffer::Buffer::is_secret(&self) -> bool
 pub fn oso_core::buffer::Buffer::judge_secret(&mut self, core::option::Option<&[std::path::PathBuf]>)
+pub fn oso_core::buffer::Buffer::judge_unresolved(&mut self, &[std::path::PathBuf])
 pub fn oso_core::buffer::Buffer::loading(&self) -> core::option::Option<oso_core::load::Progress>
 pub fn oso_core::buffer::Buffer::mark_saved(&mut self, oso_core::buffer::ContentId)
 pub fn oso_core::buffer::Buffer::name(&self) -> &str
@@ -74,6 +92,7 @@ pub fn oso_core::buffer::Buffer::revision(&self) -> u64
 pub fn oso_core::buffer::Buffer::set_baseline(&mut self, oso_core::buffer::Baseline)
 pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell::TabWidth
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
+pub fn oso_core::buffer::Buffer::verdict(&self) -> oso_core::buffer::Verdict
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId

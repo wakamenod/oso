@@ -66,9 +66,14 @@ impl App {
         let load = self.loads.iter().position(|l| l.handle.buffer() == buffer);
         if let Some(index) = load
             && let Some(update) = self.loads[index].handle.take()
-            && self.apply_load(index, update)
         {
-            self.request_redraw();
+            let redraw = self.apply_load(index, update);
+            // Not in `apply_load`, as `poll_loads` runs on the frame path. A buffer still
+            // loading is not at risk, so nothing is lost by waiting for this event.
+            self.dispatcher.publish_for_emergency(&self.editor);
+            if redraw {
+                self.request_redraw();
+            }
         }
     }
 
@@ -93,7 +98,7 @@ impl App {
             return false;
         };
         if let Some(resolved) = self.loads[index].handle.take_resolved() {
-            buffer.judge_secret(resolved.paths());
+            resolved.judge(buffer);
         }
         if let Some(baseline) = self.loads[index].handle.take_baseline() {
             buffer.set_baseline(baseline);

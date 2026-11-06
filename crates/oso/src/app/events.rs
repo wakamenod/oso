@@ -44,6 +44,12 @@ impl ApplicationHandler<UserEvent> for App {
         self.check_leaving(event_loop);
     }
 
+    /// The event loop is ending, on every exit. On macOS `applicationWillTerminate` leads
+    /// here for a Dock quit or a logout.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.ending();
+    }
+
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,

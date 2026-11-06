@@ -11,6 +11,8 @@ use std::fs;
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
+use oso_core::buffer::Buffer;
+
 /// The most symbolic links one path may pass through, as in Linux.
 const MAX_LINKS: usize = 40;
 
@@ -19,16 +21,36 @@ const MAX_LINKS: usize = 40;
 pub enum Resolved {
     /// Each link's target on the way, then the canonical path.
     Paths(Vec<PathBuf>),
-    /// Nobody can tell: a link to nothing, a missing directory, an error.
-    Unknown,
+    /// Nobody can tell: a link to nothing, a missing directory, an error. This holds what
+    /// the walk passed before it failed, as those names count for an emergency copy too
+    /// (ADR 0051).
+    Unknown(Vec<PathBuf>),
 }
 
 impl Resolved {
-    /// The paths, as `Buffer::judge_secret` takes them.
+    /// Tells `buffer` what this says of whether it may hold secrets.
+    pub fn judge(&self, buffer: &mut Buffer) {
+        match self {
+            Self::Paths(paths) => buffer.judge_secret(Some(paths)),
+            Self::Unknown(seen) => buffer.judge_unresolved(seen),
+        }
+    }
+
+    /// The paths, or `None` if nobody could tell.
+    #[cfg(test)]
     pub fn paths(&self) -> Option<&[PathBuf]> {
         match self {
             Self::Paths(paths) => Some(paths),
-            Self::Unknown => None,
+            Self::Unknown(_) => None,
+        }
+    }
+
+    /// What the walk passed before it failed, if it did.
+    #[cfg(all(test, unix))]
+    fn seen(&self) -> &[PathBuf] {
+        match self {
+            Self::Paths(_) => &[],
+            Self::Unknown(seen) => seen,
         }
     }
 }
@@ -41,17 +63,17 @@ pub fn resolve(path: &Path) -> Resolved {
     let walked = std::path::absolute(path)
         .ok()
         .and_then(|path| walk.follow(&path, true));
-    if walked.is_none() {
-        return Resolved::Unknown;
-    }
     walk.visited.push(walk.current);
+    if walked.is_none() {
+        return Resolved::Unknown(walk.visited);
+    }
     // The system's own answer too: on Windows it also expands short names
     // such as `SSH~1`, which a walk along links never sees.
     match fs::canonicalize(path) {
         Ok(canonical) if walk.visited.last() != Some(&canonical) => walk.visited.push(canonical),
         Ok(_) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(_) => return Resolved::Unknown,
+        Err(_) => return Resolved::Unknown(walk.visited),
     }
     Resolved::Paths(walk.visited)
 }
@@ -206,8 +228,8 @@ mod tests {
         let new = directory.join("new-file");
         assert_eq!(resolve(&new), Resolved::Paths(vec![new.clone()]));
         assert_eq!(
-            resolve(&directory.join("no-dir").join("file")),
-            Resolved::Unknown,
+            resolve(&directory.join("no-dir").join("file")).paths(),
+            None,
             "fails closed"
         );
         // Windows reports this as a missing file, which a new file may be.
@@ -215,8 +237,8 @@ mod tests {
         {
             fs::write(&new, b"x").unwrap();
             assert_eq!(
-                resolve(&new.join("file")),
-                Resolved::Unknown,
+                resolve(&new.join("file")).paths(),
+                None,
                 "a file is not a directory"
             );
         }
@@ -232,7 +254,7 @@ mod tests {
         /// Whether a buffer visiting `path` counts as secret.
         fn is_secret(path: &Path) -> bool {
             let mut buffer = Buffer::visiting(path.to_owned());
-            buffer.judge_secret(resolve(path).paths());
+            resolve(path).judge(&mut buffer);
             buffer.is_secret()
         }
 
@@ -254,7 +276,12 @@ mod tests {
                 "the walk ends where canonicalize does"
             );
             fs::remove_file(&target).unwrap();
-            assert_eq!(resolve(&link), Resolved::Unknown, "a link to nothing");
+            let resolved = resolve(&link);
+            assert_eq!(resolved.paths(), None, "a link to nothing");
+            assert!(
+                resolved.seen().contains(&target),
+                "the walk says where the link led"
+            );
             assert!(is_secret(&link));
             fs::remove_dir_all(directory).unwrap();
         }
@@ -322,7 +349,7 @@ mod tests {
             let (a, b) = (directory.join("a"), directory.join("b"));
             symlink(&b, &a).unwrap();
             symlink(&a, &b).unwrap();
-            assert_eq!(resolve(&a), Resolved::Unknown);
+            assert_eq!(resolve(&a).paths(), None);
             fs::remove_dir_all(directory).unwrap();
         }
     }

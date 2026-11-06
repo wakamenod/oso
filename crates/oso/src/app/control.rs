@@ -85,6 +85,11 @@ impl App {
                 self.restore.as_ref(),
             ),
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
+            dev::UiOp::Panic => panic!("a deliberate panic: {}", self.editor.current().1.text()),
+            dev::UiOp::EndUnasked => {
+                event_loop.exit();
+                Ok(json!({ "ending": true }))
+            }
             dev::UiOp::ImportState(state) => self.import_state(*state),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.

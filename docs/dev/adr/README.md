@@ -65,6 +65,7 @@ old one's status.
 | 0056 | [Typing](0056-typing.md) | Accepted |
 | 0057 | [The layout of a frame into regions](0057-frame-layout.md) | Accepted |
 | 0059 | [Safe save and the exit guard](0059-safe-save-and-the-exit-guard.md) | Accepted |
+| 0062 | [The emergency save, the panic hook and no core dumps](0062-emergency-save-and-the-panic-hook.md) | Proposed |
 
 ## Template
 

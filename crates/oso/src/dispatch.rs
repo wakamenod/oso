@@ -12,6 +12,7 @@ use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
 
+use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
 /// Runs commands for key presses. Keys from the window and from the dev
@@ -20,6 +21,8 @@ pub struct Dispatcher {
     registry: Registry,
     global: Keymap,
     resolver: KeyResolver,
+    /// Keeps the emergency save up to date, in the running app (ADR 0062).
+    publisher: Option<Publisher>,
 }
 
 impl Dispatcher {
@@ -36,6 +39,20 @@ impl Dispatcher {
             registry,
             global,
             resolver: KeyResolver::new(),
+            publisher: None,
+        }
+    }
+
+    /// Keeps the emergency save up to date through `publisher`.
+    pub fn set_publisher(&mut self, publisher: Publisher) {
+        self.publisher = Some(publisher);
+    }
+
+    /// Tells the emergency save what has changed. A command's end does this itself; the
+    /// host calls this for anything else that changes a buffer: a save reporting, a load.
+    pub fn publish_for_emergency(&self, editor: &Editor) {
+        if let Some(publisher) = &self.publisher {
+            publisher.publish(editor);
         }
     }
 
@@ -135,6 +152,8 @@ impl Dispatcher {
     /// scrolls the selected window to keep its cursor in view, as Emacs's
     /// redisplay does. A failure is not fatal (ADR 0014), and leaves a message.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
+    /// What a panicking command left is not published for the emergency save, though a
+    /// later command's publish takes it in, as the person then sees it and goes on from it.
     fn execute(
         &self,
         editor: &mut Editor,
@@ -145,7 +164,9 @@ impl Dispatcher {
         let exit_attempt = editor.exit_attempt();
         editor.begin_undo_group();
         let mut ctx = Ctx::with_input(editor, input);
+        let boundary = self.publisher.as_ref().map(Publisher::enter_command);
         let result = self.registry.execute(id, &mut ctx, args);
+        drop(boundary);
         let mut effects = ctx.effects();
         match &result {
             Ok(()) => editor.end_undo_group(),
@@ -169,6 +190,9 @@ impl Dispatcher {
             editor.reset_exit_guard();
         }
         effects.redraw |= editor.follow_cursor();
+        if !matches!(result, Err(ExecuteError::Panicked { .. })) {
+            self.publish_for_emergency(editor);
+        }
         (effects, result)
     }
 
@@ -214,6 +238,8 @@ impl Dispatcher {
 
 #[cfg(test)]
 mod edit_tests;
+#[cfg(test)]
+mod emergency_tests;
 #[cfg(test)]
 mod grid_tests;
 #[cfg(test)]

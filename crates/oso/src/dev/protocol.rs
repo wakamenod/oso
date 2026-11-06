@@ -90,6 +90,11 @@ pub enum UiOp {
     /// Visits a file in the selected window, as `oso FILE` does at startup,
     /// so that a benchmark can time it with the window up.
     OpenFile(PathBuf),
+    /// Panic on the UI thread, outside the command boundary, with a message that quotes
+    /// the selected buffer's text, for the emergency save's end-to-end flows (ADR 0062).
+    Panic,
+    /// End the event loop with nobody having agreed to, as the OS does.
+    EndUnasked,
 }
 
 /// A parsed request.
@@ -163,6 +168,8 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         },
         "show-buffer" => UiOp::ShowBuffer(parse_buffer(params).map_err(|m| bad(&id, m))?),
         "check-handover" => UiOp::CheckHandover,
+        "dev-panic" => UiOp::Panic,
+        "dev-end-unasked" => UiOp::EndUnasked,
         "export-state" => UiOp::ExportState,
         "import-state" => {
             let state = params

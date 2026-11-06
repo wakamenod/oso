@@ -4,6 +4,8 @@
 //!
 //! Must not depend on: `app`, winit or the GPU.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::BufferId;
@@ -26,6 +28,56 @@ pub enum AfterSave {
     StayOpen,
 }
 
+/// What this instance has agreed to lose, should it end now. An end nobody agreed to is the
+/// OS's (Dock quit, logout), or a panic, and the text it would lose gets an emergency copy
+/// (ADR 0062).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Agreement {
+    /// Nothing: nobody has asked to go.
+    Nothing,
+    /// Modified buffers, but not the saves it is waiting for. Their text is meant to reach
+    /// the disk, and an end now could stop that.
+    ModifiedButNotSaves,
+    /// Everything: the event loop has been told to end.
+    Everything,
+}
+
+impl Agreement {
+    const fn number(self) -> u8 {
+        match self {
+            Self::Nothing => 0,
+            Self::ModifiedButNotSaves => 1,
+            Self::Everything => 2,
+        }
+    }
+
+    /// The agreement behind a number. Anything else would write nothing, though nothing else
+    /// is ever stored.
+    const fn from_number(number: u8) -> Self {
+        match number {
+            0 => Self::Nothing,
+            1 => Self::ModifiedButNotSaves,
+            _ => Self::Everything,
+        }
+    }
+}
+
+/// The [`Agreement`] now, for whoever must read it in a panic. Only [`Leaving`] writes it in
+/// the running app, on every change, so that no path through the app can leave it stale.
+#[derive(Clone, Default)]
+pub struct AgreementCell(Arc<AtomicU8>);
+
+impl AgreementCell {
+    /// The agreement now.
+    pub fn get(&self) -> Agreement {
+        Agreement::from_number(self.0.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn set(&self, agreement: Agreement) {
+        self.0.store(agreement.number(), Ordering::Relaxed);
+    }
+}
+
 /// An exit agreed to, waiting for saves.
 struct UnderWay {
     /// When to stop waiting.
@@ -43,12 +95,42 @@ pub struct Leaving {
     under_way: Option<UnderWay>,
     /// Buffers whose save outlived an exit, which the next exit does not wait for again.
     stuck: Vec<BufferId>,
+    /// Nothing is left to wait for, and the event loop has been told to end.
+    gone: bool,
+    /// Where the agreement is kept for the panic hook and the end of the event loop.
+    cell: AgreementCell,
 }
 
 impl Leaving {
+    /// No exit under way, keeping what is agreed to in `cell`.
+    pub fn with_cell(cell: AgreementCell) -> Self {
+        Self {
+            cell,
+            ..Self::default()
+        }
+    }
+
     /// Whether an exit is waiting for saves.
     pub fn is_under_way(&self) -> bool {
         self.under_way.is_some()
+    }
+
+    /// Keeps what is now agreed to where the panic hook can read it.
+    fn update_cell(&self) {
+        self.cell.set(if self.gone {
+            Agreement::Everything
+        } else if self.under_way.is_some() {
+            Agreement::ModifiedButNotSaves
+        } else {
+            Agreement::Nothing
+        });
+    }
+
+    /// Nothing is left to wait for: the app is about to end the event loop.
+    pub fn go(&mut self) {
+        self.under_way = None;
+        self.gone = true;
+        self.update_cell();
     }
 
     /// An exit was agreed to. `None` to go now, or when to stop waiting for the saves
@@ -64,6 +146,7 @@ impl Leaving {
             anyway,
             modified: modified_buffers(editor).collect(),
         });
+        self.update_cell();
         Some(deadline)
     }
 
@@ -77,6 +160,7 @@ impl Leaving {
         let step = next_step(failed || newly_modified, under_way.anyway, still_saving);
         if step != AfterSave::KeepWaiting {
             self.under_way = None;
+            self.update_cell();
         }
         Some(step)
     }
@@ -98,6 +182,7 @@ impl Leaving {
                 .collect();
         }
         self.under_way = None;
+        self.update_cell();
         Some(step)
     }
 
@@ -133,6 +218,81 @@ fn next_step(at_risk: bool, anyway: bool, still_saving: bool) -> AfterSave {
 mod tests {
     use super::*;
     use AfterSave::{Exit, KeepWaiting, StayOpen};
+    use oso_core::buffer::Buffer;
+    use oso_core::editor::SaveRefused;
+
+    /// An editor with a save of its modified buffer running.
+    fn saving() -> (Editor, BufferId) {
+        let mut editor = Editor::with_buffer(Buffer::visiting("/p/notes.txt".into()));
+        let id = editor.window().buffer();
+        let buffer = editor.buffer_mut(id).unwrap();
+        buffer.finish_empty();
+        buffer.set_baseline(oso_core::buffer::Baseline {
+            location: "/p/notes.txt".into(),
+            file: None,
+        });
+        editor
+            .apply_edits(
+                id,
+                &[oso_core::buffer::Replacement {
+                    range: 0..0,
+                    text: "text\n",
+                }],
+            )
+            .unwrap();
+        assert!(!matches!(editor.start_save(), Err(SaveRefused::Unmodified)));
+        (editor, id)
+    }
+
+    #[test]
+    fn nothing_is_agreed_to_until_a_person_or_the_socket_asks() {
+        assert_eq!(Leaving::default().cell.get(), Agreement::Nothing);
+    }
+
+    #[test]
+    fn a_number_stands_for_its_agreement() {
+        for agreement in [
+            Agreement::Nothing,
+            Agreement::ModifiedButNotSaves,
+            Agreement::Everything,
+        ] {
+            assert_eq!(Agreement::from_number(agreement.number()), agreement);
+        }
+        assert_eq!(Agreement::from_number(9), Agreement::Everything);
+    }
+
+    #[test]
+    fn an_exit_with_nothing_to_wait_for_agrees_to_everything() {
+        let mut leaving = Leaving::default();
+        let editor = Editor::default();
+        assert_eq!(leaving.begin(&editor, false, Instant::now()), None);
+        leaving.go();
+        assert_eq!(leaving.cell.get(), Agreement::Everything);
+    }
+
+    #[test]
+    fn a_save_held_exit_keeps_the_saves_until_it_goes_or_is_taken_back() {
+        let (editor, _) = saving();
+        let mut leaving = Leaving::default();
+        assert!(leaving.begin(&editor, false, Instant::now()).is_some());
+        assert_eq!(leaving.cell.get(), Agreement::ModifiedButNotSaves);
+
+        // Taken back: nothing is agreed to any more.
+        assert_eq!(leaving.save_ended(&editor, true), Some(StayOpen));
+        assert_eq!(leaving.cell.get(), Agreement::Nothing);
+
+        assert!(leaving.begin(&editor, true, Instant::now()).is_some());
+        assert_eq!(leaving.cell.get(), Agreement::ModifiedButNotSaves);
+        leaving.go();
+        assert_eq!(leaving.cell.get(), Agreement::Everything);
+
+        // Taken back when it has waited for too long, and the next exit does not wait.
+        let mut leaving = Leaving::default();
+        let deadline = leaving.begin(&editor, false, Instant::now()).unwrap();
+        assert_eq!(leaving.check_deadline(&editor, deadline), Some(StayOpen));
+        assert_eq!(leaving.cell.get(), Agreement::Nothing);
+        assert_eq!(leaving.begin(&editor, false, Instant::now()), None);
+    }
 
     #[test]
     fn text_at_risk_takes_a_persons_exit_back_at_once_and_not_the_sockets() {

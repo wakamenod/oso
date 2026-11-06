@@ -13,11 +13,12 @@ mod harness;
 mod png;
 
 use std::fmt::Write as _;
+use std::fs;
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
-use harness::{App, FAKE_SECRET, Scratch, process_exists};
+use harness::{App, FAKE_SECRET, Scratch, emergency_dir, process_exists};
 use png::Foreground;
 use serde_json::{Value, json};
 
@@ -570,6 +571,12 @@ fn a_failed_save_after_a_confirmed_exit_keeps_the_instance_and_the_text() {
         .expect("the directory")
         .count();
     assert_eq!(names, 1, "nothing is left beside the file");
+
+    // The exit was taken back, so nobody has agreed to lose this any more.
+    app.call("dev-end-unasked", None);
+    assert!(app.wait_for_exit().success());
+    let copies = read_copies(&emergency_dir(scratch.path()));
+    assert_eq!(copies.len(), 1, "an end after that writes the text");
 }
 
 /// The event loop goes on delivering what is queued after an exit, so this can
@@ -612,6 +619,227 @@ fn the_quit_key_and_exit_end_the_process_with_status_zero() {
         assert_eq!(status.code(), Some(0), "after {name}: {status}");
         assert!(!socket.exists(), "{name} leaves the socket behind");
     }
+}
+
+/// Text typed into buffers, which no output may quote.
+const FAKE_TEXT: &str = "FAKETYPEDTEXT";
+
+/// The keys that type `text`.
+fn typing(text: &str) -> String {
+    let keys: Vec<String> = text.chars().map(String::from).collect();
+    keys.join(" ")
+}
+
+/// The copies in `directory`: each `.meta` file's content with its text. Nothing if the
+/// directory does not exist. Checks what no flow may break: a private directory, private
+/// files, and a text beside every metadata file.
+fn read_copies(directory: &Path) -> Vec<(String, Vec<u8>)> {
+    use std::os::unix::fs::MetadataExt;
+    let Ok(entries) = fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    let mode = |path: &Path| fs::symlink_metadata(path).expect("cannot look").mode() & 0o7777;
+    assert_eq!(mode(directory), 0o700, "the directory is private");
+    let paths: Vec<_> = entries
+        .map(|entry| entry.expect("an entry").path())
+        .collect();
+    let mut copies = Vec::new();
+    for path in &paths {
+        assert_eq!(mode(path), 0o600, "a copy is private");
+        if path
+            .extension()
+            .is_some_and(|extension| extension == "meta")
+        {
+            let meta = fs::read_to_string(path).expect("metadata is ASCII");
+            let text = fs::read(path.with_extension("txt")).expect("a copy has its text");
+            copies.push((meta, text));
+        }
+    }
+    assert_eq!(
+        paths.len(),
+        copies.len() * 2,
+        "a text and a metadata file each, and no more"
+    );
+    copies
+}
+
+/// Checks that nothing in `directory` holds `text`.
+#[track_caller]
+fn assert_nowhere_in(directory: &Path, text: &str) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    for entry in entries {
+        let bytes = fs::read(entry.expect("an entry").path()).expect("cannot read a copy");
+        assert!(
+            !String::from_utf8_lossy(&bytes).contains(text),
+            "a copy holds what it should not"
+        );
+    }
+}
+
+/// The copy of the buffer whose metadata has `line`.
+#[track_caller]
+fn copy_with<'a>(copies: &'a [(String, Vec<u8>)], line: &str) -> &'a [u8] {
+    copies
+        .iter()
+        .find(|(meta, _)| meta.lines().any(|found| found == line))
+        .map_or_else(|| panic!("no copy with {line:?}"), |(_, text)| text)
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_panic_outside_a_command_writes_the_copies_and_quotes_no_text() {
+    let scratch = Scratch::new("panic");
+    let notes = scratch.write("notes.txt", b"on disk");
+    let secret = scratch.write(".env", FAKE_SECRET.as_bytes());
+    let mut app = App::start(Some(&notes), scratch.path());
+    let state = app.wait_until_ready();
+    let scratch_id = state["buffers"]
+        .as_array()
+        .and_then(|buffers| buffers.iter().find(|buffer| buffer["name"] == "*scratch*"))
+        .expect("a *scratch* buffer")["id"]
+        .clone();
+    // At the front of the file, so that the bytes after it stay as they were: no final
+    // newline is added.
+    app.send_keys(&typing(FAKE_TEXT));
+    app.show_buffer(&scratch_id);
+    app.send_keys(&format!("{} SPC y", typing(FAKE_TEXT)));
+    app.open_file(&secret);
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    assert_eq!(app.state()["buffer"]["secret"], true);
+
+    // The secret buffer is shown, so the panic's message quotes the secret.
+    let _ = app.exchange("dev-panic", None);
+    let status = app.wait_for_exit();
+    assert!(!status.success(), "a panic is a failure");
+
+    let directory = emergency_dir(scratch.path());
+    let copies = read_copies(&directory);
+    assert_eq!(
+        copies.len(),
+        2,
+        "the file and *scratch*, and not the secret"
+    );
+    assert_eq!(
+        copy_with(&copies, &format!("path {}", encoded(&notes))),
+        format!("{FAKE_TEXT}on disk").as_bytes(),
+        "the text exactly, with no final newline",
+    );
+    assert_eq!(
+        copy_with(&copies, "name *scratch*"),
+        format!("{FAKE_TEXT} y").as_bytes(),
+    );
+    assert_nowhere_in(&directory, FAKE_SECRET);
+
+    let log = app.stop_and_read_log();
+    assert_no_secret(&log, "the log");
+    assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
+    assert!(log.contains("oso panicked at"), "it says where");
+    assert!(log.contains("control.rs"), "it says where");
+    assert!(
+        log.contains("wrote 2 emergency copies in"),
+        "it says how many"
+    );
+    assert!(
+        log.contains(directory.to_str().expect("UTF-8")),
+        "and where"
+    );
+    assert!(
+        log.contains("no copy of 1 unsaved buffer that may hold secrets"),
+        "and what it left out"
+    );
+}
+
+/// A path as metadata writes it, for scratch paths, which hold only these characters.
+fn encoded(path: &Path) -> String {
+    let path = path.to_str().expect("scratch paths are UTF-8");
+    assert!(
+        !path.contains(|c: char| !c.is_ascii_alphanumeric() && !"/._-".contains(c)),
+        "a scratch path that needs encoding"
+    );
+    path.to_owned()
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_panicking_command_is_caught_writes_nothing_and_the_editor_runs_on() {
+    let scratch = Scratch::new("caught");
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+
+    let error = app.run_command("dev-panic", None).unwrap_err();
+    assert!(error.contains("panicked"), "{error}");
+    app.send_keys("x");
+    assert_eq!(app.state()["buffer"]["modified"], true, "it still runs");
+    assert!(
+        read_copies(&emergency_dir(scratch.path())).is_empty(),
+        "a caught panic writes nothing",
+    );
+
+    let log = app.stop_and_read_log();
+    assert!(log.contains("a command panicked at"), "it says where");
+    assert!(log.contains("dev_tools.rs"), "it says where");
+    assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_end_nobody_agreed_to_writes_copies_and_a_confirmed_exit_writes_nothing() {
+    let scratch = Scratch::new("end");
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    app.send_keys("C-x C-c");
+    assert_eq!(app.state()["buffer"]["modified"], true, "refused once");
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "C-x C-c" })));
+    assert!(app.wait_for_exit().success());
+    assert!(
+        read_copies(&emergency_dir(scratch.path())).is_empty(),
+        "a person who confirmed has agreed to lose it",
+    );
+    drop(app);
+
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    let _ = app.exchange("exit", None);
+    assert!(app.wait_for_exit().success());
+    assert!(
+        read_copies(&emergency_dir(scratch.path())).is_empty(),
+        "and so has the socket's `exit`",
+    );
+    drop(app);
+
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    app.call("dev-end-unasked", None);
+    assert!(app.wait_for_exit().success());
+    let copies = read_copies(&emergency_dir(scratch.path()));
+    assert_eq!(copies.len(), 1, "nobody agreed to this one");
+    assert_eq!(copy_with(&copies, "why exit"), FAKE_TEXT.as_bytes());
+    let log = app.stop_and_read_log();
+    assert!(log.contains("wrote 1 emergency copy in"), "it says so");
+    assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
+}
+
+/// What the Dock's Quit and a logout send: a real `applicationWillTerminate`.
+#[cfg(target_os = "macos")]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_system_asking_the_app_to_quit_writes_the_copies() {
+    let scratch = Scratch::new("quit");
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    assert!(harness::ask_to_quit(app.pid()), "osascript could not ask");
+    assert!(app.wait_for_exit().success());
+    let copies = read_copies(&emergency_dir(scratch.path()));
+    assert_eq!(copies.len(), 1);
+    assert_eq!(copy_with(&copies, "why exit"), FAKE_TEXT.as_bytes());
 }
 
 #[test]

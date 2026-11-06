@@ -17,7 +17,8 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::{check_dir, is_plain_name, owner_pid, parent_is_safe, socket_pid};
+use super::{is_plain_name, owner_pid, socket_pid};
+use crate::privacy::{check_dir, euid, parent_is_safe};
 
 /// The private directory that holds control sockets and the files they
 /// write. Every way to get one checks the directory first.
@@ -382,13 +383,6 @@ fn check_peer(peer: u32, own: u32) -> io::Result<()> {
             "refused a control socket peer running as another user",
         ))
     }
-}
-
-/// The effective user ID of this process.
-fn euid() -> u32 {
-    // SAFETY: geteuid has no preconditions, cannot fail and touches no
-    // memory of ours.
-    unsafe { libc::geteuid() }
 }
 
 /// The user that owns the process at the other end of `stream`.

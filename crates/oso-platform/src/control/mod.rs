@@ -33,54 +33,6 @@ mod unsupported;
 #[cfg(not(unix))]
 pub use unsupported::{CleanupGuard, ControlDir, ControlListener, ControlStream};
 
-/// Why a directory cannot hold the control socket.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DirProblem {
-    Symlink,
-    NotADirectory,
-    WrongOwner,
-    LooseMode,
-}
-
-impl DirProblem {
-    pub(crate) fn message(self) -> &'static str {
-        match self {
-            Self::Symlink => "is a symlink",
-            Self::NotADirectory => "is not a directory",
-            Self::WrongOwner => "is owned by another user",
-            Self::LooseMode => "is accessible by other users (mode is not 0700)",
-        }
-    }
-}
-
-/// Checks a directory's `lstat` results: it must be a real directory, owned
-/// by `euid`, with no permissions for group or others.
-pub(crate) fn check_dir(
-    is_symlink: bool,
-    is_dir: bool,
-    owner: u32,
-    mode: u32,
-    euid: u32,
-) -> Result<(), DirProblem> {
-    if is_symlink {
-        Err(DirProblem::Symlink)
-    } else if !is_dir {
-        Err(DirProblem::NotADirectory)
-    } else if owner != euid {
-        Err(DirProblem::WrongOwner)
-    } else if mode & 0o077 != 0 {
-        Err(DirProblem::LooseMode)
-    } else {
-        Ok(())
-    }
-}
-
-/// Whether a parent directory with `mode` keeps other users from replacing
-/// what is in it: not writable by group or others, or sticky.
-pub(crate) fn parent_is_safe(mode: u32) -> bool {
-    mode & 0o022 == 0 || mode & 0o1000 != 0
-}
-
 /// The process ID in a socket file name, `<pid>.sock`.
 pub(crate) fn socket_pid(name: &str) -> Option<u32> {
     parse_pid(name.strip_suffix(".sock")?)
@@ -110,62 +62,7 @@ pub(crate) fn is_plain_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DirProblem, check_dir, is_plain_name, owner_pid, parent_is_safe, socket_pid};
-
-    #[test]
-    fn parents_must_be_private_or_sticky() {
-        assert!(parent_is_safe(0o700));
-        assert!(parent_is_safe(0o755));
-        assert!(parent_is_safe(0o1777));
-        assert!(!parent_is_safe(0o777));
-        assert!(!parent_is_safe(0o775));
-        assert!(!parent_is_safe(0o757));
-    }
-
-    #[test]
-    fn accepts_a_private_directory() {
-        assert_eq!(check_dir(false, true, 501, 0o700, 501), Ok(()));
-        assert_eq!(check_dir(false, true, 501, 0o500, 501), Ok(()));
-    }
-
-    #[test]
-    fn refuses_a_symlink() {
-        assert_eq!(
-            check_dir(true, false, 501, 0o777, 501),
-            Err(DirProblem::Symlink)
-        );
-    }
-
-    #[test]
-    fn refuses_a_file() {
-        assert_eq!(
-            check_dir(false, false, 501, 0o600, 501),
-            Err(DirProblem::NotADirectory)
-        );
-    }
-
-    #[test]
-    fn refuses_another_owner() {
-        assert_eq!(
-            check_dir(false, true, 0, 0o700, 501),
-            Err(DirProblem::WrongOwner)
-        );
-        assert_eq!(
-            check_dir(false, true, 502, 0o700, 501),
-            Err(DirProblem::WrongOwner)
-        );
-    }
-
-    #[test]
-    fn refuses_any_group_or_other_permission() {
-        for mode in [0o755, 0o750, 0o701, 0o710, 0o707, 0o1777] {
-            assert_eq!(
-                check_dir(false, true, 501, mode, 501),
-                Err(DirProblem::LooseMode),
-                "{mode:o}"
-            );
-        }
-    }
+    use super::{is_plain_name, owner_pid, socket_pid};
 
     #[test]
     fn parses_file_names() {

@@ -17,6 +17,8 @@ pub mod supervisor;
 mod timing;
 mod watch;
 
+use std::ffi::OsString;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
@@ -28,6 +30,21 @@ pub use protocol::{Reply, UiOp};
 pub use server::UiRequest;
 pub use state::{get_state, get_text, screenshot_allowed, show_buffer};
 pub use timing::Timings;
+
+/// The option that sends emergency copies elsewhere, so that the end-to-end flows can
+/// read them, and never touch the real ones. Only a dev build knows it.
+const EMERGENCY_DIR_OPTION: &str = "--emergency-dir";
+
+/// Takes `--emergency-dir DIR` from the front of `args`, if it is there, and returns the
+/// rest with the directory. On its own the option stays, and is an unknown option.
+pub fn take_emergency_dir(mut args: Vec<OsString>) -> (Vec<OsString>, Option<PathBuf>) {
+    if args.len() < 2 || args[0] != EMERGENCY_DIR_OPTION {
+        return (args, None);
+    }
+    let directory = PathBuf::from(args.remove(1));
+    args.remove(0);
+    (args, Some(directory))
+}
 
 /// Appears in every binary built with the `dev` feature, and in no other.
 /// `just release-safety` looks for it in release binaries.
@@ -115,4 +132,32 @@ fn write_screenshot(capture: Capture, dir: &ControlDir, name: &str) -> Reply {
         .into_string()
         .map_err(|path| format!("the screenshot path is not UTF-8: {path:?}"))?;
     Ok(json!({ "path": path, "width": image.width, "height": image.height }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::take_emergency_dir;
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+
+    fn args(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(Into::into).collect()
+    }
+
+    #[test]
+    fn the_emergency_directory_option_comes_first_or_means_nothing() {
+        assert_eq!(
+            take_emergency_dir(args(&["--emergency-dir", "/d", "--", "f"])),
+            (args(&["--", "f"]), Some(PathBuf::from("/d")))
+        );
+        assert_eq!(take_emergency_dir(args(&["f"])), (args(&["f"]), None));
+        assert_eq!(
+            take_emergency_dir(args(&["--emergency-dir"])),
+            (args(&["--emergency-dir"]), None)
+        );
+        assert_eq!(
+            take_emergency_dir(args(&["f", "--emergency-dir", "/d"])),
+            (args(&["f", "--emergency-dir", "/d"]), None)
+        );
+    }
 }

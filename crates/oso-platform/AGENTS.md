@@ -1,9 +1,10 @@
 # oso-platform
 
 OS abstractions: the text system backends, and later IME, clipboard,
-filesystem and the PTY (ADR 0003, ADR 0004). The dev control socket transport
-lives in `control`, and process spawning in `process`, behind the `dev`
-feature.
+filesystem and the PTY (ADR 0003, ADR 0004). `privacy` holds what keeps text
+private to its user: no core dumps, and private directories (ADR 0062). The dev
+control socket transport lives in `control`, and process spawning in `process`,
+behind the `dev` feature.
 
 - Depends on no workspace crate. It is the only crate that may use OS
   bindings (`objc2*`, `core-foundation*`, `libc`, `windows*`, ...).
