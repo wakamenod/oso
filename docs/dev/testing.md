@@ -237,6 +237,7 @@ what you type goes into their buffers, which can fail a flow.
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
+| emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit, to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
 | exit guard | `C-x C-c` refuses once with unsaved text, and repeating ends the process and leaves the file as it was; after a save it needs no repeat, and a save that fails after a confirmed exit keeps the instance and the text. What resets it is tested through the `Dispatcher` |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
@@ -281,6 +282,9 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
+- `dev-panic` panics on the UI thread outside the command boundary, and `dev-end-unasked` ends the event loop with nobody having agreed to it. The command `dev-panic`
+  panics under the boundary. Each panic's message quotes the buffer's text, to show that it goes nowhere
+  ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)). `--emergency-dir DIR`, as a dev build's first argument, sends the copies elsewhere, and the harness always passes it.
 - Secret-pattern buffers give no text, no screenshot and no positions
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
   [ADR 0051](adr/0051-m2-plan-decisions.md)). Any file
