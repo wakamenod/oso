@@ -114,7 +114,8 @@ network features.
 Bidirectional control characters and invisible characters are always shown
 as boxed code points, and a buffer containing bidirectional controls shows a
 modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)). Control characters
-and invalid bytes are shown as escapes (`^M`, `\xFF`) in an escape color.
+and invalid bytes are shown as escapes (`^M`, `\xFF`) in an escape color. Labels are
+shaped apart from the text around them, so that text cannot change what a label reads.
 None of these characters reach the text shaper: their labels are shaped as
 ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 A glyph paints only the cells of its cluster, in its row and in narrow bands above

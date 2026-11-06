@@ -12,7 +12,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::atlas::RasterBudget;
-use crate::{RenderState, TextView};
+use crate::{Pane, RenderState};
 
 /// How long [`Capture::wait`] waits for the GPU.
 const GPU_TIMEOUT: Duration = Duration::from_secs(5);
@@ -124,7 +124,7 @@ impl RenderState {
     /// This does not wait for the GPU; call [`Capture::wait`] on another
     /// thread for the pixels.
     /// Every glyph of the frame is rasterized, so the image is complete.
-    pub fn capture(&mut self, text: &TextView) -> Result<Capture, CaptureError> {
+    pub fn capture(&mut self, panes: &[Pane<'_>]) -> Result<Capture, CaptureError> {
         let (width, height) = (self.config.width, self.config.height);
         let format = self.config.format;
         let layout = Layout::new(format, width, height)
@@ -158,8 +158,8 @@ impl RenderState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("capture"),
             });
-        self.prepare_frame(text, &mut RasterBudget::unlimited());
-        self.encode_passes(&mut encoder, &view);
+        self.prepare_frame(panes, &mut RasterBudget::unlimited());
+        self.painter.encode(&mut encoder, &view);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,

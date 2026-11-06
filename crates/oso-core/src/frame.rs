@@ -158,11 +158,22 @@ impl PixelGrid {
         }
     }
 
+    /// The top-left corner of the cell at `row` and `column` of the frame, in
+    /// physical pixels. A cell scrolled out above or to the left of the grid has
+    /// a negative row or column.
+    pub fn cell(self, row: i64, column: i64) -> [f32; 2] {
+        [
+            self.origin[0] + column as f32 * self.cell[0],
+            self.origin[1] + row as f32 * self.cell[1],
+        ]
+    }
+
     /// Where `cells` are, in physical pixels.
     pub fn rect(self, cells: CellRect) -> PixelRect {
+        let [x, y] = self.cell(cells.row as i64, cells.column as i64);
         PixelRect {
-            x: self.origin[0] + cells.column as f32 * self.cell[0],
-            y: self.origin[1] + cells.row as f32 * self.cell[1],
+            x,
+            y,
             width: cells.columns as f32 * self.cell[0],
             height: cells.rows as f32 * self.cell[1],
         }
@@ -295,6 +306,13 @@ mod tests {
                 height: 80.0,
             }
         );
+    }
+
+    #[test]
+    fn a_cell_scrolled_out_of_the_grid_has_a_place_too() {
+        let grid = PixelGrid::new(10.0, 20.0);
+        assert_eq!(grid.cell(0, 0), [8.0, 8.0]);
+        assert_eq!(grid.cell(-1, -2), [-12.0, -12.0]);
     }
 
     #[test]

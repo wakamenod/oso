@@ -13,7 +13,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 
 use super::App;
-use super::draw::text_view;
+use super::draw::panes;
 use crate::dev;
 use crate::dev::handoff;
 
@@ -145,7 +145,7 @@ impl App {
             return;
         };
         let started = Instant::now();
-        let capture = view.render_state.capture(&text_view(&self.editor));
+        let capture = view.render_state.capture(&panes(&self.editor));
         log::debug!(
             "screenshot submitted on the UI thread in {:?}",
             started.elapsed()

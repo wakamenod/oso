@@ -1,28 +1,29 @@
-//! Pass 2: text drawn as glyph quads on the cell grid, from the atlas
-//! (ADR 0005, ADR 0036).
+//! Text drawn as glyph quads on the cell grid, from the atlas (ADR 0005,
+//! ADR 0036): where a pane's glyphs go, and the pipeline that draws them.
 //!
-//! Must not depend on: `capture` or a font backend. The GPU side of text lives
-//! here; shaping and assigning glyphs to cells do not.
+//! Must not depend on: `capture`, `scene` or a font backend. Shaping and assigning
+//! glyphs to cells live below this, and choosing what to draw lives above it.
 //!
+//! - Each glyph's quad is cut to its cluster's cells, its row and its pane (see
+//!   [`Layout::quad`], ADR 0052, ADR 0061), on the CPU, so a layer stays one
+//!   instanced draw.
 //! - Only visible rows are drawn, and of each only the visible columns,
 //!   in steps of [`WINDOW_STEP`] columns, shaped through the cache in
 //!   `rows`. A 10 MB line costs what a screen of it does.
-//! - Glyphs are rasterized once, into the atlas, within a per-frame budget.
-//! - Each glyph's quad is cut to its cluster's cells and its row (see
-//!   [`Layout::quad`], ADR 0052), on the CPU, so this stays one instanced draw.
 
 use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
-use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot};
+use oso_core::display_map::DisplayPoint;
+use oso_core::frame::{CellRect, PixelGrid, PixelRect};
 use oso_core::window::Scroll;
-use oso_platform::text::{CellMetrics, GlyphFormat, TextSystem};
+use oso_platform::text::{CellMetrics, GlyphFormat};
 
 use wgpu::util::DeviceExt;
 
-use crate::atlas::{AtlasGlyph, GlyphAtlas, RasterBudget};
+use crate::atlas::{AtlasGlyph, GlyphAtlas};
 use crate::grid::PlacedGlyph;
-use crate::rows::Rows;
+use crate::pane::Face;
 use crate::shape::Uniforms;
 
 /// Columns shaped beyond the visible ones on each side, and the step the
@@ -54,6 +55,21 @@ pub(crate) struct GlyphInstance {
 }
 
 impl GlyphInstance {
+    #[cfg(test)]
+    pub(crate) fn position(&self) -> [f32; 2] {
+        self.position
+    }
+
+    #[cfg(test)]
+    pub(crate) fn size(&self) -> [f32; 2] {
+        self.size
+    }
+
+    #[cfg(test)]
+    pub(crate) fn uv(&self) -> [f32; 2] {
+        self.uv
+    }
+
     const ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
         0 => Float32x2,
         1 => Float32x2,
@@ -83,59 +99,115 @@ fn clip_axis(start: f32, len: f32, min: f32, max: f32) -> Option<(f32, f32)> {
     (kept > 0.0).then_some((cut, kept))
 }
 
-/// Where the grid starts and what is drawn on it this frame.
+/// Where one pane's cells are on the surface, and what it shows there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Layout {
-    /// Top-left corner of the first cell, in whole pixels.
-    pub(crate) origin: [f32; 2],
-    /// The right edge of the surface and the bottom of the text area; rows and
-    /// glyphs past them are skipped.
-    pub(crate) viewport: [f32; 2],
-    pub(crate) metrics: CellMetrics,
-    /// The display row and column at the top-left cell.
-    pub(crate) scroll: Scroll,
+    grid: PixelGrid,
+    metrics: CellMetrics,
+    /// The frame's cells the pane is drawn in.
+    region: CellRect,
+    /// The same in pixels. Nothing of the pane is drawn outside it, but for
+    /// [`Self::top_band`].
+    clip: PixelRect,
+    /// The display row and column at the region's top-left cell.
+    scroll: Scroll,
     /// The cells under the cursor box: its display point and width. Glyphs
-    /// there are drawn in `cursor_color` to show on the box.
-    pub(crate) cursor: (DisplayPoint, usize),
-    /// Colors by [`CellStyle`].
-    pub(crate) color: [f32; 4],
-    pub(crate) escape_color: [f32; 4],
-    pub(crate) cursor_color: [f32; 4],
+    /// there are drawn on it, in [`Face::Cursor`].
+    cursor: (DisplayPoint, usize),
 }
 
 impl Layout {
-    /// The top-left corner of a cell, in pixels. Cells left of or above the
-    /// scroll position get negative coordinates.
-    pub(crate) fn cell(&self, row: usize, column: usize) -> [f32; 2] {
+    /// A pane's layout with no cursor box.
+    pub(crate) fn new(metrics: CellMetrics, region: CellRect, scroll: Scroll) -> Self {
+        let grid = PixelGrid::new(metrics.width, metrics.height);
+        Self {
+            grid,
+            metrics,
+            region,
+            clip: grid.rect(region),
+            scroll,
+            cursor: (DisplayPoint::default(), 0),
+        }
+    }
+
+    /// The same with a cursor box on display row `row`, over the frame's `cells`.
+    /// They are in the region, as `frame::cursor_rect` gives them.
+    pub(crate) fn with_cursor(self, row: usize, cells: CellRect) -> Self {
+        let column = self.scroll.left + (cells.column - self.region.column);
+        Self {
+            cursor: (DisplayPoint::new(row, column), cells.columns),
+            ..self
+        }
+    }
+
+    /// The display columns the region shows.
+    pub(crate) fn columns(&self) -> Range<usize> {
+        self.scroll.left..self.scroll.left.saturating_add(self.region.columns)
+    }
+
+    /// The top-left corner of the cell at display `row` and `column`, in pixels.
+    /// Cells left of or above the region get coordinates outside it, even negative
+    /// ones.
+    fn display_cell(&self, row: usize, column: usize) -> [f32; 2] {
         let column = column as i64 - self.scroll.left as i64;
         let row = row as i64 - self.scroll.top as i64;
-        [
-            self.origin[0] + column as f32 * self.metrics.width,
-            self.origin[1] + row as f32 * self.metrics.height,
-        ]
+        self.grid.cell(
+            self.region.row as i64 + row,
+            self.region.column as i64 + column,
+        )
     }
 
-    /// The rows at least partly inside the viewport, from the top one.
-    pub(crate) fn visible_rows(&self) -> usize {
-        let space = self.viewport[1] - self.origin[1];
-        if space <= 0.0 {
-            return 0;
+    /// What stays of `rect` in the pane, or `None` if nothing does.
+    pub(crate) fn clip(&self, rect: PixelRect) -> Option<PixelRect> {
+        let (cut_x, width) = clip_axis(
+            rect.x,
+            rect.width,
+            self.clip.x,
+            self.clip.x + self.clip.width,
+        )?;
+        let (cut_y, height) = clip_axis(
+            rect.y,
+            rect.height,
+            self.clip.y,
+            self.clip.y + self.clip.height,
+        )?;
+        Some(PixelRect {
+            x: rect.x + cut_x,
+            y: rect.y + cut_y,
+            width,
+            height,
+        })
+    }
+
+    /// The pixels of `cells` cells from display `row` and `column`, cut to the
+    /// pane.
+    pub(crate) fn display_cells(
+        &self,
+        row: usize,
+        column: usize,
+        cells: usize,
+    ) -> Option<PixelRect> {
+        let [x, y] = self.display_cell(row, column);
+        self.clip(PixelRect {
+            x,
+            y,
+            width: cells as f32 * self.metrics.width,
+            height: self.metrics.height,
+        })
+    }
+
+    /// The pixels of the frame's `cells`, cut to the pane.
+    pub(crate) fn frame_cells(&self, cells: CellRect) -> Option<PixelRect> {
+        self.clip(self.grid.rect(cells))
+    }
+
+    /// The pixels above the region that its glyphs may paint.
+    fn top_band(&self) -> f32 {
+        if self.region.row == 0 && self.region.rows > 0 {
+            self.metrics.descent
+        } else {
+            0.0
         }
-        (space / self.metrics.height).ceil() as usize
-    }
-
-    /// The columns at least partly inside the viewport, from the scroll
-    /// position.
-    pub(crate) fn visible_columns(&self) -> usize {
-        let space = (self.viewport[0] - self.origin[0]).max(0.0);
-        (space / self.metrics.width).ceil() as usize
-    }
-
-    /// The first column whose cells can reach the surface, past the margin
-    /// left of the grid. Glyphs left of it cannot show.
-    fn first_column(&self) -> usize {
-        let margin = (self.origin[0] / self.metrics.width).ceil() as usize;
-        self.scroll.left.saturating_sub(margin)
     }
 
     /// The columns of a row to shape: from the left edge rounded down to
@@ -145,7 +217,7 @@ impl Layout {
     /// step at most.
     pub(crate) fn shaped_columns(&self) -> Range<usize> {
         let base = self.scroll.left / WINDOW_STEP * WINDOW_STEP;
-        let width = (self.visible_columns() + WINDOW_STEP).div_ceil(WINDOW_STEP) * WINDOW_STEP;
+        let width = (self.region.columns + WINDOW_STEP).div_ceil(WINDOW_STEP) * WINDOW_STEP;
         base..base.saturating_add(width)
     }
 
@@ -156,7 +228,9 @@ impl Layout {
     /// the row it also keeps [`CellMetrics::descent`] pixels: accents on
     /// capitals reach there, and letters can differ only there, such as `Ắ`
     /// and `Ẳ`. Below the row it keeps half that, in whole pixels: marks
-    /// under a descender end there (ADR 0052).
+    /// under a descender end there (ADR 0052). All of this stops at the edges
+    /// of the pane, but the frame's top row keeps its band in the top margin,
+    /// where no other pane draws (ADR 0061).
     pub(crate) fn quad(
         &self,
         row: usize,
@@ -169,30 +243,37 @@ impl Layout {
             ascent,
             descent,
         } = self.metrics;
-        let [cell_x, cell_y] = self.cell(row, glyph.column);
+        let [cell_x, cell_y] = self.display_cell(row, glyph.column);
         let x = cell_x + glyph.offset[0] + entry.left as f32;
         let y = cell_y + ascent + glyph.offset[1] - entry.top as f32;
         let right = cell_x + glyph.cells as f32 * width;
-        let (cut_x, w) = clip_axis(x, entry.size[0] as f32, cell_x, right)?;
+        let (cut_x, w) = clip_axis(
+            x,
+            entry.size[0] as f32,
+            cell_x.max(self.clip.x),
+            right.min(self.clip.x + self.clip.width),
+        )?;
         let bottom = cell_y + height + (descent / 2.0).round();
-        let (cut_y, h) = clip_axis(y, entry.size[1] as f32, cell_y - descent, bottom)?;
-        let [x, y] = [x + cut_x, y + cut_y];
-        if x >= self.viewport[0] || y >= self.viewport[1] || x + w <= 0.0 || y + h <= 0.0 {
-            return None;
-        }
+        let (cut_y, h) = clip_axis(
+            y,
+            entry.size[1] as f32,
+            (cell_y - descent).max(self.clip.y - self.top_band()),
+            bottom.min(self.clip.y + self.clip.height),
+        )?;
         let (cursor, cursor_cells) = self.cursor;
         let under_cursor = row == cursor.row
             && glyph.column < cursor.column + cursor_cells
             && cursor.column < glyph.column + glyph.cells as usize;
+        let face = if under_cursor {
+            Face::Cursor
+        } else {
+            glyph.face
+        };
         Some(GlyphInstance {
-            position: [x, y],
+            position: [x + cut_x, y + cut_y],
             size: [w, h],
             uv: [entry.uv[0] as f32 + cut_x, entry.uv[1] as f32 + cut_y],
-            color: match glyph.style {
-                _ if under_cursor => self.cursor_color,
-                CellStyle::Text => self.color,
-                CellStyle::Escape | CellStyle::Boxed => self.escape_color,
-            },
+            color: face.foreground(),
             kind: match entry.format {
                 GlyphFormat::Coverage => 0,
                 GlyphFormat::Color => 1,
@@ -201,7 +282,7 @@ impl Layout {
     }
 }
 
-/// Draws glyph quads in pass 2.
+/// Draws glyph quads.
 pub(crate) struct TextRenderer {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
@@ -214,8 +295,6 @@ pub(crate) struct TextRenderer {
     capacity: usize,
     /// The most quads drawn in one frame, within the device's buffer limit.
     max_instances: usize,
-    /// This frame's quads, reused across frames.
-    instances: Vec<GlyphInstance>,
     pub(crate) atlas: GlyphAtlas,
 }
 
@@ -303,7 +382,6 @@ impl TextRenderer {
             instance_buffer: Self::instance_buffer(device, INITIAL_INSTANCES),
             capacity: INITIAL_INSTANCES,
             max_instances: max_instances(device),
-            instances: Vec::with_capacity(INITIAL_INSTANCES),
             atlas,
         }
     }
@@ -349,34 +427,20 @@ impl TextRenderer {
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
     }
 
-    /// Builds this frame's quads from the visible rows of `display` and
-    /// uploads them, with at most `budget` new glyphs. Must be called
-    /// before the render pass begins. Returns the boxes to draw behind
-    /// invisible characters, as `(row, column, cells)`, in `boxes`.
-    #[allow(clippy::too_many_arguments, reason = "one frame's inputs")]
+    /// The most quads a frame may draw.
+    pub(crate) fn max_instances(&self) -> usize {
+        self.max_instances
+    }
+
+    /// Uploads the glyphs rasterized and the quads built for this frame, at
+    /// most [`Self::max_instances`] of them. Must be called before the render
+    /// pass begins.
     pub(crate) fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        system: &mut dyn TextSystem,
-        rows: &mut Rows,
-        display: &DisplaySnapshot,
-        layout: &Layout,
-        budget: &mut RasterBudget,
-        boxes: &mut Vec<(usize, usize, usize)>,
+        instances: &[GlyphInstance],
     ) {
-        // A frame that fills the atlas clears it and is built once more,
-        // so a full atlas never leaves glyphs invisible for good.
-        for attempt in 0..2 {
-            self.build(device, queue, system, rows, display, layout, budget, boxes);
-            if !self.atlas.take_full() {
-                break;
-            }
-            if attempt == 0 {
-                log::debug!("glyph atlas is full; clearing it");
-                self.atlas.clear();
-            }
-        }
         self.atlas.flush(queue);
         if self.atlas.generation() != self.bound_generation {
             self.bind_group = Self::bind(
@@ -387,112 +451,60 @@ impl TextRenderer {
             );
             self.bound_generation = self.atlas.generation();
         }
-        if self.instances.len() > self.capacity {
-            self.capacity = self
-                .instances
-                .len()
-                .next_power_of_two()
-                .min(self.max_instances);
+        if instances.len() > self.capacity {
+            self.capacity = instances.len().next_power_of_two().min(self.max_instances);
             self.instance_buffer = Self::instance_buffer(device, self.capacity);
         }
-        if !self.instances.is_empty() {
-            queue.write_buffer(
-                &self.instance_buffer,
-                0,
-                bytemuck::cast_slice(&self.instances),
-            );
+        if !instances.is_empty() {
+            queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(instances));
         }
     }
 
-    /// Fills `self.instances` with the quads of the visible glyphs.
-    #[allow(clippy::too_many_arguments, reason = "one frame's inputs")]
-    fn build(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        system: &mut dyn TextSystem,
-        rows: &mut Rows,
-        display: &DisplaySnapshot,
-        layout: &Layout,
-        budget: &mut RasterBudget,
-        boxes: &mut Vec<(usize, usize, usize)>,
-    ) {
-        self.instances.clear();
-        boxes.clear();
-        let columns = layout.shaped_columns();
-        let top = layout.scroll.top;
-        let visible = top..(top + layout.visible_rows()).min(display.row_count());
-        // Only glyphs that can show are looked up, so nothing off screen is
-        // rasterized: a glyph paints only its own cells.
-        let left = layout.first_column();
-        let right = layout.scroll.left + layout.visible_columns();
-        for row in visible.clone() {
-            let shaped = rows.row(display, row, columns.clone(), system);
-            boxes.extend(
-                shaped
-                    .boxes
-                    .iter()
-                    .map(|&(column, cells)| (row, column, cells)),
-            );
-            let from = shaped
-                .glyphs
-                .partition_point(|g| g.column + (g.cells as usize) <= left);
-            for glyph in &shaped.glyphs[from..] {
-                if glyph.column >= right {
-                    break;
-                }
-                if self.instances.len() >= self.max_instances {
-                    return;
-                }
-                let Some(entry) = self.atlas.get(device, queue, system, glyph.key, budget) else {
-                    continue;
-                };
-                if let Some(quad) = layout.quad(row, glyph, &entry) {
-                    self.instances.push(quad);
-                }
-            }
-        }
-        rows.evict(visible.start.saturating_sub(visible.len())..visible.end + visible.len());
-    }
-
-    /// Records the glyph quads into `pass`.
-    pub(crate) fn render(&self, pass: &mut wgpu::RenderPass<'_>) {
-        if self.instances.is_empty() {
+    /// Records the quads in `range` into `pass`.
+    pub(crate) fn render(&self, pass: &mut wgpu::RenderPass<'_>, range: Range<u32>) {
+        if range.is_empty() {
             return;
         }
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-        pass.draw(0..4, 0..self.instances.len() as u32);
+        pass.draw(0..4, range);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oso_core::frame::{self, FrameSize, PixelGrid};
     use oso_platform::text::{FontId, GlyphId, GlyphKey};
 
-    const WHITE: [f32; 4] = [1.0; 4];
-    const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-    const GRAY: [f32; 4] = [0.5, 0.5, 0.5, 1.0];
+    const METRICS: CellMetrics = CellMetrics {
+        width: 10.0,
+        height: 20.0,
+        ascent: 16.0,
+        descent: 4.0,
+    };
 
+    fn color(face: Face) -> [f32; 4] {
+        face.foreground()
+    }
+
+    /// A pane of 20 x 5 cells at the top left of the frame.
     fn layout() -> Layout {
-        Layout {
-            origin: [8.0, 8.0],
-            viewport: [200.0, 100.0],
-            metrics: CellMetrics {
-                width: 10.0,
-                height: 20.0,
-                ascent: 16.0,
-                descent: 4.0,
+        let cells = CellRect {
+            row: 0,
+            column: 0,
+            rows: 5,
+            columns: 20,
+        };
+        Layout::new(METRICS, cells, Scroll::default()).with_cursor(
+            0,
+            CellRect {
+                column: 3,
+                rows: 1,
+                columns: 1,
+                ..cells
             },
-            scroll: Scroll::default(),
-            cursor: (DisplayPoint::new(0, 3), 1),
-            color: WHITE,
-            escape_color: GRAY,
-            cursor_color: BLACK,
-        }
+        )
     }
 
     fn glyph(column: usize, cells: u32) -> PlacedGlyph {
@@ -504,7 +516,7 @@ mod tests {
             column,
             cells,
             offset: [0.0, 0.0],
-            style: CellStyle::Text,
+            face: Face::Text,
         }
     }
 
@@ -520,15 +532,15 @@ mod tests {
     #[test]
     fn cells_are_column_times_width_from_the_scroll_position() {
         let mut l = layout();
-        assert_eq!(l.cell(0, 0), [8.0, 8.0]);
-        assert_eq!(l.cell(0, 3), [38.0, 8.0]);
-        assert_eq!(l.cell(2, 1), [18.0, 48.0]);
+        assert_eq!(l.display_cell(0, 0), [8.0, 8.0]);
+        assert_eq!(l.display_cell(0, 3), [38.0, 8.0]);
+        assert_eq!(l.display_cell(2, 1), [18.0, 48.0]);
         l.scroll = Scroll { top: 10, left: 20 };
-        assert_eq!(l.cell(10, 20), [8.0, 8.0]);
-        assert_eq!(l.cell(11, 19), [-2.0, 28.0]);
+        assert_eq!(l.display_cell(10, 20), [8.0, 8.0]);
+        assert_eq!(l.display_cell(11, 19), [-2.0, 28.0]);
         // Far columns keep whole-pixel precision.
         l.scroll.left = 20_000_000;
-        assert_eq!(l.cell(10, 20_000_001), [18.0, 8.0]);
+        assert_eq!(l.display_cell(10, 20_000_001), [18.0, 8.0]);
     }
 
     #[test]
@@ -552,22 +564,24 @@ mod tests {
 
     #[test]
     fn glyphs_under_the_cursor_box_use_the_cursor_color() {
+        let (under, text) = (color(Face::Cursor), color(Face::Text));
         let mut l = layout();
-        assert_eq!(l.quad(0, &glyph(3, 1), &entry()).unwrap().color, BLACK);
-        assert_eq!(l.quad(0, &glyph(2, 1), &entry()).unwrap().color, WHITE);
-        assert_eq!(l.quad(1, &glyph(3, 1), &entry()).unwrap().color, WHITE);
+        assert_eq!(l.quad(0, &glyph(3, 1), &entry()).unwrap().color, under);
+        assert_eq!(l.quad(0, &glyph(2, 1), &entry()).unwrap().color, text);
+        assert_eq!(l.quad(1, &glyph(3, 1), &entry()).unwrap().color, text);
         // A full-width glyph in columns 2 and 3 is under a cursor at 3.
-        assert_eq!(l.quad(0, &glyph(2, 2), &entry()).unwrap().color, BLACK);
+        assert_eq!(l.quad(0, &glyph(2, 2), &entry()).unwrap().color, under);
         // A cursor on a 4-cell escape covers all of its label.
         l.cursor = (DisplayPoint::new(0, 4), 4);
         let escape = PlacedGlyph {
-            style: CellStyle::Escape,
+            face: Face::Escape,
             ..glyph(7, 1)
         };
-        assert_eq!(l.quad(0, &escape, &entry()).unwrap().color, BLACK);
-        assert_eq!(l.quad(0, &glyph(8, 1), &entry()).unwrap().color, WHITE);
+        assert_eq!(l.quad(0, &escape, &entry()).unwrap().color, under);
+        assert_eq!(l.quad(0, &glyph(8, 1), &entry()).unwrap().color, text);
         l.cursor = (DisplayPoint::new(5, 0), 1);
-        assert_eq!(l.quad(0, &escape, &entry()).unwrap().color, GRAY);
+        let label = l.quad(0, &escape, &entry()).unwrap();
+        assert_eq!(label.color, color(Face::Escape));
     }
 
     #[test]
@@ -647,14 +661,20 @@ mod tests {
 
     #[test]
     fn the_band_below_the_row_follows_the_metrics_in_whole_pixels() {
-        let mut l = layout();
         // As at a higher scale factor: half of 7 is rounded to 4.
-        l.metrics = CellMetrics {
+        let metrics = CellMetrics {
             width: 20.0,
             height: 40.0,
             ascent: 33.0,
             descent: 7.0,
         };
+        let cells = CellRect {
+            row: 0,
+            column: 0,
+            rows: 5,
+            columns: 20,
+        };
+        let l = Layout::new(metrics, cells, Scroll::default());
         // Row 1 spans y 48..88, with its baseline at 81. The bitmap starts at
         // y 79 and is 30 px tall, so it is kept down to y 92.
         let q = l.quad(1, &glyph(1, 1), &bitmap(0, 2, [8, 30])).unwrap();
@@ -679,36 +699,154 @@ mod tests {
             .quad(0, &glyph(3, 1), &bitmap(-4, 12, [20, 12]))
             .unwrap();
         assert_eq!(q.size, [10.0, 12.0]);
-        assert_eq!(q.color, BLACK);
+        assert_eq!(q.color, color(Face::Cursor));
     }
 
     #[test]
     fn glyphs_stay_in_their_cells_when_scrolled() {
         let mut l = layout();
         l.scroll = Scroll { top: 10, left: 20 };
-        // Cell (11, 19) spans x -2..8 and y 28..48: it shows in the margin.
+        // Cell (11, 21) spans x 18..28 and y 28..48.
         let q = l
-            .quad(11, &glyph(19, 1), &bitmap(-5, 12, [20, 12]))
+            .quad(11, &glyph(21, 1), &bitmap(-5, 12, [20, 12]))
             .unwrap();
-        assert_eq!(q.position, [-2.0, 32.0]);
+        assert_eq!(q.position, [18.0, 32.0]);
         assert_eq!(q.size, [10.0, 12.0]);
         assert_eq!(q.uv, [10.0, 7.0]);
-        // Cell (11, 18) spans x -12..-2, so nothing of it is on the surface
-        // even if its bitmap reaches past the cell.
+    }
+
+    #[test]
+    fn nothing_left_of_the_scroll_position_reaches_the_margin() {
+        let mut l = layout();
+        l.scroll.left = 20;
+        // Cell (0, 19) would span x -2..8, all of it in the margin, even if
+        // its bitmap reaches past the cell.
+        assert!(l.quad(0, &glyph(19, 1), &entry()).is_none());
+        assert!(l.quad(0, &glyph(19, 1), &bitmap(0, 12, [30, 12])).is_none());
+        // A full-width cluster cut by the edge keeps the half in view.
+        let q = l.quad(0, &glyph(19, 2), &bitmap(0, 12, [20, 12])).unwrap();
+        assert_eq!(q.position, [8.0, 12.0]);
+        assert_eq!(q.size, [10.0, 12.0]);
+        assert_eq!(q.uv, [15.0, 7.0]);
+    }
+
+    #[test]
+    fn a_partly_shown_column_on_the_right_is_not_drawn() {
+        let l = layout();
+        // The region ends at x 208, after column 19, wherever the surface does.
+        assert!(l.quad(0, &glyph(20, 1), &entry()).is_none());
+        let wide = l.quad(0, &glyph(19, 2), &bitmap(0, 12, [20, 12])).unwrap();
+        assert_eq!(wide.size, [10.0, 12.0], "the half in the region");
+    }
+
+    #[test]
+    fn the_bands_stop_at_the_edges_of_the_pane() {
+        let l = layout();
+        // Below row 4 is the next region: it ends at y 108, not 110.
+        let q = l.quad(4, &glyph(1, 1), &bitmap(0, 0, [8, 30])).unwrap();
+        assert_eq!(q.position, [18.0, 104.0]);
+        assert_eq!(q.size, [8.0, 4.0]);
+        // A row inside the pane keeps both bands.
+        let q = l.quad(1, &glyph(1, 1), &bitmap(0, 20, [8, 30])).unwrap();
+        assert_eq!(q.position, [18.0, 24.0]);
+        assert_eq!(q.size, [8.0, 26.0]);
+    }
+
+    #[test]
+    fn the_frames_top_row_keeps_its_band_in_the_margin() {
+        // Row 0 starts at y 8. A bitmap from y 0 is kept from y 4, 4 px up.
+        let q = layout()
+            .quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24]))
+            .unwrap();
+        assert_eq!(q.position, [18.0, 4.0]);
+        assert_eq!(q.size, [8.0, 24.0 - 4.0]);
+        assert_eq!(q.uv, [5.0, 11.0]);
+        // Rectangles stay in the region.
+        let top = layout().frame_cells(CellRect {
+            row: 0,
+            column: 0,
+            rows: 1,
+            columns: 1,
+        });
+        assert_eq!(top.unwrap().y, 8.0);
+    }
+
+    #[test]
+    fn a_row_below_the_top_of_the_frame_stops_at_its_pane() {
+        let cells = CellRect {
+            row: 3,
+            column: 0,
+            rows: 1,
+            columns: 20,
+        };
+        let l = Layout::new(METRICS, cells, Scroll::default());
+        // The pane spans y 68..88, with its baseline at 84: nothing above 68.
+        let q = l.quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24])).unwrap();
+        assert_eq!(q.position, [18.0, 68.0]);
+        assert_eq!(q.size, [8.0, 16.0]);
+        assert_eq!(q.uv, [5.0, 15.0]);
+    }
+
+    #[test]
+    fn a_pane_away_from_the_origin_keeps_to_its_region() {
+        let cells = CellRect {
+            row: 2,
+            column: 3,
+            rows: 2,
+            columns: 4,
+        };
+        let l = Layout::new(METRICS, cells, Scroll::default());
+        assert_eq!(l.display_cell(0, 0), [38.0, 48.0]);
+        let q = l.quad(0, &glyph(1, 1), &entry()).unwrap();
+        assert_eq!(q.position, [49.0, 52.0]);
         assert!(
-            l.quad(11, &glyph(18, 1), &bitmap(0, 12, [30, 12]))
-                .is_none()
+            l.quad(0, &glyph(4, 1), &entry()).is_none(),
+            "past the region"
         );
+        assert!(l.quad(2, &glyph(0, 1), &entry()).is_none(), "below it");
+    }
+
+    #[test]
+    fn rectangles_are_cut_to_the_pane() {
+        let mut l = layout();
+        assert_eq!(
+            l.display_cells(1, 18, 6),
+            Some(PixelRect {
+                x: 188.0,
+                y: 28.0,
+                width: 20.0,
+                height: 20.0,
+            })
+        );
+        assert_eq!(l.display_cells(1, 20, 6), None);
+        assert_eq!(l.display_cells(5, 0, 1), None);
+        l.scroll.left = 2;
+        let left = l.display_cells(0, 0, 3).unwrap();
+        assert_eq!((left.x, left.width), (8.0, 10.0));
+    }
+
+    #[test]
+    fn an_empty_region_clips_everything() {
+        let cells = CellRect {
+            row: 0,
+            column: 0,
+            rows: 0,
+            columns: 20,
+        };
+        let l = Layout::new(METRICS, cells, Scroll::default());
+        assert!(l.quad(0, &glyph(0, 1), &entry()).is_none());
+        assert!(l.quad(0, &glyph(0, 1), &bitmap(0, 24, [8, 24])).is_none());
+        assert!(l.display_cells(0, 0, 1).is_none());
     }
 
     proptest::proptest! {
         /// Whatever a font's bitmap looks like, what is drawn is exactly the
         /// part of it in the cluster's cells and the row, with the descent
-        /// above and half of it below, and each pixel shows the texel it would
-        /// show uncut.
+        /// above and half of it below, inside the pane, and each pixel shows
+        /// the texel it would show uncut.
         #[test]
         fn prop_quads_are_the_part_of_the_bitmap_in_their_cells(
-            (row, column, cells) in (0usize..4, 0usize..12, 1u32..4),
+            (row, column, cells) in (0usize..7, 0usize..24, 1u32..4),
             (left, top) in (-200i32..200, -200i32..200),
             (width, height) in (0u32..400, 0u32..400),
             (offset_x, offset_y) in (-50i32..50, -50i32..50),
@@ -721,19 +859,19 @@ mod tests {
             let bitmap = bitmap(left, top, [width, height]);
 
             // The same rectangles in integers: the bitmap, and where it may
-            // paint. The metrics of `layout` are 10 x 20 with a descent of 4.
+            // paint. The metrics of `layout` are 10 x 20 with a descent of 4,
+            // and its pane spans x 8..208 and y 8..108.
             let (cell_x, cell_y) = (8 + 10 * column as i32, 8 + 20 * row as i32);
             let x0 = cell_x + offset_x + left;
             let y0 = cell_y + 16 + offset_y - top;
             let from_x = x0.max(cell_x);
-            let to_x = (x0 + width as i32).min(cell_x + 10 * cells as i32);
+            let to_x = (x0 + width as i32).min(cell_x + 10 * cells as i32).min(208);
             let from_y = y0.max(cell_y - 4);
-            let to_y = (y0 + height as i32).min(cell_y + 22);
+            let to_y = (y0 + height as i32).min(cell_y + 22).min(108);
             let shows = from_x < to_x && from_y < to_y;
-            let on_surface = from_x < 200 && from_y < 100 && to_x > 0 && to_y > 0;
 
             let quad = l.quad(row, &placed, &bitmap);
-            proptest::prop_assert_eq!(quad.is_some(), shows && on_surface);
+            proptest::prop_assert_eq!(quad.is_some(), shows);
             if let Some(q) = quad {
                 proptest::prop_assert_eq!(q.position, [from_x as f32, from_y as f32]);
                 proptest::prop_assert_eq!(q.size, [(to_x - from_x) as f32, (to_y - from_y) as f32]);
@@ -749,55 +887,6 @@ mod tests {
     }
 
     #[test]
-    fn only_rows_and_columns_in_the_viewport_are_visible() {
-        let l = layout();
-        // (200 - 8) / 10 = 19.2, so 20 columns show.
-        assert_eq!(l.visible_columns(), 20);
-        // (100 - 8) / 20 = 4.6, so 5 rows are at least partly visible.
-        assert_eq!(l.visible_rows(), 5);
-        let tiny = Layout {
-            viewport: [200.0, 4.0],
-            ..l
-        };
-        assert_eq!(tiny.visible_rows(), 0);
-    }
-
-    #[test]
-    fn a_text_area_draws_exactly_its_rows() {
-        let metrics = layout().metrics;
-        let grid = PixelGrid::new(metrics.width, metrics.height);
-        for frame_rows in [0, 1, 2, 3, 40, 1000] {
-            let text = frame::layout(FrameSize {
-                rows: frame_rows,
-                columns: 80,
-            })
-            .window
-            .text;
-            let area = grid.rect(text);
-            let l = Layout {
-                origin: [area.x, area.y],
-                viewport: [200.0, area.y + area.height],
-                ..layout()
-            };
-            assert_eq!(l.visible_rows(), text.rows, "a frame of {frame_rows} rows");
-        }
-    }
-
-    #[test]
-    fn the_first_column_drawn_is_the_last_that_reaches_the_surface() {
-        let mut l = layout();
-        assert_eq!(l.first_column(), 0);
-        // The margin of 8 px shows part of the column before the scroll
-        // position. The one before that is off the surface.
-        l.scroll.left = 20;
-        assert_eq!(l.first_column(), 19);
-        l.origin = [28.0, 8.0];
-        assert_eq!(l.first_column(), 17, "a margin of 3 cells");
-        l.scroll.left = 1;
-        assert_eq!(l.first_column(), 0);
-    }
-
-    #[test]
     fn shaped_columns_cover_the_view_and_move_in_steps() {
         let mut l = layout();
         assert_eq!(l.shaped_columns(), 0..128);
@@ -810,6 +899,6 @@ mod tests {
         // Every left edge until the next step is still covered.
         l.scroll.left = 255;
         assert_eq!(l.shaped_columns(), 192..320);
-        assert!(255 + l.visible_columns() <= 320);
+        assert!(255 + l.region.columns <= 320);
     }
 }

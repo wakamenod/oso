@@ -189,6 +189,10 @@ e2e runs="1":
             || { echo "e2e: run $run of {{runs}} failed"; exit 1; }
     done
 
+# Draw panes on a real GPU and read the pixels (ADR 0061); needs no window and no text backend
+pixel-tests:
+    cargo test --locked -p oso-render -- --ignored
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Performance (ADR 0024, ADR 0025, ADR 0046)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

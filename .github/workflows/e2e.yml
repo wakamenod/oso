@@ -58,3 +58,7 @@ jobs:
           else
             just e2e
           fi
+      # Panes in real pixels (ADR 0061). The glyphs come from a fake text system,
+      # so Linux asserts the same as macOS. No display is needed.
+      - name: Pixel tests
+        run: just pixel-tests
