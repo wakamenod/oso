@@ -153,7 +153,9 @@ fn read_only_buffers_are_refused_and_their_files_stay() {
         assert_eq!(fs::read(&path).unwrap(), content);
     }
     let path = scratch.path().join("loading.txt");
-    let mut editor = Editor::with_buffer(Buffer::visiting(path));
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let mut editor = Editor::with_buffer(buffer);
     send(&mut Dispatcher::new(), &mut editor, "C-x C-s");
     assert!(editor.take_save_jobs().is_empty());
     assert!(last_message(&editor).contains("loading"));

@@ -7,7 +7,7 @@ keys: none
 :^       :
 │line 1  │
 │line 2  │
-=        =
+=-- test =
 "        "
 
 keys: C-n C-n
@@ -15,7 +15,7 @@ keys: C-n C-n
 │line 1  │
 │line 2  │
 :^       :
-=        =
+=-- test =
 "        "
 
 keys: C-n
@@ -23,7 +23,7 @@ keys: C-n
 │line 2  │
 │line 3  │
 :^       :
-=        =
+=-- test =
 "        "
 
 keys: C-p C-p C-p
@@ -31,5 +31,5 @@ keys: C-p C-p C-p
 :^       :
 │line 1  │
 │line 2  │
-=        =
+=-- test =
 "        "

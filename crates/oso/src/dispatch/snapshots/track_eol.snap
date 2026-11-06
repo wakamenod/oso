@@ -8,7 +8,7 @@ keys: none
 │                │
 │much longer     │
 │                │
-=                =
+=-- test  1:0  Fu=
 "                "
 
 keys: C-e
@@ -17,7 +17,7 @@ keys: C-e
 │                │
 │much longer     │
 │                │
-=                =
+=-- test  1:5  Fu=
 "                "
 
 keys: C-n
@@ -26,7 +26,7 @@ keys: C-n
 :^               :
 │much longer     │
 │                │
-=                =
+=-- test  2:0  Fu=
 "                "
 
 keys: C-n
@@ -35,7 +35,7 @@ keys: C-n
 │much longer     │
 :           ^    :
 │                │
-=                =
+=-- test  3:11  F=
 "                "
 
 keys: C-n
@@ -44,7 +44,7 @@ keys: C-n
 │much longer     │
 │                │
 :^               :
-=                =
+=-- test  4:0  Fu=
 "                "
 
 keys: C-p
@@ -53,7 +53,7 @@ keys: C-p
 │much longer     │
 :           ^    :
 │                │
-=                =
+=-- test  3:11  F=
 "                "
 
 keys: C-a
@@ -62,5 +62,5 @@ keys: C-a
 │much longer     │
 :^               :
 │                │
-=                =
+=-- test  3:0  Fu=
 "                "

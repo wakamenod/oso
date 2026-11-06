@@ -79,6 +79,7 @@ pub(crate) fn visited(path: &Path) -> Buffer {
     if location(path).is_ok() {
         buffer.set_baseline(baseline(path));
     }
+    buffer.judge_secret(Some(&[path.to_path_buf()]));
     buffer
 }
 
@@ -124,6 +125,35 @@ fn assert_conflict(report: &SaveReport) {
         "{:?}",
         report.outcome
     );
+}
+
+#[test]
+fn a_file_changed_under_edits_warns_until_a_save_gets_through() {
+    let scratch = Scratch::new("changed-warning");
+    let path = scratch.file("notes.txt", b"one\n");
+    let mut editor = visit(&path);
+    let job = job_of(&mut editor, "two\n");
+    fs::write(&path, b"another writer, and longer\n").unwrap();
+    let report = run(job);
+    assert_conflict(&report);
+    apply(&mut editor, report);
+    assert!(editor.current().1.changed_on_disk());
+
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(&mut status);
+    assert_eq!(status.warnings, "[changed on disk] ");
+
+    // The disk holds what the buffer last read again, so a save can go through.
+    fs::write(&path, b"one\n").unwrap();
+    let id = editor.window().buffer();
+    let baseline = baseline(&path);
+    editor.buffer_mut(id).unwrap().set_baseline(baseline);
+    editor.start_save().unwrap();
+    let job = editor.take_save_jobs().pop().unwrap();
+    let report = run(job);
+    assert_written(&report);
+    apply(&mut editor, report);
+    assert!(!editor.current().1.changed_on_disk());
 }
 
 #[test]

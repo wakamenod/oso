@@ -7,6 +7,8 @@
 //! Must not depend on: `app` or winit; key sequences stay testable without a
 //! window.
 
+use std::fmt::Write;
+
 #[cfg(any(test, feature = "dev"))]
 use oso_core::command::ArgSpec;
 use oso_core::command::{
@@ -56,8 +58,7 @@ impl Dispatcher {
         }
     }
 
-    /// The keys of the pending prefix, empty if none is pending. Only
-    /// `get-state` shows them until the echo area (M2-7) does.
+    /// The keys of the pending prefix, empty if none is pending.
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
@@ -74,6 +75,31 @@ impl Dispatcher {
                 return;
             }
         }
+    }
+
+    /// Tells the echo area what is being typed: the prefix argument and the keys of a
+    /// pending prefix (ADR 0058, ADR 0063).
+    pub fn show_typing(&self, editor: &mut Editor) {
+        let pending = self.resolver.pending();
+        let mut typing = String::new();
+        match self.prefix {
+            None => {}
+            Some(Prefix::Universal(4)) => typing.push_str("C-u"),
+            Some(Prefix::Negative) => typing.push_str("C-u -"),
+            Some(prefix) => {
+                let _ = write!(typing, "C-u {}", prefix.value());
+            }
+        }
+        if !pending.is_empty() {
+            if !typing.is_empty() {
+                typing.push(' ');
+            }
+            let _ = write!(typing, "{}", display_keys(pending));
+        }
+        if !typing.is_empty() {
+            typing.push('-');
+        }
+        editor.set_typing(&typing);
     }
 
     /// Handles key presses in order. Keys after one that exits are dropped.
@@ -119,6 +145,19 @@ impl Dispatcher {
         name: &str,
         arg: Option<isize>,
     ) -> (Effects, Result<(), String>) {
+        editor.clear_echo();
+        let outcome = self.run_named(editor, name, arg);
+        self.show_typing(editor);
+        outcome
+    }
+
+    #[cfg(any(test, feature = "dev"))]
+    fn run_named(
+        &mut self,
+        editor: &mut Editor,
+        name: &str,
+        arg: Option<isize>,
+    ) -> (Effects, Result<(), String>) {
         let found = self
             .registry
             .lookup(name)
@@ -150,11 +189,18 @@ impl Dispatcher {
     /// commits will (M2-12).
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
         editor.reset_exit_guard();
+        editor.clear_echo();
+        let effects = self.run_text(editor, text);
+        self.show_typing(editor);
+        effects
+    }
+
+    fn run_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
         if !self.resolver.pending().is_empty() {
-            log::debug!(
-                "{} and text are undefined",
-                display_keys(self.resolver.pending())
-            );
+            let keys = display_keys(self.resolver.pending()).to_string();
+            log::debug!("{keys} and text are undefined");
+            // The text stays out of it, as it does from a log.
+            editor.echo(format!("{keys} is undefined"));
             self.resolver.reset();
             self.forget_keys();
             return Effects::default();
@@ -179,7 +225,8 @@ impl Dispatcher {
     /// character on its key, in an undo group of its own, so that it undoes as one
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
-    /// failure is not fatal (ADR 0014), and leaves a message.
+    /// failure is not fatal (ADR 0014), and leaves a message. Around a buffer that may
+    /// hold secrets it only reaches the echo area, as a failure can say where a cursor is.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
     fn execute(
         &mut self,
@@ -195,6 +242,7 @@ impl Dispatcher {
         };
         self.last = Some((id, repeats));
         let exit_attempt = editor.exit_attempt();
+        let secret_before = editor.shows_secret();
         editor.begin_undo_group();
         let invocation = Invocation {
             input,
@@ -209,7 +257,11 @@ impl Dispatcher {
             Ok(()) => editor.end_undo_group(),
             Err(ExecuteError::Failed { error, .. }) => {
                 editor.end_undo_group();
-                editor.message(error.message());
+                if secret_before || editor.shows_secret() {
+                    editor.echo_withheld(error.message());
+                } else {
+                    editor.message(error.message());
+                }
             }
             Err(error @ ExecuteError::Panicked { .. }) => {
                 editor.end_undo_group_after_panic();
@@ -232,8 +284,16 @@ impl Dispatcher {
 
     /// Handles one key press: waits on a prefix, or runs the command the
     /// keys resolve to. Returns what the host should do: redraw only when a
-    /// command changed something visible, and exit when one asked to.
+    /// command changed something visible, and exit when one asked to. The echo
+    /// area empties first, as in Emacs, and then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        editor.clear_echo();
+        let effects = self.resolve_key(editor, key);
+        self.show_typing(editor);
+        effects
+    }
+
+    fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
         let minor: &[&Keymap] = match self.prefix {
             Some(prefix) if prefix.reads_minus() => &reading,
@@ -272,12 +332,14 @@ impl Dispatcher {
                     }
                     _ => log::debug!("{} is undefined", display_keys(keys)),
                 }
+                editor.echo(format!("{} is undefined", display_keys(keys)));
                 self.forget_keys();
                 Effects::default()
             }
             Resolution::Cancelled => {
                 editor.reset_exit_guard();
                 log::debug!("Quit");
+                editor.echo("Quit");
                 self.forget_keys();
                 Effects::default()
             }
@@ -295,6 +357,8 @@ mod motion_tests;
 mod prefix_tests;
 #[cfg(test)]
 mod save_tests;
+#[cfg(test)]
+mod status_tests;
 
 #[cfg(test)]
 mod tests {

@@ -5,41 +5,41 @@ description: "text: a\\u{301}\\u{301}\\u{301}\\u{301}\\u{301}\\u{301}\\u{301}\\u
 keys: none
 │á́́́́́́́U+0301U+0301b c                │
 :^############                   :
-=                                =
+=-- test  1:0  Fundamental  UTF-8=
 "                                "
 
 keys: M-f
 │á́́́́́́́U+0301U+0301b c                │
 : ############ ^                 :
-=                                =
+=-- test  1:14  Fundamental  UTF-=
 "                                "
 
 keys: C-b
 │á́́́́́́́U+0301U+0301b c                │
 : ############^                  :
-=                                =
+=-- test  1:13  Fundamental  UTF-=
 "                                "
 
 keys: C-b
 │á́́́́́́́U+0301U+0301b c                │
 : ######^^^^^^                   :
-=                                =
+=-- test  1:7  Fundamental  UTF-8=
 "                                "
 
 keys: M-b
 │á́́́́́́́U+0301U+0301b c                │
 :^############                   :
-=                                =
+=-- test  1:0  Fundamental  UTF-8=
 "                                "
 
 keys: M-f
 │á́́́́́́́U+0301U+0301b c                │
 : ############ ^                 :
-=                                =
+=-- test  1:14  Fundamental  UTF-=
 "                                "
 
 keys: M-DEL
 │ c                              │
 :^                               :
-=                                =
+=** test  1:0  Fundamental  UTF-8=
 "                                "

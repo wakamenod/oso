@@ -199,6 +199,9 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
         }
         Err(error) => {
             editor.save_failed(buffer);
+            if matches!(error, SaveError::Conflict | SaveError::Elsewhere) {
+                editor.file_changed_on_disk(buffer);
+            }
             match error {
                 SaveError::Conflict => format!(
                     "{path} changed on disk since it was read. It was kept, and the buffer is not saved"

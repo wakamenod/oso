@@ -5,35 +5,35 @@ description: "text: "
 keys: none
 │        │
 :^       :
-=        =
+=-- test =
 "        "
 
 keys: か
 │か      │
 :<>^     :
-=        =
+=** test =
 "        "
 
 keys: ゙
 │が      │
 :<>^     :
-=        =
+=** test =
 "        "
 
 keys: x
 │がx     │
 :<> ^    :
-=        =
+=** test =
 "        "
 
 keys: DEL
 │が      │
 :<>^     :
-=        =
+=** test =
 "        "
 
 keys: DEL
 │        │
 :^       :
-=        =
+=** test =
 "        "

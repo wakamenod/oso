@@ -34,8 +34,6 @@ item notes when it must be settled.
   while the buffer's revision holds. After a change every visible row seeks
   and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
   rows of ordinary text, so this waits until a profile shows it.
-- The bidi-control modeline warning (`ui.md`) needs a count of bidi controls,
-  which the TabMap summary does not track yet. Add it when M2 needs it.
 - A path swapped for a FIFO between the loader's check and its open blocks
   the loading thread (not the UI), and the same goes for the save's check that a
   file is writable, which leaves the buffer saving and a confirmed exit waiting.
@@ -130,16 +128,14 @@ item notes when it must be settled.
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
-- `Editor::message` has no cap on a message's length. Its callers so far pass short text and
-  file names. Add one by M2-7.
-- What panes below the frame's top row do with the band above their first row, which
-  they lose today: by M2-7 for the one-row panes, by M2-16 and M3 for the rest. By M2-16,
-  also what a float on the top row does about the top margin
+- What panes below the frame's top row do with the band above their first row, which they
+  lose today: by M2-16 and M3. One-row panes keep losing it
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)). By M2-16, also what a
+  float on the top row does about the top margin
   ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
-- By M2-7: a command that fails leaves a message and asks for no frame, so the echo area would
-  not show it until something else draws. "C-x C-z is undefined" has no way to the echo area
-  either: `Editor::message` always logs, and typed keys stay out of the `info` log
-  ([ADR 0056](adr/0056-typing.md)).
+- By M2-19: whether `kill-buffer` may kill `*Messages*`, which today it leaves, and how a long
+  name on the modeline tells apart two names that differ at their ends
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - `S-RET`, `S-DEL` and other shifted named keys with no binding do nothing. Emacs falls back to
   the unshifted key, so holding Shift a moment too long still types. Decide whether
   `KeyResolver` does the same, or record that oso differs.
@@ -149,8 +145,6 @@ item notes when it must be settled.
   the command's ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
   `TAB` on a row with several cursors walks what lies between them with no budget
   ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
-- By M2-7: nothing shows that a prefix argument is being typed
-  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:
   - The limit should be a pure function beside `window::wheel`, used by both.
   - By M2-16 and M3: "taller" compares the selected window alone. A selected minibuffer, or

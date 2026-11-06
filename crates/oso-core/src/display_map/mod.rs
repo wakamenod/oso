@@ -251,6 +251,11 @@ impl DisplaySnapshot {
         self.tab_map.summary().lines + 1
     }
 
+    /// Whether the buffer holds bidirectional controls. O(1).
+    pub fn has_bidi_controls(&self) -> bool {
+        self.tab_map.summary().bidi_controls > 0
+    }
+
     /// The point at the end of the buffer.
     pub fn max_point(&self) -> DisplayPoint {
         self.tab_map.max_point().into()
@@ -735,6 +740,23 @@ pub(crate) mod tests {
                         }
                     }
                 }
+            }
+        }
+
+        /// The count of bidi controls follows edits, whatever they split or join.
+        #[test]
+        fn bidi_controls_are_counted_through_edits(
+            edits in prop::collection::vec((0usize..200, 0usize..20, 0usize..5), 0..30),
+        ) {
+            const TEXTS: [&str; 5] = ["", "a\n", "\u{202e}", "\u{2069}—", "\u{200f}日本語"];
+            let mut rope = Rope::from("\u{202a}abc\ndef");
+            let mut map = DisplayMap::new(&rope, TabWidth::default());
+            for (start, len, text) in edits {
+                let edit = rope.replace(start..start + len, TEXTS[text]);
+                map.sync(&rope, &edit);
+                let text = rope.to_string();
+                let expected = text.chars().any(cell::is_bidi_control);
+                prop_assert_eq!(map.snapshot().has_bidi_controls(), expected);
             }
         }
 

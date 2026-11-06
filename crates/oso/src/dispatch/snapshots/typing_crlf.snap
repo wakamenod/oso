@@ -7,7 +7,7 @@ keys: none
 :^       :
 │cd      │
 │        │
-=        =
+=-- test =
 "        "
 
 keys: C-f RET
@@ -15,7 +15,7 @@ keys: C-f RET
 │b       │
 :^       :
 │cd      │
-=        =
+=** test =
 "        "
 
 keys: DEL
@@ -23,5 +23,5 @@ keys: DEL
 : ^      :
 │cd      │
 │        │
-=        =
+=** test =
 "        "

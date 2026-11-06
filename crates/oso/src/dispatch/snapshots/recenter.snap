@@ -9,7 +9,7 @@ keys: none
 │line 2  │
 │line 3  │
 │line 4  │
-=        =
+=-- test =
 "        "
 
 keys: C-u 8 C-n
@@ -19,7 +19,7 @@ keys: C-u 8 C-n
 │line 7  │
 │line 8  │
 :^       :
-=        =
+=-- test =
 "        "
 
 keys: C-l
@@ -29,7 +29,7 @@ keys: C-l
 :^       :
 │line 9  │
 │line 10 │
-=        =
+=-- test =
 "        "
 
 keys: C-l
@@ -39,7 +39,7 @@ keys: C-l
 │line 10 │
 │line 11 │
 │line 12 │
-=        =
+=-- test =
 "        "
 
 keys: C-l
@@ -49,7 +49,7 @@ keys: C-l
 │line 7  │
 │line 8  │
 :^       :
-=        =
+=-- test =
 "        "
 
 keys: M-1 C-l
@@ -59,7 +59,7 @@ keys: M-1 C-l
 │line 9  │
 │line 10 │
 │line 11 │
-=        =
+=-- test =
 "        "
 
 keys: C-u C-l
@@ -69,5 +69,5 @@ keys: C-u C-l
 :^       :
 │line 9  │
 │line 10 │
-=        =
+=-- test =
 "        "

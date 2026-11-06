@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use super::DisplayCluster;
-use super::cell::{CellKind, Clusters, TabWidth};
+use super::cell::{CellKind, Clusters, TabWidth, is_bidi_control};
 use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
@@ -98,6 +98,16 @@ impl ColumnFn {
     }
 }
 
+/// How many bidirectional controls `text` holds. Each starts with the byte 0xE2,
+/// which many chunks never have, and counting those is a loop the compiler vectorizes
+/// as it does for line breaks. So plain text costs next to nothing.
+fn count_bidi_controls(text: &str) -> usize {
+    if text.bytes().filter(|&byte| byte == 0xe2).count() == 0 {
+        return 0;
+    }
+    text.chars().filter(|&c| is_bidi_control(c)).count()
+}
+
 /// The summary of a stretch of text on the cell grid.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TabSummary {
@@ -105,6 +115,8 @@ pub struct TabSummary {
     pub bytes: usize,
     /// Line breaks.
     pub lines: usize,
+    /// Bidirectional controls, for the modeline's warning (ADR 0063).
+    pub bidi_controls: usize,
     /// The column function after the last line break.
     last_line: ColumnFn,
     /// The tab width the summary was computed with. `None` only for the
@@ -132,6 +144,7 @@ impl TabSummary {
         Self {
             bytes: text.len(),
             lines,
+            bidi_controls: count_bidi_controls(text),
             last_line,
             tab_width: Some(tab_width),
         }
@@ -142,6 +155,7 @@ impl Summary for TabSummary {
     fn add_summary(&mut self, other: &Self) {
         let tab_width = self.tab_width.or(other.tab_width).unwrap_or_default();
         self.bytes += other.bytes;
+        self.bidi_controls += other.bidi_controls;
         if other.lines > 0 {
             self.lines += other.lines;
             self.last_line = other.last_line;

@@ -15,6 +15,8 @@ const FOREGROUND: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
 const CURSOR: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
 const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
 const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
+const MODELINE: [f32; 4] = [0.16, 0.16, 0.21, 1.0];
+const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
 
 /// What a piece of the screen means. The renderer turns it into colors, and
 /// the theme (M2-23) will map it to its palette.
@@ -29,24 +31,30 @@ pub enum Face {
     Boxed,
     /// The cursor box, and the glyphs on it.
     Cursor,
+    /// A modeline, and its text.
+    Modeline,
+    /// A warning that must be seen, on whatever is behind it.
+    Warning,
 }
 
 impl Face {
     /// The color of coverage glyphs.
     pub(crate) fn foreground(self) -> [f32; 4] {
         match self {
-            Self::Text => FOREGROUND,
+            Self::Text | Self::Modeline => FOREGROUND,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
+            Self::Warning => WARNING,
         }
     }
 
     /// The color of rectangles.
     pub(crate) fn background(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Escape => BACKGROUND,
+            Self::Text | Self::Escape | Self::Warning => BACKGROUND,
             Self::Boxed => ESCAPE_BOX,
             Self::Cursor => CURSOR,
+            Self::Modeline => MODELINE,
         }
     }
 

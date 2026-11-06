@@ -8,7 +8,7 @@ keys: none
 │ó́́́́́́́U+0301U+0301x          │
 : ############           :
 │                        │
-=                        =
+=-- test  1:0  Fundamenta=
 "                        "
 
 keys: C-n C-f
@@ -16,7 +16,7 @@ keys: C-n C-f
 │ó́́́́́́́U+0301U+0301x          │
 : ^^^^^^######           :
 │                        │
-=                        =
+=-- test  2:1  Fundamenta=
 "                        "
 
 keys: C-f
@@ -24,7 +24,7 @@ keys: C-f
 │ó́́́́́́́U+0301U+0301x          │
 : ######^^^^^^           :
 │                        │
-=                        =
+=-- test  2:7  Fundamenta=
 "                        "
 
 keys: C-f
@@ -32,7 +32,7 @@ keys: C-f
 │ó́́́́́́́U+0301U+0301x          │
 : ############^          :
 │                        │
-=                        =
+=-- test  2:13  Fundament=
 "                        "
 
 keys: C-f
@@ -40,5 +40,5 @@ keys: C-f
 │ó́́́́́́́U+0301U+0301x          │
 : ############ ^         :
 │                        │
-=                        =
+=-- test  2:14  Fundament=
 "                        "

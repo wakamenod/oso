@@ -50,7 +50,7 @@ keys: C-f
 
 A frame is its regions from the top ([ADR 0057](adr/0057-frame-layout.md)). Each
 row of the text area is a line between `│`, the modeline's is between `=` and the
-echo area's between `"`. Those two are blank until they have something to show.
+echo area's between `"`. Those two draw the spans the app draws.
 Below a row that needs it, a line between `:` marks its cells:
 
 | Mark | Meaning |
@@ -235,7 +235,8 @@ what you type goes into their buffers, which can fail a flow.
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
 | screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
-| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions, `take-timings` and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
+| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions, `take-timings`, `*Messages*`, the echo area and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
+| modeline and echo area | a key that changes only the echo area to a frame; the bidi warning; `*Messages*` holds no restart, and takes no typing |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
@@ -287,10 +288,12 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   hold secrets, read-only reason, whether it is modified or being saved, line ending,
   BOM, invalid-byte count, loading progress, size), every window with its selections, the selected window's
   buffer, cursor and scroll position, its visible text, the keys of a pending
-  prefix and the surface size. The visible text stops at 128 KiB and says so with
-  `truncated`. The modeline comes with M2. A secret buffer has no text, no cursor,
-  no scroll position and no selections, and no size while it has edits
-  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
+  prefix, what the modeline and the echo area say, and the surface size. The visible
+  text stops at 128 KiB and says so with `truncated`. A secret buffer has no text, no
+  cursor, no scroll position and no selections, and no size while it has edits
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). While one is
+  shown, `modeline` and `echo` are left out
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.

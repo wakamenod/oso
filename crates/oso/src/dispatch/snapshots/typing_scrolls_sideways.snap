@@ -5,23 +5,23 @@ description: "text: 012"
 keys: none
 │012     │
 :^       :
-=        =
+=-- test =
 "        "
 
 keys: a b c d e f
 │abcdef01│
 :      ^ :
-=        =
+=** test =
 "        "
 
 keys: 語
 │bcdef語0│
 :     <>^:
-=        =
+=** test =
 "        "
 
 keys: DEL DEL DEL DEL DEL
 │b012    │
 : ^      :
-=        =
+=** test =
 "        "

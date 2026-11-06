@@ -13,13 +13,14 @@
 //! A frame is its regions from the top (ADR 0057). Each row of the text area is
 //! one line between `│`, the modeline's between `=` and the echo area's between
 //! `"`. Below a row that needs it, a line between `:` marks its cells. See
-//! `docs/dev/testing.md`.
+//! `docs/dev/testing.md`. The modeline and the echo area are the spans the app draws,
+//! laid out by `text_clusters`, as the renderer does.
 
 use oso_core::buffer::Buffer;
 use std::ops::Range;
 
-use oso_core::display_map::{CellRun, CellStyle, DisplayPoint, DisplaySnapshot};
-use oso_core::editor::Editor;
+use oso_core::display_map::{CellRun, CellStyle, DisplayPoint, DisplaySnapshot, text_clusters};
+use oso_core::editor::{Editor, Status};
 use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
 use oso_core::motion;
@@ -36,10 +37,19 @@ const RIGHT_HALF: char = '▐';
 /// marked row.
 fn text_grid(editor: &Editor) -> String {
     let regions = editor.frame();
+    let mut status = Status::default();
+    editor.status_into(&mut status);
     let mut lines = Vec::new();
     draw_text_area(editor, regions.window.text, &mut lines);
-    draw_blank(regions.window.modeline, '=', &mut lines);
-    draw_blank(regions.echo, '"', &mut lines);
+    let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
+    draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
+    // A frame with no modeline has its warnings on the echo row.
+    let warnings = if regions.window.modeline.rows == 0 {
+        &status.warnings[..]
+    } else {
+        ""
+    };
+    draw_spans(&[warnings, &status.echo[..]], regions.echo, '"', &mut lines);
     lines.join("\n")
 }
 
@@ -68,10 +78,34 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     }
 }
 
-/// A region with nothing to show yet, between `edge`s.
-fn draw_blank(area: CellRect, edge: char, lines: &mut Vec<String>) {
-    for _ in 0..area.rows {
-        lines.push(format!("{edge}{}{edge}", " ".repeat(area.columns)));
+/// A region of at most one row, between `edge`s: `spans`, one after the other, up to
+/// its last column.
+fn draw_spans(spans: &[&str], area: CellRect, edge: char, lines: &mut Vec<String>) {
+    if area.rows == 0 {
+        return;
+    }
+    let columns = area.columns;
+    let mut text = String::new();
+    let mut marks = vec![' '; columns];
+    let mut drawn = 0;
+    let mut next = 0;
+    for span in spans {
+        for cluster in text_clusters(span, next) {
+            next = cluster.column + cluster.cells;
+            cluster.for_each_run(|run| {
+                let end = (run.column + run.cells).min(columns);
+                if run.column < end {
+                    draw_run(&run, run.column, &mut marks[run.column..end], &mut text);
+                    drawn = end;
+                }
+            });
+        }
+    }
+    text.extend(std::iter::repeat_n(' ', columns - drawn));
+    lines.push(format!("{edge}{text}{edge}"));
+    if marks.iter().any(|&mark| mark != ' ') {
+        let marks: String = marks.into_iter().collect();
+        lines.push(format!(":{marks}:"));
     }
 }
 
@@ -515,5 +549,66 @@ mod scenarios {
         let text: String = (0..20).map(|i| format!("line {i}\n")).collect();
         let steps = ["", "C-u 8 C-n", "C-l", "C-l", "C-l", "M-1 C-l", "C-u C-l"];
         check("recenter", text, (5, 8), &steps);
+    }
+
+    #[test]
+    fn the_modeline_says_where_the_cursor_is_and_the_echo_area_what_failed() {
+        check_frame(
+            "status_modeline_and_echo",
+            "ab\ncd\n",
+            (5, 40),
+            &["", "C-n C-f", "M-> C-f", "C-x C-z", "C-u 5", "C-g"],
+        );
+    }
+
+    #[test]
+    fn a_small_frame_keeps_its_warnings_as_long_as_it_can() {
+        let text = "a\u{202e}b\n";
+        let mut frames = Vec::new();
+        let mut editor = Editor::with_buffer(Buffer::from_bytes("test", text.as_bytes()));
+        editor.message("Wrote test");
+        for rows in [4, 3, 2, 1, 0] {
+            editor.set_frame_size(FrameSize { rows, columns: 40 });
+            frames.push(format!("frame rows: {rows}\n{}", text_grid(&editor)));
+        }
+        assert_frames("status_small_frame", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn a_long_name_cannot_push_a_warning_off_the_row() {
+        let name = format!("{}.md", "very-long-name-".repeat(10));
+        let mut editor = Editor::with_buffer(Buffer::from_text(name, "\u{2066}\n"));
+        editor.set_frame_size(FrameSize {
+            rows: 4,
+            columns: 50,
+        });
+        let frames = [text_grid(&editor)];
+        assert_frames("status_long_name", "\u{2066}\n".as_bytes(), &frames);
+    }
+
+    #[test]
+    fn a_name_from_disk_is_escaped_on_the_modeline() {
+        let name = "a\nb\u{202e}\u{1b}c\tいe\u{301}.txt";
+        let mut editor = Editor::with_buffer(Buffer::from_text(name, ""));
+        editor.message(format!("Wrote {name}"));
+        editor.set_frame_size(FrameSize {
+            rows: 3,
+            columns: 56,
+        });
+        assert_frames(
+            "status_escaped_name",
+            name.as_bytes(),
+            &[text_grid(&editor)],
+        );
+    }
+
+    #[test]
+    fn the_messages_buffer_shows_what_was_said() {
+        check_frame(
+            "status_messages_buffer",
+            "ab\n",
+            (5, 40),
+            &["C-b", "C-h e", "C-h e"],
+        );
     }
 }

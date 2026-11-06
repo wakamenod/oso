@@ -8,7 +8,7 @@ keys: none
 │line 01     │
 │line 02     │
 │line 03     │
-=            =
+=-- test  1:0=
 "            "
 
 keys: C-n C-n C-n
@@ -17,7 +17,7 @@ keys: C-n C-n C-n
 │line 02     │
 │line 03     │
 :^           :
-=            =
+=-- test  4:0=
 "            "
 
 keys: C-n
@@ -26,7 +26,7 @@ keys: C-n
 │line 03     │
 │line 04     │
 :^           :
-=            =
+=-- test  5:0=
 "            "
 
 keys: C-v
@@ -35,7 +35,7 @@ keys: C-v
 :^           :
 │line 05     │
 │line 06     │
-=            =
+=-- test  5:0=
 "            "
 
 keys: M->
@@ -44,7 +44,7 @@ keys: M->
 │line 11     │
 │            │
 :^           :
-=            =
+=-- test  13:=
 "            "
 
 keys: M-<
@@ -53,5 +53,5 @@ keys: M-<
 │line 01     │
 │line 02     │
 │line 03     │
-=            =
+=-- test  1:0=
 "            "

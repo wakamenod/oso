@@ -12,7 +12,7 @@ keys: none
 │end^M       │
 :   ~~       :
 │            │
-=            =
+=-- test  1:0=
 "            "
 
 keys: C-n C-f C-f C-f C-f
@@ -24,5 +24,5 @@ keys: C-n C-f C-f C-f C-f
 │end^M       │
 :   ~~       :
 │            │
-=            =
+=-- test  2:4=
 "            "

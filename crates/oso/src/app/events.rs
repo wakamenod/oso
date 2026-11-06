@@ -42,6 +42,7 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.check_leaving(event_loop);
+        self.ask_for_a_frame_if_status_changed();
     }
 
     fn window_event(

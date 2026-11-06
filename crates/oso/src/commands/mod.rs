@@ -7,6 +7,7 @@
 //! host-owned state and does not know its keys.
 
 mod edit;
+mod messages;
 mod motion;
 mod prefix;
 mod save;
@@ -23,6 +24,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
     edit::COMMANDS,
+    messages::COMMANDS,
     motion::COMMANDS,
     prefix::COMMANDS,
     save::COMMANDS,

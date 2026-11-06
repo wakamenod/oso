@@ -5,11 +5,11 @@ description: "text: \\u{202e}\\u{202e}"
 keys: none
 │U+202EU+│
 :^^^^^^##:
-=        =
+=[bidi co=
 "        "
 
 keys: C-e
 │EU+202E │
 :#######^:
-=        =
+=[bidi co=
 "        "

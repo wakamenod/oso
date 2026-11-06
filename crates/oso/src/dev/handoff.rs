@@ -77,6 +77,13 @@ pub fn export(
     for (id, buffer) in editor.buffers() {
         buffers.push(buffer_state(id, buffer)?);
     }
+    // Internal buffers are not handed over (ADR 0051). A window showing one comes back
+    // on `*scratch*`, which this entry stands for.
+    for window in editor.windows() {
+        if editor.shown(window).is_internal() {
+            buffers.push(json!({ "id": window.buffer().get(), "path": null }));
+        }
+    }
     let at_the_top = SelectionSet::default();
     let windows: Vec<Value> = editor
         .windows()
@@ -86,7 +93,9 @@ pub fn export(
             let waiting = restore.filter(|r| r.buffer == window.buffer());
             let (selections, scroll) = match waiting {
                 Some(restore) => (&restore.selections, restore.scroll),
-                None if editor.shown(window).is_secret() => (&at_the_top, Scroll::default()),
+                None if editor.shown(window).is_secret() || editor.shown(window).is_internal() => {
+                    (&at_the_top, Scroll::default())
+                }
                 None => (&window.selections, window.scroll()),
             };
             json!({
@@ -202,7 +211,8 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
 
 /// Whether this instance may take over from another. It may only if it has
 /// opened nothing and its `*scratch*` is empty, as the imported buffers would hide
-/// any text there.
+/// any text there. Internal buffers do not count, but one in view does, since the
+/// window then has no `*scratch*` to start from.
 pub fn import_allowed(editor: &Editor) -> Result<(), String> {
     let (_, scratch) = editor.current();
     if editor.buffers().count() > 1 || scratch.name() != SCRATCH {

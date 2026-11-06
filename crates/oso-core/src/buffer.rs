@@ -13,7 +13,6 @@
 //! A panic in a command leaves a buffer before the edit or after it. The editor
 //! maps cursors between the two steps, since a buffer does not know its windows.
 
-use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -22,15 +21,18 @@ use std::slice;
 use crate::decode::{FileInfo, InvalidBytes};
 use crate::display_map::{DisplayMap, DisplaySnapshot, TabWidth};
 use crate::load::{self, LoadSnapshot, Progress};
-use crate::rope::{Rope, RopeEdit};
+use crate::rope::Rope;
 use crate::secret;
 use crate::selection::{OffsetEdit, SelectionSet};
 pub use crate::undo::ContentId;
 use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
 mod baseline;
+mod internal;
+mod splice;
 
 pub use baseline::{Baseline, FileStamp};
+use splice::{SpliceText, apply, normalized, offset_edit};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -53,15 +55,18 @@ pub enum ReadOnly {
     /// The file is binary (a NUL byte in its first 8 KB). It can never be
     /// saved.
     Binary,
+    /// The editor keeps this buffer for itself.
+    Internal,
 }
 
 impl ReadOnly {
-    /// `"loading"`, `"invalid-utf8"` or `"binary"`.
+    /// `"loading"`, `"invalid-utf8"`, `"binary"` or `"internal"`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Loading => "loading",
             Self::InvalidUtf8 => "invalid-utf8",
             Self::Binary => "binary",
+            Self::Internal => "internal",
         }
     }
 }
@@ -103,45 +108,6 @@ impl fmt::Display for EditError {
 }
 
 impl std::error::Error for EditError {}
-
-/// The new text of a [`Splice`]: borrowed for an edit, a rope or nothing for undo
-/// and redo.
-trait SpliceText {
-    fn byte_len(&self) -> usize;
-    /// Replaces `range` of `rope` with this text.
-    fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit;
-}
-
-impl SpliceText for Cow<'_, str> {
-    fn byte_len(&self) -> usize {
-        self.len()
-    }
-
-    fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit {
-        rope.replace(range, self)
-    }
-}
-
-impl SpliceText for Option<Rope> {
-    fn byte_len(&self) -> usize {
-        self.as_ref().map_or(0, Rope::len)
-    }
-
-    fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit {
-        match self {
-            Some(text) => rope.replace(range, &text.to_string()),
-            None => rope.replace(range, ""),
-        }
-    }
-}
-
-fn offset_edit<T: SpliceText>(splice: &Splice<T>) -> OffsetEdit {
-    OffsetEdit {
-        start: splice.start,
-        old_len: splice.len,
-        new_len: splice.text.byte_len(),
-    }
-}
 
 /// An edit made on clones, not yet in the buffer. Dropping it changes nothing.
 pub(crate) struct StagedEdit {
@@ -187,69 +153,6 @@ impl StagedCrossing {
     }
 }
 
-/// Clamps `edits`, drops empty ones, sorts them and merges those
-/// that overlap, so that the result is one batch. Ranges that overlap, and
-/// insertions at one offset, become their union, replaced by their texts joined
-/// in offset order. Edits with one start keep their given order. Ranges that
-/// only touch stay apart.
-fn normalized<'a>(text: &Rope, edits: &[Replacement<'a>]) -> Vec<Splice<Cow<'a, str>>> {
-    let mut sorted: Vec<Splice<Cow<'a, str>>> = edits
-        .iter()
-        .map(|edit| {
-            let (start, end) = text.clip_range(edit.range.clone());
-            Splice {
-                start,
-                len: end - start,
-                text: Cow::Borrowed(edit.text),
-            }
-        })
-        .filter(|splice| splice.len > 0 || !splice.text.is_empty())
-        .collect();
-    sorted.sort_by_key(|splice| (splice.start, splice.start + splice.len));
-    sorted.dedup_by(|next, last| {
-        let merges = overlap(last, next);
-        if merges {
-            let end = (last.start + last.len).max(next.start + next.len);
-            last.len = end - last.start;
-            last.text.to_mut().push_str(&next.text);
-        }
-        merges
-    });
-    sorted
-}
-
-/// Whether `next`, which does not start before `last`, overlaps it.
-fn overlap<T>(last: &Splice<T>, next: &Splice<T>) -> bool {
-    next.start < last.start + last.len
-        || (last.len == 0 && next.len == 0 && last.start == next.start)
-}
-
-/// Applies one batch to `text` and `display`, in descending offset order so
-/// that each splice leaves the offsets below it valid. Returns the batch that
-/// undoes it.
-fn apply<T: SpliceText>(splices: &[Splice<T>], text: &mut Rope, display: &mut DisplayMap) -> Batch {
-    let mut undo: Batch = Vec::with_capacity(splices.len());
-    // What the splices below the current one take, before and after them.
-    let mut old_below: usize = splices.iter().map(|splice| splice.len).sum();
-    let mut new_below: usize = splices.iter().map(|s| s.text.byte_len()).sum();
-    for splice in splices.iter().rev() {
-        let new_len = splice.text.byte_len();
-        old_below -= splice.len;
-        new_below -= new_len;
-        let range = splice.start..splice.start + splice.len;
-        let removed = (!range.is_empty()).then(|| text.slice(range.clone()));
-        let edit = splice.text.replace_in(text, range);
-        display.sync(text, &edit);
-        undo.push(Splice {
-            start: splice.start - old_below + new_below,
-            len: new_len,
-            text: removed,
-        });
-    }
-    undo.reverse();
-    undo
-}
-
 /// A buffer: text, its display model, and where it came from.
 pub struct Buffer {
     name: String,
@@ -260,6 +163,10 @@ pub struct Buffer {
     info: FileInfo,
     /// The file on disk, as this buffer last read or wrote it, once the host has said.
     baseline: Option<Baseline>,
+    /// A save found the file changed since then, and nothing has written it since.
+    changed_on_disk: bool,
+    /// The editor keeps this buffer for itself.
+    internal: bool,
     /// A save of this buffer is running.
     saving: bool,
     /// `Some` while the file loads.
@@ -295,6 +202,8 @@ impl Buffer {
             text,
             info: FileInfo::default(),
             baseline: None,
+            changed_on_disk: false,
+            internal: false,
             saving: false,
             loading: None,
             revision: 0,
@@ -401,6 +310,15 @@ impl Buffer {
         if let Some(baseline) = &mut self.baseline {
             baseline.file = Some(stamp);
         }
+    }
+
+    /// Whether a save found the file changed since this buffer read it or wrote it.
+    pub fn changed_on_disk(&self) -> bool {
+        self.changed_on_disk
+    }
+
+    pub(crate) fn set_changed_on_disk(&mut self, changed: bool) {
+        self.changed_on_disk = changed;
     }
 
     /// Whether a save of this buffer is running. Until it ends, the disk may hold
@@ -576,7 +494,9 @@ impl Buffer {
     /// Why the buffer cannot be edited, if it cannot. A reason that lasts
     /// wins over loading.
     pub fn read_only(&self) -> Option<ReadOnly> {
-        if self.info.binary {
+        if self.internal {
+            Some(ReadOnly::Internal)
+        } else if self.info.binary {
             Some(ReadOnly::Binary)
         } else if !self.invalid_bytes().is_empty() {
             Some(ReadOnly::InvalidUtf8)
@@ -600,6 +520,7 @@ mod tests {
         assert_eq!(ReadOnly::Loading.as_str(), "loading");
         assert_eq!(ReadOnly::InvalidUtf8.as_str(), "invalid-utf8");
         assert_eq!(ReadOnly::Binary.as_str(), "binary");
+        assert_eq!(ReadOnly::Internal.as_str(), "internal");
     }
 
     #[test]
@@ -848,7 +769,7 @@ mod tests {
             1
         }
 
-        fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> RopeEdit {
+        fn replace_in(&self, rope: &mut Rope, range: Range<usize>) -> crate::rope::RopeEdit {
             let good = self.good.get();
             assert!(good > 0, "a bug part way through a batch");
             self.good.set(good - 1);

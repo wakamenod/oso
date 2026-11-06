@@ -16,7 +16,11 @@
 //! before it runs a command and closes it after, also when the command panics.
 //!
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
-//! host, which owns threads and files, takes the job and reports back.
+//! host, which owns threads and files, takes the job and reports back. What the
+//! modeline and the echo area say is in [`status`], and messages in [`messages`].
+//!
+//! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
+//! whatever goes through a user's work leaves them out without having to know them.
 
 use std::collections::VecDeque;
 
@@ -31,12 +35,18 @@ use crate::window::{ViewSize, Window};
 
 mod messages;
 mod save;
+mod status;
 mod view;
 
+pub use messages::MAX_MESSAGE_BYTES;
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
+pub use status::Status;
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
+
+/// The name of the internal buffer that keeps every message.
+pub const MESSAGES: &str = "*Messages*";
 
 /// What the selected window's cursors do when a buffer it shows changes.
 #[derive(Clone, Copy)]
@@ -92,6 +102,16 @@ pub struct Editor {
     join_ready: bool,
     /// Oldest first.
     messages: VecDeque<String>,
+    /// The internal buffer that shows them.
+    messages_buffer: BufferId,
+    /// How many it has been given, for a frame while it is in view.
+    messages_added: u64,
+    /// Where the selected window was before it showed `*Messages*`.
+    before_messages: Option<messages::Place>,
+    /// The echo area's line, until the next key.
+    echo: Option<messages::Echo>,
+    /// What is being typed: a prefix argument, a prefix key.
+    typing: String,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
     /// The way of exiting that was last refused, until another key is pressed.
@@ -117,11 +137,17 @@ impl Editor {
             undo_scope: None,
             join_ready: false,
             messages: VecDeque::new(),
+            messages_buffer: BufferId(0),
+            messages_added: 0,
+            before_messages: None,
+            echo: None,
+            typing: String::new(),
             save_jobs: Vec::new(),
             exit_attempt: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
+        editor.messages_buffer = editor.add_buffer(Buffer::internal(MESSAGES));
         editor
     }
 
@@ -147,9 +173,13 @@ impl Editor {
             .find_map(|(other, buffer)| (*other == id).then_some(buffer))
     }
 
-    /// Every buffer, in the order they were added.
+    /// Every buffer of the user's, in the order they were added. This leaves out
+    /// internal buffers, which hold no work to save, hand over or count at an exit.
     pub fn buffers(&self) -> impl Iterator<Item = (BufferId, &Buffer)> {
-        self.buffers.iter().map(|(id, buffer)| (*id, buffer))
+        self.buffers
+            .iter()
+            .filter(|(_, buffer)| !buffer.is_internal())
+            .map(|(id, buffer)| (*id, buffer))
     }
 
     /// Shows `buffer` in the selected window, from its start. Does nothing
@@ -161,24 +191,32 @@ impl Editor {
     }
 
     /// Removes a buffer. Windows that showed it show `*scratch*` instead,
-    /// which is created again if needed.
+    /// which is created again if needed. An internal buffer stays.
     pub fn kill_buffer(&mut self, id: BufferId) {
+        if self.buffer(id).is_some_and(Buffer::is_internal) {
+            return;
+        }
         self.buffers.retain(|(other, _)| *other != id);
         if self.windows.iter().all(|window| window.buffer() != id) {
             return;
         }
-        let scratch = match self
-            .buffers
-            .iter()
-            .find(|(_, buffer)| buffer.name() == SCRATCH && buffer.path().is_none())
-        {
-            Some((scratch, _)) => *scratch,
-            None => self.add_buffer(Buffer::new(SCRATCH)),
-        };
+        let scratch = self.scratch();
         for window in &mut self.windows {
             if window.buffer() == id {
                 window.show(scratch);
             }
+        }
+    }
+
+    /// The `*scratch*` buffer, created again if needed.
+    fn scratch(&mut self) -> BufferId {
+        let scratch = self
+            .buffers
+            .iter()
+            .find(|(_, buffer)| buffer.name() == SCRATCH && buffer.path().is_none());
+        match scratch {
+            Some((scratch, _)) => *scratch,
+            None => self.add_buffer(Buffer::new(SCRATCH)),
         }
     }
 

@@ -529,7 +529,12 @@ mod scenarios {
     fn a_read_only_buffer_signals_and_changes_nothing() {
         let invalid = || Buffer::from_bytes("t", b"caf\xE9\n");
         let binary = || Buffer::from_bytes("t", b"a\0b\n");
-        let loading = || Buffer::visiting("/test/a.txt".into());
+        let loading = || {
+            let path = std::path::PathBuf::from("/test/a.txt");
+            let mut buffer = Buffer::visiting(path.clone());
+            buffer.judge_secret(Some(&[path]));
+            buffer
+        };
         let buffers: [&dyn Fn() -> Buffer; 3] = [&invalid, &binary, &loading];
         for buffer in buffers {
             for keys in ["a", "RET", "DEL", "C-d", "TAB", "C-z", "C-M-z"] {
