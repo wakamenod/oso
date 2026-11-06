@@ -506,7 +506,6 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::messages::log_text;
     use super::*;
     use crate::display_map::TabWidth;
     use crate::frame::{PixelGrid, PixelRect};
@@ -870,20 +869,6 @@ mod tests {
         assert!(editor.scroll_view(-100));
         assert_eq!(editor.window().scroll().top, 0);
         assert!(!editor.scroll_view(-1));
-    }
-
-    #[test]
-    fn the_log_shows_control_characters_as_escapes() {
-        let shown = log_text("a\u{1b}[2J\u{9b}\u{202e}\n日本語e\u{301}");
-        assert_eq!(shown, "a\\u{1b}[2J\\u{9b}\\u{202e}\\n日本語e\u{301}");
-    }
-
-    #[test]
-    fn the_log_leaves_quotes_and_backslashes_alone() {
-        let message = r#"Can't open "a\b.txt" 'x'\"#;
-        assert_eq!(log_text(message), message);
-        assert_eq!(log_text("'\u{1b}'"), "'\\u{1b}'");
-        assert_eq!(log_text(""), "");
     }
 }
 

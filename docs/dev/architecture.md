@@ -155,7 +155,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   state left the history stays modified until it is saved.
 - **Messages** (`Editor::message`) are written to the log, so they must not quote buffer
   text. The echo area shows the newest until the next key, and `*Messages*`, an internal
-  buffer, keeps the newest 1000. `Editor::echo` reaches the
+  buffer, keeps the newest 1000. The dispatcher marks where a command begins and ends, and
+  inside that span a message around a secret buffer reaches only the echo area. `Editor::echo` reaches the
   echo area alone. `Editor::buffers` leaves internal buffers out, so whatever goes through
   a user's work does too ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 

@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use oso_core::buffer::Buffer;
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
 use oso_core::editor::{Editor, Status};
 use oso_core::key::KeySequence;
 use oso_core::load::decode_all;
@@ -14,6 +15,7 @@ use oso_core::window::ViewSize;
 
 use super::Dispatcher;
 use crate::commands::kept_messages;
+use crate::{bindings, commands};
 
 fn send(dispatcher: &mut Dispatcher, editor: &mut Editor, keys: &str) {
     let keys: KeySequence = keys.parse().unwrap();
@@ -181,8 +183,32 @@ fn a_message_a_command_leaves_around_a_secret_stays_out_of_the_log_too() {
     let mut editor = on_a_secret("KEY=value\n");
     // Saving an unmodified buffer calls `Editor::message` itself, and returns no error.
     send(&mut dispatcher, &mut editor, "C-x C-s");
-    let _ = editor.take_save_jobs();
+    assert_eq!(echo(&editor), "(No changes need to be saved)");
     assert_eq!(kept_messages(&editor).len(), 0);
+}
+
+fn panics(_: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    panic!("deliberate panic in a test command");
+}
+
+#[test]
+fn a_panic_around_a_secret_reaches_the_messages_naming_only_the_command() {
+    let mut registry = commands::registry();
+    let command = Command {
+        name: "just-panic",
+        doc: "Panic, to test the command boundary.",
+        args: ArgSpec::None,
+        run: panics,
+    };
+    registry.register(command).unwrap();
+    let mut global = bindings::global_keymap(&registry);
+    let keys: KeySequence = "C-c p".parse().unwrap();
+    let id = registry.lookup("just-panic").unwrap();
+    global.bind(&keys.0, id).unwrap();
+    let mut dispatcher = Dispatcher::with(registry, global);
+    let mut editor = on_a_secret("KEY=value\n");
+    send(&mut dispatcher, &mut editor, "C-c p");
+    assert_eq!(kept_messages(&editor), ["just-panic panicked"]);
 }
 
 #[test]
@@ -212,4 +238,14 @@ fn a_key_in_messages_cannot_change_them() {
     );
     send(&mut dispatcher, &mut editor, "C-h e");
     assert_eq!(editor.current().1.name(), "test");
+}
+
+#[test]
+fn a_failed_run_command_around_a_secret_stays_in_the_echo_area() {
+    let mut dispatcher = Dispatcher::new();
+    let mut editor = on_a_secret("KEY=value\n");
+    let (_, result) = dispatcher.run_command(&mut editor, "backward-char", None);
+    assert!(result.is_err());
+    assert_eq!(echo(&editor), "Beginning of buffer");
+    assert_eq!(kept_messages(&editor).len(), 0);
 }

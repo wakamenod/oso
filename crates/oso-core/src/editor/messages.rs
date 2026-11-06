@@ -18,13 +18,13 @@ use crate::selection::SelectionSet;
 use crate::window::Scroll;
 
 /// The messages the editor keeps, as Emacs's `message-log-max`.
-pub(super) const MAX_MESSAGES: usize = 1000;
+const MAX_MESSAGES: usize = 1000;
 
 /// The longest message, in bytes, and the longest row of `*Messages*`: room for what
 /// a message says and the longest path most systems have. Messages say what happened
 /// before they name a path, so that a cut takes the path's end. Nothing can make the
 /// log or `*Messages*` grow faster than this.
-pub(super) const MAX_MESSAGE_BYTES: usize = 4096;
+const MAX_MESSAGE_BYTES: usize = 4096;
 
 /// What ends a text that was cut.
 pub(super) const CUT: char = '…';
@@ -33,7 +33,7 @@ pub(super) const CUT: char = '…';
 /// characters are escaped, so that a name in it cannot move a terminal's cursor,
 /// reorder the line, or add a line of its own. Quotes and backslashes stay as they
 /// are.
-pub(super) fn log_text(text: &str) -> String {
+fn log_text(text: &str) -> String {
     let mut shown = String::with_capacity(text.len());
     for part in text.split_inclusive(['\'', '"', '\\']) {
         let (body, last) = match part.chars().next_back() {
@@ -274,6 +274,20 @@ mod tests {
     /// An editor showing a file that may hold secrets.
     fn on_a_secret() -> Editor {
         Editor::with_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")))
+    }
+
+    #[test]
+    fn the_log_shows_control_characters_as_escapes() {
+        let shown = log_text("a\u{1b}[2J\u{9b}\u{202e}\n日本語e\u{301}");
+        assert_eq!(shown, "a\\u{1b}[2J\\u{9b}\\u{202e}\\n日本語e\u{301}");
+    }
+
+    #[test]
+    fn the_log_leaves_quotes_and_backslashes_alone() {
+        let message = r#"Can't open "a\b.txt" 'x'\"#;
+        assert_eq!(log_text(message), message);
+        assert_eq!(log_text("'\u{1b}'"), "'\\u{1b}'");
+        assert_eq!(log_text(""), "");
     }
 
     #[test]
@@ -526,6 +540,18 @@ mod tests {
             editor.place_behind_messages(),
             Some((id, &selections, Scroll::default()))
         );
+    }
+
+    #[test]
+    fn what_was_echoed_before_a_file_is_judged_ordinary_goes() {
+        let mut editor = on_a_secret();
+        editor.echo("End of buffer");
+        let id = editor.window().buffer();
+        let plain = PathBuf::from("/tmp/plain.txt");
+        let buffer = editor.buffer_mut(id).unwrap();
+        *buffer = Buffer::visiting(plain.clone());
+        buffer.judge_secret(Some(&[plain]));
+        assert_eq!(echo(&editor), "");
     }
 
     #[test]

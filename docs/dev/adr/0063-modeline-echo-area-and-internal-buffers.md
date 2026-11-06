@@ -35,7 +35,7 @@ this step:
   strings as spans and calls back with the list. `Face` gains `Modeline` and `Warning`. Only
   the modeline's pane has a `background`, as ADR 0057 wants nothing to mark the leftover
   pixels below the echo area.
-- **The renderer changes in one place,** the band below. ADR 0061 meant it not to change at all.
+- **The renderer's drawing changes in one place,** the band below. ADR 0061 meant it not to change at all.
 - **Building a `Status` reuses its strings,** so once they have grown it allocates only the tree
   cursor a position needs. It reads the buffer through that position and a summary: O(log n) plus a
   scan of one chunk, what drawing the cursor already costs.
@@ -53,8 +53,7 @@ of cursors if there are several, the major mode, the encoding and the line endin
   characters (ADR 0061) means a long name cannot take their budget either.
 - **The name gets the cells the rest leaves,** and at least 20, cut after a whole cluster and
   ended by `…`. So in a usual window nothing is pushed out, and in a narrow one the name
-  stays at the expense of what follows it. The end is cut, so a shared start hides what
-  differs in the worst case. Telling such names apart is M2-19's.
+  stays at the expense of what follows it.
 - **The marker is Emacs's:** `--`, `**` once modified, `%%` read-only and `%*` read-only and
   modified.
 - **The column counts from 0 and the line from 1,** as in Emacs. Both are display rows and
@@ -85,7 +84,7 @@ window nobody works in.
 
 **It says `secret` where the position goes, and no number of cursors.** ADR 0058 withholds these
 from `get-state`, and a modeline that says them would be a new way out if anything ever copies it.
-The name, the marker, the encoding and loading progress stay, as `get-state` gives them anyway.
+The name, the marker, the encoding and loading progress stay.
 The warnings stay too: they tell the person at the screen something they need, and they stay out
 of `get-state` with the rest of the modeline. This is the author's choice. It costs the line number
 in such a file, with the text itself on the same screen.
@@ -208,8 +207,11 @@ These ADRs stay as they are; this one changes the following:
   `*Messages*`.
 - `C-h e` going back, and the `Place` behind it, are one window's, and go with M2-19, once `C-x b` leaves
   the buffer. M3's splits would need them per window otherwise.
-- A person reading `*Messages*` does not find failures from a secret buffer.
+- A person reading `*Messages*` does not find failures from a secret buffer, but a panic, which names only
+  the command.
 - A message shows only as far as the row is wide. `*Messages*` holds the rest, unless it was withheld.
+- `Editor::messages_buffer` has a caller only under the `dev` feature and in tests, since tests read messages
+  from the buffer.
 - `oso-core`'s public API gains `Status`, `Editor::status_into`, `Editor::echo`, `Editor::clear_echo`,
   `Editor::begin_command`, `Editor::end_command`, `Editor::set_keys_in_progress`, `Editor::toggle_messages`,
   `Editor::messages_buffer`, `Editor::place_behind_messages`, `Editor::file_changed_on_disk`,

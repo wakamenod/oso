@@ -238,8 +238,9 @@ and below the row, and a label's glyphs keep their own cells
   match counts ([ADR 0051](adr/0051-m2-plan-decisions.md)), and
   without its size while it is modified
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). What a command
-  says when it fails while one is shown stays out of the log and `*Messages*`, and leaves the
-  echo area once none is shown, and its modeline shows no position. The path as opened, each symlink's target and the
+  says while one is shown stays out of the log and `*Messages*`, but for a panic, which names
+  only the command, and leaves the echo area once the window moves on, and its modeline shows
+  no position. The path as opened, each symlink's target and the
   canonical path all count, so a link to a key or through a secret path is
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved

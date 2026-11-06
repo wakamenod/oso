@@ -113,6 +113,23 @@ fn each_outcome_says_so_by_path_and_quotes_no_text() {
 }
 
 #[test]
+fn a_path_past_the_cap_leaves_what_happened_in_the_message() {
+    let scratch = Scratch::new("long-path");
+    let path = scratch.file("notes.txt", b"old\n");
+    let mut editor = visit(&path);
+    let job = job_of(&mut editor, "new\n");
+    let long = PathBuf::from(format!("/{}", "long/".repeat(2000)));
+    let error = std::io::Error::other("no threads");
+    let report = SaveReport::not_started(job.buffer, long, error);
+    let message = applied(&mut editor, report);
+    assert!(
+        message.starts_with("Not saved: no threads: /long/"),
+        "{message}"
+    );
+    assert!(message.ends_with('…'), "{message}");
+}
+
+#[test]
 fn a_panic_ends_the_save_with_a_report() {
     let scratch = Scratch::new("panic-report");
     let path = scratch.file("notes.txt", b"old\n");

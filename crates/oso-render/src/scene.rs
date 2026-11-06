@@ -461,6 +461,33 @@ mod tests {
         }]
     }
 
+    #[test]
+    fn only_a_tiled_row_that_is_no_buffers_keeps_the_band_above_it() {
+        // A bitmap reaching far above its row shows how far up a pane may draw.
+        let top_of = |panes: &[Pane<'_>]| {
+            let mut atlas = FakeAtlas {
+                bitmap: Some(([8, 60], 1, 60)),
+                ..FakeAtlas::default()
+            };
+            let mut scene = Scene::new(LIMITS);
+            build(&mut scene, panes, &mut atlas);
+            scene.quads()[0].position()[1]
+        };
+        let spans = line("x");
+        let lines: [&[Span<'_>]; 1] = [&spans];
+        let buffer = Buffer::from_text("t", "x");
+        // Row 2 starts at y 48, and the band is 4 px.
+        let one_row = rect(2, 0, 1, 10);
+        let tiled = pane(0, one_row, 0, PaneContent::Lines(&lines));
+        assert_eq!(top_of(&[tiled]), 44.0);
+        let taller = pane(0, rect(2, 0, 2, 10), 0, PaneContent::Lines(&lines));
+        assert_eq!(top_of(&[taller]), 48.0);
+        let in_front = pane(0, one_row, 1, PaneContent::Lines(&lines));
+        assert_eq!(top_of(&[in_front]), 48.0);
+        let text = pane(0, one_row, 0, view(&buffer));
+        assert_eq!(top_of(&[text]), 48.0);
+    }
+
     proptest::proptest! {
         /// Whatever the regions, the scroll position and the glyphs' bitmaps,
         /// everything a pane draws stays in its region, but for the band above

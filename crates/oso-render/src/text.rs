@@ -133,7 +133,7 @@ impl Layout {
         }
     }
 
-    /// The same, for a tiled row that is no buffer's: glyphs keep the band above it on
+    /// The same, for a tiled pane of one row that is no buffer's: glyphs keep the band above it on
     /// the row above, as accents on capitals need it (ADR 0063).
     pub(crate) fn with_band_above(self) -> Self {
         Self {
@@ -243,8 +243,8 @@ impl Layout {
     /// and `Ẳ`. Below the row it keeps half that, in whole pixels: marks
     /// under a descender end there (ADR 0052). All of this stops at the edges
     /// of the pane, but the frame's top row keeps its band in the top margin,
-    /// where no other pane draws (ADR 0061), and a tiled row that is no buffer's keeps
-    /// it on the row above (ADR 0063).
+    /// where no other pane draws (ADR 0061), and a tiled pane of one row that is no
+    /// buffer's keeps it on the row above (ADR 0063).
     pub(crate) fn quad(
         &self,
         row: usize,

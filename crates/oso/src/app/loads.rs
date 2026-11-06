@@ -129,7 +129,7 @@ impl App {
                 shown
             }
             LoadUpdate::Failed(e) => {
-                let message = format!("cannot open {:?}: {e}", buffer.name());
+                let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);
                 self.editor.kill_buffer(id);
                 self.loads.swap_remove(index);
@@ -139,7 +139,7 @@ impl App {
         if no_baseline {
             let name = self.editor.buffer(id).map_or("", Buffer::name);
             let message = format!(
-                "Where {name} leads could not be told as it was read, so it cannot be saved"
+                "This cannot be saved, as where its file leads could not be told as it was read: {name}"
             );
             self.editor.message(message);
         }

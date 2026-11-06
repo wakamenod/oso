@@ -3,8 +3,8 @@
 //! Must not depend on: a window or the file system; a state is a plain value.
 
 use super::tests::{absolute, visiting};
-use super::{check, exit_allowed, export, generation, import_allowed, parse};
-use oso_core::buffer::Buffer;
+use super::{Restore, check, exit_allowed, export, generation, import_allowed, parse};
+use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
 use oso_core::load::decode_all;
@@ -96,7 +96,41 @@ fn a_secret_behind_messages_is_handed_over_with_no_position() {
     assert_eq!(parsed.selections, SelectionSet::default());
     let shown = crate::dev::get_state(&editor, &[], None);
     assert_eq!(shown["buffer"]["name"], "*Messages*");
-    assert!(!shown.to_string().contains("\"offset\":4"));
+    assert_eq!(shown["cursor"]["offset"], 0, "*Messages* is empty");
+    assert_eq!(shown["windows"][0]["selections"][0]["cursor"], 0);
     editor.toggle_messages();
     assert_eq!(editor.window().selections.primary().cursor, 4);
+}
+
+#[test]
+fn a_modified_file_behind_messages_still_holds_the_handover() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let id = editor.window().buffer();
+    let edit = Replacement {
+        range: 0..0,
+        text: "x",
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
+    editor.toggle_messages();
+    assert!(check(&editor).is_err());
+    assert!(export(&editor, &[], None, None).is_err());
+}
+
+#[test]
+fn positions_still_waiting_behind_messages_are_the_imported_ones() {
+    let path = PathBuf::from(absolute("/p/.env"));
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.apply_load(decode_all(b"KEY=value\n", TabWidth::default()));
+    buffer.judge_secret(Some(std::slice::from_ref(&path)));
+    let mut editor = Editor::with_buffer(buffer);
+    let id = editor.window().buffer();
+    editor.current_mut().0.selections = SelectionSet::new(4);
+    editor.toggle_messages();
+    let restore = Restore {
+        buffer: id,
+        selections: SelectionSet::new(2),
+        scroll: Scroll::default(),
+    };
+    let state = export(&editor, &[], None, Some(&restore)).unwrap();
+    assert_eq!(state["windows"][0]["selections"][0]["cursor"], 2);
 }
