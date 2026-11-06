@@ -16,7 +16,7 @@ tests; higher layers have few.
 ```
               manual checks (IME, real keys, look on macOS)
             E2E over the control socket       few
-          pixel snapshots (lavapipe)          few
+          pixel tests (Metal, lavapipe)       few
         text-grid snapshots                   every visible feature
       command scenario tests                  every command
     unit, property, reference-model tests     most
@@ -28,7 +28,7 @@ tests; higher layers have few.
 - A bug fix adds a test at the lowest layer that reproduces the bug.
 - Every command gets scenario tests (`add-command` skill).
 - Every feature that changes what is drawn gets text-grid snapshots.
-- Pixel snapshots and E2E tests cover seams between components and critical
+- Pixel tests and E2E tests cover seams between components and critical
   flows only, never logic a lower layer can test.
 - Snapshot updates are reviewed like code.
 
@@ -97,7 +97,7 @@ The grid draws through the code the renderer uses
 `motion::cursor_cells`, `frame::cursor_rect`). Anything drawn that a test cannot
 see this way belongs
 in the same code, not in the renderer. What happens after the cells, such as
-glyph placement and colors, is left to pixel snapshots.
+glyph placement and colors, is left to unit tests of the quads and to pixel tests.
 
 ### Guard tests
 
@@ -195,7 +195,7 @@ the build, and it is a reason to run `just test-time` on the Mac, which decides.
 | Medium | command scenarios: key sequences to state | tests in `crates/oso/src/dispatch.rs` with no window |
 | Medium | what is drawn: key sequences to the cell grid | text-grid snapshots in `crates/oso/src/dispatch/grid_tests.rs` with no window |
 | Medium | the running app | end-to-end tests over the dev control socket: `just e2e` in `crates/oso/tests/e2e` |
-| Low | `oso-render` GPU code | logic split out and unit-tested; pixels checked by snapshot tests |
+| Low | `oso-render` GPU code | logic split out and unit-tested; pixels checked by `just pixel-tests` |
 
 ## Test levels
 
@@ -265,12 +265,14 @@ while a save runs, IME, and `oso dev`'s build loop, with Ctrl-C and closing the
 terminal.
 
 **Layers in real pixels.** No feature draws a pane above another yet, so no flow can see
-it. Five ignored tests in `oso-render`'s `paint` draw panes on a real GPU with a block
-for a glyph and read the pixels: an opaque pane hides the text under it, a pane's text
-goes over its background, both layers draw their own ranges, a glyph stops at its pane's
-edges, and the frame's top row keeps its band. Run them with `cargo test -p oso-render --
---ignored` after changing `paint` or the shaders. CI does not run them. Once M2-16 draws
-floats, a flow can take over.
+it. `just pixel-tests` runs five ignored tests in `oso-render`'s `paint`, which draw panes
+on a real GPU with a block for a glyph and read the pixels: an opaque pane hides the text
+under it, a pane's text goes over its background, both layers draw their own ranges, a
+glyph stops at its pane's edges, and the frame's top row keeps its band. They are ignored
+because `cargo test` must not need a GPU. `e2e.yml` runs them on Linux with lavapipe and on
+macOS. The glyphs come from a fake text system, so they assert the same on both, and a
+failure on Linux is real. There are no stored images to compare. Once M2-16 draws floats,
+a flow can take over.
 
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),

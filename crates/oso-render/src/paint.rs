@@ -132,8 +132,9 @@ impl Painter {
 
 #[cfg(test)]
 mod tests {
-    //! The same frames on a real GPU, in real pixels. Run with `cargo test -p
-    //! oso-render -- --ignored`: the rest of the crate's tests need no GPU.
+    //! The same frames on a real GPU, in real pixels. Run with `just pixel-tests`:
+    //! the rest of the crate's tests need no GPU. The glyphs come from a fake text
+    //! system, so these assert the same on an OS with no text backend.
 
     use super::*;
     use crate::pane::{Layer, PaneContent, PaneId, Span};

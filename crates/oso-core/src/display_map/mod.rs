@@ -37,7 +37,6 @@ use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
-use cell::CONTROL_CELLS;
 pub use cell::{CellKind, CellStyle, Clusters, Escape, MAX_CLUSTER_BYTES, TabWidth, escape};
 pub use tab_map::{TabMap, TabPoint};
 
@@ -153,14 +152,18 @@ pub fn text_clusters(text: &str, mut column: usize) -> impl Iterator<Item = Disp
     let mut line_feed = None;
     std::iter::from_fn(move || {
         let (offset, text, kind, cells) = line_feed.take().or_else(|| clusters.next())?;
-        let (text, kind, cells) = match kind {
-            CellKind::Tab => (text, CellKind::Control('\t'), CONTROL_CELLS),
+        let control = |c| {
+            let label = escape(c).map_or(1, |escape| escape.as_str().len());
+            (CellKind::Control(c), label)
+        };
+        let (text, (kind, cells)) = match kind {
+            CellKind::Tab => (text, control('\t')),
             CellKind::LineBreak if text == "\r\n" => {
                 line_feed = Some((offset + 1, &text[1..], kind, cells));
-                (&text[..1], CellKind::Control('\r'), CONTROL_CELLS)
+                (&text[..1], control('\r'))
             }
-            CellKind::LineBreak => (text, CellKind::Control('\n'), CONTROL_CELLS),
-            _ => (text, kind, cells),
+            CellKind::LineBreak => (text, control('\n')),
+            _ => (text, (kind, cells)),
         };
         let cluster = DisplayCluster {
             offset,

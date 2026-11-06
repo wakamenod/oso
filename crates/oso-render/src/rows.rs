@@ -17,7 +17,9 @@
 //!   and invisible characters get a box, as do characters past a display
 //!   cluster's limits (ADR 0054).
 //! - Text that is no buffer's comes as spans, through the same clusters. Its
-//!   row is compared with what was shaped each frame (ADR 0061).
+//!   row is compared with what was shaped each frame. Each span and each face in
+//!   it is shaped on its own, so that nothing forms across them, and text from
+//!   one source cannot change another's (ADR 0061).
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -47,6 +49,37 @@ fn visible_part(text: &str, columns: usize) -> &str {
     &text[..text.floor_char_boundary(bytes)]
 }
 
+/// Shapes `text` into `out`. Each piece from a start in `breaks` is shaped on its
+/// own, using `piece` as scratch space, and with no breaks the text is one piece.
+fn shape_pieces(
+    system: &mut dyn TextSystem,
+    text: &str,
+    breaks: &[u32],
+    piece: &mut Vec<ShapedGlyph>,
+    out: &mut Vec<ShapedGlyph>,
+) {
+    if breaks.is_empty() {
+        system.shape(text, out);
+        return;
+    }
+    out.clear();
+    let mut pen = 0.0;
+    for (index, &start) in breaks.iter().enumerate() {
+        let end = breaks
+            .get(index + 1)
+            .map_or(text.len(), |&end| end as usize);
+        system.shape(&text[start as usize..end], piece);
+        for glyph in piece.iter() {
+            out.push(ShapedGlyph {
+                cluster: glyph.cluster + start,
+                x: glyph.x + pen,
+                ..*glyph
+            });
+        }
+        pen += piece.iter().map(|glyph| glyph.advance).sum::<f32>();
+    }
+}
+
 /// The first character of `text`.
 fn first_char(text: &str) -> &str {
     text.chars().next().map_or("", |c| &text[..c.len_utf8()])
@@ -68,6 +101,9 @@ pub(crate) struct ShapedRow {
     /// stays valid wherever its text moves in the buffer.
     text: String,
     graphemes: Vec<Grapheme>,
+    /// Where the text was cut into pieces shaped on their own. Empty for a
+    /// buffer's row, which is shaped whole.
+    breaks: Vec<u32>,
     /// Sorted by column.
     pub(crate) glyphs: Vec<PlacedGlyph>,
     /// Boxed characters: their first column and cells.
@@ -85,8 +121,10 @@ pub(crate) struct Rows {
     /// Scratch space for reading a row.
     text: String,
     graphemes: Vec<Grapheme>,
+    breaks: Vec<u32>,
     boxes: Vec<(usize, usize)>,
     glyphs: Vec<ShapedGlyph>,
+    piece: Vec<ShapedGlyph>,
     placer: Placer,
     /// Rows shaped since the cache was created, for tests and logs.
     shaped: u64,
@@ -173,9 +211,18 @@ impl Rows {
     ) -> &ShapedRow {
         let revision = self.revision;
         let shaped = self.rows.entry(row).or_default();
-        if shaped.text != self.text || shaped.graphemes != self.graphemes {
+        if shaped.text != self.text
+            || shaped.graphemes != self.graphemes
+            || shaped.breaks != self.breaks
+        {
             self.shaped += 1;
-            system.shape(&self.text, &mut self.glyphs);
+            shape_pieces(
+                system,
+                &self.text,
+                &self.breaks,
+                &mut self.piece,
+                &mut self.glyphs,
+            );
             self.placer.place(
                 &self.graphemes,
                 &self.glyphs,
@@ -184,6 +231,7 @@ impl Rows {
             );
             shaped.text.clone_from(&self.text);
             shaped.graphemes.clone_from(&self.graphemes);
+            shaped.breaks.clone_from(&self.breaks);
         }
         shaped.boxes.clone_from(&self.boxes);
         shaped.columns = columns;
@@ -207,19 +255,28 @@ impl Rows {
 
     /// Reads the clusters of `spans` that start before column `end`, and no
     /// further, into the scratch space. Each span is segmented on its own, and
-    /// its columns follow the last one's.
+    /// its columns follow the last one's. A piece to shape starts at each span and
+    /// wherever the face changes.
     fn read_line(&mut self, spans: &[Span<'_>], end: usize) {
         self.clear_scratch();
         let budget = end.saturating_mul(CHARS_PER_COLUMN);
         let mut spent = 0;
         let mut column = 0;
         for span in spans {
+            let mut face = None;
             for cluster in text_clusters(visible_part(span.text, end), column) {
                 if cluster.column >= end {
                     return;
                 }
                 column = cluster.column.saturating_add(cluster.cells);
+                let first = self.graphemes.len();
                 self.push_cluster(&cluster, span.face, budget, &mut spent);
+                for grapheme in &self.graphemes[first..] {
+                    if face != Some(grapheme.face) {
+                        face = Some(grapheme.face);
+                        self.breaks.push(grapheme.byte);
+                    }
+                }
             }
         }
     }
@@ -227,6 +284,7 @@ impl Rows {
     fn clear_scratch(&mut self) {
         self.text.clear();
         self.graphemes.clear();
+        self.breaks.clear();
         self.boxes.clear();
     }
 
@@ -752,7 +810,7 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         let line = [span("a\u{202e}b\r", Face::Cursor)];
         let shaped = rows.line(0, &line, 128, &mut system);
-        assert_eq!(system.shaped, ["aU+202Eb^M"]);
+        assert_eq!(system.shaped, ["a", "U+202E", "b", "^M"]);
         assert_eq!(shaped.boxes, [(1, 6)]);
         assert_eq!(shaped.glyphs[0].face, Face::Cursor);
         assert_eq!(shaped.glyphs[1].face, Face::Boxed);
@@ -765,10 +823,124 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         let spans = [span("a\nb\tc\r\n", Face::Cursor), span("warn", Face::Text)];
         let shaped = rows.line(0, &spans, 128, &mut system);
-        assert_eq!(system.shaped, ["a^Jb^Ic^M^Jwarn"]);
+        assert_eq!(system.shaped, ["a", "^J", "b", "^I", "c", "^M^J", "warn"]);
         let last = shaped.glyphs.last().unwrap();
         assert_eq!((last.column, last.face), (14, Face::Text));
         assert_eq!(shaped.glyphs[1].face, Face::Escape);
+    }
+
+    /// A text system that joins what it is given, as a real shaper does: a mark
+    /// goes on the character before it, and `->` is one glyph over two cells.
+    struct Joiner;
+
+    impl TextSystem for Joiner {
+        fn metrics(&self) -> CellMetrics {
+            Recorder::default().metrics()
+        }
+
+        fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
+            out.clear();
+            let mut x = 0.0;
+            let mut base = None;
+            for (byte, c) in text.char_indices() {
+                if c == '>' && text[..byte].ends_with('-') {
+                    continue;
+                }
+                let mark = matches!(u32::from(c), 0x300..=0x36f);
+                let cluster = if mark { base.unwrap_or(byte) } else { byte };
+                let advance = if text[byte..].starts_with("->") {
+                    20.0
+                } else if mark && base.is_some() {
+                    0.0
+                } else {
+                    10.0
+                };
+                out.push(ShapedGlyph {
+                    key: GlyphKey {
+                        font: FontId(0),
+                        glyph: GlyphId(c as u16),
+                    },
+                    cluster: cluster as u32,
+                    x,
+                    y: 0.0,
+                    advance,
+                });
+                x += advance;
+                base = Some(cluster);
+            }
+        }
+
+        fn rasterize(&mut self, _key: GlyphKey) -> Option<GlyphBitmap> {
+            None
+        }
+    }
+
+    fn joined(spans: &[Span<'_>]) -> Vec<(char, usize, u32)> {
+        let mut rows = Rows::default();
+        rows.line(0, spans, 128, &mut Joiner)
+            .glyphs
+            .iter()
+            .map(|g| {
+                let c = char::from_u32(u32::from(g.key.glyph.0)).unwrap();
+                (c, g.column, g.cells)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_fake_joins_what_is_in_one_span() {
+        let glyphs = joined(&[span("a\u{301}b", Face::Text)]);
+        assert_eq!(glyphs, [('a', 0, 1), ('\u{301}', 0, 1), ('b', 1, 1)]);
+        assert_eq!(joined(&[span("->", Face::Text)]), [('-', 0, 2)]);
+    }
+
+    #[test]
+    fn a_mark_at_the_start_of_a_span_stays_off_the_span_before_it() {
+        let glyphs = joined(&[span("a", Face::Cursor), span("\u{301}b", Face::Text)]);
+        assert_eq!(glyphs, [('a', 0, 1), ('\u{301}', 1, 1), ('b', 2, 1)]);
+        // The same in one face: where one span ends is what counts.
+        let glyphs = joined(&[span("a", Face::Text), span("\u{301}b", Face::Text)]);
+        assert_eq!(glyphs, [('a', 0, 1), ('\u{301}', 1, 1), ('b', 2, 1)]);
+    }
+
+    #[test]
+    fn a_ligature_does_not_form_across_spans_or_faces() {
+        let apart = [('-', 0, 1), ('>', 1, 1)];
+        assert_eq!(
+            joined(&[span("-", Face::Text), span(">", Face::Text)]),
+            apart
+        );
+        assert_eq!(
+            joined(&[span("-", Face::Text), span(">", Face::Cursor)]),
+            apart
+        );
+    }
+
+    #[test]
+    fn a_label_is_shaped_apart_from_a_mark_after_it_in_a_span() {
+        let glyphs = joined(&[span("\r\u{301}", Face::Text)]);
+        assert_eq!(glyphs[..2], [('^', 0, 1), ('M', 1, 1)]);
+        assert_eq!(glyphs[2], ('\u{301}', 2, 1));
+    }
+
+    #[test]
+    fn the_same_text_split_otherwise_is_shaped_again() {
+        let mut rows = Rows::default();
+        let whole = [span("->", Face::Text)];
+        assert_eq!(rows.line(0, &whole, 128, &mut Joiner).glyphs.len(), 1);
+        let apart = [span("-", Face::Text), span(">", Face::Text)];
+        assert_eq!(rows.line(0, &apart, 128, &mut Joiner).glyphs.len(), 2);
+        assert_eq!(rows.shaped_count(), 2);
+        assert_eq!(rows.line(0, &apart, 128, &mut Joiner).glyphs.len(), 2);
+        assert_eq!(rows.shaped_count(), 2, "the same split is not shaped again");
+    }
+
+    #[test]
+    fn a_buffers_row_is_still_shaped_whole() {
+        let buffer = Buffer::from_text("t", "->\r\u{301}");
+        let mut rows = Rows::default();
+        rows.row(&buffer.display(), 0, 0..128, &mut Recorder::default());
+        assert!(rows.breaks.is_empty());
     }
 
     #[test]

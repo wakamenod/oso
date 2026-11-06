@@ -254,7 +254,8 @@ null text system: the cursor is drawn on the grid, and no text. See
   pane, moving the atlas position along with the corner.
 - **Text that is no buffer's,** such as a modeline row, comes as `Span`s with a `Face`
   and goes through `display_map::text_clusters`, so its control characters, tabs and
-  line breaks are escapes.
+  line breaks are escapes. Each span and each face in it is shaped on its own, so nothing
+  forms across them. A buffer's row is shaped whole.
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels
   in an escape color; the raw characters never reach the shaper

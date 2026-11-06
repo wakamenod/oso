@@ -94,7 +94,8 @@ pub struct TextView {
 
 /// Text in one face's foreground, in cells after the span before it. Its
 /// clusters come from the display model, so control and invisible characters
-/// in it are escapes, and line breaks and tabs too (`text_clusters`).
+/// in it are escapes, and line breaks and tabs too (`text_clusters`). It is shaped
+/// on its own, so no mark, ligature or join forms with the span before or after.
 pub struct Span<'a> {
     pub text: &'a str,
     pub face: Face,

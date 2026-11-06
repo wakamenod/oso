@@ -17,7 +17,7 @@
 
 use std::ops::Range;
 
-use oso_core::frame::{self, PixelRect};
+use oso_core::frame::{self, CellRect, PixelRect};
 use oso_core::motion;
 use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
@@ -173,6 +173,14 @@ impl Scene {
                 .all(|(i, a)| panes[..i].iter().all(|b| a.id != b.id)),
             "panes in a list share a PaneId, and with it their shaped rows"
         );
+        debug_assert!(
+            panes.iter().enumerate().all(|(i, a)| {
+                panes[..i]
+                    .iter()
+                    .all(|b| a.layer != b.layer || !overlap(a.region, b.region))
+            }),
+            "panes in one layer overlap, so one's rectangles would not hide the other's text"
+        );
         // The sort keeps the list's order inside a layer.
         self.order.clear();
         self.order.extend(0..panes.len());
@@ -209,9 +217,10 @@ impl Scene {
             let pane = &panes[index];
             if current != Some(pane.layer) {
                 current = Some(pane.layer);
+                let (rects, quads) = (self.draws.rects.len() as u32, self.draws.quads.len() as u32);
                 self.layers.push(LayerDraw {
-                    rects: self.draws.rects.len() as u32..0,
-                    quads: self.draws.quads.len() as u32..0,
+                    rects: rects..rects,
+                    quads: quads..quads,
                 });
             }
             let rows = rows_of(&mut self.rows, pane.id);
@@ -223,6 +232,17 @@ impl Scene {
         }
         self.layers.reverse();
     }
+}
+
+/// Whether two regions share a cell. An empty region shares none.
+fn overlap(a: CellRect, b: CellRect) -> bool {
+    let along = |start_a: usize, len_a: usize, start_b: usize, len_b: usize| {
+        len_a > 0
+            && len_b > 0
+            && start_a < start_b.saturating_add(len_b)
+            && start_b < start_a.saturating_add(len_a)
+    };
+    along(a.row, a.rows, b.row, b.rows) && along(a.column, a.columns, b.column, b.columns)
 }
 
 /// The rows of pane `id`, new ones if it has none.
@@ -325,7 +345,7 @@ mod tests {
     use crate::rows::tests::Recorder;
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::display_map::DisplayPoint;
-    use oso_core::frame::{CellRect, FrameSize};
+    use oso_core::frame::FrameSize;
     use oso_platform::text::GlyphFormat;
 
     const LIMITS: Limits = Limits {
@@ -798,6 +818,48 @@ mod tests {
         assert!(system.shaped.is_empty());
         assert!(scene.quads().is_empty());
         assert!(scene.rects().is_empty());
+    }
+
+    #[test]
+    fn regions_overlap_when_they_share_a_cell() {
+        let region = rect(2, 2, 2, 2);
+        assert!(overlap(region, rect(3, 3, 5, 5)));
+        assert!(overlap(region, region));
+        assert!(!overlap(region, rect(4, 2, 2, 2)), "the row below");
+        assert!(!overlap(region, rect(2, 4, 2, 2)), "the column beside");
+        assert!(!overlap(region, rect(2, 2, 0, 2)), "an empty one");
+        assert!(overlap(region, rect(0, 0, usize::MAX, usize::MAX)));
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "panes in one layer overlap")]
+    fn panes_overlapping_in_one_layer_are_refused() {
+        let panes = [
+            pane(0, rect(0, 0, 2, 10), 0, PaneContent::Lines(&[])),
+            pane(1, rect(1, 0, 2, 10), 0, PaneContent::Lines(&[])),
+        ];
+        build(&mut Scene::new(LIMITS), &panes, &mut FakeAtlas::default());
+    }
+
+    #[test]
+    fn panes_may_overlap_across_layers() {
+        let panes = [
+            pane(0, rect(0, 0, 2, 10), 0, PaneContent::Lines(&[])),
+            pane(1, rect(1, 0, 2, 10), 1, PaneContent::Lines(&[])),
+        ];
+        build(&mut Scene::new(LIMITS), &panes, &mut FakeAtlas::default());
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "share a PaneId")]
+    fn panes_sharing_an_id_are_refused() {
+        let panes = [
+            pane(0, rect(0, 0, 1, 10), 0, PaneContent::Lines(&[])),
+            pane(0, rect(1, 0, 1, 10), 0, PaneContent::Lines(&[])),
+        ];
+        build(&mut Scene::new(LIMITS), &panes, &mut FakeAtlas::default());
     }
 
     #[test]

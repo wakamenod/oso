@@ -45,9 +45,6 @@ const MAX_CLUSTER_CHARS: usize = 16;
 /// The most bytes a display cluster holds, at 4 bytes a character.
 pub const MAX_CLUSTER_BYTES: usize = MAX_CLUSTER_CHARS * 4;
 
-/// The cells of `^J`, the escape of an ASCII control character.
-pub(crate) const CONTROL_CELLS: usize = 2;
-
 /// What a grapheme cluster is on the cell grid.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum CellKind {
@@ -96,11 +93,7 @@ pub fn classify(cluster: &str) -> (CellKind, usize) {
     let mut chars = cluster.chars();
     if let (Some(c), None) = (chars.next(), chars.next()) {
         if c.is_control() {
-            let cells = if u32::from(c) < 0x80 {
-                CONTROL_CELLS
-            } else {
-                4
-            };
+            let cells = if u32::from(c) < 0x80 { 2 } else { 4 };
             return (CellKind::Control(c), cells);
         }
         if is_invisible(c) {
@@ -246,7 +239,7 @@ fn classify_ascii(byte: u8) -> (CellKind, usize) {
         b'\n' => (CellKind::LineBreak, 0),
         b'\t' => (CellKind::Tab, 0),
         0x20..=0x7e => (CellKind::Text, 1),
-        _ => (CellKind::Control(char::from(byte)), CONTROL_CELLS),
+        _ => (CellKind::Control(char::from(byte)), 2),
     }
 }
 

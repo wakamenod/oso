@@ -42,9 +42,9 @@ pub enum PaneContent<'a> {
   id leaves the list. A list index would change meaning when a float opens.
 - **`Layer`** is a number. `Layer::TILED` is the only one the app uses today. A pane
   above it needs nothing new: M2-16 picks a number.
-- **Panes in one layer must not overlap.** They draw together, all their rectangles
-  and then all their text. Tiled regions never overlap (ADR 0057). Windows that may
-  overlap each other take different layers.
+- **Panes in one layer must not overlap,** which a debug assertion checks. They draw
+  together, all their rectangles and then all their text. Tiled regions never overlap
+  (ADR 0057). Windows that may overlap each other take different layers.
 - **Later panes in a layer come first** when a frame runs out of room (see below), so
   what must always show goes after a window's text. Each pane in a list needs its own
   id, which a debug assertion checks.
@@ -53,6 +53,11 @@ pub enum PaneContent<'a> {
   escape in the modeline too, and never reaches the shaper. A row of its own has no tab
   stops and no next line, so tabs and line breaks are escapes as well, and neither ends
   the row early. The face of an escape's label wins over the span's.
+- **Each span, and each face within it, is shaped on its own.** A shaper joins what it
+  is given, so one string would let a mark, a ligature or a join form across a span, and
+  text from one source could change how another reads. The row's cache also compares
+  where it was cut, since the same text cut otherwise shapes otherwise. A buffer's row
+  stays one string.
 - `Lines` carry no revision. Each row is read and compared with what was shaped, the
   same comparison a buffer's row gets after a change. It stops at the pane's last
   column, and each span is first cut to 64 bytes per column, as much as a display
@@ -200,8 +205,9 @@ These ADRs stay as they are; this one changes the following:
   `Face`, and `TextView` loses `area`. `oso-core` gains `PixelGrid::cell`,
   `display_map::text_clusters` and `MAX_CLUSTER_BYTES`.
 - Five tests in `paint` draw on a real GPU and read pixels. They are ignored by
-  default, since `cargo test` must not need a GPU, and run with `cargo test -p
-  oso-render -- --ignored`. CI does not run them.
+  default, since `cargo test` must not need a GPU. `just pixel-tests` runs them, and
+  `e2e.yml` does so on Linux with lavapipe and on macOS. Their glyphs come from a fake
+  text system, so both assert the same.
 - Glyphs under the cursor box still take the cursor's color for their whole quad. Layers
   do not change that, so it stays in `open-questions.md`.
 
