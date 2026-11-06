@@ -38,8 +38,10 @@ item notes when it must be settled.
   modeline warning (`ui.md`) needs a count of bidi controls. The TabMap
   summary tracks neither yet; add them when M2 needs them.
 - A path swapped for a FIFO between the loader's check and its open blocks
-  the loading thread (not the UI). Opening with `O_NONBLOCK` closes this
-  and needs `libc` behind an `oso-platform` filesystem helper.
+  the loading thread (not the UI), and the same goes for the save's check that a
+  file is writable, which leaves the buffer saving and a confirmed exit waiting.
+  Opening with `O_NONBLOCK` closes this and needs `libc` behind an `oso-platform`
+  filesystem helper.
 - UI-thread allocations per frame: every `SumTree` seek allocates a cursor
   stack, and every visible glyph hashes its key in the atlas with SipHash.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
@@ -58,9 +60,28 @@ item notes when it must be settled.
 
 ## M2
 
-- By M2-8: once a buffer can be saved, `send-keys` and `run-command` can edit and write any file
-  a client opens, secret or not. The trust statement in `security.md` speaks only of reading,
-  and a sandboxed client could write outside its sandbox this way.
+- Safe save loses a file's extended attributes and ACLs, since `std` cannot copy them
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
+  Decide whether copying them is worth `libc` once M2-10 brings it to release builds.
+- By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
+  buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. The same goes for
+  a buffer whose load could not tell where its file is. A file owned by
+  another user cannot be saved at all; decide whether the prompt should offer writing in place
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- By M2-11: a kill or a power cut during a save leaves a `.oso-save-*.tmp` beside the file, and
+  nothing removes it. Decide whether finding one is part of recovery, keeping in mind that one
+  may hold a secret buffer's text ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- By M2-22: the exit guard counts modified buffers and running saves, and cannot tell that an unmodified
+  buffer's file was deleted, since that needs the disk. `C-x C-s` writes such a file again, but
+  `C-x C-c` exits at once, and its text is then gone. The watcher in M2-22 can tell it
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- `loader/resolve.rs` has two walkers along symbolic links: `Walk`, which keeps each target for the secret
+  verdict, and `follow_links`, which a save uses. They differ on a link to nothing. Decide whether one can do both.
+- By M2-18: two buffers visiting one file can each pass the check while the other writes.
+  `C-x C-f` should find the buffer already visiting a file. And `C-x C-w` must decide what writing
+  a secret buffer to a new path means over the socket, since `save-buffer` writes only where the
+  file was, which is what keeps its text in the editor
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - By M2-15: the generation that guards `exit` does not change on a save between the
   export and the exit, and does not cover marks, the kill ring or file information
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
@@ -77,7 +98,10 @@ item notes when it must be settled.
 - `kill-buffer` must cancel a load at once (ADR 0022). Today the app drops
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
-  commands.
+  commands. It must also think about a running save: `saving` lives on the
+  `Buffer`, so a killed buffer's save no longer counts for the exit guard, a
+  guarded `exit` or the wait when leaving
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 
 - isearch must not match the U+FFFD of an invalid byte
   (`InvalidBytes`, ADR 0040).

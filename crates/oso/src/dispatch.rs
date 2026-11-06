@@ -115,6 +115,7 @@ impl Dispatcher {
     /// A key that types several characters comes through here, and input method
     /// commits will (M2-12).
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        editor.reset_exit_guard();
         if !self.resolver.pending().is_empty() {
             log::debug!(
                 "{} and text are undefined",
@@ -133,6 +134,7 @@ impl Dispatcher {
     /// group of its own, so that it undoes as one step across all cursors. Then
     /// scrolls the selected window to keep its cursor in view, as Emacs's
     /// redisplay does. A failure is not fatal (ADR 0014), and leaves a message.
+    /// A command that is not a refused exit, even one that fails, resets the exit guard.
     fn execute(
         &self,
         editor: &mut Editor,
@@ -140,6 +142,7 @@ impl Dispatcher {
         args: Args,
         input: &str,
     ) -> (Effects, Result<(), ExecuteError>) {
+        let exit_attempt = editor.exit_attempt();
         editor.begin_undo_group();
         let mut ctx = Ctx::with_input(editor, input);
         let result = self.registry.execute(id, &mut ctx, args);
@@ -161,6 +164,9 @@ impl Dispatcher {
                 editor.end_undo_group();
                 editor.message(error.to_string());
             }
+        }
+        if editor.exit_attempt() == exit_attempt {
+            editor.reset_exit_guard();
         }
         effects.redraw |= editor.follow_cursor();
         (effects, result)
@@ -186,6 +192,7 @@ impl Dispatcher {
                 Effects::default()
             }
             Resolution::Unbound(keys) => {
+                editor.reset_exit_guard();
                 // A key that types a character may be text meant for the buffer,
                 // which stays out of the log (ADR 0028).
                 match keys.split_last() {
@@ -197,6 +204,7 @@ impl Dispatcher {
                 Effects::default()
             }
             Resolution::Cancelled => {
+                editor.reset_exit_guard();
                 log::debug!("Quit");
                 Effects::default()
             }
@@ -208,6 +216,8 @@ impl Dispatcher {
 mod edit_tests;
 #[cfg(test)]
 mod grid_tests;
+#[cfg(test)]
+mod save_tests;
 
 #[cfg(test)]
 mod tests {

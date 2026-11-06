@@ -95,6 +95,10 @@ impl App {
         if let Some(resolved) = self.loads[index].handle.take_resolved() {
             buffer.judge_secret(resolved.paths());
         }
+        if let Some(baseline) = self.loads[index].handle.take_baseline() {
+            buffer.set_baseline(baseline);
+        }
+        let mut no_baseline = false;
         let redraw = match update {
             LoadUpdate::Snapshot(snapshot) => {
                 let old_rows = buffer.display().row_count();
@@ -108,6 +112,7 @@ impl App {
                     self.timings.load_first_content(load.started);
                 }
                 if done {
+                    no_baseline = buffer.baseline().is_none();
                     log::debug!("{:?} loaded in {:?}", buffer.name(), load.started.elapsed());
                     #[cfg(feature = "dev")]
                     self.timings.load_done(load.started);
@@ -118,6 +123,7 @@ impl App {
             LoadUpdate::Failed(LoadError::NotFound) => {
                 // As Emacs does: a new file, empty until saved.
                 log::info!("(New file) {:?}", buffer.name());
+                no_baseline = buffer.baseline().is_none();
                 buffer.finish_empty();
                 self.loads.swap_remove(index);
                 shown
@@ -130,6 +136,13 @@ impl App {
                 shown
             }
         };
+        if no_baseline {
+            let name = self.editor.buffer(id).map_or("", Buffer::name);
+            let message = format!(
+                "Where {name} leads could not be told as it was read, so it cannot be saved"
+            );
+            self.editor.message(message);
+        }
         #[cfg(feature = "dev")]
         let redraw = self.try_restore_positions() || redraw;
         redraw

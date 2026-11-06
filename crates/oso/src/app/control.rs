@@ -27,7 +27,7 @@ impl App {
         } = request;
         // `exit` only sets a flag, and winit still delivers what is queued. An
         // edit run now would be confirmed and then lost with the process.
-        if event_loop.exiting() {
+        if self.is_leaving(event_loop) {
             let _ = reply.send(Err("the editor is shutting down".into()));
             return;
         }
@@ -90,7 +90,7 @@ impl App {
             // top), so no edit can come between the check and the exit.
             dev::UiOp::Exit { generation } => {
                 handoff::exit_allowed(&self.editor, generation).map(|()| {
-                    event_loop.exit();
+                    self.leave(event_loop, true);
                     json!({ "exiting": true })
                 })
             }

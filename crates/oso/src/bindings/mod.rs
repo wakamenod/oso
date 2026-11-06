@@ -6,6 +6,7 @@
 
 mod edit;
 mod motion;
+mod save;
 mod scroll;
 mod session;
 
@@ -20,6 +21,7 @@ use oso_core::keymap::Keymap;
 const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
     motion::BINDINGS,
+    save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
 ];

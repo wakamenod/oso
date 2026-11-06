@@ -1,0 +1,117 @@
+//! Saving files and leaving: starting the saves commands asked for, taking in how they
+//! ended, the window's close button, and ending the event loop once saves have finished.
+//!
+//! Must not depend on: key presses or how a frame is drawn. Files are written on the
+//! saver's threads, never here.
+
+use std::time::Instant;
+
+use oso_core::editor::ExitAction;
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
+use winit::keyboard::ModifiersState;
+use winit::window::UserAttentionType;
+
+use super::{App, UserEvent};
+use crate::saver::{self, AfterSave, SaveReport};
+
+impl App {
+    /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
+    pub(super) fn start_saves(&mut self) {
+        for job in self.editor.take_save_jobs() {
+            let started = Instant::now();
+            let (buffer, path) = (job.buffer, job.path.clone());
+            let proxy = self.proxy.clone();
+            let spawned = saver::spawn(job, move |report| {
+                // It fails only once the event loop is gone, past the time limit.
+                let _ = proxy.send_event(UserEvent::Save(report));
+            });
+            log::trace!("save started in {:?}", started.elapsed());
+            if let Err(e) = spawned {
+                saver::apply(&mut self.editor, SaveReport::not_started(buffer, path, e));
+            }
+        }
+    }
+
+    /// A saving thread has ended: takes in how it went. If an exit is under way, that may
+    /// mean going, or coming back.
+    pub(super) fn save_ended(&mut self, event_loop: &ActiveEventLoop, report: SaveReport) {
+        let failed = report.failed();
+        saver::apply(&mut self.editor, report);
+        match self.leaving.save_ended(&self.editor, failed) {
+            None | Some(AfterSave::KeepWaiting) => {}
+            Some(AfterSave::Exit) => event_loop.exit(),
+            Some(AfterSave::StayOpen) => {
+                self.editor
+                    .message("The exit was taken back, as a buffer differs from what is on disk");
+                self.stay_open(event_loop);
+            }
+        }
+    }
+
+    /// The window's close button, guarded as `C-x C-c` is (ADR 0059).
+    pub(super) fn close_requested(&mut self, event_loop: &ActiveEventLoop) {
+        match self.editor.confirm_exit(ExitAction::CloseWindow) {
+            Ok(()) => self.leave(event_loop, false),
+            Err(refused) => self.editor.message(refused.to_string()),
+        }
+    }
+
+    /// Exits: at once, or if a save is running, once it has ended. A save the user asked
+    /// for should not depend on how fast they leave, and a process that ends mid-write
+    /// would leave its temporary file behind. The event loop keeps running until then, so
+    /// that the window really goes and the process keeps answering the window system.
+    ///
+    /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold.
+    pub(super) fn leave(&mut self, event_loop: &ActiveEventLoop, anyway: bool) {
+        let Some(deadline) = self.leaving.begin(&self.editor, anyway, Instant::now()) else {
+            event_loop.exit();
+            return;
+        };
+        event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+        if let Some(view) = &self.view {
+            view.window.set_visible(false);
+        }
+    }
+
+    /// Whether this instance has agreed to go. Nothing that could still be lost with the
+    /// process may be accepted from then on.
+    pub(super) fn is_leaving(&self, event_loop: &ActiveEventLoop) -> bool {
+        event_loop.exiting() || self.leaving.is_under_way()
+    }
+
+    /// Acts on a save that has held an exit for too long.
+    pub(super) fn check_leaving(&mut self, event_loop: &ActiveEventLoop) {
+        match self.leaving.check_deadline(&self.editor, Instant::now()) {
+            None | Some(AfterSave::KeepWaiting) => {}
+            Some(AfterSave::Exit) => {
+                log::error!(
+                    "leaving with a save that has not finished. Its file may or may not be replaced, and a .oso-save-*.tmp may remain"
+                );
+                event_loop.exit();
+            }
+            Some(AfterSave::StayOpen) => {
+                self.editor.reset_exit_guard();
+                self.editor.message(
+                    "A save has not finished after 10 minutes. The buffer may not be on disk. Exiting again will not wait for it",
+                );
+                self.stay_open(event_loop);
+            }
+        }
+    }
+
+    /// Takes a leave back: the window returns, with the message that says why.
+    fn stay_open(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.set_control_flow(ControlFlow::Wait);
+        // The key that confirmed the exit may have held Control. Its release, if it reached
+        // the hidden window at all, may be gone, and the system says again when one is held.
+        self.modifiers = ModifiersState::default();
+        if let Some(view) = &self.view {
+            // It may be minutes later, with the person typing elsewhere, perhaps a password.
+            // So this asks for attention, and does not take the keyboard from another app.
+            view.window.set_visible(true);
+            view.window
+                .request_user_attention(Some(UserAttentionType::Informational));
+        }
+        self.request_redraw();
+    }
+}

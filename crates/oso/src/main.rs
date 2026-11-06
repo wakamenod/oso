@@ -13,6 +13,7 @@ mod dev;
 mod dispatch;
 mod keys;
 mod loader;
+mod saver;
 mod text;
 
 use std::ffi::OsString;

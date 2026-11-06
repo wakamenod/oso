@@ -22,7 +22,8 @@ use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
 /// How many bytes at the start of a file are searched for a NUL byte.
 pub(crate) const BINARY_SNIFF_BYTES: u64 = 8 * 1024;
 
-const BOM: &[u8] = b"\xEF\xBB\xBF";
+/// The UTF-8 byte order mark, which a file may start with and the rope never holds.
+pub const BOM: &[u8] = b"\xEF\xBB\xBF";
 
 /// The text an invalid byte becomes in the rope.
 pub(crate) const REPLACEMENT: char = '\u{FFFD}';

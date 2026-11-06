@@ -1,6 +1,6 @@
 //! The state one instance hands to the next on a restart, and whether it may
 //! hand over and go: `export-state`, `import-state`, `check-handover` and the
-//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055).
+//! guard on `exit` (ADR 0023, ADR 0047, ADR 0055, ADR 0059).
 //!
 //! Must not depend on: `app`, `server`, winit or sockets; these are plain
 //! functions of the editor state, and the caller opens the files.
@@ -125,6 +125,11 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Result<Value, String> {
 /// none of its text, if the new instance would not end up with the same text.
 fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
     match buffer.path() {
+        // The disk may end up holding what this buffer no longer does.
+        Some(_) if buffer.is_saving() => Err(format!(
+            "cannot hand over {}: it is being saved",
+            buffer.name()
+        )),
         Some(_) if buffer.is_modified() => Err(format!(
             "cannot hand over {}: it has unsaved edits",
             buffer.name()
@@ -174,9 +179,13 @@ pub fn generation(editor: &Editor) -> u64 {
 }
 
 /// Whether `exit` may go ahead. Without a generation it always may: that is a
-/// person or an agent saying so. With one, only if nothing has changed since.
+/// person or an agent saying so. With one, only if nothing has changed since and
+/// no save is running, as a new instance may already have read the old file.
 pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String> {
     match expected {
+        Some(_) if editor.buffers().any(|(_, buffer)| buffer.is_saving()) => {
+            Err(format!("{EXIT_REFUSED}: a save is running"))
+        }
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),

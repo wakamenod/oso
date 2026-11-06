@@ -147,7 +147,8 @@ throughout.
     reserved.
   - **M2-8**: safe save (`C-x C-s`) on a background thread, and a guard on exiting
     with unsaved work ([ADR 0013](adr/0013-persistence.md),
-    [ADR 0029](adr/0029-file-changes-on-disk.md)).
+    [ADR 0029](adr/0029-file-changes-on-disk.md),
+    [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
   - **M2-9**: word motion with Japanese rules, `C-a`/`C-e` as in mwim, `track-eol`,
     `C-u` and `M-<digit>`, `C-l`, and the horizontal wheel.
 - **M2-6** (after M2-5, and after the work in progress in the renderer's text pass

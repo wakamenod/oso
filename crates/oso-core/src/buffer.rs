@@ -28,6 +28,10 @@ use crate::selection::{OffsetEdit, SelectionSet};
 pub use crate::undo::ContentId;
 use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
+mod baseline;
+
+pub use baseline::{Baseline, FileStamp};
+
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BufferId(pub(crate) u64);
@@ -254,6 +258,10 @@ pub struct Buffer {
     /// Also holds the invalid bytes (ADR 0040).
     display: DisplayMap,
     info: FileInfo,
+    /// The file on disk, as this buffer last read or wrote it, once the host has said.
+    baseline: Option<Baseline>,
+    /// A save of this buffer is running.
+    saving: bool,
     /// `Some` while the file loads.
     loading: Option<Progress>,
     /// Changes whenever the content does.
@@ -286,6 +294,8 @@ impl Buffer {
             display: DisplayMap::new(&text, TabWidth::default()),
             text,
             info: FileInfo::default(),
+            baseline: None,
+            saving: false,
             loading: None,
             revision: 0,
             secret: false,
@@ -374,6 +384,33 @@ impl Buffer {
     /// since that state leave the buffer modified.
     pub fn mark_saved(&mut self, id: ContentId) {
         self.saved = id;
+    }
+
+    /// The file on disk, as this buffer last read or wrote it, once the host has said.
+    pub fn baseline(&self) -> Option<&Baseline> {
+        self.baseline.as_ref()
+    }
+
+    /// Records where the file is and what was there, when it is opened to load.
+    pub fn set_baseline(&mut self, baseline: Baseline) {
+        self.baseline = Some(baseline);
+    }
+
+    /// Records the file a save has just put in place.
+    pub(crate) fn set_written(&mut self, stamp: FileStamp) {
+        if let Some(baseline) = &mut self.baseline {
+            baseline.file = Some(stamp);
+        }
+    }
+
+    /// Whether a save of this buffer is running. Until it ends, the disk may hold
+    /// either the old state or the one being written.
+    pub fn is_saving(&self) -> bool {
+        self.saving
+    }
+
+    pub(crate) fn set_saving(&mut self, saving: bool) {
+        self.saving = saving;
     }
 
     /// Whether the content differs from the state last saved. Undoing back to
