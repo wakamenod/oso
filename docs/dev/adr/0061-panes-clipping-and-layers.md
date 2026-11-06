@@ -188,7 +188,8 @@ These ADRs stay as they are; this one changes the following:
   build (medians of 3 runs, before and after): moving the cursor 87 to 97 µs, scrolling
   115 to 130 µs, and typing, where every row is read again, 200 to 289 µs. Key and typing
   latency show no change at p99. A profile did not pin down the cost of typing, and
-  inlining alone moves it by 35 µs, so it stays open until it matters.
+  inlining alone moves it by 35 µs, so it stays open until it matters. The first screen
+  of a 100 MB file looks 1 to 3 ms later, not yet explained or told apart from noise.
 - `Lines` cost what reading their rows costs, each frame. M2-7's modeline is short, and
   `*Messages*` is a buffer. A large float of `Lines` would need a cheap check first.
 - A `Scene` holds one `Rows` per pane id, and each is empty until the pane draws text.
