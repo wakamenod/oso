@@ -1,6 +1,6 @@
 # 0062. The emergency save, the panic hook and no core dumps
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-06
 
 ## Context
