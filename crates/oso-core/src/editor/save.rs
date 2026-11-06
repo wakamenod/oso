@@ -201,6 +201,11 @@ impl Editor {
         clip_cursors(selections, &display, &[]);
     }
 
+    /// The saves queued and not yet taken, each with the text it is to write.
+    pub fn queued_saves(&self) -> impl Iterator<Item = &SaveJob> {
+        self.save_jobs.iter()
+    }
+
     /// The saves queued since the last call, for the host to run.
     pub fn take_save_jobs(&mut self) -> Vec<SaveJob> {
         std::mem::take(&mut self.save_jobs)

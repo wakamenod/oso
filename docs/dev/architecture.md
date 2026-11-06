@@ -361,10 +361,19 @@ read. See [ADR 0019](adr/0019-configuration.md).
 
 ### Persistence
 
-There is no periodic auto-save and there are no backup files. If oso panics or
-the OS ends it, unsaved buffers are written to a private directory (mode
-`0700`, files `0600`), skipping secret-looking files. See
-[ADR 0013](adr/0013-persistence.md) and [ADR 0051](adr/0051-m2-plan-decisions.md).
+There is no periodic auto-save and there are no backup files. If oso panics
+outside a command or, on macOS, the OS ends it, unsaved buffers are written to a private
+directory (mode `0700`, files `0600`), skipping secret-looking files. See
+[ADR 0013](adr/0013-persistence.md), [ADR 0051](adr/0051-m2-plan-decisions.md) and
+[ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md).
+
+The panic hook cannot read the editor, so the UI thread publishes to it (`emergency::Publisher`): after each
+command, a save's report and a load's event, an O(1) rope snapshot of each buffer that is modified or
+being saved, for only what changed. What a panicking command left is held back until a command ends normally, but for a save it started. The hook owns an `Arc` of that, and nothing is global. It tells where the panic
+happened: outside a command on the UI thread it writes the copies before unwinding, on threads of its
+own so that a panic in the writer costs one buffer and a blocked stderr holds nothing up. `exiting` writes the same
+way unless the app agreed to the end (`saver::Agreement`). A copy is `<stem>.txt`, the exact text, and `<stem>.meta`, which says where it
+belongs and is renamed in last. Recovery (M2-11) only ever offers one.
 
 Saving never touches the file until the whole new text is safely beside it. A
 command checks the buffer, ensures its final newline as an edit, and queues a job

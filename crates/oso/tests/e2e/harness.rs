@@ -13,6 +13,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -71,12 +72,17 @@ pub struct App {
 
 impl App {
     /// Starts an instance, visiting `file` if given, running in `cwd`, and
-    /// connects to its socket.
+    /// connects to its socket. Its emergency copies go in `cwd`, whatever happens to
+    /// it, and never among the real ones.
     pub fn start(file: Option<&Path>, cwd: &Path) -> Self {
-        let args: Vec<OsString> = file
-            .iter()
-            .flat_map(|file| [OsString::from("--"), file.into()])
-            .collect();
+        let mut args: Vec<OsString> = vec![
+            "--emergency-dir".into(),
+            emergency_dir(cwd).into_os_string(),
+        ];
+        args.extend(
+            file.iter()
+                .flat_map(|file| [OsString::from("--"), file.into()]),
+        );
         let mut process = Process::start(&args, cwd);
         let (dir, stream) = process.connect();
         stream
@@ -312,6 +318,11 @@ impl Drop for App {
     }
 }
 
+/// Where an instance running in `cwd` puts its emergency copies.
+pub fn emergency_dir(cwd: &Path) -> PathBuf {
+    cwd.join("state").join("emergency")
+}
+
 /// The process of an instance and its log, whether or not it has been reached.
 struct Process {
     child: Child,
@@ -460,6 +471,9 @@ impl Scratch {
         let path = temp.join(name);
         let _ = fs::remove_dir_all(&path);
         fs::create_dir(&path).expect("cannot create the scratch directory");
+        // So that what a private directory checks does not depend on the umask.
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
+            .expect("cannot set the scratch directory's mode");
         Self { path }
     }
 
@@ -491,6 +505,30 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
     }
+}
+
+/// Asks the app with process ID `pid` to quit, as the Dock's Quit does, and says whether
+/// the request could be sent.
+#[cfg(target_os = "macos")]
+pub fn ask_to_quit(pid: u32) -> bool {
+    let osascript = Executable::from_path("osascript", None).expect("osascript is on PATH");
+    let script = format!(
+        "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate"
+    );
+    let args = ["-l".into(), "JavaScript".into(), "-e".into(), script.into()];
+    let status = spawn(&Spawn {
+        executable: &osascript,
+        args: &args,
+        cwd: None,
+        project: None,
+        inherit: &[],
+        stdout: Sink::Null,
+        stderr: Sink::Null,
+        own_process_group: false,
+    })
+    .and_then(|mut child| child.wait())
+    .expect("cannot run osascript");
+    status.success()
 }
 
 /// Whether a process with this ID exists, as `ps` sees it.
