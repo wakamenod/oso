@@ -94,17 +94,30 @@ impl Dispatcher {
         }
     }
 
-    /// Handles key presses in order, as from the control socket's
-    /// `send-keys`. Keys after one that exits are dropped.
-    #[cfg(any(test, feature = "dev"))]
+    /// Handles key presses in order. Keys after one that exits are dropped.
+    #[cfg(test)]
     pub fn handle_keys(
         &mut self,
         editor: &mut Editor,
         keys: impl IntoIterator<Item = KeyPress>,
     ) -> Effects {
+        self.handle_keys_with(editor, keys, |_, _| {})
+    }
+
+    /// Handles key presses in order, as from the control socket's `send-keys`,
+    /// calling `each` after each one. Keys after one that exits are dropped.
+    #[cfg(any(test, feature = "dev"))]
+    pub fn handle_keys_with(
+        &mut self,
+        editor: &mut Editor,
+        keys: impl IntoIterator<Item = KeyPress>,
+        mut each: impl FnMut(&Editor, Effects),
+    ) -> Effects {
         let mut effects = Effects::default();
         for key in keys {
-            effects = effects.union(self.handle_key(editor, key));
+            let key_effects = self.handle_key(editor, key);
+            each(editor, key_effects);
+            effects = effects.union(key_effects);
             if effects.exit {
                 break;
             }
@@ -536,6 +549,96 @@ mod tests {
         assert!(effects.exit);
         assert_eq!(cursor(&editor), 1);
         assert!(dispatcher.pending().is_empty());
+    }
+
+    #[test]
+    fn each_key_of_a_batch_is_reported_on_its_own_up_to_an_exit() {
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = editor("abc");
+        let keys: KeySequence = "C-f <f35> C-f C-x C-c C-f".parse().unwrap();
+        let mut seen = Vec::new();
+        let effects = dispatcher.handle_keys_with(&mut editor, keys.0, |editor, effects| {
+            seen.push((cursor(editor), effects.redraw, effects.exit));
+        });
+        assert!(effects.exit);
+        assert_eq!(
+            seen,
+            [
+                (1, true, false),
+                (1, false, false),
+                (2, true, false),
+                (2, false, false),
+                (2, false, true),
+            ],
+        );
+        assert_eq!(cursor(&editor), 2, "the key after the exit did not run");
+    }
+
+    /// Shows the first buffer for which `secret` is what `is_secret` says.
+    #[cfg(feature = "dev")]
+    fn show_where(ctx: &mut Ctx<'_>, secret: bool) -> Result<(), CommandError> {
+        let found = ctx.editor.buffers().find(|(_, b)| b.is_secret() == secret);
+        let id = found.map(|(id, _)| id).unwrap();
+        ctx.editor.show(id);
+        ctx.request_redraw();
+        Ok(())
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn a_key_around_a_secret_buffer_leaves_no_timing_one_by_one_in_a_batch() {
+        use crate::dev::{HandledKey, SecretWatch, Timings};
+        use std::time::Instant;
+        let mut registry = commands::registry();
+        let secret_command = Command {
+            name: "show-secret",
+            doc: "Show a secret buffer, as `C-x b` will.",
+            args: ArgSpec::None,
+            run: |ctx, _| show_where(ctx, true),
+        };
+        let plain_command = Command {
+            name: "show-plain",
+            doc: "Show an ordinary buffer, as `C-x b` will.",
+            args: ArgSpec::None,
+            run: |ctx, _| show_where(ctx, false),
+        };
+        registry
+            .register_all(&[secret_command, plain_command])
+            .unwrap();
+        let table = [
+            ("C-f", "forward-char"),
+            ("<f1>", "show-secret"),
+            ("<f2>", "show-plain"),
+        ];
+        let global = Keymap::from_table(&registry, &table).unwrap();
+        let mut dispatcher = Dispatcher::with(registry, global);
+        let mut editor = editor("abcdef");
+        // A path counts as secret until it is judged.
+        editor.add_buffer(Buffer::visiting("/p/.env".into()));
+
+        let mut timings = Timings::new(Instant::now());
+        let mut watch = SecretWatch::new(&editor);
+        // Only the first and the last key here have nothing secret around them.
+        let keys: KeySequence = "C-f <f1> C-f <f2> C-f".parse().unwrap();
+        let mut seen = Vec::new();
+        dispatcher.handle_keys_with(&mut editor, keys.0, |editor, effects| {
+            let withheld = watch.after_key(editor);
+            seen.push(withheld);
+            let key = HandledKey {
+                redraw: effects.redraw,
+                withheld,
+            };
+            timings.key_handled(Instant::now(), key);
+        });
+        assert_eq!(seen, [false, true, true, true, false]);
+        timings.frame_presented(true, false);
+        let taken = timings.take();
+        let samples = taken["key_latency_us"].as_array().map(Vec::len);
+        assert_eq!(
+            samples,
+            Some(1),
+            "the key before the secret one was dropped"
+        );
     }
 
     fn explode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

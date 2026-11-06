@@ -35,9 +35,18 @@ impl App {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
-                let effects = self.dispatcher.handle_keys(&mut self.editor, keys);
+                let timings = &mut self.timings;
+                let mut watch = dev::SecretWatch::new(&self.editor);
+                let effects =
+                    self.dispatcher
+                        .handle_keys_with(&mut self.editor, keys, |editor, effects| {
+                            let key = dev::HandledKey {
+                                redraw: effects.redraw,
+                                withheld: watch.after_key(editor),
+                            };
+                            timings.key_handled(received, key);
+                        });
                 log::trace!("key handled in {:?}", started.elapsed());
-                self.timings.keys_handled(received, count, effects.redraw);
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }
@@ -85,11 +94,7 @@ impl App {
                 self.restore.as_ref(),
             ),
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
-            dev::UiOp::Panic => panic!("a deliberate panic: {}", self.editor.current().1.text()),
-            dev::UiOp::EndUnasked => {
-                event_loop.exit();
-                Ok(json!({ "ending": true }))
-            }
+            dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::ImportState(state) => self.import_state(*state),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
@@ -101,6 +106,16 @@ impl App {
             }
         };
         let _ = reply.send(result);
+    }
+
+    /// Ends the process as the emergency save's flows need (ADR 0062): by a panic outside the
+    /// command boundary, whose message quotes the text, or with nobody having agreed to it.
+    fn end_for_a_test(&self, event_loop: &ActiveEventLoop, op: &dev::UiOp) -> dev::Reply {
+        if *op == dev::UiOp::Panic {
+            panic!("a deliberate panic: {}", self.editor.current().1.text());
+        }
+        event_loop.exit();
+        Ok(json!({ "ending": true }))
     }
 
     /// The result of `open-file`: visits a file in the selected window.

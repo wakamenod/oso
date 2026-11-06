@@ -29,7 +29,7 @@ use serde_json::json;
 pub use protocol::{Reply, UiOp};
 pub use server::UiRequest;
 pub use state::{get_state, get_text, screenshot_allowed, show_buffer};
-pub use timing::Timings;
+pub use timing::{HandledKey, SecretWatch, Timings};
 
 /// The option that sends emergency copies elsewhere, so that the end-to-end flows can
 /// read them, and never touch the real ones. Only a dev build knows it.

@@ -232,7 +232,7 @@ what you type goes into their buffers, which can fail a flow.
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
 | screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
-| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
+| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions, `take-timings` and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
@@ -299,7 +299,11 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - `oso [FILE]` and `open-file` open a file, so test files (generated in a scratch
   directory, never committed) can be driven this way.
-- `take-timings` reads key latency, startup and load times for benchmarks.
+- `take-timings` reads key latency, startup and load times for benchmarks. It records no
+  key if a secret-pattern buffer is shown just before or after it or when its frame is
+  presented, and no frames while one is shown, but the first frame and the first load's
+  times. A file counts as secret until it is judged
+  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
 - `screenshot` writes a PNG of the current frame and returns its path.
 
 The transport and protocol themselves are tested without a window or GPU

@@ -12,6 +12,8 @@ use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::ModifiersState;
 
 use super::App;
+#[cfg(feature = "dev")]
+use crate::dev;
 use crate::keys;
 
 /// Rows one notch of a mouse wheel scrolls.
@@ -46,22 +48,38 @@ impl App {
 
     /// Handles one key press from the window, through the keymaps and the
     /// command registry. Keys from the dev control socket take the same
-    /// path, through [`crate::dispatch::Dispatcher::handle_keys`].
+    /// path, through [`crate::dispatch::Dispatcher::handle_keys_with`].
     fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyPress) {
         let started = Instant::now();
+        #[cfg(feature = "dev")]
+        let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
         log::trace!("key handled in {:?}", started.elapsed());
         #[cfg(feature = "dev")]
-        self.timings.keys_handled(started, 1, effects.redraw);
+        self.timings.key_handled(
+            started,
+            dev::HandledKey {
+                redraw: effects.redraw,
+                withheld: watch.after_key(&self.editor),
+            },
+        );
         self.apply(event_loop, effects);
     }
 
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &ActiveEventLoop, text: &str) {
         let started = Instant::now();
+        #[cfg(feature = "dev")]
+        let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.insert_text(&mut self.editor, text);
         #[cfg(feature = "dev")]
-        self.timings.keys_handled(started, 1, effects.redraw);
+        self.timings.key_handled(
+            started,
+            dev::HandledKey {
+                redraw: effects.redraw,
+                withheld: watch.after_key(&self.editor),
+            },
+        );
         log::trace!("text handled in {:?}", started.elapsed());
         self.apply(event_loop, effects);
     }

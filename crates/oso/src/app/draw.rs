@@ -143,7 +143,8 @@ impl App {
                 #[cfg(feature = "dev")]
                 if view.render_state.presented_frames() > presented {
                     let complete = redraw == Redraw::NotNeeded;
-                    self.timings.frame_presented(complete);
+                    let withheld = self.editor.shows_secret();
+                    self.timings.frame_presented(complete, withheld);
                 }
                 // A frame skipped while the window is hidden draws
                 // nothing yet.
