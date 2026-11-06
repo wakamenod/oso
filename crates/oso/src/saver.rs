@@ -190,10 +190,10 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
             match written.unsynced {
                 None => format!("Wrote {path}"),
                 Some(Unsynced::File(e)) => format!(
-                    "Wrote {path}, but the file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}"
+                    "The file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}: {path}"
                 ),
                 Some(Unsynced::Directory(e)) => format!(
-                    "Wrote {path}, but the disk did not confirm the rename. A power cut could bring back what was there: {e}"
+                    "The disk did not confirm the rename. A power cut could bring back what was there: {e}: {path}"
                 ),
             }
         }
@@ -204,16 +204,16 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
             }
             match error {
                 SaveError::Conflict => format!(
-                    "{path} changed on disk since it was read. It was kept, and the buffer is not saved"
+                    "Not saved: the file changed on disk since it was read, and was kept: {path}"
                 ),
                 SaveError::Elsewhere => format!(
-                    "{path} now leads somewhere other than when it was read. Nothing was written, and the buffer is not saved"
+                    "Not saved: the path now leads somewhere other than when it was read, and nothing was written: {path}"
                 ),
                 SaveError::UnknownLocation => format!(
-                    "Cannot save {path}: where it leads could not be told when it was read, so no place is safe. Nothing was written"
+                    "Not saved: where the path leads could not be told when it was read, so no place is safe: {path}"
                 ),
-                SaveError::Io(e) => format!("Cannot save {path}: {e}"),
-                SaveError::Panicked => format!("Saving {path} failed. The buffer is not saved"),
+                SaveError::Io(e) => format!("Not saved: {e}: {path}"),
+                SaveError::Panicked => format!("Not saved: the save failed: {path}"),
             }
         }
     };

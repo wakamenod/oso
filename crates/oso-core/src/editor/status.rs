@@ -18,6 +18,7 @@
 use std::fmt::Write;
 
 use super::Editor;
+use super::messages::CUT;
 use crate::buffer::Buffer;
 use crate::decode::{FileInfo, LineEnding};
 use crate::display_map::text_clusters;
@@ -31,8 +32,6 @@ const DISK_WARNING: &str = "[changed on disk] ";
 const NO_POSITION: &str = "secret";
 /// The major mode, until modes arrive (M3).
 const MODE: &str = "Fundamental";
-/// What ends a name that was cut.
-const CUT: char = '…';
 /// The cells a name keeps in a narrow window, at the expense of what follows it.
 const MIN_NAME_CELLS: usize = 20;
 /// The blank cells after a part of the modeline.
@@ -51,8 +50,10 @@ pub struct Status {
     pub state: String,
     /// The echo area's line, as it comes from a message.
     pub echo: String,
-    /// `*Messages*` is in view and has this many messages added, so that a message
-    /// repeated there asks for a frame though the echo area stays the same.
+    /// A frame has no modeline, so the echo row has its warnings.
+    warnings_on_echo_row: bool,
+    /// `*Messages*` is in view at this revision, so that a message repeated there asks
+    /// for a frame though the echo area stays the same.
     messages_in_view: Option<u64>,
 }
 
@@ -60,6 +61,16 @@ impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
         format!("{}{}{}", self.warnings, self.name, self.state)
+    }
+
+    /// The warnings that go first on the echo row: all of them in a frame with no
+    /// modeline, and otherwise none.
+    pub fn echo_warnings(&self) -> &str {
+        if self.warnings_on_echo_row {
+            &self.warnings
+        } else {
+            ""
+        }
     }
 }
 
@@ -145,7 +156,7 @@ impl Editor {
     pub fn status_into(&self, status: &mut Status) {
         let (window, buffer) = self.current();
         status.warnings.clear();
-        if buffer.display().has_bidi_controls() {
+        if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
         }
         if buffer.changed_on_disk() && buffer.is_modified() {
@@ -167,8 +178,9 @@ impl Editor {
 
         status.echo.clear();
         status.echo.push_str(self.echo_text());
+        status.warnings_on_echo_row = self.frame.window.modeline.rows == 0;
         status.messages_in_view =
-            (window.buffer() == self.messages_buffer).then_some(self.messages_added);
+            (window.buffer() == self.messages_buffer).then(|| buffer.revision());
     }
 }
 
@@ -176,7 +188,6 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::buffer::Replacement;
-    use crate::editor::MAX_MESSAGE_BYTES;
     use crate::frame::FrameSize;
     use crate::load::Builder;
     use crate::selection::{Selection, SelectionSet};
@@ -392,12 +403,12 @@ mod tests {
     }
 
     #[test]
-    fn what_is_being_typed_comes_ahead_of_a_message() {
+    fn the_keys_in_progress_come_ahead_of_a_message() {
         let mut editor = editor("");
         editor.message("Saved");
-        editor.set_typing("C-x-");
+        editor.set_keys_in_progress("C-x-");
         assert_eq!(status(&editor).echo, "C-x-");
-        editor.set_typing("");
+        editor.set_keys_in_progress("");
         assert_eq!(status(&editor).echo, "Saved");
     }
 
@@ -409,17 +420,6 @@ mod tests {
             status(&editor).echo,
             "No emergency copy can be written if oso crashes"
         );
-    }
-
-    #[test]
-    fn a_message_is_capped_on_a_character_boundary() {
-        let mut editor = editor("");
-        editor.message("日".repeat(MAX_MESSAGE_BYTES));
-        let newest = editor.messages().next_back().unwrap();
-        assert!(newest.len() <= MAX_MESSAGE_BYTES);
-        assert!(newest.ends_with('…'));
-        editor.echo("x".repeat(MAX_MESSAGE_BYTES * 2));
-        assert_eq!(status(&editor).echo.len(), MAX_MESSAGE_BYTES);
     }
 
     proptest! {

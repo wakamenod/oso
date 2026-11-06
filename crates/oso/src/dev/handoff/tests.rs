@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 
 /// An absolute path on any system.
-fn absolute(path: &str) -> String {
+pub(super) fn absolute(path: &str) -> String {
     if cfg!(windows) {
         format!("C:{path}")
     } else {
@@ -27,7 +27,7 @@ fn absolute(path: &str) -> String {
 }
 
 /// An editor showing `path` with `content`, loaded.
-fn visiting(path: &str, content: &str) -> Editor {
+pub(super) fn visiting(path: &str, content: &str) -> Editor {
     let mut editor = Editor::default();
     let mut buffer = Buffer::visiting(PathBuf::from(path));
     buffer.apply_load(decode_all(content.as_bytes(), TabWidth::default()));
@@ -535,44 +535,4 @@ fn a_finished_save_lets_the_handover_through() {
     editor.save_finished(job.buffer, job.content, written());
     assert!(check(&editor).is_ok());
     assert!(export(&editor, &[], None, None).is_ok());
-}
-
-#[test]
-fn messages_hold_no_restart_and_change_no_generation() {
-    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
-    let before = generation(&editor);
-    editor.message("Wrote a.txt");
-    assert_eq!(generation(&editor), before);
-    assert_eq!(check(&editor), Ok(json!({ "generation": before })));
-    let state = export(&editor, &[], None, None).unwrap();
-    assert_eq!(state["generation"], before);
-    assert_eq!(state["buffers"].as_array().unwrap().len(), 2);
-    assert_eq!(exit_allowed(&editor, Some(before)), Ok(()));
-}
-
-#[test]
-fn a_window_on_messages_comes_back_on_scratch() {
-    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
-    editor.message("Wrote a.txt");
-    editor.toggle_messages();
-    assert_eq!(editor.current().1.name(), "*Messages*");
-    let state = export(&editor, &[], None, None).unwrap();
-    let parsed = parse(&state).unwrap();
-    assert_eq!(parsed.buffers[parsed.shown], None, "*scratch*");
-    assert_eq!(parsed.selections, SelectionSet::default());
-    assert_eq!(parsed.scroll, Scroll::default());
-    assert!(
-        parsed
-            .buffers
-            .contains(&Some(PathBuf::from(absolute("/p/a.txt")))),
-        "the file is still handed over"
-    );
-    assert!(!state.to_string().contains("Wrote"));
-}
-
-#[test]
-fn an_instance_with_messages_may_still_take_over() {
-    let mut editor = Editor::default();
-    editor.message("No emergency copy can be written if oso crashes");
-    assert_eq!(import_allowed(&editor), Ok(()));
 }

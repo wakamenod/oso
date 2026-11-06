@@ -313,7 +313,7 @@ impl Buffer {
     }
 
     /// Whether a save found the file changed since this buffer read it or wrote it.
-    pub fn changed_on_disk(&self) -> bool {
+    pub(crate) fn changed_on_disk(&self) -> bool {
         self.changed_on_disk
     }
 
@@ -469,6 +469,11 @@ impl Buffer {
     /// A snapshot of the display model. O(1).
     pub fn display(&self) -> DisplaySnapshot {
         self.display.snapshot()
+    }
+
+    /// Whether the text holds bidirectional controls, for the modeline's warning. O(1).
+    pub(crate) fn has_bidi_controls(&self) -> bool {
+        self.display.snapshot().has_bidi_controls()
     }
 
     /// The invalid bytes of the file, each shown as `\xNN`.

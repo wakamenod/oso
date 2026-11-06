@@ -213,7 +213,8 @@ impl App {
             scroll: state.scroll,
         });
         self.try_restore_positions();
-        self.dispatcher.restore_pending(&state.pending_keys);
+        self.dispatcher
+            .restore_pending(&mut self.editor, &state.pending_keys);
         self.request_redraw();
         Ok(json!({ "buffers": self.editor.buffers().count() }))
     }

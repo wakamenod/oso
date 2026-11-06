@@ -99,10 +99,9 @@ impl ColumnFn {
 }
 
 /// How many bidirectional controls `text` holds. Each starts with the byte 0xE2,
-/// which many chunks never have, and counting those is a loop the compiler vectorizes
-/// as it does for line breaks. So plain text costs next to nothing.
+/// which many chunks never have, so a chunk with none costs one search.
 fn count_bidi_controls(text: &str) -> usize {
-    if text.bytes().filter(|&byte| byte == 0xe2).count() == 0 {
+    if !text.as_bytes().contains(&0xe2) {
         return 0;
     }
     text.chars().filter(|&c| is_bidi_control(c)).count()
@@ -116,7 +115,7 @@ pub struct TabSummary {
     /// Line breaks.
     pub lines: usize,
     /// Bidirectional controls, for the modeline's warning (ADR 0063).
-    pub bidi_controls: usize,
+    pub(crate) bidi_controls: usize,
     /// The column function after the last line break.
     last_line: ColumnFn,
     /// The tab width the summary was computed with. `None` only for the

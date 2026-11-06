@@ -33,15 +33,8 @@ pub(super) fn with_panes<R>(
         span(&status.name[..], Face::Modeline),
         span(&status.state[..], Face::Modeline),
     ];
-    // A frame with no modeline has its warnings here, or nowhere with no echo area
-    // either: the boxes in the text still mark every control in view.
-    let warnings = if editor.frame().window.modeline.rows == 0 {
-        &status.warnings[..]
-    } else {
-        ""
-    };
     let echo = [
-        span(warnings, Face::Warning),
+        span(status.echo_warnings(), Face::Warning),
         span(&status.echo[..], Face::Text),
     ];
     draw(&panes(editor, &[&modeline], &[&echo]))

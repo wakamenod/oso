@@ -38,7 +38,6 @@ mod save;
 mod status;
 mod view;
 
-pub use messages::MAX_MESSAGE_BYTES;
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 
@@ -46,7 +45,7 @@ pub use status::Status;
 pub const SCRATCH: &str = "*scratch*";
 
 /// The name of the internal buffer that keeps every message.
-pub const MESSAGES: &str = "*Messages*";
+pub(crate) const MESSAGES: &str = "*Messages*";
 
 /// What the selected window's cursors do when a buffer it shows changes.
 #[derive(Clone, Copy)]
@@ -104,14 +103,13 @@ pub struct Editor {
     messages: VecDeque<String>,
     /// The internal buffer that shows them.
     messages_buffer: BufferId,
-    /// How many it has been given, for a frame while it is in view.
-    messages_added: u64,
     /// Where the selected window was before it showed `*Messages*`.
     before_messages: Option<messages::Place>,
     /// The echo area's line, until the next key.
     echo: Option<messages::Echo>,
-    /// What is being typed: a prefix argument, a prefix key.
-    typing: String,
+    /// A prefix argument and a prefix key being typed, for the echo area. The dispatcher
+    /// holds them, and says so here after each key, so that a frame reads only the editor.
+    keys_in_progress: String,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
     /// The way of exiting that was last refused, until another key is pressed.
@@ -138,10 +136,9 @@ impl Editor {
             join_ready: false,
             messages: VecDeque::new(),
             messages_buffer: BufferId(0),
-            messages_added: 0,
             before_messages: None,
             echo: None,
-            typing: String::new(),
+            keys_in_progress: String::new(),
             save_jobs: Vec::new(),
             exit_attempt: None,
         };
@@ -187,6 +184,7 @@ impl Editor {
     pub fn show(&mut self, buffer: BufferId) {
         if self.buffer(buffer).is_some() {
             self.windows[self.selected].show(buffer);
+            self.forget_withheld_echo();
         }
     }
 
@@ -200,6 +198,7 @@ impl Editor {
         if self.windows.iter().all(|window| window.buffer() != id) {
             return;
         }
+        self.forget_withheld_echo();
         let scratch = self.scratch();
         for window in &mut self.windows {
             if window.buffer() == id {

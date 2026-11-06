@@ -108,7 +108,7 @@ pub fn classify(cluster: &str) -> (CellKind, usize) {
 /// runs (Trojan Source, CVE-2021-42574). The marks LRM, RLM and ALM are left out: they
 /// can only tip a neutral character, and right-to-left prose has them everywhere.
 /// All of these are boxed too, as [`is_invisible`] says.
-pub fn is_bidi_control(c: char) -> bool {
+pub(crate) fn is_bidi_control(c: char) -> bool {
     matches!(u32::from(c), 0x202a..=0x202e | 0x2066..=0x2069)
 }
 

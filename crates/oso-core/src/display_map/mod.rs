@@ -252,7 +252,7 @@ impl DisplaySnapshot {
     }
 
     /// Whether the buffer holds bidirectional controls. O(1).
-    pub fn has_bidi_controls(&self) -> bool {
+    pub(crate) fn has_bidi_controls(&self) -> bool {
         self.tab_map.summary().bidi_controls > 0
     }
 

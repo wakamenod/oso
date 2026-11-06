@@ -36,9 +36,9 @@ this step:
   the modeline's pane has a `background`, as ADR 0057 wants nothing to mark the leftover
   pixels below the echo area.
 - **The renderer changes in one place,** the band below. ADR 0061 meant it not to change at all.
-- **Building a `Status` reuses its strings,** so it allocates nothing once they have grown.
-  It reads the buffer through the cursor's position and a summary: O(log n) plus a scan of
-  one chunk, what drawing the cursor already costs.
+- **Building a `Status` reuses its strings,** so once they have grown it allocates only the tree
+  cursor a position needs. It reads the buffer through that position and a summary: O(log n) plus a
+  scan of one chunk, what drawing the cursor already costs.
 
 ### The modeline
 
@@ -64,8 +64,11 @@ of cursors if there are several, the major mode, the encoding and the line endin
   U+2069). LRM, RLM and ALM are left out: they can only tip a neutral character, and
   right-to-left prose has them everywhere. All twelve are still boxed.
 - **The count is in `TabSummary`,** so asking costs O(1) and an edit updates it along with the
-  rest. Each chunk is scanned once: a vectorized count of the lead byte 0xE2, then its characters
-  only if it has one. Plain text pays about what counting line breaks does.
+  rest. Each chunk is scanned once: a search for the lead byte 0xE2, then its characters only if it
+  has one. Japanese text rarely has that byte, and English with dashes or curly quotes pays about
+  1 µs per chunk. The count should describe the text, so when the FoldMap or InlayMap goes below the
+  TabMap it moves to the rope's summary, as hidden text would stop counting and virtual text would
+  start. `Buffer::has_bidi_controls` is what callers ask, so they do not change.
 - **`[changed on disk]` warns** when a save found the file changed or elsewhere, while the buffer
   is modified. A save that gets through clears it. It knows no more than a save found out until
   M2-22 brings the watcher.
@@ -92,19 +95,28 @@ would also hold today. It is one condition in `push_state`, and the author may p
 
 ### Messages
 
-- **`Editor::message` caps a message at 4096 bytes,** room for the longest path a message names
-  (`PATH_MAX` on Linux). A longer one is cut on a character boundary and ended by `…`.
+- **`Editor::message` caps a message at 4096 bytes,** and its row in `*Messages*` and line in the log
+  after escaping, room for what it says and the longest path most systems have. A longer one is cut on a
+  character boundary and ended by `…`.
 - **`Editor::echo` reaches the echo area alone,** and neither the log nor `*Messages*`. This is how
   "C-x C-z is undefined" and "Quit" get there, so typed keys stay out of the `info` log (ADR 0056). Its
   text shows the keys. Unbound keys still reach the `debug` log as ADR 0056 has it.
-- **What a command says when it fails while a secret buffer is shown goes the same way,** whichever
-  way it came. "End of buffer" says where the cursor is, and a log or `*Messages*` keeps it. A panic
-  still reaches the log, as it names only the command and is a bug to find. This changes ADR 0056's "A
-  failed command's message goes to `Editor::message`, whatever invoked it".
-- **What was echoed while a secret buffer was shown goes when none is shown,** by any path. A frame
-  checks this as it reads the echo area, so a window moved by the socket shows no failure of the buffer
-  before. A message from outside a command, such as a finished save, names a file and quotes no text,
-  so it stays.
+- **A message from a command run around a secret buffer goes the same way,** whatever the command and
+  whichever way it came, and if the command took that buffer off the screen it goes nowhere. "End of
+  buffer" says where the cursor is, and a log or `*Messages*` keeps it. So the rule is in `Editor::message`,
+  which knows a command is running by its open undo group, and the dispatcher reports a failure
+  before it closes the group. What a panic leaves names only the command and comes after the group closes,
+  as it is a bug to find. This changes ADR 0056's "A failed command's message goes to
+  `Editor::message`, whatever invoked it" in what it reaches.
+- **What was echoed around a secret buffer goes as the window moves on,** for good, so that it does not
+  come back with the next such buffer. A frame also checks this as it reads the echo area, for a verdict that
+  changes under it. A message from outside a command, such as a finished save, names a file and quotes no
+  text, so it stays.
+- **A message says what happened before it names a path,** "Not saved: the file changed on disk…: path", so
+  that a long path cannot hide it, on the echo row or at the cap. So save failures read differently.
+- **A message that cannot reach `*Messages*` costs that row.** `Editor::message` runs after a caught panic,
+  outside the boundary of ADR 0014, and now edits a rope, so it stores the text and the echo area first, and
+  catches a panic in the edit. The edit is made on clones, so it leaves nothing part way.
 - **The next key empties the echo area,** as in Emacs, and so does `run-command`. The wheel does not.
 - **What is being typed comes first,** ahead of any message, as Emacs does while a key sequence is
   under way: `C-x-`, `C-u-`, `C-u 16-`, `C-u 5 C-x-`. The dispatcher owns it and tells the editor after
@@ -120,8 +132,8 @@ own and a new one cannot forget. It costs one build of a `Status` per batch.
 - **A load asks only when its number changes,** at most about 100 times for a file of known size.
 - **What was asked for counts as drawn,** so a window that draws nothing, such as a hidden one, is
   not asked again and again.
-- **`*Messages*` in view counts its messages,** since the same message twice leaves the echo area as
-  it was. The buffer's revision would do, but a load piece changes that of any buffer.
+- **`*Messages*` in view counts by its revision,** since the same message twice leaves the echo area as
+  it was. No load changes that buffer, so this asks only for a new row.
 
 `Effects::redraw` keeps its meaning for what commands change in the text. An unbound key shows once:
 repeating it leaves the `Status` the same, so it draws nothing more.
@@ -129,7 +141,8 @@ repeating it leaves the `Status` the same, so it draws nothing more.
 ### `*Messages*` and internal buffers
 
 - **`Buffer::is_internal` marks a buffer the editor keeps for itself.** It is read-only for keys
-  (`ReadOnly::Internal`), has no undo history, and is never modified.
+  (`ReadOnly::Internal`), has no undo history, and is never modified. M2-16 must split this, as the
+  minibuffer's buffer is internal too (ADR 0051) and must take typing and undo (ADR 0008).
 - **`Editor::buffers` leaves them out.** So `oso dev`'s check, generation and import, the exit guard
   and the emergency save need nothing new, and a new reader of the user's work cannot forget them. Who
   wants one asks for it by id. This fails safe, where a filter in each reader would not.
@@ -138,7 +151,8 @@ repeating it leaves the `Status` the same, so it draws nothing more.
 - **Each message is one row, as the log escapes it,** so a file name cannot forge a line, and a name's
   bidi control does not set off the warning there. The echo area and the modeline draw through
   `text_clusters` instead, which boxes it. Both stop at the 1000 messages `Editor::messages` keeps.
-- **A window showing `*Messages*` keeps a cursor at the end there,** as new rows arrive.
+- **A window showing `*Messages*` keeps a cursor at the end there,** as new rows arrive, and the view
+  follows it, for a message from outside a command too.
 - **`view-echo-area-messages` on `C-h e`** shows it, with the last row in view. Since nothing else
   leaves it until `C-x b` (M2-19), the same key goes back to where the window was. So a person can read it,
   and a client of the socket can too.
@@ -147,19 +161,20 @@ repeating it leaves the `Status` the same, so it draws nothing more.
 - **An instance whose window is on `*Messages*` refuses an import,** since it has no `*scratch*` in view
   for the state to start from. Its messages alone do not refuse one.
 
-### The band above a one-row pane
+### The band above the modeline and the echo row
 
-**A pane of one row keeps the band above its row, on the row above.** This is a small change to the
-renderer (`Layout::top_band`), against ADR 0061's expectation, and here is why. Cut at the pane's top, a
-file named `Ế` read as `Ê` and `Ỗ` as `Ô` on the modeline, at scale 1 in the running app: letters can differ
-only there (ADR 0052), and a modeline that names the wrong file is worth a line of code.
+**A tiled row that is no buffer's keeps the band above it, on the row above.** This is a small change to the
+renderer (`Layout::with_band_above`, chosen in `draw_pane`), against ADR 0061's expectation, and here is why.
+Cut at the pane's top, a file named `Ế` read as `Ê` and `Ỗ` as `Ô` on the modeline, at scale 1 in the running
+app: letters can differ only there (ADR 0052), and a modeline that names the wrong file is worth a line of code.
 
 - It does for these rows what ADR 0052 already does between the rows of a text pane: at most
   `CellMetrics::descent` pixels of ink, and no rectangle. So a name from disk can reach no further into the
   last text row than the next text row could, and a message no further into the modeline. The
   modeline's warnings keep all but those pixels.
 - The modeline's rectangle stays in its row, so an accent stands up out of the bar.
-- A text pane's first row still loses it when the pane has more rows. M2-16 and M3 decide those.
+- **The rule names `PaneContent::Lines` in `Layer::TILED` with one row,** which today means these two. A text
+  pane and a float keep ADR 0061's rule, and M2-16 and M3 decide for theirs.
 
 ### The control socket
 
@@ -170,9 +185,19 @@ foresaw, and leaves both out while any window shows a secret buffer. Screenshots
 
 These ADRs stay as they are; this one changes the following:
 
+- [ADR 0026](0026-m2-ui-layout.md), the echo area is "for messages only" and all reach `*Messages*`: it also
+  shows keys in progress, undefined keys and "Quit", and what is said around a secret buffer stays out.
+- [ADR 0051](0051-m2-plan-decisions.md), internal buffers "are not exported": a window on one is exported as
+  an entry with no path, which holds nothing of it.
+- [ADR 0053](0053-edit-core.md), edits go through `apply_edits` with an undo record: an internal buffer's
+  go around it, with none.
+- [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md), "M2-7 must teach them to skip internal buffers": they
+  need teaching nothing, as `Editor::buffers` skips them. `import-state` also refuses with the window on one.
 - [ADR 0056](0056-typing.md): a failed command's message does not reach the log or `*Messages*` while a
-  secret buffer is shown, and a failed or undefined key gets a frame.
+  secret buffer is shown, and a failed or undefined key gets a frame. So the `<f35>` trip draws a frame on its
+  first press, after the reply it measures, and never again.
 - [ADR 0057](0057-frame-layout.md): with two rows, the echo row also holds what the modeline warned of.
+- [ADR 0059](0059-safe-save-and-the-exit-guard.md): save failures say what happened before they name the path.
 - [ADR 0061](0061-panes-clipping-and-layers.md): "a glyph stays in its pane" gains a second exception, and
   the renderer's half of this step was not all built there.
 - `ui.md`, "Every message is also appended to `*Messages*`": but those above.
@@ -184,18 +209,30 @@ These ADRs stay as they are; this one changes the following:
   shapes the modeline's row again, on each key that moves the cursor; `just perf` is in the pull request.
 - `Editor::messages` and `*Messages*` each hold a copy, at most about 8 MiB between them with every message
   at its cap, and 100 KiB or so as they are. `Editor::messages` can go once its readers are tests alone.
-- `TabSummary` grows by a word per tree node, and each chunk costs one more scan as it is measured.
+- `TabSummary` grows by a word, kept twice for each chunk: about 17 MiB on a 1 GB file, or 1.6%. Each chunk costs
+  one more scan as it is measured.
 - The buffer's id numbers shift by one, as `*Messages*` takes the one after `*scratch*`.
+- A key that changes only the echo area leaves no latency sample, as before, though it now has a frame.
+- `get-state` can name a window's buffer that its `buffers` leaves out. M2-19 decides whether `C-x b` lists
+  `*Messages*`.
+- `C-h e` going back, and the `Place` behind it, are one window's, and go with M2-19, once `C-x b` leaves
+  the buffer. M3's splits would need them per window otherwise.
 - A person reading `*Messages*` does not find failures from a secret buffer.
 - A message shows only as far as the row is wide. `*Messages*` holds the rest, unless it was withheld.
-- `oso-core`'s public API gains `Status`, `Editor::status_into`, `Editor::echo`, `Editor::echo_withheld`,
-  `Editor::clear_echo`, `Editor::set_typing`, `Editor::toggle_messages`, `Editor::messages_buffer`,
-  `Editor::file_changed_on_disk`, `MESSAGES`, `MAX_MESSAGE_BYTES`, `Buffer::is_internal`,
-  `Buffer::changed_on_disk`, `ReadOnly::Internal`, `DisplaySnapshot::has_bidi_controls`,
-  `TabSummary::bidi_controls` and `cell::is_bidi_control`. `oso-render` gains two `Face` variants.
+- `oso-core`'s public API gains `Status`, `Editor::status_into`, `Editor::echo`, `Editor::clear_echo`,
+  `Editor::set_keys_in_progress`, `Editor::toggle_messages`, `Editor::file_changed_on_disk`,
+  `Buffer::is_internal` and `ReadOnly::Internal`. `oso-render` gains two `Face` variants.
 - M3's splits need a `Status` per window, and modelines that differ between the active window and the others.
 
 ## Alternatives considered
+
+- **The position in a pane of its own,** so that a cursor's move shapes a few characters and not the row: it
+  saves a little, by estimate 50 to 110 µs per key, for regions worked out from cell widths each frame. Reusing
+  unchanged pieces in `Rows::keep` would be simpler, if `just perf` ever asks.
+- **`Editor::user_buffers` for the name of what `Editor::buffers` now does:** says what it filters, at the cost of
+  breaking every reader, including PR #40's emergency save, for what a doc comment says.
+- **A flag beside `*Messages*` for the secret rule, kept by the dispatcher:** the same outcome, but a command that
+  calls `Editor::message` itself would pass it by.
 
 - **A flag or a request from each thing that changes the status:** cheaper per batch, but messages come from
   commands, threads and the host, and each new one would be a chance to forget. A failed key with no frame is

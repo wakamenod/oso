@@ -142,8 +142,7 @@ fn a_prefix_handed_over_shows_too() {
     let mut dispatcher = Dispatcher::new();
     let mut editor = editor("ab");
     let keys: KeySequence = "C-x".parse().unwrap();
-    dispatcher.restore_pending(&keys.0);
-    dispatcher.show_typing(&mut editor);
+    dispatcher.restore_pending(&mut editor, &keys.0);
     assert_eq!(echo(&editor), "C-x-");
 }
 
@@ -154,8 +153,6 @@ fn a_failure_around_a_secret_stays_in_the_echo_area() {
     send(&mut dispatcher, &mut editor, "C-b");
     assert_eq!(echo(&editor), "Beginning of buffer", "for the person there");
     assert_eq!(editor.messages().count(), 0, "not in the log or *Messages*");
-    let id = editor.messages_buffer();
-    assert_eq!(editor.buffer(id).unwrap().text().len(), 0);
     send(&mut dispatcher, &mut editor, "M->");
     send(&mut dispatcher, &mut editor, "C-f");
     assert_eq!(echo(&editor), "End of buffer");
@@ -165,6 +162,22 @@ fn a_failure_around_a_secret_stays_in_the_echo_area() {
     let other = editor.add_buffer(Buffer::new("other"));
     editor.show(other);
     assert_eq!(echo(&editor), "");
+    send(&mut dispatcher, &mut editor, "C-h e");
+    assert_eq!(
+        editor.current().1.text().len(),
+        0,
+        "*Messages* holds nothing"
+    );
+}
+
+#[test]
+fn a_message_a_command_leaves_around_a_secret_stays_out_of_the_log_too() {
+    let mut dispatcher = Dispatcher::new();
+    let mut editor = on_a_secret("KEY=value\n");
+    // Saving an unmodified buffer calls `Editor::message` itself, and returns no error.
+    send(&mut dispatcher, &mut editor, "C-x C-s");
+    let _ = editor.take_save_jobs();
+    assert_eq!(editor.messages().count(), 0);
 }
 
 #[test]

@@ -137,11 +137,7 @@ fn a_file_changed_under_edits_warns_until_a_save_gets_through() {
     let report = run(job);
     assert_conflict(&report);
     apply(&mut editor, report);
-    assert!(editor.current().1.changed_on_disk());
-
-    let mut status = oso_core::editor::Status::default();
-    editor.status_into(&mut status);
-    assert_eq!(status.warnings, "[changed on disk] ");
+    assert_eq!(warnings(&editor), "[changed on disk] ");
 
     // The disk holds what the buffer last read again, so a save can go through.
     fs::write(&path, b"one\n").unwrap();
@@ -153,7 +149,21 @@ fn a_file_changed_under_edits_warns_until_a_save_gets_through() {
     let report = run(job);
     assert_written(&report);
     apply(&mut editor, report);
-    assert!(!editor.current().1.changed_on_disk());
+
+    // Unsaved edits again, and no warning: nothing has changed under them since.
+    let edit = Replacement {
+        range: 0..0,
+        text: "x",
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
+    assert_eq!(warnings(&editor), "");
+}
+
+/// What the modeline warns of.
+fn warnings(editor: &Editor) -> String {
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(&mut status);
+    status.warnings
 }
 
 #[test]

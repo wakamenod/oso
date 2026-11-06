@@ -428,4 +428,6 @@ impl Restore {
 }
 
 #[cfg(test)]
+mod internal_tests;
+#[cfg(test)]
 mod tests;

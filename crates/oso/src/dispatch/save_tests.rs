@@ -282,7 +282,7 @@ fn a_save_failure_says_why_and_leaves_the_buffer_modified() {
     finish_saves(&mut editor);
     assert!(modified(&editor));
     assert!(!editor.current().1.is_saving());
-    assert!(last_message(&editor).starts_with("Cannot save"));
+    assert!(last_message(&editor).starts_with("Not saved"));
 }
 
 const QUIT: &str = "C-x C-c";

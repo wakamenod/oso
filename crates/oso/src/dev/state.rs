@@ -52,8 +52,8 @@ pub const MAX_TEXT_ROWS: usize = 10_000;
 /// Why text or pixels are refused.
 const WITHHELD: &str = "the buffer may hold secrets or is still being checked, so its text and pixels stay in the editor (ADR 0044)";
 
-/// The result of `get-state`: every buffer and window, the selected window's
-/// buffer, cursor, scroll position and visible text, the keys of a pending
+/// The result of `get-state`: every buffer of the user's and every window, the selected
+/// window's buffer, cursor, scroll position and visible text, the keys of a pending
 /// prefix, and the surface size if there is a window.
 ///
 /// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`

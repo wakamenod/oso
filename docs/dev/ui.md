@@ -58,9 +58,9 @@ with hydra-posframe today.
   and errors, including caught command panics, until the next key.
 - The minibuffer no longer lives there, so the line is for messages only, and for
   what is being typed: `C-x-` or `C-u 5-`, which comes ahead of any message.
-- Every message is also appended to the `*Messages*` buffer, which `C-h e` shows and
-  leaves. What a command says when it fails while a secret buffer is shown stays out of
-  `*Messages*` and the log, and goes from the line once no such buffer is shown. An
+- Every message is also appended to the `*Messages*` buffer, which `C-h e` shows, and until
+  `C-x b` (M2-19) leaves. What a command says while a secret buffer is shown stays out of
+  `*Messages*` and the log, and goes from the line once the window moves on. An
   undefined key and "Quit" reach only the line
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 

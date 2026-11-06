@@ -1,30 +1,33 @@
-//! The messages the editor keeps, the echo area's line and `*Messages*` (ADR 0053,
-//! ADR 0063).
+//! The messages the editor keeps, the echo area's line and `*Messages*`, and going to
+//! and from that buffer (ADR 0053, ADR 0063).
 //!
 //! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O.
 //!
-//! [`Editor::message`] reaches the echo area, `*Messages*` and the log.
-//! [`Editor::echo`] reaches the echo area alone, for what must stay out of the other
-//! two. The echo area keeps its text until the next key, and what was echoed around
-//! a buffer that may hold secrets goes as soon as no such buffer is shown.
+//! [`Editor::message`] reaches the echo area, `*Messages*` and the log. [`Editor::echo`]
+//! reaches the echo area alone, for what must stay out of the other two. So does a
+//! message from a command run around a buffer that may hold secrets, whatever the
+//! command is, since what it says can depend on the text. The echo area keeps its
+//! text until the next key, and what was echoed around such a buffer goes as soon as
+//! it is out of view.
 
-use super::{Editor, Selected};
+use std::panic::{self, AssertUnwindSafe};
+
+use super::{Editor, Selected, clip_cursors};
 use crate::buffer::{BufferId, Replacement};
-use crate::display_map::DisplayPoint;
 use crate::selection::SelectionSet;
-use crate::sum_tree::Bias;
 use crate::window::Scroll;
 
 /// The messages the editor keeps, as Emacs's `message-log-max`.
 pub(super) const MAX_MESSAGES: usize = 1000;
 
-/// The longest message, in bytes: room for the longest path a message names on the
-/// platforms oso runs on, and for what it says about it. A longer one is cut, so that
-/// nothing can make the log or `*Messages*` grow faster than this.
-pub const MAX_MESSAGE_BYTES: usize = 4096;
+/// The longest message, in bytes, and the longest row of `*Messages*`: room for what
+/// a message says and the longest path most systems have. Messages say what happened
+/// before they name a path, so that a cut takes the path's end. Nothing can make the
+/// log or `*Messages*` grow faster than this.
+pub(super) const MAX_MESSAGE_BYTES: usize = 4096;
 
-/// What ends a message that was cut.
-const CUT: char = '…';
+/// What ends a text that was cut.
+pub(super) const CUT: char = '…';
 
 /// A message as the log and `*Messages*` show it: control and non-printable
 /// characters are escaped, so that a name in it cannot move a terminal's cursor,
@@ -59,12 +62,13 @@ fn capped(mut text: String) -> String {
 /// The echo area's line, until the next key.
 pub(super) struct Echo {
     text: String,
-    /// It says something of a buffer that may hold secrets, so it shows only while
-    /// one is shown.
+    /// It was said around a buffer that may hold secrets, so it shows only while one
+    /// is shown, and goes when the window moves on.
     withheld: bool,
 }
 
-/// Where a window was before it showed `*Messages*`, to go back to.
+/// Where a window was before it showed `*Messages*`, to go back to. M2-19 removes this
+/// with the way back, once `C-x b` leaves that buffer.
 pub(super) struct Place {
     buffer: BufferId,
     selections: SelectionSet,
@@ -76,21 +80,48 @@ impl Editor {
     /// log. Save completion and recovery offers arrive outside commands, so it
     /// is here and not on [`Ctx`](crate::command::Ctx). Messages reach the log and
     /// a client of the control socket: they must never quote buffer text (ADR 0028).
-    /// One longer than [`MAX_MESSAGE_BYTES`] is cut.
+    /// A long one is cut, so what it says comes before any path it names.
+    ///
+    /// From a command run around a buffer that may hold secrets, this only reaches the
+    /// echo area, as [`Editor::echo`] does, or nothing if that buffer has left the screen.
+    /// What a command says can depend on the text: "End of buffer" says where a cursor is.
     pub fn message(&mut self, text: impl Into<String>) {
+        if self.shows_secret() && self.undo_scope.is_some() {
+            self.echo(text);
+            return;
+        }
+        if self.command_began_on_a_secret() {
+            return;
+        }
         let text = capped(text.into());
-        let shown = log_text(&text);
+        let shown = capped(log_text(&text));
         log::info!("{shown}");
         let full = self.messages.len() == MAX_MESSAGES;
         if full {
             self.messages.pop_front();
         }
-        self.add_to_messages_buffer(&shown, full);
+        self.messages.push_back(text.clone());
         self.echo = Some(Echo {
-            text: text.clone(),
+            text,
             withheld: false,
         });
-        self.messages.push_back(text);
+        // This comes last, and a panic here costs a row: a message reports what went
+        // wrong, also just after a panic, outside the boundary that catches those.
+        let added = panic::catch_unwind(AssertUnwindSafe(|| {
+            self.add_to_messages_buffer(&shown, full);
+        }));
+        if added.is_err() {
+            log::error!("a message did not reach *Messages*");
+        }
+    }
+
+    /// Whether a command is running that began with a buffer that may hold secrets in
+    /// the selected window.
+    fn command_began_on_a_secret(&self) -> bool {
+        self.undo_scope
+            .as_ref()
+            .and_then(|scope| self.buffer(scope.before.0))
+            .is_some_and(|buffer| buffer.is_secret())
     }
 
     /// Shows `text` in the echo area alone, for what must stay out of the log and
@@ -103,32 +134,30 @@ impl Editor {
         });
     }
 
-    /// As [`Editor::echo`], for what a command said around a buffer that may hold
-    /// secrets: where a motion stopped says where the cursor is (ADR 0058). It shows
-    /// only while such a buffer is shown.
-    pub fn echo_withheld(&mut self, text: impl Into<String>) {
-        self.echo = Some(Echo {
-            text: capped(text.into()),
-            withheld: true,
-        });
-    }
-
     /// Empties the echo area. The next key does this, as in Emacs.
     pub fn clear_echo(&mut self) {
         self.echo = None;
     }
 
-    /// Sets what is being typed, such as a prefix argument or a prefix key, which
-    /// the echo area shows ahead of anything else until it is empty again.
-    pub fn set_typing(&mut self, text: &str) {
-        self.typing.clear();
-        self.typing.push_str(text);
+    /// Forgets what was echoed around a buffer that may hold secrets, as the window
+    /// moves on, so that it does not come back with the next such buffer.
+    pub(super) fn forget_withheld_echo(&mut self) {
+        if self.echo.as_ref().is_some_and(|echo| echo.withheld) {
+            self.echo = None;
+        }
+    }
+
+    /// Sets the keys in progress, a prefix argument and a prefix key, which the echo
+    /// area shows ahead of anything else until they are empty again.
+    pub fn set_keys_in_progress(&mut self, keys: &str) {
+        self.keys_in_progress.clear();
+        self.keys_in_progress.push_str(keys);
     }
 
     /// What the echo area shows.
     pub(super) fn echo_text(&self) -> &str {
-        if !self.typing.is_empty() {
-            return &self.typing;
+        if !self.keys_in_progress.is_empty() {
+            return &self.keys_in_progress;
         }
         match &self.echo {
             Some(echo) if !echo.withheld || self.shows_secret() => &echo.text,
@@ -139,11 +168,6 @@ impl Editor {
     /// The messages kept, oldest first; the last is the newest.
     pub fn messages(&self) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator {
         self.messages.iter().map(String::as_str)
-    }
-
-    /// The buffer behind `*Messages*`.
-    pub fn messages_buffer(&self) -> BufferId {
-        self.messages_buffer
     }
 
     /// Shows `*Messages*` in the selected window, with its last row in view. From
@@ -159,13 +183,20 @@ impl Editor {
             self.show(self.messages_buffer);
             let (window, buffer) = self.current_mut();
             window.selections = SelectionSet::new(buffer.text().len());
+            self.follow_cursor();
             return;
         }
         let back = self.before_messages.take();
         match back.filter(|place| self.buffer(place.buffer).is_some()) {
-            Some(place) => {
-                self.show(place.buffer);
-                self.restore_positions(place.selections, place.scroll);
+            Some(Place {
+                buffer,
+                mut selections,
+                scroll,
+            }) => {
+                self.show(buffer);
+                // The buffer may have changed behind `*Messages*`.
+                clip_cursors(&mut selections, &self.current().1.display(), &[]);
+                self.restore_positions(selections, scroll);
             }
             None => {
                 let scratch = self.scratch();
@@ -176,19 +207,14 @@ impl Editor {
 
     /// Adds a row to `*Messages*`, and takes the oldest one out if `full`. The text
     /// has no line break, as [`log_text`] escapes them, so each message is one row.
-    /// Cursors at the end stay at the end.
+    /// Cursors at the end stay at the end, and the view follows the selected window's.
     fn add_to_messages_buffer(&mut self, shown: &str, full: bool) {
         let id = self.messages_buffer;
         let Some(buffer) = self.buffer(id) else {
             return;
         };
-        let display = buffer.display();
         let end = buffer.text().len();
-        let oldest = if full {
-            display.display_point_to_offset(DisplayPoint::new(1, 0), Bias::Left)
-        } else {
-            0
-        };
+        let oldest = if full { buffer.text().line_start(1) } else { 0 };
         let line = format!("{shown}\n");
         let edits = [
             Replacement {
@@ -211,7 +237,9 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
-        self.messages_added = self.messages_added.wrapping_add(1);
+        if self.window().buffer() == id {
+            self.follow_cursor();
+        }
     }
 }
 
@@ -220,10 +248,12 @@ mod tests {
     use super::*;
     use crate::buffer::{Buffer, EditError, ReadOnly};
     use crate::editor::MESSAGES;
+    use crate::selection::Selection;
+    use crate::window::ViewSize;
     use std::path::PathBuf;
 
     fn messages_text(editor: &Editor) -> String {
-        let id = editor.messages_buffer();
+        let id = editor.messages_buffer;
         editor.buffer(id).unwrap().text().to_string()
     }
 
@@ -245,7 +275,7 @@ mod tests {
             messages_text(&editor),
             "Saved\ncannot open a\\nb\\u{202e}c\n"
         );
-        let id = editor.messages_buffer();
+        let id = editor.messages_buffer;
         let buffer = editor.buffer(id).unwrap();
         assert_eq!(buffer.name(), MESSAGES);
         assert_eq!(buffer.display().row_count(), 3);
@@ -277,7 +307,7 @@ mod tests {
         let mut editor = Editor::default();
         editor.message("Saved");
         assert_eq!(editor.buffers().count(), 1, "only *scratch*");
-        let id = editor.messages_buffer();
+        let id = editor.messages_buffer;
         let buffer = editor.buffer(id).unwrap();
         assert!(buffer.is_internal());
         assert!(!buffer.is_modified());
@@ -292,7 +322,7 @@ mod tests {
     fn a_key_cannot_edit_it_or_undo_it_or_kill_it() {
         let mut editor = Editor::default();
         editor.message("Saved");
-        let id = editor.messages_buffer();
+        let id = editor.messages_buffer;
         let edit = Replacement {
             range: 0..0,
             text: "x",
@@ -333,27 +363,119 @@ mod tests {
     }
 
     #[test]
-    fn what_was_echoed_around_a_secret_goes_when_it_does() {
-        for withheld in [true, false] {
-            let mut editor = on_a_secret();
-            let secret = editor.window().buffer();
-            if withheld {
-                editor.echo_withheld("End of buffer");
-            } else {
-                editor.echo("End of buffer");
-            }
-            assert_eq!(
-                echo(&editor),
-                "End of buffer",
-                "for the person at the screen"
-            );
-            let other = editor.add_buffer(Buffer::new("other"));
-            editor.show(other);
-            assert_eq!(echo(&editor), "", "with the secret out of view");
-            editor.show(secret);
-            assert_eq!(echo(&editor), "End of buffer");
-            assert_eq!(editor.messages().count(), 0);
+    fn what_was_echoed_around_a_secret_goes_for_good_when_the_window_moves_on() {
+        let mut editor = on_a_secret();
+        let secret = editor.window().buffer();
+        editor.echo("End of buffer");
+        assert_eq!(
+            echo(&editor),
+            "End of buffer",
+            "for the person at the screen"
+        );
+        let other = editor.add_buffer(Buffer::new("other"));
+        editor.show(other);
+        assert_eq!(echo(&editor), "", "with the secret out of view");
+        editor.show(secret);
+        assert_eq!(echo(&editor), "", "it does not come back");
+        assert_eq!(editor.messages().count(), 0);
+    }
+
+    #[test]
+    fn what_was_echoed_around_a_secret_goes_with_a_killed_buffer() {
+        let mut editor = on_a_secret();
+        let secret = editor.window().buffer();
+        editor.echo("End of buffer");
+        editor.kill_buffer(secret);
+        assert_eq!(echo(&editor), "");
+    }
+
+    #[test]
+    fn a_message_from_a_command_around_a_secret_stays_in_the_echo_area() {
+        let mut editor = on_a_secret();
+        editor.begin_undo_group();
+        editor.message("End of buffer");
+        editor.end_undo_group();
+        assert_eq!(echo(&editor), "End of buffer");
+        assert_eq!(editor.messages().count(), 0);
+        assert_eq!(messages_text(&editor), "");
+    }
+
+    #[test]
+    fn a_message_from_a_command_that_left_a_secret_goes_nowhere() {
+        let mut editor = on_a_secret();
+        let other = editor.add_buffer(Buffer::new("other"));
+        editor.begin_undo_group();
+        editor.show(other);
+        editor.message("End of buffer");
+        editor.end_undo_group();
+        assert_eq!(echo(&editor), "");
+        assert_eq!(editor.messages().count(), 0);
+        assert_eq!(messages_text(&editor), "");
+    }
+
+    #[test]
+    fn a_message_from_outside_a_command_is_kept_around_a_secret() {
+        let mut editor = on_a_secret();
+        editor.message("Wrote /tmp/.env");
+        assert_eq!(editor.messages().count(), 1);
+        assert_eq!(messages_text(&editor), "Wrote /tmp/.env\n");
+    }
+
+    #[test]
+    fn a_message_and_its_row_are_capped_on_a_character_boundary() {
+        let mut editor = Editor::default();
+        editor.message("日".repeat(MAX_MESSAGE_BYTES));
+        let newest = editor.messages().next_back().unwrap();
+        assert!(newest.len() <= MAX_MESSAGE_BYTES);
+        assert!(newest.ends_with(CUT));
+        editor.echo("x".repeat(MAX_MESSAGE_BYTES * 2));
+        assert_eq!(echo(&editor).len(), MAX_MESSAGE_BYTES);
+
+        // A control character takes six bytes as it is escaped.
+        let mut editor = Editor::default();
+        editor.message("\u{7f}".repeat(MAX_MESSAGE_BYTES));
+        let text = messages_text(&editor);
+        assert!(text.len() <= MAX_MESSAGE_BYTES + 1, "{}", text.len());
+    }
+
+    #[test]
+    fn the_view_follows_a_message_from_outside_a_command() {
+        let mut editor = Editor::default();
+        editor.set_view_size(ViewSize::new(3, 40));
+        editor.toggle_messages();
+        for index in 0..10 {
+            editor.message(format!("{index}"));
         }
+        assert_eq!(
+            editor.window().scroll().top,
+            8,
+            "the empty last row in view"
+        );
+    }
+
+    #[test]
+    fn it_comes_back_to_where_the_window_was_with_every_cursor() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "abcdef"));
+        let cursors = vec![Selection::at(1), Selection::at(3), Selection::at(5)];
+        let set = SelectionSet::from_parts(cursors, 1).unwrap();
+        editor.current_mut().0.selections = set.clone();
+        editor.message("one");
+        editor.toggle_messages();
+        assert_eq!(editor.current().1.name(), MESSAGES);
+        assert_eq!(editor.window().selections.primary().cursor, 4, "at the end");
+        editor.toggle_messages();
+        assert_eq!(editor.current().1.name(), "t");
+        assert_eq!(editor.window().selections, set);
+    }
+
+    #[test]
+    fn it_comes_back_to_scratch_if_the_buffer_has_gone() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "abc"));
+        let id = editor.window().buffer();
+        editor.toggle_messages();
+        editor.kill_buffer(id);
+        editor.toggle_messages();
+        assert_eq!(editor.current().1.name(), crate::editor::SCRATCH);
     }
 
     #[test]

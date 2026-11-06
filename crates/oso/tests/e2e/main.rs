@@ -483,8 +483,6 @@ fn the_modeline_and_the_echo_area_say_what_the_editor_does_and_get_a_frame() {
     assert_echo_gets_a_frame(&mut app, "C-b", "Beginning of buffer");
     assert_echo_gets_a_frame(&mut app, "C-x", "C-x-");
     assert_echo_gets_a_frame(&mut app, "C-z", "C-x C-z is undefined");
-    assert_echo_gets_a_frame(&mut app, "C-u 5", "C-u 5-");
-    assert_echo_gets_a_frame(&mut app, "C-g", "Quit");
 
     // The failure is in *Messages*, which holds no restart and cannot be typed in.
     let held = app.call("check-handover", None);

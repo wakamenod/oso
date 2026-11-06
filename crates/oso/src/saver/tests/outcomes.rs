@@ -72,8 +72,9 @@ fn what_the_disk_did_not_confirm_is_said_as_it_is_and_counts_as_written() {
             })),
         };
         let message = applied(&mut editor, report);
-        assert!(message.starts_with("Wrote"), "{message}");
-        assert!(message.ends_with(said), "{message}");
+        assert!(!message.starts_with("Wrote"), "{message}");
+        assert!(message.contains(said), "{message}");
+        assert!(message.ends_with(&path.display().to_string()), "{message}");
         assert!(!editor.current().1.is_modified());
     }
 }
@@ -94,7 +95,7 @@ fn each_outcome_says_so_by_path_and_quotes_no_text() {
     fs::write(&path, b"changed\n").unwrap();
     let message = applied(&mut editor, run(job));
     assert!(
-        message.starts_with(&shown) && message.contains("changed on disk"),
+        message.ends_with(&shown) && message.starts_with("Not saved: the file changed on disk"),
         "{message}"
     );
     assert!(editor.current().1.is_modified());
@@ -104,7 +105,7 @@ fn each_outcome_says_so_by_path_and_quotes_no_text() {
     let buffer = job.buffer;
     let report = SaveReport::not_started(buffer, path.clone(), std::io::Error::other("no threads"));
     let message = applied(&mut editor, report);
-    assert_eq!(message, format!("Cannot save {shown}: no threads"));
+    assert_eq!(message, format!("Not saved: no threads: {shown}"));
     assert!(editor.current().1.is_modified());
     for message in editor.messages() {
         assert!(!message.contains(SECRET.trim()), "{message}");

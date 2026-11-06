@@ -129,12 +129,15 @@ item notes when it must be settled.
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
 - What panes below the frame's top row do with the band above their first row, which they
-  lose today: by M2-16 and M3. Panes of one row keep it
+  lose today: by M2-16 and M3. The modeline and the echo row keep it
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)). By M2-16, also what a
   float on the top row does about the top margin
   ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
-- By M2-19: whether `kill-buffer` may kill `*Messages*`, which today it leaves, and how a long
-  name on the modeline tells apart two names that differ at their ends
+- By M2-16: `Buffer::is_internal` also means read-only with no undo, and the minibuffer's buffer
+  is internal but takes typing. Split the two.
+- By M2-19: whether `C-x b` lists `*Messages*`, and whether `kill-buffer` may kill it, which today
+  it leaves. `C-h e` going back and the `Place` behind it go then. How a long name on the modeline
+  tells apart two names that differ at their ends
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - `S-RET`, `S-DEL` and other shifted named keys with no binding do nothing. Emacs falls back to
   the unshifted key, so holding Shift a moment too long still types. Decide whether
@@ -189,6 +192,10 @@ item notes when it must be settled.
 - User-defined secret patterns ([ADR 0028](adr/0028-secrets-handling.md)) need the
   resolved paths kept, or resolving again, so config reload can judge open buffers
   again.
+- The count of bidi controls lives in the TabMap's summary. When the FoldMap or InlayMap goes
+  below the TabMap, move it to the rope's, which is at its size limit, so that hidden and virtual
+  text do not change the warning
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - The invalid-byte table lives in the TabMap and is keyed by buffer
   offsets. When the FoldMap or InlayMap goes below the TabMap, move it to
   the lowest layer that still sees buffer offsets, or to `DisplayMap`.

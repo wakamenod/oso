@@ -64,42 +64,44 @@ impl Dispatcher {
         self.resolver.pending()
     }
 
-    /// Picks up a prefix in progress, for a state handoff. Commands never run
-    /// here: keys that are no longer a prefix in this build are dropped.
+    /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.
+    /// Commands never run here: keys that are no longer a prefix in this build are
+    /// dropped.
     #[cfg(any(test, feature = "dev"))]
-    pub fn restore_pending(&mut self, keys: &[KeyPress]) {
+    pub fn restore_pending(&mut self, editor: &mut Editor, keys: &[KeyPress]) {
         let layers = Layers::global(&self.global);
         for key in keys {
             if !matches!(self.resolver.feed(&layers, *key), Resolution::Pending) {
                 self.resolver.reset();
-                return;
+                break;
             }
         }
+        self.show_keys_in_progress(editor);
     }
 
-    /// Tells the echo area what is being typed: the prefix argument and the keys of a
+    /// Tells the echo area the keys in progress: the prefix argument and the keys of a
     /// pending prefix (ADR 0058, ADR 0063).
-    pub fn show_typing(&self, editor: &mut Editor) {
+    fn show_keys_in_progress(&self, editor: &mut Editor) {
         let pending = self.resolver.pending();
-        let mut typing = String::new();
+        let mut keys = String::new();
         match self.prefix {
             None => {}
-            Some(Prefix::Universal(4)) => typing.push_str("C-u"),
-            Some(Prefix::Negative) => typing.push_str("C-u -"),
+            Some(Prefix::Universal(4)) => keys.push_str("C-u"),
+            Some(Prefix::Negative) => keys.push_str("C-u -"),
             Some(prefix) => {
-                let _ = write!(typing, "C-u {}", prefix.value());
+                let _ = write!(keys, "C-u {}", prefix.value());
             }
         }
         if !pending.is_empty() {
-            if !typing.is_empty() {
-                typing.push(' ');
+            if !keys.is_empty() {
+                keys.push(' ');
             }
-            let _ = write!(typing, "{}", display_keys(pending));
+            let _ = write!(keys, "{}", display_keys(pending));
         }
-        if !typing.is_empty() {
-            typing.push('-');
+        if !keys.is_empty() {
+            keys.push('-');
         }
-        editor.set_typing(&typing);
+        editor.set_keys_in_progress(&keys);
     }
 
     /// Handles key presses in order. Keys after one that exits are dropped.
@@ -147,7 +149,7 @@ impl Dispatcher {
     ) -> (Effects, Result<(), String>) {
         editor.clear_echo();
         let outcome = self.run_named(editor, name, arg);
-        self.show_typing(editor);
+        self.show_keys_in_progress(editor);
         outcome
     }
 
@@ -191,7 +193,7 @@ impl Dispatcher {
         editor.reset_exit_guard();
         editor.clear_echo();
         let effects = self.run_text(editor, text);
-        self.show_typing(editor);
+        self.show_keys_in_progress(editor);
         effects
     }
 
@@ -225,8 +227,10 @@ impl Dispatcher {
     /// character on its key, in an undo group of its own, so that it undoes as one
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
-    /// failure is not fatal (ADR 0014), and leaves a message. Around a buffer that may
-    /// hold secrets it only reaches the echo area, as a failure can say where a cursor is.
+    /// failure is not fatal (ADR 0014), and leaves a message, while the undo group is
+    /// still open: that is what keeps one out of the log around a secret buffer, as a
+    /// failure can say where a cursor is. A panic names only the command, and is a bug
+    /// to find.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
     fn execute(
         &mut self,
@@ -242,7 +246,6 @@ impl Dispatcher {
         };
         self.last = Some((id, repeats));
         let exit_attempt = editor.exit_attempt();
-        let secret_before = editor.shows_secret();
         editor.begin_undo_group();
         let invocation = Invocation {
             input,
@@ -256,12 +259,8 @@ impl Dispatcher {
         match &result {
             Ok(()) => editor.end_undo_group(),
             Err(ExecuteError::Failed { error, .. }) => {
+                editor.message(error.message());
                 editor.end_undo_group();
-                if secret_before || editor.shows_secret() {
-                    editor.echo_withheld(error.message());
-                } else {
-                    editor.message(error.message());
-                }
             }
             Err(error @ ExecuteError::Panicked { .. }) => {
                 editor.end_undo_group_after_panic();
@@ -289,7 +288,7 @@ impl Dispatcher {
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         editor.clear_echo();
         let effects = self.resolve_key(editor, key);
-        self.show_typing(editor);
+        self.show_keys_in_progress(editor);
         effects
     }
 
@@ -770,15 +769,15 @@ mod tests {
         let mut dispatcher = Dispatcher::new();
         let mut editor = editor("abc");
         let keys = |s: &str| s.parse::<KeySequence>().unwrap().0;
-        dispatcher.restore_pending(&keys("C-x"));
+        dispatcher.restore_pending(&mut editor, &keys("C-x"));
         assert_eq!(dispatcher.pending(), keys("C-x"));
         assert!(send(&mut dispatcher, &mut editor, "C-c").exit);
 
         // Not a prefix any more: a command, or nothing at all.
-        dispatcher.restore_pending(&keys("C-f"));
+        dispatcher.restore_pending(&mut editor, &keys("C-f"));
         assert!(dispatcher.pending().is_empty());
         assert_eq!(cursor(&editor), 0, "the command did not run");
-        dispatcher.restore_pending(&keys("C-x C-z C-z"));
+        dispatcher.restore_pending(&mut editor, &keys("C-x C-z C-z"));
         assert!(dispatcher.pending().is_empty());
     }
 }

@@ -43,13 +43,8 @@ fn text_grid(editor: &Editor) -> String {
     draw_text_area(editor, regions.window.text, &mut lines);
     let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
     draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
-    // A frame with no modeline has its warnings on the echo row.
-    let warnings = if regions.window.modeline.rows == 0 {
-        &status.warnings[..]
-    } else {
-        ""
-    };
-    draw_spans(&[warnings, &status.echo[..]], regions.echo, '"', &mut lines);
+    let echo = [status.echo_warnings(), &status.echo[..]];
+    draw_spans(&echo, regions.echo, '"', &mut lines);
     lines.join("\n")
 }
 
