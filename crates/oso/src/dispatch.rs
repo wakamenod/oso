@@ -19,6 +19,7 @@ use oso_core::key::Key;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
 
+use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
 /// Runs commands for key presses. Keys from the window and from the dev
@@ -35,6 +36,8 @@ pub struct Dispatcher {
     /// The command that ran last, with no undefined or cancelled key since, and
     /// how many times in a row it had run before that.
     last: Option<(CommandId, usize)>,
+    /// Keeps the emergency save up to date, in the running app (ADR 0062).
+    publisher: Option<Publisher>,
 }
 
 impl Dispatcher {
@@ -55,6 +58,21 @@ impl Dispatcher {
             resolver: KeyResolver::new(),
             prefix: None,
             last: None,
+            publisher: None,
+        }
+    }
+
+    /// Keeps the emergency save up to date through `publisher`.
+    pub fn set_publisher(&mut self, publisher: Publisher) {
+        self.publisher = Some(publisher);
+    }
+
+    /// Tells the emergency save what has changed. A command's end does this itself; the
+    /// host calls this for anything else that changes a buffer: a save reporting, a load.
+    /// That takes in nothing a panicking command left.
+    pub fn publish_for_emergency(&self, editor: &Editor) {
+        if let Some(publisher) = &self.publisher {
+            publisher.publish(editor);
         }
     }
 
@@ -231,6 +249,8 @@ impl Dispatcher {
     /// around a secret buffer, as it can say where a cursor is. A panic names only the
     /// command, and is a bug to find, so it comes after the command is marked as ended.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
+    /// What a panicking command left is held back from the emergency save until a command
+    /// ends normally, as the person has then seen it and gone on from it.
     fn execute(
         &mut self,
         editor: &mut Editor,
@@ -253,7 +273,9 @@ impl Dispatcher {
             repeats,
         };
         let mut ctx = Ctx::invoked(editor, invocation);
+        let boundary = self.publisher.as_ref().map(Publisher::enter_command);
         let result = self.registry.execute(id, &mut ctx, args);
+        drop(boundary);
         let mut effects = ctx.effects();
         self.prefix = effects.prefix.take();
         match &result {
@@ -280,6 +302,13 @@ impl Dispatcher {
             editor.reset_exit_guard();
         }
         effects.redraw |= editor.follow_cursor();
+        if let Some(publisher) = &self.publisher {
+            if matches!(result, Err(ExecuteError::Panicked { .. })) {
+                publisher.command_panicked(editor);
+            } else {
+                publisher.command_ended(editor);
+            }
+        }
         (effects, result)
     }
 
@@ -350,6 +379,8 @@ impl Dispatcher {
 
 #[cfg(test)]
 mod edit_tests;
+#[cfg(test)]
+mod emergency_tests;
 #[cfg(test)]
 mod grid_tests;
 #[cfg(test)]

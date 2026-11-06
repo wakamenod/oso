@@ -59,12 +59,28 @@ item notes when it must be settled.
 
 - Safe save loses a file's extended attributes and ACLs, since `std` cannot copy them
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
-  Decide whether copying them is worth `libc` once M2-10 brings it to release builds.
+  `libc` is in release builds now ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)), so decide whether copying them is worth it.
 - By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
   buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. The same goes for
   a buffer whose load could not tell where its file is. A file owned by
   another user cannot be saved at all; decide whether the prompt should offer writing in place
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- By M2-11: emergency copies stay in their directory for good until recovery deals with them, and a person removing them
+  is all there is ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)). Decide when one goes: once recovered, once
+  declined, or after some time. A copy of a state that a save finished at that same moment equals its file, and should not be offered. A `.txt`
+  with no `.meta` is a whole text from a crash between the two renames. On a file system that ignores case or normalizes names, a file opened under
+  another spelling has another hash and location, so a copy could go unoffered: decide whether a location should take the file's own spelling, or recovery should compare files.
+- The emergency save, small things to settle ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)):
+  - `write_copy` drops what `unless_unsupported` returns, so its report says nothing when a file system cannot confirm a sync, as a save's message does.
+  - A panic that cannot unwind under a command aborts without the copies, as the hook takes the first panic under a command to be caught.
+  - A caught panic does not wait for its printing thread, so these threads can pile up while stderr is blocked.
+  - `write_copies_with` records what it wrote only if `try_lock` gives `Ok`, while `select` also takes a poisoned lock. At worst a copy is written twice.
+- `saver::write_text` and `emergency::write`'s `write_text` are near copies, as are their checks that the whole text was kept. Join them if a third user arrives.
+- By M2-14 and M2-18: `Verdict` gains a variant for a tainting yank, which judging a path again must not clear, M2-14 decides whether a kill from an `Unresolved`
+  buffer taints, and `C-x C-w` must give an entry in the emergency state a new identity, as its path changes with no text change
+  ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
+- Tier 2, before Linux or Windows are daily systems: a logout may not reach `exiting` there, so only a panic writes copies ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
+  winit on Windows does not handle the end of a session, and on Linux one usually comes as a signal, or a close request that the exit guard refuses.
 - By M2-11: a kill or a power cut during a save leaves a `.oso-save-*.tmp` beside the file, and
   nothing removes it. Decide whether finding one is part of recovery, keeping in mind that one
   may hold a secret buffer's text ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).

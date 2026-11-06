@@ -31,6 +31,9 @@
 //! has, since the text may then exist nowhere else.
 //!
 //! Errors and messages name the path and never quote the text (ADR 0028).
+//!
+//! `emergency` shares the temporary file and the syncing with this, from the layer above
+//! (ADR 0062).
 
 use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{self, BufWriter, Write};
@@ -46,11 +49,11 @@ use crate::loader::{location, parent, stamp_of};
 
 mod leaving;
 
-pub use leaving::{AfterSave, Leaving};
+pub use leaving::{AfterSave, Agreement, AgreementCell, Leaving};
 
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
 /// a million.
-const WRITE_SIZE: usize = 1024 * 1024;
+pub(crate) const WRITE_SIZE: usize = 1024 * 1024;
 
 /// Every temporary file's name starts with this. It is hidden, says what it is, and
 /// does not hold the file's own name, which could leave it too long for the system.
@@ -60,7 +63,7 @@ const TEMPORARY_PREFIX: &str = ".oso-save-";
 const NAME_ATTEMPTS: u32 = 64;
 
 /// A temporary file's mode while the text goes in: only the user can read it.
-const PRIVATE_MODE: u32 = 0o600;
+pub(crate) const PRIVATE_MODE: u32 = 0o600;
 
 /// The mode a program asks for a new file, which the umask then narrows.
 #[cfg(unix)]
@@ -336,7 +339,7 @@ impl Prepared {
 ///
 /// `std` makes `sync_all` a bare `F_FULLFSYNC` on macOS, with no fallback, and some network
 /// and FUSE mounts refuse that. So nothing could ever be saved there.
-fn unless_unsupported(synced: io::Result<()>) -> io::Result<Option<io::Error>> {
+pub(crate) fn unless_unsupported(synced: io::Result<()>) -> io::Result<Option<io::Error>> {
     match synced {
         Ok(()) => Ok(None),
         Err(e) if sync_is_unsupported(&e) => Ok(Some(e)),
@@ -472,7 +475,7 @@ fn keep_attributes(
 }
 
 /// A rename is durable once its directory is synced. Windows has no such thing.
-fn sync_directory(directory: &Path) -> io::Result<()> {
+pub(crate) fn sync_directory(directory: &Path) -> io::Result<()> {
     #[cfg(unix)]
     File::open(directory)?.sync_all()?;
     #[cfg(not(unix))]
@@ -494,14 +497,14 @@ fn open_new(path: &Path, mode: u32) -> io::Result<File> {
 
 /// A temporary file's name, removed when this is dropped unless it was renamed, also
 /// on the way out of a panic.
-struct Temporary {
+pub(crate) struct Temporary {
     path: PathBuf,
     renamed: bool,
 }
 
 impl Temporary {
     /// Creates a file with a new name beside nothing it could be mistaken for.
-    fn create(directory: &Path, mode: u32) -> io::Result<(Self, File)> {
+    pub(crate) fn create(directory: &Path, mode: u32) -> io::Result<(Self, File)> {
         let stamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |since| since.subsec_nanos());
@@ -521,7 +524,12 @@ impl Temporary {
         Err(io::Error::other("could not find a free temporary name"))
     }
 
-    fn rename_over(mut self, target: &Path) -> io::Result<()> {
+    /// The temporary name.
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn rename_over(mut self, target: &Path) -> io::Result<()> {
         fs::rename(&self.path, target)?;
         self.renamed = true;
         Ok(())

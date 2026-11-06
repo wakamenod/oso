@@ -94,6 +94,7 @@ impl App {
                 self.restore.as_ref(),
             ),
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
+            dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::ImportState(state) => self.import_state(*state),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
@@ -105,6 +106,16 @@ impl App {
             }
         };
         let _ = reply.send(result);
+    }
+
+    /// Ends the process as the emergency save's flows need (ADR 0062): by a panic outside the
+    /// command boundary, whose message quotes the text, or with nobody having agreed to it.
+    fn end_for_a_test(&self, event_loop: &ActiveEventLoop, op: &dev::UiOp) -> dev::Reply {
+        if *op == dev::UiOp::Panic {
+            panic!("a deliberate panic: {}", self.editor.current().1.text());
+        }
+        event_loop.exit();
+        Ok(json!({ "ending": true }))
     }
 
     /// The result of `open-file`: visits a file in the selected window.

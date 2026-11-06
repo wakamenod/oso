@@ -6,6 +6,8 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+#[cfg(feature = "dev")]
+mod dev_tools;
 mod edit;
 mod messages;
 mod motion;
@@ -25,6 +27,8 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    #[cfg(feature = "dev")]
+    dev_tools::COMMANDS,
     edit::COMMANDS,
     messages::COMMANDS,
     motion::COMMANDS,
@@ -89,6 +93,12 @@ mod tests {
 
     pub(super) fn cursor(editor: &Editor) -> usize {
         editor.window().selections.primary().cursor
+    }
+
+    #[cfg(not(feature = "dev"))]
+    #[test]
+    fn a_build_without_the_dev_tools_has_no_dev_commands() {
+        assert_eq!(registry().lookup("dev-panic"), None);
     }
 
     #[test]

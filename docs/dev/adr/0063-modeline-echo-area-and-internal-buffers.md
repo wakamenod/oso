@@ -111,9 +111,10 @@ in such a file, with the text itself on the same screen.
 - **A message says what happened before it names a path,** "Not saved: the file changed on disk…: path", so
   that a long path cannot hide it, on the echo row or at the cap. So save failures read differently. A save
   the disk did not confirm begins "Wrote the file, but", as the buffer then counts as saved.
-- **A message that cannot reach `*Messages*` costs that row.** `Editor::message` runs after a caught panic,
-  outside the boundary of ADR 0014, and now edits a rope, so it sets the echo area first, and
-  catches a panic in the edit. The edit is made on clones, so it leaves nothing part way.
+- **A panic while adding a row to `*Messages*` is not caught.** `Editor::message` runs outside the command
+  boundary of ADR 0014, also just after a panic it reports, and now edits a rope. So such a panic does what any
+  panic outside a command does: ADR 0062's hook writes the emergency copies and the process ends. The log and the
+  echo area are set first. The edit is made on clones of a small buffer, so this takes a bug in the rope.
 - **The next key empties the echo area,** as in Emacs, and so does `run-command`. The wheel does not.
 - **What is being typed comes first,** ahead of any message, as Emacs does while a key sequence is
   under way: `C-x-`, `C-u-`, `C-u 16-`, `C-u 5 C-x-`. The dispatcher owns it and tells the editor after
@@ -220,6 +221,10 @@ These ADRs stay as they are; this one changes the following:
 - M3's splits need a `Status` per window, and modelines that differ between the active window and the others.
 
 ## Alternatives considered
+
+- **Catching a panic while adding a row:** one row lost in place of the session, but ADR 0062's hook has by then
+  written copies and said that oso panicked, and the editor would run on after it. Calling it a command for the hook
+  needs what the tip crate holds, from every caller of `Editor::message`.
 
 - **The position in a pane of its own,** so that a cursor's move shapes a few characters and not the row: it
   saves a little, by estimate 50 to 110 µs per key, for regions worked out from cell widths each frame. Reusing

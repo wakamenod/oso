@@ -11,6 +11,7 @@ mod commands;
 #[cfg(feature = "dev")]
 mod dev;
 mod dispatch;
+mod emergency;
 mod keys;
 mod loader;
 mod saver;
@@ -20,12 +21,16 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use app::{App, UserEvent};
+use emergency::Emergency;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 const USAGE: &str = "usage: oso [FILE]";
 
 fn main() {
     let started = std::time::Instant::now();
+    // First of all, before any text can be here, also in `oso ctl`. A dump would hold every
+    // buffer (ADR 0028).
+    let core_dumps = oso_platform::privacy::disable_core_dumps();
     #[cfg(feature = "dev")]
     if let Some(status) = dev::ctl::main_if_requested().or_else(dev::supervisor::main_if_requested)
     {
@@ -39,13 +44,24 @@ fn main() {
     {
         refuse_dev_tool();
     }
-    let file = match parse_args(std::env::args_os().skip(1)) {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    #[cfg(feature = "dev")]
+    let (args, emergency_directory) = dev::take_emergency_dir(args);
+    #[cfg(not(feature = "dev"))]
+    let emergency_directory = None;
+    let file = match parse_args(args) {
         Ok(Invocation::Help) => exit_with_usage(None),
         Ok(Invocation::Open(file)) => file,
         Err(message) => exit_with_usage(Some(&message)),
     };
 
     env_logger::init();
+    if let Err(e) = core_dumps {
+        // Only this level reaches a terminal with no `RUST_LOG`.
+        log::error!("cannot turn core dumps off: {e}");
+    }
+    let emergency = Emergency::new(emergency_directory.or_else(emergency::default_directory));
+    emergency.install_hook();
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     // Building AppKit's default menu delays the first frame by about 55 ms,
     // and its Command shortcuts would clash with Command = Meta (ADR 0046).
@@ -58,6 +74,13 @@ fn main() {
     // Sleep until an event arrives; frames are drawn only on demand.
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
+    {
+        let proxy = proxy.clone();
+        emergency.check_directory(move |problem| {
+            // It fails only once the event loop is gone, when there is nobody to tell.
+            let _ = proxy.send_event(UserEvent::NoEmergencyCopies(problem));
+        });
+    }
     log::debug!("event loop built {:?} after start", started.elapsed());
 
     #[cfg(feature = "dev")]
@@ -65,7 +88,7 @@ fn main() {
         let proxy = proxy.clone();
         dev::start(move |request| proxy.send_event(UserEvent::Control(request)).is_ok())
     };
-    let mut app = App::new(proxy, started);
+    let mut app = App::new(proxy, started, emergency);
     #[cfg(feature = "dev")]
     app.set_dev(dev);
     // Loading starts before the window exists, so the file is read while

@@ -68,6 +68,7 @@ old one's status.
 | 0059 | [Safe save and the exit guard](0059-safe-save-and-the-exit-guard.md) | Accepted |
 | 0060 | [Timings while a secret buffer is shown](0060-timings-while-a-secret-buffer-is-shown.md) | Accepted |
 | 0061 | [Panes: drawing a frame as a list with clipping and layers](0061-panes-clipping-and-layers.md) | Accepted |
+| 0062 | [The emergency save, the panic hook and no core dumps](0062-emergency-save-and-the-panic-hook.md) | Accepted |
 | 0063 | [The modeline, the echo area and internal buffers](0063-modeline-echo-area-and-internal-buffers.md) | Proposed |
 
 ## Template

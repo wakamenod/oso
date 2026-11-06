@@ -27,6 +27,7 @@ mod saves;
 #[cfg(feature = "dev")]
 use crate::dev;
 use crate::dispatch::Dispatcher;
+use crate::emergency::Emergency;
 use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
@@ -38,6 +39,8 @@ pub enum UserEvent {
     Load(BufferId),
     /// A saving thread has ended.
     Save(SaveReport),
+    /// No emergency copy could be written, for this reason (ADR 0062).
+    NoEmergencyCopies(String),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -60,6 +63,8 @@ pub struct App {
     loads: Vec<Load>,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
+    /// What the panic hook and the end of the event loop write (ADR 0062).
+    emergency: Emergency,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
@@ -82,15 +87,19 @@ pub struct App {
 impl App {
     /// An app with no window yet, showing `*scratch*`. Loading threads
     /// report through `proxy`.
-    pub fn new(proxy: EventLoopProxy<UserEvent>, started: Instant) -> Self {
+    pub fn new(proxy: EventLoopProxy<UserEvent>, started: Instant, emergency: Emergency) -> Self {
+        let mut dispatcher = Dispatcher::new();
+        dispatcher.set_publisher(emergency.publisher());
+        let leaving = Leaving::with_cell(emergency.agreement_cell());
         Self {
             view: None,
             editor: Editor::default(),
-            dispatcher: Dispatcher::new(),
+            dispatcher,
             modifiers: ModifiersState::default(),
             proxy,
             loads: Vec::new(),
-            leaving: Leaving::default(),
+            leaving,
+            emergency,
             started: Some(started),
             wheel: WheelRemainder::default(),
             status: Status::default(),

@@ -5,8 +5,9 @@
 //! first.
 //!
 //! The dev control socket withholds these files' text and pixels, and the
-//! emergency save (M2) skips them. A file's name and directories decide, so
-//! a hard link to a secret under another name is not caught.
+//! emergency save skips them. A file's name and directories decide, so a hard
+//! link to a secret under another name is not caught. The two differ over a
+//! path nobody could resolve, which [`Verdict`] tells apart (ADR 0051).
 //!
 //! Matching is broader than the ADR 0028 list in two ways, both toward
 //! calling more files secret:
@@ -31,8 +32,37 @@ const PREFIXES: [&[u8]; 3] = [b".env.", b"id_", b"credentials"];
 /// Ends of file names.
 const SUFFIXES: [&[u8]; 4] = [b".pem", b".key", b".p12", b".pfx"];
 
+/// What is known of whether a buffer's text may hold secrets. Each use asks its own
+/// question of this, so that a new reason (M2-14: a yank from a secret buffer) is one
+/// more variant here, and no caller changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verdict {
+    /// A file just visited, before its path has been resolved.
+    Unjudged,
+    /// No file, or no name on the path or where it leads matches a pattern.
+    Ordinary,
+    /// Nobody could tell where the path leads, and no name seen on the way matches.
+    Unresolved,
+    /// A name on the path or where it leads matches a pattern.
+    SecretName,
+}
+
+impl Verdict {
+    /// Whether dev tooling must withhold the text (ADR 0044). Anything not known to be
+    /// ordinary is.
+    pub const fn is_withheld(self) -> bool {
+        !matches!(self, Self::Ordinary)
+    }
+
+    /// Whether an emergency copy may hold the text (ADR 0051). An unresolved path is
+    /// allowed, since losing the work is the worse mistake when no name says secret.
+    pub const fn may_be_copied(self) -> bool {
+        matches!(self, Self::Ordinary | Self::Unresolved)
+    }
+}
+
 /// Whether `path` matches a secret pattern, as written. A symbolic link is
-/// judged by its own name: see [`is_secret`].
+/// judged by its own name: see [`judge`].
 fn matches_pattern(path: &Path) -> bool {
     let in_directory = path.components().any(|component| match component {
         Component::Normal(name) => {
@@ -61,22 +91,45 @@ fn name_matches(name: &[u8]) -> bool {
         })
 }
 
-/// Whether the file opened as `opened` is secret. The path as opened counts,
-/// and so does every path in `resolved`: each link's target on the way and
-/// the canonical path. So a link to `~/.ssh/id_rsa` is caught whatever it is
-/// called, and so is a link through `~/.aws/credentials` to a file with an
-/// ordinary name. `None` means the path could not be resolved, and fails
-/// closed.
-pub(crate) fn is_secret(opened: &Path, resolved: Option<&[PathBuf]>) -> bool {
-    matches_pattern(opened)
-        || resolved.is_none_or(|paths| paths.iter().any(|path| matches_pattern(path)))
+/// The verdict on the file opened as `opened`, if any, where `resolved` says where it leads: each
+/// link's target on the way and the canonical path. Every one of them counts, so a link
+/// to `~/.ssh/id_rsa` is caught whatever it is called, and so is a link through
+/// `~/.aws/credentials` to a file with an ordinary name. `None` means it could not be
+/// resolved.
+pub(crate) fn judge(opened: Option<&Path>, resolved: Option<&[PathBuf]>) -> Verdict {
+    let Some(resolved) = resolved else {
+        return judge_unresolved(opened, &[]);
+    };
+    match opened {
+        Some(opened) if any_matches(opened, resolved) => Verdict::SecretName,
+        _ => Verdict::Ordinary,
+    }
+}
+
+/// The verdict on the file opened as `opened`, whose path could not be resolved. `seen`
+/// holds what the walk passed before it failed, as those names count too.
+pub(crate) fn judge_unresolved(opened: Option<&Path>, seen: &[PathBuf]) -> Verdict {
+    match opened {
+        Some(opened) if any_matches(opened, seen) => Verdict::SecretName,
+        Some(_) => Verdict::Unresolved,
+        None => Verdict::Ordinary,
+    }
+}
+
+fn any_matches(opened: &Path, others: &[PathBuf]) -> bool {
+    matches_pattern(opened) || others.iter().any(|path| matches_pattern(path))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{is_secret, matches_pattern};
+    use super::{Verdict, judge, judge_unresolved, matches_pattern};
     use proptest::prelude::*;
     use std::path::{Path, PathBuf};
+
+    /// Whether dev tooling withholds the file: `None` means it could not be resolved.
+    fn is_secret(opened: &Path, resolved: Option<&[PathBuf]>) -> bool {
+        judge(Some(opened), resolved).is_withheld()
+    }
 
     fn secret(path: &str) -> bool {
         matches_pattern(Path::new(path))
@@ -178,6 +231,48 @@ mod tests {
         assert!(is_secret(link, None), "cannot be resolved");
         assert!(!is_secret(link, Some(std::slice::from_ref(&plain))));
         assert!(!is_secret(link, Some(&[])));
+    }
+
+    #[test]
+    fn an_unresolved_path_is_told_apart_from_a_secret_name() {
+        let plain = Some(Path::new("/p/notes.txt"));
+        let key = PathBuf::from("/h/.ssh/id_rsa");
+        assert_eq!(judge_unresolved(plain, &[]), Verdict::Unresolved);
+        assert_eq!(
+            judge_unresolved(Some(Path::new("/h/.ssh/missing")), &[]),
+            Verdict::SecretName
+        );
+        assert_eq!(
+            judge_unresolved(plain, std::slice::from_ref(&key)),
+            Verdict::SecretName,
+            "a link that went through a secret name before the walk failed"
+        );
+        assert_eq!(
+            judge(plain, Some(std::slice::from_ref(&key))),
+            Verdict::SecretName
+        );
+        assert_eq!(judge(plain, Some(&[])), Verdict::Ordinary);
+        assert_eq!(
+            judge(None, Some(std::slice::from_ref(&key))),
+            Verdict::Ordinary,
+            "no file"
+        );
+        assert_eq!(judge_unresolved(None, &[key]), Verdict::Ordinary, "no file");
+    }
+
+    #[test]
+    fn each_use_asks_its_own_question_of_a_verdict() {
+        // Withheld from dev tooling, and allowed in an emergency copy.
+        let table = [
+            (Verdict::Unjudged, true, false),
+            (Verdict::Ordinary, false, true),
+            (Verdict::Unresolved, true, true),
+            (Verdict::SecretName, true, false),
+        ];
+        for (verdict, withheld, copied) in table {
+            assert_eq!(verdict.is_withheld(), withheld, "{verdict:?}");
+            assert_eq!(verdict.may_be_copied(), copied, "{verdict:?}");
+        }
     }
 
     /// A file name that no name pattern matches: lower-case letters, which

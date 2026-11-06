@@ -10,8 +10,6 @@
 //! marks where a command begins and ends. The echo area keeps its text until the next
 //! key, and what was echoed around such a buffer goes as soon as it is out of view.
 
-use std::panic::{self, AssertUnwindSafe};
-
 use super::{Editor, Selected, clip_cursors};
 use crate::buffer::{BufferId, Replacement};
 use crate::selection::SelectionSet;
@@ -98,14 +96,10 @@ impl Editor {
             text,
             withheld: false,
         });
-        // This comes last, and a panic here costs a row: a message reports what went
-        // wrong, also just after a panic, outside the boundary that catches those.
-        let added = panic::catch_unwind(AssertUnwindSafe(|| {
-            self.add_to_messages_buffer(&shown);
-        }));
-        if added.is_err() {
-            log::error!("a message did not reach *Messages*");
-        }
+        // Last, so that the log and the echo area have it if this panics. That is a panic
+        // outside the command boundary like any other: the hook writes the emergency copies,
+        // and the process ends (ADR 0062). So nothing here may catch it.
+        self.add_to_messages_buffer(&shown);
     }
 
     /// Marks that a command begins, and records whether a buffer that may hold secrets
@@ -260,6 +254,7 @@ mod tests {
     use crate::editor::MESSAGES;
     use crate::selection::Selection;
     use crate::window::ViewSize;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::path::PathBuf;
 
     fn messages_text(editor: &Editor) -> String {
@@ -552,6 +547,26 @@ mod tests {
         *buffer = Buffer::visiting(plain.clone());
         buffer.judge_secret(Some(&[plain]));
         assert_eq!(echo(&editor), "");
+    }
+
+    #[test]
+    fn a_panic_adding_a_row_is_not_caught_and_the_echo_area_and_the_row_before_it_stay() {
+        let mut editor = Editor::default();
+        editor.message("one");
+        // Nothing else in a message looks at the selected window.
+        editor.selected = usize::MAX;
+        let added = catch_unwind(AssertUnwindSafe(|| editor.message("two")));
+        assert!(
+            added.is_err(),
+            "the hook must see an ending, and get one (ADR 0062)"
+        );
+        editor.selected = 0;
+        assert_eq!(echo(&editor), "two");
+        assert_eq!(
+            messages_text(&editor),
+            "one\ntwo\n",
+            "the row went in first"
+        );
     }
 
     #[test]

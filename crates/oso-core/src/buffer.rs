@@ -31,6 +31,7 @@ mod baseline;
 mod internal;
 mod splice;
 
+pub use crate::secret::Verdict;
 pub use baseline::{Baseline, FileStamp};
 use splice::{SpliceText, apply, normalized, offset_edit};
 
@@ -173,9 +174,9 @@ pub struct Buffer {
     loading: Option<Progress>,
     /// Changes whenever the content does.
     revision: u64,
-    /// The file may hold secrets (ADR 0044). True from the moment a file is
-    /// visited until the host knows better.
-    secret: bool,
+    /// Whether the text may hold secrets (ADR 0044, ADR 0051). Withheld from the moment
+    /// a file is visited until the host knows better.
+    verdict: Verdict,
     /// The state of the content now.
     content: ContentId,
     /// The state the file on disk has.
@@ -207,7 +208,7 @@ impl Buffer {
             saving: false,
             loading: None,
             revision: 0,
-            secret: false,
+            verdict: Verdict::Ordinary,
             content: ContentId(0),
             saved: ContentId(0),
             next_content: 1,
@@ -237,7 +238,7 @@ impl Buffer {
         Self {
             path: Some(path),
             loading: Some(Progress::default()),
-            secret: true,
+            verdict: Verdict::Unjudged,
             ..Self::new(name)
         }
     }
@@ -261,20 +262,28 @@ impl Buffer {
 
     /// Decides whether the file may hold secrets, from where its path really
     /// leads: each link's target on the way and the canonical path, or `None`
-    /// if the path could not be resolved, which counts as secret. The host
-    /// resolves the path off the UI thread, before any content arrives.
+    /// if the path could not be resolved, which dev tooling counts as secret. The
+    /// host resolves the path off the UI thread, before any content arrives.
     pub fn judge_secret(&mut self, resolved: Option<&[PathBuf]>) {
-        self.secret = self
-            .path
-            .as_deref()
-            .is_some_and(|path| secret::is_secret(path, resolved));
+        self.verdict = secret::judge(self.path.as_deref(), resolved);
+    }
+
+    /// Decides whether the file may hold secrets when its path could not be resolved.
+    /// `seen` holds what the walk passed before it failed, whose names count too.
+    pub fn judge_unresolved(&mut self, seen: &[PathBuf]) {
+        self.verdict = secret::judge_unresolved(self.path.as_deref(), seen);
+    }
+
+    /// Whether the text may hold secrets, and why.
+    pub fn verdict(&self) -> Verdict {
+        self.verdict
     }
 
     /// Whether the file may hold secrets (ADR 0028, ADR 0044). A file's text
-    /// must not leave the editor through dev tooling or an emergency save
-    /// while this is true.
+    /// must not leave the editor through dev tooling while this is true. An
+    /// emergency save asks [`Verdict::may_be_copied`] instead (ADR 0051).
     pub fn is_secret(&self) -> bool {
-        self.secret
+        self.verdict.is_withheld()
     }
 
     /// A number that changes whenever the content does, so that caches of
@@ -874,6 +883,27 @@ mod tests {
         assert_eq!(EditError::NoSuchBuffer.to_string(), "No such buffer");
         assert_eq!(EditError::NoUndo.to_string(), "No further undo information");
         assert_eq!(EditError::NoRedo.to_string(), "No further redo information");
+    }
+
+    #[test]
+    fn a_verdict_tells_an_unresolved_path_from_a_secret_name() {
+        let mut plain = Buffer::visiting(PathBuf::from("/tmp/notes.txt"));
+        assert_eq!(plain.verdict(), Verdict::Unjudged);
+        plain.judge_secret(None);
+        assert_eq!(plain.verdict(), Verdict::Unresolved);
+        assert!(plain.is_secret(), "dev tooling still withholds it");
+        assert!(plain.verdict().may_be_copied());
+        plain.judge_unresolved(&[PathBuf::from("/h/.aws/config")]);
+        assert_eq!(plain.verdict(), Verdict::SecretName, "seen on the way");
+
+        let mut named = Buffer::visiting(PathBuf::from("/tmp/.env"));
+        named.judge_secret(None);
+        assert_eq!(named.verdict(), Verdict::SecretName);
+        assert!(!named.verdict().may_be_copied());
+
+        let mut scratch = Buffer::new("*scratch*");
+        scratch.judge_unresolved(&[]);
+        assert_eq!(scratch.verdict(), Verdict::Ordinary);
     }
 
     #[test]

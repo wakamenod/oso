@@ -127,14 +127,19 @@ and below the row, and a label's glyphs keep their own cells
 
 - There is no periodic auto-save, no backup files and no persisted undo
   history.
-- On a panic, or when the OS ends the app, unsaved buffers are written to a
-  private directory (`0700`, files `0600`). Files matching secret patterns are
-  excluded ([ADR 0028](adr/0028-secrets-handling.md) lists the defaults; users
-  can extend them), and a path that could not be resolved is saved only if no
-  name on it matches ([ADR 0051](adr/0051-m2-plan-decisions.md)).
+- On a panic outside a command, or when the OS ends the app on macOS, unsaved buffers are written to a
+  private directory (`0700`, files `0600`, refused if it is a symlink, another user's or looser, or if another user can change
+  anything on the way to it, through every link and directory it passes, in which case nothing is written, and oso says so at startup). Files matching secret patterns are excluded
+  ([ADR 0028](adr/0028-secrets-handling.md) lists the defaults; users can extend them), and their text
+  is not even held where the panic hook can reach it. A path that could not be resolved is saved only if no
+  name on it, or on the way to where the walk stopped, matches ([ADR 0051](adr/0051-m2-plan-decisions.md)).
+  A confirmed exit writes nothing. A kill, a power cut, a force quit or running out of memory
+  writes nothing either. A copy is only ever offered back: nothing in that directory may choose a path to
+  write to without the person ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. Core
-  dumps are disabled, and panic messages never include buffer contents
-  ([ADR 0028](adr/0028-secrets-handling.md)).
+  dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
+  The panic hook prints the location and the stack and never the message, also for a panic caught at the
+  command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
 - Saving (T5) writes a temporary file beside the real file, follows symbolic links to
   find it, and renames it over that file, so a crash leaves the old file or the whole
   new one, unless the file system cannot sync, which the message then says. The text goes only to where the buffer's file was: if a link or a directory
