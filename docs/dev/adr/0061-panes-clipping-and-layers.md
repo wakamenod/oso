@@ -1,4 +1,4 @@
-# 0060. Panes: drawing a frame as a list with clipping and layers
+# 0061. Panes: drawing a frame as a list with clipping and layers
 
 - Status: Proposed
 - Date: 2026-11-05

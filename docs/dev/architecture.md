@@ -245,7 +245,7 @@ null text system: the cursor is drawn on the grid, and no text. See
   Scrolling reshapes only rows that come into view, and a 10 MB line costs
   one screen. Only glyphs inside the pane become quads. Each pane has its own
   cache, by a `PaneId` that the caller gives it
-  ([ADR 0060](adr/0060-panes-clipping-and-layers.md)).
+  ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
 - **Clipping** is done on the CPU. A glyph's quad is cut to its cluster's cells, its
   row with the bands of [ADR 0052](adr/0052-glyphs-stay-in-their-cells.md), and its
   pane, moving the atlas position along with the corner.
@@ -268,7 +268,7 @@ wgpu with one backend per OS: Metal, DX12 and Vulkan. Only that backend is
 compiled in, through per-target wgpu features, and there is no GL fallback.
 
 A frame is a list of panes, each with a region of cells, a layer and what it shows
-([ADR 0060](adr/0060-panes-clipping-and-layers.md)). One render pass draws the layers
+([ADR 0061](adr/0061-panes-clipping-and-layers.md)). One render pass draws the layers
 from the back, each with one draw per pipeline, whatever the number of panes and
 glyphs:
 

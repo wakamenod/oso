@@ -158,7 +158,7 @@ one layer:
   the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).
 - `frame::PixelGrid` maps cells to physical pixels. The renderer draws a list of
   panes, each in its region and no further
-  ([ADR 0060](adr/0060-panes-clipping-and-layers.md)), and `Editor::cursor_area` gives
+  ([ADR 0061](adr/0061-panes-clipping-and-layers.md)), and `Editor::cursor_area` gives
   the input method the cursor's rectangle.
 
 ## Terminal views

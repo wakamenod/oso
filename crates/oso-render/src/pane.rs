@@ -1,5 +1,5 @@
 //! What a frame is made of: the list of panes the caller hands the renderer,
-//! and the faces they draw with (ADR 0060).
+//! and the faces they draw with (ADR 0061).
 //!
 //! Must not depend on: `atlas`, `grid`, `rows`, `scene`, `shape`, `text` or the
 //! GPU. These are plain data, and everything else in this crate reads them.

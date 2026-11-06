@@ -1,5 +1,5 @@
 //! What a frame draws: a list of panes turned into rectangles and glyph quads,
-//! layer by layer (ADR 0060). No GPU is touched here, so all of it is tested
+//! layer by layer (ADR 0061). No GPU is touched here, so all of it is tested
 //! with a fake text system and atlas.
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.

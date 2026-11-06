@@ -1,12 +1,12 @@
 # oso-render
 
 The wgpu rendering pipeline: surface handling, the glyph atlas, and panes drawn
-in layers with text and shape pipelines (ADR 0005, ADR 0036, ADR 0060). See `docs/dev/display-model.md`.
+in layers with text and shape pipelines (ADR 0005, ADR 0036, ADR 0061). See `docs/dev/display-model.md`.
 
 - May depend on `oso-core` and `oso-platform`. It is the only crate that may
   use wgpu; no winit (the tip crate hands it the window handle and size).
 - wgpu types stay out of its public API. Callers pass a list of panes (ADR
-  0060), never buffers or pipelines. The one intended exception is the window
+  0061), never buffers or pipelines. The one intended exception is the window
   handle the tip crate hands over (`wgpu::DisplayAndWindowHandle`).
 - It draws what the display model gives it. Layout and cursor logic belong
   in `oso-core`. What a frame draws is built in `scene` with no GPU, so test

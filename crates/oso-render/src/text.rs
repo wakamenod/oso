@@ -5,7 +5,7 @@
 //! glyphs to cells live below this, and choosing what to draw lives above it.
 //!
 //! - Each glyph's quad is cut to its cluster's cells, its row and its pane (see
-//!   [`Layout::quad`], ADR 0052, ADR 0060), on the CPU, so a layer stays one
+//!   [`Layout::quad`], ADR 0052, ADR 0061), on the CPU, so a layer stays one
 //!   instanced draw.
 //! - Only visible rows are drawn, and of each only the visible columns,
 //!   in steps of [`WINDOW_STEP`] columns, shaped through the cache in
@@ -229,7 +229,7 @@ impl Layout {
     /// and `Ẳ`. Below the row it keeps half that, in whole pixels: marks
     /// under a descender end there (ADR 0052). All of this stops at the edges
     /// of the pane, but the frame's top row keeps its band in the top margin,
-    /// where no other pane draws (ADR 0060).
+    /// where no other pane draws (ADR 0061).
     pub(crate) fn quad(
         &self,
         row: usize,

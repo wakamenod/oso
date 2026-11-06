@@ -17,7 +17,7 @@
 //!   and invisible characters get a box, as do characters past a display
 //!   cluster's limits (ADR 0054).
 //! - Text that is no buffer's comes as spans, through the same clusters. Its
-//!   row is compared with what was shaped each frame (ADR 0060).
+//!   row is compared with what was shaped each frame (ADR 0061).
 
 use std::collections::HashMap;
 use std::ops::Range;

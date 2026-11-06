@@ -1,5 +1,5 @@
 //! Painting a frame: its [`Scene`] uploaded and recorded into one render pass,
-//! with one draw per layer per pipeline (ADR 0060). It knows no surface, so a
+//! with one draw per layer per pipeline (ADR 0061). It knows no surface, so a
 //! screenshot takes the same path as the window.
 //!
 //! Must not depend on: `capture`, winit or a font backend.
