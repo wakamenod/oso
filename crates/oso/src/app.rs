@@ -1,7 +1,7 @@
 //! The application: the window, the event loop handler and the glue
 //! between them and the editor (ADR 0004). It turns winit events into key
-//! presses, wheel scrolling and frames, starts file loads and takes in
-//! their snapshots. This file holds the state and what the concerns share;
+//! presses, wheel scrolling and frames, starts file loads and saves and takes
+//! in what they report. This file holds the state and what the concerns share;
 //! each concern has a module.
 //!
 //! Must not depend on: wgpu or OS bindings. Editor logic belongs in oso-core
@@ -22,10 +22,12 @@ mod draw;
 mod events;
 mod input;
 mod loads;
+mod saves;
 
 #[cfg(feature = "dev")]
 use crate::dev;
 use crate::dispatch::Dispatcher;
+use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
 
@@ -34,6 +36,8 @@ use loads::Load;
 pub enum UserEvent {
     /// A loading thread has an update for this buffer.
     Load(BufferId),
+    /// A saving thread has ended.
+    Save(SaveReport),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -54,6 +58,8 @@ pub struct App {
     modifiers: ModifiersState,
     proxy: EventLoopProxy<UserEvent>,
     loads: Vec<Load>,
+    /// An exit waiting for running saves, once this instance has agreed to go.
+    leaving: Leaving,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
@@ -80,6 +86,7 @@ impl App {
             modifiers: ModifiersState::default(),
             proxy,
             loads: Vec::new(),
+            leaving: Leaving::default(),
             started: Some(started),
             wheel: WheelRemainder::default(),
             #[cfg(feature = "dev")]
@@ -98,12 +105,13 @@ impl App {
     }
 
     /// Does what commands asked for.
-    fn apply(&self, event_loop: &ActiveEventLoop, effects: Effects) {
+    fn apply(&mut self, event_loop: &ActiveEventLoop, effects: Effects) {
+        self.start_saves();
         if effects.redraw {
             self.request_redraw();
         }
         if effects.exit {
-            event_loop.exit();
+            self.leave(event_loop, false);
         }
     }
 

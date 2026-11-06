@@ -136,6 +136,7 @@ impl Dispatcher {
     /// A key that types several characters comes through here, and input method
     /// commits will (M2-12).
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        editor.reset_exit_guard();
         if !self.resolver.pending().is_empty() {
             log::debug!(
                 "{} and text are undefined",
@@ -166,6 +167,7 @@ impl Dispatcher {
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
     /// failure is not fatal (ADR 0014), and leaves a message.
+    /// A command that is not a refused exit, even one that fails, resets the exit guard.
     fn execute(
         &mut self,
         editor: &mut Editor,
@@ -179,6 +181,7 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
+        let exit_attempt = editor.exit_attempt();
         editor.begin_undo_group();
         let invocation = Invocation {
             input,
@@ -206,6 +209,9 @@ impl Dispatcher {
                 editor.end_undo_group();
                 editor.message(error.to_string());
             }
+        }
+        if editor.exit_attempt() == exit_attempt {
+            editor.reset_exit_guard();
         }
         effects.redraw |= editor.follow_cursor();
         (effects, result)
@@ -244,6 +250,7 @@ impl Dispatcher {
                 Effects::default()
             }
             Resolution::Unbound(keys) => {
+                editor.reset_exit_guard();
                 // A key that types a character may be text meant for the buffer,
                 // which stays out of the log (ADR 0028).
                 match keys.split_last() {
@@ -256,6 +263,7 @@ impl Dispatcher {
                 Effects::default()
             }
             Resolution::Cancelled => {
+                editor.reset_exit_guard();
                 log::debug!("Quit");
                 self.forget_keys();
                 Effects::default()
@@ -272,6 +280,8 @@ mod grid_tests;
 mod motion_tests;
 #[cfg(test)]
 mod prefix_tests;
+#[cfg(test)]
+mod save_tests;
 
 #[cfg(test)]
 mod tests {

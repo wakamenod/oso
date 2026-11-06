@@ -477,6 +477,129 @@ fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
     assert!(log.contains("listening on"), "no log to check");
 }
 
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_save_reaches_the_disk_and_lets_a_held_restart_through() {
+    let scratch = Scratch::new("save");
+    let file = scratch.write("notes.txt", b"on disk\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+
+    app.send_keys(UNSAVED_KEYS);
+    assert!(
+        app.try_call("check-handover", None).is_err(),
+        "a modified buffer holds a restart",
+    );
+    app.send_keys("C-x C-s");
+    app.wait_for("the save to end", |state| {
+        state["buffer"]["saving"] == false && state["buffer"]["modified"] == false
+    });
+
+    // Read from outside the editor, as anything else on the machine would.
+    let on_disk = std::fs::read_to_string(&file).expect("the file is there");
+    assert_eq!(on_disk, format!("{UNSAVED}on disk\n"));
+    let names = std::fs::read_dir(scratch.path())
+        .expect("the directory")
+        .count();
+    assert_eq!(names, 1, "nothing is left beside the file");
+
+    // The restart that was held now goes through, and the new instance reads the file.
+    let generation = app.call("check-handover", None)["generation"].clone();
+    let state = app.call("export-state", None);
+    let mut new = App::start(None, scratch.path());
+    new.wait_until_ready();
+    new.call("import-state", Some(json!({ "state": state })));
+    let _ = app.exchange("exit", Some(json!({ "generation": generation })));
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+    new.wait_for("the file to load", |state| {
+        state["buffer"]["loading"] == Value::Null
+    });
+    let text = new.call("get-text", Some(json!({ "start_row": 0, "rows": 1 })));
+    assert_eq!(text["rows"], json!([format!("{UNSAVED}on disk")]));
+
+    let log = new.stop_and_read_log();
+    assert!(!log.contains(UNSAVED), "the log quotes the text");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_quit_key_refuses_once_with_unsaved_text_and_a_save_needs_no_repeat() {
+    let scratch = Scratch::new("exit-guard");
+    let file = scratch.write("notes.txt", b"on disk\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    app.send_keys(UNSAVED_KEYS);
+
+    app.send_keys("C-x C-c");
+    assert!(process_exists(app.pid()), "refused the first time");
+    assert_eq!(app.state()["buffer"]["modified"], true);
+
+    // It may exit before answering.
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "C-x C-c" })));
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+    assert_eq!(
+        std::fs::read(&file).expect("the file is there"),
+        b"on disk\n",
+        "confirming leaves the file as it was",
+    );
+
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    app.send_keys(UNSAVED_KEYS);
+    app.send_keys("C-x C-s");
+    app.wait_for("the save to end", |state| {
+        state["buffer"]["modified"] == false
+    });
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "C-x C-c" })));
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+
+    // A save asked for just before a confirmed exit still lands, and whole.
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    let _ = app.exchange(
+        "send-keys",
+        Some(json!({ "keys": "x C-x C-s C-x C-c C-x C-c" })),
+    );
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+    let on_disk = std::fs::read_to_string(&file).expect("the file is there");
+    assert!(on_disk.starts_with('x'), "the save did not land");
+    let names = std::fs::read_dir(scratch.path())
+        .expect("the directory")
+        .count();
+    assert_eq!(names, 1, "nothing is left beside the file");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_failed_save_after_a_confirmed_exit_keeps_the_instance_and_the_text() {
+    let scratch = Scratch::new("exit-failed-save");
+    let file = scratch.write("notes.txt", b"on disk\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    std::fs::write(&file, b"another program\n").expect("the file changes on disk");
+    // One batch on the UI thread, so the exit is confirmed before any report arrives.
+    let keys = format!("{UNSAVED_KEYS} C-x C-s C-x C-c C-x C-c");
+    app.send_keys(&keys);
+    let state = loop {
+        match app.try_call("get-state", None) {
+            Ok(state) if state["buffer"]["saving"] == false => break state,
+            Ok(_) => {}
+            Err(error) => assert!(error.contains("shutting down"), "{error}"),
+        }
+        assert!(process_exists(app.pid()), "the instance went with the text");
+    };
+    assert_eq!(state["buffer"]["modified"], true);
+    assert_eq!(
+        std::fs::read(&file).expect("the file is there"),
+        b"another program\n",
+        "the other program's text stays",
+    );
+    let names = std::fs::read_dir(scratch.path())
+        .expect("the directory")
+        .count();
+    assert_eq!(names, 1, "nothing is left beside the file");
+}
+
 /// The event loop goes on delivering what is queued after an exit, so this can
 /// only fail when the two land together, which a few tries make likely.
 #[test]

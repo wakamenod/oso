@@ -14,8 +14,9 @@
 //! worked out against the result, and only then does anything change, in moves
 //! that cannot panic. An undo group spans a command: the dispatcher opens one
 //! before it runs a command and closes it after, also when the command panics.
-
-mod view;
+//!
+//! Saving and the exit guard are in [`save`]: a command starts a save here, and the
+//! host, which owns threads and files, takes the job and reports back.
 
 use std::collections::VecDeque;
 
@@ -28,27 +29,14 @@ use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 
+mod messages;
+mod save;
+mod view;
+
+pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
+
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
-
-/// The messages the editor keeps, as Emacs's `message-log-max`.
-const MAX_MESSAGES: usize = 1000;
-
-/// A message as the log shows it: control and non-printable characters are
-/// escaped, so that a name in it cannot move a terminal's cursor or reorder the
-/// line. Quotes and backslashes stay as they are.
-fn log_text(text: &str) -> String {
-    let mut shown = String::with_capacity(text.len());
-    for part in text.split_inclusive(['\'', '"', '\\']) {
-        let (body, last) = match part.chars().next_back() {
-            Some(last @ ('\'' | '"' | '\\')) => (&part[..part.len() - 1], Some(last)),
-            _ => (part, None),
-        };
-        shown.extend(body.escape_debug());
-        shown.extend(last);
-    }
-    shown
-}
 
 /// What the selected window's cursors do when a buffer it shows changes.
 #[derive(Clone, Copy)]
@@ -104,6 +92,10 @@ pub struct Editor {
     join_ready: bool,
     /// Oldest first.
     messages: VecDeque<String>,
+    /// Saves the host has yet to start.
+    save_jobs: Vec<SaveJob>,
+    /// The way of exiting that was last refused, until another key is pressed.
+    exit_attempt: Option<ExitAction>,
 }
 
 impl Default for Editor {
@@ -125,6 +117,8 @@ impl Editor {
             undo_scope: None,
             join_ready: false,
             messages: VecDeque::new(),
+            save_jobs: Vec::new(),
+            exit_attempt: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -473,28 +467,11 @@ impl Editor {
         self.join_ready = false;
         Ok(())
     }
-
-    /// Adds a message, for the echo area and `*Messages*`, and writes it to the
-    /// log. Save completion and recovery offers arrive outside commands, so it
-    /// is here and not on [`Ctx`](crate::command::Ctx). Messages reach the log:
-    /// they must never quote buffer text (ADR 0028).
-    pub fn message(&mut self, text: impl Into<String>) {
-        let text = text.into();
-        log::info!("{}", log_text(&text));
-        if self.messages.len() == MAX_MESSAGES {
-            self.messages.pop_front();
-        }
-        self.messages.push_back(text);
-    }
-
-    /// The messages kept, oldest first; the last is the newest.
-    pub fn messages(&self) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator {
-        self.messages.iter().map(String::as_str)
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::messages::{MAX_MESSAGES, log_text};
     use super::*;
     use crate::display_map::TabWidth;
     use crate::frame::{PixelGrid, PixelRect};
@@ -895,5 +872,7 @@ mod tests {
 mod edit_tests;
 #[cfg(test)]
 mod model_tests;
+#[cfg(test)]
+mod save_tests;
 #[cfg(test)]
 mod undo_tests;

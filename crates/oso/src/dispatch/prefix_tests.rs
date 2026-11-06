@@ -206,3 +206,38 @@ fn text_from_an_input_method_takes_the_prefix() {
     d.insert_text(&mut editor, "x");
     assert_eq!(text(&editor), "語句語句x");
 }
+
+/// A modified buffer, so that exiting is refused once.
+fn modified() -> (super::Dispatcher, oso_core::editor::Editor) {
+    let (mut d, mut editor) = at("", &[0]);
+    send(&mut d, &mut editor, "a");
+    (d, editor)
+}
+
+#[test]
+fn a_prefix_key_between_two_exits_resets_the_guard_and_the_exit_is_refused_again() {
+    for between in ["C-u", "M-5", "M--", "C-u 3", "C-u C-g"] {
+        let (mut d, mut editor) = modified();
+        assert!(!send(&mut d, &mut editor, "C-x C-c").exit, "{between}");
+        send(&mut d, &mut editor, between);
+        assert!(!send(&mut d, &mut editor, "C-x C-c").exit, "{between}");
+        assert!(send(&mut d, &mut editor, "C-x C-c").exit, "{between}");
+    }
+}
+
+#[test]
+fn a_prefix_given_to_an_exit_changes_nothing_about_the_guard() {
+    let (mut d, mut editor) = modified();
+    assert!(!send(&mut d, &mut editor, "C-u C-x C-c").exit);
+    assert!(
+        send(&mut d, &mut editor, "C-x C-c").exit,
+        "repeated at once"
+    );
+}
+
+#[test]
+fn a_refused_exit_leaves_no_prefix_for_the_next_key() {
+    let (mut d, mut editor) = modified();
+    send(&mut d, &mut editor, "C-u C-x C-c x");
+    assert_eq!(text(&editor), "ax", "one x, not four");
+}

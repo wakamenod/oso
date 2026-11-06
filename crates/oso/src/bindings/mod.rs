@@ -7,6 +7,7 @@
 mod edit;
 mod motion;
 mod prefix;
+mod save;
 mod scroll;
 mod session;
 
@@ -22,6 +23,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
     motion::BINDINGS,
     prefix::BINDINGS,
+    save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
 ];
