@@ -635,13 +635,15 @@ mod scenarios {
 
     #[test]
     fn the_list_of_emergency_copies_shows_each_row_in_one_row() {
-        let rows = "2 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back\n\n\
-                    \u{20}  12 min ago  panic    1234 B  file unchanged   /home/me/notes.txt\n\
-                    \u{20}  2 days ago  ?          88 B  not open         /home/me/a\\nb\\u{202e}.txt\n";
+        let rows = concat!(
+            "2 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back\n\n",
+            "notes.txt            12 min ago  panic    1234 B  file unchanged   /home/me/notes.txt\n",
+            "a\\nb\\u{202e}.txt     2 days ago  ?          88 B  not open         /home/me/a\\nb\\u{202e}.txt\n",
+        );
         let mut editor = Editor::default();
         editor.set_frame_size(FrameSize {
             rows: 6,
-            columns: 90,
+            columns: 110,
         });
         let mut dispatcher = Dispatcher::new();
         let keys: KeySequence = "C-h r".parse().unwrap();

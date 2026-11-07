@@ -447,7 +447,7 @@ fn a_row_escapes_a_name_stays_one_row_and_is_cut() {
     let row = list.lines().last().unwrap();
     assert!(row.contains("/a\\nb\\u{1b}[2J\\u{202e}"), "{row}");
     assert!(
-        row.ends_with('…') && row.len() < MAX_SHOWN + 100,
+        row.ends_with('…') && row.len() < MAX_SHOWN + 200,
         "{}",
         row.len()
     );
@@ -537,3 +537,5 @@ fn a_leftover_found_two_ways_is_one_row() {
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
     assert_eq!(words(&found), [RowState::LeftBySave]);
 }
+
+mod rows;
