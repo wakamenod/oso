@@ -93,3 +93,41 @@ fn a_read_only_directory_can_still_be_read() {
     assert_eq!(words(&found), [RowState::NotOpen]);
     assert_eq!(found.problem, None);
 }
+
+/// A leftover that took the list of the file it was to replace, set with `chmod`, as this crate has
+/// no bindings of its own, and the dev feature is what lets a test start a process.
+#[cfg(all(target_os = "macos", feature = "dev"))]
+#[test]
+fn deleting_removes_what_denies_deleting_it() {
+    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+
+    let scratch = Scratch::new();
+    let directory = copies_of(&scratch);
+    let text = directory.join(".oso-save-1-2-0.tmp");
+    fs::write(&text, "text").unwrap();
+    let chmod = Executable::absolute("/bin/chmod").unwrap();
+    let args = [
+        "+a".into(),
+        "everyone deny delete".into(),
+        text.clone().into_os_string(),
+    ];
+    let mut child = spawn(&Spawn {
+        executable: &chmod,
+        args: &args,
+        cwd: None,
+        project: None,
+        inherit: &[],
+        stdout: Sink::Null,
+        stderr: Sink::Null,
+        own_process_group: false,
+    })
+    .unwrap();
+    assert!(child.wait().unwrap().success());
+    assert!(
+        fs::remove_file(&text).is_err(),
+        "the list stops a plain delete"
+    );
+
+    remove_copy(&text, None).unwrap();
+    assert!(!text.exists());
+}
