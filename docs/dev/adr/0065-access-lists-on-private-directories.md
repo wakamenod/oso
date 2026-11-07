@@ -1,0 +1,116 @@
+# 0065. Access lists on private directories
+
+- Status: Accepted
+- Date: 2026-11-07
+
+## Context
+
+[ADR 0062](0062-emergency-save-and-the-panic-hook.md) keeps emergency copies in a private directory, and the control
+socket's directory uses the same checks. A mode does not say everything about who may reach a file on a system
+with access lists. macOS evaluates a list's entries alongside the mode, a new file or directory takes entries from the
+directory it is made in, and whatever mode it was asked for does not change that.
+
+macOS also puts lists on directories by itself: `~` and many directories under it hold `group:everyone deny delete`. So a
+rule that refuses any list would refuse every home directory.
+
+`libc` is a release dependency of `oso-platform` on Unix since ADR 0062. It does not bind the list calls, which live in
+libSystem.
+
+## Decision
+
+### The rule, on macOS
+
+A `deny` entry takes rights away, so it never counts, wherever it is. What counts is `allow`, or an entry of a kind this
+does not know:
+
+- **The directory itself** holds none, for anything, whoever it names and whether it applies to the directory or only to
+  what is made in it.
+- **A directory on the way to it** holds none that can change what is in it: adding a file or a directory, deleting one,
+  deleting itself, changing its list or owner. One that only reads is fine, as mode `0755` is.
+- **The deepest directory that exists, when something is to be made under it,** holds none that reaches a new directory.
+  It runs before anything is made, as the walk does. A list reaches only what is made after it, and an entry for files
+  stops at the directory that holds it, so nothing above this directory matters and neither does an entry for files.
+- **A list that cannot be read** is refused, as nothing can be told of it. An owner can be denied reading a list, and that
+  gives an error and not an empty list. Having no list, and a file system with no lists, are the same as an empty one.
+
+A symbolic link on the way can hold a list of its own: `acl_set_link_np` refuses one, as `acl_set(3)` says, but a descriptor of the link can
+set one, and `chmod -h` does. So it is judged like a directory there, and what it leads to is walked next. As with a looser mode, a refused directory is not repaired, as
+something may already have read what is in it. `PrivateDir::check` finds all of this at startup, which is when a person hears of it,
+with what is refused and why.
+
+**An entry naming this very user counts like any other.** Telling them apart needs a directory service, which is more `unsafe` and a
+wait in the crash path, for the same reasons [ADR 0062](0062-emergency-save-and-the-panic-hook.md) gives for groups. `chmod -a` is the
+remedy, and the startup message says what to look at.
+
+### Each copy
+
+Each of a copy's two temporary files is **sealed** before anything goes in: any list it took from its directory is removed, and read
+back as gone. If what it took granted anything, or could not be read, nothing can be said of the directory any more, whatever it said
+when it was checked. So the copy is refused, nothing is left, and the report says so without quoting text. An inherited `deny` that can be
+read is removed and the copy goes on, since a file may not be renamed or removed while it denies this user `delete`. `seal` itself returns the
+error, so that no caller can forget to ask, and the message is in one place.
+
+### What would stop a copy
+
+A `deny` grants nothing, but it can stop a copy being written, and finding that out at the crash would lose the text. So `PrivateDir::check`
+says at startup, and goes no further than warning, as with modes: `open` does not ask, and goes by what the system says.
+
+- **On the directory:** what making, renaming and removing a file needs, which is `add_file`, `delete_child` and `search`, and a `deny` of
+  reading the list that new files take, as sealing then refuses them.
+- **On the way:** `search`. Nothing else matters to what is under it.
+- **On the deepest directory, when something is to be made under it:** `add_subdirectory` and `search`, and what a new directory would take of
+  the above.
+
+`deny delete` and `deny list` stop nothing, so `group:everyone deny delete` stays harmless everywhere, inherited too.
+
+### The control socket
+
+It follows the same rule for what is granted, on its directory and on its one parent, and a screenshot is sealed as a copy is, as that
+directory holds them. It
+does not walk to the root, as a dev tool's check of one parent does not for modes either
+([ADR 0062](0062-emergency-save-and-the-panic-hook.md)). As it has only that parent to look at, both rules for a parent apply whether or
+not the directory exists yet. It stays behind the `dev` feature.
+
+### On other systems
+
+- **Linux:** nothing new to check. The group bits of a mode are a POSIX list's mask, so what an access list grants shows in the mode, and the
+  existing checks see it. A default list gives a new file or directory a mask no wider than the mode it was asked for, so with `0600` and
+  `0700` it grants nothing. A test on Linux keeps both true.
+- **Windows** stays as ADR 0062 says, and is left for later, recorded in `open-questions.md`. It needs `windows-sys` as a direct dependency.
+- A file system with no lists has nothing to check.
+
+### Where it lives
+
+- `oso_platform::file_meta` is a new public module, in a layer of its own below `privacy` in `guardrails/layers.txt`. It is the
+  file-system module ADR 0059 and ADR 0062 expected, for what a file holds beyond its mode, and `architecture.md` says so. Its public API
+  is `seal`, with no OS type in it.
+- `file_meta::macos` declares the `acl_*` calls itself, with `unsafe extern "C"`, as `libc` does not have them. No dependency is added.
+- The rule is pure functions in `privacy`, over entries that say only what the rule asks. They are tested on every system. What an
+  OS's bits mean stays in its backend: on macOS, which rights count for what, and that a tag it does not know counts as a grant.
+
+## Consequences
+
+- A directory with an `allow` entry gets no copies, even an entry for this user. The person hears at startup, and can remove it.
+- On macOS only, finding this costs one more call per directory walked, and opening walks twice. Sealing costs one call per file with no
+  list and three with one. In release builds all of it is off the UI thread, unless the emergency writer's thread could not start. Dev builds
+  also check the control socket's directory at startup, where they already look at it, on the thread that goes on to be the UI thread.
+- `write_copy` takes the seal as a parameter inside, so that a test can see it runs before any text, on any system. A test on macOS, with the
+  `dev` feature, meets it with a real list, set by `chmod`.
+- Tests set real lists on what they made themselves, naming `everyone` by its fixed identifier, so that they need no privileges and no
+  directory service. The test helper sets a list by `acl_set_file`, as `acl_set_link_np` fails on a list its owner may not read.
+- `acl_from_text` does not know some names of rights for directories, such as `add_file` and `search`, so tests use the names for files, which are
+  the same bits.
+- How a save treats lists stays as [ADR 0059](0059-safe-save-and-the-exit-guard.md) says.
+
+## Alternatives considered
+
+- **Refusing any list:** simple, but it refuses every home directory on macOS.
+- **Checking the mode alone:** does not say who may reach what is in the directory on a system with lists.
+- **Removing what is found:** a directory found open may already have been read, as ADR 0062 says of a looser mode.
+- **Looking up who an entry names:** see above.
+- **Reading the list on Linux too:** it would say nothing the mode does not, and refusing a default list would refuse what grants nothing.
+- **Checking only the directory and not each copy:** a list added since the check would reach the text. Sealing costs a call, and only then
+  does the text go in.
+- **Parsing `acl_copy_ext_native`'s bytes, or `acl_to_text`:** no need to read a format the system does not promise, and the text form asks a
+  directory service for names.
+- **The `exacl` crate:** a dependency for a few calls, with the rule still ours to write.

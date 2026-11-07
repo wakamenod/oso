@@ -42,10 +42,7 @@ pub(super) fn check_private(path: &Path) -> io::Result<()> {
     if meta.file_type().is_symlink() || !meta.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            format!(
-                "refusing to use {} as a private directory: it is not a plain directory",
-                path.display()
-            ),
+            format!("refused: it is not a plain directory: {}", path.display()),
         ));
     }
     Ok(())

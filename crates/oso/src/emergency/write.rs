@@ -1,4 +1,4 @@
-//! Putting one emergency copy on disk (ADR 0062).
+//! Putting one emergency copy on disk (ADR 0062, ADR 0065).
 //!
 //! Must not depend on: `app`, winit or the editor; this gets a snapshot, and knows of no
 //! thread but its own.
@@ -16,7 +16,8 @@
 //! in a name, where it could be too long for the system. A collision is harmless, as
 //! recovery compares the metadata too. Both files start under a temporary name made with
 //! `create_new` and mode `0600`, and a free stem is never one already there, so that no
-//! later copy can touch an earlier one.
+//! later copy can touch an earlier one. Each is sealed before anything goes in, as something may
+//! have changed since the directory was checked, so that it grants nothing beyond its mode.
 //!
 //! A copy is only ever offered. Whatever is in this directory, recovery must not let it
 //! choose a path to write to without the person.
@@ -28,6 +29,7 @@ use std::time::SystemTime;
 
 use oso_core::buffer::FileStamp;
 use oso_core::rope::Rope;
+use oso_platform::file_meta;
 
 use super::{Entry, Identity, Ticks, Why};
 use crate::saver::{PRIVATE_MODE, Temporary, WRITE_SIZE, sync_directory, unless_unsupported};
@@ -46,6 +48,18 @@ pub(super) fn write_copy(
     now: SystemTime,
     ticks: &Ticks<'_>,
 ) -> io::Result<()> {
+    write_copy_with(directory, entry, why, now, ticks, &file_meta::seal)
+}
+
+/// [`write_copy`], with `seal` to make a new file grant nothing beyond its mode, or to refuse it.
+pub(super) fn write_copy_with(
+    directory: &Path,
+    entry: &Entry,
+    why: Why,
+    now: SystemTime,
+    ticks: &Ticks<'_>,
+    seal: &dyn Fn(&File) -> io::Result<()>,
+) -> io::Result<()> {
     let Some(text) = &entry.text else {
         return Err(io::Error::other("this text may not be copied"));
     };
@@ -54,7 +68,7 @@ pub(super) fn write_copy(
         .map_or(0, |since| since.as_secs());
     let stem = free_stem(directory, &entry.identity, seconds)?;
 
-    let (text_file, file) = Temporary::create(directory, PRIVATE_MODE)?;
+    let (text_file, file) = sealed_temporary(directory, seal)?;
     write_text(&file, text, ticks)?;
     ticks.before_sync();
     unless_unsupported(file.sync_all())?;
@@ -66,7 +80,7 @@ pub(super) fn write_copy(
         ));
     }
 
-    let (meta_file, mut file) = Temporary::create(directory, PRIVATE_MODE)?;
+    let (meta_file, mut file) = sealed_temporary(directory, seal)?;
     let meta = meta_text(&entry.identity, entry.file, text.len(), why, seconds);
     file.write_all(meta.as_bytes())?;
     ticks.before_sync();
@@ -80,6 +94,17 @@ pub(super) fn write_copy(
     ticks.before_sync();
     let _ = sync_directory(directory);
     Ok(())
+}
+
+/// A temporary file with nothing in it, granting nothing beyond its mode. If it cannot be that, the
+/// temporary file goes.
+fn sealed_temporary(
+    directory: &Path,
+    seal: &dyn Fn(&File) -> io::Result<()>,
+) -> io::Result<(Temporary, File)> {
+    let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
+    seal(&file)?;
+    Ok((temporary, file))
 }
 
 fn write_text(file: &File, text: &Rope, ticks: &Ticks<'_>) -> io::Result<()> {
