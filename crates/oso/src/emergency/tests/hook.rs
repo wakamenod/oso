@@ -11,11 +11,20 @@ use super::{Scratch, file_buffer, published, scratch_editor, texts};
 use crate::emergency::hook::{Place, on_panic, place_of, say_to};
 use crate::emergency::{Limits, Why};
 
-/// The stall limit of a test whose writer must get somewhere first. It covers opening the
-/// private directory and starting the thread as well as the writes, so a slow runner has to
-/// get through those within it. A test that outlasts a stall waits all of this out, and the
-/// whole test run with it, so this is no longer than it must be.
+/// The stall limit of a test in which a stall's length must pass with nothing given up. It
+/// covers opening the private directory and starting the thread as well as the writes, so
+/// a slower runner than this fails such a test. Each takes [`PAST_STALL`], and the whole test
+/// run with it, so this is no longer than it must be. A test that only needs a writer to be
+/// given up on has no use for this: `before_sync` starts a short limit once the writer has
+/// got there, which a late start cannot use up.
 const STALL: Duration = Duration::from_secs(2);
+
+/// How long the tests that use [`STALL`] go on for.
+const PAST_STALL: Duration = Duration::from_millis(2500);
+
+/// What a test that must not hang allows. Far past any pause on a runner, which must not
+/// fail it.
+const NO_HANG: Duration = Duration::from_secs(300);
 
 /// A writer that blocks until the test drops the sender it returns.
 fn stuck() -> (
@@ -42,7 +51,7 @@ fn a_write_that_stops_getting_anywhere_is_given_up_on() {
         let _ = stuck.lock().unwrap().recv();
         Ok(())
     });
-    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(started.elapsed() < NO_HANG);
     assert_eq!((report.wrote, report.failed), (0, 1));
     assert!(report.to_string().contains("stopped getting anywhere"));
     drop(release);
@@ -58,7 +67,8 @@ fn a_slow_write_that_ticks_is_not_given_up_on() {
         sync: Duration::from_secs(600),
     };
     let report = emergency.shared.write_copies_with(limits, |_, _, ticks| {
-        for _ in 0..11 {
+        let started = Instant::now();
+        while started.elapsed() < PAST_STALL {
             std::thread::sleep(STALL / 10);
             ticks.progress();
         }
@@ -78,14 +88,15 @@ fn the_smallest_go_first_so_that_a_huge_buffer_stuck_on_a_slow_disk_costs_only_i
     let order = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&order);
     let limits = Limits {
-        stall: STALL,
-        sync: Duration::from_secs(600),
+        stall: Duration::from_secs(600),
+        sync: Duration::from_millis(50),
     };
     let report = emergency
         .shared
-        .write_copies_with(limits, move |_, entry, _| {
+        .write_copies_with(limits, move |_, entry, ticks| {
             seen.lock().unwrap().push(entry.identity.name.clone());
             if entry.identity.name == "*scratch*" {
+                ticks.before_sync();
                 let _ = stuck.lock().unwrap().recv();
             }
             Ok(())
@@ -109,7 +120,7 @@ fn a_long_sync_has_its_own_allowance_and_a_stuck_one_still_ends() {
     };
     let report = emergency.shared.write_copies_with(limits, |_, _, ticks| {
         ticks.before_sync();
-        std::thread::sleep(STALL + STALL / 10);
+        std::thread::sleep(PAST_STALL);
         ticks.progress();
         Ok(())
     });
@@ -236,7 +247,7 @@ fn a_blocked_or_a_gone_stderr_holds_nothing_up() {
         || "words".to_owned(),
         Duration::from_millis(50),
     );
-    assert!(started.elapsed() < Duration::from_secs(10), "it gave up");
+    assert!(started.elapsed() < NO_HANG, "it gave up");
     drop(release);
     say_to(Gone, || "words".to_owned(), Duration::from_secs(10));
 }

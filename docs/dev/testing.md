@@ -255,10 +255,11 @@ having no text pixels is asserted too, so the line changes when it gets a backen
 if a component boundary or a critical flow has no test yet. Motion, widths,
 decoding and the grid belong in the layers below. Use `Scratch` for files, with
 fake secrets only, and `App`, which addresses its own instance by process ID and
-stops it even when the test panics. Begin with `App::wait_until_ready`, the one
-call that outlasts a request with no reply, as creating the surface can hold the UI
-thread for longer than the server waits. Everywhere else no reply fails the flow, so
-that a freeze does not go unnoticed. Wait with `App::wait_for`, never a sleep:
+stops it even when the test panics. Begin with `App::wait_until_ready`. Creating the
+surface can hold the UI thread for longer than the server waits, so until a state has
+shown the surface, and only until then, it tries again after a request with no reply.
+From then on no reply fails the flow, in that call too, so that a freeze does not go
+unnoticed. Wait with `App::wait_for`, never a sleep:
 `send-keys` and `run-command` have finished when they return, and anything else
 is polled through `get-state`. Failure messages name what was expected and never
 quote buffer text, so use `assert_visible_row`, and do not `assert_eq!` on a state
