@@ -1,8 +1,8 @@
 //! The application: the window, the event loop handler and the glue
-//! between them and the editor (ADR 0004). It turns winit events into key
+//! between them and the editor (ADR 0004). It turns the window's events into key
 //! presses, wheel scrolling and frames, starts file loads and saves and takes
 //! in what they report. This file holds the state and what the concerns share;
-//! each concern has a module.
+//! each concern has a module, and `shell` alone knows the window system (ADR 0070).
 //!
 //! Must not depend on: wgpu or OS bindings. Editor logic belongs in oso-core
 //! and commands, not here.
@@ -13,8 +13,6 @@ use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
 use oso_core::editor::{Editor, Status};
 use oso_core::window::WheelRemainder;
-use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
-use winit::keyboard::ModifiersState;
 
 #[cfg(feature = "dev")]
 mod control;
@@ -25,14 +23,18 @@ mod ime;
 mod input;
 mod loads;
 mod saves;
+mod shell;
 
 #[cfg(feature = "dev")]
 use crate::dev;
 use crate::dispatch::Dispatcher;
 use crate::emergency::{CopiesEvent, Emergency, Offer};
+use crate::keys::Held;
 use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
+use shell::Loop;
+pub use shell::{Waker, run};
 
 /// Events sent to the event loop from other threads.
 #[derive(Debug)]
@@ -55,15 +57,16 @@ pub enum UserEvent {
 /// - `view`: the window and what draws into it.
 /// - `editor`: the editor state that commands operate on.
 /// - `dispatcher`: keymaps and commands, which turn keys into changes.
-/// - `modifiers`: the modifier keys held, as winit last reported them.
+/// - `modifiers`: the modifier keys held, as the window system last reported them.
 /// - `loads`: files loading in the background.
 /// - `dev`: the control socket, in dev builds where it started.
 pub struct App {
     view: Option<View>,
     editor: Editor,
     dispatcher: Dispatcher,
-    modifiers: ModifiersState,
-    proxy: EventLoopProxy<UserEvent>,
+    modifiers: Held,
+    /// Wakes the event loop from other threads.
+    waker: Waker,
     loads: Vec<Load>,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
@@ -100,8 +103,8 @@ pub struct App {
 
 impl App {
     /// An app with no window yet, showing `*scratch*`. Loading threads
-    /// report through `proxy`.
-    pub fn new(proxy: EventLoopProxy<UserEvent>, started: Instant, emergency: Emergency) -> Self {
+    /// report through `waker`.
+    pub fn new(waker: Waker, started: Instant, emergency: Emergency) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
         let leaving = Leaving::with_cell(emergency.agreement_cell());
@@ -110,8 +113,8 @@ impl App {
             view: None,
             editor: Editor::default(),
             dispatcher,
-            modifiers: ModifiersState::default(),
-            proxy,
+            modifiers: Held::NONE,
+            waker,
             loads: Vec::new(),
             leaving,
             emergency,
@@ -139,7 +142,7 @@ impl App {
     }
 
     /// Does what commands asked for.
-    fn apply(&mut self, event_loop: &ActiveEventLoop, effects: Effects) {
+    fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         self.start_saves();
         self.answer_about_copies();
         if effects.redraw {

@@ -1,18 +1,19 @@
 # oso
 
-The tip crate and binary: commands, default key bindings, the winit event
-loop and the glue between the library crates (ADR 0004). It changes most
+The tip crate and binary: commands, default key bindings, the event loop and
+the glue between the library crates (ADR 0004). It changes most
 often, so it must rebuild within 2 s.
 
 - May depend on every library crate; nothing depends on it. It is the only
-  crate that may use winit.
+  crate that may use winit, and only `src/app/shell.rs` names it: the rest works
+  on the events, keys and window calls that file gives (ADR 0070).
 - Commands are plain functions registered with a docstring and argument
   spec (`add-command` skill). They keep no state of their own. Each feature has
   a module in `src/commands/` and, if it has default keys, one of the same name
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
-  the concerns: `events` routes, `input`, `ime`, `draw`, `loads`, `saves` and `copies` do the
-  work, and `control` answers the dev socket.
+  the concerns: `shell` runs the window system, `events` routes, `input`, `ime`, `draw`,
+  `loads`, `saves` and `copies` do the work, and `control` answers the dev socket.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.

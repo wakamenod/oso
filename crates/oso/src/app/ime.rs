@@ -1,4 +1,4 @@
-//! The input method (ADR 0069): a composition as winit reports it, whether oso
+//! The input method (ADR 0069): a composition as the window system reports it, whether oso
 //! wants the IME on, and where the OS puts its candidate window.
 //!
 //! Must not depend on: what a key does, or the render pipeline beyond the cell
@@ -10,22 +10,19 @@
 //! - Turning the IME off waits while a composition is open, as the OS keeps a
 //!   composition it was turned off in, and the next key would bring it back.
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
-//! - Only [`ImeEvent::from_winit`] and the calls on the window know winit. The rest
-//!   works on [`ImeEvent`] and the editor, so a window layer other than winit swaps only
-//!   those.
+//! - The window system's reports arrive as [`ImeEvent`], from `shell`, and the calls go
+//!   through its window (ADR 0070), so nothing here knows winit.
 
 use std::ops::Range;
 
 use oso_core::buffer::Buffer;
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event::Ime;
-use winit::event_loop::ActiveEventLoop;
 
 use super::App;
+use super::shell::Loop;
 
-/// What an input method reports, from winit or from the dev socket's stand-in.
+/// What an input method reports, from the window system or from the dev socket's stand-in.
 pub(super) enum ImeEvent {
     /// The text being composed, and the caret or the segment being converted, in
     /// bytes. No text ends the composition with no commit.
@@ -34,19 +31,6 @@ pub(super) enum ImeEvent {
     Commit(String),
     /// The composition is over, whether oso asked for it or not.
     Disabled,
-}
-
-impl ImeEvent {
-    /// winit's event as one of these. `Enabled` says nothing oso needs: it comes at
-    /// the first preedit after a start or a `Disabled`.
-    fn from_winit(ime: Ime) -> Option<Self> {
-        match ime {
-            Ime::Enabled => None,
-            Ime::Preedit(text, range) => Some(Self::Preedit(text, range.map(|(s, e)| s..e))),
-            Ime::Commit(text) => Some(Self::Commit(text)),
-            Ime::Disabled => Some(Self::Disabled),
-        }
-    }
 }
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
@@ -73,22 +57,15 @@ fn next_allowed(allowed: bool, wanted: bool, composing: bool) -> Option<bool> {
 pub(super) struct ImeState {
     /// Whether the IME was last allowed.
     allowed: bool,
-    /// The cursor area last given, with the scale factor it was given at, since winit
-    /// keeps it in logical units.
+    /// The cursor area last given, with the scale factor it was given at, since the window
+    /// system keeps it in logical units.
     area: Option<(PixelRect, f64)>,
 }
 
 impl App {
-    /// Handles what winit reports of the input method.
-    pub(super) fn handle_ime(&mut self, event_loop: &ActiveEventLoop, ime: Ime) {
-        if let Some(event) = ImeEvent::from_winit(ime) {
-            self.ime_event(event_loop, event);
-        }
-    }
-
-    /// Handles a report of the input method, from winit or the dev socket. Returns
-    /// whether it asked for a frame.
-    pub(super) fn ime_event(&mut self, event_loop: &ActiveEventLoop, event: ImeEvent) -> bool {
+    /// Handles a report of the input method, from the window system or the dev socket.
+    /// Returns whether it asked for a frame.
+    pub(super) fn ime_event(&mut self, event_loop: &Loop<'_>, event: ImeEvent) -> bool {
         match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
@@ -109,7 +86,7 @@ impl App {
         }
     }
 
-    /// What follows every event, before the next is read, as winit hands a key to the
+    /// What follows every event, before the next is read, as the window system hands a key to the
     /// input method before it reaches oso (ADR 0069): a composition ends if a buffer that
     /// may hold secrets is selected, whatever selected it, then the IME is allowed as
     /// wanted, and the OS gets the cursor's cell if it changed, so that a composition
@@ -188,10 +165,7 @@ impl App {
         if self.ime.area == Some((area, scale)) {
             return;
         }
-        view.window.set_ime_cursor_area(
-            PhysicalPosition::new(f64::from(area.x), f64::from(area.y)),
-            PhysicalSize::new(f64::from(area.width), f64::from(area.height)),
-        );
+        view.window.set_ime_cursor_area(area);
         self.ime.area = Some((area, scale));
     }
 }

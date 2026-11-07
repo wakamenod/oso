@@ -9,24 +9,23 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use serde_json::json;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
-use winit::event_loop::ActiveEventLoop;
 
 use super::App;
 use super::draw::with_panes;
 use super::ime::ImeEvent;
+use super::shell::Loop;
 use crate::dev;
 use crate::dev::handoff;
 
 impl App {
     /// Answers a control socket request on the UI thread.
-    pub(super) fn handle_control(&mut self, event_loop: &ActiveEventLoop, request: dev::UiRequest) {
+    pub(super) fn handle_control(&mut self, event_loop: &Loop<'_>, request: dev::UiRequest) {
         let dev::UiRequest {
             op,
             received,
             reply,
         } = request;
-        // `exit` only sets a flag, and winit still delivers what is queued. An
+        // `exit` only sets a flag, and the loop still delivers what is queued. An
         // edit run now would be confirmed and then lost with the process.
         if self.is_leaving(event_loop) {
             let _ = reply.send(Err("the editor is shutting down".into()));
@@ -105,7 +104,7 @@ impl App {
 
     /// Ends the process as the emergency save's flows need (ADR 0062): by a panic outside the
     /// command boundary, whose message quotes the text, or with nobody having agreed to it.
-    fn end_for_a_test(&self, event_loop: &ActiveEventLoop, op: &dev::UiOp) -> dev::Reply {
+    fn end_for_a_test(&self, event_loop: &Loop<'_>, op: &dev::UiOp) -> dev::Reply {
         if *op == dev::UiOp::Panic {
             panic!("a deliberate panic: {}", self.editor.current().1.text());
         }
@@ -131,7 +130,7 @@ impl App {
     /// refused, as the OS would send nothing.
     fn report_ime(
         &mut self,
-        event_loop: &ActiveEventLoop,
+        event_loop: &Loop<'_>,
         report: dev::ImeReport,
         received: Instant,
     ) -> dev::Reply {
@@ -216,14 +215,11 @@ impl App {
     /// The OS window's place and size, if there is a window.
     fn frame(&self) -> Option<handoff::Frame> {
         let window = &self.view.as_ref()?.window;
-        let size = window.inner_size();
+        let (width, height) = window.inner_size();
         Some(handoff::Frame {
-            position: window
-                .outer_position()
-                .ok()
-                .map(|position| (position.x, position.y)),
-            width: size.width,
-            height: size.height,
+            position: window.outer_position(),
+            width,
+            height,
         })
     }
 
@@ -253,11 +249,10 @@ impl App {
         // corrects this if the window ends up another size.
         if let (Some(view), Some(frame)) = (&mut self.view, state.frame) {
             if let Some((x, y)) = frame.position {
-                view.window.set_outer_position(PhysicalPosition::new(x, y));
+                view.window.set_outer_position(x, y);
             }
-            let wanted = PhysicalSize::new(frame.width, frame.height);
-            let size = view.window.request_inner_size(wanted).unwrap_or(wanted);
-            self.resize(size.width, size.height);
+            view.window.request_inner_size(frame.width, frame.height);
+            self.resize(frame.width, frame.height);
         }
         self.restore = Some(handoff::Restore {
             buffer: shown,

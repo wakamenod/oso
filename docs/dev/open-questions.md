@@ -43,8 +43,8 @@ item notes when it must be settled.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
   stack and a cheaper hash are the next steps if a profile shows them.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
-  It comes from winit's Wayland decorations. Re-check when winit is
-  upgraded.
+  It comes from winit's Wayland decorations, and goes with winit
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - Moving to a display with another scale loads the font synchronously on the UI
   thread (`App::set_scale`), against "never block the UI thread". Measure it, and
   move the load to a background thread.
@@ -75,6 +75,7 @@ item notes when it must be settled.
   ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
 - Tier 2, before Linux or Windows are daily systems: a logout may not reach `exiting` there, so only a panic writes copies ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
   winit on Windows does not handle the end of a session, and on Linux one usually comes as a signal, or a close request that the exit guard refuses.
+  oso's own Windows layer brings `WM_ENDSESSION` to `exiting` ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)); Linux's signal stays.
 - By M2-22: the exit guard counts modified buffers and running saves, and cannot tell that an unmodified
   buffer's file was deleted, since that needs the disk. `C-x C-s` writes such a file again, but
   `C-x C-c` exits at once, and its text is then gone. The watcher in M2-22 can tell it
@@ -179,18 +180,22 @@ item notes when it must be settled.
   dependency approval.
 - An Option key pressed during a composition ends it with no commit, so what was being
   composed is lost, and the Super command does not run. With winit oso cannot commit
-  first; a native view sees the key before the input method and can
-  ([ADR 0069](adr/0069-macos-input-method.md)).
+  first; a native view sees the key before the input method and can. ADR 0070 commits
+  the composition, then runs the key ([ADR 0069](adr/0069-macos-input-method.md),
+  [ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - The candidate window stays where a composition started, as winit gives the OS one
   rectangle. Check whether a new area during a conversion moves it at the next key, so
   that it can follow the segment ([ADR 0069](adr/0069-macos-input-method.md)).
-- When winit is replaced on every system, as the author plans after M2-12: a native view
-  answers `firstRectForCharacterRange` when the input method asks, so the cursor area no
-  longer needs giving on every key that moves the cursor, and that cost goes (about 0.1 ms
-  a key at p99 in `just perf` at M2-12). The candidate window can then follow the segment
-  being converted too. In `app/ime.rs`, only `ImeEvent::from_winit` and the calls on the
-  window know winit, so the replacement swaps those
-  ([ADR 0069](adr/0069-macos-input-method.md)).
+- At ADR 0070's stage 2, on macOS: a native view answers `firstRectForCharacterRange`
+  when the input method asks, so the cursor area no longer needs giving on every key that
+  moves the cursor (about 0.1 ms a key at p99 in `just perf` at M2-12), and the candidate
+  window can follow the segment being converted. Measure whether the OS must still be told
+  after a frame that the cursor moved with nothing composing, and set the bound a logout
+  waits for running saves, below what macOS allows
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
+- Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
+  compositor, as Linux CI moves off Xvfb
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M2-16, M2-20 and M3: the minibuffer, isearch and menus add their condition to
@@ -292,7 +297,9 @@ item notes when it must be settled.
 - PDF engine and isolation (pdfium, a pure-Rust renderer, a separate
   process); image decoders.
 - OS-level sandboxing of child processes such as language servers.
-- `subsecond` hot-patching proof of concept with a plain winit app.
+- `subsecond` hot-patching proof of concept with a plain winit app, or with oso's own
+  window layer once winit is gone
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - Generated command reference and the Japanese edition workflow.
 - Encodings other than UTF-8 (Shift_JIS, EUC-JP), when they are needed:
   detection, and conversion at the load and save boundary
