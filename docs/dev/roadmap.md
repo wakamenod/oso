@@ -240,7 +240,9 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 ### After M4
 
 - Directory editor (dired-like), org subset.
-- Pop-up terminal and the terminal as the backend for compile.
+- Pop-up terminal with parity with the author's current Emacs terminal:
+  inline images, shell integration, input and copy modes, and the terminal
+  as the backend for compile and async shell commands.
 - A wiki/GTD client, to be considered.
 - Tabs and multiple frames.
 - Inline images and a PDF viewer.
