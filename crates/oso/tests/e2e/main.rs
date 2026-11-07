@@ -474,7 +474,7 @@ fn the_modeline_and_the_echo_area_say_what_the_editor_does_and_get_a_frame() {
     let scratch = Scratch::new("status");
     let file = scratch.write("notes.txt", "a\u{202e}b\n".as_bytes());
     let mut app = App::start(Some(&file), scratch.path());
-    let state = app.wait_for("the file to load", |state| state["buffer"]["bytes"] == 6);
+    let state = app.wait_until_ready();
     let modeline = state["modeline"].as_str().expect("a modeline");
     assert!(
         modeline.starts_with("[bidi controls] -- notes.txt  1:0  "),
