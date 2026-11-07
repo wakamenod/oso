@@ -12,15 +12,13 @@
 //! system's cascade list for the primary font (CJK, emoji and so on).
 //!
 //! Lines come from a `CTTypesetter` with a forced embedding level, so no
-//! character is shown as its mirrored form (ADR 0066). A row is split between
-//! graphemes by the direction of its scripts. Right-to-left scripts are shaped
-//! at level 1, since their marks and joining need it, and nothing there has a
-//! mirrored form. Other graphemes are at level 0, but for a space or punctuation
-//! with no mirrored form, which stays in the run it is in.
+//! character is shown as its mirrored form (ADR 0066). A row of both directions
+//! is split into runs by `direction`, and is at most two lines.
 
 use std::ptr::{self, NonNull};
 
-use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
+#[cfg(test)]
+use unicode_segmentation::UnicodeSegmentation;
 
 use objc2_core_foundation::{
     CFArray, CFAttributedString, CFBoolean, CFDictionary, CFIndex, CFNumber, CFRange, CFRetained,
@@ -34,6 +32,10 @@ use objc2_core_text::{
     CTFont, CTFontOrientation, CTFontSymbolicTraits, CTRun, CTTypesetter, kCTFontAttributeName,
     kCTTypesetterOptionAllowUnboundedLayout, kCTTypesetterOptionForcedEmbeddingLevel,
 };
+
+mod direction;
+
+use direction::{DirectionRun, SEPARATOR, is_right_to_left, push_bytes};
 
 use super::{
     CellMetrics, FontId, FontRequest, GlyphBitmap, GlyphFormat, GlyphId, GlyphKey, ShapedGlyph,
@@ -77,8 +79,24 @@ pub(super) struct CoreTextSystem {
     level_0: CFRetained<CFDictionary<CFString, CFType>>,
     level_1: CFRetained<CFDictionary<CFString, CFType>>,
     /// Scratch buffers reused across calls to `shape`. `bytes` maps UTF-16
-    /// offsets, which CoreText uses, to byte offsets.
+    /// offsets, which CoreText uses, to byte offsets, or to [`SEPARATOR`].
     bytes: Vec<u32>,
+    /// The text of one line, and the runs of one direction of a row: where
+    /// each starts, whether it is right to left, and its glyphs' leftmost pen
+    /// and total advance.
+    line: String,
+    runs: Vec<DirectionRun>,
+    /// Whether a separator drew in the lines of a row, and scratch space for
+    /// the clusters drawn, to tell whether a joined row came out whole.
+    separator_drew: bool,
+    drawn: Vec<u32>,
+    /// Lines made so far, for tests.
+    #[cfg(test)]
+    lines: usize,
+    /// For tests: a separator counts as drawing, as in a font that credits it a
+    /// glyph.
+    #[cfg(test)]
+    separator_draws: bool,
     glyphs: Vec<CGGlyph>,
     positions: Vec<CGPoint>,
     advances: Vec<CGSize>,
@@ -103,6 +121,14 @@ impl CoreTextSystem {
             level_0: typesetter_options(0),
             level_1: typesetter_options(1),
             bytes: Vec::new(),
+            line: String::new(),
+            runs: Vec::new(),
+            separator_drew: false,
+            drawn: Vec::new(),
+            #[cfg(test)]
+            lines: 0,
+            #[cfg(test)]
+            separator_draws: false,
             glyphs: Vec::new(),
             positions: Vec::new(),
             advances: Vec::new(),
@@ -165,6 +191,19 @@ impl CoreTextSystem {
             let byte = usize::try_from(self.indices[i])
                 .ok()
                 .and_then(|utf16| self.bytes.get(utf16));
+            // A separator between runs draws nothing. If its glyph has an
+            // advance, the font made something of it, and the row is shaped
+            // again with its runs apart.
+            if byte == Some(&SEPARATOR) {
+                #[cfg(test)]
+                if self.separator_draws {
+                    self.separator_drew = true;
+                }
+                if self.advances[i].width != 0.0 {
+                    self.separator_drew = true;
+                }
+                continue;
+            }
             let Some(&cluster) = byte else {
                 continue;
             };
@@ -181,29 +220,55 @@ impl CoreTextSystem {
         }
     }
 
-    /// Appends the glyphs of `text`, of one direction, which starts `start`
-    /// bytes into the row and `pen` pixels along it, and returns their total
-    /// advance.
-    fn shape_direction(
-        &mut self,
-        text: &str,
-        start: usize,
-        right_to_left: bool,
-        pen: f32,
-        out: &mut Vec<ShapedGlyph>,
-    ) -> f32 {
+    /// Appends the glyphs of `text`, a row of one direction.
+    fn shape_direction(&mut self, text: &str, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
         self.bytes.clear();
-        for (byte, c) in text.char_indices() {
-            let byte = u32::try_from(start + byte).unwrap_or(u32::MAX);
-            self.bytes.extend(std::iter::repeat_n(byte, c.len_utf16()));
+        push_bytes(&mut self.bytes, text, 0);
+        let line = CFString::from_str(text);
+        self.shape_line(&line, right_to_left, out);
+    }
+
+    /// Appends the glyphs of the runs of `text` in one direction as one line.
+    fn shape_runs(&mut self, text: &str, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
+        direction::join(
+            text,
+            &self.runs,
+            right_to_left,
+            &mut self.line,
+            &mut self.bytes,
+        );
+        if !self.line.is_empty() {
+            let line = CFString::from_str(&self.line);
+            self.shape_line(&line, right_to_left, out);
         }
-        let string = CFString::from_str(text);
+    }
+
+    /// Appends the glyphs of each run of `text` as a line of its own: what a row
+    /// whose joined lines did not come out whole is shaped as.
+    fn shape_apart(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
+        for index in 0..self.runs.len() {
+            let DirectionRun {
+                start,
+                right_to_left,
+                ..
+            } = self.runs[index];
+            let end = self.runs.get(index + 1).map_or(text.len(), |run| run.start);
+            self.bytes.clear();
+            push_bytes(&mut self.bytes, &text[start..end], start);
+            let line = CFString::from_str(&text[start..end]);
+            self.shape_line(&line, right_to_left, out);
+        }
+    }
+
+    /// Appends the glyphs of `text` as one line at the embedding level of its
+    /// direction. `bytes` maps it to the row.
+    fn shape_line(&mut self, text: &CFString, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
         // SAFETY: the default allocator, a valid string, and attributes that
         // map the font attribute name to a font, as CoreText expects.
         let attributed =
-            unsafe { CFAttributedString::new(None, Some(&string), Some(self.attributes.as_ref())) };
+            unsafe { CFAttributedString::new(None, Some(text), Some(self.attributes.as_ref())) };
         let Some(attributed) = attributed else {
-            return 0.0;
+            return;
         };
         let options = if right_to_left {
             &self.level_1
@@ -216,8 +281,12 @@ impl CoreTextSystem {
             CTTypesetter::with_attributed_string_and_options(&attributed, Some(options.as_ref()))
         };
         let Some(typesetter) = typesetter else {
-            return 0.0;
+            return;
         };
+        #[cfg(test)]
+        {
+            self.lines += 1;
+        }
         let all = CFRange {
             location: 0,
             length: 0,
@@ -230,18 +299,11 @@ impl CoreTextSystem {
         // SAFETY: a CFArray holds CF objects; each is checked to be a run
         // before use.
         let runs: CFRetained<CFArray<CFType>> = unsafe { CFRetained::cast_unchecked(runs) };
-        let first = out.len();
         for run in runs.iter() {
             if let Ok(run) = run.downcast::<CTRun>() {
                 self.collect_run(&run, out);
             }
         }
-        let mut advance = 0.0;
-        for glyph in &mut out[first..] {
-            glyph.x += pen;
-            advance += glyph.advance;
-        }
-        advance
     }
 }
 
@@ -256,23 +318,24 @@ impl TextSystem for CoreTextSystem {
             return;
         }
         if text.is_ascii() || !text.chars().any(is_right_to_left) {
-            self.shape_direction(text, 0, false, 0.0, out);
+            self.shape_direction(text, false, out);
             return;
         }
-        let mut current = false;
-        let mut start = 0;
-        let mut pen = 0.0;
-        for (byte, grapheme) in text.grapheme_indices(true) {
-            let right_to_left = grapheme_direction(grapheme).unwrap_or(current);
-            if right_to_left != current {
-                if byte > start {
-                    pen += self.shape_direction(&text[start..byte], start, current, pen, out);
-                    start = byte;
-                }
-                current = right_to_left;
-            }
+        direction::split(text, &mut self.runs);
+        if let [run] = self.runs[..] {
+            self.shape_direction(text, run.right_to_left, out);
+            return;
         }
-        self.shape_direction(&text[start..], start, current, pen, out);
+        self.separator_drew = false;
+        self.shape_runs(text, false, out);
+        self.shape_runs(text, true, out);
+        if self.separator_drew
+            || !direction::every_run_drawn(text, &self.runs, out, &mut self.drawn)
+        {
+            out.clear();
+            self.shape_apart(text, out);
+        }
+        direction::line_up(&mut self.runs, out);
     }
 
     fn rasterize(&mut self, key: GlyphKey) -> Option<GlyphBitmap> {
@@ -398,55 +461,6 @@ fn font_attribute() -> &'static CFString {
     unsafe { kCTFontAttributeName }
 }
 
-/// Whether `c` is in a block of a right-to-left script. Its letters need
-/// embedding level 1 to shape as they should. None of these characters has a
-/// mirrored form (`Bidi_Mirrored` in Unicode 17), so that level cannot show one.
-fn is_right_to_left(c: char) -> bool {
-    matches!(
-        u32::from(c),
-        0x590..=0x8FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF
-    )
-}
-
-/// Whether `c` extends the grapheme of a letter before it: a mark or a joiner,
-/// by the same table as the display model's. None of these has a mirrored form.
-fn extends_a_letter(c: char) -> bool {
-    let mut bytes = [b'a'; 5];
-    let len = 1 + c.encode_utf8(&mut bytes[1..]).len();
-    let Ok(text) = std::str::from_utf8(&bytes[..len]) else {
-        return false;
-    };
-    GraphemeCursor::new(1, len, true).is_boundary(text, 0) == Ok(false)
-}
-
-/// The direction of a grapheme, right to left or not: `None` for one that stays
-/// in the run it is in, as a space or ASCII punctuation with no mirrored form
-/// does. Right to left needs all of it to be: a prepended character can come
-/// before a character with a mirrored form, which then keeps level 0.
-fn grapheme_direction(grapheme: &str) -> Option<bool> {
-    let mut chars = grapheme.chars();
-    let first = chars.next()?;
-    if chars.as_str().is_empty() {
-        let neutral = first == ' '
-            || first.is_ascii_punctuation()
-                && !matches!(first, '(' | ')' | '<' | '>' | '[' | ']' | '{' | '}');
-        return if neutral {
-            None
-        } else {
-            Some(is_right_to_left(first))
-        };
-    }
-    let mut right_to_left = false;
-    for c in grapheme.chars() {
-        if is_right_to_left(c) {
-            right_to_left = true;
-        } else if !extends_a_letter(c) {
-            return Some(false);
-        }
-    }
-    Some(right_to_left)
-}
-
 /// A forced embedding `level`, so no bidirectional algorithm runs, and no limit
 /// on a line's length from CoreText: `oso-render` bounds what it shapes per row.
 fn typesetter_options(level: i32) -> CFRetained<CFDictionary<CFString, CFType>> {
@@ -522,6 +536,7 @@ fn advance_of(font: &CTFont, c: char) -> Option<CGFloat> {
 
 #[cfg(test)]
 mod tests {
+    use super::direction::grapheme_direction;
     use super::*;
 
     const REQUEST: FontRequest<'static> = FontRequest {
@@ -696,9 +711,114 @@ mod tests {
                 let text = format!("{letter}{mark}");
                 system.shape(&text, &mut split);
                 whole.clear();
-                system.shape_direction(&text, 0, right_to_left, 0.0, &mut whole);
+                system.shape_direction(&text, right_to_left, &mut whole);
                 assert_eq!(split, whole, "{:?}", text.escape_unicode().to_string());
             }
+        }
+    }
+
+    /// The glyphs of `text` by cluster: their keys, offsets from the cluster's
+    /// first glyph and advances, which is what placing them on the grid reads.
+    fn by_cluster(system: &mut CoreTextSystem, text: &str) -> Vec<(u32, GlyphKey, i32, i32, i32)> {
+        let mut out = Vec::new();
+        system.shape(text, &mut out);
+        let mut glyphs: Vec<_> = out
+            .iter()
+            .map(|g| {
+                let first = out.iter().find(|f| f.cluster == g.cluster).unwrap();
+                let dx = ((g.x - first.x) * 64.0).round() as i32;
+                let advance = (g.advance * 64.0).round() as i32;
+                (g.cluster, g.key, dx, (g.y * 64.0).round() as i32, advance)
+            })
+            .collect();
+        glyphs.sort_by_key(|g| (g.0, g.1));
+        glyphs
+    }
+
+    #[test]
+    fn runs_of_one_direction_shape_as_if_each_were_alone() {
+        let mut system = menlo(2.0);
+        let rows = [
+            "\u{644}a\u{627}",
+            "\u{628}a\u{628}a\u{628}",
+            "\u{633}\u{644}\u{627}\u{645} x \u{639}\u{644}\u{64a}\u{643}\u{645} (1) \u{645}\u{631}\u{62d}\u{628}\u{627}",
+            "\u{5e9}\u{5c1}\u{5b8}a\u{5d1}\u{5bc}\u{5b7}\u{5e8} 2024 \u{5e2}\u{5d5}\u{5dc}\u{5b8}\u{5dd}",
+            "f(\u{5d0}) <\u{5d1}> [\u{5d2}] fi\u{5d3}fl",
+            "\u{5d0}\u{5b4}a\u{5b4}\u{5d1}",
+            // What a shaper can build across graphemes, on both sides of a
+            // run of the other direction.
+            "\u{1f1ef}\u{5d0}\u{1f1f5}",
+            "\u{1f1ef}\u{1f1f5}\u{5d0}\u{1f1fa}\u{1f1f8}",
+            "\u{1f468}\u{200d}\u{5d0}\u{200d}\u{1f469}",
+            "\u{1f468}\u{5d0}\u{200d}\u{1f469}",
+            "\u{1100}\u{5d0}\u{1161}\u{11a8}",
+            "\u{915}\u{94d}\u{5d0}\u{937}",
+            "\u{915}\u{5d0}\u{94d}\u{937}",
+            "f\u{5d0}i \u{644}a\u{627} \u{5d0}\u{1f1ef}\u{5d1}\u{1f1f5}",
+            "\u{e01}\u{5d0}\u{e49}\u{e33}",
+        ];
+        for row in rows {
+            let mut want = Vec::new();
+            let mut start = 0;
+            let mut current = None;
+            for (byte, grapheme) in row.grapheme_indices(true) {
+                let direction = grapheme_direction(grapheme).or(current).unwrap_or(false);
+                if current.is_some_and(|c| c != direction) {
+                    want.extend(
+                        by_cluster(&mut system, &row[start..byte])
+                            .into_iter()
+                            .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
+                    );
+                    start = byte;
+                }
+                current = Some(direction);
+            }
+            want.extend(
+                by_cluster(&mut system, &row[start..])
+                    .into_iter()
+                    .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
+            );
+            want.sort_by_key(|g| (g.0, g.1));
+            system.lines = 0;
+            assert_eq!(by_cluster(&mut system, row), want, "{row:?}");
+            assert!(system.lines <= 2, "joined, not apart: {row:?}");
+        }
+    }
+
+    #[test]
+    fn a_row_whose_separator_draws_is_shaped_with_its_runs_apart() {
+        let mut system = menlo(2.0);
+        let row = "\u{644}a\u{627} \u{5d0}\u{5b8}b(\u{5d1})";
+        let joined = by_cluster(&mut system, row);
+        system.separator_draws = true;
+        system.lines = 0;
+        let apart = by_cluster(&mut system, row);
+        let mut runs = Vec::new();
+        direction::split(row, &mut runs);
+        assert_eq!(system.lines, 2 + runs.len(), "joined, then each run alone");
+        assert_eq!(apart, joined, "the same glyphs as each run alone");
+    }
+
+    #[test]
+    fn a_row_makes_at_most_two_lines_however_often_it_changes_direction() {
+        let mut system = menlo(1.0);
+        let mut out = Vec::new();
+        for unit in ["\u{5d0}a", "\u{628}a", "\u{5d0}\u{5b8}(", "a \u{5d0} "] {
+            let row = unit.repeat(200);
+            system.lines = 0;
+            system.shape(&row, &mut out);
+            assert_eq!(system.lines, 2, "{unit:?}");
+            let starts: Vec<_> = row.grapheme_indices(true).map(|(b, _)| b as u32).collect();
+            let mut drawn: Vec<_> = out
+                .iter()
+                .map(|g| {
+                    assert!((g.cluster as usize) < row.len(), "no separator draws");
+                    starts.partition_point(|&s| s <= g.cluster) - 1
+                })
+                .collect();
+            drawn.sort_unstable();
+            drawn.dedup();
+            assert_eq!(drawn.len(), starts.len(), "every grapheme draws: {unit:?}");
         }
     }
 
@@ -720,14 +840,6 @@ mod tests {
     }
 
     #[test]
-    fn a_prepended_character_takes_the_direction_of_what_follows() {
-        assert_eq!(grapheme_direction("\u{6dd}\u{661}"), Some(true));
-        assert_eq!(grapheme_direction("\u{600}\u{5d0}"), Some(true));
-        assert_eq!(grapheme_direction("\u{600}("), Some(false));
-        assert_eq!(grapheme_direction("\u{600}a"), Some(false));
-    }
-
-    #[test]
     fn punctuation_with_no_mirrored_form_keeps_its_glyph_in_a_right_to_left_run() {
         let mut system = menlo(1.0);
         let mut out = Vec::new();
@@ -740,213 +852,6 @@ mod tests {
                 let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
                 assert_eq!(glyph.key, want, "{text:?}");
             }
-        }
-    }
-
-    #[test]
-    fn a_grapheme_of_one_character_has_its_direction_unless_it_stays_in_the_run() {
-        assert_eq!(grapheme_direction("a"), Some(false));
-        assert_eq!(grapheme_direction("\u{65e5}"), Some(false));
-        assert_eq!(grapheme_direction("("), Some(false));
-        assert_eq!(grapheme_direction("\u{5d0}"), Some(true));
-        assert_eq!(grapheme_direction(" "), None);
-        assert_eq!(grapheme_direction(","), None);
-    }
-
-    /// Every character with `Bidi_Mirrored=Y` in `UnicodeData.txt` of Unicode 17, as
-    /// inclusive ranges.
-    const MIRRORED: [(u32, u32); 114] = [
-        (0x28, 0x29),
-        (0x3C, 0x3C),
-        (0x3E, 0x3E),
-        (0x5B, 0x5B),
-        (0x5D, 0x5D),
-        (0x7B, 0x7B),
-        (0x7D, 0x7D),
-        (0xAB, 0xAB),
-        (0xBB, 0xBB),
-        (0xF3A, 0xF3D),
-        (0x169B, 0x169C),
-        (0x2039, 0x203A),
-        (0x2045, 0x2046),
-        (0x207D, 0x207E),
-        (0x208D, 0x208E),
-        (0x2140, 0x2140),
-        (0x2201, 0x2204),
-        (0x2208, 0x220D),
-        (0x2211, 0x2211),
-        (0x2215, 0x2216),
-        (0x221A, 0x221D),
-        (0x221F, 0x2222),
-        (0x2224, 0x2224),
-        (0x2226, 0x2226),
-        (0x222B, 0x2233),
-        (0x2239, 0x2239),
-        (0x223B, 0x224C),
-        (0x2252, 0x2255),
-        (0x225F, 0x2260),
-        (0x2262, 0x2262),
-        (0x2264, 0x226B),
-        (0x226D, 0x228C),
-        (0x228F, 0x2292),
-        (0x2298, 0x2298),
-        (0x22A2, 0x22A3),
-        (0x22A6, 0x22B8),
-        (0x22BE, 0x22BF),
-        (0x22C9, 0x22CD),
-        (0x22D0, 0x22D1),
-        (0x22D6, 0x22ED),
-        (0x22F0, 0x22FF),
-        (0x2308, 0x230B),
-        (0x2320, 0x2321),
-        (0x2329, 0x232A),
-        (0x2768, 0x2775),
-        (0x27C0, 0x27C0),
-        (0x27C3, 0x27C6),
-        (0x27C8, 0x27C9),
-        (0x27CB, 0x27CD),
-        (0x27D3, 0x27D6),
-        (0x27DC, 0x27DE),
-        (0x27E2, 0x27EF),
-        (0x2983, 0x2998),
-        (0x299B, 0x29A0),
-        (0x29A2, 0x29AF),
-        (0x29B8, 0x29B8),
-        (0x29C0, 0x29C5),
-        (0x29C9, 0x29C9),
-        (0x29CE, 0x29D2),
-        (0x29D4, 0x29D5),
-        (0x29D8, 0x29DC),
-        (0x29E1, 0x29E1),
-        (0x29E3, 0x29E5),
-        (0x29E8, 0x29E9),
-        (0x29F4, 0x29F9),
-        (0x29FC, 0x29FD),
-        (0x2A0A, 0x2A1C),
-        (0x2A1E, 0x2A21),
-        (0x2A24, 0x2A24),
-        (0x2A26, 0x2A26),
-        (0x2A29, 0x2A29),
-        (0x2A2B, 0x2A2E),
-        (0x2A34, 0x2A35),
-        (0x2A3C, 0x2A3E),
-        (0x2A57, 0x2A58),
-        (0x2A64, 0x2A65),
-        (0x2A6A, 0x2A6D),
-        (0x2A6F, 0x2A70),
-        (0x2A73, 0x2A74),
-        (0x2A79, 0x2AA3),
-        (0x2AA6, 0x2AAD),
-        (0x2AAF, 0x2AD6),
-        (0x2ADC, 0x2ADC),
-        (0x2ADE, 0x2ADE),
-        (0x2AE2, 0x2AE6),
-        (0x2AEC, 0x2AEE),
-        (0x2AF3, 0x2AF3),
-        (0x2AF7, 0x2AFB),
-        (0x2AFD, 0x2AFD),
-        (0x2BFE, 0x2BFE),
-        (0x2E02, 0x2E05),
-        (0x2E09, 0x2E0A),
-        (0x2E0C, 0x2E0D),
-        (0x2E1C, 0x2E1D),
-        (0x2E20, 0x2E29),
-        (0x2E55, 0x2E5C),
-        (0x3008, 0x3011),
-        (0x3014, 0x301B),
-        (0xFE59, 0xFE5E),
-        (0xFE64, 0xFE65),
-        (0xFF08, 0xFF09),
-        (0xFF1C, 0xFF1C),
-        (0xFF1E, 0xFF1E),
-        (0xFF3B, 0xFF3B),
-        (0xFF3D, 0xFF3D),
-        (0xFF5B, 0xFF5B),
-        (0xFF5D, 0xFF5D),
-        (0xFF5F, 0xFF60),
-        (0xFF62, 0xFF63),
-        (0x1D6DB, 0x1D6DB),
-        (0x1D715, 0x1D715),
-        (0x1D74F, 0x1D74F),
-        (0x1D789, 0x1D789),
-        (0x1D7C3, 0x1D7C3),
-    ];
-
-    #[test]
-    fn no_character_with_a_mirrored_form_can_reach_level_1() {
-        assert_eq!(MIRRORED.iter().map(|(a, b)| b - a + 1).sum::<u32>(), 554);
-        let mirrored = MIRRORED
-            .iter()
-            .flat_map(|&(a, b)| a..=b)
-            .filter_map(char::from_u32);
-        for c in mirrored {
-            assert!(!is_right_to_left(c), "{c:?}");
-            assert!(!extends_a_letter(c), "{c:?}");
-            assert_eq!(
-                grapheme_direction(c.encode_utf8(&mut [0; 4])),
-                Some(false),
-                "{c:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_tables_are_of_the_unicode_version_checked() {
-        // On a new version, check `MIRRORED` and the ranges of `is_right_to_left` again.
-        assert_eq!(unicode_segmentation::UNICODE_VERSION, (17, 0, 0));
-    }
-
-    #[test]
-    fn only_characters_with_no_mirrored_form_can_share_a_right_to_left_run() {
-        // The closest characters with a mirrored form to the ranges, and ones
-        // that look as if they had one.
-        for c in [
-            '(',
-            ')',
-            '<',
-            '>',
-            '[',
-            ']',
-            '{',
-            '}',
-            '\u{ab}',
-            '\u{bb}',
-            '\u{2039}',
-            '\u{2264}',
-            '\u{fe59}',
-            '\u{fe5e}',
-            '\u{fe64}',
-            '\u{fe65}',
-            '\u{ff08}',
-            '\u{ff09}',
-            '\u{1d6db}',
-            '\u{1d7c3}',
-        ] {
-            assert!(!is_right_to_left(c), "{c:?}");
-            assert_eq!(grapheme_direction(&c.to_string()), Some(false), "{c:?}");
-        }
-        assert!(is_right_to_left('\u{fd3e}') && is_right_to_left('\u{fd3f}'));
-        // The edges of the ranges.
-        for c in [
-            '\u{58f}',
-            '\u{900}',
-            '\u{fb1c}',
-            '\u{fe6f}',
-            '\u{ff00}',
-            '\u{1e7ff}',
-            '\u{1f000}',
-        ] {
-            assert!(!is_right_to_left(c), "{c:?}");
-        }
-        for c in [
-            '\u{590}',
-            '\u{8ff}',
-            '\u{fb1d}',
-            '\u{fe70}',
-            '\u{10800}',
-            '\u{1efff}',
-        ] {
-            assert!(is_right_to_left(c), "{c:?}");
         }
     }
 
