@@ -1,6 +1,6 @@
 # 0066. Text stays in logical order
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-07
 
 ## Context
