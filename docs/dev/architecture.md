@@ -46,12 +46,13 @@ fastest. Stable foundations live in library crates. See
 Files are read today with portable `std::fs` calls in the tip crate's
 loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 How file-system code splits between the loader and `oso-platform` is
-settled when the first piece that needs `libc` (opening with `O_NONBLOCK`)
-arrives; see `open-questions.md`. Saving uses `std`'s Unix file calls in
-the tip crate until then
-([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). What a file holds beyond
-its mode goes in `oso_platform::file_meta`
-([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
+settled when the loader needs `libc` (opening with `O_NONBLOCK`); see
+`open-questions.md`. Saving uses `std`'s Unix file calls in the tip crate
+([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)), and for what a file
+holds beyond its mode, and for opening it without waiting,
+`oso_platform::file_meta`
+([ADR 0065](adr/0065-access-lists-on-private-directories.md),
+[ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
 depends on `oso-core` and `oso-platform`, and neither of those depends on
@@ -390,7 +391,7 @@ Saving never touches the file until the whole new text is safely beside it. A
 command checks the buffer, ensures its final newline as an edit, and queues a job
 with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
 after the command and runs it on a thread (`saver`): a temporary file in the file's
-own directory, the file's owner and mode, fsync, a check that the file on disk is
+own directory, the file's owner, access list and mode, fsync, a check that the file on disk is
 where and what the buffer last read or wrote (its real location, modification time and
 size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links

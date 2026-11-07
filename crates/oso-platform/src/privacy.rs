@@ -241,6 +241,7 @@ mod tests {
         names_searching: false,
         names_making_directories: false,
         names_reading_the_list: false,
+        names_deleting: false,
         applies_here: true,
         reaches_new_files: false,
         reaches_new_directories: false,

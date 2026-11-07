@@ -71,6 +71,7 @@ old one's status.
 | 0062 | [The emergency save, the panic hook and no core dumps](0062-emergency-save-and-the-panic-hook.md) | Accepted |
 | 0063 | [The modeline, the echo area and internal buffers](0063-modeline-echo-area-and-internal-buffers.md) | Accepted |
 | 0065 | [Access lists on private directories](0065-access-lists-on-private-directories.md) | Accepted |
+| 0067 | [Access lists and the quarantine flag in a save](0067-access-lists-and-the-quarantine-flag-in-a-save.md) | Proposed |
 
 ## Template
 

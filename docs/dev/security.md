@@ -151,8 +151,10 @@ and below the row, and a label's glyphs keep their own cells
   cannot be kept, the save is refused. A file deleted since it was read gets its mode
   back, narrowed if its group could differ. A file changed on disk since it was read and a file the user may not write are
   left as they are.
-  Extended attributes and ACLs are lost, and hard links break
-  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). A secret buffer saves like
+  Its access list goes with it on macOS, and a POSIX one on Linux: the temporary file holds none while the text goes in, and
+  takes the old file's only after it, or what its directory gives if it is new. If a list cannot be carried, the save is
+  refused. The quarantine flag goes with it too on macOS, and if it cannot, the save goes on and says so. Other extended attributes are lost, and hard links break
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md), [ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)). A secret buffer saves like
   any other: only the emergency save skips them. Messages name the path and never
   quote the text. A kill or a power cut during a save, or leaving past the 10 minutes it
   may hold an exit, can leave the temporary file behind, `0600` or by then the file's own

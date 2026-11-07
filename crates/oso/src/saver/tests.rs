@@ -499,6 +499,8 @@ fn applied(editor: &mut Editor, report: SaveReport) -> String {
     kept_messages(editor).pop().unwrap()
 }
 
+#[cfg(all(feature = "dev", any(target_os = "macos", target_os = "linux")))]
+mod lists;
 mod outcomes;
 #[cfg(unix)]
 mod unix;

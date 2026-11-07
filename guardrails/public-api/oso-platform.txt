@@ -41,6 +41,34 @@ impl std::io::Write for oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::flush(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io::error::Result<usize>
 pub mod oso_platform::file_meta
+pub struct oso_platform::file_meta::AccessList
+impl oso_platform::file_meta::AccessList
+pub fn oso_platform::file_meta::AccessList::at(&std::path::Path) -> std::io::error::Result<Self>
+pub fn oso_platform::file_meta::AccessList::denies_deleting(&self) -> bool
+pub fn oso_platform::file_meta::AccessList::give_to(&self, &std::fs::File) -> std::io::error::Result<()>
+pub fn oso_platform::file_meta::AccessList::take_from(&std::fs::File) -> std::io::error::Result<Self>
+impl core::clone::Clone for oso_platform::file_meta::AccessList
+pub fn oso_platform::file_meta::AccessList::clone(&self) -> oso_platform::file_meta::AccessList
+impl core::cmp::Eq for oso_platform::file_meta::AccessList
+impl core::cmp::PartialEq for oso_platform::file_meta::AccessList
+pub fn oso_platform::file_meta::AccessList::eq(&self, &oso_platform::file_meta::AccessList) -> bool
+impl core::fmt::Debug for oso_platform::file_meta::AccessList
+pub fn oso_platform::file_meta::AccessList::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::file_meta::AccessList
+pub struct oso_platform::file_meta::Quarantine(_)
+impl oso_platform::file_meta::Quarantine
+pub fn oso_platform::file_meta::Quarantine::at(&std::path::Path) -> std::io::error::Result<core::option::Option<Self>>
+pub fn oso_platform::file_meta::Quarantine::give_to(&self, &std::fs::File) -> std::io::error::Result<()>
+impl core::clone::Clone for oso_platform::file_meta::Quarantine
+pub fn oso_platform::file_meta::Quarantine::clone(&self) -> oso_platform::file_meta::Quarantine
+impl core::cmp::Eq for oso_platform::file_meta::Quarantine
+impl core::cmp::PartialEq for oso_platform::file_meta::Quarantine
+pub fn oso_platform::file_meta::Quarantine::eq(&self, &oso_platform::file_meta::Quarantine) -> bool
+impl core::fmt::Debug for oso_platform::file_meta::Quarantine
+pub fn oso_platform::file_meta::Quarantine::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::file_meta::Quarantine
+pub fn oso_platform::file_meta::clear_access_list_at(&std::path::Path) -> std::io::error::Result<()>
+pub fn oso_platform::file_meta::open_for_writing(&std::path::Path) -> std::io::error::Result<std::fs::File>
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
 pub mod oso_platform::privacy
 pub struct oso_platform::privacy::PrivateDir

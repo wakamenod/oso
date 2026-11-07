@@ -35,10 +35,9 @@ item notes when it must be settled.
   and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
   rows of ordinary text, so this waits until a profile shows it.
 - A path swapped for a FIFO between the loader's check and its open blocks
-  the loading thread (not the UI), and the same goes for the save's check that a
-  file is writable, which leaves the buffer saving and a confirmed exit waiting.
-  Opening with `O_NONBLOCK` closes this and needs `libc` behind an `oso-platform`
-  filesystem helper.
+  the loading thread (not the UI). Opening with `O_NONBLOCK` closes this, as
+  `oso_platform::file_meta::open_for_writing` does for a save
+  ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)).
 - UI-thread allocations per frame: every `SumTree` seek allocates a cursor
   stack, and every visible glyph hashes its key in the atlas with SipHash.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
@@ -57,12 +56,10 @@ item notes when it must be settled.
 
 ## M2
 
-- Safe save loses a file's extended attributes and ACLs, since `std` cannot copy them
-  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
-  `libc` is in release builds now ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)), so decide whether copying them is worth it.
+- Safe save loses a file's extended attributes other than the quarantine flag ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)). On macOS that includes Finder tags. Decide whether copying them is worth it.
 - A control socket's own file is not sealed as a screenshot is. It is a dev tool's, its peer is checked, and an inherited `deny delete` can leave a dead
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
-- Later, before anyone uses oso on Windows: decide what a private directory does about access lists there. It needs `windows-sys` as a direct
+- Later, before anyone uses oso on Windows: decide what a private directory and a save do about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
   buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. The same goes for
