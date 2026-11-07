@@ -72,8 +72,9 @@ fn what_the_disk_did_not_confirm_is_said_as_it_is_and_counts_as_written() {
             })),
         };
         let message = applied(&mut editor, report);
-        assert!(message.starts_with("Wrote"), "{message}");
-        assert!(message.ends_with(said), "{message}");
+        assert!(message.starts_with("Wrote the file, but"), "{message}");
+        assert!(message.contains(said), "{message}");
+        assert!(message.ends_with(&path.display().to_string()), "{message}");
         assert!(!editor.current().1.is_modified());
     }
 }
@@ -94,7 +95,7 @@ fn each_outcome_says_so_by_path_and_quotes_no_text() {
     fs::write(&path, b"changed\n").unwrap();
     let message = applied(&mut editor, run(job));
     assert!(
-        message.starts_with(&shown) && message.contains("changed on disk"),
+        message.ends_with(&shown) && message.starts_with("Not saved: the file changed on disk"),
         "{message}"
     );
     assert!(editor.current().1.is_modified());
@@ -104,11 +105,28 @@ fn each_outcome_says_so_by_path_and_quotes_no_text() {
     let buffer = job.buffer;
     let report = SaveReport::not_started(buffer, path.clone(), std::io::Error::other("no threads"));
     let message = applied(&mut editor, report);
-    assert_eq!(message, format!("Cannot save {shown}: no threads"));
+    assert_eq!(message, format!("Not saved: no threads: {shown}"));
     assert!(editor.current().1.is_modified());
-    for message in editor.messages() {
+    for message in crate::commands::kept_messages(&editor) {
         assert!(!message.contains(SECRET.trim()), "{message}");
     }
+}
+
+#[test]
+fn a_path_past_the_cap_leaves_what_happened_in_the_message() {
+    let scratch = Scratch::new("long-path");
+    let path = scratch.file("notes.txt", b"old\n");
+    let mut editor = visit(&path);
+    let job = job_of(&mut editor, "new\n");
+    let long = PathBuf::from(format!("/{}", "long/".repeat(2000)));
+    let error = std::io::Error::other("no threads");
+    let report = SaveReport::not_started(job.buffer, long, error);
+    let message = applied(&mut editor, report);
+    assert!(
+        message.starts_with("Not saved: no threads: /long/"),
+        "{message}"
+    );
+    assert!(message.ends_with('…'), "{message}");
 }
 
 #[test]

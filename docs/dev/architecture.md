@@ -119,7 +119,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   of the buffer it shows, and are clipped to display clusters. In the selected
   window a cursor at an insertion ends after it; in others it stays before, as
   an Emacs marker.
-- **Edits** go through `Editor::apply_edits`: one replacement per cursor, for
+- **Edits** go through `Editor::apply_edits`, but for an internal buffer's, which have no undo
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)): one replacement per cursor, for
   one buffer, applied in descending offset order. Overlapping ranges become
   their union. The rope, display map, undo record, revision and every window's
   cursors change together: the work is done on clones, O(1) to make, and
@@ -152,9 +153,12 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   restore the stored one, and a buffer is modified when its id differs from the
   saved one. So undoing to the saved state is unmodified, and a buffer whose saved
   state left the history stays modified until it is saved.
-- **Messages** (`Editor::message`) are kept on the editor, bounded, and written to
-  the log, so they must not quote buffer text. The echo area and `*Messages*` draw
-  them (M2-7).
+- **Messages** (`Editor::message`) are written to the log, so they must not quote buffer
+  text. The echo area shows the newest until the next key, and `*Messages*`, an internal
+  buffer, keeps the newest 1000. The dispatcher marks where a command begins and ends, and
+  inside that span a message around a secret buffer reaches only the echo area. `Editor::echo` reaches the
+  echo area alone. `Editor::buffers` leaves internal buffers out, so whatever goes through
+  a user's work does too ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 
 ### Command registry
 
@@ -297,7 +301,9 @@ margins and in what is left over of a cell at the right and bottom, apart from t
 that glyphs on the frame's top row keep above it.
 
 The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
-on input that changes the view, on resize, and when the window becomes visible.
+on input that changes the view, on resize, when the window becomes visible, and when
+what the modeline or the echo area says has changed, which the app compares after each
+batch of events ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 The surface presents with `Fifo` and a frame latency of 1. Fifo is always
 supported and never tears, and on-demand drawing means it costs nothing while
 idle. Mailbox or Immediate can be revisited once key-to-photon latency is
@@ -317,6 +323,7 @@ loop. Render errors are logged and are never fatal.
 |---|---|---|
 | File | rope loaded from disk | source files, notes |
 | Generated | rope produced by a mode, read-only by default | git status, directory listings, compile output, help |
+| Internal | rope the editor keeps for itself, not the user's work | `*Messages*` |
 | Terminal | `alacritty_terminal` grid | shell sessions |
 
 A window shows a view. A text view renders a buffer through the display model.

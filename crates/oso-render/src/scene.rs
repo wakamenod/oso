@@ -23,7 +23,7 @@ use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
-use crate::pane::{Face, Pane, PaneContent, PaneId, Span, TextView};
+use crate::pane::{Face, Layer, Pane, PaneContent, PaneId, Span, TextView};
 use crate::rows::{Rows, ShapedRow};
 use crate::shape::Rect;
 use crate::text::{GlyphInstance, Layout};
@@ -273,7 +273,13 @@ fn draw_pane<G: GlyphSource>(
         PaneContent::Text(view) => draw_text(draws, view, pane, metrics, rows, system, glyphs),
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
-            draw_lines(draws, lines, &unscrolled, rows_shown, rows, system, glyphs);
+            // A modeline or an echo area. Other panes are M2-16's and M3's to decide.
+            let layout = if pane.layer == Layer::TILED && rows_shown == 1 {
+                unscrolled.with_band_above()
+            } else {
+                unscrolled
+            };
+            draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
     }
 }
@@ -341,7 +347,6 @@ fn draw_lines<G: GlyphSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pane::Layer;
     use crate::rows::tests::Recorder;
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::display_map::DisplayPoint;
@@ -456,10 +461,37 @@ mod tests {
         }]
     }
 
+    #[test]
+    fn only_a_tiled_row_that_is_no_buffers_keeps_the_band_above_it() {
+        // A bitmap reaching far above its row shows how far up a pane may draw.
+        let top_of = |panes: &[Pane<'_>]| {
+            let mut atlas = FakeAtlas {
+                bitmap: Some(([8, 60], 1, 60)),
+                ..FakeAtlas::default()
+            };
+            let mut scene = Scene::new(LIMITS);
+            build(&mut scene, panes, &mut atlas);
+            scene.quads()[0].position()[1]
+        };
+        let spans = line("x");
+        let lines: [&[Span<'_>]; 1] = [&spans];
+        let buffer = Buffer::from_text("t", "x");
+        // Row 2 starts at y 48, and the band is 4 px.
+        let one_row = rect(2, 0, 1, 10);
+        let tiled = pane(0, one_row, 0, PaneContent::Lines(&lines));
+        assert_eq!(top_of(&[tiled]), 44.0);
+        let taller = pane(0, rect(2, 0, 2, 10), 0, PaneContent::Lines(&lines));
+        assert_eq!(top_of(&[taller]), 48.0);
+        let in_front = pane(0, one_row, 1, PaneContent::Lines(&lines));
+        assert_eq!(top_of(&[in_front]), 48.0);
+        let text = pane(0, one_row, 0, view(&buffer));
+        assert_eq!(top_of(&[text]), 48.0);
+    }
+
     proptest::proptest! {
         /// Whatever the regions, the scroll position and the glyphs' bitmaps,
         /// everything a pane draws stays in its region, but for the band above
-        /// the frame's top row.
+        /// the frame's top row or a tiled row that is no buffer's.
         #[test]
         fn prop_a_pane_draws_only_in_its_region(
             (row, column, rows, columns) in (0usize..6, 0usize..12, 0usize..6, 0usize..12),
@@ -494,7 +526,7 @@ mod tests {
             build(&mut scene, &panes, &mut atlas);
             let (x0, y0) = (8.0 + column as f32 * 10.0, 8.0 + row as f32 * 20.0);
             let (x1, y1) = (x0 + columns as f32 * 10.0, y0 + rows as f32 * 20.0);
-            let band = if row == 0 { 4.0 } else { 0.0 };
+            let band = if row == 0 || (rows == 1 && lines) { 4.0 } else { 0.0 };
             for rect in scene.rects() {
                 let ([x, y], [w, h]) = (rect.position, rect.size);
                 proptest::prop_assert!(x >= x0 && y >= y0 && x + w <= x1 && y + h <= y1);

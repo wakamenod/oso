@@ -17,7 +17,7 @@
 use std::sync::Arc;
 
 use super::DisplayCluster;
-use super::cell::{CellKind, Clusters, TabWidth};
+use super::cell::{CellKind, Clusters, TabWidth, holds_bidi_control};
 use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
@@ -105,6 +105,8 @@ pub struct TabSummary {
     pub bytes: usize,
     /// Line breaks.
     pub lines: usize,
+    /// It holds a bidirectional control, for the modeline's warning (ADR 0063).
+    pub(crate) bidi_controls: bool,
     /// The column function after the last line break.
     last_line: ColumnFn,
     /// The tab width the summary was computed with. `None` only for the
@@ -132,6 +134,7 @@ impl TabSummary {
         Self {
             bytes: text.len(),
             lines,
+            bidi_controls: holds_bidi_control(text),
             last_line,
             tab_width: Some(tab_width),
         }
@@ -142,6 +145,7 @@ impl Summary for TabSummary {
     fn add_summary(&mut self, other: &Self) {
         let tab_width = self.tab_width.or(other.tab_width).unwrap_or_default();
         self.bytes += other.bytes;
+        self.bidi_controls |= other.bidi_controls;
         if other.lines > 0 {
             self.lines += other.lines;
             self.last_line = other.last_line;

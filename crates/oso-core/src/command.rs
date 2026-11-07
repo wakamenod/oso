@@ -287,8 +287,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// A command that failed. The host keeps its message with
-/// [`Editor::message`], which the echo area draws from M2-7.
+/// A command that failed. The host says its message with [`Editor::message`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandError {
     message: Cow<'static, str>,

@@ -20,7 +20,7 @@ pub struct Png {
     rgba: Vec<u8>,
 }
 
-/// Where the pixels that are not the background are.
+/// Where the topmost pixels that are not the background are.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Foreground {
     pub pixels: usize,
@@ -76,12 +76,21 @@ impl Png {
         })
     }
 
-    /// What differs from the background, taken to be the bottom right corner:
-    /// nothing is drawn there unless the window is full to its last cell.
+    /// What differs from the background in the topmost rows that hold any, down to
+    /// the first row that holds none. So the modeline's bar and text, below a gap of
+    /// empty rows, do not count. The background is taken to be the bottom right
+    /// corner: nothing is drawn there unless the window is full to its last cell.
     pub fn foreground(&self) -> Option<Foreground> {
         let background = self.rgba.last_chunk::<4>()?;
+        let stride = self.width as usize * 4;
+        let drawn = |row: &[u8]| row.chunks_exact(4).any(|pixel| pixel != background);
+        let mut rows = self.rgba.chunks_exact(stride);
+        let skipped = rows.by_ref().take_while(|row| !drawn(row)).count();
+        let held = 1 + rows.take_while(|row| drawn(row)).count();
+        let end = (skipped + held).saturating_mul(stride).min(self.rgba.len());
+        let top = &self.rgba[..end];
         let mut found: Option<Foreground> = None;
-        for (index, pixel) in self.rgba.chunks_exact(4).enumerate() {
+        for (index, pixel) in top.chunks_exact(4).enumerate() {
             if pixel == background {
                 continue;
             }

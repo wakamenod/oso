@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use oso_core::buffer::BufferId;
 use oso_core::command::Effects;
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, Status};
 use oso_core::window::WheelRemainder;
 use winit::event_loop::{ActiveEventLoop, EventLoopProxy};
 use winit::keyboard::ModifiersState;
@@ -69,6 +69,10 @@ pub struct App {
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
     wheel: WheelRemainder,
+    /// What the modeline and the echo area said when a frame was last drawn or asked
+    /// for, and room to compare it with what they would say now.
+    status: Status,
+    next_status: Status,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -98,6 +102,8 @@ impl App {
             emergency,
             started: Some(started),
             wheel: WheelRemainder::default(),
+            status: Status::default(),
+            next_status: Status::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]

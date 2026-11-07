@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 
 /// An absolute path on any system.
-fn absolute(path: &str) -> String {
+pub(super) fn absolute(path: &str) -> String {
     if cfg!(windows) {
         format!("C:{path}")
     } else {
@@ -27,7 +27,7 @@ fn absolute(path: &str) -> String {
 }
 
 /// An editor showing `path` with `content`, loaded.
-fn visiting(path: &str, content: &str) -> Editor {
+pub(super) fn visiting(path: &str, content: &str) -> Editor {
     let mut editor = Editor::default();
     let mut buffer = Buffer::visiting(PathBuf::from(path));
     buffer.apply_load(decode_all(content.as_bytes(), TabWidth::default()));

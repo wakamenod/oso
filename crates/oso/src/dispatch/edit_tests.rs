@@ -15,6 +15,7 @@ use oso_core::selection::{Selection, SelectionSet};
 use oso_core::window::{Scroll, ViewSize};
 
 use super::Dispatcher;
+use crate::commands::kept_messages;
 use crate::{bindings, commands};
 
 const REDRAW: Effects = Effects {
@@ -88,8 +89,8 @@ fn run(
 }
 
 /// A message of the last command, for checking what it signaled.
-fn last_message(editor: &Editor) -> Option<&str> {
-    editor.messages().next_back()
+fn last_message(editor: &Editor) -> Option<String> {
+    kept_messages(editor).pop()
 }
 
 // `cfg(test)` again so that the size limit counts these helpers, not the scenarios,
@@ -260,7 +261,10 @@ mod scenarios {
         // In a read-only buffer it signals as a key does.
         let mut editor = with_buffer(Buffer::from_bytes("t", b"caf\xE9"));
         assert_eq!(dispatcher.insert_text(&mut editor, "日本語"), NOTHING);
-        assert_eq!(last_message(&editor), Some("Buffer is read-only"));
+        assert_eq!(
+            last_message(&editor).as_deref(),
+            Some("Buffer is read-only")
+        );
     }
 
     #[test]
@@ -341,7 +345,10 @@ mod scenarios {
             assert_eq!(cursor(&editor), text(&editor).len());
         }
         assert_eq!(send(&mut dispatcher, &mut editor, "DEL"), NOTHING);
-        assert_eq!(last_message(&editor), Some("Beginning of buffer"));
+        assert_eq!(
+            last_message(&editor).as_deref(),
+            Some("Beginning of buffer")
+        );
     }
 
     #[test]
@@ -355,7 +362,7 @@ mod scenarios {
                 assert_eq!(cursor(&editor), 0);
             }
             assert_eq!(send(&mut dispatcher, &mut editor, key), NOTHING);
-            assert_eq!(last_message(&editor), Some("End of buffer"));
+            assert_eq!(last_message(&editor).as_deref(), Some("End of buffer"));
         }
     }
 
@@ -414,13 +421,16 @@ mod scenarios {
         assert_eq!(send(&mut dispatcher, &mut editor, "DEL"), REDRAW);
         assert_eq!(text(&editor), "a");
         assert_eq!(cursors(&editor), [0, 1]);
-        assert_eq!(last_message(&editor), Some("Beginning of buffer"));
+        assert_eq!(
+            last_message(&editor).as_deref(),
+            Some("Beginning of buffer")
+        );
 
         let (mut dispatcher, mut editor) = at("ab", &[0, 2]);
         assert_eq!(send(&mut dispatcher, &mut editor, "C-d"), REDRAW);
         assert_eq!(text(&editor), "b");
         assert_eq!(cursors(&editor), [0, 1]);
-        assert_eq!(last_message(&editor), Some("End of buffer"));
+        assert_eq!(last_message(&editor).as_deref(), Some("End of buffer"));
     }
 
     #[test]
@@ -529,7 +539,12 @@ mod scenarios {
     fn a_read_only_buffer_signals_and_changes_nothing() {
         let invalid = || Buffer::from_bytes("t", b"caf\xE9\n");
         let binary = || Buffer::from_bytes("t", b"a\0b\n");
-        let loading = || Buffer::visiting("/test/a.txt".into());
+        let loading = || {
+            let path = std::path::PathBuf::from("/test/a.txt");
+            let mut buffer = Buffer::visiting(path.clone());
+            buffer.judge_secret(Some(&[path]));
+            buffer
+        };
         let buffers: [&dyn Fn() -> Buffer; 3] = [&invalid, &binary, &loading];
         for buffer in buffers {
             for keys in ["a", "RET", "DEL", "C-d", "TAB", "C-z", "C-M-z"] {
@@ -540,7 +555,11 @@ mod scenarios {
                 assert_eq!(text(&editor), before);
                 assert!(!editor.current().1.is_modified());
                 assert_eq!(cursor(&editor), 0);
-                assert_eq!(last_message(&editor), Some("Buffer is read-only"), "{keys}");
+                assert_eq!(
+                    last_message(&editor).as_deref(),
+                    Some("Buffer is read-only"),
+                    "{keys}"
+                );
             }
         }
     }
@@ -562,13 +581,19 @@ mod scenarios {
         assert_eq!(cursors(&editor), [0, 1, 2]);
 
         assert_eq!(send(&mut dispatcher, &mut editor, "C-z"), NOTHING);
-        assert_eq!(last_message(&editor), Some("No further undo information"));
+        assert_eq!(
+            last_message(&editor).as_deref(),
+            Some("No further undo information")
+        );
 
         send(&mut dispatcher, &mut editor, "C-M-z C-M-z");
         assert_eq!(text(&editor), "x\nax\nbx\n");
         assert_eq!(cursors(&editor), typed);
         assert_eq!(send(&mut dispatcher, &mut editor, "C-M-z"), NOTHING);
-        assert_eq!(last_message(&editor), Some("No further redo information"));
+        assert_eq!(
+            last_message(&editor).as_deref(),
+            Some("No further redo information")
+        );
     }
 
     #[test]
@@ -745,7 +770,10 @@ mod scenarios {
         send(&mut dispatcher, &mut editor, "a");
         assert_eq!(send(&mut dispatcher, &mut editor, "C-c p"), REDRAW);
         assert_eq!(text(&editor), "XXa");
-        assert_eq!(last_message(&editor), Some("edit-and-panic panicked"));
+        assert_eq!(
+            last_message(&editor).as_deref(),
+            Some("edit-and-panic panicked")
+        );
         send(&mut dispatcher, &mut editor, "b");
         assert_eq!(text(&editor), "XXab");
 
@@ -763,18 +791,15 @@ mod scenarios {
     fn a_failed_command_leaves_a_message_that_quotes_no_text() {
         let (mut dispatcher, mut editor) = at("SECRET-TEXT", &[0]);
         send(&mut dispatcher, &mut editor, "DEL");
-        assert_eq!(
-            editor.messages().collect::<Vec<_>>(),
-            ["Beginning of buffer"]
-        );
+        assert_eq!(kept_messages(&editor), ["Beginning of buffer"]);
         send(&mut dispatcher, &mut editor, "C-f");
         assert_eq!(
-            editor.messages().count(),
+            kept_messages(&editor).len(),
             1,
             "a command that worked leaves none"
         );
         assert_eq!(send(&mut dispatcher, &mut editor, "C-x C-g"), NOTHING);
-        assert_eq!(editor.messages().count(), 1, "no command ran");
+        assert_eq!(kept_messages(&editor).len(), 1, "no command ran");
     }
 
     // --- Many keys ---

@@ -7,7 +7,7 @@ keys: none
 :^               :
 │                │
 │                │
-=                =
+=-- test  1:0  Fu=
 "                "
 
 keys: a b SPC c
@@ -15,7 +15,7 @@ keys: a b SPC c
 :    ^           :
 │                │
 │                │
-=                =
+=** test  1:4  Fu=
 "                "
 
 keys: 日 本
@@ -23,7 +23,7 @@ keys: 日 本
 :    <><>^       :
 │                │
 │                │
-=                =
+=** test  1:8  Fu=
 "                "
 
 keys: RET 🍣
@@ -32,7 +32,7 @@ keys: RET 🍣
 │🍣              │
 :<>^             :
 │                │
-=                =
+=** test  2:2  Fu=
 "                "
 
 keys: DEL
@@ -41,7 +41,7 @@ keys: DEL
 │                │
 :^               :
 │                │
-=                =
+=** test  2:0  Fu=
 "                "
 
 keys: C-a TAB
@@ -50,7 +50,7 @@ keys: C-a TAB
 │                │
 :        ^       :
 │                │
-=                =
+=** test  2:8  Fu=
 "                "
 
 keys: C-z C-z
@@ -59,7 +59,7 @@ keys: C-z C-z
 │🍣              │
 :<>^             :
 │                │
-=                =
+=** test  2:2  Fu=
 "                "
 
 keys: C-M-z
@@ -68,5 +68,5 @@ keys: C-M-z
 │                │
 :^               :
 │                │
-=                =
+=** test  2:0  Fu=
 "                "

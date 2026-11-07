@@ -113,7 +113,8 @@ network features.
 
 Bidirectional control characters and invisible characters are always shown
 as boxed code points, and a buffer containing bidirectional controls shows a
-modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md)). Control characters
+modeline warning ([ADR 0026](adr/0026-m2-ui-layout.md),
+[ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)). Control characters
 and invalid bytes are shown as escapes (`^M`, `\xFF`) in an escape color. Labels are
 shaped apart from the text around them, so that text cannot change what a label reads.
 None of these characters reach the text shaper: their labels are shaped as
@@ -237,10 +238,14 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - Secret-pattern buffers give no text and no pixels over the socket: while
   one is shown, `screenshot` fails, `get-text` fails and `get-state` returns
-  only its metadata, without `cursor`, `scroll` or the window's selections, and later
-  the modeline and match counts ([ADR 0051](adr/0051-m2-plan-decisions.md)), and
+  only its metadata, without `cursor`, `scroll`, the window's selections or the modeline and
+  echo area ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and later
+  match counts ([ADR 0051](adr/0051-m2-plan-decisions.md)), and
   without its size while it is modified
-  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). The path as opened, each symlink's target and the
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). What a command
+  says while one is shown stays out of the log and `*Messages*`, but for a panic, which names
+  only the command, and leaves the echo area once the window moves on, and its modeline shows
+  no position. The path as opened, each symlink's target and the
   canonical path all count, so a link to a key or through a secret path is
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved

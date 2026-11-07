@@ -1,0 +1,51 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: ab\\ncd\\n"
+---
+keys: none
+│ab                                      │
+:^                                       :
+│cd                                      │
+│                                        │
+=-- test  1:0  Fundamental  UTF-8 LF     =
+"                                        "
+
+keys: C-n C-f
+│ab                                      │
+│cd                                      │
+: ^                                      :
+│                                        │
+=-- test  2:1  Fundamental  UTF-8 LF     =
+"                                        "
+
+keys: M-> C-f
+│ab                                      │
+│cd                                      │
+│                                        │
+:^                                       :
+=-- test  3:0  Fundamental  UTF-8 LF     =
+"End of buffer                           "
+
+keys: C-x C-z
+│ab                                      │
+│cd                                      │
+│                                        │
+:^                                       :
+=-- test  3:0  Fundamental  UTF-8 LF     =
+"C-x C-z is undefined                    "
+
+keys: C-u 5
+│ab                                      │
+│cd                                      │
+│                                        │
+:^                                       :
+=-- test  3:0  Fundamental  UTF-8 LF     =
+"C-u 5-                                  "
+
+keys: C-g
+│ab                                      │
+│cd                                      │
+│                                        │
+:^                                       :
+=-- test  3:0  Fundamental  UTF-8 LF     =
+"Quit                                    "

@@ -104,6 +104,28 @@ pub fn classify(cluster: &str) -> (CellKind, usize) {
     (CellKind::Text, cluster.width().clamp(1, 2))
 }
 
+/// Whether `c` is one of the controls that make text read in another order than it
+/// runs (Trojan Source, CVE-2021-42574). The marks LRM, RLM and ALM are left out: they
+/// can only tip a neutral character, and right-to-left prose has them everywhere.
+/// All of these are boxed too, as [`is_invisible`] says.
+#[cfg(test)]
+pub(crate) fn is_bidi_control(c: char) -> bool {
+    matches!(u32::from(c), 0x202a..=0x202e | 0x2066..=0x2069)
+}
+
+/// Whether `text` holds a bidi control, by the three bytes each is in UTF-8, with no need
+/// to decode anything else. Many chunks have no byte 0xE2 at all, and those cost one search.
+pub(crate) fn holds_bidi_control(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    bytes.contains(&0xe2)
+        && bytes.windows(3).any(|window| {
+            matches!(
+                window,
+                [0xe2, 0x80, 0xaa..=0xae] | [0xe2, 0x81, 0xa6..=0xa9]
+            )
+        })
+}
+
 /// Whether `c` is drawn as a boxed code point: a bidi control, a
 /// default-ignorable code point (Unicode `DerivedCoreProperties.txt`), or a
 /// line or paragraph separator. The Hangul jamo fillers U+115F and U+1160
@@ -579,6 +601,17 @@ mod tests {
 
     fn cells(cluster: &str) -> usize {
         classify(cluster).1
+    }
+
+    #[test]
+    fn the_bytes_of_a_bidi_control_are_those_of_every_one_and_no_other() {
+        let mut utf8 = [0; 4];
+        for c in '\0'..=char::MAX {
+            let text: &str = c.encode_utf8(&mut utf8);
+            assert_eq!(holds_bidi_control(text), is_bidi_control(c), "{c:?}");
+        }
+        assert!(holds_bidi_control("—a\u{2069}"), "after another 0xE2");
+        assert!(!holds_bidi_control("—…\u{200f}"));
     }
 
     #[test]

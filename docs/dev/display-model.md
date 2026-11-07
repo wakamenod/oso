@@ -43,10 +43,11 @@ Display rows
 M1-4 built only what the viewer needs (`oso_core::display_map`):
 
 - **TabMap.** A `SumTree` whose items mirror the rope's chunks and share
-  their text. Each item's summary holds its line breaks and the column
-  function of its last line, so the column of any offset is found in
-  O(log n) plus a scan of one chunk, even on a 10 MB line full of tabs. The
-  tab width is a parameter; changing it rebuilds only the TabMap.
+  their text. Each item's summary holds its line breaks, its bidi controls and
+  the column function of its last line, so the column of any offset is found in
+  O(log n) plus a scan of one chunk, even on a 10 MB line full of tabs, and
+  whether a buffer holds a bidi control in O(1). The tab width is a parameter;
+  changing it rebuilds only the TabMap.
 - **`DisplayMap` and `DisplaySnapshot`.** The API callers use: offset ↔
   `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
   clusters, row widths, and the clusters of a row from any column, for
@@ -111,7 +112,8 @@ descender end. Anything further out is cut, including the sides of a fallback
 font's letter wider than its cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)). These bands stop at a pane's
 edges, but for the band above the frame's top row
-([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
+([ADR 0061](adr/0061-panes-clipping-and-layers.md)) and above the modeline and the echo
+row ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 
 ## Row heights
 
@@ -160,9 +162,12 @@ one layer:
   modeline, and the echo area. M2-16 adds floating windows. `Editor` holds the layout,
   and a window's `ViewSize` is its text area, so scrolling and the cursor stop above
   the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).
+- `Editor::status_into` says what the modeline and the echo area read, and the app draws
+  those as spans ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - `frame::PixelGrid` maps cells to physical pixels. The renderer draws a list of
-  panes, each in its region, apart from the band above the frame's top row
-  ([ADR 0061](adr/0061-panes-clipping-and-layers.md)), and `Editor::cursor_area` gives
+  panes, each in its region, apart from the band above the frame's top row and above the
+  modeline and the echo row ([ADR 0061](adr/0061-panes-clipping-and-layers.md),
+  [ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and `Editor::cursor_area` gives
   the input method the cursor's rectangle.
 
 ## Terminal views

@@ -225,7 +225,7 @@ fn assert_text_withheld(app: &mut App) -> Value {
         parsed["result"]["text"].is_null(),
         "get-state returned text"
     );
-    for hidden in ["cursor", "scroll"] {
+    for hidden in ["cursor", "scroll", "modeline", "echo"] {
         assert!(
             parsed["result"].get(hidden).is_none(),
             "get-state returned the {hidden}"
@@ -270,6 +270,39 @@ fn assert_readable(app: &mut App, row_zero: &str) {
         app.screenshot().foreground().is_some(),
         "a blank screenshot"
     );
+}
+
+/// Checks that the log of the secret flow quotes no secret, no typed key and no failure.
+#[track_caller]
+fn assert_log_says_nothing_of_it(log: &str) {
+    assert_no_secret(log, "the log");
+    assert!(!log.contains('Ж'), "the log quotes a typed key");
+    assert!(
+        !log.contains("Beginning of buffer"),
+        "the log holds what a command said around a secret buffer"
+    );
+    // It logs this at the level `just e2e` sets, so the log is worth checking.
+    assert!(
+        log.contains("listening on"),
+        "no log to check; run this with `just e2e`, which sets RUST_LOG",
+    );
+}
+
+/// Checks that what a failure says of where a secret buffer's cursor is stays out of
+/// `*Messages*`, and out of the echo area once the buffer is out of view for `plain`.
+#[track_caller]
+fn assert_failure_stays_on_the_screen(app: &mut App, plain: &Value) {
+    app.send_keys("M-< C-b");
+    assert_text_withheld(app);
+    app.show_buffer(plain);
+    let echo = app.state()["echo"].clone();
+    assert_eq!(echo, "", "the echo area kept a secret's failure");
+    app.run_command("view-echo-area-messages", None)
+        .expect("the command runs");
+    let messages = app.state();
+    assert_eq!(messages["buffer"]["name"], "*Messages*");
+    let rows = messages["text"]["rows"].to_string();
+    assert!(!rows.contains("Beginning of buffer"), "*Messages*: {rows}");
 }
 
 #[test]
@@ -358,15 +391,9 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     }
     // A character typed by mistake after a prefix stays out of the log.
     app.send_keys("C-x Ж");
+    assert_failure_stays_on_the_screen(&mut app, &plain_id);
 
-    let log = app.stop_and_read_log();
-    assert_no_secret(&log, "the log");
-    assert!(!log.contains('Ж'), "the log quotes a typed key");
-    // It logs this at the level `just e2e` sets, so the log is worth checking.
-    assert!(
-        log.contains("listening on"),
-        "no log to check; run this with `just e2e`, which sets RUST_LOG",
-    );
+    assert_log_says_nothing_of_it(&app.stop_and_read_log());
 }
 
 #[test]
@@ -420,6 +447,64 @@ fn the_state_moves_to_a_new_instance_and_a_wrong_version_changes_nothing() {
 const UNSAVED: &str = "UNSAVED-E2E-TEXT";
 /// The keys that type [`UNSAVED`], in the notation of `send-keys`.
 const UNSAVED_KEYS: &str = "U N S A V E D - E 2 E - T E X T";
+
+/// How many frames the instance has counted so far.
+fn frames_drawn(app: &mut App) -> u64 {
+    let timings = app.call("take-timings", None);
+    timings["frames"].as_u64().expect("a count of frames")
+}
+
+/// Sends `keys`, which change the echo area and nothing else, and so ask for no frame
+/// themselves. Checks what it says and that a frame comes.
+#[track_caller]
+fn assert_echo_gets_a_frame(app: &mut App, keys: &str, echo: &str) {
+    let before = frames_drawn(app);
+    app.send_keys(keys);
+    assert_eq!(app.state()["echo"], echo, "after {keys}");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while frames_drawn(app) == before {
+        assert!(Instant::now() < deadline, "no frame after {keys}");
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_modeline_and_the_echo_area_say_what_the_editor_does_and_get_a_frame() {
+    let scratch = Scratch::new("status");
+    let file = scratch.write("notes.txt", "a\u{202e}b\n".as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    let state = app.wait_for("the file to load", |state| state["buffer"]["bytes"] == 6);
+    let modeline = state["modeline"].as_str().expect("a modeline");
+    assert!(
+        modeline.starts_with("[bidi controls] -- notes.txt  1:0  "),
+        "{modeline}"
+    );
+
+    assert_echo_gets_a_frame(&mut app, "C-b", "Beginning of buffer");
+    assert_echo_gets_a_frame(&mut app, "C-x", "C-x-");
+    assert_echo_gets_a_frame(&mut app, "C-z", "C-x C-z is undefined");
+
+    // The failure is in *Messages*, which holds no restart and cannot be typed in.
+    let held = app.call("check-handover", None);
+    assert!(held["generation"].is_u64(), "*Messages* held the restart");
+    app.send_keys("C-h e");
+    let state = app.wait_for("*Messages*", |state| {
+        state["buffer"]["name"] == "*Messages*"
+    });
+    assert_visible_row(&state, 0, "Beginning of buffer");
+    assert_eq!(state["buffer"]["read_only"], "internal");
+    app.send_keys("a");
+    assert_eq!(app.state()["echo"], "Buffer is read-only");
+    assert!(
+        app.call("export-state", None)["buffers"]
+            .to_string()
+            .contains("notes.txt"),
+        "the file is handed over from *Messages* too"
+    );
+    app.send_keys("C-h e");
+    assert_eq!(app.state()["buffer"]["name"], "notes.txt");
+}
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]

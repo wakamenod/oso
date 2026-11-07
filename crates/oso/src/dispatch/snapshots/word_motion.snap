@@ -5,47 +5,47 @@ description: "text: か\\u{3099}き語の文章で😀 end"
 keys: none
 │がき語の文章で😀 end    │
 :^^<><><><><><><>        :
-=                        =
+=-- test  1:0  Fundamenta=
 "                        "
 
 keys: M-f
 │がき語の文章で😀 end    │
 :<><>^^<><><><><>        :
-=                        =
+=-- test  1:4  Fundamenta=
 "                        "
 
 keys: M-f
 │がき語の文章で😀 end    │
 :<><><><>^^<><><>        :
-=                        =
+=-- test  1:8  Fundamenta=
 "                        "
 
 keys: M-f
 │がき語の文章で😀 end    │
 :<><><><><><><>^^        :
-=                        =
+=-- test  1:14  Fundament=
 "                        "
 
 keys: M-b
 │がき語の文章で😀 end    │
 :<><><><>^^<><><>        :
-=                        =
+=-- test  1:8  Fundamenta=
 "                        "
 
 keys: M-d
 │がき語の😀 end          │
 :<><><><>^^              :
-=                        =
+=** test  1:8  Fundamenta=
 "                        "
 
 keys: C-z
 │がき語の文章で😀 end    │
 :<><><><>^^<><><>        :
-=                        =
+=-- test  1:8  Fundamenta=
 "                        "
 
 keys: M-DEL
 │がき文章で😀 end        │
 :<><>^^<><><>            :
-=                        =
+=** test  1:4  Fundamenta=
 "                        "

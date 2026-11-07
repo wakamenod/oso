@@ -6,47 +6,47 @@ keys: none
 │                    │
 :^                   :
 │                    │
-=                    =
+=-- test  1:0  Fundam=
 "                    "
 
 keys: C-u x
 │xxxx                │
 :    ^               :
 │                    │
-=                    =
+=** test  1:4  Fundam=
 "                    "
 
 keys: C-u 3 y
 │xxxxyyy             │
 :       ^            :
 │                    │
-=                    =
+=** test  1:7  Fundam=
 "                    "
 
 keys: C-u 2 C-u 5
 │xxxxyyy55           │
 :         ^          :
 │                    │
-=                    =
+=** test  1:9  Fundam=
 "                    "
 
 keys: M-- C-d
 │xxxxyyy5            │
 :        ^           :
 │                    │
-=                    =
+=** test  1:8  Fundam=
 "                    "
 
 keys: C-u C-b
 │xxxxyyy5            │
 :    ^               :
 │                    │
-=                    =
+=** test  1:4  Fundam=
 "                    "
 
 keys: M-2 DEL
 │xxyyy5              │
 :  ^                 :
 │                    │
-=                    =
+=** test  1:2  Fundam=
 "                    "

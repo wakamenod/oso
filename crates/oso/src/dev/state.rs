@@ -23,7 +23,7 @@ use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, ReadOnly};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, Status};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::motion;
@@ -52,12 +52,13 @@ pub const MAX_TEXT_ROWS: usize = 10_000;
 /// Why text or pixels are refused.
 const WITHHELD: &str = "the buffer may hold secrets or is still being checked, so its text and pixels stay in the editor (ADR 0044)";
 
-/// The result of `get-state`: every buffer and window, the selected window's
-/// buffer, cursor, scroll position and visible text, the keys of a pending
+/// The result of `get-state`: every buffer of the user's and every window, the selected
+/// window's buffer, cursor, scroll position and visible text, the keys of a pending
 /// prefix, and the surface size if there is a window.
 ///
 /// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`
-/// are left out. Its other metadata stays, as [`buffer_state`] has it.
+/// are left out. Its other metadata stays, as [`buffer_state`] has it. While any window
+/// shows one, `modeline` and `echo` are left out too (ADR 0051, ADR 0063).
 pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     let (window, buffer) = editor.current();
     let display = buffer.display();
@@ -89,6 +90,12 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             "count": window.selections.len(),
         });
         state["scroll"] = scroll_state(window);
+    }
+    if !editor.shows_secret() {
+        let mut status = Status::default();
+        editor.status_into(&mut status);
+        state["modeline"] = json!(status.modeline());
+        state["echo"] = json!(status.echo);
     }
     state
 }
@@ -375,6 +382,8 @@ mod tests {
         assert_eq!(
             state,
             json!({
+                "modeline": "%% bad.txt  2:4  Fundamental  UTF-8 (invalid) CRLF",
+                "echo": "",
                 "buffer": buffer,
                 "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1 },
                 "scroll": { "top": 0, "left": 3 },
@@ -546,6 +555,32 @@ mod tests {
                     .contains("ADR 0044")
             );
         }
+    }
+
+    #[test]
+    fn the_modeline_and_the_echo_area_read_back_unless_a_secret_is_shown() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("plain.txt", "ab"));
+        editor.message("Saved");
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["echo"], "Saved");
+        let modeline = state["modeline"].as_str().unwrap();
+        assert!(modeline.starts_with("-- plain.txt  1:0  "), "{modeline}");
+
+        let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
+        editor.show(secret);
+        let state = get_state(&editor, &[], None);
+        assert!(state.get("modeline").is_none());
+        assert!(state.get("echo").is_none());
+    }
+
+    #[test]
+    fn the_messages_buffer_is_not_among_the_users_buffers() {
+        let mut editor = Editor::default();
+        editor.toggle_messages();
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["buffer"]["name"], "*Messages*");
+        assert_eq!(state["buffer"]["read_only"], "internal");
+        assert_eq!(state["buffers"].as_array().unwrap().len(), 1);
     }
 
     #[test]

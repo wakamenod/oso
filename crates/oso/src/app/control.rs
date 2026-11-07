@@ -13,7 +13,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event_loop::ActiveEventLoop;
 
 use super::App;
-use super::draw::panes;
+use super::draw::with_panes;
 use crate::dev;
 use crate::dev::handoff;
 
@@ -156,7 +156,10 @@ impl App {
             return;
         };
         let started = Instant::now();
-        let capture = view.render_state.capture(&panes(&self.editor));
+        let mut status = oso_core::editor::Status::default();
+        self.editor.status_into(&mut status);
+        let render_state = &mut view.render_state;
+        let capture = with_panes(&self.editor, &status, |panes| render_state.capture(panes));
         log::debug!(
             "screenshot submitted on the UI thread in {:?}",
             started.elapsed()
@@ -221,7 +224,8 @@ impl App {
             scroll: state.scroll,
         });
         self.try_restore_positions();
-        self.dispatcher.restore_pending(&state.pending_keys);
+        self.dispatcher
+            .restore_pending(&mut self.editor, &state.pending_keys);
         self.request_redraw();
         Ok(json!({ "buffers": self.editor.buffers().count() }))
     }

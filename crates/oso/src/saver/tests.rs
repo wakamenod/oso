@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
+use crate::commands::kept_messages;
 use oso_core::buffer::{Baseline, Buffer, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::{Editor, SaveJob};
@@ -79,6 +80,7 @@ pub(crate) fn visited(path: &Path) -> Buffer {
     if location(path).is_ok() {
         buffer.set_baseline(baseline(path));
     }
+    buffer.judge_secret(Some(&[path.to_path_buf()]));
     buffer
 }
 
@@ -124,6 +126,45 @@ fn assert_conflict(report: &SaveReport) {
         "{:?}",
         report.outcome
     );
+}
+
+#[test]
+fn a_file_changed_under_edits_warns_until_a_save_gets_through() {
+    let scratch = Scratch::new("changed-warning");
+    let path = scratch.file("notes.txt", b"one\n");
+    let mut editor = visit(&path);
+    let job = job_of(&mut editor, "two\n");
+    fs::write(&path, b"another writer, and longer\n").unwrap();
+    let report = run(job);
+    assert_conflict(&report);
+    apply(&mut editor, report);
+    assert_eq!(warnings(&editor), "[changed on disk] ");
+
+    // The disk holds what the buffer last read again, so a save can go through.
+    fs::write(&path, b"one\n").unwrap();
+    let id = editor.window().buffer();
+    let baseline = baseline(&path);
+    editor.buffer_mut(id).unwrap().set_baseline(baseline);
+    editor.start_save().unwrap();
+    let job = editor.take_save_jobs().pop().unwrap();
+    let report = run(job);
+    assert_written(&report);
+    apply(&mut editor, report);
+
+    // Unsaved edits again, and no warning: nothing has changed under them since.
+    let edit = Replacement {
+        range: 0..0,
+        text: "x",
+    };
+    editor.apply_edits(id, &[edit]).unwrap();
+    assert_eq!(warnings(&editor), "");
+}
+
+/// What the modeline warns of.
+fn warnings(editor: &Editor) -> String {
+    let mut status = oso_core::editor::Status::default();
+    editor.status_into(&mut status);
+    status.warnings
 }
 
 #[test]
@@ -455,7 +496,7 @@ fn set_mode(path: &Path, mode: u32) {
 fn applied(editor: &mut Editor, report: SaveReport) -> String {
     apply(editor, report);
     assert!(!editor.current().1.is_saving());
-    editor.messages().next_back().unwrap().to_owned()
+    kept_messages(editor).pop().unwrap()
 }
 
 mod outcomes;

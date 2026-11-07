@@ -5,17 +5,17 @@ description: "text: 日本語日本語日本語\\n"
 wheel: none
 │日本語日本│
 :^^<><><><>:
-=          =
+=-- test  1=
 "          "
 
 sideways: 1
 │▐本語日本▌│
 :^<><><><> :
-=          =
+=-- test  1=
 "          "
 
 sideways: 1, out of view
 │本語日本語│
 :<><><><><>:
-=          =
+=-- test  1=
 "          "

@@ -16,9 +16,11 @@
 //! before it runs a command and closes it after, also when the command panics.
 //!
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
-//! host, which owns threads and files, takes the job and reports back.
-
-use std::collections::VecDeque;
+//! host, which owns threads and files, takes the job and reports back. What the
+//! modeline and the echo area say is in [`status`], and messages in [`messages`].
+//!
+//! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
+//! whatever goes through a user's work leaves them out without having to know them.
 
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::DisplaySnapshot;
@@ -31,12 +33,17 @@ use crate::window::{ViewSize, Window};
 
 mod messages;
 mod save;
+mod status;
 mod view;
 
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
+pub use status::Status;
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
+
+/// The name of the internal buffer that keeps every message.
+pub(crate) const MESSAGES: &str = "*Messages*";
 
 /// What the selected window's cursors do when a buffer it shows changes.
 #[derive(Clone, Copy)]
@@ -90,8 +97,18 @@ pub struct Editor {
     undo_scope: Option<UndoScope>,
     /// The previous command allowed the next one to join its undo group.
     join_ready: bool,
-    /// Oldest first.
-    messages: VecDeque<String>,
+    /// The internal buffer that keeps every message.
+    messages_buffer: BufferId,
+    /// While a command runs, whether it has taken a buffer that may hold secrets off the
+    /// screen. This holds whatever then becomes of that buffer.
+    command_left_secret: Option<bool>,
+    /// Where the selected window was before it showed `*Messages*`.
+    before_messages: Option<messages::Place>,
+    /// The echo area's line, until the next key.
+    echo: Option<messages::Echo>,
+    /// A prefix argument and a prefix key being typed, for the echo area. The dispatcher
+    /// holds them, and says so here after each key, so that a frame reads only the editor.
+    keys_in_progress: String,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
     /// The way of exiting that was last refused, until another key is pressed.
@@ -116,12 +133,17 @@ impl Editor {
             next_id: 0,
             undo_scope: None,
             join_ready: false,
-            messages: VecDeque::new(),
+            messages_buffer: BufferId(0),
+            command_left_secret: None,
+            before_messages: None,
+            echo: None,
+            keys_in_progress: String::new(),
             save_jobs: Vec::new(),
             exit_attempt: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
+        editor.messages_buffer = editor.add_buffer(Buffer::internal(MESSAGES));
         editor
     }
 
@@ -147,38 +169,55 @@ impl Editor {
             .find_map(|(other, buffer)| (*other == id).then_some(buffer))
     }
 
-    /// Every buffer, in the order they were added.
+    /// Every buffer of the user's, in the order they were added. This leaves out
+    /// internal buffers, which hold no work to save, hand over or count at an exit.
     pub fn buffers(&self) -> impl Iterator<Item = (BufferId, &Buffer)> {
-        self.buffers.iter().map(|(id, buffer)| (*id, buffer))
+        self.buffers
+            .iter()
+            .filter(|(_, buffer)| !buffer.is_internal())
+            .map(|(id, buffer)| (*id, buffer))
     }
 
     /// Shows `buffer` in the selected window, from its start. Does nothing
     /// for an id that does not exist.
     pub fn show(&mut self, buffer: BufferId) {
         if self.buffer(buffer).is_some() {
+            self.window_moves_on();
             self.windows[self.selected].show(buffer);
         }
     }
 
     /// Removes a buffer. Windows that showed it show `*scratch*` instead,
-    /// which is created again if needed.
+    /// which is created again if needed. An internal buffer stays.
     pub fn kill_buffer(&mut self, id: BufferId) {
-        self.buffers.retain(|(other, _)| *other != id);
-        if self.windows.iter().all(|window| window.buffer() != id) {
+        if self.buffer(id).is_some_and(Buffer::is_internal) {
             return;
         }
-        let scratch = match self
-            .buffers
-            .iter()
-            .find(|(_, buffer)| buffer.name() == SCRATCH && buffer.path().is_none())
-        {
-            Some((scratch, _)) => *scratch,
-            None => self.add_buffer(Buffer::new(SCRATCH)),
-        };
+        let shown = self.windows.iter().any(|window| window.buffer() == id);
+        if shown {
+            self.window_moves_on();
+        }
+        self.buffers.retain(|(other, _)| *other != id);
+        if !shown {
+            return;
+        }
+        let scratch = self.scratch();
         for window in &mut self.windows {
             if window.buffer() == id {
                 window.show(scratch);
             }
+        }
+    }
+
+    /// The `*scratch*` buffer, created again if needed.
+    fn scratch(&mut self) -> BufferId {
+        let scratch = self
+            .buffers
+            .iter()
+            .find(|(_, buffer)| buffer.name() == SCRATCH && buffer.path().is_none());
+        match scratch {
+            Some((scratch, _)) => *scratch,
+            None => self.add_buffer(Buffer::new(SCRATCH)),
         }
     }
 
@@ -471,7 +510,6 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
-    use super::messages::{MAX_MESSAGES, log_text};
     use super::*;
     use crate::display_map::TabWidth;
     use crate::frame::{PixelGrid, PixelRect};
@@ -835,36 +873,6 @@ mod tests {
         assert!(editor.scroll_view(-100));
         assert_eq!(editor.window().scroll().top, 0);
         assert!(!editor.scroll_view(-1));
-    }
-
-    #[test]
-    fn the_log_shows_control_characters_as_escapes() {
-        let shown = log_text("a\u{1b}[2J\u{9b}\u{202e}\n日本語e\u{301}");
-        assert_eq!(shown, "a\\u{1b}[2J\\u{9b}\\u{202e}\\n日本語e\u{301}");
-    }
-
-    #[test]
-    fn the_log_leaves_quotes_and_backslashes_alone() {
-        let message = r#"Can't open "a\b.txt" 'x'\"#;
-        assert_eq!(log_text(message), message);
-        assert_eq!(log_text("'\u{1b}'"), "'\\u{1b}'");
-        assert_eq!(log_text(""), "");
-    }
-
-    #[test]
-    fn messages_are_kept_in_order_up_to_a_bound() {
-        let mut editor = Editor::default();
-        assert_eq!(editor.messages().count(), 0);
-        editor.message("Saved");
-        editor.message(String::from("Quit"));
-        assert_eq!(editor.messages().collect::<Vec<_>>(), ["Saved", "Quit"]);
-        assert_eq!(editor.messages().next_back(), Some("Quit"));
-        for index in 0..MAX_MESSAGES {
-            editor.message(format!("{index}"));
-        }
-        assert_eq!(editor.messages().len(), MAX_MESSAGES);
-        assert_eq!(editor.messages().next(), Some("0"));
-        assert_eq!(editor.messages().next_back(), Some("999"));
     }
 }
 

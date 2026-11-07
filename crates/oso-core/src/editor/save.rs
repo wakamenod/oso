@@ -59,6 +59,7 @@ impl fmt::Display for SaveRefused {
             Self::ReadOnly(ReadOnly::Binary) => "Cannot save a binary file",
             Self::ReadOnly(ReadOnly::InvalidUtf8) => "Cannot save a file with invalid UTF-8",
             Self::ReadOnly(ReadOnly::Loading) => "Cannot save a file that is still loading",
+            Self::ReadOnly(ReadOnly::Internal) => "Cannot save an internal buffer",
             Self::AlreadySaving => "This buffer is already being saved; save again when it ends",
             Self::Unmodified => "(No changes need to be saved)",
             Self::NoFile => "Buffer has no file name",
@@ -222,6 +223,7 @@ impl Editor {
         buffer.set_saving(false);
         buffer.mark_saved(content);
         buffer.set_written(stamp);
+        buffer.set_changed_on_disk(false);
         if buffer.is_modified() {
             self.reset_exit_guard();
         }
@@ -241,6 +243,14 @@ impl Editor {
             buffer.set_saving(false);
         }
         self.reset_exit_guard();
+    }
+
+    /// A save of `id` found its file changed, or now somewhere else. The modeline warns
+    /// while the buffer has edits at stake, until a save gets through.
+    pub fn file_changed_on_disk(&mut self, id: BufferId) {
+        if let Some(buffer) = self.buffer_mut(id) {
+            buffer.set_changed_on_disk(true);
+        }
     }
 
     /// Whether `action` may exit: at once if nothing is at risk, or if it is the

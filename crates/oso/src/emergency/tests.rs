@@ -147,6 +147,17 @@ pub(super) fn scratch_editor(text: &str) -> Editor {
 }
 
 #[test]
+fn the_messages_are_not_written_with_the_buffers_at_risk() {
+    let scratch = Scratch::new();
+    let mut editor = scratch_editor("in scratch");
+    editor.message("A MESSAGE");
+    let emergency = published(&scratch.copies(), &editor);
+    let report = emergency.shared.write_copies(Why::Panic);
+    assert_eq!((report.wrote, report.failed, report.withheld), (1, 0, 0));
+    assert_eq!(texts(&scratch.copies()), ["in scratch"]);
+}
+
+#[test]
 fn a_panic_writes_each_buffer_at_risk_exactly_and_with_where_it_belongs() {
     let scratch = Scratch::new();
     let mut editor = scratch_editor("in scratch, no final newline");

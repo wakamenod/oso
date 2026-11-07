@@ -6,40 +6,40 @@ keys: none
 │          code      │
 :^                   :
 │                    │
-=                    =
+=-- test  1:0  Fundam=
 "                    "
 
 keys: C-a
 │          code      │
 :          ^         :
 │                    │
-=                    =
+=-- test  1:10  Funda=
 "                    "
 
 keys: C-a
 │          code      │
 :^                   :
 │                    │
-=                    =
+=-- test  1:0  Fundam=
 "                    "
 
 keys: C-e
 │          code      │
 :              ^     :
 │                    │
-=                    =
+=-- test  1:14  Funda=
 "                    "
 
 keys: C-e
 │          code      │
 :                ^   :
 │                    │
-=                    =
+=-- test  1:16  Funda=
 "                    "
 
 keys: C-a
 │          code      │
 :          ^         :
 │                    │
-=                    =
+=-- test  1:10  Funda=
 "                    "
