@@ -122,6 +122,9 @@ Off by default: line numbers.
 
 ## Bidirectional and invisible characters
 
+- Text stays in logical order, left to right, in every script, so right-to-left text
+  can be hard to read, and its order on screen is the file's
+  ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 - Bidirectional control characters and invisible characters are drawn as
   their code point in a colored box (for example `U+202E`). They are never
   rendered invisibly. A 1-pixel gap separates neighboring boxes
