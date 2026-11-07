@@ -80,7 +80,7 @@ pub fn export(
     // Internal buffers are not handed over (ADR 0051). A window on one with nothing to go
     // back to comes back on `*scratch*`, which this entry stands for.
     for window in editor.windows() {
-        if editor.shown(window).is_internal() && behind_messages(editor, window).is_none() {
+        if editor.shown(window).is_internal() && behind_internal(editor, window).is_none() {
             buffers.push(json!({ "id": window.buffer().get(), "path": null }));
         }
     }
@@ -134,20 +134,22 @@ pub fn export(
     Ok(state)
 }
 
-/// Where `window` goes back to, if it is on `*Messages*` and has somewhere to go.
-fn behind_messages<'a>(
+/// Where `window` goes back to, if it is on an internal buffer and has somewhere to go.
+fn behind_internal<'a>(
     editor: &'a Editor,
     window: &Window,
 ) -> Option<(BufferId, &'a SelectionSet, Scroll)> {
-    (window.buffer() == editor.messages_buffer())
-        .then(|| editor.place_behind_messages())
+    editor
+        .shown(window)
+        .is_internal()
+        .then(|| editor.place_behind_internal())
         .flatten()
 }
 
-/// What `window` hands over: what it shows, or from `*Messages*`, where it goes back to,
-/// since no key could reach that again otherwise.
+/// What `window` hands over: what it shows, or from an internal buffer, where it goes back
+/// to, since no key could reach that again otherwise.
 fn handed_over<'a>(editor: &'a Editor, window: &'a Window) -> (BufferId, &'a SelectionSet, Scroll) {
-    behind_messages(editor, window).unwrap_or((
+    behind_internal(editor, window).unwrap_or((
         window.buffer(),
         &window.selections,
         window.scroll(),

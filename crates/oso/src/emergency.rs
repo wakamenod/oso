@@ -5,7 +5,7 @@
 //! this holds no way back to the window. It sits above the saver in the layers, whose
 //! temporary file and syncing it shares.
 //!
-//! Three parts, each in its own file:
+//! Writing has three parts, each in its own file:
 //!
 //! - [`Publisher`], on the UI thread, keeps [`Shared`] up to date with an O(1) snapshot of
 //!   each buffer whose text is only here. Neither the hook nor the exit reads the editor,
@@ -13,7 +13,15 @@
 //! - `hook` is the panic hook. It holds an `Arc` of [`Shared`], as nothing here is global.
 //! - `write` puts one copy on disk.
 //!
-//! Text goes nowhere but into the copies. It is in no message, log or panic output.
+//! Recovering them (ADR 0064) lives here too, as reader and writer must agree on a format
+//! only they know. None of it is reachable from the hook or the publisher:
+//!
+//! - `copies` finds what is in the directory, off the UI thread, and `meta` reads a `.meta`.
+//! - `offer` holds what was found, and what comes of a person's answer.
+//! - `compare` tells a copy from its file.
+//!
+//! Text goes nowhere but into the copies, and from a copy, into a buffer a person asked for.
+//! It is in no message, log or panic output.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -25,15 +33,22 @@ use std::time::{Duration, SystemTime};
 
 use oso_core::buffer::{BufferId, ContentId, FileStamp};
 use oso_core::decode::LineEnding;
+use oso_core::editor::Editor;
 use oso_core::rope::Rope;
 use oso_platform::privacy::{PrivateDir, state_home};
 
 use crate::saver::{Agreement, AgreementCell};
 
+mod compare;
+mod copies;
 mod hook;
+mod meta;
+mod offer;
 mod publish;
 mod write;
 
+pub use copies::open_copy;
+pub use offer::{CopiesEvent, CopyLoad, CopyWork, Offer};
 pub use publish::Publisher;
 
 /// How long writing the copies may show no progress before oso goes on without them. A
@@ -92,8 +107,16 @@ impl Emergency {
     }
 
     /// Finds out on a thread of its own, soon after startup, whether copies could be written,
-    /// and tells `report` if not, as finding out at the crash loses the text. Creates nothing.
-    pub fn check_directory(&self, report: impl FnOnce(String) + Send + 'static) {
+    /// and tells `report` if not, as finding out at the crash loses the text, then looks for
+    /// copies waiting to be offered, for the buffers in `editor`, and tells `found`. Creates
+    /// nothing. One thread does both, so that startup gains no second one.
+    pub fn check_directory(
+        &self,
+        editor: &Editor,
+        report: impl FnOnce(String) + Send + 'static,
+        found: impl FnOnce(CopiesEvent) + Send + 'static,
+    ) {
+        let targets = copies::targets_of(editor);
         let directory = self.shared.directory.clone();
         // With no thread there is no finding out now, and a crash still says why.
         let _ = thread::Builder::new()
@@ -102,7 +125,19 @@ impl Emergency {
                 if let Some(problem) = directory_problem(directory.as_deref()) {
                     report(problem);
                 }
+                let request = copies::ScanRequest {
+                    id: 0,
+                    directory,
+                    targets,
+                    recovered: Vec::new(),
+                };
+                found(CopiesEvent::Scan(Box::new(copies::caught_scan(&request))));
             });
+    }
+
+    /// Where the copies go, for what offers them.
+    pub fn offer(&self) -> Offer {
+        Offer::new(self.shared.directory.clone())
     }
 
     /// The event loop is ending. Writes what nobody agreed to lose, and says so if there
@@ -175,8 +210,10 @@ struct Identity {
     name: String,
     /// The path the buffer visits, if any.
     path: Option<PathBuf>,
-    /// The real place the path led, if that could be told.
+    /// The real place the path led, in the file's own spelling, if that could be told.
     location: Option<PathBuf>,
+    /// Dev tooling withholds this text, which a later run cannot tell from the path alone.
+    withheld: bool,
     bom: bool,
     line_ending: LineEnding,
 }
@@ -219,6 +256,31 @@ impl Report {
 /// The plural of `copy` or `buffer` after `count`.
 fn plural(count: usize, one: &'static str, many: &'static str) -> &'static str {
     if count == 1 { one } else { many }
+}
+
+/// Starts what an offer needs on a thread of its own, and hands what comes of it to `report`.
+/// A thread that cannot start costs that much of the offer, and nothing else.
+pub fn spawn_work(work: CopyWork, report: impl FnOnce(CopiesEvent) + Send + 'static) {
+    let spawned = match work {
+        CopyWork::Scan(request) => {
+            copies::spawn_scan(request, move |scan| {
+                report(CopiesEvent::Scan(Box::new(scan)));
+            });
+            return;
+        }
+        CopyWork::Compare(comparing) => thread::Builder::new()
+            .name("oso-compare".into())
+            .spawn(move || report(CopiesEvent::Compared(Box::new(comparing.run())))),
+        CopyWork::Delete(deleting) => thread::Builder::new()
+            .name("oso-copies".into())
+            .spawn(move || report(deleting.run())),
+        CopyWork::Free(buffer) => thread::Builder::new()
+            .name("oso-free".into())
+            .spawn(move || drop(buffer)),
+    };
+    if let Err(e) = spawned {
+        log::warn!("cannot start a thread for emergency copies: {e}");
+    }
 }
 
 impl std::fmt::Display for Report {

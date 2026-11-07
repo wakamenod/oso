@@ -12,6 +12,7 @@ mod edit;
 mod messages;
 mod motion;
 mod prefix;
+mod recovery;
 mod save;
 mod scroll;
 mod session;
@@ -33,6 +34,7 @@ const TABLES: &[&[Command]] = &[
     messages::COMMANDS,
     motion::COMMANDS,
     prefix::COMMANDS,
+    recovery::COMMANDS,
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,

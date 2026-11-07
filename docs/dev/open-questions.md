@@ -43,8 +43,6 @@ item notes when it must be settled.
   stack, and every visible glyph hashes its key in the atlas with SipHash.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
   stack and a cheaper hash are the next steps if a profile shows them.
-- `unicode-width` 0.2 and 0.1 (through naga) are both in the build.
-  Re-check when wgpu is upgraded.
 - `ttf-parser` is unmaintained (RUSTSEC-2026-0192, ignored in `deny.toml`).
   It comes from winit's Wayland decorations. Re-check when winit is
   upgraded.
@@ -69,11 +67,6 @@ item notes when it must be settled.
   a buffer whose load could not tell where its file is. A file owned by
   another user cannot be saved at all; decide whether the prompt should offer writing in place
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
-- By M2-11: emergency copies stay in their directory for good until recovery deals with them, and a person removing them
-  is all there is ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)). Decide when one goes: once recovered, once
-  declined, or after some time. A copy of a state that a save finished at that same moment equals its file, and should not be offered. A `.txt`
-  with no `.meta` is a whole text from a crash between the two renames. On a file system that ignores case or normalizes names, a file opened under
-  another spelling has another hash and location, so a copy could go unoffered: decide whether a location should take the file's own spelling, or recovery should compare files.
 - The emergency save, small things to settle ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)):
   - `write_copy` drops what `unless_unsupported` returns, so its report says nothing when a file system cannot confirm a sync, as a save's message does.
   - A panic that cannot unwind under a command aborts without the copies, as the hook takes the first panic under a command to be caught.
@@ -85,9 +78,6 @@ item notes when it must be settled.
   ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
 - Tier 2, before Linux or Windows are daily systems: a logout may not reach `exiting` there, so only a panic writes copies ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
   winit on Windows does not handle the end of a session, and on Linux one usually comes as a signal, or a close request that the exit guard refuses.
-- By M2-11: a kill or a power cut during a save leaves a `.oso-save-*.tmp` beside the file, and
-  nothing removes it. Decide whether finding one is part of recovery, keeping in mind that one
-  may hold a secret buffer's text ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 - By M2-22: the exit guard counts modified buffers and running saves, and cannot tell that an unmodified
   buffer's file was deleted, since that needs the disk. `C-x C-s` writes such a file again, but
   `C-x C-c` exits at once, and its text is then gone. The watcher in M2-22 can tell it
@@ -132,6 +122,10 @@ item notes when it must be settled.
   and then typing frees the redo group in the same way, in 2.4 ms. These scale with the
   text: about 25 ms per GB. Decide before M2-14, which brings kills, whether to send
   dropped groups to the background thread above.
+- Recovering a large emergency copy ([ADR 0064](adr/0064-recovering-an-emergency-copy.md)) is O(1) to stage, but what it replaces is freed on
+  the UI thread, about 13 ms per GB for the display map, and at the first edit after it a file over 64 MiB frees its old rope and loses the
+  undo. Undo and redo each read the whole text back, at about 0.7 ms per MB, with a second copy held for a moment, up to a copy just
+  under 2 GiB. Keeping a whole-text state in the undo group would make crossing O(1). Decide with the next two items.
 - Undoing a kill puts its text back at about 0.7 ms per MB (63 ms for 89 MB) on the UI
   thread, and for a moment holds several copies of it, since the slice is copied, split
   into chunks and measured again. Running out of memory aborts with no emergency save.

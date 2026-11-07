@@ -31,8 +31,8 @@ const DISK_WARNING: &str = "[changed on disk] ";
 /// What the modeline says in place of a position, in a buffer judged to hold secrets, or
 /// that may.
 const NO_POSITION: &str = "secret";
-/// The major mode, until modes arrive (M3).
-const MODE: &str = "Fundamental";
+/// Says that an emergency copy of the file waits for an answer (ADR 0064).
+const COPY_WARNING: &str = "[emergency copy] ";
 /// The cells a name keeps in a narrow window, at the expense of what follows it.
 const MIN_NAME_CELLS: usize = 20;
 /// The blank cells after a part of the modeline.
@@ -152,7 +152,7 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             out.push_str(GAP);
         }
     }
-    out.push_str(MODE);
+    out.push_str(buffer.mode().name());
     out.push_str(GAP);
     push_encoding(out, buffer.file_info(), !buffer.invalid_bytes().is_empty());
 }
@@ -168,6 +168,9 @@ impl Editor {
         }
         if buffer.changed_on_disk() && buffer.is_modified() {
             status.warnings.push_str(DISK_WARNING);
+        }
+        if buffer.copy_waits() {
+            status.warnings.push_str(COPY_WARNING);
         }
         status.state.clear();
         push_state(&mut status.state, window, buffer);

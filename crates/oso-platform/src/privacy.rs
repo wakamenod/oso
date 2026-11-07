@@ -42,6 +42,18 @@ pub fn state_home() -> Option<PathBuf> {
     backend::state_home_from(&|name| std::env::var_os(name))
 }
 
+/// Whether a file with `metadata` is this user's. Windows has no such simple answer, and
+/// relies on the per-user place the caller chose.
+pub fn is_this_users(metadata: &std::fs::Metadata) -> bool {
+    backend::is_this_users(metadata)
+}
+
+/// Whether a file with `metadata` has one name, as a hard link is a name for some other file's
+/// text. Windows has no such simple answer.
+pub fn has_one_name(metadata: &std::fs::Metadata) -> bool {
+    backend::has_one_name(metadata)
+}
+
 /// A directory only this user can reach, checked when it is opened and created if it
 /// is missing. On Unix, that means mode `0700`, this user's own, not a symbolic link, and
 /// nothing that leads to it can be changed by another user. On macOS, access lists count too, and
@@ -76,6 +88,20 @@ impl PrivateDir {
     /// Why it could not be used. The message names the path and why.
     pub fn check(path: &Path) -> io::Result<()> {
         backend::check_private(&plain(path)?)
+    }
+
+    /// The directory at `path`, to read what is in it, if it exists and passes what
+    /// [`Self::open`] asks of one that exists. `None` if nothing is there. It creates nothing,
+    /// and it does not ask whether this user could write there, so a read-only directory
+    /// passes. It touches the disk, so it belongs off the UI thread.
+    ///
+    /// # Errors
+    ///
+    /// If it is refused, as another user could have put anything there. The message names the
+    /// path and why.
+    pub fn existing(path: impl Into<PathBuf>) -> io::Result<Option<Self>> {
+        let path = plain(&path.into())?;
+        Ok(backend::existing_private(&path)?.then_some(Self { path }))
     }
 
     /// The directory's path.

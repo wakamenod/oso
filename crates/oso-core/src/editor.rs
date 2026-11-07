@@ -17,7 +17,8 @@
 //!
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
-//! modeline and the echo area say is in [`status`], and messages in [`messages`].
+//! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
+//! buffers that show emergency copies are in [`copies`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -31,11 +32,14 @@ use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 
+mod copies;
 mod messages;
 mod save;
 mod status;
 mod view;
 
+pub use copies::RecoveryAction;
+pub use messages::row_text;
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 
@@ -102,8 +106,13 @@ pub struct Editor {
     /// While a command runs, whether it has taken a buffer that may hold secrets off the
     /// screen. This holds whatever then becomes of that buffer.
     command_left_secret: Option<bool>,
-    /// Where the selected window was before it showed `*Messages*`.
-    before_messages: Option<messages::Place>,
+    /// Where the selected window was before each internal buffer it has gone to, the first
+    /// place first.
+    way_back: Vec<messages::Place>,
+    /// The internal buffer that lists the emergency copies, once it has been asked for.
+    copies_buffer: Option<BufferId>,
+    /// What a person asked of the emergency copies, for the host.
+    copy_actions: Vec<RecoveryAction>,
     /// The echo area's line, until the next key.
     echo: Option<messages::Echo>,
     /// A prefix argument and a prefix key being typed, for the echo area. The dispatcher
@@ -135,7 +144,9 @@ impl Editor {
             join_ready: false,
             messages_buffer: BufferId(0),
             command_left_secret: None,
-            before_messages: None,
+            way_back: Vec::new(),
+            copies_buffer: None,
+            copy_actions: Vec::new(),
             echo: None,
             keys_in_progress: String::new(),
             save_jobs: Vec::new(),
@@ -181,7 +192,11 @@ impl Editor {
     /// Shows `buffer` in the selected window, from its start. Does nothing
     /// for an id that does not exist.
     pub fn show(&mut self, buffer: BufferId) {
-        if self.buffer(buffer).is_some() {
+        if let Some(shown) = self.buffer(buffer) {
+            // Off the internal buffers, so that where it came from no longer says anything.
+            if !shown.is_internal() {
+                self.way_back.clear();
+            }
             self.window_moves_on();
             self.windows[self.selected].show(buffer);
         }
@@ -319,12 +334,17 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
+        self.note_edited(id);
+        Ok(())
+    }
+
+    /// `id` has been edited: the open undo group touches it, or with none, nothing joins.
+    fn note_edited(&mut self, id: BufferId) {
         match &mut self.undo_scope {
             Some(scope) if !scope.touched.contains(&id) => scope.touched.push(id),
             Some(_) => {}
             None => self.join_ready = false,
         }
-        Ok(())
     }
 
     /// How an edit of `id` relates to its newest undo group.

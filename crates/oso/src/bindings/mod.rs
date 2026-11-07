@@ -8,6 +8,7 @@ mod edit;
 mod messages;
 mod motion;
 mod prefix;
+mod recovery;
 mod save;
 mod scroll;
 mod session;
@@ -25,6 +26,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     messages::BINDINGS,
     motion::BINDINGS,
     prefix::BINDINGS,
+    recovery::BINDINGS,
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
@@ -54,12 +56,35 @@ pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
     (keymap(prefix::DIGITS), keymap(prefix::MINUS))
 }
 
+/// The keymaps of the list of emergency copies and of a buffer showing one, above the global
+/// one (ADR 0064). Empty for a registry without their commands, as in tests that bring their
+/// own.
+pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
+    let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
+    (keymap(recovery::LIST), keymap(recovery::COPY))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{TABLES, global_keymap, prefix, prefix_keymaps};
+    use super::{TABLES, global_keymap, prefix, prefix_keymaps, recovery, recovery_keymaps};
     use crate::commands;
     use oso_core::key::KeySequence;
     use oso_core::keymap::{Binding, Keymap};
+
+    #[test]
+    fn the_keys_of_the_emergency_copies_resolve_to_their_commands() {
+        let registry = commands::registry();
+        let (list, copy) = recovery_keymaps(&registry);
+        for (keymap, table) in [(&list, recovery::LIST), (&copy, recovery::COPY)] {
+            for (keys, name) in table {
+                let keys: KeySequence = keys.parse().unwrap();
+                let Some(Binding::Command(id)) = keymap.lookup(&keys.0) else {
+                    panic!("{keys} is not bound to a command");
+                };
+                assert_eq!(registry.get(id).unwrap().name, *name);
+            }
+        }
+    }
 
     #[test]
     fn every_default_binding_resolves_to_its_command() {

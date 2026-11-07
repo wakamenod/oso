@@ -12,15 +12,14 @@
 //!
 //! The stem is `<hash>-<seconds>-<process>-<attempt>`, where the hash is FNV-1a of the real
 //! place the path led, or the path if that could not be told, or the buffer's name if it
-//! has no file. So recovery can find the copies for a path without any path's text being
-//! in a name, where it could be too long for the system. A collision is harmless, as
-//! recovery compares the metadata too. Both files start under a temporary name made with
+//! has no file. So no path's text is in a name, where it could be too long for the system.
+//! Recovery goes by the metadata and does not use the hash (ADR 0064). Both files start under a temporary name made with
 //! `create_new` and mode `0600`, and a free stem is never one already there, so that no
 //! later copy can touch an earlier one. Each is sealed before anything goes in, as something may
 //! have changed since the directory was checked, so that it grants nothing beyond its mode.
 //!
 //! A copy is only ever offered. Whatever is in this directory, recovery must not let it
-//! choose a path to write to without the person.
+//! choose a path to write to without the person (`copies`, ADR 0064).
 
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
@@ -32,10 +31,12 @@ use oso_core::rope::Rope;
 use oso_platform::file_meta;
 
 use super::{Entry, Identity, Ticks, Why};
-use crate::saver::{PRIVATE_MODE, Temporary, WRITE_SIZE, sync_directory, unless_unsupported};
+use crate::saver::{
+    PRIVATE_MODE, Temporary, WRITE_SIZE, all_digits, sync_directory, unless_unsupported,
+};
 
 /// The first line of every metadata file, with the format's version.
-const META_HEADER: &str = "oso-emergency-copy 1";
+pub(super) const META_HEADER: &str = "oso-emergency-copy 1";
 
 /// How many stems to try before giving up.
 const STEM_ATTEMPTS: u32 = 64;
@@ -140,6 +141,24 @@ pub(super) fn free_stem(directory: &Path, identity: &Identity, seconds: u64) -> 
     Err(io::Error::other("could not find a free name for a copy"))
 }
 
+/// The seconds in `name`, if it is a stem of the form [`free_stem`] makes:
+/// `<16 hex>-<digits>-<digits>-<digits>`. Any other name is not a copy's.
+pub(super) fn stem_seconds(name: &str) -> Option<u64> {
+    let mut parts = name.split('-');
+    let hash = parts.next()?;
+    let seconds = parts.next()?;
+    let process = parts.next()?;
+    let attempt = parts.next()?;
+    let hex = hash.len() == 16
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    let fits = hex && all_digits(seconds) && all_digits(process) && all_digits(attempt);
+    (fits && parts.next().is_none())
+        .then(|| seconds.parse().ok())
+        .flatten()
+}
+
 /// What the hash in a copy's name is taken of.
 pub(super) fn key_of(identity: &Identity) -> &[u8] {
     identity
@@ -167,6 +186,7 @@ pub(super) fn fnv1a(bytes: &[u8]) -> u64 {
 /// name notes.txt
 /// path /home/me/link%20to/notes.txt
 /// location /home/me/real/notes.txt
+/// withheld false
 /// bom false
 /// line-ending lf
 /// file-bytes 1200
@@ -179,7 +199,8 @@ pub(super) fn fnv1a(bytes: &[u8]) -> u64 {
 /// Names and paths are percent-encoded byte by byte, so that any file name fits on one line
 /// of ASCII and no terminal sees its own control characters. A reader finds a path by
 /// encoding its own and comparing, so it need not trust or even decode what is here.
-/// `location` says where the buffer would have saved, and `file-bytes` and `file-modified`
+/// `location` says where the buffer would have saved, in the file's own spelling if that could
+/// be told, `withheld` whether dev tooling withheld the text, and `file-bytes` and `file-modified`
 /// what was there as the buffer last read or wrote it, so that recovery can tell whether the
 /// file has changed since. `bytes` is the length of the text, and `written` the seconds since
 /// the Unix epoch.
@@ -202,6 +223,7 @@ pub(super) fn meta_text(
         let location = encoded(location.as_os_str().as_encoded_bytes());
         lines.push(format!("location {location}"));
     }
+    lines.push(format!("withheld {}", identity.withheld));
     lines.push(format!("bom {}", identity.bom));
     lines.push(format!("line-ending {}", identity.line_ending.as_str()));
     if let Some(file) = file {
@@ -219,7 +241,7 @@ pub(super) fn meta_text(
 }
 
 /// `bytes` with everything but plain ASCII written as `%XX`.
-fn encoded(bytes: &[u8]) -> String {
+pub(super) fn encoded(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(bytes.len());
     for byte in bytes {

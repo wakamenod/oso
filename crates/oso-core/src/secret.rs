@@ -116,6 +116,18 @@ pub(crate) fn judge_unresolved(opened: Option<&Path>, seen: &[PathBuf]) -> Verdi
     }
 }
 
+/// The verdict on a copy of a file, from the paths its metadata names and the least the
+/// caller knows of it: what the copy says of itself, and the verdict of the buffer it matched.
+pub(crate) fn judge_copy(paths: &[PathBuf], at_least: Verdict) -> Verdict {
+    if at_least == Verdict::SecretName || paths.iter().any(|path| matches_pattern(path)) {
+        Verdict::SecretName
+    } else if at_least == Verdict::Ordinary {
+        Verdict::Ordinary
+    } else {
+        Verdict::Unresolved
+    }
+}
+
 fn any_matches(opened: &Path, others: &[PathBuf]) -> bool {
     matches_pattern(opened) || others.iter().any(|path| matches_pattern(path))
 }

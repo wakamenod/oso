@@ -40,6 +40,7 @@ impl ApplicationHandler<UserEvent> for App {
                 log::error!("{}", problem.escape_debug());
                 self.editor.message(problem);
             }
+            UserEvent::Copies(event) => self.copies_event(event),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
@@ -47,6 +48,7 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.check_leaving(event_loop);
+        self.scan_if_a_file_has_loaded();
         self.ask_for_a_frame_if_status_changed();
     }
 

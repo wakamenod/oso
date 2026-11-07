@@ -46,6 +46,7 @@ pub mod oso_platform::privacy
 pub struct oso_platform::privacy::PrivateDir
 impl oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::check(&std::path::Path) -> std::io::error::Result<()>
+pub fn oso_platform::privacy::PrivateDir::existing(impl core::convert::Into<std::path::PathBuf>) -> std::io::error::Result<core::option::Option<Self>>
 pub fn oso_platform::privacy::PrivateDir::open(impl core::convert::Into<std::path::PathBuf>) -> std::io::error::Result<Self>
 pub fn oso_platform::privacy::PrivateDir::path(&self) -> &std::path::Path
 impl core::clone::Clone for oso_platform::privacy::PrivateDir
@@ -53,6 +54,8 @@ pub fn oso_platform::privacy::PrivateDir::clone(&self) -> oso_platform::privacy:
 impl core::fmt::Debug for oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn oso_platform::privacy::disable_core_dumps() -> std::io::error::Result<()>
+pub fn oso_platform::privacy::has_one_name(&std::fs::Metadata) -> bool
+pub fn oso_platform::privacy::is_this_users(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::state_home() -> core::option::Option<std::path::PathBuf>
 pub mod oso_platform::process
 pub enum oso_platform::process::Sink
