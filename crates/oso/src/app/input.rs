@@ -26,6 +26,8 @@ const WHEEL_COLUMNS: f64 = 6.0;
 
 /// Whether `key` in a buffer of `mode` is an answer to a question and not something to repeat.
 /// Where a letter answers, holding it must not go on through the rows, and some answers delete.
+/// The app also drops the repeats of a press this was true of, as an answer can move the window
+/// to a file, where the same letter would type.
 fn answers_once(mode: Mode, key: KeyPress) -> bool {
     mode.shows_copies() && key.text().is_some()
 }
@@ -47,8 +49,13 @@ impl App {
             return;
         }
         if let Some(key) = keys::from_event(event, self.modifiers) {
-            if event.repeat && answers_once(self.editor.current().1.mode(), key) {
-                return;
+            let mode = self.editor.current().1.mode();
+            if event.repeat {
+                if self.answering == Some(key) || answers_once(mode, key) {
+                    return;
+                }
+            } else {
+                self.answering = answers_once(mode, key).then_some(key);
             }
             self.handle_key(event_loop, key);
         } else if let Some(text) = keys::typed_text(event, self.modifiers) {

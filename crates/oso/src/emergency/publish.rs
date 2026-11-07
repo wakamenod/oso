@@ -172,12 +172,17 @@ impl Publisher {
         let same_text =
             old.is_some_and(|old| old.content == now.content && old.verdict == now.verdict);
         let mut text = (!same_text && now.verdict.may_be_copied()).then(|| text.clone());
-        if old.is_some() {
+        if let Some(old) = old {
+            // A copy says whether its text was withheld, which an undo or a redo can change.
+            let mut identity = (old.verdict != now.verdict).then(|| Arc::new(identity_of(buffer)));
             let mut state = self.lock();
             if let Ok(index) = index_of(&state, now.id) {
                 let entry = &mut state.entries[index];
                 if !same_text {
                     std::mem::swap(&mut entry.text, &mut text);
+                }
+                if let Some(identity) = &mut identity {
+                    std::mem::swap(&mut entry.identity, identity);
                 }
                 entry.content = now.content;
                 entry.saving = now.saving;
@@ -186,6 +191,7 @@ impl Publisher {
             drop(state);
             // The rope it replaced goes here, with no lock held.
             drop(text);
+            drop(identity);
         } else {
             let entry = Entry {
                 buffer: now.id,

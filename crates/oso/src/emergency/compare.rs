@@ -73,6 +73,12 @@ impl std::fmt::Display for NoDiff {
 /// is not read, as what it shows would pass for that file's. A pipe would block whatever opens
 /// it. It is not `open_checked`, as such a file may have another owner or names of its own.
 fn open_the_file(location: &Path) -> io::Result<(File, Metadata)> {
+    // A directory on the way can have been swapped too. The location's is canonical.
+    if let Some(directory) = location.parent()
+        && fs::canonicalize(directory)? != directory
+    {
+        return Err(io::Error::other("its directory now leads elsewhere"));
+    }
     let looked = fs::symlink_metadata(location)?;
     if !looked.is_file() {
         return Err(io::Error::other("it is not a regular file"));
@@ -179,6 +185,9 @@ pub(super) fn diff_within(file: &str, copy: &str, deadline: Duration) -> Result<
 pub(super) fn diff_files(file: &Path, copy: File, copy_len: u64) -> Result<String, NoDiff> {
     let io_problem = |e: io::Error| NoDiff::Io(e.to_string());
     let (opened, metadata) = open_the_file(file).map_err(io_problem)?;
+    if copy.metadata().is_ok_and(|own| same_file(&metadata, &own)) {
+        return Err(NoDiff::Io("the file is the copy itself".to_owned()));
+    }
     let large = NoDiff::TooLarge {
         file: metadata.len(),
         copy: copy_len,
@@ -318,8 +327,9 @@ mod tests {
 
     /// A file holding `bytes`, in a directory of the test's, and the handle `same_bytes` wants.
     fn pair(test: &str, file: &[u8], copy: &[u8]) -> (std::path::PathBuf, File, u64) {
-        let directory =
-            std::env::temp_dir().join(format!("oso-compare-test-{}-{test}", std::process::id()));
+        // Canonical, as a location is.
+        let temporary = fs::canonicalize(std::env::temp_dir()).unwrap();
+        let directory = temporary.join(format!("oso-compare-test-{}-{test}", std::process::id()));
         fs::create_dir_all(&directory).unwrap();
         let (a, b) = (directory.join("file"), directory.join("copy"));
         fs::write(&a, file).unwrap();
@@ -375,6 +385,8 @@ mod tests {
         fs::remove_file(&file).unwrap();
         fs::hard_link(&same, &file).unwrap();
         assert!(!same_bytes(&file, copy, len), "the only text there is");
+        let copy = File::open(&same).unwrap();
+        assert!(matches!(diff_files(&file, copy, len), Err(NoDiff::Io(_))));
     }
 
     #[test]

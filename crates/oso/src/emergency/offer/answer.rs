@@ -30,13 +30,22 @@ fn is_withheld(verdict: &(Vec<PathBuf>, Verdict)) -> bool {
     buffer.is_secret()
 }
 
-/// Says what depends on a copy's text: in the echo area alone if that text is withheld, as
-/// these run after their command has ended, and `Editor::message` holds only a command to that.
-fn say_of_text(editor: &mut Editor, verdict: &(Vec<PathBuf>, Verdict), text: String) {
-    if is_withheld(verdict) {
+/// Says what depends on a copy's text. If that text is withheld, it goes in the echo area alone,
+/// as these run after their command has ended, and `Editor::message` holds only a command to
+/// that. With no withheld buffer on the screen the socket reads the echo area too, so there it
+/// says only `in_general`.
+fn say_of_text(
+    editor: &mut Editor,
+    verdict: &(Vec<PathBuf>, Verdict),
+    text: String,
+    in_general: &str,
+) {
+    if !is_withheld(verdict) {
+        editor.message(text);
+    } else if editor.shows_secret() {
         editor.echo(text);
     } else {
-        editor.message(text);
+        editor.echo(in_general);
     }
 }
 
@@ -246,7 +255,8 @@ impl Offer {
         let diff = match result {
             Ok(diff) => diff,
             Err(known) => {
-                say_of_text(editor, &verdict, format!("Comparing {name}: {known}"));
+                let text = format!("Comparing {name}: {known}");
+                say_of_text(editor, &verdict, text, "This copy cannot be compared here");
                 return Vec::new();
             }
         };
@@ -295,7 +305,8 @@ impl Offer {
         let row = row.clone();
         match refusal(editor, &row, view) {
             Some(why) => {
-                say_of_text(editor, &Self::verdict_of(&row), why);
+                let in_general = "This copy cannot be recovered now";
+                say_of_text(editor, &Self::verdict_of(&row), why, in_general);
                 Vec::new()
             }
             None => self.put_in_buffer(editor, row, view),
@@ -339,13 +350,10 @@ impl Offer {
         let row = &self.rows[index];
         let (text, meta, name) = (row.text.clone(), row.meta.clone(), row.name.clone());
         self.marked.retain(|marked| *marked != text);
-        let recovered = self.recovered.iter().position(|r| r.row.text == text);
-        if let Some(position) = recovered {
-            let gone = self.recovered.swap_remove(position);
-            if let Some(buffer) = editor.buffer_mut(gone.buffer) {
-                buffer.forget_recovery();
-            }
-        }
+        // The buffer keeps its mark: a redo can still bring this text back, with all that goes
+        // with it. Only the copy has gone, which nothing now has to remove.
+        self.recovered
+            .retain(|recovered| recovered.row.text != text);
         let mut work = Vec::new();
         for shown in [&mut self.view, &mut self.compare] {
             if shown.as_ref().is_some_and(|shown| shown.key == text)
@@ -419,6 +427,17 @@ fn refusal(editor: &Editor, row: &Row, view: BufferId) -> Option<String> {
     }
     if row.state == RowState::NoFile && !target.text().is_empty() {
         return Some(format!("{name} is not empty, so nothing goes in it"));
+    }
+    // The window goes to the target. Until `C-x b`, no key could then reach what it was on.
+    if let Some((behind, _, _)) = editor.place_behind_internal()
+        && Some(behind) != row.target
+        && let Some(behind) = editor.buffer(behind)
+        && behind.is_modified()
+    {
+        return Some(format!(
+            "{} has unsaved edits, and nothing would lead back to it. Save them first",
+            behind.name()
+        ));
     }
     None
 }

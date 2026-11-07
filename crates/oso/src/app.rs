@@ -70,6 +70,9 @@ pub struct App {
     emergency: Emergency,
     /// The emergency copies on offer (ADR 0064).
     offer: Offer,
+    /// A letter pressed as an answer among the copies, whose repeats are dropped until the next
+    /// press, wherever the answer took the window.
+    answering: Option<oso_core::key::KeyPress>,
     /// A file has loaded, so copies may belong to it. Asked for here, as a load's end can
     /// come on the frame path, and looked into before the event loop waits.
     scan_for_copies: bool,
@@ -110,6 +113,7 @@ impl App {
             leaving,
             emergency,
             offer,
+            answering: None,
             scan_for_copies: false,
             started: Some(started),
             wheel: WheelRemainder::default(),

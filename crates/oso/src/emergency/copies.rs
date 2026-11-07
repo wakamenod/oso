@@ -446,6 +446,8 @@ fn copy_row(
     match matched {
         Matched::Target(target) => {
             row.target = Some(target.buffer);
+            // What is said goes by the buffer it will reach, and not by what a `.meta` calls it.
+            row.name.clone_from(&target.name);
             if target.verdict != Verdict::Ordinary {
                 row.at_least = target.verdict;
             }

@@ -88,6 +88,7 @@ impl Editor {
                 }
             }
         }
+        self.way_back.retain(|place| place.buffer != id);
         let position = self.buffers.iter().position(|(other, _)| *other == id)?;
         Some(self.buffers.remove(position).1)
     }
@@ -429,6 +430,32 @@ mod tests {
         editor.toggle_copies();
         editor.copies_back();
         assert_eq!(editor.current().1.name(), MESSAGES);
+        editor.toggle_messages();
+        assert_eq!(editor.window().buffer(), file);
+    }
+
+    #[test]
+    fn a_view_taken_out_on_the_way_does_not_cost_the_way_back() {
+        let (mut editor, file, view) = with_copy("abc", "x");
+        editor.toggle_copies();
+        editor.show(view);
+        editor.toggle_messages();
+        editor.toggle_copies();
+        assert_eq!(editor.current().1.mode(), Mode::CopyList);
+        editor.toggle_copies();
+        editor.remove_internal_buffer(view);
+        editor.toggle_messages();
+        assert_eq!(editor.window().buffer(), file, "not *scratch*");
+    }
+
+    #[test]
+    fn a_way_back_through_a_buffer_that_has_gone_goes_on_to_the_one_before() {
+        let (mut editor, file, _) = with_copy("abc", "x");
+        let other = editor.add_buffer(Buffer::from_text("other", "y"));
+        editor.toggle_copies();
+        editor.show(other);
+        editor.toggle_messages();
+        editor.kill_buffer(other);
         editor.toggle_messages();
         assert_eq!(editor.window().buffer(), file);
     }

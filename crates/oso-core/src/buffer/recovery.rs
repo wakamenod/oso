@@ -40,6 +40,15 @@ struct Side {
 /// The modification time of a file that has gone, by which no file can pass for it.
 const NO_TIME: SystemTime = SystemTime::UNIX_EPOCH;
 
+/// The verdict that withholds more, as a name that matches says more than not knowing.
+fn stricter(one: Verdict, other: Verdict) -> Verdict {
+    match (one, other) {
+        (Verdict::SecretName, _) | (_, Verdict::SecretName) => Verdict::SecretName,
+        (Verdict::Ordinary, other) => other,
+        (one, _) => one,
+    }
+}
+
 impl Buffer {
     /// Which keys this buffer takes.
     pub fn mode(&self) -> Mode {
@@ -154,9 +163,7 @@ impl Buffer {
         let side_before = self.side();
         self.commit_edit(staged, opening, after);
         // The text may be what a view withheld, and it is no less so here.
-        if source_verdict.is_withheld() && !self.verdict.is_withheld() {
-            self.verdict = source_verdict;
-        }
+        self.verdict = stricter(self.verdict, source_verdict);
         self.recovery = Some(RecoveryMark {
             before,
             after: self.content,
@@ -164,6 +171,18 @@ impl Buffer {
             side_before,
             side_after: self.side(),
         });
+    }
+
+    /// A save has put `stamp` in place. Whichever side an undo or a redo goes to, that is what
+    /// is there now, as what a save compares must not go back to before it.
+    pub(super) fn note_written(&mut self, stamp: FileStamp) {
+        if let Some(mark) = &mut self.recovery {
+            for side in [&mut mark.side_before, &mut mark.side_after] {
+                if let Some(baseline) = &mut side.baseline {
+                    baseline.file = Some(stamp);
+                }
+            }
+        }
     }
 
     /// An undo or a redo has arrived at the state now: going back past a recovery withdraws

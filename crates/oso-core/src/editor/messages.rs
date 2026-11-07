@@ -229,8 +229,14 @@ impl Editor {
 
     /// Goes back to where the window was before the internal buffer it is on.
     pub(super) fn leave_internal(&mut self) {
-        let back = self.way_back.pop();
-        self.go_back(back);
+        // A place whose buffer has gone is no way back, and the one before may still be.
+        while let Some(place) = self.way_back.pop() {
+            if self.buffer(place.buffer).is_some() {
+                self.go_back(Some(place));
+                return;
+            }
+        }
+        self.go_back(None);
     }
 
     /// Shows `*Messages*` in the selected window, with its last row in view. From

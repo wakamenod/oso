@@ -186,6 +186,7 @@ pub(super) fn fnv1a(bytes: &[u8]) -> u64 {
 /// name notes.txt
 /// path /home/me/link%20to/notes.txt
 /// location /home/me/real/notes.txt
+/// withheld false
 /// bom false
 /// line-ending lf
 /// file-bytes 1200
@@ -198,7 +199,8 @@ pub(super) fn fnv1a(bytes: &[u8]) -> u64 {
 /// Names and paths are percent-encoded byte by byte, so that any file name fits on one line
 /// of ASCII and no terminal sees its own control characters. A reader finds a path by
 /// encoding its own and comparing, so it need not trust or even decode what is here.
-/// `location` says where the buffer would have saved, and `file-bytes` and `file-modified`
+/// `location` says where the buffer would have saved, in the file's own spelling if that could
+/// be told, `withheld` whether dev tooling withheld the text, and `file-bytes` and `file-modified`
 /// what was there as the buffer last read or wrote it, so that recovery can tell whether the
 /// file has changed since. `bytes` is the length of the text, and `written` the seconds since
 /// the Unix epoch.

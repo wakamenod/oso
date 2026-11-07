@@ -166,6 +166,8 @@ impl App {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);
                 self.editor.kill_buffer(id);
+                // What a notice waited on is over.
+                self.scan_for_copies = true;
                 // An internal buffer stays through that.
                 self.free_copy_buffer(id);
                 self.loads.swap_remove(index);

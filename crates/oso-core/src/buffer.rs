@@ -334,6 +334,7 @@ impl Buffer {
         if let Some(baseline) = &mut self.baseline {
             baseline.file = Some(stamp);
         }
+        self.note_written(stamp);
     }
 
     /// Whether a save found the file changed since this buffer read it or wrote it.

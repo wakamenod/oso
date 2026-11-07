@@ -183,16 +183,19 @@ impl Offer {
     /// Takes in what a scan found, unless a later one has come in already. What comes back
     /// is another scan, if something changed while this one ran.
     pub fn take_scan(&mut self, editor: &mut Editor, scan: Scan, loading: bool) -> Vec<CopyWork> {
-        self.scanning = None;
-        let again = if std::mem::take(&mut self.scan_again) {
-            self.ask_for_scan(editor)
+        // A scan given up on may end while a later one runs, which it says nothing of.
+        let latest = scan.id + 1 >= self.next_scan;
+        let again = if latest {
+            self.scanning = None;
+            if std::mem::take(&mut self.scan_again) {
+                self.ask_for_scan(editor)
+            } else {
+                Vec::new()
+            }
         } else {
             Vec::new()
         };
-        if self.applied_scan.is_some_and(|applied| scan.id < applied) {
-            return again;
-        }
-        self.applied_scan = Some(scan.id);
+        // What it removed has gone, however late it says so.
         match &scan.removed[..] {
             [] => {}
             [stem] => editor.message(format!(
@@ -203,6 +206,10 @@ impl Offer {
                 many.len()
             )),
         }
+        if self.applied_scan.is_some_and(|applied| scan.id < applied) {
+            return again;
+        }
+        self.applied_scan = Some(scan.id);
         if let Some(problem) = &scan.problem
             && !self.told_problem
         {
@@ -233,9 +240,12 @@ impl Offer {
     fn list_line(&mut self, editor: &Editor, shows_list: bool, on_row: Option<&PathBuf>) -> usize {
         let last = HEADER_ROWS + self.rows.len().saturating_sub(1);
         let position = |wanted: &dyn Fn(&Row) -> bool| self.rows.iter().position(wanted);
+        // Only if the person has not moved since it opened, as a key acts on what is under it.
+        let unmoved = !shows_list || editor.cursor_line() <= HEADER_ROWS;
         let wanted = self
             .cursor_for
             .take()
+            .filter(|_| unmoved)
             .and_then(|buffer| position(&|row| row.target == Some(buffer)))
             .or_else(|| on_row.and_then(|text| position(&|row| row.text == *text)))
             .map(|row| HEADER_ROWS + row);

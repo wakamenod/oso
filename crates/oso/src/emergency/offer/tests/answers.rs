@@ -528,3 +528,147 @@ fn a_new_file_nobody_saved_has_no_file_to_compare_and_comes_back_private() {
     assert_eq!(baseline.file.unwrap().mode, 0o600);
     assert_eq!(baseline.file.unwrap().len, 0, "nothing from the .meta");
 }
+
+#[test]
+fn a_redo_after_the_copy_was_deleted_brings_back_all_that_goes_with_the_text() {
+    let mut fixture = Fixture::new("on disk\n", "the copy\n");
+    let meta = fixture.directory.join(format!("{STEM}.meta"));
+    let said = fs::read_to_string(&meta)
+        .unwrap()
+        .replace("withheld false", "withheld true");
+    fs::write(&meta, said).unwrap();
+    recover(&mut fixture);
+    fixture.editor.undo().unwrap();
+    let scan = fixture.offer.after_command(&fixture.editor);
+    fixture.run(scan);
+    fixture.open_list();
+    fixture.delete(HEADER_ROWS);
+    fixture.editor.leave_copies();
+    fixture.editor.redo().unwrap();
+    let id = fixture.buffer();
+    assert_eq!(fixture.file_text(), "the copy\n");
+    assert_eq!(
+        fixture.editor.buffer(id).unwrap().verdict(),
+        Verdict::Unresolved
+    );
+}
+
+#[test]
+fn what_a_save_compares_does_not_go_back_with_an_undo_past_a_save() {
+    let mut fixture = Fixture::new("on disk\n", "the copy\n");
+    recover(&mut fixture);
+    let id = fixture.buffer();
+    let content = fixture.editor.buffer(id).unwrap().content_id();
+    let mut stamp = stamp_of(&fs::metadata(&fixture.file).unwrap()).unwrap();
+    stamp.len = 12_345;
+    fixture.editor.save_finished(id, content, stamp);
+    // The disk did not confirm that save, so the recovery is still remembered.
+    let work = fixture.offer.save_ended(&mut fixture.editor, id, false);
+    fixture.run(work);
+    let edit = oso_core::buffer::Replacement {
+        range: 0..0,
+        text: "more ",
+    };
+    fixture.editor.begin_undo_group();
+    fixture.editor.apply_edits(id, &[edit]).unwrap();
+    fixture.editor.end_undo_group();
+    fixture.editor.undo().unwrap();
+    let baseline = fixture
+        .editor
+        .buffer(id)
+        .unwrap()
+        .baseline()
+        .unwrap()
+        .clone();
+    assert_eq!(baseline.file, Some(stamp), "it would refuse the next save");
+}
+
+#[test]
+fn a_recovery_that_would_strand_a_modified_file_is_refused() {
+    let mut fixture = Fixture::new("on disk\n", "x");
+    let identity = Identity {
+        name: "*scratch*".to_owned(),
+        path: None,
+        location: None,
+        withheld: false,
+        bom: false,
+        line_ending: LineEnding::Lf,
+    };
+    let stem = "00000000000000dd-1790000005-77-0";
+    let meta = write::meta_text(&identity, None, 4, Why::Exit, 1_790_000_005);
+    fs::write(fixture.directory.join(format!("{stem}.meta")), meta).unwrap();
+    fs::write(fixture.directory.join(format!("{stem}.txt")), "text").unwrap();
+    fixture.editor.add_buffer(Buffer::new("*scratch*"));
+    let id = fixture.buffer();
+    let edit = oso_core::buffer::Replacement {
+        range: 0..0,
+        text: "typed ",
+    };
+    fixture.editor.apply_edits(id, &[edit]).unwrap();
+    fixture.scan();
+    recover_row(&mut fixture, stem);
+    assert!(
+        fixture
+            .last_message()
+            .contains("nothing would lead back to it"),
+        "{}",
+        fixture.last_message()
+    );
+    assert_eq!(
+        shown(&fixture.editor).mode(),
+        Mode::CopyView,
+        "nothing moved"
+    );
+}
+
+#[test]
+fn the_name_said_is_the_buffers_and_not_what_a_meta_calls_it() {
+    let mut fixture = Fixture::new("on disk\n", "the copy\n");
+    let meta = fixture.directory.join(format!("{STEM}.meta"));
+    let said = fs::read_to_string(&meta)
+        .unwrap()
+        .replace("name notes.txt", "name other.txt");
+    fs::write(&meta, said).unwrap();
+    fixture.scan();
+    assert!(fixture.last_message().starts_with("notes.txt has"));
+    assert_eq!(fixture.offer.rows[0].name, "notes.txt");
+}
+
+#[test]
+fn a_scan_landing_late_does_not_move_a_cursor_the_person_moved() {
+    let mut fixture = Fixture::new("on disk\n", "the copy\n");
+    copy_written_at(
+        &fixture,
+        "00000000000000bb-1800000000-77-0",
+        "newer\n",
+        1_800_000_000,
+    );
+    fixture.open_list();
+    assert_eq!(fixture.line(), HEADER_ROWS, "the newest of this file's");
+    fixture.editor.set_copies_cursor(HEADER_ROWS + 1);
+    fixture.offer.cursor_for = Some(fixture.buffer());
+    fixture.scan();
+    assert_eq!(fixture.line(), HEADER_ROWS + 1);
+}
+
+#[test]
+fn a_failure_of_a_withheld_copy_says_only_what_the_socket_may_read_from_the_list() {
+    let mut fixture = Fixture::new("one\n", "x");
+    let meta = fixture.directory.join(format!("{STEM}.meta"));
+    let said = fs::read_to_string(&meta)
+        .unwrap()
+        .replace("withheld false", "withheld true");
+    fs::write(&meta, said).unwrap();
+    fs::write(fixture.directory.join(format!("{STEM}.txt")), b"\xff").unwrap();
+    fixture.scan();
+    fixture.open_list();
+    fixture.answer(RecoveryAction::Compare(HEADER_ROWS));
+    let mut status = oso_core::editor::Status::default();
+    fixture.editor.status_into(&mut status);
+    assert_eq!(status.echo, "This copy cannot be compared here");
+    assert!(
+        !kept_messages(&fixture.editor)
+            .iter()
+            .any(|said| said.contains("not text"))
+    );
+}
