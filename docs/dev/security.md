@@ -150,6 +150,9 @@ and below the row, and a label's glyphs keep their own cells
   A view of a copy is withheld from the socket if any path it names would count as secret, if its buffer's verdict says so, if the copy says it was withheld or does not say, or if nothing says
   whose it is, and text recovered from such a view is withheld in the buffer it goes in. Nothing is deleted unasked but a copy found byte for byte equal to the file the person opened, and a recovered copy once a save of it has reached the disk. A temporary file left by a save or a
   copy is listed once over an hour old, and always withheld, as it may hold a secret buffer's text.
+- The OS input method is off in a buffer that may hold secrets, as in macOS password
+  fields, and gets no cursor area there. A preedit is in no buffer, copy, handoff or log
+  ([ADR 0069](adr/0069-macos-input-method.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the

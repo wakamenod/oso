@@ -44,6 +44,7 @@ impl ApplicationHandler<UserEvent> for App {
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
+        self.after_event();
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -98,8 +99,12 @@ impl ApplicationHandler<UserEvent> for App {
                 ..
             } => self.handle_key_event(event_loop, &event, is_synthetic),
 
+            // ---- Input method ----
+            WindowEvent::Ime(ime) => self.handle_ime(event_loop, ime),
+
             _ => {}
         }
+        self.after_event();
     }
 }
 

@@ -22,8 +22,9 @@ use std::sync::mpsc;
 use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
-use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
+use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::editor::{Editor, Status};
+use oso_core::frame::PixelRect;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::motion;
@@ -98,6 +99,38 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         state["echo"] = json!(status.echo);
     }
     state
+}
+
+/// What the app has told the OS of the input method, for [`ime_state`].
+pub struct ImeFacts {
+    /// Whether the app wants it on (ADR 0069).
+    pub wanted: bool,
+    /// Whether it last allowed it, which waits for a composition to end.
+    pub allowed: bool,
+    /// The cursor area last given to the OS, in physical pixels.
+    pub area: Option<PixelRect>,
+}
+
+/// The `ime` field of `get-state`: what the app wants and allowed, whether a composition
+/// is open, its preedit and range, and the area given to the OS. While a buffer that may
+/// hold secrets is shown, the preedit, its range and the area are null (ADR 0069).
+pub fn ime_state(editor: &Editor, facts: &ImeFacts) -> Value {
+    let preedit = editor.preedit();
+    let shown = !editor.shows_secret();
+    let area = facts.area.filter(|_| shown).map(
+        |area| json!({ "x": area.x, "y": area.y, "width": area.width, "height": area.height }),
+    );
+    json!({
+        "wanted": facts.wanted,
+        "allowed": facts.allowed,
+        "composing": preedit.is_some(),
+        "preedit": preedit.filter(|_| shown).map(Preedit::text),
+        "range": preedit
+            .filter(|_| shown)
+            .and_then(Preedit::range)
+            .map(|range| [range.start, range.end]),
+        "area": area,
+    })
 }
 
 fn scroll_state(window: &Window) -> Value {
@@ -317,8 +350,8 @@ pub fn show_buffer(editor: &mut Editor, buffer: u64) -> Reply {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, screenshot_allowed,
-        show_buffer,
+        ImeFacts, MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, ime_state,
+        screenshot_allowed, show_buffer,
     };
     use oso_core::buffer::{Buffer, BufferId, Replacement};
     use oso_core::editor::Editor;
@@ -623,6 +656,36 @@ mod tests {
         assert_eq!(state["windows"][0]["buffer"], state["buffer"]["id"]);
         assert_eq!(state["buffer"]["lines"], 3);
         assert_eq!(state["keys"]["pending"], "");
+    }
+
+    #[test]
+    fn the_preedit_its_range_and_the_area_are_withheld_while_a_secret_is_shown() {
+        let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
+        let facts = ImeFacts {
+            wanted: true,
+            allowed: true,
+            area: Some(oso_core::frame::PixelRect {
+                x: 8.0,
+                y: 8.0,
+                width: 10.0,
+                height: 20.0,
+            }),
+        };
+        let preedit = oso_core::display_map::Preedit::new("にほ".into(), Some(6..6));
+        editor.set_preedit(Some(preedit));
+        let withheld = ime_state(&editor, &facts);
+        assert_eq!(withheld["composing"], true);
+        for hidden in ["preedit", "range", "area"] {
+            assert_eq!(withheld[hidden], json!(null), "{hidden}");
+        }
+        let scratch = editor.buffers().next().unwrap().0;
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let shown = ime_state(&editor, &facts);
+        assert_eq!(shown["preedit"], "にほ");
+        assert_eq!(shown["range"], json!([6, 6]));
+        assert_eq!(shown["area"]["width"], 10.0);
+        show_buffer(&mut editor, secret.get()).unwrap();
+        assert_eq!(ime_state(&editor, &facts)["preedit"], json!(null));
     }
 
     #[test]

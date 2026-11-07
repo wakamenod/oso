@@ -25,13 +25,17 @@
 //!   piece is one call to the shaper, which may split it by direction (ADR 0066).
 //!   Short pieces are kept by their text, so a label or a name is shaped once
 //!   (ADR 0068).
+//! - An input method's preedit is spliced into the cursor's row, in a face of its
+//!   own, so it is shaped apart from the text around it. That row is read and
+//!   compared each frame while it has one, and the frame after (ADR 0069).
 
 use std::collections::HashMap;
-use std::ops::Range;
+use std::ops::{ControlFlow, Range};
 
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{
-    CellStyle, DisplayCluster, DisplayPoint, DisplaySnapshot, MAX_CLUSTER_BYTES, text_clusters,
+    CellStyle, DisplayCluster, DisplayPoint, DisplaySnapshot, MAX_CLUSTER_BYTES, Preedit,
+    row_clusters, text_clusters,
 };
 use oso_platform::text::{ShapedGlyph, TextSystem};
 
@@ -144,6 +148,8 @@ pub(crate) struct ShapedRow {
     /// The buffer revision the row was checked at. While it holds, the row
     /// is reused without looking at the buffer.
     revision: u64,
+    /// Whether it was read with a preedit, which the revision says nothing of.
+    spliced: bool,
     /// What the shaper and the placer were given. The glyphs depend on
     /// nothing else but the font, so the same input gives the same glyphs,
     /// and comparing the bytes leaves no false match that could show stale
@@ -226,24 +232,27 @@ impl Rows {
     }
 
     /// The shaped `columns` of `row`, shaping them if the cache has none
-    /// for the text there now.
+    /// for the text there now. A `preedit` goes in at its column.
     pub(crate) fn row(
         &mut self,
         display: &DisplaySnapshot,
         row: usize,
         columns: Range<usize>,
+        preedit: Option<(usize, &Preedit)>,
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
         let revision = self.revision;
-        let unchanged = self
-            .rows
-            .get(&row)
-            .is_some_and(|shaped| shaped.revision == revision && shaped.columns == columns);
+        let unchanged = preedit.is_none()
+            && self.rows.get(&row).is_some_and(|shaped| {
+                shaped.revision == revision && shaped.columns == columns && !shaped.spliced
+            });
         if unchanged {
             return &self.rows[&row];
         }
-        self.read(display, row, &columns);
-        self.keep(row, columns, system)
+        self.read(display, row, &columns, preedit);
+        let shaped = self.keep(row, columns, system);
+        shaped.spliced = preedit.is_some();
+        shaped
     }
 
     /// The shaped columns of `spans` up to `end`, as row `row`, shaping them if
@@ -266,7 +275,7 @@ impl Rows {
         row: usize,
         columns: Range<usize>,
         system: &mut dyn TextSystem,
-    ) -> &ShapedRow {
+    ) -> &mut ShapedRow {
         if self.breaks.len() == 1 {
             self.breaks.clear();
         }
@@ -301,20 +310,30 @@ impl Rows {
     }
 
     /// Reads the clusters of `row` that start in `columns`, and no further,
-    /// into the scratch space: what to shape, and the boxes to draw.
-    fn read(&mut self, display: &DisplaySnapshot, row: usize, columns: &Range<usize>) {
+    /// into the scratch space: what to shape, and the boxes to draw. A `preedit`
+    /// goes in at its column, and what follows it moves right.
+    fn read(
+        &mut self,
+        display: &DisplaySnapshot,
+        row: usize,
+        columns: &Range<usize>,
+        preedit: Option<(usize, &Preedit)>,
+    ) {
         self.clear_scratch();
         let budget = columns.len().saturating_mul(CHARS_PER_COLUMN);
         let mut spent = 0;
         let mut face = None;
-        for cluster in display.clusters(DisplayPoint::new(row, columns.start)) {
+        let start = DisplayPoint::new(row, columns.start);
+        row_clusters(display, start, preedit, |cluster, own| {
             if cluster.column >= columns.end {
-                break;
+                return ControlFlow::Break(());
             }
             let first = self.graphemes.len();
-            let cut = self.push_cluster(&cluster, Face::Text, budget, &mut spent);
+            let shown = if own { Face::Preedit } else { Face::Text };
+            let cut = self.push_cluster(&cluster, shown, budget, &mut spent);
             self.break_at(first, cut, &mut face);
-        }
+            ControlFlow::Continue(())
+        });
     }
 
     /// Reads the clusters of `spans` that start before column `end`, and no
@@ -472,7 +491,7 @@ pub(crate) mod tests {
         let buffer = Buffer::from_bytes("t", b"a\xe2\x80\xaeb\r\x07\xff\tc");
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let shaped = rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         assert_eq!(system.shaped, ["a", "U+202E", "b", "^M^G\\xFF", " c"]);
         assert_eq!(shaped.boxes, [(1, 6)]);
         let faces: Vec<_> = shaped.glyphs.iter().map(|g| (g.column, g.face)).collect();
@@ -490,7 +509,7 @@ pub(crate) mod tests {
         let buffer = Buffer::from_text("t", "\u{202e}\u{202e}a\u{200b}");
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let shaped = rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         assert_eq!(shaped.boxes, [(0, 6), (6, 6), (13, 6)]);
     }
 
@@ -502,20 +521,20 @@ pub(crate) mod tests {
         let display = buffer.display();
         let id = oso_core::editor::Editor::default().window().buffer();
         rows.begin(id, 1);
-        rows.row(&display, 0, 0..128, &mut system);
-        rows.row(&display, 1, 0..128, &mut system);
-        rows.row(&display, 0, 0..128, &mut system);
+        rows.row(&display, 0, 0..128, None, &mut system);
+        rows.row(&display, 1, 0..128, None, &mut system);
+        rows.row(&display, 0, 0..128, None, &mut system);
         assert_eq!(rows.shaped_count(), 2, "row 0 came from the cache");
-        rows.row(&display, 2, 0..128, &mut system);
+        rows.row(&display, 2, 0..128, None, &mut system);
         // More text on row 2, as while loading, reshapes only row 2.
         rows.begin(id, 2);
         let longer = Buffer::from_text("t", "one\ntwo\nthree four");
-        rows.row(&longer.display(), 2, 0..128, &mut system);
-        rows.row(&longer.display(), 1, 0..128, &mut system);
+        rows.row(&longer.display(), 2, 0..128, None, &mut system);
+        rows.row(&longer.display(), 1, 0..128, None, &mut system);
         assert_eq!(rows.shaped_count(), 4);
         assert_eq!(system.shaped.last().unwrap(), "three four");
         // Other columns shape again.
-        rows.row(&longer.display(), 1, 64..192, &mut system);
+        rows.row(&longer.display(), 1, 64..192, None, &mut system);
         assert_eq!(rows.shaped_count(), 5);
     }
 
@@ -526,7 +545,7 @@ pub(crate) mod tests {
         let buffer = Buffer::from_text("t", &text);
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        let row = rows.row(&buffer.display(), 0, 0..253, &mut system);
+        let row = rows.row(&buffer.display(), 0, 0..253, None, &mut system);
         assert_eq!(row.boxes.first(), Some(&(1, 6)));
         assert_eq!(row.boxes.len(), 42);
         let stack = format!("e{}", "\u{301}".repeat(8));
@@ -541,7 +560,7 @@ pub(crate) mod tests {
         for columns in [0..128, 64..192, 128..256] {
             let mut rows = Rows::default();
             let mut system = Recorder::default();
-            rows.row(&buffer.display(), 0, columns.clone(), &mut system);
+            rows.row(&buffer.display(), 0, columns.clone(), None, &mut system);
             let count = columns.len() / cells;
             assert_eq!(system.shaped[0], cluster.repeat(count), "{columns:?}");
         }
@@ -569,7 +588,7 @@ pub(crate) mod tests {
             let buffer = Buffer::from_text("t", &cluster.repeat(512));
             let mut rows = Rows::default();
             let mut system = Recorder::default();
-            rows.row(&buffer.display(), 0, 0..128, &mut system);
+            rows.row(&buffer.display(), 0, 0..128, None, &mut system);
             let shaped = &system.shaped[0];
             assert!(
                 shaped.starts_with(&cluster),
@@ -594,7 +613,7 @@ pub(crate) mod tests {
         let buffer = Buffer::from_text("t", &format!("{spend}e\u{301}xb\u{5bc}\u{5b8}"));
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let shaped = rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         assert_eq!(system.shaped[0], spend, "shaped whole so far");
         assert_eq!(system.shaped[1..], ["e", "x", "b"]);
         assert_eq!(
@@ -620,7 +639,7 @@ pub(crate) mod tests {
         let buffer = Buffer::from_text("t", &text);
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let shaped = rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         assert_eq!(
             system.shaped[1..],
             ["U+200B", "\u{301}", "\u{1f1ef}", "a"],
@@ -669,9 +688,9 @@ pub(crate) mod tests {
         let first = editor.window().buffer();
         let second = editor.add_buffer(Buffer::from_text("t", ""));
         rows.begin(first, 1);
-        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         rows.begin(second, 1);
-        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         assert_eq!(system.shaped, ["a", "^M", "b", "a", "^M", "b"]);
     }
 
@@ -683,14 +702,14 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         rows.begin(buffer_id(), 1);
         for row in 0..70 {
-            rows.row(&display, row, 0..128, &mut system);
+            rows.row(&display, row, 0..128, None, &mut system);
         }
         assert_eq!(system.shaped, ["a", "^M", "b"], "shaped once for every row");
         rows.begin(buffer_id(), 2);
-        rows.row(&display, 70, 0..128, &mut system);
+        rows.row(&display, 70, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 6, "a new revision shapes them again");
         rows.evict(0..1);
-        rows.row(&display, 71, 0..128, &mut system);
+        rows.row(&display, 71, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 9, "evicted rows take their pieces");
     }
 
@@ -700,9 +719,118 @@ pub(crate) mod tests {
         let buffer = Buffer::from_text("t", &line);
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        let shaped = rows.row(&buffer.display(), 0, 640..768, &mut system);
+        let shaped = rows.row(&buffer.display(), 0, 640..768, None, &mut system);
         assert_eq!(system.shaped[0].chars().count(), 64);
         assert_eq!(shaped.glyphs[0].column, 640);
+    }
+
+    #[test]
+    fn a_preedit_is_shaped_apart_and_pushes_the_rest_of_its_row() {
+        let buffer = Buffer::from_text("t", "abcd");
+        let preedit = Preedit::new("かな".into(), None);
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        rows.begin(buffer_id(), 1);
+        let shaped = rows.row(
+            &buffer.display(),
+            0,
+            0..128,
+            Some((2, &preedit)),
+            &mut system,
+        );
+        assert_eq!(
+            shown(shaped),
+            [('a', 0), ('b', 1), ('か', 2), ('な', 4), ('c', 6), ('d', 7)]
+        );
+        assert_eq!(system.shaped, ["ab", "かな", "cd"]);
+    }
+
+    #[test]
+    fn a_row_with_a_preedit_is_read_again_at_the_same_revision() {
+        let buffer = Buffer::from_text("t", "abcd");
+        let display = buffer.display();
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        rows.begin(buffer_id(), 1);
+        rows.row(&display, 0, 0..128, None, &mut system);
+        let first = Preedit::new("か".into(), None);
+        let shaped = rows.row(&display, 0, 0..128, Some((0, &first)), &mut system);
+        assert_eq!(shown(shaped)[0], ('か', 0));
+        let second = Preedit::new("き".into(), None);
+        let shaped = rows.row(&display, 0, 0..128, Some((0, &second)), &mut system);
+        assert_eq!(shown(shaped)[0], ('き', 0));
+        // Gone, at the revision the row was first read at: the text is back.
+        let shaped = rows.row(&display, 0, 0..128, None, &mut system);
+        assert_eq!(shown(shaped)[0], ('a', 0));
+        let count = rows.shaped_count();
+        rows.row(&display, 0, 0..128, None, &mut system);
+        assert_eq!(rows.shaped_count(), count, "then the revision holds again");
+    }
+
+    #[test]
+    fn a_changing_preedit_shapes_only_its_own_row_and_that_row_once_after() {
+        let buffer = Buffer::from_text("t", &"row of text\n".repeat(40));
+        let display = buffer.display();
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        rows.begin(buffer_id(), 1);
+        let mut frame = |rows: &mut Rows, preedit: Option<&Preedit>| {
+            let before = rows.shaped_count();
+            for row in 0..40 {
+                let spliced = preedit.filter(|_| row == 5).map(|preedit| (4, preedit));
+                rows.row(&display, row, 0..128, spliced, &mut system);
+            }
+            rows.shaped_count() - before
+        };
+        frame(&mut rows, None);
+        for text in ["か", "かな", "仮名"] {
+            let preedit = Preedit::new(text.into(), None);
+            assert_eq!(frame(&mut rows, Some(&preedit)), 1, "{text}");
+        }
+        assert_eq!(frame(&mut rows, None), 1, "the row goes back to its text");
+        assert_eq!(frame(&mut rows, None), 0);
+    }
+
+    #[test]
+    fn a_preedit_deep_in_a_long_line_reads_only_the_columns_asked_for() {
+        let buffer = Buffer::from_text("t", &"あ".repeat(1_000_000));
+        let preedit = Preedit::new("か".repeat(100), None);
+        let mut rows = Rows::default();
+        rows.begin(buffer_id(), 1);
+        for columns in [
+            999_936..1_000_064,
+            1_000_064..1_000_192,
+            1_000_192..1_000_320,
+        ] {
+            let mut system = Recorder::default();
+            let start = columns.start;
+            let spliced = Some((1_000_000, &preedit));
+            let shaped = rows.row(&buffer.display(), 0, columns, spliced, &mut system);
+            let read: usize = system.shaped.iter().map(|text| text.chars().count()).sum();
+            assert_eq!(read, 64, "from {start}");
+            assert_eq!(shaped.glyphs[0].column, start);
+        }
+    }
+
+    #[test]
+    fn a_preedit_takes_the_preedit_face_and_its_escapes_their_own() {
+        let buffer = Buffer::from_text("t", "x");
+        let preedit = Preedit::new("a\u{1}".into(), None);
+        let mut rows = Rows::default();
+        rows.begin(buffer_id(), 1);
+        let mut system = Recorder::default();
+        rows.row(
+            &buffer.display(),
+            0,
+            0..128,
+            Some((0, &preedit)),
+            &mut system,
+        );
+        let faces: Vec<_> = rows.graphemes.iter().map(|g| g.face).collect();
+        assert_eq!(
+            faces,
+            [Face::Preedit, Face::Escape, Face::Escape, Face::Text]
+        );
     }
 
     /// A buffer's text and display model, edited as a buffer does.
@@ -761,7 +889,7 @@ pub(crate) mod tests {
             let before = self.rows.shaped_count();
             for row in rows {
                 self.rows
-                    .row(display, row, columns.clone(), &mut self.system);
+                    .row(display, row, columns.clone(), None, &mut self.system);
             }
             self.rows.shaped_count() - before
         }
@@ -859,7 +987,7 @@ pub(crate) mod tests {
         text.replace(0..3, "TWO");
         frames
             .rows
-            .row(&text.map.snapshot(), 0, 0..128, &mut frames.system);
+            .row(&text.map.snapshot(), 0, 0..128, None, &mut frames.system);
         assert_eq!(frames.shown(0), columns_from(0, "one"));
     }
 
@@ -967,7 +1095,7 @@ pub(crate) mod tests {
         .enumerate()
         {
             rows.begin(id, revision as u64);
-            rows.row(&buffer.display(), 0, 0..128, &mut system);
+            rows.row(&buffer.display(), 0, 0..128, None, &mut system);
             assert_eq!(system.shaped.last().unwrap(), label);
         }
         assert_eq!(rows.shaped_count(), 3);
@@ -984,9 +1112,9 @@ pub(crate) mod tests {
         let id = buffer_id();
         rows.begin(id, 1);
         let faces = |row: &ShapedRow| row.glyphs.iter().map(|g| g.face).collect::<Vec<_>>();
-        let first = faces(rows.row(&escape.display(), 0, 0..128, &mut system));
+        let first = faces(rows.row(&escape.display(), 0, 0..128, None, &mut system));
         rows.begin(id, 2);
-        let second = faces(rows.row(&typed.display(), 0, 0..128, &mut system));
+        let second = faces(rows.row(&typed.display(), 0, 0..128, None, &mut system));
         assert_eq!(first, [Face::Escape; 4]);
         assert_eq!(second, [Face::Text; 4]);
     }
@@ -1124,7 +1252,7 @@ pub(crate) mod tests {
         assert_eq!(joined(&[span("\r\u{301}", Face::Text)])[..3], expected);
         let buffer = Buffer::from_text("t", "\r\u{301}");
         let row = Rows::default()
-            .row(&buffer.display(), 0, 0..128, &mut Joiner)
+            .row(&buffer.display(), 0, 0..128, None, &mut Joiner)
             .glyphs
             .clone();
         let shown: Vec<_> = row
@@ -1164,7 +1292,7 @@ pub(crate) mod tests {
         let buffer = Buffer::from_text("t", "one row\t->");
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 1);
         assert!(rows.breaks.is_empty());
         let mut system = Recorder::default();
@@ -1178,7 +1306,7 @@ pub(crate) mod tests {
         let buffer = Buffer::from_text("t", "a\rb");
         let mut rows = Rows::default();
         let mut system = Recorder::default();
-        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let shaped = rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         let columns: Vec<_> = shaped.glyphs.iter().map(|g| g.column).collect();
         assert_eq!(columns, [0, 1, 2, 3]);
         assert_eq!(system.shaped, ["a", "^M", "b"]);
@@ -1256,12 +1384,12 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         let id = buffer_id();
         rows.begin(id, 1);
-        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         rows.begin_lines();
         let line = rows.line(0, &[span("line", Face::Text)], 128, &mut system);
         assert_eq!(shown(line), columns_from(0, "line"));
         rows.begin(id, 1);
-        let row = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        let row = rows.row(&buffer.display(), 0, 0..128, None, &mut system);
         assert_eq!(shown(row), columns_from(0, "text"));
     }
 
@@ -1292,7 +1420,7 @@ pub(crate) mod tests {
             let mut rows = Rows::default();
             let mut system = Recorder::default();
             for row in 0..display.row_count() {
-                rows.row(&display, row, 0..256, &mut system);
+                rows.row(&display, row, 0..256, None, &mut system);
             }
             for shaped in &system.shaped {
                 for c in shaped.chars() {
@@ -1425,7 +1553,7 @@ pub(crate) mod tests {
         let mut fresh = Rows::default();
         let mut system = Recorder::default();
         for row in rows {
-            let new = fresh.row(display, row, columns.clone(), &mut system);
+            let new = fresh.row(display, row, columns.clone(), None, &mut system);
             let old = &cached.rows[&row];
             proptest::prop_assert_eq!(&old.glyphs, &new.glyphs, "row {}", row);
             proptest::prop_assert_eq!(&old.boxes, &new.boxes, "row {}", row);

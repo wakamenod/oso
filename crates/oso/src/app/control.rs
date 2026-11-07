@@ -14,6 +14,7 @@ use winit::event_loop::ActiveEventLoop;
 
 use super::App;
 use super::draw::with_panes;
+use super::ime::ImeEvent;
 use crate::dev;
 use crate::dev::handoff;
 
@@ -52,14 +53,7 @@ impl App {
             }
             dev::UiOp::OpenFile(path) => self.open_file(path),
             dev::UiOp::TakeTimings => Ok(self.take_timings()),
-            dev::UiOp::GetState => {
-                let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
-                Ok(dev::get_state(
-                    &self.editor,
-                    self.dispatcher.pending(),
-                    surface,
-                ))
-            }
+            dev::UiOp::GetState => Ok(self.get_state()),
             dev::UiOp::GetText { start_row, rows } => {
                 // Only the check happens here; a background thread copies
                 // the text and replies.
@@ -95,6 +89,7 @@ impl App {
             ),
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
+            dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
             dev::UiOp::ImportState(state) => self.import_state(*state),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
@@ -116,6 +111,52 @@ impl App {
         }
         event_loop.exit();
         Ok(json!({ "ending": true }))
+    }
+
+    /// The result of `get-state`, with what the app has told the OS of the input method.
+    fn get_state(&self) -> serde_json::Value {
+        let surface = self.view.as_ref().map(|v| v.render_state.surface_size());
+        let mut state = dev::get_state(&self.editor, self.dispatcher.pending(), surface);
+        let facts = dev::ImeFacts {
+            wanted: self.ime_wanted(),
+            allowed: self.ime_allowed(),
+            area: self.ime_area(),
+        };
+        state["ime"] = dev::ime_state(&self.editor, &facts);
+        state
+    }
+
+    /// The result of `ime`: the report goes where the OS's would, through the same
+    /// handler, and is timed as a key (ADR 0069). While oso has the IME off it is
+    /// refused, as the OS would send nothing.
+    fn report_ime(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        report: dev::ImeReport,
+        received: Instant,
+    ) -> dev::Reply {
+        if !self.ime_allowed() {
+            return Err("the input method is off".into());
+        }
+        let mut watch = dev::SecretWatch::new(&self.editor);
+        let cleared = || ImeEvent::Preedit(String::new(), None);
+        let events = match report {
+            dev::ImeReport::Preedit { text, range } => vec![ImeEvent::Preedit(text, range)],
+            // As the OS does, an empty preedit first.
+            dev::ImeReport::Commit(text) => vec![cleared(), ImeEvent::Commit(text)],
+            dev::ImeReport::Clear => vec![cleared()],
+            dev::ImeReport::Disabled => vec![ImeEvent::Disabled],
+        };
+        let mut redraw = false;
+        for event in events {
+            redraw |= self.ime_event(event_loop, event);
+        }
+        let key = dev::HandledKey {
+            redraw,
+            withheld: watch.after_key(&self.editor),
+        };
+        self.timings.key_handled(received, key);
+        Ok(json!({ "ime": true }))
     }
 
     /// The result of `open-file`: visits a file in the selected window.

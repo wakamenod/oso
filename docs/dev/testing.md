@@ -60,6 +60,10 @@ Below a row that needs it, a line between `:` marks its cells:
 | `~` | a cell of an escape (`^M`, `\xFF`) |
 | `#` | a cell of a boxed character: invisible (`U+202E`), or past a display cluster's limits (`U+0301`) |
 
+Below the row with an input method's preedit, a line between `_` marks its
+underline with `-`, and the segment being converted with `=`
+([ADR 0069](adr/0069-macos-input-method.md)).
+
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `#`
 does not show where one box ends and the next begins. The
@@ -353,6 +357,7 @@ JSON to `target/perf/perf.json`; `just perf OUT --quick` is for trying it out.
 | `startup_ms` | just before the process starts, to its first presented frame | 9, plus a first launch reported alone |
 | `key_p50_ms`, `key_p99_ms` | key received to first frame presented, on a screen of mixed text | 5, 400 keys each |
 | `type_p50_ms`, `type_p99_ms`, `del_p99_ms` | the same while typing there (ASCII, Japanese, an emoji and line breaks), and while `DEL` removes it | 5, 400 keys each |
+| `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; reported only (ADR 0069) | 5, 400 reports each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |

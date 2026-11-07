@@ -5,6 +5,7 @@
 //! scrolling are pure functions elsewhere, and this applies them to the state.
 
 use super::Editor;
+use crate::display_map::{DisplayPoint, Preedit};
 use crate::frame::{self, FrameLayout, FrameSize, PixelGrid, PixelRect};
 use crate::motion;
 use crate::selection::SelectionSet;
@@ -71,17 +72,40 @@ impl Editor {
         Some(grid.rect(cell))
     }
 
+    /// What an input method is composing, if anything (ADR 0069).
+    pub fn preedit(&self) -> Option<&Preedit> {
+        self.preedit.as_ref()
+    }
+
+    /// Shows `preedit` at the selected window's primary cursor, or none, and follows
+    /// it. A preedit with no text is none. Returns whether the view moved.
+    pub fn set_preedit(&mut self, preedit: Option<Preedit>) -> bool {
+        self.preedit = preedit.filter(|preedit| !preedit.text().is_empty());
+        self.follow_cursor()
+    }
+
     /// Scrolls the selected window by the fewest rows and columns that show
     /// its primary cursor (`scroll-conservatively` 101). The host calls it
-    /// after every command. Returns whether the view moved.
+    /// after every command. With a preedit, it shows the preedit's start up to the
+    /// cursor box, or the box alone if both do not fit (ADR 0069). Returns whether
+    /// the view moved.
     pub fn follow_cursor(&mut self) -> bool {
+        // The window is borrowed from the whole editor, so the preedit steps out.
+        let preedit = self.preedit.take();
         let (window, buffer) = self.current_mut();
         let display = buffer.display();
         let point = window.cursor_point(&display);
-        let cells = motion::cursor_cells(&display, point);
+        let (cursor, cells) = motion::cursor_box(&display, point, preedit.as_ref());
+        let span = cursor.column - point.column + cells;
+        let (point, cells) = if span <= window.size().columns {
+            (point, span)
+        } else {
+            (DisplayPoint::new(point.row, cursor.column), cells)
+        };
         let scroll = window::follow(window.scroll(), window.size(), point, cells);
         let moved = scroll != window.scroll();
         window.set_scroll(scroll);
+        self.preedit = preedit;
         moved
     }
 
@@ -96,13 +120,20 @@ impl Editor {
 
     /// Scrolls the selected window's view by `rows` (down toward the end
     /// if positive), for the mouse wheel and trackpad. Cursors left outside
-    /// the view move to its nearest row, as in Emacs. Returns whether the
-    /// view moved.
+    /// the view move to its nearest row, as in Emacs, but not while a preedit is
+    /// shown: the commit goes where the composition started, and the next command
+    /// brings the view back (ADR 0069). Returns whether the view moved.
     pub fn scroll_view(&mut self, rows: isize) -> bool {
+        let composing = self.preedit.is_some();
         let (window, buffer) = self.current_mut();
         let display = buffer.display();
         let row_count = display.row_count();
-        let top = window::wheel(window.scroll().top, window.size(), row_count, rows);
+        let scroll = window.scroll();
+        let top = window::wheel(scroll.top, window.size(), row_count, rows);
+        if composing {
+            window.set_scroll(Scroll { top, ..scroll });
+            return top != scroll.top;
+        }
         window.set_top(top, &display)
     }
 

@@ -24,7 +24,7 @@
 //! whatever goes through a user's work leaves them out without having to know them.
 
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
-use crate::display_map::DisplaySnapshot;
+use crate::display_map::{DisplaySnapshot, Preedit};
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::motion;
 use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
@@ -84,6 +84,8 @@ struct UndoScope {
     touched: Vec<BufferId>,
     /// The command allowed its edits to join the previous command's group.
     join: bool,
+    /// Its host kept it a step of its own, whatever the command asks.
+    apart: bool,
     /// The command undid or redid something.
     crossed: bool,
 }
@@ -122,6 +124,9 @@ pub struct Editor {
     save_jobs: Vec<SaveJob>,
     /// The way of exiting that was last refused, until another key is pressed.
     exit_attempt: Option<ExitAction>,
+    /// What an input method is composing, shown at the selected window's primary
+    /// cursor and in no buffer (ADR 0069).
+    preedit: Option<Preedit>,
 }
 
 impl Default for Editor {
@@ -151,6 +156,7 @@ impl Editor {
             keys_in_progress: String::new(),
             save_jobs: Vec::new(),
             exit_attempt: None,
+            preedit: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -427,6 +433,7 @@ impl Editor {
             before: (window.buffer(), window.selections.clone()),
             touched: Vec::new(),
             join: false,
+            apart: false,
             crossed: false,
         });
     }
@@ -437,7 +444,18 @@ impl Editor {
     /// nothing with no group open.
     pub fn allow_undo_join(&mut self) {
         if let Some(scope) = &mut self.undo_scope {
-            scope.join = true;
+            scope.join = !scope.apart;
+        }
+    }
+
+    /// Keeps the running command's edits a step of their own, joining neither the
+    /// step before nor the one after, whatever the command asks. An input method's
+    /// commit is one, even of a single character (ADR 0069). Does nothing with no
+    /// group open.
+    pub fn keep_undo_step_apart(&mut self) {
+        if let Some(scope) = &mut self.undo_scope {
+            scope.apart = true;
+            scope.join = false;
         }
     }
 
@@ -813,6 +831,52 @@ mod tests {
         assert!(editor.scroll_view(2));
         let after = editor.cursor_area(grid).map(|area| area.y);
         assert_eq!(after, Some(8.0 + 3.0 * 20.0));
+    }
+
+    #[test]
+    fn the_wheel_leaves_the_cursor_where_a_composition_is() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        editor.set_preedit(Some(Preedit::new("か".into(), None)));
+        assert!(editor.scroll_view(30));
+        assert_eq!(editor.window().scroll().top, 30);
+        assert_eq!(
+            editor.window().selections.primary().cursor,
+            0,
+            "the cursor stays"
+        );
+        editor.set_preedit(None);
+        assert_eq!(editor.window().scroll().top, 0, "the view comes back to it");
+        assert!(editor.scroll_view(30));
+        assert_ne!(
+            editor.window().selections.primary().cursor,
+            0,
+            "with none, it moves"
+        );
+    }
+
+    #[test]
+    fn the_view_follows_the_preedit_to_the_cursor_box() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "abcdefgh"));
+        editor.set_view_size(ViewSize::new(3, 10));
+        editor.current_mut().0.selections = SelectionSet::new(6);
+        editor.follow_cursor();
+        assert_eq!(editor.window().scroll().left, 0);
+        // At column 6, four cells of preedit and the box on `g` need 11 columns.
+        let preedit = Preedit::new("かな".into(), None);
+        assert!(editor.set_preedit(Some(preedit)));
+        assert_eq!(
+            editor.window().scroll().left,
+            1,
+            "from 6 to the box's end at 11"
+        );
+        // Wider than the window, it shows the box.
+        let long = Preedit::new("かなかなかなか".into(), None);
+        assert!(editor.set_preedit(Some(long)));
+        assert_eq!(editor.window().scroll().left, 11);
+        assert!(editor.preedit().is_some());
+        editor.set_preedit(Some(Preedit::new(String::new(), None)));
+        assert!(editor.preedit().is_none(), "no text is no preedit");
     }
 
     #[test]

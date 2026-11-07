@@ -11,8 +11,8 @@ often, so it must rebuild within 2 s.
   a module in `src/commands/` and, if it has default keys, one of the same name
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
-  the concerns: `events` routes, `input`, `draw`, `loads`, `saves` and `copies` do the work, and
-  `control` answers the dev socket.
+  the concerns: `events` routes, `input`, `ime`, `draw`, `loads`, `saves` and `copies` do the
+  work, and `control` answers the dev socket.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.

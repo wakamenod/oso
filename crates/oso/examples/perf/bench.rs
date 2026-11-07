@@ -19,6 +19,10 @@ use crate::files::{self, TempDir};
 use crate::process;
 use crate::report::{Gpu, Report, max, median, percentile};
 
+mod compose;
+
+use compose::composing;
+
 const MB: u64 = 1024 * 1024;
 const GB: u64 = 1024 * MB;
 
@@ -375,7 +379,7 @@ fn deleting(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Vec<f64>, Stri
 fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> Result<(), String> {
     let (mut p50, mut p99, mut worst) = (Vec::new(), Vec::new(), Vec::new());
     let (mut type_p50, mut type_p99, mut type_worst) = (Vec::new(), Vec::new(), Vec::new());
-    let mut del_p99 = Vec::new();
+    let (mut del_p99, mut ime_p99) = (Vec::new(), Vec::new());
     for run in 0..scale.key_runs {
         let mut app = App::start(exe, Some(file))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
@@ -394,6 +398,8 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
         type_worst.push(max(&samples));
         let samples = deleting(&mut app, scale.keys, &mut rng)?;
         del_p99.push(percentile(&samples, 99.0));
+        let samples = composing(&mut app, scale.keys, &mut rng)?;
+        ime_p99.push(percentile(&samples, 99.0));
         app.stop();
     }
     report.add("key_p50_ms", p50);
@@ -403,6 +409,7 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
     report.add("type_p99_ms", type_p99);
     report.add("type_max_ms", type_worst);
     report.add("del_p99_ms", del_p99);
+    report.add("ime_preedit_p99_ms", ime_p99);
     Ok(())
 }
 

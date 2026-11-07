@@ -28,9 +28,12 @@
 //!
 //! Callers use only [`DisplayMap`] and [`DisplaySnapshot`], so adding a
 //! layer does not change their code. Text that is no buffer's has no layers, and
-//! goes through [`text_clusters`].
+//! goes through [`text_clusters`]. A row with an input method's preedit is read
+//! through [`row_clusters`], which a new layer must keep in step with
+//! [`DisplaySnapshot::clusters`].
 
 pub mod cell;
+mod preedit;
 pub mod tab_map;
 
 use crate::decode::InvalidBytes;
@@ -38,6 +41,7 @@ use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
 pub use cell::{CellKind, CellStyle, Clusters, Escape, MAX_CLUSTER_BYTES, TabWidth, escape};
+pub use preedit::{Preedit, row_clusters};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.
