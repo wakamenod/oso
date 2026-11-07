@@ -5,11 +5,11 @@ description: "text: a\\xFF"
 keys: none
 │a\xFF   │
 :^~~~~   :
-=        =
+=%% test =
 "        "
 
 keys: C-f
 │a\xFF   │
 : ^^^^   :
-=        =
+=%% test =
 "        "

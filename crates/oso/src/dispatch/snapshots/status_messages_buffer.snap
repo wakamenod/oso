@@ -1,0 +1,27 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: ab\\n"
+---
+keys: C-b
+│ab                                      │
+:^                                       :
+│                                        │
+│                                        │
+=-- test  1:0  Fundamental  UTF-8 LF     =
+"Beginning of buffer                     "
+
+keys: C-h e
+│Beginning of buffer                     │
+│                                        │
+:^                                       :
+│                                        │
+=%% *Messages*  2:0  Fundamental  UTF-8 L=
+"                                        "
+
+keys: C-h e
+│ab                                      │
+:^                                       :
+│                                        │
+│                                        │
+=-- test  1:0  Fundamental  UTF-8 LF     =
+"                                        "

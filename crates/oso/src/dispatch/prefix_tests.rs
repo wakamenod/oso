@@ -5,6 +5,7 @@
 //! OS with no window.
 
 use super::motion_tests::{NOTHING, at, cursors, send, text};
+use crate::commands::kept_messages;
 
 #[test]
 fn c_u_is_four_and_repeats_multiply() {
@@ -74,7 +75,11 @@ fn a_minus_sign_after_digits_is_text_as_in_emacs() {
     send(&mut d, &mut editor, "M-2 -");
     assert_eq!(text(&editor), "-----");
     send(&mut d, &mut editor, "M-- 2 -");
-    assert_eq!(editor.messages().count(), 1, "a negative count to typing");
+    assert_eq!(
+        kept_messages(&editor).len(),
+        1,
+        "a negative count to typing"
+    );
     assert_eq!(text(&editor), "-----");
 }
 
@@ -90,7 +95,7 @@ fn a_negative_count_to_typing_signals_and_changes_nothing() {
     let (mut d, mut editor) = at("", &[0]);
     assert_eq!(send(&mut d, &mut editor, "M-- a"), NOTHING);
     assert_eq!(text(&editor), "");
-    assert_eq!(editor.messages().count(), 1);
+    assert_eq!(kept_messages(&editor).len(), 1);
 }
 
 #[test]
@@ -166,7 +171,7 @@ fn a_huge_count_to_typing_is_refused_and_one_to_undo_ends_with_the_history() {
     send(&mut d, &mut editor, "C-u 9 9 9 9 9 9 C-z");
     assert_eq!(text(&editor), "");
     assert_eq!(
-        editor.messages().next_back(),
+        kept_messages(&editor).last().map(String::as_str),
         Some("No further undo information")
     );
 }
@@ -179,7 +184,10 @@ fn undo_stops_after_what_a_command_crosses() {
     }
     send(&mut d, &mut editor, "C-u 9 9 9 C-z");
     assert_eq!(text(&editor), "\n", "all but one");
-    assert_eq!(editor.messages().next_back(), Some("Count too large"));
+    assert_eq!(
+        kept_messages(&editor).last().map(String::as_str),
+        Some("Count too large")
+    );
 }
 
 #[test]

@@ -15,6 +15,8 @@ const FOREGROUND: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
 const CURSOR: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
 const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
 const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
+const MODELINE: [f32; 4] = [0.16, 0.16, 0.21, 1.0];
+const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
 
 /// What a piece of the screen means. The renderer turns it into colors, and
 /// the theme (M2-23) will map it to its palette.
@@ -29,24 +31,30 @@ pub enum Face {
     Boxed,
     /// The cursor box, and the glyphs on it.
     Cursor,
+    /// A modeline, and its text.
+    Modeline,
+    /// A warning that must be seen, on whatever is behind it.
+    Warning,
 }
 
 impl Face {
     /// The color of coverage glyphs.
     pub(crate) fn foreground(self) -> [f32; 4] {
         match self {
-            Self::Text => FOREGROUND,
+            Self::Text | Self::Modeline => FOREGROUND,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
+            Self::Warning => WARNING,
         }
     }
 
     /// The color of rectangles.
     pub(crate) fn background(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Escape => BACKGROUND,
+            Self::Text | Self::Escape | Self::Warning => BACKGROUND,
             Self::Boxed => ESCAPE_BOX,
             Self::Cursor => CURSOR,
+            Self::Modeline => MODELINE,
         }
     }
 
@@ -113,10 +121,11 @@ pub enum PaneContent<'a> {
 }
 
 /// A region of the frame and what it shows. Nothing of it is drawn outside the
-/// region, and nothing of what is under it shows through its background. The one
-/// exception is the frame's top row, whose glyphs keep the band above their row
-/// in the top margin (ADR 0052). Tiled panes do not overlap there. A pane in front
-/// on that row does not cover the margin (ADR 0061).
+/// region, and nothing of what is under it shows through its background. The
+/// exceptions are the frame's top row, whose glyphs keep the band above their row
+/// in the top margin (ADR 0052), and a tiled pane of one row of [`PaneContent::Lines`], whose
+/// glyphs keep it on the row above, over what that row shows (ADR 0063). A pane in
+/// front on the top row does not cover the margin (ADR 0061).
 ///
 /// A frame's list needs no order between layers. Inside a layer, later panes come
 /// first if a frame runs out of room for glyphs or rectangles, so what must always

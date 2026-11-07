@@ -10,7 +10,7 @@ keys: none
 │\xC0\xAF        │
 :~~~~~~~~        :
 │                │
-=                =
+=%% test  1:0  Fu=
 "                "
 
 keys: C-f
@@ -21,5 +21,5 @@ keys: C-f
 │\xC0\xAF        │
 :~~~~~~~~        :
 │                │
-=                =
+=%% test  1:1  Fu=
 "                "

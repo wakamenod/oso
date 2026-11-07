@@ -23,9 +23,10 @@ pub const COMMANDS: &[Command] = &[
     },
 ];
 
-fn keyboard_quit(_: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    // The echo area shows "Quit" from M2-7. Deactivating the mark comes with marks.
+fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // Deactivating the mark comes with marks.
     log::debug!("Quit");
+    ctx.editor.echo("Quit");
     Ok(())
 }
 

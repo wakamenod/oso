@@ -14,6 +14,7 @@ use oso_core::key::KeySequence;
 use oso_core::window::ViewSize;
 
 use super::Dispatcher;
+use crate::commands::kept_messages;
 use crate::saver;
 use crate::saver::tests::{Scratch, visit};
 
@@ -35,8 +36,8 @@ fn finish_saves(editor: &mut Editor) {
     }
 }
 
-fn last_message(editor: &Editor) -> &str {
-    editor.messages().next_back().unwrap_or("")
+fn last_message(editor: &Editor) -> String {
+    kept_messages(editor).pop().unwrap_or_default()
 }
 
 fn text(editor: &Editor) -> String {
@@ -153,7 +154,9 @@ fn read_only_buffers_are_refused_and_their_files_stay() {
         assert_eq!(fs::read(&path).unwrap(), content);
     }
     let path = scratch.path().join("loading.txt");
-    let mut editor = Editor::with_buffer(Buffer::visiting(path));
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let mut editor = Editor::with_buffer(buffer);
     send(&mut Dispatcher::new(), &mut editor, "C-x C-s");
     assert!(editor.take_save_jobs().is_empty());
     assert!(last_message(&editor).contains("loading"));
@@ -280,7 +283,7 @@ fn a_save_failure_says_why_and_leaves_the_buffer_modified() {
     finish_saves(&mut editor);
     assert!(modified(&editor));
     assert!(!editor.current().1.is_saving());
-    assert!(last_message(&editor).starts_with("Cannot save"));
+    assert!(last_message(&editor).starts_with("Not saved"));
 }
 
 const QUIT: &str = "C-x C-c";

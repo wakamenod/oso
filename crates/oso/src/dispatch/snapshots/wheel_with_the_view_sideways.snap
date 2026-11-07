@@ -7,7 +7,7 @@ keys: C-n C-e
 │ length │
 :       ^:
 │ length │
-=        =
+=-- test =
 "        "
 
 wheel: 1, the cursor stays
@@ -15,7 +15,7 @@ wheel: 1, the cursor stays
 :       ^:
 │ length │
 │ length │
-=        =
+=-- test =
 "        "
 
 wheel: 1, it moves
@@ -23,5 +23,5 @@ wheel: 1, it moves
 :^       :
 │line 3 o│
 │line 4 o│
-=        =
+=-- test =
 "        "

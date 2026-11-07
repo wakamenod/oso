@@ -7,6 +7,8 @@
 //! Must not depend on: `app` or winit; key sequences stay testable without a
 //! window.
 
+use std::fmt::Write;
+
 #[cfg(any(test, feature = "dev"))]
 use oso_core::command::ArgSpec;
 use oso_core::command::{
@@ -74,24 +76,50 @@ impl Dispatcher {
         }
     }
 
-    /// The keys of the pending prefix, empty if none is pending. Only
-    /// `get-state` shows them until the echo area (M2-7) does.
+    /// The keys of the pending prefix, empty if none is pending.
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
     }
 
-    /// Picks up a prefix in progress, for a state handoff. Commands never run
-    /// here: keys that are no longer a prefix in this build are dropped.
+    /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.
+    /// Commands never run here: keys that are no longer a prefix in this build are
+    /// dropped.
     #[cfg(any(test, feature = "dev"))]
-    pub fn restore_pending(&mut self, keys: &[KeyPress]) {
+    pub fn restore_pending(&mut self, editor: &mut Editor, keys: &[KeyPress]) {
         let layers = Layers::global(&self.global);
         for key in keys {
             if !matches!(self.resolver.feed(&layers, *key), Resolution::Pending) {
                 self.resolver.reset();
-                return;
+                break;
             }
         }
+        self.show_keys_in_progress(editor);
+    }
+
+    /// Tells the echo area the keys in progress: the prefix argument and the keys of a
+    /// pending prefix (ADR 0058, ADR 0063).
+    fn show_keys_in_progress(&self, editor: &mut Editor) {
+        let pending = self.resolver.pending();
+        let mut keys = String::new();
+        match self.prefix {
+            None => {}
+            Some(Prefix::Universal(4)) => keys.push_str("C-u"),
+            Some(Prefix::Negative) => keys.push_str("C-u -"),
+            Some(prefix) => {
+                let _ = write!(keys, "C-u {}", prefix.value());
+            }
+        }
+        if !pending.is_empty() {
+            if !keys.is_empty() {
+                keys.push(' ');
+            }
+            let _ = write!(keys, "{}", display_keys(pending));
+        }
+        if !keys.is_empty() {
+            keys.push('-');
+        }
+        editor.set_keys_in_progress(&keys);
     }
 
     /// Handles key presses in order. Keys after one that exits are dropped.
@@ -137,6 +165,19 @@ impl Dispatcher {
         name: &str,
         arg: Option<isize>,
     ) -> (Effects, Result<(), String>) {
+        editor.clear_echo();
+        let outcome = self.run_named(editor, name, arg);
+        self.show_keys_in_progress(editor);
+        outcome
+    }
+
+    #[cfg(any(test, feature = "dev"))]
+    fn run_named(
+        &mut self,
+        editor: &mut Editor,
+        name: &str,
+        arg: Option<isize>,
+    ) -> (Effects, Result<(), String>) {
         let found = self
             .registry
             .lookup(name)
@@ -168,11 +209,18 @@ impl Dispatcher {
     /// commits will (M2-12).
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
         editor.reset_exit_guard();
+        editor.clear_echo();
+        let effects = self.run_text(editor, text);
+        self.show_keys_in_progress(editor);
+        effects
+    }
+
+    fn run_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
         if !self.resolver.pending().is_empty() {
-            log::debug!(
-                "{} and text are undefined",
-                display_keys(self.resolver.pending())
-            );
+            let keys = display_keys(self.resolver.pending()).to_string();
+            log::debug!("{keys} and text are undefined");
+            // The text stays out of it, as it does from a log.
+            editor.echo(format!("{keys} is undefined"));
             self.resolver.reset();
             self.forget_keys();
             return Effects::default();
@@ -197,7 +245,9 @@ impl Dispatcher {
     /// character on its key, in an undo group of its own, so that it undoes as one
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
-    /// failure is not fatal (ADR 0014), and leaves a message.
+    /// failure is not fatal (ADR 0014), and leaves a message, which stays out of the log
+    /// around a secret buffer, as what it says can depend on the text. A panic names only the
+    /// command, and is a bug to find, so it comes after the command is marked as ended.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
     /// What a panicking command left is held back from the emergency save until a command
     /// ends normally, as the person has then seen it and gone on from it.
@@ -215,6 +265,7 @@ impl Dispatcher {
         };
         self.last = Some((id, repeats));
         let exit_attempt = editor.exit_attempt();
+        editor.begin_command();
         editor.begin_undo_group();
         let invocation = Invocation {
             input,
@@ -233,17 +284,18 @@ impl Dispatcher {
                 editor.end_undo_group();
                 editor.message(error.message());
             }
-            Err(error @ ExecuteError::Panicked { .. }) => {
-                editor.end_undo_group_after_panic();
-                // This names the command and nothing else (ADR 0028).
-                editor.message(error.to_string());
-                // What it changed may be visible.
-                effects.redraw = true;
-            }
+            Err(ExecuteError::Panicked { .. }) => editor.end_undo_group_after_panic(),
             Err(error @ ExecuteError::UnknownId(_)) => {
                 editor.end_undo_group();
                 editor.message(error.to_string());
             }
+        }
+        editor.end_command();
+        if let Err(error @ ExecuteError::Panicked { .. }) = &result {
+            // This names the command and nothing else (ADR 0028).
+            editor.message(error.to_string());
+            // What it changed may be visible.
+            effects.redraw = true;
         }
         if editor.exit_attempt() == exit_attempt {
             editor.reset_exit_guard();
@@ -261,8 +313,17 @@ impl Dispatcher {
 
     /// Handles one key press: waits on a prefix, or runs the command the
     /// keys resolve to. Returns what the host should do: redraw only when a
-    /// command changed something visible, and exit when one asked to.
+    /// command changed something visible, and exit when one asked to. The echo
+    /// area empties first, as in Emacs, but for what waits behind keys in progress, and
+    /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        editor.clear_echo();
+        let effects = self.resolve_key(editor, key);
+        self.show_keys_in_progress(editor);
+        effects
+    }
+
+    fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
         let minor: &[&Keymap] = match self.prefix {
             Some(prefix) if prefix.reads_minus() => &reading,
@@ -301,12 +362,14 @@ impl Dispatcher {
                     }
                     _ => log::debug!("{} is undefined", display_keys(keys)),
                 }
+                editor.echo(format!("{} is undefined", display_keys(keys)));
                 self.forget_keys();
                 Effects::default()
             }
             Resolution::Cancelled => {
                 editor.reset_exit_guard();
                 log::debug!("Quit");
+                editor.echo("Quit");
                 self.forget_keys();
                 Effects::default()
             }
@@ -326,6 +389,8 @@ mod motion_tests;
 mod prefix_tests;
 #[cfg(test)]
 mod save_tests;
+#[cfg(test)]
+mod status_tests;
 
 #[cfg(test)]
 mod tests {
@@ -737,15 +802,15 @@ mod tests {
         let mut dispatcher = Dispatcher::new();
         let mut editor = editor("abc");
         let keys = |s: &str| s.parse::<KeySequence>().unwrap().0;
-        dispatcher.restore_pending(&keys("C-x"));
+        dispatcher.restore_pending(&mut editor, &keys("C-x"));
         assert_eq!(dispatcher.pending(), keys("C-x"));
         assert!(send(&mut dispatcher, &mut editor, "C-c").exit);
 
         // Not a prefix any more: a command, or nothing at all.
-        dispatcher.restore_pending(&keys("C-f"));
+        dispatcher.restore_pending(&mut editor, &keys("C-f"));
         assert!(dispatcher.pending().is_empty());
         assert_eq!(cursor(&editor), 0, "the command did not run");
-        dispatcher.restore_pending(&keys("C-x C-z C-z"));
+        dispatcher.restore_pending(&mut editor, &keys("C-x C-z C-z"));
         assert!(dispatcher.pending().is_empty());
     }
 }

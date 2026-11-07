@@ -114,6 +114,8 @@ pub(crate) struct Layout {
     /// The cells under the cursor box: its display point and width. Glyphs
     /// there are drawn on it, in [`Face::Cursor`].
     cursor: (DisplayPoint, usize),
+    /// Glyphs keep the band above the region, on the row above it.
+    keeps_band_above: bool,
 }
 
 impl Layout {
@@ -127,6 +129,16 @@ impl Layout {
             clip: grid.rect(region),
             scroll,
             cursor: (DisplayPoint::default(), 0),
+            keeps_band_above: false,
+        }
+    }
+
+    /// The same, for a tiled pane of one row that is no buffer's: glyphs keep the band above it on
+    /// the row above, as accents on capitals need it (ADR 0063).
+    pub(crate) fn with_band_above(self) -> Self {
+        Self {
+            keeps_band_above: true,
+            ..self
         }
     }
 
@@ -201,9 +213,10 @@ impl Layout {
         self.clip(self.grid.rect(cells))
     }
 
-    /// The pixels above the region that its glyphs may paint.
+    /// The pixels above the region that its glyphs may paint: in the top margin on
+    /// the frame's top row, and on the row above if the pane keeps its band.
     fn top_band(&self) -> f32 {
-        if self.region.row == 0 && self.region.rows > 0 {
+        if self.keeps_band_above || (self.region.row == 0 && self.region.rows > 0) {
             self.metrics.descent
         } else {
             0.0
@@ -230,7 +243,8 @@ impl Layout {
     /// and `Ẳ`. Below the row it keeps half that, in whole pixels: marks
     /// under a descender end there (ADR 0052). All of this stops at the edges
     /// of the pane, but the frame's top row keeps its band in the top margin,
-    /// where no other pane draws (ADR 0061).
+    /// where no other pane draws (ADR 0061), and a tiled pane of one row that is no
+    /// buffer's keeps it on the row above (ADR 0063).
     pub(crate) fn quad(
         &self,
         row: usize,
@@ -785,6 +799,24 @@ mod tests {
         assert_eq!(q.position, [18.0, 68.0]);
         assert_eq!(q.size, [8.0, 16.0]);
         assert_eq!(q.uv, [5.0, 15.0]);
+    }
+
+    #[test]
+    fn a_tiled_row_keeps_its_band_on_the_row_above() {
+        let cells = CellRect {
+            row: 3,
+            column: 0,
+            rows: 1,
+            columns: 20,
+        };
+        let l = Layout::new(METRICS, cells, Scroll::default()).with_band_above();
+        // The pane spans y 68..88. A bitmap from y 60 is kept from y 64, 4 px up.
+        let q = l.quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24])).unwrap();
+        assert_eq!(q.position, [18.0, 64.0]);
+        assert_eq!(q.size, [8.0, 20.0]);
+        assert_eq!(q.uv, [5.0, 11.0]);
+        // Rectangles stay in the region.
+        assert_eq!(l.frame_cells(cells).unwrap().y, 68.0);
     }
 
     #[test]

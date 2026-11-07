@@ -9,12 +9,15 @@
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+mod messages;
 mod motion;
 mod prefix;
 mod save;
 mod scroll;
 mod session;
 
+#[cfg(test)]
+pub(crate) use messages::kept_messages;
 use oso_core::command::{Command, CommandError, Registry};
 use oso_core::motion::{TOO_MUCH, WalkBudget};
 
@@ -27,6 +30,7 @@ const TABLES: &[&[Command]] = &[
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
+    messages::COMMANDS,
     motion::COMMANDS,
     prefix::COMMANDS,
     save::COMMANDS,

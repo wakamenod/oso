@@ -8,7 +8,7 @@ keys: M->
 │line 7  │
 │        │
 :^       :
-=        =
+=-- test =
 "        "
 
 frame rows: 2
@@ -22,5 +22,5 @@ frame rows: 6
 │line 7  │
 │        │
 :^       :
-=        =
+=-- test =
 "        "

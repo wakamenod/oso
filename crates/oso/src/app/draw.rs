@@ -2,22 +2,51 @@
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
 //! has loaded; otherwise a frame only reads the editor's state.
+//!
+//! Whatever changes the modeline or the echo area gets a frame in one place
+//! ([`App::ask_for_a_frame_if_status_changed`]), so a failed command, a message from a
+//! save and a load's progress need no request of their own (ADR 0063).
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, Status};
 use oso_core::frame;
-use oso_render::{Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, TextView};
+use oso_render::{Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
 use super::App;
 use crate::text;
 
-/// What the frame shows, for the renderer: the selected window, then the rows
-/// reserved below it, which show nothing until M2-7 fills them in.
-pub(super) fn panes(editor: &Editor) -> [Pane<'static>; 3] {
+/// Calls `draw` with what the frame shows, for the renderer.
+pub(super) fn with_panes<R>(
+    editor: &Editor,
+    status: &Status,
+    draw: impl FnOnce(&[Pane<'_>]) -> R,
+) -> R {
+    let span = |text, face| Span { text, face };
+    // Warnings first, so that nothing can push them off the row. A name and the rest are
+    // shaped apart, so that neither changes how the other reads.
+    let modeline = [
+        span(&status.warnings[..], Face::Warning),
+        span(&status.name[..], Face::Modeline),
+        span(&status.state[..], Face::Modeline),
+    ];
+    let echo = [
+        span(status.echo_warnings(), Face::Warning),
+        span(&status.echo[..], Face::Text),
+    ];
+    draw(&panes(editor, &[&modeline], &[&echo]))
+}
+
+/// The selected window, then the rows reserved below it. The later panes come first if
+/// a frame runs out of room, so no amount of text can take their place (ADR 0061).
+fn panes<'a>(
+    editor: &Editor,
+    modeline: &'a [&'a [Span<'a>]],
+    echo: &'a [&'a [Span<'a>]],
+) -> [Pane<'a>; 3] {
     let (window, buffer) = editor.current();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
@@ -29,17 +58,24 @@ pub(super) fn panes(editor: &Editor) -> [Pane<'static>; 3] {
         scroll: window.scroll(),
         cursor,
     });
-    let pane = |id, region, content| Pane {
+    let pane = |id, region, background, content| Pane {
         id: PaneId(id),
         region,
         layer: Layer::TILED,
-        background: None::<Face>,
+        background,
         content,
     };
     [
-        pane(0, frame.window.text, text),
-        pane(1, frame.window.modeline, PaneContent::Lines(&[])),
-        pane(2, frame.echo, PaneContent::Lines(&[])),
+        pane(0, frame.window.text, None, text),
+        pane(
+            1,
+            frame.window.modeline,
+            Some(Face::Modeline),
+            PaneContent::Lines(modeline),
+        ),
+        // The echo area has no background of its own, so that nothing marks the
+        // pixels left over below it (ADR 0057).
+        pane(2, frame.echo, None, PaneContent::Lines(echo)),
     ]
 }
 
@@ -126,6 +162,21 @@ impl App {
         }
     }
 
+    /// Asks for a frame if the modeline or the echo area would read differently from
+    /// the last frame drawn or asked for. Comparing the text means no caller has anything
+    /// to get wrong, and a load's progress asks only when its number changes. What was
+    /// asked for counts as drawn, so a window that draws nothing is not asked again.
+    pub(super) fn ask_for_a_frame_if_status_changed(&mut self) {
+        if self.view.is_none() {
+            return;
+        }
+        self.editor.status_into(&mut self.next_status);
+        if self.next_status != self.status {
+            std::mem::swap(&mut self.status, &mut self.next_status);
+            self.request_redraw();
+        }
+    }
+
     /// Draws a frame of what the editor shows, with what has loaded by now.
     pub(super) fn draw_frame(&mut self) {
         let frame = Instant::now();
@@ -138,10 +189,13 @@ impl App {
             let size = window.inner_size();
             (size.width, size.height)
         };
-        let panes = panes(&self.editor);
+        self.editor.status_into(&mut self.status);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
-        let result = view.render_state.render(&panes, &window_size);
+        let render_state = &mut view.render_state;
+        let result = with_panes(&self.editor, &self.status, |panes| {
+            render_state.render(panes, &window_size)
+        });
         // Recovering from a surface error can configure it to a new size before
         // `Resized` says so, and panes stop at their regions, so the editor catches
         // up now.
@@ -182,7 +236,35 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oso_core::buffer::Buffer;
     use oso_core::frame::{self, FrameSize};
+
+    /// A pane's region, its background, and its one row as spans of text and face.
+    type Shown = (frame::CellRect, Option<Face>, Vec<(String, Face)>);
+
+    /// What each pane shows of an editor on bidi text, with a message in the echo area.
+    fn panes_of(rows: usize) -> Vec<Shown> {
+        let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", "\u{202e}"));
+        editor.set_frame_size(FrameSize { rows, columns: 80 });
+        editor.message("Saved");
+        let mut status = Status::default();
+        editor.status_into(&mut status);
+        with_panes(&editor, &status, |panes| {
+            panes
+                .iter()
+                .map(|pane| {
+                    let spans = match &pane.content {
+                        PaneContent::Text(_) => Vec::new(),
+                        PaneContent::Lines(lines) => lines[0]
+                            .iter()
+                            .map(|span| (span.text.to_owned(), span.face))
+                            .collect(),
+                    };
+                    (pane.region, pane.background, spans)
+                })
+                .collect()
+        })
+    }
 
     #[test]
     fn panes_are_the_frames_regions_with_their_own_ids() {
@@ -193,14 +275,46 @@ mod tests {
         };
         editor.set_frame_size(size);
         let layout = frame::layout(size);
-        let panes = panes(&editor);
-        let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
-        assert_eq!(
-            regions,
-            [layout.window.text, layout.window.modeline, layout.echo]
-        );
-        let ids: Vec<_> = panes.iter().map(|pane| pane.id).collect();
-        assert_eq!(ids, [PaneId(0), PaneId(1), PaneId(2)]);
-        assert!(panes.iter().all(|pane| pane.layer == Layer::TILED));
+        let status = Status::default();
+        with_panes(&editor, &status, |panes| {
+            let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
+            assert_eq!(
+                regions,
+                [layout.window.text, layout.window.modeline, layout.echo]
+            );
+            let ids: Vec<_> = panes.iter().map(|pane| pane.id).collect();
+            assert_eq!(ids, [PaneId(0), PaneId(1), PaneId(2)]);
+            assert!(panes.iter().all(|pane| pane.layer == Layer::TILED));
+        });
+    }
+
+    #[test]
+    fn the_modeline_has_its_background_and_its_warnings_first() {
+        let panes = panes_of(24);
+        assert_eq!(panes[1].1, Some(Face::Modeline));
+        assert_eq!(panes[2].1, None, "the echo area has none (ADR 0057)");
+        let modeline = &panes[1].2;
+        assert_eq!(modeline[0], ("[bidi controls] ".to_owned(), Face::Warning));
+        assert_eq!(modeline[1], ("-- a.txt  ".to_owned(), Face::Modeline));
+        assert_eq!(modeline[2].1, Face::Modeline);
+        let echo = &panes[2].2;
+        assert_eq!(echo[0], (String::new(), Face::Warning), "not said twice");
+        assert_eq!(echo[1], ("Saved".to_owned(), Face::Text));
+    }
+
+    #[test]
+    fn a_frame_with_no_modeline_has_its_warnings_first_on_the_echo_row() {
+        let panes = panes_of(2);
+        assert_eq!(panes[1].0.rows, 0);
+        let echo = &panes[2].2;
+        assert_eq!(echo[0], ("[bidi controls] ".to_owned(), Face::Warning));
+        assert_eq!(echo[1], ("Saved".to_owned(), Face::Text));
+    }
+
+    #[test]
+    fn a_frame_of_one_row_has_only_the_text() {
+        let panes = panes_of(1);
+        assert_eq!(panes[0].0.rows, 1);
+        assert_eq!((panes[1].0.rows, panes[2].0.rows), (0, 0));
     }
 }
