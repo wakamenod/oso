@@ -204,7 +204,7 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
             editor.save_finished(buffer, written.content, written.stamp);
             let lost = written.quarantine_lost.map(|e| {
                 format!(
-                    "Wrote the file, but its quarantine flag could not be kept, so macOS may not check it when it is opened: {e}: {path}"
+                    "Wrote the file, but its quarantine flag could not be kept, so macOS may not check it when opened: {e}: {path}"
                 )
             });
             // What the disk did not confirm is worth more, so it stays on the echo row.
