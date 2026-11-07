@@ -192,7 +192,11 @@ impl Editor {
     /// Shows `buffer` in the selected window, from its start. Does nothing
     /// for an id that does not exist.
     pub fn show(&mut self, buffer: BufferId) {
-        if self.buffer(buffer).is_some() {
+        if let Some(shown) = self.buffer(buffer) {
+            // Off the internal buffers, so that where it came from no longer says anything.
+            if !shown.is_internal() {
+                self.way_back.clear();
+            }
             self.window_moves_on();
             self.windows[self.selected].show(buffer);
         }

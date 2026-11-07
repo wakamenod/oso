@@ -24,7 +24,7 @@ mod answer;
 mod work;
 
 use work::Deleting;
-pub use work::{CopiesEvent, CopyWork};
+pub use work::{CopiesEvent, CopyLoad, CopyWork};
 
 /// How long a thread of the offer may go unheard from before another is started in its place,
 /// as one may be stuck on a network home directory, or may never have started. It costs only
@@ -56,8 +56,12 @@ pub struct Offer {
     scanning: Option<Instant>,
     /// Something changed while it ran, so that it may already be out of date.
     scan_again: bool,
-    /// When the compare running started, as each can hold a lot of memory.
-    comparing: Option<Instant>,
+    /// The compare running and when it started, as each can hold a lot of memory.
+    comparing: Option<(u64, Instant)>,
+    /// The number of the next compare.
+    next_compare: u64,
+    /// A copy's text for the host to read, which it keeps a handle on.
+    load: Option<CopyLoad>,
     /// The copies a notice has told of, and those a notice has told of as a file's.
     told: HashSet<PathBuf>,
     told_for_a_file: HashSet<PathBuf>,
@@ -93,6 +97,8 @@ impl Offer {
             scanning: None,
             scan_again: false,
             comparing: None,
+            next_compare: 0,
+            load: None,
             told: HashSet::new(),
             told_for_a_file: HashSet::new(),
             told_problem: false,
@@ -109,6 +115,11 @@ impl Offer {
     /// The scan at startup has begun, so that the first one asked for waits for it.
     pub fn startup_scan_begins(&mut self) {
         self.scanning = Some(Instant::now());
+    }
+
+    /// A copy's text the last answer wants read.
+    pub fn take_load(&mut self) -> Option<CopyLoad> {
+        self.load.take()
     }
 
     /// A scan, or if one is running, another once it ends.
@@ -217,16 +228,27 @@ impl Offer {
             editor.message(format!("Emergency copies are not offered: {problem}"));
         }
         let shows_list = editor.current().1.mode() == Mode::CopyList;
-        // The cursor stays on its copy as the rows change, as a key acts on what is under it.
+        // The cursor stays on its copy as the rows change, as a key acts on what is under it. So
+        // does the one a window will come back to.
+        let copy_on = |rows: &[Row], line: usize| {
+            let index = line.checked_sub(HEADER_ROWS)?;
+            rows.get(index).map(|row| row.text.clone())
+        };
         let on_row = shows_list
-            .then(|| editor.cursor_line().checked_sub(HEADER_ROWS))
-            .flatten()
-            .and_then(|index| self.rows.get(index))
-            .map(|row| row.text.clone());
+            .then(|| copy_on(&self.rows, editor.cursor_line()))
+            .flatten();
+        let saved_line = editor.saved_copies_line();
+        let on_saved = saved_line.and_then(|line| copy_on(&self.rows, line));
         self.rows = scan.rows;
         let line = self.list_line(editor, shows_list, on_row.as_ref());
+        let last = HEADER_ROWS + self.rows.len().saturating_sub(1);
+        let saved_line = saved_line.map(|line| {
+            on_saved
+                .and_then(|text| self.rows.iter().position(|row| row.text == text))
+                .map_or_else(|| line.clamp(HEADER_ROWS, last), |row| HEADER_ROWS + row)
+        });
         if editor.has_copies_list() {
-            editor.set_copies_text(scan.list.clone(), line);
+            editor.set_copies_text(scan.list.clone(), line, saved_line);
         }
         self.list = Some(scan.list);
         self.update_warnings(editor);

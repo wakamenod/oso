@@ -827,19 +827,20 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_internal_buffer(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::buffer::Mode) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::copies_back(&mut self)
 pub fn oso_core::editor::Editor::cursor_line(&self) -> usize
-pub fn oso_core::editor::Editor::forget_way_back(&mut self)
 pub fn oso_core::editor::Editor::has_copies_list(&self) -> bool
-pub fn oso_core::editor::Editor::leave_copies(&mut self)
+pub fn oso_core::editor::Editor::leave_all_internal(&mut self)
 pub fn oso_core::editor::Editor::queue_recovery_action(&mut self, oso_core::editor::RecoveryAction)
 pub fn oso_core::editor::Editor::remove_internal_buffer(&mut self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::replace_text_from(&mut self, oso_core::buffer::BufferId, oso_core::buffer::BufferId) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::saved_copies_line(&self) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::set_copies_cursor(&mut self, usize)
-pub fn oso_core::editor::Editor::set_copies_text(&mut self, oso_core::load::LoadSnapshot, usize)
+pub fn oso_core::editor::Editor::set_copies_text(&mut self, oso_core::load::LoadSnapshot, usize, core::option::Option<usize>)
 pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec::Vec<oso_core::editor::RecoveryAction>
 pub fn oso_core::editor::Editor::toggle_copies(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::begin_command(&mut self)
 pub fn oso_core::editor::Editor::clear_echo(&mut self)
+pub fn oso_core::editor::Editor::clear_echo_saying(&mut self, &str)
 pub fn oso_core::editor::Editor::echo(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::end_command(&mut self)
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)

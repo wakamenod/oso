@@ -161,7 +161,7 @@ fn with_no_file_to_compare_it_says_so() {
     fixture.answer(RecoveryAction::Compare(HEADER_ROWS));
     assert_eq!(
         fixture.last_message(),
-        "notes.txt has no file here to compare it with"
+        "notes.txt has no file open here to compare it with"
     );
 }
 
@@ -173,7 +173,7 @@ fn a_compare_that_ends_after_the_person_left_opens_nothing() {
     let work = fixture
         .offer
         .answer(&mut fixture.editor, RecoveryAction::Compare(HEADER_ROWS));
-    fixture.editor.leave_copies();
+    fixture.editor.toggle_copies();
     let on = fixture.editor.window().buffer();
     fixture.run(work);
     assert_eq!(fixture.editor.window().buffer(), on);
@@ -510,7 +510,7 @@ fn a_new_file_nobody_saved_has_no_file_to_compare_and_comes_back_private() {
     assert_eq!(fixture.state(), RowState::NoFile);
     fixture.open_list();
     fixture.answer(RecoveryAction::Compare(HEADER_ROWS));
-    assert!(fixture.last_message().contains("no file here"));
+    assert!(fixture.last_message().contains("no file open here"));
     fixture.answer(RecoveryAction::Recover(HEADER_ROWS));
     fixture.answer(RecoveryAction::Recover(0));
     assert!(
@@ -543,7 +543,7 @@ fn a_redo_after_the_copy_was_deleted_brings_back_all_that_goes_with_the_text() {
     fixture.run(scan);
     fixture.open_list();
     fixture.delete(HEADER_ROWS);
-    fixture.editor.leave_copies();
+    fixture.editor.toggle_copies();
     fixture.editor.redo().unwrap();
     let id = fixture.buffer();
     assert_eq!(fixture.file_text(), "the copy\n");
@@ -671,4 +671,116 @@ fn a_failure_of_a_withheld_copy_says_only_what_the_socket_may_read_from_the_list
             .iter()
             .any(|said| said.contains("not text"))
     );
+}
+
+#[test]
+fn a_copy_starting_with_a_byte_order_mark_is_not_recovered_and_stays() {
+    let mut text = oso_core::decode::BOM.to_vec();
+    text.extend(b"text\n");
+    let mut fixture = Fixture::new("on disk\n", "12345678");
+    fs::write(fixture.directory.join(format!("{STEM}.txt")), &text).unwrap();
+    recover(&mut fixture);
+    assert!(
+        fixture.last_message().contains("byte order mark"),
+        "{}",
+        fixture.last_message()
+    );
+    assert_eq!(fixture.file_text(), "on disk\n");
+    assert!(fixture.copy_is_on_disk());
+}
+
+#[test]
+fn undoing_a_recovery_returns_the_person_to_where_they_were() {
+    let mut fixture = Fixture::new("one\ntwo\nthree\n", "the copy\n");
+    fixture.editor.restore_positions(
+        oso_core::selection::SelectionSet::new(6),
+        Default::default(),
+    );
+    recover(&mut fixture);
+    assert_eq!(fixture.file_text(), "the copy\n");
+    assert_eq!(fixture.editor.window().selections.primary().cursor, 0);
+    assert_eq!(fixture.editor.place_behind_internal(), None);
+    fixture.editor.undo().unwrap();
+    assert_eq!(fixture.editor.window().selections.primary().cursor, 6);
+}
+
+#[test]
+fn a_list_come_back_to_from_messages_is_on_the_same_copy_though_rows_changed() {
+    let mut fixture = Fixture::new("on disk\n", "the copy\n");
+    copy_written_at(
+        &fixture,
+        "00000000000000bb-1780000000-77-0",
+        "older\n",
+        1_780_000_000,
+    );
+    fixture.scan();
+    fixture.open_list();
+    fixture.editor.set_copies_cursor(HEADER_ROWS + 1);
+    fixture.editor.toggle_messages();
+    copy_written_at(
+        &fixture,
+        "00000000000000cc-1800000000-77-0",
+        "newer\n",
+        1_800_000_000,
+    );
+    fixture.scan();
+    fixture.editor.toggle_messages();
+    assert_eq!(fixture.line(), HEADER_ROWS + 2, "still the older one");
+}
+
+#[test]
+fn a_recovered_row_can_be_compared() {
+    let mut fixture = Fixture::new("one\n", "two\n");
+    recover(&mut fixture);
+    assert_eq!(fixture.state(), RowState::Recovered);
+    fixture.open_list();
+    fixture.answer(RecoveryAction::Compare(HEADER_ROWS));
+    assert_eq!(shown(&fixture.editor).name(), "*compare notes.txt*");
+}
+
+#[test]
+fn a_compare_given_up_on_neither_shows_nor_lets_more_pile_up() {
+    let mut fixture = Fixture::new("one\n", "two\n");
+    fixture.scan();
+    fixture.open_list();
+    let old = fixture
+        .offer
+        .answer(&mut fixture.editor, RecoveryAction::Compare(HEADER_ROWS));
+    // Nobody heard from it for so long that another was started.
+    fixture.offer.comparing = fixture
+        .offer
+        .comparing
+        .map(|(id, _)| (id, Instant::now().checked_sub(PATIENCE).unwrap()));
+    let new = fixture
+        .offer
+        .answer(&mut fixture.editor, RecoveryAction::Compare(HEADER_ROWS));
+    assert_eq!(new.len(), 1);
+    fixture.run(old);
+    assert_eq!(
+        shown(&fixture.editor).mode(),
+        Mode::CopyList,
+        "the late one shows nothing"
+    );
+    let still = fixture
+        .offer
+        .answer(&mut fixture.editor, RecoveryAction::Compare(HEADER_ROWS));
+    assert!(still.is_empty(), "the newer one still counts as running");
+    fixture.run(new);
+    assert_eq!(shown(&fixture.editor).name(), "*compare notes.txt*");
+}
+
+#[test]
+fn a_compare_ending_takes_only_what_said_it_was_comparing_from_the_echo_area() {
+    let mut fixture = Fixture::new("one\n", "two\n");
+    fixture.scan();
+    fixture.open_list();
+    let work = fixture
+        .offer
+        .answer(&mut fixture.editor, RecoveryAction::Compare(HEADER_ROWS));
+    fixture.answer(RecoveryAction::ForgetMarks);
+    fixture.answer(RecoveryAction::MarkForDelete(HEADER_ROWS));
+    fixture.run(work);
+    let mut status = oso_core::editor::Status::default();
+    fixture.editor.status_into(&mut status);
+    assert!(status.echo.starts_with("Press d again"), "{}", status.echo);
 }

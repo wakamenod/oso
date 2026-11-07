@@ -48,7 +48,7 @@ mod publish;
 mod write;
 
 pub use copies::open_copy;
-pub use offer::{CopiesEvent, CopyWork, Offer};
+pub use offer::{CopiesEvent, CopyLoad, CopyWork, Offer};
 pub use publish::Publisher;
 
 /// How long writing the copies may show no progress before oso goes on without them. A
@@ -277,8 +277,6 @@ pub fn spawn_work(work: CopyWork, report: impl FnOnce(CopiesEvent) + Send + 'sta
         CopyWork::Free(buffer) => thread::Builder::new()
             .name("oso-free".into())
             .spawn(move || drop(buffer)),
-        // The host starts a load, which it keeps a handle on.
-        CopyWork::Load { .. } => return,
     };
     if let Err(e) = spawned {
         log::warn!("cannot start a thread for emergency copies: {e}");

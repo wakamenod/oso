@@ -38,6 +38,9 @@ impl App {
         for action in actions {
             let work = self.offer.answer(&mut self.editor, action);
             self.start_copy_work(work);
+            if let Some(load) = self.offer.take_load() {
+                self.load_copy(load);
+            }
         }
         // A recovery changed a buffer, outside the command that asked for it.
         self.dispatcher.publish_for_emergency(&self.editor);
@@ -76,15 +79,6 @@ impl App {
 
     fn start_copy_work(&mut self, work: Vec<CopyWork>) {
         for work in work {
-            if let CopyWork::Load {
-                buffer,
-                path,
-                limit,
-            } = work
-            {
-                self.load_copy(buffer, path, limit);
-                continue;
-            }
             let proxy = self.proxy.clone();
             emergency::spawn_work(work, move |event| {
                 // It fails only once the event loop is gone, when there is nobody to tell.

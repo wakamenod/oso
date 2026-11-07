@@ -647,7 +647,7 @@ mod scenarios {
         let keys: KeySequence = "C-h r".parse().unwrap();
         dispatcher.handle_keys(&mut editor, keys.0);
         let list = oso_core::load::decode_all(rows.as_bytes(), Default::default());
-        editor.set_copies_text(list, 2);
+        editor.set_copies_text(list, 2, None);
         assert_frames(
             "emergency_copies_list",
             rows.as_bytes(),

@@ -7,12 +7,15 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, Verdict};
-use oso_core::decode::{BOM, LineEnding};
+use oso_core::decode::LineEnding;
 use oso_core::editor::{Editor, RecoveryAction};
 
 use super::work::{Compared, Comparing, Deleting};
-use super::{CopyWork, Offer, PATIENCE, Recovered, Shown};
+use super::{CopyLoad, CopyWork, Offer, PATIENCE, Recovered, Shown};
 use crate::emergency::copies::{HEADER_ROWS, MAX_LOOK, Row, RowState};
+
+/// What the echo area says while a compare runs.
+const COMPARING: &str = "Comparing…";
 
 /// The longest name of a copy in a buffer's name. A `.meta` can say anything.
 const MOST_OF_A_NAME: usize = 256;
@@ -129,7 +132,7 @@ impl Offer {
         }
         self.cursor_for = editor.place_behind_internal().map(|(buffer, _, _)| buffer);
         if let Some(list) = &self.list {
-            editor.set_copies_text(list.clone(), HEADER_ROWS);
+            editor.set_copies_text(list.clone(), HEADER_ROWS, None);
         }
         self.ask_for_scan(editor)
     }
@@ -194,7 +197,7 @@ impl Offer {
         }
         let key = row.text.clone();
         let limit = row.size;
-        let mut work: Vec<CopyWork> = self
+        let work: Vec<CopyWork> = self
             .view
             .take()
             .and_then(|old| editor.remove_internal_buffer(old.buffer))
@@ -202,7 +205,7 @@ impl Offer {
             .into_iter()
             .collect();
         editor.show(buffer);
-        work.push(CopyWork::Load {
+        self.load = Some(CopyLoad {
             buffer,
             path: key.clone(),
             limit,
@@ -217,22 +220,25 @@ impl Offer {
         let name = row.name.clone();
         let has_file = matches!(
             row.state,
-            RowState::Unchanged | RowState::Changed | RowState::Damaged
+            RowState::Unchanged | RowState::Changed | RowState::Damaged | RowState::Recovered
         );
         let Some(file) = row.location.clone().filter(|_| has_file) else {
-            editor.message(format!("{name} has no file here to compare it with"));
+            editor.message(format!("{name} has no file open here to compare it with"));
             return Vec::new();
         };
         if self
             .comparing
-            .is_some_and(|since| since.elapsed() < PATIENCE)
+            .is_some_and(|(_, since)| since.elapsed() < PATIENCE)
         {
             editor.echo("Still comparing the last one");
             return Vec::new();
         }
-        self.comparing = Some(Instant::now());
-        editor.echo("Comparing…");
+        let id = self.next_compare;
+        self.next_compare += 1;
+        self.comparing = Some((id, Instant::now()));
+        editor.echo(COMPARING);
         vec![CopyWork::Compare(Comparing {
+            id,
             key: row.text.clone(),
             name,
             file,
@@ -246,12 +252,18 @@ impl Offer {
         compared: Compared,
     ) -> Vec<CopyWork> {
         let Compared {
+            id,
             key,
             name,
             verdict,
             result,
         } = compared;
+        // One given up on may end while a later one runs, and nobody is waiting for it.
+        if self.comparing.is_none_or(|(latest, _)| latest != id) {
+            return Vec::new();
+        }
         self.comparing = None;
+        editor.clear_echo_saying(COMPARING);
         let diff = match result {
             Ok(diff) => diff,
             Err(known) => {
@@ -260,8 +272,6 @@ impl Offer {
                 return Vec::new();
             }
         };
-        // What said it was comparing is over.
-        editor.clear_echo();
         if !editor.current().1.mode().shows_copies() {
             editor.message(format!("The compare of {name} is ready: C-h r, then ="));
             return Vec::new();
@@ -317,7 +327,12 @@ impl Offer {
         let Some(target) = row.target else {
             return Vec::new();
         };
-        editor.show(target);
+        // Back where the person was first, as that is what an undo returns them to. The way back
+        // goes with it, and with that the view.
+        editor.leave_all_internal();
+        if editor.window().buffer() != target {
+            editor.show(target);
+        }
         editor.begin_undo_group();
         let replaced = editor.replace_text_from(target, view);
         editor.end_undo_group();
@@ -339,8 +354,6 @@ impl Offer {
             buffer: target,
             stands: true,
         });
-        // The window has moved on, so the way back goes, and with it the view.
-        editor.forget_way_back();
         let mut work = self.free_views(editor);
         work.extend(self.ask_for_scan(editor));
         work
@@ -368,7 +381,7 @@ impl Offer {
     }
 }
 
-/// Why `word` cannot go in a buffer, if it cannot.
+/// Why `row` cannot go in a buffer, if it cannot.
 fn no_recovery(row: &Row) -> Option<String> {
     let name = &row.name;
     match row.state {
@@ -404,8 +417,15 @@ fn refusal(editor: &Editor, row: &Row, view: BufferId) -> Option<String> {
     if source.file_info().binary || !source.invalid_bytes().is_empty() {
         return Some("This copy has been changed since it was written: it is not text".to_owned());
     }
-    let bom = if source.file_info().bom { BOM.len() } else { 0 };
-    if (source.text().len() + bom) as u64 != row.size {
+    // A copy holds text with no BOM of its own, so these bytes at its start are text, which a
+    // load takes for a BOM. It would not come back exactly, and its copy would then go.
+    if source.file_info().bom {
+        return Some(format!(
+            "This copy starts with a byte order mark, which would be lost. Its text is in {}",
+            row.text.display()
+        ));
+    }
+    if source.text().len() as u64 != row.size {
         return Some("This copy changed as it was read. Look at it again".to_owned());
     }
     let Some(target) = row.target.and_then(|target| editor.buffer(target)) else {

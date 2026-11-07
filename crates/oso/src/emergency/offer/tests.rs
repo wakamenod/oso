@@ -102,17 +102,6 @@ impl Fixture {
                     let more = self.offer.take_scan(&mut self.editor, scan, false);
                     self.run(more);
                 }
-                CopyWork::Load {
-                    buffer,
-                    path,
-                    limit,
-                } => {
-                    let mut bytes = Vec::new();
-                    let file = crate::emergency::open_copy(&path).unwrap();
-                    file.take(limit).read_to_end(&mut bytes).unwrap();
-                    let snapshot = decode_all(&bytes, TabWidth::default());
-                    self.editor.buffer_mut(buffer).unwrap().apply_load(snapshot);
-                }
                 CopyWork::Compare(comparing) => {
                     let event = CopiesEvent::Compared(Box::new(comparing.run()));
                     let more = self.offer.take_event(&mut self.editor, event, false);
@@ -128,10 +117,27 @@ impl Fixture {
         }
     }
 
+    /// Reads what the last answer wants read, as the host would.
+    fn load(&mut self) {
+        if let Some(CopyLoad {
+            buffer,
+            path,
+            limit,
+        }) = self.offer.take_load()
+        {
+            let mut bytes = Vec::new();
+            let file = crate::emergency::open_copy(&path).unwrap();
+            file.take(limit).read_to_end(&mut bytes).unwrap();
+            let snapshot = decode_all(&bytes, TabWidth::default());
+            self.editor.buffer_mut(buffer).unwrap().apply_load(snapshot);
+        }
+    }
+
     /// Answers, and does all that leads to.
     fn answer(&mut self, action: RecoveryAction) {
         let work = self.offer.answer(&mut self.editor, action);
         self.run(work);
+        self.load();
     }
 
     /// `d d` on `line`.
@@ -406,10 +412,8 @@ fn a_recovery_is_refused_while_the_copy_loads() {
     let work = fixture
         .offer
         .answer(&mut fixture.editor, RecoveryAction::Recover(HEADER_ROWS));
-    assert!(
-        work.iter()
-            .any(|work| matches!(work, CopyWork::Load { .. }))
-    );
+    assert!(work.is_empty());
+    assert!(fixture.offer.load.is_some(), "not read yet");
     fixture.answer(RecoveryAction::Recover(0));
     assert_eq!(fixture.last_message(), "The copy is still loading");
     assert_eq!(fixture.file_text(), "on disk\n");
@@ -552,7 +556,7 @@ fn deleting_removes_both_files_and_the_row() {
     );
     let mut status = oso_core::editor::Status::default();
     let list = fixture.editor.window().buffer();
-    fixture.editor.leave_copies();
+    fixture.editor.toggle_copies();
     fixture.editor.status_into(&mut status);
     assert_eq!(status.warnings, "", "nothing waits any more");
     assert!(fixture.editor.buffer(list).is_some());

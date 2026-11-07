@@ -18,12 +18,6 @@ use crate::emergency::copies::{Scan, ScanRequest, open_checked, remove_copy};
 pub enum CopyWork {
     /// Look through the directory again.
     Scan(ScanRequest),
-    /// Fill an internal buffer with a copy's text, no further than `limit`.
-    Load {
-        buffer: BufferId,
-        path: PathBuf,
-        limit: u64,
-    },
     /// Show how a copy differs from its file.
     Compare(Comparing),
     /// Remove a copy.
@@ -32,8 +26,17 @@ pub enum CopyWork {
     Free(Box<Buffer>),
 }
 
+/// A copy's text for the host to read into a buffer, which it keeps a handle on.
+pub struct CopyLoad {
+    pub buffer: BufferId,
+    pub path: PathBuf,
+    pub limit: u64,
+}
+
 /// A compare to run.
 pub struct Comparing {
+    /// Which it is, as only the latest is wanted.
+    pub(super) id: u64,
     pub(super) key: PathBuf,
     pub(super) name: String,
     pub(super) file: PathBuf,
@@ -70,6 +73,7 @@ impl std::fmt::Debug for CopiesEvent {
 
 /// How a compare came out.
 pub struct Compared {
+    pub(super) id: u64,
     pub(super) key: PathBuf,
     pub(super) name: String,
     pub(super) verdict: (Vec<PathBuf>, Verdict),
@@ -81,6 +85,7 @@ impl Comparing {
     /// Reads both sides and diffs them. A panic costs only this compare.
     pub fn run(self) -> Compared {
         let Self {
+            id,
             key,
             name,
             file,
@@ -103,6 +108,7 @@ impl Comparing {
         ))
         .unwrap_or_else(|_| Err("comparing them failed".to_owned()));
         Compared {
+            id,
             key,
             name,
             verdict,

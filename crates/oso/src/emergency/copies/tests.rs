@@ -526,3 +526,14 @@ fn a_copy_finds_its_file_by_the_files_own_spelling() {
     let found = scan(&request(&directory, targets), later());
     assert!(found.rows[0].target.is_some(), "{:?}", words(&found));
 }
+
+#[test]
+fn a_leftover_found_two_ways_is_one_row() {
+    let scratch = Scratch::new();
+    let directory = copies_of(&scratch);
+    let file = directory.join("notes.txt");
+    fs::write(&file, "text").unwrap();
+    fs::write(directory.join(".oso-save-77-123-0.tmp"), "left").unwrap();
+    let found = scan(&request(&directory, vec![target_for(&file)]), later());
+    assert_eq!(words(&found), [RowState::LeftBySave]);
+}

@@ -125,8 +125,8 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
         "bytes": size_shown.then(|| buffer.text().len()),
         "lines": size_shown.then(|| buffer.display().row_count()),
         "loading": buffer.loading().map(|progress| json!({
-            "read": progress.read,
-            "total": progress.total,
+            "read": size_shown.then_some(progress.read),
+            "total": if size_shown { progress.total } else { None },
         })),
     })
 }
@@ -573,6 +573,27 @@ mod tests {
         let state = get_state(&editor, &[], None);
         assert!(state.get("modeline").is_none());
         assert!(state.get("echo").is_none());
+    }
+
+    #[test]
+    fn a_withheld_copy_gives_no_size_also_while_it_loads() {
+        let mut editor = Editor::default();
+        let view = editor.add_internal_buffer("v", oso_core::buffer::Mode::CopyView);
+        let shown = editor.buffer_mut(view).unwrap();
+        shown.judge_copy(&[], oso_core::buffer::Verdict::Unresolved);
+        let mut builder = oso_core::load::Builder::new(Some(100), Default::default());
+        builder.push(b"some of it");
+        shown.apply_load(builder.snapshot());
+        editor.show(view);
+        let state = get_state(&editor, &[], None);
+        assert!(state["buffer"]["bytes"].is_null());
+        assert!(state["buffer"]["lines"].is_null());
+        assert!(state["buffer"]["loading"]["read"].is_null());
+        assert!(state["buffer"]["loading"]["total"].is_null());
+        assert!(
+            !state["buffer"]["loading"].is_null(),
+            "it says it is loading"
+        );
     }
 
     #[test]

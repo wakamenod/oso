@@ -21,15 +21,15 @@ pub(in crate::emergency) fn age(written: Option<u64>, now: SystemTime) -> String
     let Some(ago) = then.and_then(|then| now.duration_since(then).ok()) else {
         return "in the future".to_owned();
     };
-    let plural = |count: u64, one: &str| {
+    let ago_in = |count: u64, one: &str| {
         let s = if count == 1 { "" } else { "s" };
         format!("{count} {one}{s} ago")
     };
     match ago.as_secs() {
         0..60 => "just now".to_owned(),
         seconds @ 60..3600 => format!("{} min ago", seconds / 60),
-        seconds @ 3600..86_400 => plural(seconds / 3600, "hour"),
-        seconds => plural(seconds / 86_400, "day"),
+        seconds @ 3600..86_400 => ago_in(seconds / 3600, "hour"),
+        seconds => ago_in(seconds / 86_400, "day"),
     }
 }
 

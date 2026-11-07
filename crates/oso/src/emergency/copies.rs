@@ -270,6 +270,8 @@ pub(super) fn scan(request: &ScanRequest, now: SystemTime) -> Scan {
     // newest first. A time from a `.meta` is untrusted, and only orders rows.
     let newest_first = |a: &Row, b: &Row| b.written.cmp(&a.written).then(a.text.cmp(&b.text));
     found.left.sort_by(newest_first);
+    // A file open in the directory itself finds the same ones twice.
+    found.left.dedup_by(|a, b| a.text == b.text);
     let room = MAX_ROWS.saturating_sub(found.rows.len());
     found.more += found.left.len().saturating_sub(room);
     found.left.truncate(room);

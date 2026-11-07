@@ -97,7 +97,7 @@ impl Editor {
     /// back to where the window was.
     pub fn toggle_copies(&mut self) {
         if self.current().1.mode().shows_copies() {
-            self.leave_copies();
+            self.leave_internal();
             return;
         }
         let list = self.copies_buffer();
@@ -109,7 +109,7 @@ impl Editor {
     pub fn copies_back(&mut self) {
         match self.current().1.mode() {
             Mode::Fundamental => {}
-            Mode::CopyList => self.leave_copies(),
+            Mode::CopyList => self.leave_internal(),
             Mode::CopyView => {
                 let list = self.copies_buffer();
                 self.show(list);
@@ -117,24 +117,46 @@ impl Editor {
         }
     }
 
-    /// Goes back to where the window was before it showed copies.
-    pub fn leave_copies(&mut self) {
-        self.leave_internal();
-    }
-
-    /// The window has moved on by itself, so that there is nothing to go back to.
-    pub fn forget_way_back(&mut self) {
-        self.way_back.clear();
+    /// Goes all the way back to where the window was before any internal buffer.
+    pub fn leave_all_internal(&mut self) {
+        // The first place is the user's, as showing one of theirs empties the way. If that buffer
+        // has gone, this goes to `*scratch*`.
+        let first = self.way_back.drain(..).next();
+        self.go_back(first);
     }
 
     /// Fills the list of copies with `snapshot`, which holds its rows, with the cursor of each
-    /// window that shows it at the start of `line`.
-    pub fn set_copies_text(&mut self, snapshot: LoadSnapshot, line: usize) {
+    /// window that shows it at the start of `line`, and that of a window that will come back to
+    /// it at the start of `saved_line`.
+    pub fn set_copies_text(
+        &mut self,
+        snapshot: LoadSnapshot,
+        line: usize,
+        saved_line: Option<usize>,
+    ) {
         let list = self.copies_buffer();
-        if let Some(buffer) = self.buffer_mut(list) {
-            buffer.apply_load(snapshot);
+        let Some(buffer) = self.buffer_mut(list) else {
+            return;
+        };
+        buffer.apply_load(snapshot);
+        if let Some(saved_line) = saved_line {
+            let start = buffer.text().line_start(saved_line);
+            for place in &mut self.way_back {
+                if place.buffer == list {
+                    place.selections = SelectionSet::new(start);
+                }
+            }
         }
         self.set_copies_cursor(line);
+    }
+
+    /// The line of the list a window will come back to, if it has gone on from there. The rows
+    /// can change behind it, and it must come back to the same copy.
+    pub fn saved_copies_line(&self) -> Option<usize> {
+        let list = self.copies_buffer?;
+        let place = self.way_back.iter().find(|place| place.buffer == list)?;
+        let cursor = place.selections.primary().cursor;
+        Some(self.buffer(list)?.text().offset_to_point(cursor).row)
     }
 
     /// Puts the cursor of each window that shows the list of copies at the start of `line`.
@@ -449,15 +471,16 @@ mod tests {
     }
 
     #[test]
-    fn a_way_back_through_a_buffer_that_has_gone_goes_on_to_the_one_before() {
-        let (mut editor, file, _) = with_copy("abc", "x");
+    fn a_window_moved_to_a_buffer_of_the_users_has_no_way_back_left_to_go_stale() {
+        let (mut editor, _, _) = with_copy("abc", "x");
         let other = editor.add_buffer(Buffer::from_text("other", "y"));
         editor.toggle_copies();
         editor.show(other);
-        editor.toggle_messages();
-        editor.kill_buffer(other);
-        editor.toggle_messages();
-        assert_eq!(editor.window().buffer(), file);
+        assert!(editor.way_back.is_empty());
+        assert_eq!(editor.place_behind_internal(), None);
+        editor.toggle_copies();
+        let place = editor.place_behind_internal().map(|(buffer, _, _)| buffer);
+        assert_eq!(place, Some(other), "where it is now, not where it was");
     }
 
     #[test]
@@ -493,11 +516,39 @@ mod tests {
         let mut editor = Editor::default();
         editor.toggle_copies();
         let snapshot = decode_all(b"header\n\nrow\nrow\n", TabWidth::default());
-        editor.set_copies_text(snapshot, 3);
+        editor.set_copies_text(snapshot, 3, None);
         assert_eq!(editor.cursor_line(), 3);
         editor.set_copies_cursor(2);
         assert_eq!(editor.cursor_line(), 2);
         assert!(!editor.current().1.is_modified());
+    }
+
+    #[test]
+    fn a_window_that_went_on_from_the_list_comes_back_to_the_line_it_is_told() {
+        let mut editor = Editor::default();
+        editor.toggle_copies();
+        let rows = |text: &str| decode_all(text.as_bytes(), TabWidth::default());
+        editor.set_copies_text(rows("h\n\none\ntwo\n"), 3, None);
+        editor.toggle_messages();
+        assert_eq!(editor.saved_copies_line(), Some(3));
+        editor.set_copies_text(rows("h\n\nnew\none\ntwo\n"), 0, Some(4));
+        assert_eq!(editor.saved_copies_line(), Some(4));
+        editor.toggle_messages();
+        assert_eq!(editor.cursor_line(), 4);
+        assert_eq!(editor.saved_copies_line(), None);
+    }
+
+    #[test]
+    fn going_all_the_way_back_passes_every_internal_buffer_and_what_has_gone() {
+        let (mut editor, file, view) = with_copy("abcdef", "x");
+        editor.current_mut().0.selections = SelectionSet::new(3);
+        editor.toggle_copies();
+        editor.toggle_messages();
+        editor.show(view);
+        editor.leave_all_internal();
+        assert_eq!(editor.window().buffer(), file);
+        assert_eq!(editor.window().selections.primary().cursor, 3);
+        assert!(editor.way_back.is_empty());
     }
 
     #[test]

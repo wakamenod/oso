@@ -90,8 +90,13 @@ impl App {
         }
     }
 
-    /// Starts filling the internal buffer `buffer` with a copy's text, no further than `limit`.
-    pub(super) fn load_copy(&mut self, buffer: BufferId, path: PathBuf, limit: u64) {
+    /// Starts filling an internal buffer with a copy's text.
+    pub(super) fn load_copy(&mut self, load: emergency::CopyLoad) {
+        let emergency::CopyLoad {
+            buffer,
+            path,
+            limit,
+        } = load;
         let proxy = self.proxy.clone();
         let started = Instant::now();
         let open = move || emergency::open_copy(&path);

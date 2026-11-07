@@ -160,6 +160,14 @@ impl Editor {
         });
     }
 
+    /// Empties the echo area if it still says `text`, for what said it was only until something
+    /// ended, as anything said since is news.
+    pub fn clear_echo_saying(&mut self, text: &str) {
+        if self.echo.as_ref().is_some_and(|echo| echo.text == text) {
+            self.echo = None;
+        }
+    }
+
     /// Empties the echo area, as the next key does in Emacs. While keys are in progress they
     /// show in its place, and what is there came after the key that began them and has not
     /// been seen, so it stays for when they end.
@@ -229,14 +237,8 @@ impl Editor {
 
     /// Goes back to where the window was before the internal buffer it is on.
     pub(super) fn leave_internal(&mut self) {
-        // A place whose buffer has gone is no way back, and the one before may still be.
-        while let Some(place) = self.way_back.pop() {
-            if self.buffer(place.buffer).is_some() {
-                self.go_back(Some(place));
-                return;
-            }
-        }
-        self.go_back(None);
+        let back = self.way_back.pop();
+        self.go_back(back);
     }
 
     /// Shows `*Messages*` in the selected window, with its last row in view. From
@@ -253,7 +255,7 @@ impl Editor {
     }
 
     /// Shows `back` as it was, or `*scratch*` if there is no such place any more.
-    fn go_back(&mut self, back: Option<Place>) {
+    pub(super) fn go_back(&mut self, back: Option<Place>) {
         match back.filter(|place| self.buffer(place.buffer).is_some()) {
             Some(Place {
                 buffer,
