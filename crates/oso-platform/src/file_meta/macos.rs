@@ -9,7 +9,7 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
 use std::ptr;
 
@@ -22,6 +22,11 @@ const ACL_EXTENDED_DENY: c_int = 2;
 const ACL_ENTRY_FILE_INHERIT: c_int = 1 << 5;
 const ACL_ENTRY_DIRECTORY_INHERIT: c_int = 1 << 6;
 const ACL_ENTRY_ONLY_INHERIT: c_int = 1 << 8;
+/// On a whole list: what it is set on takes nothing from its directory.
+const ACL_FLAG_NO_INHERIT: c_int = 1 << 17;
+/// `filesec_property_t` values, from `<sys/fcntl.h>`.
+const FILESEC_MODE: c_int = 4;
+const FILESEC_ACL: c_int = 5;
 
 const ACL_ADD_FILE: u64 = 1 << 2;
 const ACL_SEARCH: u64 = 1 << 3;
@@ -58,7 +63,6 @@ unsafe extern "C" {
     fn acl_get_link_np(path: *const c_char, kind: c_int) -> *mut c_void;
     fn acl_get_fd_np(fd: c_int, kind: c_int) -> *mut c_void;
     fn acl_set_fd_np(fd: c_int, list: *mut c_void, kind: c_int) -> c_int;
-    fn acl_set_link_np(path: *const c_char, kind: c_int, list: *mut c_void) -> c_int;
     fn acl_init(count: c_int) -> *mut c_void;
     fn acl_free(object: *mut c_void) -> c_int;
     fn acl_get_entry(list: *mut c_void, which: c_int, entry: *mut *mut c_void) -> c_int;
@@ -69,6 +73,12 @@ unsafe extern "C" {
     fn acl_size(list: *mut c_void) -> isize;
     fn acl_copy_ext_native(buffer: *mut c_void, list: *mut c_void, size: isize) -> isize;
     fn acl_copy_int_native(buffer: *const c_void) -> *mut c_void;
+    fn acl_add_flag_np(flags: *mut c_void, flag: c_int) -> c_int;
+    fn acl_set_flagset_np(object: *mut c_void, flags: *mut c_void) -> c_int;
+    fn filesec_init() -> *mut c_void;
+    fn filesec_free(filesec: *mut c_void);
+    fn filesec_set_property(filesec: *mut c_void, property: c_int, value: *const c_void) -> c_int;
+    fn openx_np(path: *const c_char, flags: c_int, filesec: *mut c_void) -> c_int;
 }
 
 /// A list in this process's memory, freed when this is dropped.
@@ -118,7 +128,7 @@ impl List {
             bytes,
             denies_deleting: entries
                 .iter()
-                .any(|entry| !entry.allows && entry.names_deleting),
+                .any(|entry| !entry.allows && entry.applies_here && entry.names_deleting),
         })
     }
 
@@ -280,39 +290,80 @@ pub(super) fn give_access_list(list: &AccessList, file: &File) -> io::Result<()>
     }
 }
 
-/// Clears by the path, which needs to look at the file, and failing that through a descriptor of the
-/// file itself, which needs to write. What is on it may deny either. Neither follows a link.
+/// Through a descriptor of the file itself, opened to write, which does not wait: mode `0600`
+/// first, then no list, so that nothing widens. A path alone could not do the first without following
+/// a link, so it is not tried. A directory cannot be opened to write, and a link opened this way is the
+/// link itself, so nothing else is touched, and nothing needs to be read of the file first, which its
+/// list may deny.
 pub(super) fn clear_access_list_at(path: &Path) -> io::Result<()> {
-    if clear_by_path(path).is_ok() {
-        return Ok(());
-    }
     let file = OpenOptions::new()
         .write(true)
-        .custom_flags(libc::O_SYMLINK)
+        .custom_flags(libc::O_SYMLINK | libc::O_NONBLOCK)
         .open(path)?;
+    file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     empty_list(&file)
 }
 
-fn clear_by_path(path: &Path) -> io::Result<()> {
+/// A file system's own record of security for a new file, freed when this is dropped.
+struct Filesec(*mut c_void);
+
+impl Drop for Filesec {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` came from `filesec_init`, and only this `Drop` frees it, once.
+        unsafe { filesec_free(self.0) };
+    }
+}
+
+/// Creates it with a list that takes nothing from the directory and has no entries, which the system
+/// stores as no list at all.
+pub(super) fn create_private(path: &Path) -> io::Result<File> {
     let path = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::from)?;
     // SAFETY: a count of zero is valid. A result that is not null goes straight into `List`.
-    let empty = unsafe { acl_init(0) };
-    if empty.is_null() {
+    let list = unsafe { acl_init(0) };
+    if list.is_null() {
         return Err(io::Error::last_os_error());
     }
-    let empty = List(empty);
-    // SAFETY: `path` is NUL-terminated, outlives the call and is only read, and `empty` is a live list
-    // the call only reads.
-    if unsafe { acl_set_link_np(path.as_ptr(), ACL_TYPE_EXTENDED, empty.0) } == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::last_os_error())
+    let list = List(list);
+    let mut flags = ptr::null_mut();
+    // SAFETY: `list.0` is a live list, `flags` a local the first call writes, and the flag set it
+    // gives points into that list, which outlives these calls.
+    let flagged = unsafe {
+        acl_get_flagset_np(list.0, &raw mut flags) == 0
+            && acl_add_flag_np(flags, ACL_FLAG_NO_INHERIT) == 0
+            && acl_set_flagset_np(list.0, flags) == 0
+    };
+    if !flagged {
+        return Err(io::Error::last_os_error());
     }
+    // SAFETY: no arguments. A result that is not null goes straight into `Filesec`.
+    let filesec = unsafe { filesec_init() };
+    if filesec.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    let filesec = Filesec(filesec);
+    let mode: libc::mode_t = 0o600;
+    // SAFETY: `filesec.0` is live, and each value is a pointer to a live local of the type the
+    // property takes, `mode_t` and `acl_t`, which the call copies.
+    let set = unsafe {
+        filesec_set_property(filesec.0, FILESEC_MODE, (&raw const mode).cast()) == 0
+            && filesec_set_property(filesec.0, FILESEC_ACL, (&raw const list.0).cast()) == 0
+    };
+    if !set {
+        return Err(io::Error::last_os_error());
+    }
+    let flags = libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL | libc::O_CLOEXEC;
+    // SAFETY: `path` is NUL-terminated and only read, and `filesec.0` is live for the call.
+    let fd = unsafe { openx_np(path.as_ptr(), flags, filesec.0) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: `fd` was just opened here and nothing else owns it.
+    Ok(unsafe { <File as std::os::fd::FromRawFd>::from_raw_fd(fd) })
 }
 
 pub(super) fn quarantine_at(path: &Path) -> io::Result<Option<Quarantine>> {
     let path = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::from)?;
-    let read = |buffer: *mut c_void, size| {
+    let read = super::read_sized(|buffer: *mut c_void, size| {
         // SAFETY: `path` and `QUARANTINE` are NUL-terminated, outlive the call and are only read,
         // `buffer` is null with a size of 0 or a live buffer of that size, and position 0 is what the
         // man page asks of any attribute but a resource fork.
@@ -326,23 +377,19 @@ pub(super) fn quarantine_at(path: &Path) -> io::Result<Option<Quarantine>> {
                 libc::XATTR_NOFOLLOW,
             )
         }
-    };
-    let none_or_error = || {
-        let error = io::Error::last_os_error();
-        match error.raw_os_error() {
-            Some(libc::ENOATTR | libc::ENOTSUP | libc::EOPNOTSUPP) => Ok(None),
-            _ => Err(error),
+    });
+    match read {
+        Ok(bytes) => Ok(Some(Quarantine(bytes))),
+        Err(e)
+            if matches!(
+                e.raw_os_error(),
+                Some(libc::ENOATTR | libc::ENOTSUP | libc::EOPNOTSUPP)
+            ) =>
+        {
+            Ok(None)
         }
-    };
-    let Ok(size) = usize::try_from(read(ptr::null_mut(), 0)) else {
-        return none_or_error();
-    };
-    let mut bytes = vec![0u8; size];
-    let Ok(got) = usize::try_from(read(bytes.as_mut_ptr().cast(), bytes.len())) else {
-        return none_or_error();
-    };
-    bytes.truncate(got);
-    Ok(Some(Quarantine(bytes)))
+        Err(e) => Err(e),
+    }
 }
 
 pub(super) fn give_quarantine(flag: &Quarantine, file: &File) -> io::Result<()> {
@@ -476,15 +523,15 @@ pub(crate) mod test_list {
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File, OpenOptions};
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::test_list::{clear, set_for_everyone, set_on_link_for_everyone};
     use super::{
         ACL_EXTENDED_DENY, CHANGING_RIGHTS, Flags, List, Quarantine, access_list_at, acl_get_entry,
-        acl_init, classified, clear_access_list_at, give_access_list, give_quarantine, list_at,
-        list_of, quarantine_at, seal, take_access_list,
+        acl_init, classified, clear_access_list_at, create_private, give_access_list,
+        give_quarantine, list_at, list_of, quarantine_at, seal, take_access_list,
     };
 
     /// The `allow` tag.
@@ -794,7 +841,7 @@ mod tests {
     }
 
     #[test]
-    fn a_list_that_stops_a_file_being_removed_can_be_cleared_by_its_path() {
+    fn a_list_that_stops_a_file_being_removed_is_cleared_after_the_mode_is_shut() {
         for rights in [
             "delete",
             "delete,readattr",
@@ -804,11 +851,72 @@ mod tests {
             let scratch = Scratch::new();
             let path = scratch.join("f");
             fs::write(&path, b"made up").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
             set_for_everyone(&path, "deny", rights);
             assert!(fs::remove_file(&path).is_err(), "{rights}");
             clear_access_list_at(&path).unwrap();
+            assert_eq!(
+                fs::metadata(&path).unwrap().mode() & 0o777,
+                0o600,
+                "{rights}"
+            );
             fs::remove_file(&path).unwrap();
         }
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_opened_to_write_is_left_as_it_was() {
+        let scratch = Scratch::new();
+        let path = scratch.join("f");
+        fs::write(&path, b"made up").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        set_for_everyone(&path, "deny", "delete,write");
+        assert!(clear_access_list_at(&path).is_err());
+        assert_eq!(list_at(&path).unwrap().len(), 1, "the list stays");
+        assert_eq!(fs::metadata(&path).unwrap().mode() & 0o777, 0o644);
+        clear(&path);
+    }
+
+    #[test]
+    fn a_new_private_file_never_holds_what_its_directory_gives() {
+        let scratch = Scratch::new();
+        set_for_everyone(&scratch.0, "allow,file_inherit", "read");
+        let plain = File::create(scratch.join("plain")).unwrap();
+        assert_eq!(
+            list_of(&plain).unwrap().len(),
+            1,
+            "an ordinary file takes it"
+        );
+
+        let path = scratch.join("private");
+        let private = create_private(&path).unwrap();
+        assert_eq!(list_of(&private).unwrap(), [], "from the start");
+        assert_eq!(fs::metadata(&path).unwrap().mode() & 0o7777, 0o600);
+        set_for_everyone(&scratch.0, "deny,file_inherit", "delete");
+        let private = create_private(&scratch.join("other")).unwrap();
+        assert_eq!(list_of(&private).unwrap(), [], "a deny neither");
+        clear(&scratch.0);
+    }
+
+    #[test]
+    fn a_new_private_file_is_never_a_name_already_there() {
+        let scratch = Scratch::new();
+        let path = scratch.join("f");
+        fs::write(&path, b"made up").unwrap();
+        let error = create_private(&path).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        std::os::unix::fs::symlink(scratch.join("nothing"), scratch.join("link")).unwrap();
+        let error = create_private(&scratch.join("link")).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(!scratch.join("nothing").exists());
+    }
+
+    #[test]
+    fn only_a_denial_of_deleting_the_file_itself_counts() {
+        let scratch = Scratch::new();
+        set_for_everyone(&scratch.0, "deny,file_inherit,only_inherit", "delete");
+        assert!(!access_list_at(&scratch.0).unwrap().denies_deleting());
+        clear(&scratch.0);
     }
 
     #[test]

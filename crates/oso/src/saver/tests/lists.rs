@@ -42,7 +42,7 @@ mod macos {
     #[track_caller]
     fn assert_list_error(report: &SaveReport) {
         assert!(
-            matches!(report.outcome, Err(SaveError::ListForbidsReplacing)),
+            matches!(report.outcome, Err(SaveError::ListForbidsReplacing(_))),
             "{:?}",
             report.outcome
         );
@@ -217,6 +217,31 @@ mod macos {
         assert_eq!(fs::read(&path).unwrap(), b"new\n");
         assert_eq!(list(&path), before);
     }
+
+    #[test]
+    fn a_new_files_temporary_file_never_holds_what_its_directory_gives() {
+        let scratch = Scratch::new("list-temporary");
+        add(scratch.path(), "everyone allow list,file_inherit");
+        let (_temporary, file) = Temporary::create_private(scratch.path()).unwrap();
+        assert_eq!(AccessList::take_from(&file).unwrap(), AccessList::default());
+    }
+
+    #[test]
+    fn a_temporary_file_that_cannot_be_removed_is_left_owner_only_and_never_more_open() {
+        let scratch = Scratch::new("list-stuck");
+        let (temporary, file) = Temporary::create(scratch.path(), 0o644).unwrap();
+        drop(file);
+        let path = temporary.path().to_owned();
+        set_mode(&path, 0o644);
+        add(&path, "everyone deny delete");
+        add(scratch.path(), "everyone deny delete_child");
+        drop(temporary);
+        let left = fs::symlink_metadata(&path).is_ok();
+        take_off(scratch.path(), "everyone deny delete_child");
+        assert!(left, "the directory stopped the second try too");
+        assert_eq!(mode(&path), 0o600, "shut before its list went");
+        assert_eq!(list(&path), AccessList::default());
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -289,15 +314,24 @@ mod linux {
     }
 
     #[test]
-    fn a_list_changed_during_the_write_is_kept() {
+    fn a_list_changed_during_the_write_is_kept_though_the_mode_says_nothing() {
         let scratch = Scratch::new("list-late");
         let path = scratch.file("notes.txt", b"old\n");
         set_mode(&path, 0o600);
-        let job = job(&path, "new\n");
-        let prepared = prepare(&job).unwrap();
-        if !setfacl(&["-m".as_ref(), "u:12345:r".as_ref(), path.as_ref()]) {
+        if !setfacl(&["-m".as_ref(), "u:12345:r,m::rw".as_ref(), path.as_ref()]) {
             return;
         }
+        let job = job(&path, "new\n");
+        let prepared = prepare(&job).unwrap();
+        let before = mode(&path);
+        // `-n` keeps the mask, and so the mode, as it was: only the list can tell.
+        setfacl(&[
+            "-n".as_ref(),
+            "-m".as_ref(),
+            "u:12345:rw".as_ref(),
+            path.as_ref(),
+        ]);
+        assert_eq!(mode(&path), before, "nothing but the list changed");
         assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict)));
         assert_eq!(fs::read(&path).unwrap(), b"old\n");
     }

@@ -114,7 +114,10 @@ fn what_a_list_stops_is_said_by_path_with_the_reason_first_and_quotes_no_text() 
             SaveError::AccessList(std::io::Error::other("no such right")),
             "access list could not be kept",
         ),
-        (SaveError::ListForbidsReplacing, "denies replacing"),
+        (
+            SaveError::ListForbidsReplacing(std::io::Error::other("no such right")),
+            "denies someone deleting",
+        ),
     ] {
         let mut editor = visit(&path);
         let job = job_of(&mut editor, SECRET);

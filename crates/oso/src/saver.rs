@@ -13,14 +13,14 @@
 //! 1. Follow symbolic links to the file's real place, so that a link stays a link.
 //! 2. Check the baseline, so that a path now leading elsewhere writes nothing there, and
 //!    a file already changed costs no write.
-//! 3. Create a temporary file with `create_new` and mode 0600 in that file's
-//!    directory, so that the rename stays on one file system, and take off any access list
-//!    it took from there, so that only this user can read it while it fills.
+//! 3. Create a temporary file with mode 0600 in that file's directory, so that the rename
+//!    stays on one file system, taking no access list from there, so that only this user can
+//!    read it while it fills, from its first moment.
 //! 4. Write the BOM and the text. Line endings are already in the text.
 //! 5. Give it the owner and the group of the file it replaces, then its quarantine flag and
-//!    access list, or back what it took if there was no such file, and then the mode. Nothing
-//!    is denied too late, and nobody else can read it before now, then fsync and close it,
-//!    and read back what the file is now.
+//!    access list, or what a file made there gets if there was no such file, and then the
+//!    mode. Nothing is denied too late, and nobody else can read it before now, then fsync and
+//!    close it, and read back what the file is now.
 //! 6. Check the baseline again, right before the rename, and that the file's mode, owner and
 //!    access list did not change meanwhile.
 //! 7. Rename it over the file, then fsync the directory.
@@ -56,7 +56,7 @@ mod leaving;
 
 #[cfg(all(test, unix))]
 use attributes::kept_mode;
-use attributes::{attributes_moved, keep_mode, keep_owner};
+use attributes::{Made, attributes_moved, keep_mode, keep_owner};
 pub use leaving::{AfterSave, Agreement, AgreementCell, Leaving};
 
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
@@ -87,9 +87,9 @@ pub enum SaveError {
     /// An access list could not be read, put on the new file or confirmed there, and what it allows
     /// or denies must not be lost.
     AccessList(io::Error),
-    /// The system refused the rename, and the file's access list denies someone deleting it,
-    /// which is what a rename needs.
-    ListForbidsReplacing,
+    /// The system refused the rename, and the access list the file would have denies someone
+    /// deleting it, which a rename needs, though whom it names cannot be told.
+    ListForbidsReplacing(io::Error),
     /// The file system refused.
     Io(io::Error),
     /// The saving thread panicked. This holds none of its message, which may quote text.
@@ -247,9 +247,9 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
                 SaveError::AccessList(e) => format!(
                     "Not saved: its access list could not be kept, and the file is as it was: {e}: {path}"
                 ),
-                SaveError::ListForbidsReplacing => {
-                    format!("Not saved: its access list denies replacing or moving it: {path}")
-                }
+                SaveError::ListForbidsReplacing(e) => format!(
+                    "Not saved: the rename was refused, and its access list denies someone deleting it: {e}: {path}"
+                ),
                 SaveError::Io(e) => format!("Not saved: {e}: {path}"),
                 SaveError::Panicked => format!("Not saved: the save failed: {path}"),
             }
@@ -335,20 +335,30 @@ fn prepare_with(
     // The real directory, so that a link changed during the write does not lose track of
     // the temporary file.
     let directory = parent(&baseline.location);
-    let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
-    let taken = AccessList::take_from(&file).map_err(SaveError::AccessList)?;
+    // What a new file gets is what a file made there gets, and nothing goes in that one.
+    let made = match replaced {
+        Some(_) => None,
+        None => Some(Made::there(directory)?),
+    };
+    let (temporary, file) = Temporary::create_private(directory)?;
+    // A Linux file system still gives it a list, whose mask its mode shuts, so it grants
+    // nothing. It comes off, so that what goes on is only what is wanted.
+    AccessList::take_from(&file).map_err(SaveError::AccessList)?;
     write_text(&file, job)?;
     let group_kept = keep_owner(&file, replaced.as_ref())?;
     let quarantine_lost = quarantine
         .and_then(|flag| flag.map_or(Ok(()), |flag| flag.give_to(&file)))
         .err();
-    let list = kept_list.unwrap_or(taken);
+    let (list, made_mode) = match made {
+        Some(made) => (made.list, Some(made.permissions)),
+        None => (kept_list.unwrap_or_default(), None),
+    };
     list.give_to(&file).map_err(SaveError::AccessList)?;
     keep_mode(
         &file,
         replaced.as_ref(),
         baseline.file,
-        directory,
+        made_mode,
         group_kept,
     )?;
     let unsynced = unless_unsupported(sync(&file))?;
@@ -403,7 +413,7 @@ impl Prepared {
             .rename_over(&baseline.location)
             .map_err(|e| {
                 if forbidden && e.kind() == io::ErrorKind::PermissionDenied {
-                    SaveError::ListForbidsReplacing
+                    SaveError::ListForbidsReplacing(e)
                 } else {
                     e.into()
                 }
@@ -527,6 +537,21 @@ pub(crate) struct Temporary {
 impl Temporary {
     /// Creates a file with a new name beside nothing it could be mistaken for.
     pub(crate) fn create(directory: &Path, mode: u32) -> io::Result<(Self, File)> {
+        Self::create_with(directory, |path| open_new(path, mode))
+    }
+
+    /// Creates a file with a new name, as [`Self::create`] does, with mode 0600 and granting
+    /// nothing through an access list at any moment.
+    fn create_private(directory: &Path) -> io::Result<(Self, File)> {
+        Self::create_with(directory, file_meta::create_private)
+    }
+
+    /// Creates a file through `open`, which must make a new one, and fail with `AlreadyExists` for
+    /// a name already there.
+    fn create_with(
+        directory: &Path,
+        open: impl Fn(&Path) -> io::Result<File>,
+    ) -> io::Result<(Self, File)> {
         let stamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |since| since.subsec_nanos());
@@ -534,7 +559,7 @@ impl Temporary {
         for attempt in 0..NAME_ATTEMPTS {
             let name = format!("{TEMPORARY_PREFIX}{process}-{stamp}-{attempt}.tmp");
             let path = directory.join(name);
-            match open_new(&path, mode) {
+            match open(&path) {
                 Ok(file) => {
                     let renamed = false;
                     return Ok((Self { path, renamed }, file));
@@ -560,7 +585,8 @@ impl Temporary {
 
 impl Drop for Temporary {
     fn drop(&mut self) {
-        // A list it was given can deny removing it, and only until that list is gone.
+        // A list it was given can deny removing it, and only until that list is gone, which comes
+        // after its mode is shut, so that it is never left more open.
         if !self.renamed && fs::remove_file(&self.path).is_err() {
             let _ = file_meta::clear_access_list_at(&self.path);
             let _ = fs::remove_file(&self.path);

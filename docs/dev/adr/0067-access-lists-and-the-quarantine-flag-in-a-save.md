@@ -15,11 +15,13 @@ A new file also takes entries from the list of the directory it is made in, what
 
 ### The order of a write
 
-This extends the order in ADR 0059. Only the first of these comes before the text.
+This extends the order in ADR 0059. Only the first two of these come before the text.
 
 1. **Before the file is made,** read what the file being replaced holds: its access list and its quarantine flag.
-2. **Right after the temporary file is made,** take off the list it took from its directory, and make sure none is left. So only this user can read it
-   while the text goes in, as mode `0600` says.
+2. **The temporary file grants nothing through a list from its first moment.** On macOS a list applies at once, and a descriptor opened while it did would
+   outlive its removal. So the file is made with `openx_np` and a list that takes nothing from its directory and holds no entries, which the system stores
+   as none, and nothing is left to remove. On Linux a default list can still reach it, but mode `0600` shuts its mask, so it grants nothing, and it comes
+   off before the text. So only this user can read it while the text goes in, as mode `0600` says.
 3. **After the text,** give it the owner and group, as before. Then its quarantine flag, then its list, and read the list back. Then its mode.
    - On macOS a list applies at once. The people it allows could read the old file too, and what it denies is in force before the mode opens anything.
    - On Linux the group bits of a mode are a POSIX list's mask. So the list goes on with the mask and others shut, and the owner's rights alone, and
@@ -37,19 +39,22 @@ a confirmed exit back, as ADR 0059 says.
 
 ### A new file
 
-A new file, or one deleted since it was read, gets what its directory says. That is what the directory's owner asked for. It goes on after the text, like any other list, and
-then the mode.
+A new file, or one deleted since it was read, gets what its directory says. That is what the directory's owner asked for. An empty file is made there as any program
+would make it, before the text, and what it got, its list and the mode the umask gives, is taken and it is removed. That list goes on after the text, like any other,
+and then the mode.
 
 ### What a list can deny
 
 On macOS a rename needs the right to delete both the file it moves and the file it replaces. So a file whose list denies this user deleting it cannot be
-replaced, and a new file cannot be put in place if what its directory gives denies that. Both are refused with "Not saved: its access list denies
-replacing or moving it". Which user an entry names cannot be told without asking a directory service, so only the system's answer counts: a list that denies
-someone else lets the save through.
+replaced, and a new file cannot be put in place if what its directory gives denies that. When the rename is refused and the list the file would have
+denies someone deleting it, the message says just that: "Not saved: the rename was refused, and its access list denies someone deleting it", with the
+system's own error. Which user an entry names cannot be told without asking a directory service, so it claims no more, and only the system's answer counts:
+a list that denies someone else lets the save through. Only entries that apply to the file itself count, and not those only for what a directory makes.
 
-A temporary file holding such a list cannot be removed either. So when removing it fails, its list is cleared by its path and removing it is tried again.
-One a process left behind, listed `left by a save` ([ADR 0064](0064-recovering-an-emergency-copy.md)), has its own list cleared the same way when
-the person deletes it there, and only a list that denies deleting it.
+A temporary file holding such a list cannot be removed either. So when removing it fails, it is opened to write, without following a link or waiting, and
+given mode `0600` and then no list, and removing it is tried again. In that order it is never left more open than its list left it. If it cannot be opened
+so, nothing is changed. One a process left behind, listed `left by a save` ([ADR 0064](0064-recovering-an-emergency-copy.md)), is treated the same way
+when the person deletes it there, and only if its own list denies deleting it.
 
 ### The quarantine flag
 
@@ -72,7 +77,7 @@ pipe with nobody reading does not wait. The loader's own open stays as `open-que
 
 ### Where it lives
 
-- `file_meta` gains `AccessList`, `Quarantine`, `clear_access_list_at` and `open_for_writing`. None holds an OS type. A list is bytes as the system gives them, which this process only
+- `file_meta` gains `AccessList`, `Quarantine`, `clear_access_list_at`, `create_private` and `open_for_writing`. None holds an OS type. A list is bytes as the system gives them, which this process only
   compares and hands back.
 - `file_meta::linux` is a new backend, through extended attributes in `libc`, with no library. `file_meta::posix_list` knows the bytes, and is plain arithmetic, tested on every system.
   A list in a form it does not know is refused, as what it would mean cannot be told.
@@ -94,6 +99,9 @@ pipe with nobody reading does not wait. The loader's own open stays as `open-que
 - **Writing in place when there is a list:** a crash in the middle damages the file, which ADR 0059 is designed against.
 - **Warning after the save:** what the list allowed or denied would no longer apply.
 - **Putting the list on before the text:** a failed copy would have left text readable. Now nobody but this user can read it before it is whole.
+- **Making the temporary file as usual and taking its list off right away:** on macOS what it took applies until then, and a descriptor opened in between
+  keeps working.
+- **Refusing a save when the directory gives an entry the file lacks:** it would refuse ordinary saves in shared folders, where `openx_np` needs nothing refused.
 - **`fcopyfile`:** one call, but its man page does not say what it does with what the destination took from its directory, and it needs the old file open to read.
 - **Refusing a save when the quarantine flag cannot be kept:** the text would stay out of the file for a flag.
 - **Copying every extended attribute, or those `xattr_preserve_for_intent` allows:** it would copy names that must not be copied, such as a stale code signature.

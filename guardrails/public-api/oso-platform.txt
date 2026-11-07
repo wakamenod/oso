@@ -52,6 +52,8 @@ pub fn oso_platform::file_meta::AccessList::clone(&self) -> oso_platform::file_m
 impl core::cmp::Eq for oso_platform::file_meta::AccessList
 impl core::cmp::PartialEq for oso_platform::file_meta::AccessList
 pub fn oso_platform::file_meta::AccessList::eq(&self, &oso_platform::file_meta::AccessList) -> bool
+impl core::default::Default for oso_platform::file_meta::AccessList
+pub fn oso_platform::file_meta::AccessList::default() -> oso_platform::file_meta::AccessList
 impl core::fmt::Debug for oso_platform::file_meta::AccessList
 pub fn oso_platform::file_meta::AccessList::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::file_meta::AccessList
@@ -68,6 +70,7 @@ impl core::fmt::Debug for oso_platform::file_meta::Quarantine
 pub fn oso_platform::file_meta::Quarantine::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::file_meta::Quarantine
 pub fn oso_platform::file_meta::clear_access_list_at(&std::path::Path) -> std::io::error::Result<()>
+pub fn oso_platform::file_meta::create_private(&std::path::Path) -> std::io::error::Result<std::fs::File>
 pub fn oso_platform::file_meta::open_for_writing(&std::path::Path) -> std::io::error::Result<std::fs::File>
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
 pub mod oso_platform::privacy

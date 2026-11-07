@@ -67,8 +67,8 @@ pub(crate) fn directory_access_list(path: &Path) -> io::Result<Vec<AccessEntry>>
 }
 
 /// The access list of a file, as the system holds it. Two can be compared, and one can go on another
-/// file. On Windows and other systems there are none yet, so all are empty (ADR 0067).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// file. The default is none at all. On Windows and other systems there are none yet, so all are empty (ADR 0067).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AccessList {
     bytes: Vec<u8>,
     denies_deleting: bool,
@@ -116,14 +116,60 @@ impl AccessList {
     }
 }
 
-/// Takes any access list off the file at `path`, not following a link, so that a file this process
-/// made and may not remove can be removed.
+/// Gives the file at `path` mode `0600` and then no access list, so that a file whose list denies
+/// removing it can be removed. It goes through a descriptor of the file itself, not a link, opened to
+/// write and not waiting. If that cannot be opened, nothing is changed, so the file never holds its
+/// text with its list gone and a wider mode. On Linux removing a file goes by its directory, so this
+/// does nothing there.
 ///
 /// # Errors
 ///
-/// If it cannot be done. A file left behind is all that means.
+/// If it cannot be done. The file is then as it was.
 pub fn clear_access_list_at(path: &Path) -> io::Result<()> {
     backend::clear_access_list_at(path)
+}
+
+/// Creates the file at `path` for writing, which must not exist in any form, with mode `0600` and
+/// granting nothing through an access list at any moment. On macOS it takes nothing from its
+/// directory's list, as a list on it would apply at once and a descriptor opened then would outlive its
+/// removal. On Linux it may take a default list, whose mask the mode shuts. It touches the disk, so it
+/// belongs off the UI thread.
+///
+/// # Errors
+///
+/// As creating a file does: `AlreadyExists` for a name already there, a link to nothing among them.
+pub fn create_private(path: &Path) -> io::Result<File> {
+    backend::create_private(path)
+}
+
+/// Reads a value whose size is asked for first, through `read`, which takes a buffer and its size, a
+/// null one of 0 to ask the size, and returns what `getxattr` does. It asks again if the value grew in
+/// between. The error is the system's.
+#[cfg(unix)]
+fn read_sized(read: impl Fn(*mut std::ffi::c_void, usize) -> isize) -> io::Result<Vec<u8>> {
+    loop {
+        let size = usize::try_from(read(std::ptr::null_mut(), 0))
+            .map_err(|_| io::Error::last_os_error())?;
+        let mut bytes = vec![0u8; size];
+        match usize::try_from(read(bytes.as_mut_ptr().cast(), bytes.len())) {
+            Ok(got) => {
+                bytes.truncate(got);
+                return Ok(bytes);
+            }
+            Err(_) if io::Error::last_os_error().raw_os_error() == Some(libc::ERANGE) => {}
+            Err(_) => return Err(io::Error::last_os_error()),
+        }
+    }
+}
+
+/// Opens a new file for writing with mode `0600`, as `std` does.
+#[cfg(not(target_os = "macos"))]
+fn create_new_private(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)
 }
 
 /// The quarantine flag of a file on macOS, which says it came from elsewhere and that Gatekeeper

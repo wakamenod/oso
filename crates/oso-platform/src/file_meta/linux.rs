@@ -11,7 +11,6 @@ use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::ptr;
 
 use super::{AccessEntry, AccessList, Quarantine, posix_list};
 
@@ -34,32 +33,19 @@ pub(super) fn seal(_file: &File) -> io::Result<()> {
     Ok(())
 }
 
-/// Bytes read with `read`, which takes a buffer and returns what `getxattr` does, asking again if the
-/// list grew between asking its size and reading it. No list, and a file system with no lists, read as none.
+/// Bytes read with `read`, as `read_sized` does. No list, and a file system with no lists, read as
+/// none.
 fn read_list(read: impl Fn(*mut c_void, usize) -> isize) -> io::Result<Vec<u8>> {
-    loop {
-        let size = read(ptr::null_mut(), 0);
-        let Ok(size) = usize::try_from(size) else {
-            return none_or_error();
-        };
-        let mut bytes = vec![0u8; size];
-        let got = read(bytes.as_mut_ptr().cast(), bytes.len());
-        match usize::try_from(got) {
-            Ok(got) => {
-                bytes.truncate(got);
-                return Ok(bytes);
-            }
-            Err(_) if io::Error::last_os_error().raw_os_error() == Some(libc::ERANGE) => {}
-            Err(_) => return none_or_error(),
+    match super::read_sized(read) {
+        Err(e)
+            if matches!(
+                e.raw_os_error(),
+                Some(libc::ENODATA | libc::EOPNOTSUPP | libc::ENOSYS)
+            ) =>
+        {
+            Ok(Vec::new())
         }
-    }
-}
-
-fn none_or_error() -> io::Result<Vec<u8>> {
-    let error = io::Error::last_os_error();
-    match error.raw_os_error() {
-        Some(libc::ENODATA | libc::EOPNOTSUPP | libc::ENOSYS) => Ok(Vec::new()),
-        _ => Err(error),
+        read => read,
     }
 }
 
@@ -143,6 +129,10 @@ pub(super) fn give_access_list(list: &AccessList, file: &File) -> io::Result<()>
 )]
 pub(super) fn clear_access_list_at(_path: &Path) -> io::Result<()> {
     Ok(())
+}
+
+pub(super) fn create_private(path: &Path) -> io::Result<File> {
+    super::create_new_private(path)
 }
 
 #[expect(

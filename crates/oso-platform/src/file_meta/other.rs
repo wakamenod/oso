@@ -58,6 +58,10 @@ pub(super) fn clear_access_list_at(_path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+pub(super) fn create_private(path: &Path) -> io::Result<File> {
+    super::create_new_private(path)
+}
+
 #[expect(
     clippy::unnecessary_wraps,
     reason = "the same signature as on macOS, where it can fail"

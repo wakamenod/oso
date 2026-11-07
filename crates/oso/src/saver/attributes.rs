@@ -1,20 +1,38 @@
 //! What a save keeps of the file it replaces beyond its text and its access list: its owner, its group and
-//! its mode (ADR 0059).
+//! its mode, and what a new file gets where it is made (ADR 0059, ADR 0067).
 //!
 //! Must not depend on: `app`, winit or the GPU.
 
-use std::fs::{File, Metadata};
+use std::fs::{File, Metadata, Permissions};
 use std::io;
 use std::path::Path;
 
 use oso_core::buffer::FileStamp;
+use oso_platform::file_meta::AccessList;
 
-#[cfg(unix)]
-use super::Temporary;
+use super::{SaveError, Temporary};
 
-/// The mode a program asks for a new file, which the umask then narrows.
-#[cfg(unix)]
+/// The mode a program asks for a new file, which the umask then narrows. It means nothing on
+/// Windows.
 const DEFAULT_MODE: u32 = 0o666;
+
+/// What a file made in a directory gets there, as any program would make it: the mode the umask
+/// gives and the access list the directory gives.
+pub(super) struct Made {
+    pub(super) permissions: Permissions,
+    pub(super) list: AccessList,
+}
+
+impl Made {
+    /// Makes an empty file in `directory`, takes what it got, and removes it. Its list comes off
+    /// first, so that it can be removed whatever the list says.
+    pub(super) fn there(directory: &Path) -> Result<Self, SaveError> {
+        let (_probe, file) = Temporary::create(directory, DEFAULT_MODE)?;
+        let permissions = file.metadata()?.permissions();
+        let list = AccessList::take_from(&file).map_err(SaveError::AccessList)?;
+        Ok(Self { permissions, list })
+    }
+}
 
 /// Whether the attributes the new file took are out of date by now, as the rename would
 /// then undo a `chmod` made during the write. A file that came back counts, since it
@@ -57,26 +75,24 @@ pub(super) fn keep_owner(file: &File, replaced: Option<&Metadata>) -> io::Result
 }
 
 /// Gives `file` the mode of the file it replaces. If that file was deleted since it was `read`, it
-/// gets its mode back, as if its group were lost, and a file that never existed gets the default mode.
-/// Extended attributes other than the quarantine flag, and other hard links, do not carry over
-/// (ADR 0059, ADR 0067).
+/// gets its mode back, as if its group were lost, and a file that never existed gets what a file
+/// `made` there gets. Extended attributes other than the quarantine flag, and other hard links, do
+/// not carry over (ADR 0059, ADR 0067).
 #[cfg(unix)]
 pub(super) fn keep_mode(
     file: &File,
     replaced: Option<&Metadata>,
     read: Option<FileStamp>,
-    directory: &Path,
+    made: Option<Permissions>,
     group_kept: bool,
 ) -> io::Result<()> {
-    use std::fs::Permissions;
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
     let Some(old) = replaced else {
         if let Some(read) = read {
             return file.set_permissions(Permissions::from_mode(kept_mode(read.mode, false)));
         }
-        let (_probe, probe_file) = Temporary::create(directory, DEFAULT_MODE)?;
-        return file.set_permissions(probe_file.metadata()?.permissions());
+        return made.map_or(Ok(()), |made| file.set_permissions(made));
     };
     file.set_permissions(Permissions::from_mode(kept_mode(old.mode(), group_kept)))
 }
@@ -108,7 +124,7 @@ pub(super) fn keep_mode(
     file: &File,
     replaced: Option<&Metadata>,
     _read: Option<FileStamp>,
-    _directory: &Path,
+    _made: Option<Permissions>,
     _group_kept: bool,
 ) -> io::Result<()> {
     match replaced {
