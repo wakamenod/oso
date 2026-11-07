@@ -69,6 +69,7 @@ old one's status.
 | 0060 | [Timings while a secret buffer is shown](0060-timings-while-a-secret-buffer-is-shown.md) | Accepted |
 | 0061 | [Panes: drawing a frame as a list with clipping and layers](0061-panes-clipping-and-layers.md) | Accepted |
 | 0062 | [The emergency save, the panic hook and no core dumps](0062-emergency-save-and-the-panic-hook.md) | Accepted |
+| 0065 | [Access lists on private directories](0065-access-lists-on-private-directories.md) | Proposed |
 
 ## Template
 

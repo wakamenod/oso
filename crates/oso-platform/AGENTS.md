@@ -2,7 +2,8 @@
 
 OS abstractions: the text system backends, and later IME, clipboard,
 filesystem and the PTY (ADR 0003, ADR 0004). `privacy` holds what keeps text
-private to its user: no core dumps, and private directories (ADR 0062). The dev
+private to its user: no core dumps, and private directories (ADR 0062), and
+`file_meta` what decides who may reach a file beyond its mode (ADR 0065). The dev
 control socket transport lives in `control`, and process spawning in `process`,
 behind the `dev` feature.
 

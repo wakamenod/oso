@@ -62,6 +62,8 @@ item notes when it must be settled.
 - Safe save loses a file's extended attributes and ACLs, since `std` cannot copy them
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
   `libc` is in release builds now ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)), so decide whether copying them is worth it.
+- Later, before anyone uses oso on Windows: a private directory there relies on the per-user place it is in, and what its access list says goes unchecked. It needs
+  `windows-sys` as a direct dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
   buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. The same goes for
   a buffer whose load could not tell where its file is. A file owned by

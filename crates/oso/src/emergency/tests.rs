@@ -15,6 +15,7 @@ use super::{Emergency, Entry, LIMITS, Report, Why, directory_problem, write};
 use crate::saver::Agreement;
 
 mod hook;
+mod seal;
 
 /// The text published for `id`, if any.
 pub(crate) fn published_text(emergency: &Emergency, id: BufferId) -> Option<String> {

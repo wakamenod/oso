@@ -35,6 +35,7 @@ sum_tree
 [oso-platform]
 control process text
 privacy
+file_meta
 
 [oso-render]
 capture

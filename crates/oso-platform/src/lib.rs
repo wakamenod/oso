@@ -1,6 +1,6 @@
 //! OS abstractions (ADR 0003, ADR 0004): the text system backends, what keeps text
-//! private to its user and, in dev builds, the control socket transport and process
-//! spawning.
+//! private to its user, what decides who may reach a file beyond its mode and, in dev
+//! builds, the control socket transport and process spawning.
 //!
 //! Must not depend on: any workspace crate (`oso-core`, `oso-render`, `oso`),
 //! wgpu or winit.
@@ -10,6 +10,7 @@
 
 #[cfg(feature = "dev")]
 pub mod control;
+pub mod file_meta;
 pub mod privacy;
 #[cfg(feature = "dev")]
 pub mod process;

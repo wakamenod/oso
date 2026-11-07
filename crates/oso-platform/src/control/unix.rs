@@ -18,7 +18,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{is_plain_name, owner_pid, socket_pid};
-use crate::privacy::{check_dir, euid, parent_is_safe};
+use crate::file_meta::directory_list;
+use crate::privacy::{
+    check_dir, euid, own_list_problem, parent_is_safe, parent_list_problem, way_list_problem,
+};
 
 /// The private directory that holds control sockets and the files they
 /// write. Every way to get one checks the directory first.
@@ -80,7 +83,13 @@ impl ControlDir {
                 ),
             ));
         }
-        Ok(())
+        // A link holds no list, so this asks what it leads to.
+        let real = fs::canonicalize(parent).map_err(|e| with_path(e, "cannot inspect", parent))?;
+        let entries = directory_list(&real).map_err(|e| with_path(e, "cannot inspect", parent))?;
+        match way_list_problem(&entries).or_else(|| parent_list_problem(&entries)) {
+            Some(problem) => Err(refused(parent, problem.message())),
+            None => Ok(()),
+        }
     }
 
     /// Checks the directory without following a symlink at `path` itself.
@@ -94,16 +103,11 @@ impl ControlDir {
             meta.mode(),
             euid(),
         )
-        .map_err(|problem| {
-            io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!(
-                    "refusing to use {} for the control socket: it {}",
-                    path.display(),
-                    problem.message()
-                ),
-            )
-        })?;
+        .map_err(|problem| refused(&path, problem.message()))?;
+        let entries = directory_list(&path).map_err(|e| with_path(e, "cannot inspect", &path))?;
+        if let Some(problem) = own_list_problem(&entries) {
+            return Err(refused(&path, problem.message()));
+        }
         Ok(Self { path })
     }
 
@@ -265,6 +269,16 @@ fn default_path(
             ),
         )),
     }
+}
+
+fn refused(path: &Path, why: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "refusing to use {} for the control socket: it {why}",
+            path.display()
+        ),
+    )
 }
 
 fn with_path(e: io::Error, what: &str, path: &Path) -> io::Error {
@@ -581,6 +595,35 @@ mod tests {
     fn default_path_refuses_a_relative_temp_dir() {
         let err = default_path(None, PathBuf::from("tmp"), 501).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_list_on_the_directory_or_its_parent_counts_as_it_does_for_any_private_directory() {
+        use crate::file_meta::macos::test_list::{clear, set_for_everyone};
+
+        let scratch = Scratch::new();
+        let parent = scratch.join("parent");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, Permissions::from_mode(0o755)).unwrap();
+        let path = parent.join("c");
+
+        set_for_everyone(&parent, "allow", "write");
+        assert!(ControlDir::at(&path).is_err());
+        assert!(!path.exists());
+        set_for_everyone(&parent, "allow,directory_inherit", "read");
+        assert!(ControlDir::at(&path).is_err());
+        assert!(!path.exists());
+        set_for_everyone(&parent, "deny", "delete");
+        ControlDir::at(&path).unwrap();
+        clear(&parent);
+
+        set_for_everyone(&path, "allow", "read");
+        let err = ControlDir::at(&path).unwrap_err();
+        assert!(err.to_string().contains("access list"), "{err}");
+        set_for_everyone(&path, "deny", "delete");
+        ControlDir::at(&path).unwrap();
+        clear(&path);
     }
 
     #[test]

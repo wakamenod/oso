@@ -1,5 +1,5 @@
 //! Keeping what the editor holds private to its user: no core dumps, and a directory
-//! only the user can reach (ADR 0028, ADR 0062).
+//! only the user can reach (ADR 0028, ADR 0062, ADR 0065).
 //!
 //! Must not depend on: `control`, `process` or `text`. `control` uses the checks here, so
 //! that the two kinds of private directory cannot drift apart.
@@ -9,6 +9,8 @@
 
 use std::io;
 use std::path::{Component, Path, PathBuf};
+
+use crate::file_meta::ListEntry;
 
 #[cfg(not(unix))]
 mod other;
@@ -42,7 +44,8 @@ pub fn state_home() -> Option<PathBuf> {
 
 /// A directory only this user can reach, checked when it is opened and created if it
 /// is missing. On Unix, that means mode `0700`, this user's own, not a symbolic link, and
-/// nothing that leads to it can be changed by another user. Windows has no modes, so there it means a real
+/// nothing that leads to it can be changed by another user. On macOS, access lists count too, and
+/// only their `deny` entries are always harmless. Windows has no modes, so there it means a real
 /// directory, and privacy comes from the per-user place the caller chose.
 #[derive(Debug, Clone)]
 pub struct PrivateDir {
@@ -103,6 +106,9 @@ pub(crate) enum DirProblem {
     NotADirectory,
     WrongOwner,
     LooseMode,
+    ListGrants,
+    ListLetsChange,
+    ListPassesOn,
 }
 
 impl DirProblem {
@@ -112,6 +118,11 @@ impl DirProblem {
             Self::NotADirectory => "is not a directory",
             Self::WrongOwner => "is owned by another user",
             Self::LooseMode => "is accessible by other users (mode is not 0700)",
+            Self::ListGrants => "is accessible by other users through an access list",
+            Self::ListLetsChange => "can be changed by other users through an access list",
+            Self::ListPassesOn => {
+                "would pass access on to directories made in it, through an access list"
+            }
         }
     }
 }
@@ -151,9 +162,113 @@ pub(crate) fn ancestor_is_safe(mode: u32, owner: u32, euid: u32) -> bool {
     parent_is_safe(mode) && (owner == euid || owner == 0)
 }
 
+/// Why the access list of a private directory keeps it from being one. It may grant nothing
+/// at all, whoever an entry names: telling this user from others means asking a directory
+/// service. A `deny` takes rights away, so it does no harm.
+pub(crate) fn own_list_problem(entries: &[ListEntry]) -> Option<DirProblem> {
+    entries
+        .iter()
+        .any(|entry| entry.allows)
+        .then_some(DirProblem::ListGrants)
+}
+
+/// Why the access list of a directory that leads to a private one keeps it from being one. An
+/// entry that only reads is fine, as mode `0755` is.
+pub(crate) fn way_list_problem(entries: &[ListEntry]) -> Option<DirProblem> {
+    entries
+        .iter()
+        .any(|entry| entry.allows && entry.changes_contents)
+        .then_some(DirProblem::ListLetsChange)
+}
+
+/// Why a private directory cannot be made under a directory with this access list. Only what
+/// reaches a new directory counts: a list reaches only what is made after it, and an entry
+/// for files stops at this one.
+pub(crate) fn parent_list_problem(entries: &[ListEntry]) -> Option<DirProblem> {
+    entries
+        .iter()
+        .any(|entry| entry.allows && entry.reaches_new_directories)
+        .then_some(DirProblem::ListPassesOn)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DirProblem, ancestor_is_safe, check_dir, parent_is_safe};
+    use super::{
+        DirProblem, ListEntry, ancestor_is_safe, check_dir, own_list_problem, parent_is_safe,
+        parent_list_problem, way_list_problem,
+    };
+
+    /// What macOS puts on `~` and on many of the directories under it.
+    const DENY_DELETE: ListEntry = ListEntry {
+        allows: false,
+        changes_contents: true,
+        reaches_new_directories: false,
+    };
+    const ALLOW_READING: ListEntry = ListEntry {
+        allows: true,
+        changes_contents: false,
+        reaches_new_directories: false,
+    };
+    const ALLOW_CHANGING: ListEntry = ListEntry {
+        allows: true,
+        changes_contents: true,
+        reaches_new_directories: false,
+    };
+    const ALLOW_FOR_NEW_DIRECTORIES: ListEntry = ListEntry {
+        allows: true,
+        changes_contents: false,
+        reaches_new_directories: true,
+    };
+    const DENY_FOR_NEW_DIRECTORIES: ListEntry = ListEntry {
+        allows: false,
+        changes_contents: true,
+        reaches_new_directories: true,
+    };
+
+    #[test]
+    fn a_deny_is_harmless_wherever_it_is() {
+        for deny in [DENY_DELETE, DENY_FOR_NEW_DIRECTORIES] {
+            assert_eq!(own_list_problem(&[deny]), None);
+            assert_eq!(way_list_problem(&[deny]), None);
+            assert_eq!(parent_list_problem(&[deny]), None);
+        }
+    }
+
+    #[test]
+    fn no_list_is_harmless() {
+        assert_eq!(own_list_problem(&[]), None);
+        assert_eq!(way_list_problem(&[]), None);
+        assert_eq!(parent_list_problem(&[]), None);
+    }
+
+    #[test]
+    fn a_private_directory_may_grant_nothing_at_all() {
+        for allow in [ALLOW_READING, ALLOW_CHANGING, ALLOW_FOR_NEW_DIRECTORIES] {
+            assert_eq!(
+                own_list_problem(&[DENY_DELETE, allow]),
+                Some(DirProblem::ListGrants)
+            );
+        }
+    }
+
+    #[test]
+    fn what_leads_to_it_may_let_others_read_but_not_change() {
+        assert_eq!(way_list_problem(&[ALLOW_READING]), None);
+        assert_eq!(
+            way_list_problem(&[DENY_DELETE, ALLOW_CHANGING]),
+            Some(DirProblem::ListLetsChange)
+        );
+    }
+
+    #[test]
+    fn only_what_reaches_a_new_directory_stops_one_being_made() {
+        assert_eq!(parent_list_problem(&[ALLOW_READING]), None);
+        assert_eq!(parent_list_problem(&[ALLOW_CHANGING]), None);
+        assert_eq!(
+            parent_list_problem(&[ALLOW_FOR_NEW_DIRECTORIES]),
+            Some(DirProblem::ListPassesOn)
+        );
+    }
 
     #[test]
     fn parents_must_be_private_or_sticky() {
