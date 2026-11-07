@@ -21,7 +21,7 @@ use std::ops::Range;
 use std::sync::mpsc;
 use std::thread;
 
-use oso_core::buffer::{Buffer, BufferId, ReadOnly};
+use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::{Editor, Status};
 use oso_core::key::KeyPress;
@@ -108,7 +108,9 @@ fn scroll_state(window: &Window) -> Value {
 /// modified (ADR 0058).
 fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
     let info = buffer.file_info();
-    let size_shown = !(buffer.is_secret() && buffer.is_modified());
+    // The size of a withheld copy or compare says how far it is from its file (ADR 0064).
+    let withheld_view = buffer.mode() == Mode::CopyView;
+    let size_shown = !(buffer.is_secret() && (buffer.is_modified() || withheld_view));
     json!({
         "id": id.get(),
         "name": buffer.name(),

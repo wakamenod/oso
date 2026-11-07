@@ -102,19 +102,14 @@ pub fn follow_links(path: &Path) -> io::Result<PathBuf> {
 }
 
 /// The real place `path` leads, whether or not anything is there: its links followed,
-/// and the part of its directory that exists canonical, and the file's own spelling if
-/// there is a file, as a file system that ignores case or normalizes names opens it under
-/// others (ADR 0064). Two paths have the same answer only if a file made through either
-/// lands in one place.
+/// and the part of its directory that exists canonical. Two paths have the same answer
+/// only if a file made through either lands in one place.
 ///
 /// # Errors
 ///
 /// If it cannot be told: as for [`follow_links`], or a directory that cannot be read.
 pub fn location(path: &Path) -> io::Result<PathBuf> {
     let target = follow_links(path)?;
-    if let Ok(real) = fs::canonicalize(&target) {
-        return Ok(real);
-    }
     let name = target
         .file_name()
         .ok_or_else(|| io::Error::other("the path names no file"))?;
@@ -124,6 +119,13 @@ pub fn location(path: &Path) -> io::Result<PathBuf> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(location(directory)?.join(name)),
         Err(e) => Err(e),
     }
+}
+
+/// The spelling the file at `location` has on disk, if it is there, as a file system that
+/// ignores case or normalizes names opens it under others (ADR 0064). This is for an emergency
+/// copy to find its file by. A save does not compare it: it would differ once the file has gone.
+pub fn own_spelling(location: &Path) -> Option<PathBuf> {
+    fs::canonicalize(location).ok()
 }
 
 /// The directory holding `path`.
@@ -219,32 +221,43 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Default volumes on macOS and Windows open a file under another case, and the two must
-    /// have one location, or an emergency copy goes unmatched (ADR 0064).
+    /// Default volumes on macOS and Windows open a file under another case. Its location stays
+    /// as typed, for a save to compare, and only its own spelling is the same either way.
     #[test]
-    fn a_location_takes_the_files_own_case_where_the_file_system_ignores_case() {
+    fn a_files_own_spelling_is_the_same_however_it_is_typed_and_its_location_stays_as_typed() {
         let dir = scratch_dir("case");
         fs::write(dir.join("Notes.txt"), b"x").unwrap();
         let other = dir.join("NOTES.txt");
+        assert_eq!(location(&other).unwrap(), other, "as typed");
         if other.exists() {
-            assert_eq!(location(&other).unwrap(), dir.join("Notes.txt"));
+            assert_eq!(own_spelling(&other), Some(dir.join("Notes.txt")));
         } else {
-            assert_eq!(location(&other).unwrap(), other, "a new file, as typed");
+            assert_eq!(own_spelling(&other), None, "nothing there yet");
         }
+        assert_eq!(
+            own_spelling(&dir.join("Notes.txt")),
+            Some(dir.join("Notes.txt"))
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 
     /// macOS opens a file under another normalization, as Japanese names often come to differ.
     #[cfg(target_os = "macos")]
     #[test]
-    fn a_location_takes_the_files_own_normalization_on_macos() {
+    fn a_files_own_spelling_is_the_same_under_either_normalization_on_macos() {
         let dir = scratch_dir("normalization");
         let (composed, decomposed) = ("\u{304C}.txt", "\u{304B}\u{3099}.txt");
         fs::write(dir.join(composed), b"x").unwrap();
-        assert_eq!(location(&dir.join(decomposed)).unwrap(), dir.join(composed));
+        assert_eq!(
+            own_spelling(&dir.join(decomposed)),
+            Some(dir.join(composed))
+        );
         fs::remove_file(dir.join(composed)).unwrap();
         fs::write(dir.join(decomposed), b"x").unwrap();
-        assert_eq!(location(&dir.join(composed)).unwrap(), dir.join(decomposed));
+        assert_eq!(
+            own_spelling(&dir.join(composed)),
+            Some(dir.join(decomposed))
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

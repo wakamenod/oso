@@ -11,6 +11,7 @@ use std::time::{Duration, SystemTime};
 use oso_core::decode::LineEnding;
 
 use super::write::META_HEADER;
+use crate::saver::all_digits;
 
 /// The most of a `.meta` that is read, as ADR 0062 says.
 pub(super) const MAX_META: u64 = 64 * 1024;
@@ -22,6 +23,8 @@ pub(super) struct Meta {
     pub(super) name: String,
     pub(super) path: Option<String>,
     pub(super) location: Option<String>,
+    /// Dev tooling withheld this text when it was copied.
+    pub(super) withheld: bool,
     pub(super) bom: bool,
     pub(super) line_ending: Option<LineEnding>,
     pub(super) file_bytes: Option<u64>,
@@ -62,6 +65,10 @@ pub(super) fn decoded(encoded: &str) -> Option<String> {
     while let Some(byte) = bytes.get(index) {
         if *byte == b'%' {
             let digits = bytes.get(index + 1..index + 3)?;
+            // `from_str_radix` also takes a sign.
+            if !digits.iter().all(u8::is_ascii_hexdigit) {
+                return None;
+            }
             let digits = std::str::from_utf8(digits).ok()?;
             out.push(u8::from_str_radix(digits, 16).ok()?);
             index += 3;
@@ -75,11 +82,7 @@ pub(super) fn decoded(encoded: &str) -> Option<String> {
 
 /// A number as `meta_text` writes one: digits only, as `str::parse` also takes a `+`.
 fn number(value: &str) -> Option<u64> {
-    value
-        .bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| value.parse().ok())
-        .flatten()
+    all_digits(value).then(|| value.parse().ok()).flatten()
 }
 
 /// A modification time, as `<seconds>.<nine digits>`.
@@ -105,6 +108,7 @@ struct Seen {
     path: Option<String>,
     location: Option<String>,
     bom: Option<bool>,
+    withheld: Option<bool>,
     line_ending: Option<Option<LineEnding>>,
     file_bytes: Option<u64>,
     file_modified: Option<SystemTime>,
@@ -116,7 +120,8 @@ struct Seen {
 impl Seen {
     /// Takes in one line. `None` if it spoils the whole file. A key not known is passed by.
     fn line(&mut self, line: &str) -> Option<()> {
-        let (key, value) = line.split_once(' ')?;
+        // A key this does not know may hold anything, or nothing.
+        let (key, value) = line.split_once(' ').unwrap_or((line, ""));
         match key {
             "name" => once(&mut self.name, decoded(value)?),
             "path" => {
@@ -128,6 +133,7 @@ impl Seen {
                 once(&mut self.location, value.to_owned())
             }
             "bom" => once(&mut self.bom, value == "true"),
+            "withheld" => once(&mut self.withheld, value != "false"),
             "line-ending" => once(
                 &mut self.line_ending,
                 match value {
@@ -177,6 +183,8 @@ pub(super) fn parse(bytes: &[u8]) -> Option<Meta> {
         name: seen.name.unwrap_or_else(|| "?".to_owned()),
         path: seen.path,
         location: seen.location,
+        // Only a copy that says it is not withheld is not.
+        withheld: seen.withheld.unwrap_or(true),
         bom: seen.bom.unwrap_or(false),
         line_ending: seen.line_ending.flatten(),
         file_bytes: seen.file_bytes,
@@ -200,6 +208,7 @@ mod tests {
             name: "メモ 1.txt".to_owned(),
             path: path.map(PathBuf::from),
             location: path.map(|path| Path::new("/real").join(path.trim_start_matches('/'))),
+            withheld: false,
             bom: true,
             line_ending: LineEnding::Crlf,
         }
@@ -251,8 +260,10 @@ mod tests {
     #[test]
     fn keys_it_does_not_know_are_passed_by_and_a_line_with_no_value_spoils_it() {
         assert!(with("next-version-key something").is_some());
-        assert!(with("no-value").is_none());
-        assert!(with("").is_none());
+        assert!(with("no-value").is_some());
+        assert!(with("").is_some());
+        assert!(with("bytes").is_none(), "twice, and no number");
+        assert!(with("file-bytes").is_none(), "a known key with no value");
     }
 
     #[test]
@@ -272,6 +283,7 @@ mod tests {
         assert!(with("written 99999999999999999999999").is_none());
         assert!(with("path /a%2").is_none());
         assert!(with("path /a%zz").is_none());
+        assert!(with("path /a%+1").is_none());
         assert!(with("location /a%").is_none());
         assert!(with("name %ff%").is_none());
         assert!(with("file-modified 5").is_none());
@@ -282,6 +294,14 @@ mod tests {
             parse(format!("{META_HEADER}\nname a\n").as_bytes()).is_none(),
             "no bytes"
         );
+    }
+
+    #[test]
+    fn only_a_copy_that_says_it_is_not_withheld_is_not() {
+        assert!(with("name a").unwrap().withheld, "it does not say");
+        assert!(with("withheld true").unwrap().withheld);
+        assert!(with("withheld maybe").unwrap().withheld);
+        assert!(!with("withheld false").unwrap().withheld);
     }
 
     #[test]

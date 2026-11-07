@@ -1,5 +1,4 @@
-//! What may be read or removed in the directory: the forms of the names in it, and the checks
-//! a file must pass before anything opens it (ADR 0064).
+//! The checks a file must pass before anything opens it, and removing a copy (ADR 0064).
 //!
 //! Must not depend on: `app`, `dispatch` or winit; these are plain functions of paths.
 
@@ -8,65 +7,17 @@ use std::io;
 use std::path::Path;
 use std::time::SystemTime;
 
-use oso_platform::privacy::is_this_users;
+use oso_platform::privacy::{has_one_name, is_this_users};
 
 use super::LEFT_BEHIND;
 use crate::loader::same_file;
-use crate::saver::TEMPORARY_PREFIX;
-
-/// Whether `name` has the form `<16 hex>-<digits>-<digits>-<digits>`, and if so the seconds.
-pub(super) fn stem_seconds(name: &str) -> Option<u64> {
-    let mut parts = name.split('-');
-    let hash = parts.next()?;
-    let seconds = parts.next()?;
-    let process = parts.next()?;
-    let attempt = parts.next()?;
-    let digits = |part: &str| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit());
-    let hex = hash.len() == 16
-        && hash
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
-    let fits = hex && digits(seconds) && digits(process) && digits(attempt);
-    (fits && parts.next().is_none())
-        .then(|| seconds.parse().ok())
-        .flatten()
-}
-
-/// Whether `name` has the exact form of a temporary file.
-pub(super) fn is_temporary(name: &str) -> bool {
-    let middle = name
-        .strip_prefix(TEMPORARY_PREFIX)
-        .and_then(|rest| rest.strip_suffix(".tmp"));
-    middle.is_some_and(|middle| {
-        let mut parts = middle.split('-');
-        let digits = |part: Option<&str>| {
-            part.is_some_and(|part| {
-                !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())
-            })
-        };
-        digits(parts.next())
-            && digits(parts.next())
-            && digits(parts.next())
-            && parts.next().is_none()
-    })
-}
 
 /// A regular file of this user's with one name, by what `symlink_metadata` says, before
 /// anything opens it, as opening a pipe blocks. A hard link is a name for some other file's text.
 pub(super) fn plain_own_file(path: &Path) -> Option<Metadata> {
     let metadata = fs::symlink_metadata(path).ok()?;
-    let plain = metadata.is_file() && is_this_users(&metadata) && one_name(&metadata);
+    let plain = metadata.is_file() && is_this_users(&metadata) && has_one_name(&metadata);
     plain.then_some(metadata)
-}
-
-#[cfg(unix)]
-fn one_name(metadata: &Metadata) -> bool {
-    std::os::unix::fs::MetadataExt::nlink(metadata) == 1
-}
-
-#[cfg(not(unix))]
-fn one_name(_: &Metadata) -> bool {
-    true
 }
 
 /// Opens a copy's text to read, by the same checks.
@@ -80,7 +31,8 @@ pub(in crate::emergency) fn open_checked(path: &Path) -> io::Result<(File, Metad
     let looked = plain_own_file(path).ok_or_else(not_plain)?;
     let file = File::open(path)?;
     let metadata = file.metadata()?;
-    if !metadata.is_file() || !same_file(&looked, &metadata) {
+    let still_plain = metadata.is_file() && is_this_users(&metadata) && has_one_name(&metadata);
+    if !still_plain || !same_file(&looked, &metadata) {
         return Err(not_plain());
     }
     Ok((file, metadata))

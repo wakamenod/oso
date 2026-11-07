@@ -48,6 +48,12 @@ pub fn is_this_users(metadata: &std::fs::Metadata) -> bool {
     backend::is_this_users(metadata)
 }
 
+/// Whether a file with `metadata` has one name, as a hard link is a name for some other file's
+/// text. Windows has no such simple answer.
+pub fn has_one_name(metadata: &std::fs::Metadata) -> bool {
+    backend::has_one_name(metadata)
+}
+
 /// A directory only this user can reach, checked when it is opened and created if it
 /// is missing. On Unix, that means mode `0700`, this user's own, not a symbolic link, and
 /// nothing that leads to it can be changed by another user. On macOS, access lists count too, and

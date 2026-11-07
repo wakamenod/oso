@@ -122,6 +122,10 @@ item notes when it must be settled.
   and then typing frees the redo group in the same way, in 2.4 ms. These scale with the
   text: about 25 ms per GB. Decide before M2-14, which brings kills, whether to send
   dropped groups to the background thread above.
+- Recovering a large emergency copy ([ADR 0064](adr/0064-recovering-an-emergency-copy.md)) is O(1) to stage, but what it replaces is freed on
+  the UI thread, about 13 ms per GB for the display map, and at the first edit after it a file over 64 MiB frees its old rope and loses the
+  undo. Undo and redo each read the whole text back, at about 0.7 ms per MB, with a second copy held for a moment, up to a copy just
+  under 2 GiB. Keeping a whole-text state in the undo group would make crossing O(1). Decide with the next two items.
 - Undoing a kill puts its text back at about 0.7 ms per MB (63 ms for 89 MB) on the UI
   thread, and for a moment holds several copies of it, since the slice is copied, split
   into chunks and measured again. Running out of memory aborts with no emergency save.

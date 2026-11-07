@@ -106,7 +106,7 @@ impl App {
             }),
             Err(e) => {
                 self.editor.message(format!("Cannot read the copy: {e}"));
-                drop(self.editor.remove_internal_buffer(buffer));
+                self.free_copy_buffer(buffer);
             }
         }
     }
@@ -126,6 +126,9 @@ impl App {
         }
         if let Some(baseline) = self.loads[index].handle.take_baseline() {
             buffer.set_baseline(baseline);
+        }
+        if let Some(spelling) = self.loads[index].handle.take_own_spelling() {
+            buffer.set_own_spelling(spelling);
         }
         let mut no_baseline = false;
         let redraw = match update {
@@ -163,8 +166,8 @@ impl App {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);
                 self.editor.kill_buffer(id);
-                // An internal buffer stays through that, and a copy that failed to load is no use.
-                drop(self.editor.remove_internal_buffer(id));
+                // An internal buffer stays through that.
+                self.free_copy_buffer(id);
                 self.loads.swap_remove(index);
                 shown
             }

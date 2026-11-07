@@ -38,7 +38,7 @@ mod save;
 mod status;
 mod view;
 
-pub use copies::{CopyAction, copy_buffer_name};
+pub use copies::RecoveryAction;
 pub use messages::row_text;
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
@@ -106,14 +106,13 @@ pub struct Editor {
     /// While a command runs, whether it has taken a buffer that may hold secrets off the
     /// screen. This holds whatever then becomes of that buffer.
     command_left_secret: Option<bool>,
-    /// Where the selected window was before it showed `*Messages*`.
-    before_messages: Option<messages::Place>,
+    /// Where the selected window was before each internal buffer it has gone to, the first
+    /// place first.
+    way_back: Vec<messages::Place>,
     /// The internal buffer that lists the emergency copies, once it has been asked for.
     copies_buffer: Option<BufferId>,
-    /// Where the selected window was before it showed emergency copies.
-    before_copies: Option<messages::Place>,
     /// What a person asked of the emergency copies, for the host.
-    copy_actions: Vec<CopyAction>,
+    copy_actions: Vec<RecoveryAction>,
     /// The echo area's line, until the next key.
     echo: Option<messages::Echo>,
     /// A prefix argument and a prefix key being typed, for the echo area. The dispatcher
@@ -145,9 +144,8 @@ impl Editor {
             join_ready: false,
             messages_buffer: BufferId(0),
             command_left_secret: None,
-            before_messages: None,
+            way_back: Vec::new(),
             copies_buffer: None,
-            before_copies: None,
             copy_actions: Vec::new(),
             echo: None,
             keys_in_progress: String::new(),
@@ -332,12 +330,17 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
+        self.note_edited(id);
+        Ok(())
+    }
+
+    /// `id` has been edited: the open undo group touches it, or with none, nothing joins.
+    fn note_edited(&mut self, id: BufferId) {
         match &mut self.undo_scope {
             Some(scope) if !scope.touched.contains(&id) => scope.touched.push(id),
             Some(_) => {}
             None => self.join_ready = false,
         }
-        Ok(())
     }
 
     /// How an edit of `id` relates to its newest undo group.

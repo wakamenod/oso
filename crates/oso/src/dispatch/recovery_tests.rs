@@ -5,7 +5,7 @@
 
 use oso_core::buffer::{Buffer, Mode};
 use oso_core::command::Effects;
-use oso_core::editor::{CopyAction, Editor};
+use oso_core::editor::{Editor, RecoveryAction};
 use oso_core::key::KeySequence;
 
 use super::Dispatcher;
@@ -25,21 +25,21 @@ fn the_keys_answer_only_in_the_list_and_type_everywhere_else() {
     let (mut dispatcher, mut editor) = on_a_file();
     send(&mut dispatcher, &mut editor, "r d v");
     assert_eq!(editor.current().1.text().to_string(), "rdvabc\n");
-    assert_eq!(editor.take_copy_actions(), []);
+    assert_eq!(editor.take_recovery_actions(), []);
 
     send(&mut dispatcher, &mut editor, "C-h r");
-    assert_eq!(editor.current().1.mode(), Mode::EmergencyCopies);
-    assert_eq!(editor.take_copy_actions(), [CopyAction::Toggled]);
+    assert_eq!(editor.current().1.mode(), Mode::CopyList);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Toggled]);
     send(&mut dispatcher, &mut editor, "v");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::View(0)]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::View(0)]);
     send(&mut dispatcher, &mut editor, "RET");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::View(0)]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::View(0)]);
     send(&mut dispatcher, &mut editor, "=");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::Compare(0)]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Compare(0)]);
     send(&mut dispatcher, &mut editor, "r");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::Recover(0)]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Recover(0)]);
     send(&mut dispatcher, &mut editor, "g");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::Refresh]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Refresh]);
 }
 
 #[test]
@@ -48,22 +48,34 @@ fn a_letter_with_no_answer_is_refused_there_and_motion_still_works() {
     send(&mut dispatcher, &mut editor, "C-h r x");
     assert_eq!(editor.current().1.text().to_string(), "");
     send(&mut dispatcher, &mut editor, "C-f");
-    assert_eq!(editor.current().1.mode(), Mode::EmergencyCopies);
+    assert_eq!(editor.current().1.mode(), Mode::CopyList);
 }
 
 #[test]
 fn d_needs_two_in_a_row_and_any_other_key_cancels_it() {
     let (mut dispatcher, mut editor) = on_a_file();
     send(&mut dispatcher, &mut editor, "C-h r");
-    editor.take_copy_actions();
+    editor.take_recovery_actions();
+    let marks = [
+        RecoveryAction::ForgetMarks,
+        RecoveryAction::MarkForDelete(0),
+    ];
     send(&mut dispatcher, &mut editor, "d");
-    assert_eq!(editor.take_copy_actions(), []);
-    send(&mut dispatcher, &mut editor, "C-n d");
-    assert_eq!(editor.take_copy_actions(), [], "another key came between");
+    assert_eq!(editor.take_recovery_actions(), marks);
+    send(&mut dispatcher, &mut editor, "C-f d");
+    assert_eq!(
+        editor.take_recovery_actions(),
+        marks,
+        "another key came between"
+    );
     send(&mut dispatcher, &mut editor, "d");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::Delete(0)]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Delete(0)]);
     send(&mut dispatcher, &mut editor, "d");
-    assert_eq!(editor.take_copy_actions(), [], "the third starts over");
+    assert_eq!(
+        editor.take_recovery_actions(),
+        marks,
+        "the third starts over"
+    );
 }
 
 #[test]
@@ -78,17 +90,17 @@ fn q_goes_back_and_the_keys_type_again() {
 fn a_buffer_showing_a_copy_takes_fewer_keys() {
     let (mut dispatcher, mut editor) = on_a_file();
     send(&mut dispatcher, &mut editor, "C-h r");
-    let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::EmergencyCopy);
+    let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::CopyView);
     editor.show(view);
-    editor.take_copy_actions();
+    editor.take_recovery_actions();
     send(&mut dispatcher, &mut editor, "r");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::Recover(0)]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Recover(0)]);
     send(&mut dispatcher, &mut editor, "=");
-    assert_eq!(editor.take_copy_actions(), [CopyAction::Compare(0)]);
+    assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Compare(0)]);
     send(&mut dispatcher, &mut editor, "d d v g");
-    assert_eq!(editor.take_copy_actions(), [], "those are the list's");
+    assert_eq!(editor.take_recovery_actions(), [], "those are the list's");
     send(&mut dispatcher, &mut editor, "q");
-    assert_eq!(editor.current().1.mode(), Mode::EmergencyCopies);
+    assert_eq!(editor.current().1.mode(), Mode::CopyList);
 }
 
 #[test]
@@ -97,7 +109,7 @@ fn messages_and_the_list_go_back_through_each_other() {
     send(&mut dispatcher, &mut editor, "C-h r C-h e");
     assert_eq!(editor.current().1.name(), "*Messages*");
     send(&mut dispatcher, &mut editor, "C-h e");
-    assert_eq!(editor.current().1.mode(), Mode::EmergencyCopies);
+    assert_eq!(editor.current().1.mode(), Mode::CopyList);
     send(&mut dispatcher, &mut editor, "q");
     assert_eq!(editor.current().1.name(), "notes.txt");
 }

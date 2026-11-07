@@ -4,16 +4,17 @@
 //! Must not depend on: `app` or winit.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 use oso_core::buffer::{Baseline, Buffer, BufferId, Mode, Verdict};
 use oso_core::decode::{BOM, LineEnding};
 use oso_core::display_map::TabWidth;
-use oso_core::editor::{CopyAction, Editor};
+use oso_core::editor::{Editor, RecoveryAction};
 use oso_core::load::decode_all;
 
-use super::super::copies::{self, HEADER_ROWS, LEFT_BEHIND, Word};
+use super::super::copies::{self, HEADER_ROWS, LEFT_BEHIND, RowState};
 use super::super::tests::Scratch;
 use super::super::{Identity, Why, write};
 use super::*;
@@ -67,6 +68,7 @@ impl Fixture {
             name: "notes.txt".to_owned(),
             path: Some(self.file.clone()),
             location: Some(self.file.clone()),
+            withheld: false,
             bom: true,
             line_ending: LineEnding::Crlf,
         };
@@ -87,7 +89,8 @@ impl Fixture {
     fn scan(&mut self) {
         let request = self.offer.scan_request(&self.editor);
         let scan = copies::scan(&request, SystemTime::now() + 2 * LEFT_BEHIND);
-        self.offer.take_scan(&mut self.editor, scan, false);
+        let more = self.offer.take_scan(&mut self.editor, scan, false);
+        self.run(more);
     }
 
     /// Does `work` here, and everything that leads to.
@@ -96,16 +99,18 @@ impl Fixture {
             match work {
                 CopyWork::Scan(request) => {
                     let scan = copies::scan(&request, SystemTime::now() + 2 * LEFT_BEHIND);
-                    self.offer.take_scan(&mut self.editor, scan, false);
+                    let more = self.offer.take_scan(&mut self.editor, scan, false);
+                    self.run(more);
                 }
                 CopyWork::Load {
                     buffer,
                     path,
                     limit,
                 } => {
-                    let bytes = fs::read(path).unwrap();
-                    let bytes = &bytes[..bytes.len().min(limit as usize)];
-                    let snapshot = decode_all(bytes, TabWidth::default());
+                    let mut bytes = Vec::new();
+                    let file = crate::emergency::open_copy(&path).unwrap();
+                    file.take(limit).read_to_end(&mut bytes).unwrap();
+                    let snapshot = decode_all(&bytes, TabWidth::default());
                     self.editor.buffer_mut(buffer).unwrap().apply_load(snapshot);
                 }
                 CopyWork::Compare(comparing) => {
@@ -124,15 +129,22 @@ impl Fixture {
     }
 
     /// Answers, and does all that leads to.
-    fn answer(&mut self, action: CopyAction) {
+    fn answer(&mut self, action: RecoveryAction) {
         let work = self.offer.answer(&mut self.editor, action);
         self.run(work);
+    }
+
+    /// `d d` on `line`.
+    fn delete(&mut self, line: usize) {
+        self.answer(RecoveryAction::ForgetMarks);
+        self.answer(RecoveryAction::MarkForDelete(line));
+        self.answer(RecoveryAction::Delete(line));
     }
 
     /// `C-h r`.
     fn open_list(&mut self) {
         self.editor.toggle_copies();
-        self.answer(CopyAction::Toggled);
+        self.answer(RecoveryAction::Toggled);
     }
 
     fn line(&self) -> usize {
@@ -144,8 +156,8 @@ impl Fixture {
         self.editor.buffer(id).unwrap().text().to_string()
     }
 
-    fn word(&self) -> Word {
-        self.offer.rows[0].word
+    fn state(&self) -> RowState {
+        self.offer.rows[0].state
     }
 
     fn last_message(&self) -> String {
@@ -191,6 +203,7 @@ fn others_are_counted_and_a_later_one_is_told_again() {
         name: "other.txt".to_owned(),
         path: Some(other.clone()),
         location: Some(other),
+        withheld: false,
         bom: false,
         line_ending: LineEnding::Lf,
     };
@@ -218,7 +231,7 @@ fn while_a_file_loads_nothing_is_told_as_more_may_come_at_once() {
     let mut fixture = Fixture::new("on disk\n", "the copy\n");
     let request = fixture.offer.scan_request(&fixture.editor);
     let scan = copies::scan(&request, SystemTime::now());
-    fixture.offer.take_scan(&mut fixture.editor, scan, true);
+    let _ = fixture.offer.take_scan(&mut fixture.editor, scan, true);
     assert!(kept_messages(&fixture.editor).is_empty());
     fixture.scan();
     assert_eq!(kept_messages(&fixture.editor).len(), 1);
@@ -232,7 +245,7 @@ fn an_older_scan_ending_late_changes_nothing() {
     fixture.scan();
     let rows = fixture.offer.rows.len();
     fs::remove_file(fixture.directory.join(format!("{STEM}.meta"))).unwrap();
-    fixture.offer.take_scan(&mut fixture.editor, early, false);
+    let _ = fixture.offer.take_scan(&mut fixture.editor, early, false);
     assert_eq!(fixture.offer.rows.len(), rows);
 }
 
@@ -241,7 +254,7 @@ fn the_list_opens_on_the_row_of_the_file_and_goes_back_with_q() {
     let mut fixture = Fixture::new("on disk\n", "the copy\n");
     fixture.scan();
     fixture.open_list();
-    assert_eq!(shown(&fixture.editor).mode(), Mode::EmergencyCopies);
+    assert_eq!(shown(&fixture.editor).mode(), Mode::CopyList);
     assert_eq!(fixture.line(), HEADER_ROWS);
     assert!(
         shown(&fixture.editor)
@@ -250,7 +263,7 @@ fn the_list_opens_on_the_row_of_the_file_and_goes_back_with_q() {
             .contains("file unchanged")
     );
     fixture.editor.copies_back();
-    fixture.answer(CopyAction::WentBack);
+    fixture.answer(RecoveryAction::WentBack);
     assert_eq!(shown(&fixture.editor).path(), Some(fixture.file.as_path()));
 }
 
@@ -259,9 +272,9 @@ fn looking_shows_the_text_read_only_and_leaves_the_file_and_the_buffer_alone() {
     let mut fixture = Fixture::new("on disk\n", "the copy\n");
     fixture.scan();
     fixture.open_list();
-    fixture.answer(CopyAction::View(HEADER_ROWS));
+    fixture.answer(RecoveryAction::View(HEADER_ROWS));
     let view = shown(&fixture.editor);
-    assert_eq!(view.mode(), Mode::EmergencyCopy);
+    assert_eq!(view.mode(), Mode::CopyView);
     assert_eq!(view.name(), "*copy of notes.txt*");
     assert_eq!(view.text().to_string(), "the copy\n");
     assert!(view.read_only().is_some());
@@ -270,8 +283,8 @@ fn looking_shows_the_text_read_only_and_leaves_the_file_and_the_buffer_alone() {
     assert!(fixture.copy_is_on_disk());
 
     fixture.editor.copies_back();
-    fixture.answer(CopyAction::WentBack);
-    assert_eq!(shown(&fixture.editor).mode(), Mode::EmergencyCopies);
+    fixture.answer(RecoveryAction::WentBack);
+    assert_eq!(shown(&fixture.editor).mode(), Mode::CopyList);
     assert_eq!(fixture.line(), HEADER_ROWS, "back on its row");
 }
 
@@ -280,10 +293,10 @@ fn a_line_of_any_other_buffer_means_no_copy_as_a_command_can_run_anywhere() {
     let mut fixture = Fixture::new("one\ntwo\nthree\n", "the copy\n");
     fixture.scan();
     for action in [
-        CopyAction::View(HEADER_ROWS),
-        CopyAction::Recover(HEADER_ROWS),
-        CopyAction::Compare(HEADER_ROWS),
-        CopyAction::Delete(HEADER_ROWS),
+        RecoveryAction::View(HEADER_ROWS),
+        RecoveryAction::Recover(HEADER_ROWS),
+        RecoveryAction::Compare(HEADER_ROWS),
+        RecoveryAction::Delete(HEADER_ROWS),
     ] {
         fixture.answer(action);
         assert_eq!(fixture.last_message(), "No emergency copy on this row");
@@ -298,10 +311,11 @@ fn no_row_says_so_and_does_nothing() {
     fixture.scan();
     fixture.open_list();
     for action in [
-        CopyAction::View(0),
-        CopyAction::Recover(1),
-        CopyAction::Compare(99),
-        CopyAction::Delete(99),
+        RecoveryAction::View(0),
+        RecoveryAction::Recover(1),
+        RecoveryAction::Compare(99),
+        RecoveryAction::Delete(99),
+        RecoveryAction::MarkForDelete(99),
     ] {
         fixture.answer(action);
         assert_eq!(fixture.last_message(), "No emergency copy on this row");
@@ -314,7 +328,7 @@ fn the_first_r_looks_and_says_so_and_the_second_recovers_and_nothing_is_written(
     let mut fixture = Fixture::new("on disk\n", "the copy\n");
     fixture.scan();
     fixture.open_list();
-    fixture.answer(CopyAction::Recover(HEADER_ROWS));
+    fixture.answer(RecoveryAction::Recover(HEADER_ROWS));
     assert_eq!(shown(&fixture.editor).name(), "*copy of notes.txt*");
     assert_eq!(fixture.file_text(), "on disk\n");
     assert_eq!(
@@ -322,7 +336,7 @@ fn the_first_r_looks_and_says_so_and_the_second_recovers_and_nothing_is_written(
         "Press r again to put this text in notes.txt"
     );
 
-    fixture.answer(CopyAction::Recover(0));
+    fixture.answer(RecoveryAction::Recover(0));
     assert_eq!(fixture.file_text(), "the copy\n");
     assert_eq!(shown(&fixture.editor).path(), Some(fixture.file.as_path()));
     assert!(shown(&fixture.editor).is_modified());
@@ -330,7 +344,7 @@ fn the_first_r_looks_and_says_so_and_the_second_recovers_and_nothing_is_written(
     assert!(fixture.last_message().starts_with("Recovered notes.txt."));
     assert_eq!(fs::read(&fixture.file).unwrap(), b"on disk\n", "untouched");
     assert!(fixture.copy_is_on_disk(), "until it is saved");
-    assert_eq!(fixture.word(), Word::Recovered);
+    assert_eq!(fixture.state(), RowState::Recovered);
     let mut status = oso_core::editor::Status::default();
     fixture.editor.status_into(&mut status);
     assert_eq!(status.warnings, "", "it has been answered");
@@ -341,9 +355,9 @@ fn a_view_leaves_the_editor_with_the_recovery() {
     let mut fixture = Fixture::new("on disk\n", "the copy\n");
     fixture.scan();
     fixture.open_list();
-    fixture.answer(CopyAction::Recover(HEADER_ROWS));
+    fixture.answer(RecoveryAction::Recover(HEADER_ROWS));
     let view = fixture.editor.window().buffer();
-    fixture.answer(CopyAction::Recover(0));
+    fixture.answer(RecoveryAction::Recover(0));
     assert!(fixture.editor.buffer(view).is_none());
     assert_eq!(fixture.file_text(), "the copy\n", "the text is shared");
     assert_eq!(fixture.editor.place_behind_internal(), None);
@@ -353,8 +367,8 @@ fn a_view_leaves_the_editor_with_the_recovery() {
 fn recover(fixture: &mut Fixture) {
     fixture.scan();
     fixture.open_list();
-    fixture.answer(CopyAction::Recover(HEADER_ROWS));
-    fixture.answer(CopyAction::Recover(0));
+    fixture.answer(RecoveryAction::Recover(HEADER_ROWS));
+    fixture.answer(RecoveryAction::Recover(0));
 }
 
 #[test]
@@ -369,8 +383,8 @@ fn a_recovery_is_refused_with_the_reason_while_the_buffer_has_edits_of_its_own()
     fixture.editor.apply_edits(id, &[edit]).unwrap();
     fixture.scan();
     fixture.open_list();
-    fixture.answer(CopyAction::Recover(HEADER_ROWS));
-    fixture.answer(CopyAction::Recover(0));
+    fixture.answer(RecoveryAction::Recover(HEADER_ROWS));
+    fixture.answer(RecoveryAction::Recover(0));
     assert!(
         fixture.last_message().contains("has unsaved edits"),
         "{}",
@@ -379,7 +393,7 @@ fn a_recovery_is_refused_with_the_reason_while_the_buffer_has_edits_of_its_own()
     assert_eq!(fixture.file_text(), "typed on disk\n");
     assert_eq!(
         shown(&fixture.editor).mode(),
-        Mode::EmergencyCopy,
+        Mode::CopyView,
         "nothing moved"
     );
 }
@@ -391,12 +405,12 @@ fn a_recovery_is_refused_while_the_copy_loads() {
     fixture.open_list();
     let work = fixture
         .offer
-        .answer(&mut fixture.editor, CopyAction::Recover(HEADER_ROWS));
+        .answer(&mut fixture.editor, RecoveryAction::Recover(HEADER_ROWS));
     assert!(
         work.iter()
             .any(|work| matches!(work, CopyWork::Load { .. }))
     );
-    fixture.answer(CopyAction::Recover(0));
+    fixture.answer(RecoveryAction::Recover(0));
     assert_eq!(fixture.last_message(), "The copy is still loading");
     assert_eq!(fixture.file_text(), "on disk\n");
 }
@@ -426,13 +440,13 @@ fn only_a_row_that_may_be_recovered_is() {
     .unwrap();
     fixture.scan();
     fixture.open_list();
-    assert_eq!(fixture.word(), Word::Damaged);
-    fixture.answer(CopyAction::Recover(HEADER_ROWS));
+    assert_eq!(fixture.state(), RowState::Damaged);
+    fixture.answer(RecoveryAction::Recover(HEADER_ROWS));
     assert_eq!(
         fixture.last_message(),
         "This copy has been changed since it was written"
     );
-    assert_eq!(shown(&fixture.editor).mode(), Mode::EmergencyCopies);
+    assert_eq!(shown(&fixture.editor).mode(), Mode::CopyList);
 }
 
 #[test]
@@ -444,6 +458,7 @@ fn a_copy_of_a_file_not_open_says_how_to_open_it_and_opens_nothing() {
         name: "elsewhere.txt".to_owned(),
         path: Some(elsewhere.clone()),
         location: Some(elsewhere.clone()),
+        withheld: false,
         bom: false,
         line_ending: LineEnding::Lf,
     };
@@ -454,7 +469,7 @@ fn a_copy_of_a_file_not_open_says_how_to_open_it_and_opens_nothing() {
     fixture.scan();
     fixture.open_list();
     let buffers = fixture.editor.buffers().count();
-    fixture.answer(CopyAction::Recover(HEADER_ROWS));
+    fixture.answer(RecoveryAction::Recover(HEADER_ROWS));
     assert_eq!(
         fixture.last_message(),
         format!("Open {} first, with oso PATH", elsewhere.display())
@@ -512,7 +527,7 @@ fn undoing_a_recovery_withdraws_it_and_a_later_save_keeps_the_copy() {
     fixture.editor.undo().unwrap();
     assert_eq!(fixture.file_text(), "on disk\n");
     fixture.scan();
-    assert_eq!(fixture.word(), Word::Unchanged, "offered again");
+    assert_eq!(fixture.state(), RowState::Unchanged, "offered again");
     let id = fixture.buffer();
     let content = fixture.editor.buffer(id).unwrap().content_id();
     let stamp = stamp_of(&fs::metadata(&fixture.file).unwrap()).unwrap();
@@ -527,7 +542,7 @@ fn deleting_removes_both_files_and_the_row() {
     let mut fixture = Fixture::new("on disk\n", "the copy\n");
     fixture.scan();
     fixture.open_list();
-    fixture.answer(CopyAction::Delete(HEADER_ROWS));
+    fixture.delete(HEADER_ROWS);
     assert_eq!(fs::read_dir(&fixture.directory).unwrap().count(), 0);
     assert!(fixture.offer.rows.is_empty());
     assert!(
@@ -548,13 +563,13 @@ fn deleting_what_is_gone_is_no_failure_and_a_view_of_it_goes_too() {
     let mut fixture = Fixture::new("on disk\n", "the copy\n");
     fixture.scan();
     fixture.open_list();
-    fixture.answer(CopyAction::View(HEADER_ROWS));
+    fixture.answer(RecoveryAction::View(HEADER_ROWS));
     let view = fixture.editor.window().buffer();
     fixture.editor.copies_back();
-    fixture.answer(CopyAction::WentBack);
+    fixture.answer(RecoveryAction::WentBack);
     fs::remove_file(fixture.directory.join(format!("{STEM}.txt"))).unwrap();
     fs::remove_file(fixture.directory.join(format!("{STEM}.meta"))).unwrap();
-    fixture.answer(CopyAction::Delete(HEADER_ROWS));
+    fixture.delete(HEADER_ROWS);
     assert!(
         fixture.last_message().starts_with("Deleted"),
         "{}",

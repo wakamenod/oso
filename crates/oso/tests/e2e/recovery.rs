@@ -84,7 +84,7 @@ fn plant(directory: &Path, stem: &str, meta: &str, text: &[u8]) {
 /// Metadata of a copy of `path` holding `bytes` bytes.
 fn meta_of(path: &str, bytes: usize) -> String {
     format!(
-        "oso-emergency-copy 1\nname copy\npath {path}\nlocation {path}\nbom false\nline-ending lf\nbytes {bytes}\nwritten 1790000000\nwhy panic\n"
+        "oso-emergency-copy 1\nname copy\npath {path}\nlocation {path}\nwithheld false\nbom false\nline-ending lf\nbytes {bytes}\nwritten 1790000000\nwhy panic\n"
     )
 }
 

@@ -131,10 +131,7 @@ impl Emergency {
                     targets,
                     recovered: Vec::new(),
                 };
-                found(CopiesEvent::Scan(Box::new(copies::scan(
-                    &request,
-                    SystemTime::now(),
-                ))));
+                found(CopiesEvent::Scan(Box::new(copies::caught_scan(&request))));
             });
     }
 
@@ -213,8 +210,10 @@ struct Identity {
     name: String,
     /// The path the buffer visits, if any.
     path: Option<PathBuf>,
-    /// The real place the path led, if that could be told.
+    /// The real place the path led, in the file's own spelling, if that could be told.
     location: Option<PathBuf>,
+    /// Dev tooling withholds this text, which a later run cannot tell from the path alone.
+    withheld: bool,
     bom: bool,
     line_ending: LineEnding,
 }

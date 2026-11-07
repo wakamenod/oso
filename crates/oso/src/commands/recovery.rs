@@ -5,7 +5,7 @@
 //! and does not know its keys.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
-use oso_core::editor::CopyAction;
+use oso_core::editor::RecoveryAction;
 
 /// The commands for emergency copies.
 pub const COMMANDS: &[Command] = &[
@@ -55,39 +55,34 @@ pub const COMMANDS: &[Command] = &[
 
 fn recover_session(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ctx.editor.toggle_copies();
-    ctx.editor.queue_copy_action(CopyAction::Toggled);
+    ctx.editor.queue_recovery_action(RecoveryAction::Toggled);
     ctx.request_redraw();
     Ok(())
 }
 
 fn view(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let line = ctx.editor.cursor_line();
-    ctx.editor.queue_copy_action(CopyAction::View(line));
-    ctx.request_redraw();
+    ctx.editor.queue_recovery_action(RecoveryAction::View(line));
     Ok(())
 }
 
 fn compare(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let line = ctx.editor.cursor_line();
-    ctx.editor.queue_copy_action(CopyAction::Compare(line));
+    ctx.editor
+        .queue_recovery_action(RecoveryAction::Compare(line));
     Ok(())
 }
 
 fn recover(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let line = ctx.editor.cursor_line();
-    ctx.editor.queue_copy_action(CopyAction::Recover(line));
-    ctx.request_redraw();
+    ctx.editor
+        .queue_recovery_action(RecoveryAction::Recover(line));
     Ok(())
 }
 
-/// A second press in a row deletes. A third starts over, so that holding the key down, with
-/// rows moving up as they go, cannot delete one nobody looked at.
+/// A second press in a row deletes what the first marked. A third starts over, and what a press
+/// is held for arrives only once (`app::input`), so a held key cannot go on through the rows.
 fn delete(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    if ctx.repeats().is_multiple_of(2) {
-        ctx.editor
-            .echo("Press d again to delete this emergency copy for good");
-        return Ok(());
-    }
     let mut lines: Vec<usize> = {
         let (window, buffer) = ctx.editor.current();
         window
@@ -97,20 +92,29 @@ fn delete(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             .collect()
     };
     lines.dedup();
+    let first = ctx.repeats().is_multiple_of(2);
+    if first {
+        ctx.editor
+            .queue_recovery_action(RecoveryAction::ForgetMarks);
+    }
     for line in lines {
-        ctx.editor.queue_copy_action(CopyAction::Delete(line));
+        ctx.editor.queue_recovery_action(if first {
+            RecoveryAction::MarkForDelete(line)
+        } else {
+            RecoveryAction::Delete(line)
+        });
     }
     Ok(())
 }
 
 fn refresh(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    ctx.editor.queue_copy_action(CopyAction::Refresh);
+    ctx.editor.queue_recovery_action(RecoveryAction::Refresh);
     Ok(())
 }
 
 fn back(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     ctx.editor.copies_back();
-    ctx.editor.queue_copy_action(CopyAction::WentBack);
+    ctx.editor.queue_recovery_action(RecoveryAction::WentBack);
     ctx.request_redraw();
     Ok(())
 }
@@ -120,7 +124,7 @@ mod tests {
     use crate::commands::tests::{editor, run};
     use oso_core::buffer::Mode;
     use oso_core::command::{Args, Ctx, Invocation};
-    use oso_core::editor::{CopyAction, Editor};
+    use oso_core::editor::{Editor, RecoveryAction};
     use oso_core::selection::{Selection, SelectionSet};
 
     /// Runs `name`, as the `repeats`-th press in a row.
@@ -141,11 +145,11 @@ mod tests {
         let (result, effects) = run(&mut editor, "recover-session", Args::NONE);
         assert_eq!(result, Ok(()));
         assert!(effects.redraw);
-        assert_eq!(editor.current().1.mode(), Mode::EmergencyCopies);
-        assert_eq!(editor.take_copy_actions(), [CopyAction::Toggled]);
+        assert_eq!(editor.current().1.mode(), Mode::CopyList);
+        assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Toggled]);
         let _ = run(&mut editor, "recover-session", Args::NONE);
         assert_eq!(editor.current().1.name(), "test");
-        assert_eq!(editor.take_copy_actions(), [CopyAction::Toggled]);
+        assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Toggled]);
     }
 
     #[test]
@@ -153,29 +157,31 @@ mod tests {
         let mut editor = editor("a\nb\nc\n");
         editor.current_mut().0.selections = SelectionSet::new(4);
         for (name, action) in [
-            ("emergency-copy-view", CopyAction::View(2)),
-            ("emergency-copy-compare", CopyAction::Compare(2)),
-            ("emergency-copy-recover", CopyAction::Recover(2)),
+            ("emergency-copy-view", RecoveryAction::View(2)),
+            ("emergency-copy-compare", RecoveryAction::Compare(2)),
+            ("emergency-copy-recover", RecoveryAction::Recover(2)),
         ] {
             let _ = run(&mut editor, name, Args::NONE);
-            assert_eq!(editor.take_copy_actions(), [action]);
+            assert_eq!(editor.take_recovery_actions(), [action]);
         }
         let _ = run(&mut editor, "emergency-copies-refresh", Args::NONE);
-        assert_eq!(editor.take_copy_actions(), [CopyAction::Refresh]);
+        assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Refresh]);
     }
 
     #[test]
-    fn the_first_d_only_says_what_the_second_does_and_a_third_starts_over() {
+    fn the_first_d_marks_the_second_deletes_and_a_third_starts_over() {
         let mut editor = editor("a\nb\n");
         let name = "emergency-copy-delete";
+        let marks = [
+            RecoveryAction::ForgetMarks,
+            RecoveryAction::MarkForDelete(0),
+        ];
         press(&mut editor, name, 0);
-        assert_eq!(editor.take_copy_actions(), []);
+        assert_eq!(editor.take_recovery_actions(), marks);
         press(&mut editor, name, 1);
-        assert_eq!(editor.take_copy_actions(), [CopyAction::Delete(0)]);
+        assert_eq!(editor.take_recovery_actions(), [RecoveryAction::Delete(0)]);
         press(&mut editor, name, 2);
-        assert_eq!(editor.take_copy_actions(), [], "the next row is not taken");
-        press(&mut editor, name, 3);
-        assert_eq!(editor.take_copy_actions(), [CopyAction::Delete(0)]);
+        assert_eq!(editor.take_recovery_actions(), marks, "not the next row");
     }
 
     #[test]
@@ -186,8 +192,8 @@ mod tests {
         editor.current_mut().0.selections = set;
         press(&mut editor, "emergency-copy-delete", 1);
         assert_eq!(
-            editor.take_copy_actions(),
-            [CopyAction::Delete(0), CopyAction::Delete(2)]
+            editor.take_recovery_actions(),
+            [RecoveryAction::Delete(0), RecoveryAction::Delete(2)]
         );
     }
 
@@ -195,10 +201,10 @@ mod tests {
     fn back_goes_to_where_the_window_was_and_tells_the_host() {
         let mut editor = editor("abc");
         let _ = run(&mut editor, "recover-session", Args::NONE);
-        editor.take_copy_actions();
+        editor.take_recovery_actions();
         let (_, effects) = run(&mut editor, "emergency-copies-back", Args::NONE);
         assert!(effects.redraw);
         assert_eq!(editor.current().1.name(), "test");
-        assert_eq!(editor.take_copy_actions(), [CopyAction::WentBack]);
+        assert_eq!(editor.take_recovery_actions(), [RecoveryAction::WentBack]);
     }
 }

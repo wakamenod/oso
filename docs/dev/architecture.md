@@ -122,7 +122,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   window a cursor at an insertion ends after it; in others it stays before, as
   an Emacs marker.
 - **Edits** go through `Editor::apply_edits`, but for an internal buffer's, which have no undo
-  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)): one replacement per cursor, for
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and a recovered emergency copy's whole text
+  (`Editor::replace_text_from`, [ADR 0064](adr/0064-recovering-an-emergency-copy.md)): one replacement per cursor, for
   one buffer, applied in descending offset order. Overlapping ranges become
   their union. The rope, display map, undo record, revision and every window's
   cursors change together: the work is done on clones, O(1) to make, and
@@ -200,8 +201,9 @@ A panicking command is caught at the command boundary
   ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
-  whole key sequence decides. So far the global layer exists, and a minor mode layer of
-  digits while a prefix argument is typed.
+  whole key sequence decides. So far the global layer exists, a minor mode layer of
+  digits while a prefix argument is typed, and a major mode layer in the buffers that show
+  emergency copies.
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.
@@ -325,7 +327,7 @@ loop. Render errors are logged and are never fatal.
 |---|---|---|
 | File | rope loaded from disk | source files, notes |
 | Generated | rope produced by a mode, read-only by default | git status, directory listings, compile output, help |
-| Internal | rope the editor keeps for itself, not the user's work | `*Messages*` |
+| Internal | rope the editor keeps for itself, not the user's work | `*Messages*`, `*Emergency Copies*` and a copy being looked at |
 | Terminal | `alacritty_terminal` grid | shell sessions |
 
 A window shows a view. A text view renders a buffer through the display model.
@@ -355,8 +357,8 @@ The UI thread never blocks on I/O or parsing:
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
-- The event loop's user event is an enum: loader wake-ups and save reports in every
-  build, and control socket requests in dev builds.
+- The event loop's user event is an enum: loader wake-ups, save reports and what threads
+  find of emergency copies in every build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in

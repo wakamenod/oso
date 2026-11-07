@@ -10,6 +10,7 @@ use oso_core::editor::row_text;
 use oso_core::load::{LoadSnapshot, decode_all};
 
 use super::{MAX_SHOWN, Row};
+use crate::emergency::plural;
 
 /// How long ago `written` was, for a person.
 pub(in crate::emergency) fn age(written: Option<u64>, now: SystemTime) -> String {
@@ -56,7 +57,7 @@ fn size_text(size: u64) -> String {
 fn list_text(rows: &[Row], more: usize, problem: Option<&str>, now: SystemTime) -> String {
     use std::fmt::Write as _;
     let count = rows.len() + more;
-    let copies = if count == 1 { "copy" } else { "copies" };
+    let copies = plural(count, "copy", "copies");
     let mut text = format!(
         "{count} emergency {copies}.  v look  = compare  r recover  d delete  g refresh  q back\n\n"
     );
@@ -67,7 +68,7 @@ fn list_text(rows: &[Row], more: usize, problem: Option<&str>, now: SystemTime) 
             age(row.written, now),
             row.why.unwrap_or("?"),
             size_text(row.size),
-            row.word.as_str(),
+            row.state.as_str(),
             shown_in_a_row(&row.shown),
         );
     }

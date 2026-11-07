@@ -35,6 +35,7 @@ fn write_copy(directory: &Path, stem: &str, path: &Path, text: &str, file: Optio
         name: path.file_name().unwrap().to_string_lossy().into_owned(),
         path: Some(path.to_owned()),
         location: Some(path.to_owned()),
+        withheld: false,
         bom: false,
         line_ending: oso_core::decode::LineEnding::Lf,
     };
@@ -71,8 +72,8 @@ fn request(directory: &Path, targets: Vec<Target>) -> ScanRequest {
     }
 }
 
-fn words(scan: &Scan) -> Vec<Word> {
-    scan.rows.iter().map(|row| row.word).collect()
+fn words(scan: &Scan) -> Vec<RowState> {
+    scan.rows.iter().map(|row| row.state).collect()
 }
 
 #[test]
@@ -97,7 +98,7 @@ fn a_copy_of_a_file_not_open_is_listed_and_that_file_is_not_touched() {
     let elsewhere = scratch.0.join("no-such-file.txt");
     write_copy(&directory, STEM, &elsewhere, "text", None);
     let scan = scan(&request(&directory, Vec::new()), later());
-    assert_eq!(words(&scan), [Word::NotOpen]);
+    assert_eq!(words(&scan), [RowState::NotOpen]);
     let row = &scan.rows[0];
     assert_eq!(row.target, None);
     assert_eq!(row.shown, elsewhere.display().to_string());
@@ -116,7 +117,7 @@ fn a_copy_of_an_open_file_says_how_the_file_compares_with_what_it_records() {
 
     write_copy(&directory, STEM, &file, "a copy", Some(stamp));
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
-    assert_eq!(words(&found), [Word::Unchanged]);
+    assert_eq!(words(&found), [RowState::Unchanged]);
     assert!(found.rows[0].target.is_some());
 
     let older = FileStamp {
@@ -125,20 +126,24 @@ fn a_copy_of_an_open_file_says_how_the_file_compares_with_what_it_records() {
     };
     write_copy(&directory, STEM, &file, "a copy", Some(older));
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
-    assert_eq!(words(&found), [Word::Changed], "a change is any inequality");
+    assert_eq!(
+        words(&found),
+        [RowState::Changed],
+        "a change is any inequality"
+    );
 
     write_copy(&directory, STEM, &file, "a copy", None);
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
-    assert_eq!(words(&found), [Word::Changed], "it appeared since");
+    assert_eq!(words(&found), [RowState::Changed], "it appeared since");
 
     fs::remove_file(&file).unwrap();
     write_copy(&directory, STEM, &file, "a copy", Some(stamp));
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
-    assert_eq!(words(&found), [Word::Gone]);
+    assert_eq!(words(&found), [RowState::Gone]);
 
     write_copy(&directory, STEM, &file, "a copy", None);
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
-    assert_eq!(words(&found), [Word::Unchanged], "there never was one");
+    assert_eq!(words(&found), [RowState::NoFile], "there never was one");
 }
 
 #[test]
@@ -154,12 +159,17 @@ fn a_location_finds_a_buffer_whatever_path_led_there_and_a_path_alone_may_not() 
     let target = Target {
         encoded_path: Some(encoded(b"/link/a.txt")),
         encoded_location: Some(encoded(b"/real/a.txt")),
+        encoded_typed: Some(encoded(b"/typed/a.txt")),
         location: Some(real),
         ..target_for(&scratch.0.join("whatever"))
     };
     let targets = [target];
     assert!(matches!(
         matching(&meta("/other/a.txt", Some("/real/a.txt")), &targets),
+        Matched::Target(_)
+    ));
+    assert!(matches!(
+        matching(&meta("/other/a.txt", Some("/typed/a.txt")), &targets),
         Matched::Target(_)
     ));
     assert!(matches!(
@@ -197,6 +207,7 @@ fn a_copy_with_no_file_finds_an_empty_buffer_of_its_name_and_no_other() {
         name: "*scratch*".to_owned(),
         path: None,
         location: None,
+        withheld: false,
         bom: false,
         line_ending: oso_core::decode::LineEnding::Lf,
     };
@@ -206,12 +217,12 @@ fn a_copy_with_no_file_finds_an_empty_buffer_of_its_name_and_no_other() {
 
     let empty = targets_of(&Editor::default());
     let found = scan(&request(&directory, empty), later());
-    assert_eq!(words(&found), [Word::NoFile]);
+    assert_eq!(words(&found), [RowState::NoFile]);
     assert!(found.rows[0].target.is_some());
 
     let full = targets_of(&Editor::with_buffer(Buffer::from_text("*scratch*", "mine")));
     let found = scan(&request(&directory, full), later());
-    assert_eq!(words(&found), [Word::NoFile]);
+    assert_eq!(words(&found), [RowState::NoFile]);
     assert_eq!(found.rows[0].target, None, "its text is not swapped out");
 }
 
@@ -237,7 +248,7 @@ fn an_equal_copy_of_a_file_not_open_stays_as_that_file_is_not_read() {
     fs::write(&file, "the same\n").unwrap();
     write_copy(&directory, STEM, &file, "the same\n", None);
     let found = scan(&request(&directory, Vec::new()), later());
-    assert_eq!(words(&found), [Word::NotOpen]);
+    assert_eq!(words(&found), [RowState::NotOpen]);
 }
 
 #[test]
@@ -249,7 +260,7 @@ fn a_text_not_the_size_it_says_is_damaged_and_is_not_read() {
     write_copy(&directory, STEM, &file, "small", None);
     fs::write(directory.join(format!("{STEM}.txt")), "x".repeat(4096)).unwrap();
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
-    assert_eq!(words(&found), [Word::Damaged]);
+    assert_eq!(words(&found), [RowState::Damaged]);
     assert_eq!(found.rows[0].size, 4096);
 }
 
@@ -264,7 +275,7 @@ fn what_cannot_be_parsed_is_unknown_and_says_nothing_of_where_it_belongs() {
     .unwrap();
     fs::write(directory.join(format!("{STEM}.txt")), "text").unwrap();
     let found = scan(&request(&directory, Vec::new()), later());
-    assert_eq!(words(&found), [Word::Unknown]);
+    assert_eq!(words(&found), [RowState::Unknown]);
     assert_eq!(found.rows[0].at_least, Verdict::Unresolved);
     assert!(found.rows[0].paths.is_empty());
 }
@@ -279,7 +290,7 @@ fn a_meta_over_the_limit_is_unknown() {
     fs::write(directory.join(format!("{STEM}.txt")), "text").unwrap();
     assert_eq!(
         words(&scan(&request(&directory, Vec::new()), later())),
-        [Word::Unknown]
+        [RowState::Unknown]
     );
 }
 
@@ -291,7 +302,7 @@ fn a_text_with_no_meta_waits_as_a_writer_may_be_at_work_on_it() {
     let found = scan(&request(&directory, Vec::new()), SystemTime::now());
     assert!(found.rows.is_empty(), "just written");
     let found = scan(&request(&directory, Vec::new()), later());
-    assert_eq!(words(&found), [Word::Unknown]);
+    assert_eq!(words(&found), [RowState::Unknown]);
 }
 
 #[test]
@@ -303,7 +314,7 @@ fn a_temporary_file_in_the_directory_waits_too_and_is_listed_as_left_by_a_save()
     let found = scan(&request(&directory, Vec::new()), SystemTime::now());
     assert!(found.rows.is_empty());
     let found = scan(&request(&directory, Vec::new()), later());
-    assert_eq!(words(&found), [Word::LeftBySave]);
+    assert_eq!(words(&found), [RowState::LeftBySave]);
     assert_eq!(found.rows[0].at_least, Verdict::Unresolved, "withheld");
     assert_eq!(found.rows[0].meta, None);
 }
@@ -323,7 +334,7 @@ fn what_is_left_beside_a_file_is_listed_and_only_there() {
     fs::write(project.join("oso-save-77-123-0.tmp"), "nor this").unwrap();
     fs::write(other.join(".oso-save-77-123-0.tmp"), "no file open here").unwrap();
     let found = scan(&request(&directory, vec![target_for(&file)]), later());
-    assert_eq!(words(&found), [Word::LeftBySave]);
+    assert_eq!(words(&found), [RowState::LeftBySave]);
     assert_eq!(found.rows[0].text, project.join(".oso-save-77-123-0.tmp"));
     // Nothing removes one unasked.
     assert!(found.rows[0].text.exists());
@@ -372,99 +383,7 @@ fn names_of_any_other_form_are_left_alone() {
 }
 
 #[cfg(unix)]
-mod files {
-    use super::*;
-    use std::os::unix::fs::{PermissionsExt, symlink};
-
-    #[test]
-    fn a_link_for_a_meta_or_a_text_is_not_followed() {
-        let scratch = Scratch::new();
-        let directory = copies_of(&scratch);
-        let outside = scratch.0.join("outside.txt");
-        fs::write(&outside, "someone's text").unwrap();
-        // The size matches, so only that it is a link can stop it being read.
-        write_copy(
-            &directory,
-            STEM,
-            &scratch.0.join("a"),
-            "someone's text",
-            None,
-        );
-        let text = directory.join(format!("{STEM}.txt"));
-        fs::remove_file(&text).unwrap();
-        symlink(&outside, &text).unwrap();
-        assert_eq!(
-            words(&scan(&request(&directory, Vec::new()), later())),
-            [Word::Damaged]
-        );
-        assert!(open_checked(&text).is_err());
-
-        let meta = directory.join(format!("{STEM}.meta"));
-        let elsewhere = scratch.0.join("elsewhere.meta");
-        fs::rename(&meta, &elsewhere).unwrap();
-        symlink(&elsewhere, &meta).unwrap();
-        assert_eq!(
-            words(&scan(&request(&directory, Vec::new()), later())),
-            [Word::Unknown]
-        );
-    }
-
-    #[test]
-    fn a_hard_link_is_a_name_for_some_other_files_text() {
-        let scratch = Scratch::new();
-        let directory = copies_of(&scratch);
-        let outside = scratch.0.join("key");
-        fs::write(&outside, "text").unwrap();
-        write_copy(&directory, STEM, &scratch.0.join("a"), "text", None);
-        let text = directory.join(format!("{STEM}.txt"));
-        fs::remove_file(&text).unwrap();
-        fs::hard_link(&outside, &text).unwrap();
-        assert_eq!(
-            words(&scan(&request(&directory, Vec::new()), later())),
-            [Word::Damaged]
-        );
-        assert!(open_checked(&text).is_err());
-    }
-
-    /// What is no regular file is not opened, as a pipe would block for good. The flows have
-    /// a real pipe.
-    #[test]
-    fn what_is_not_a_regular_file_is_not_opened() {
-        let scratch = Scratch::new();
-        let directory = copies_of(&scratch);
-        let meta = directory.join(format!("{STEM}.meta"));
-        let text = directory.join(format!("{STEM}.txt"));
-        fs::create_dir(&meta).unwrap();
-        fs::create_dir(&text).unwrap();
-        let found = scan(&request(&directory, Vec::new()), later());
-        assert_eq!(words(&found), [Word::Unknown]);
-        assert!(open_checked(&text).is_err());
-    }
-
-    #[test]
-    fn a_directory_others_may_reach_is_not_read_and_says_why() {
-        let scratch = Scratch::new();
-        let directory = copies_of(&scratch);
-        write_copy(&directory, STEM, &scratch.0.join("a"), "text", None);
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755)).unwrap();
-        let found = scan(&request(&directory, Vec::new()), later());
-        assert!(found.rows.is_empty());
-        assert!(found.problem.is_some());
-        assert!(found.list.text().to_string().contains("Not read:"));
-    }
-
-    #[test]
-    fn a_read_only_directory_can_still_be_read() {
-        let scratch = Scratch::new();
-        let directory = copies_of(&scratch);
-        write_copy(&directory, STEM, &scratch.0.join("a"), "text", None);
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o500)).unwrap();
-        let found = scan(&request(&directory, Vec::new()), later());
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
-        assert_eq!(words(&found), [Word::NotOpen]);
-        assert_eq!(found.problem, None);
-    }
-}
+mod files;
 
 #[test]
 fn removing_goes_meta_first_and_what_has_gone_is_no_failure() {
@@ -498,7 +417,7 @@ fn the_newest_come_first_and_past_the_limit_a_row_says_how_many_more() {
     for index in 0..MAX_ROWS + 2 {
         let stem = format!("00000000000000aa-{}-77-0", 1_000 + index);
         let meta = format!(
-            "oso-emergency-copy 1\nname n{index}\nbytes 0\nwritten {}\n",
+            "oso-emergency-copy 1\nname n{index}\nwithheld false\nbytes 0\nwritten {}\n",
             1_000 + index
         );
         fs::write(directory.join(format!("{stem}.meta")), meta).unwrap();
@@ -545,4 +464,65 @@ fn ages_read_for_a_person() {
     assert_eq!(age(Some(2_000_000), at(0)), "in the future");
     assert_eq!(age(Some(u64::MAX), at(0)), "in the future");
     assert_eq!(age(None, at(0)), "?");
+}
+
+#[test]
+fn leftovers_stop_at_the_limit_and_copies_come_first_for_it() {
+    let scratch = Scratch::new();
+    let directory = copies_of(&scratch);
+    let project = scratch.0.join("project");
+    fs::create_dir(&project).unwrap();
+    let file = project.join("notes.txt");
+    fs::write(&file, "text").unwrap();
+    for index in 0..MAX_ROWS + 5 {
+        fs::write(project.join(format!(".oso-save-77-{index}-0.tmp")), "").unwrap();
+    }
+    write_copy(&directory, STEM, &scratch.0.join("a"), "text", None);
+    let found = scan(&request(&directory, vec![target_for(&file)]), later());
+    assert_eq!(found.rows.len(), MAX_ROWS);
+    assert!(
+        found.rows.iter().any(|row| row.state == RowState::NotOpen),
+        "the copy"
+    );
+    let list = found.list.text().to_string();
+    assert!(
+        list.starts_with(&format!("{} emergency copies.", MAX_ROWS + 6)),
+        "all counted"
+    );
+    assert!(list.contains("and 6 more\n"));
+}
+
+#[test]
+fn a_copy_withheld_when_it_was_written_stays_withheld_with_no_buffer_to_ask() {
+    let scratch = Scratch::new();
+    let directory = copies_of(&scratch);
+    let meta = "oso-emergency-copy 1\nname a\npath /a/b.txt\nwithheld true\nbytes 0\n";
+    fs::write(directory.join(format!("{STEM}.meta")), meta).unwrap();
+    fs::write(directory.join(format!("{STEM}.txt")), "").unwrap();
+    let found = scan(&request(&directory, Vec::new()), later());
+    assert_eq!(found.rows[0].at_least, Verdict::Unresolved);
+    let says_nothing = "oso-emergency-copy 1\nname a\npath /a/b.txt\nbytes 0\n";
+    fs::write(directory.join(format!("{STEM}.meta")), says_nothing).unwrap();
+    let found = scan(&request(&directory, Vec::new()), later());
+    assert_eq!(found.rows[0].at_least, Verdict::Unresolved, "fails closed");
+}
+
+#[test]
+fn a_copy_finds_its_file_by_the_files_own_spelling() {
+    let scratch = Scratch::new();
+    let directory = copies_of(&scratch);
+    let file = scratch.0.join("Notes.txt");
+    fs::write(&file, "disk").unwrap();
+    let mut buffer = Buffer::visiting(scratch.0.join("NOTES.txt"));
+    buffer.finish_empty();
+    buffer.judge_secret(Some(std::slice::from_ref(&file)));
+    buffer.set_baseline(Baseline {
+        location: scratch.0.join("NOTES.txt"),
+        file: fs::metadata(&file).ok().map(|m| stamp_of(&m).unwrap()),
+    });
+    buffer.set_own_spelling(file.clone());
+    let targets = targets_of(&Editor::with_buffer(buffer));
+    write_copy(&directory, STEM, &file, "a copy", None);
+    let found = scan(&request(&directory, targets), later());
+    assert!(found.rows[0].target.is_some(), "{:?}", words(&found));
 }

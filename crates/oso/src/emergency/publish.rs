@@ -230,7 +230,8 @@ fn identity_of(buffer: &Buffer) -> Identity {
     Identity {
         name: buffer.name().to_owned(),
         path: buffer.path().map(ToOwned::to_owned),
-        location: buffer.baseline().map(|baseline| baseline.location.clone()),
+        location: buffer.place_for_copy().map(ToOwned::to_owned),
+        withheld: buffer.is_secret(),
         bom: info.bom,
         line_ending: info.line_ending,
     }

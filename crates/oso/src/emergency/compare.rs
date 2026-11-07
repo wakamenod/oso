@@ -10,13 +10,15 @@
 //! sides, and `RawMyers` halves the work at each split, so that its recursion stays shallow.
 
 use std::fmt::Write as _;
-use std::fs::File;
+use std::fs::{self, File, Metadata};
 use std::io::{self, Read};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
 use oso_core::decode::BOM;
 use similar::{Algorithm, DiffOp, capture_diff_slices_deadline, group_diff_ops};
+
+use crate::loader::same_file;
 
 /// The largest side a diff takes.
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -66,8 +68,24 @@ impl std::fmt::Display for NoDiff {
     }
 }
 
-/// `file`'s bytes, if it is no more than the limit. It is not `open_checked`, as a file a
-/// person opened may have another owner or links of its own.
+/// Opens the regular file at `location`, the real place of a file a person opened. It is
+/// where the file was as it was read, so it is no link, and whatever has been put there since
+/// is not read, as what it shows would pass for that file's. A pipe would block whatever opens
+/// it. It is not `open_checked`, as such a file may have another owner or names of its own.
+fn open_the_file(location: &Path) -> io::Result<(File, Metadata)> {
+    let looked = fs::symlink_metadata(location)?;
+    if !looked.is_file() {
+        return Err(io::Error::other("it is not a regular file"));
+    }
+    let file = File::open(location)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || !same_file(&looked, &metadata) {
+        return Err(io::Error::other("it changed as it was opened"));
+    }
+    Ok((file, metadata))
+}
+
+/// `file`'s bytes, if it is no more than the limit.
 fn read_limited(file: File, limit: u64) -> io::Result<Option<Vec<u8>>> {
     let mut bytes = Vec::new();
     file.take(limit + 1).read_to_end(&mut bytes)?;
@@ -160,15 +178,15 @@ pub(super) fn diff_within(file: &str, copy: &str, deadline: Duration) -> Result<
 /// A diff from the file at `file` to the copy, read from `copy`.
 pub(super) fn diff_files(file: &Path, copy: File, copy_len: u64) -> Result<String, NoDiff> {
     let io_problem = |e: io::Error| NoDiff::Io(e.to_string());
-    let opened = File::open(file).map_err(io_problem)?;
-    let metadata = opened.metadata().map_err(io_problem)?;
-    if !metadata.is_file() {
-        return Err(NoDiff::Io("the file is not a regular file".to_owned()));
-    }
+    let (opened, metadata) = open_the_file(file).map_err(io_problem)?;
     let large = NoDiff::TooLarge {
         file: metadata.len(),
         copy: copy_len,
     };
+    if metadata.len() > MAX_BYTES || copy_len > MAX_BYTES {
+        return Err(large);
+    }
+    // Again as it is read, as either can have grown.
     let Some(old) = read_limited(opened, MAX_BYTES).map_err(io_problem)? else {
         return Err(large);
     };
@@ -184,16 +202,19 @@ pub(super) fn diff_files(file: &Path, copy: File, copy_len: u64) -> Result<Strin
 
 /// Whether the file at `file` holds exactly `copy`'s `copy_len` bytes, after a BOM if it has
 /// one. Reads both a piece at a time, so a large file takes no more memory than a small one.
-/// Anything that cannot be read is not equal.
+/// Anything that cannot be read is not equal, and neither is a file that is the copy itself,
+/// as a link or a hard link could make it.
 pub(super) fn same_bytes(file: &Path, mut copy: File, copy_len: u64) -> bool {
-    let Ok(mut opened) = File::open(file) else {
+    let Ok((mut opened, metadata)) = open_the_file(file) else {
         return false;
     };
-    let Ok(metadata) = opened.metadata() else {
+    let Ok(copy_metadata) = copy.metadata() else {
         return false;
     };
     let len = metadata.len();
-    if !metadata.is_file() || (len != copy_len && len != copy_len + BOM.len() as u64) {
+    if same_file(&metadata, &copy_metadata)
+        || (len != copy_len && len != copy_len + BOM.len() as u64)
+    {
         return false;
     }
     if len != copy_len {
@@ -329,6 +350,31 @@ mod tests {
         let (file, copy, len) = pair("gone", b"text\n", b"text\n");
         fs::remove_file(&file).unwrap();
         assert!(!same_bytes(&file, copy, len));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_put_where_the_file_was_is_not_followed() {
+        let (file, copy, len) = pair("swapped", b"text\n", b"text\n");
+        let secret = file.with_file_name("key");
+        fs::write(&secret, b"text\n").unwrap();
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(&secret, &file).unwrap();
+        assert!(!same_bytes(&file, copy, len));
+        let (_, copy, len) = pair("swapped", b"text\n", b"text\n");
+        fs::remove_file(&file).unwrap();
+        std::os::unix::fs::symlink(&secret, &file).unwrap();
+        assert!(matches!(diff_files(&file, copy, len), Err(NoDiff::Io(_))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_is_the_copy_itself_is_not_equal_to_it() {
+        let (file, copy, len) = pair("itself", b"text\n", b"text\n");
+        let same = file.with_file_name("copy");
+        fs::remove_file(&file).unwrap();
+        fs::hard_link(&same, &file).unwrap();
+        assert!(!same_bytes(&file, copy, len), "the only text there is");
     }
 
     #[test]

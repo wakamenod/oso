@@ -12,9 +12,8 @@
 //!
 //! The stem is `<hash>-<seconds>-<process>-<attempt>`, where the hash is FNV-1a of the real
 //! place the path led, or the path if that could not be told, or the buffer's name if it
-//! has no file. So recovery can find the copies for a path without any path's text being
-//! in a name, where it could be too long for the system. A collision is harmless, as
-//! recovery compares the metadata too. Both files start under a temporary name made with
+//! has no file. So no path's text is in a name, where it could be too long for the system.
+//! Recovery goes by the metadata and does not use the hash (ADR 0064). Both files start under a temporary name made with
 //! `create_new` and mode `0600`, and a free stem is never one already there, so that no
 //! later copy can touch an earlier one. Each is sealed before anything goes in, as something may
 //! have changed since the directory was checked, so that it grants nothing beyond its mode.
@@ -32,7 +31,9 @@ use oso_core::rope::Rope;
 use oso_platform::file_meta;
 
 use super::{Entry, Identity, Ticks, Why};
-use crate::saver::{PRIVATE_MODE, Temporary, WRITE_SIZE, sync_directory, unless_unsupported};
+use crate::saver::{
+    PRIVATE_MODE, Temporary, WRITE_SIZE, all_digits, sync_directory, unless_unsupported,
+};
 
 /// The first line of every metadata file, with the format's version.
 pub(super) const META_HEADER: &str = "oso-emergency-copy 1";
@@ -140,6 +141,24 @@ pub(super) fn free_stem(directory: &Path, identity: &Identity, seconds: u64) -> 
     Err(io::Error::other("could not find a free name for a copy"))
 }
 
+/// The seconds in `name`, if it is a stem of the form [`free_stem`] makes:
+/// `<16 hex>-<digits>-<digits>-<digits>`. Any other name is not a copy's.
+pub(super) fn stem_seconds(name: &str) -> Option<u64> {
+    let mut parts = name.split('-');
+    let hash = parts.next()?;
+    let seconds = parts.next()?;
+    let process = parts.next()?;
+    let attempt = parts.next()?;
+    let hex = hash.len() == 16
+        && hash
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte));
+    let fits = hex && all_digits(seconds) && all_digits(process) && all_digits(attempt);
+    (fits && parts.next().is_none())
+        .then(|| seconds.parse().ok())
+        .flatten()
+}
+
 /// What the hash in a copy's name is taken of.
 pub(super) fn key_of(identity: &Identity) -> &[u8] {
     identity
@@ -202,6 +221,7 @@ pub(super) fn meta_text(
         let location = encoded(location.as_os_str().as_encoded_bytes());
         lines.push(format!("location {location}"));
     }
+    lines.push(format!("withheld {}", identity.withheld));
     lines.push(format!("bom {}", identity.bom));
     lines.push(format!("line-ending {}", identity.line_ending.as_str()));
     if let Some(file) = file {

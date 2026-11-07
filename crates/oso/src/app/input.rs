@@ -6,6 +6,7 @@
 
 use std::time::Instant;
 
+use oso_core::buffer::Mode;
 use oso_core::key::KeyPress;
 use winit::event::{KeyEvent, MouseScrollDelta};
 use winit::event_loop::ActiveEventLoop;
@@ -22,6 +23,12 @@ const WHEEL_ROWS: f64 = 3.0;
 /// Columns one notch of a sideways wheel scrolls: about as far as the rows, since a
 /// cell is about half as wide as it is high.
 const WHEEL_COLUMNS: f64 = 6.0;
+
+/// Whether `key` in a buffer of `mode` is an answer to a question and not something to repeat.
+/// Where a letter answers, holding it must not go on through the rows, and some answers delete.
+fn answers_once(mode: Mode, key: KeyPress) -> bool {
+    mode.shows_copies() && key.text().is_some()
+}
 
 impl App {
     /// Remembers the modifier keys held, as winit reports them.
@@ -40,6 +47,9 @@ impl App {
             return;
         }
         if let Some(key) = keys::from_event(event, self.modifiers) {
+            if event.repeat && answers_once(self.editor.current().1.mode(), key) {
+                return;
+            }
             self.handle_key(event_loop, key);
         } else if let Some(text) = keys::typed_text(event, self.modifiers) {
             self.handle_text(event_loop, text);
@@ -109,5 +119,26 @@ impl App {
         if moved_rows || moved_columns {
             self.request_redraw();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::answers_once;
+    use oso_core::buffer::Mode;
+    use oso_core::key::KeySequence;
+
+    fn key(name: &str) -> oso_core::key::KeyPress {
+        let keys: KeySequence = name.parse().unwrap();
+        keys.0[0]
+    }
+
+    #[test]
+    fn only_a_letter_among_the_copies_answers_once() {
+        assert!(answers_once(Mode::CopyList, key("d")));
+        assert!(answers_once(Mode::CopyView, key("r")));
+        assert!(!answers_once(Mode::CopyList, key("C-n")), "motion repeats");
+        assert!(!answers_once(Mode::CopyList, key("<down>")));
+        assert!(!answers_once(Mode::Fundamental, key("d")), "typing repeats");
     }
 }

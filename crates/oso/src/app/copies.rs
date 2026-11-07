@@ -11,7 +11,8 @@ use crate::emergency::{self, CopiesEvent, CopyWork};
 
 impl App {
     /// Finds out soon after startup whether copies could be written, and what waits.
-    pub fn check_emergency_directory(&self) {
+    pub fn check_emergency_directory(&mut self) {
+        self.offer.startup_scan_begins();
         let (report, found) = (self.proxy.clone(), self.proxy.clone());
         self.emergency.check_directory(
             &self.editor,
@@ -28,7 +29,9 @@ impl App {
     /// Does what a person asked of the copies since the last command. The usual command asks
     /// nothing, and this costs it one look at an empty list.
     pub(super) fn answer_about_copies(&mut self) {
-        let actions = self.editor.take_copy_actions();
+        let after = self.offer.after_command(&self.editor);
+        self.start_copy_work(after);
+        let actions = self.editor.take_recovery_actions();
         if actions.is_empty() {
             return;
         }
@@ -60,8 +63,15 @@ impl App {
         if !std::mem::take(&mut self.scan_for_copies) {
             return;
         }
-        let request = self.offer.scan_request(&self.editor);
-        self.start_copy_work(vec![CopyWork::Scan(request)]);
+        let work = self.offer.ask_for_scan(&self.editor);
+        self.start_copy_work(work);
+    }
+
+    /// A copy that failed to load is no use. It goes off this thread, however much had arrived.
+    pub(super) fn free_copy_buffer(&mut self, buffer: BufferId) {
+        if let Some(buffer) = self.editor.remove_internal_buffer(buffer) {
+            self.start_copy_work(vec![CopyWork::Free(Box::new(buffer))]);
+        }
     }
 
     fn start_copy_work(&mut self, work: Vec<CopyWork>) {

@@ -69,7 +69,7 @@ with hydra-posframe today.
 After a crash, oso offers what it saved ([ADR 0064](adr/0064-recovering-an-emergency-copy.md)). Nothing
 takes a key from the person:
 
-- A notice in the echo area and `*Messages*`: `notes.txt has an emergency copy, from 12 minutes ago: C-h r`.
+- A notice in the echo area and `*Messages*`: `notes.txt has an emergency copy, from 12 min ago: C-h r`.
 - `[emergency copy]` first on the modeline of a buffer whose file has one, until it is answered.
 - `C-h r` shows `*Emergency Copies*`, one row per copy, the newest first, and goes back from it.
 
@@ -84,7 +84,7 @@ takes a key from the person:
 - `v` or `RET` shows the copy's text, read-only, and `=` a line diff with its file. `q` goes back.
 - `r` shows the text, and `r` again there puts it in the file's buffer as one undo step. Nothing is
   written until `C-x C-s`, and the copy goes once that has reached the disk.
-- `d` says what it does, and `d` again deletes the copy for good.
+- `d` says what it does, and `d` again deletes that copy for good. Held down, a letter here answers once.
 - A copy of a file not open needs `oso PATH`, or later `C-x C-f`. Its row gives the path.
 
 ## Modeline

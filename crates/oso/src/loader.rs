@@ -40,8 +40,8 @@ use oso_core::load::{Builder, LoadSnapshot};
 
 mod resolve;
 
-use resolve::resolve;
 pub use resolve::{Resolved, location, parent};
+use resolve::{own_spelling, resolve};
 
 /// Bytes read at a time.
 const READ_SIZE: usize = 64 * 1024;
@@ -107,6 +107,8 @@ struct Shared {
     /// Where the file is and what was opened. Set before the first update, and taken
     /// once.
     baseline: Mutex<Option<Baseline>>,
+    /// The file's own spelling. Set before the first update, and taken once.
+    spelling: Mutex<Option<PathBuf>>,
 }
 
 impl Shared {
@@ -120,6 +122,11 @@ impl Shared {
     /// Locks the resolved path, which is also held only to swap an `Option`.
     fn resolved(&self) -> std::sync::MutexGuard<'_, Option<Resolved>> {
         self.resolved.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Locks the file's own spelling, which is also held only to swap an `Option`.
+    fn spelling(&self) -> std::sync::MutexGuard<'_, Option<PathBuf>> {
+        self.spelling.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Locks the baseline, which is also held only to swap an `Option`.
@@ -151,6 +158,12 @@ impl LoadHandle {
     /// who takes it first never handles content without it.
     pub fn take_resolved(&self) -> Option<Resolved> {
         self.shared.resolved().take()
+    }
+
+    /// The file's own spelling, if it is there, the first time this is called after it was
+    /// opened. Every update comes after this is available.
+    pub fn take_own_spelling(&self) -> Option<PathBuf> {
+        self.shared.spelling().take()
     }
 
     /// The file's baseline, the first time this is called after it was opened. Every
@@ -325,7 +338,11 @@ fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
 fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> {
     let opened = open(path);
     *shared.resolved() = Some(resolve(path));
-    *shared.baseline() = baseline_after_open(path, &opened);
+    let baseline = baseline_after_open(path, &opened);
+    *shared.spelling() = baseline
+        .as_ref()
+        .and_then(|baseline| own_spelling(&baseline.location));
+    *shared.baseline() = baseline;
     let (file, metadata) = opened?;
     read_into(file, metadata.len(), shared, send)
 }

@@ -4,39 +4,86 @@
 //! as a [`CopyWork`].
 
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::Instant;
 
-use oso_core::buffer::{BufferId, FileStamp, Mode, Verdict};
-use oso_core::decode::LineEnding;
-use oso_core::editor::{CopyAction, Editor, copy_buffer_name};
+use oso_core::buffer::{Buffer, BufferId, Mode, Verdict};
+use oso_core::decode::{BOM, LineEnding};
+use oso_core::editor::{Editor, RecoveryAction};
 
 use super::work::{Compared, Comparing, Deleting};
-use super::{CopyWork, Offer, Shown};
-use crate::emergency::copies::{HEADER_ROWS, MAX_LOOK, Row, Word};
+use super::{CopyWork, Offer, PATIENCE, Recovered, Shown};
+use crate::emergency::copies::{HEADER_ROWS, MAX_LOOK, Row, RowState};
+
+/// The longest name of a copy in a buffer's name. A `.meta` can say anything.
+const MOST_OF_A_NAME: usize = 256;
+
+/// A buffer's name for `name` of a copy, cut on a character. The modeline escapes what it draws.
+fn copy_buffer_name(prefix: &str, name: &str) -> String {
+    let end = name.floor_char_boundary(MOST_OF_A_NAME);
+    format!("*{prefix} {}*", &name[..end])
+}
+
+/// Whether what `verdict` says of a copy keeps its text from dev tooling.
+fn is_withheld(verdict: &(Vec<PathBuf>, Verdict)) -> bool {
+    let mut buffer = Buffer::new("");
+    buffer.judge_copy(&verdict.0, verdict.1);
+    buffer.is_secret()
+}
+
+/// Says what depends on a copy's text: in the echo area alone if that text is withheld, as
+/// these run after their command has ended, and `Editor::message` holds only a command to that.
+fn say_of_text(editor: &mut Editor, verdict: &(Vec<PathBuf>, Verdict), text: String) {
+    if is_withheld(verdict) {
+        editor.echo(text);
+    } else {
+        editor.message(text);
+    }
+}
 
 impl Offer {
     /// Does what a person asked. What must happen off this thread comes back.
-    pub fn answer(&mut self, editor: &mut Editor, action: CopyAction) -> Vec<CopyWork> {
+    pub fn answer(&mut self, editor: &mut Editor, action: RecoveryAction) -> Vec<CopyWork> {
         match action {
-            CopyAction::View(line) => match self.row_at(editor, line) {
+            RecoveryAction::View(line) => match self.row_at(editor, line) {
                 Some(index) => self.look(editor, index),
                 None => no_row(editor),
             },
-            CopyAction::Compare(line) => match self.row_at(editor, line) {
+            RecoveryAction::Compare(line) => match self.row_at(editor, line) {
                 Some(index) => self.compare(editor, index),
                 None => no_row(editor),
             },
-            CopyAction::Recover(line) => match self.row_at(editor, line) {
+            RecoveryAction::Recover(line) => match self.row_at(editor, line) {
                 Some(index) => self.recover(editor, index),
                 None => no_row(editor),
             },
-            CopyAction::Delete(line) => match self.row_at(editor, line) {
+            RecoveryAction::ForgetMarks => {
+                self.marked.clear();
+                Vec::new()
+            }
+            RecoveryAction::MarkForDelete(line) => match self.row_at(editor, line) {
+                Some(index) => {
+                    let row = &self.rows[index];
+                    self.marked.push(row.text.clone());
+                    editor.echo(format!(
+                        "Press d again to delete the emergency copy of {} for good",
+                        row.name
+                    ));
+                    Vec::new()
+                }
+                None => no_row(editor),
+            },
+            RecoveryAction::Delete(line) => match self.row_at(editor, line) {
+                // Rows can change between the two keys, and this cannot be undone.
+                Some(index) if !self.marked.contains(&self.rows[index].text) => {
+                    editor.echo("That row has changed, so nothing was deleted");
+                    Vec::new()
+                }
                 Some(index) => self.delete(editor, index),
                 None => no_row(editor),
             },
-            CopyAction::Refresh => vec![CopyWork::Scan(self.scan_request(editor))],
-            CopyAction::Toggled => self.toggled(editor),
-            CopyAction::WentBack => self.went_back(editor),
+            RecoveryAction::Refresh => self.ask_for_scan(editor),
+            RecoveryAction::Toggled => self.toggled(editor),
+            RecoveryAction::WentBack => self.went_back(editor),
         }
     }
 
@@ -45,11 +92,11 @@ impl Offer {
         match editor.current().1.mode() {
             // A line of anything else means nothing here, as a command can run anywhere.
             Mode::Fundamental => None,
-            Mode::EmergencyCopies => {
+            Mode::CopyList => {
                 let index = line.checked_sub(HEADER_ROWS)?;
                 (index < self.rows.len()).then_some(index)
             }
-            Mode::EmergencyCopy => {
+            Mode::CopyView => {
                 let key = self.shown_key(editor)?;
                 self.rows.iter().position(|row| row.text == *key)
             }
@@ -67,7 +114,7 @@ impl Offer {
     }
 
     fn toggled(&mut self, editor: &mut Editor) -> Vec<CopyWork> {
-        let shows_list = editor.current().1.mode() == Mode::EmergencyCopies;
+        let shows_list = editor.current().1.mode() == Mode::CopyList;
         if !shows_list {
             return self.free_views(editor);
         }
@@ -75,23 +122,23 @@ impl Offer {
         if let Some(list) = &self.list {
             editor.set_copies_text(list.clone(), HEADER_ROWS);
         }
-        vec![CopyWork::Scan(self.scan_request(editor))]
+        self.ask_for_scan(editor)
     }
 
     /// The window went back from a copy: to its row, or, from the list, away from them all.
     fn went_back(&mut self, editor: &mut Editor) -> Vec<CopyWork> {
-        if editor.current().1.mode() != Mode::EmergencyCopies {
+        if editor.current().1.mode() != Mode::CopyList {
             return self.free_views(editor);
         }
-        let on = |key: &PathBuf| self.rows.iter().position(|row| row.text == *key);
-        let shown = self.view.iter().chain(self.compare.iter());
-        if let Some(row) = shown.filter_map(|shown| on(&shown.key)).next() {
+        let shown = self.last_shown.as_ref();
+        if let Some(row) = shown.and_then(|key| self.rows.iter().position(|row| row.text == *key)) {
             editor.set_copies_cursor(HEADER_ROWS + row);
         }
         Vec::new()
     }
 
     pub(super) fn free_views(&mut self, editor: &mut Editor) -> Vec<CopyWork> {
+        self.last_shown = None;
         let shown = [self.view.take(), self.compare.take()];
         shown
             .into_iter()
@@ -119,6 +166,7 @@ impl Offer {
             && editor.buffer(view.buffer).is_some()
         {
             editor.show(view.buffer);
+            self.last_shown = Some(row.text.clone());
             return Vec::new();
         }
         if row.size >= MAX_LOOK {
@@ -129,7 +177,7 @@ impl Offer {
             return Vec::new();
         }
         let buffer =
-            editor.add_internal_buffer(copy_buffer_name("copy of", &row.name), Mode::EmergencyCopy);
+            editor.add_internal_buffer(copy_buffer_name("copy of", &row.name), Mode::CopyView);
         let verdict = Self::verdict_of(row);
         Self::judge(editor, buffer, &verdict);
         if let Some(shown) = editor.buffer_mut(buffer) {
@@ -150,6 +198,7 @@ impl Offer {
             path: key.clone(),
             limit,
         });
+        self.last_shown = Some(key.clone());
         self.view = Some(Shown { buffer, key });
         work
     }
@@ -157,11 +206,22 @@ impl Offer {
     fn compare(&mut self, editor: &mut Editor, index: usize) -> Vec<CopyWork> {
         let row = &self.rows[index];
         let name = row.name.clone();
-        let has_file = matches!(row.word, Word::Unchanged | Word::Changed | Word::Damaged);
+        let has_file = matches!(
+            row.state,
+            RowState::Unchanged | RowState::Changed | RowState::Damaged
+        );
         let Some(file) = row.location.clone().filter(|_| has_file) else {
             editor.message(format!("{name} has no file here to compare it with"));
             return Vec::new();
         };
+        if self
+            .comparing
+            .is_some_and(|since| since.elapsed() < PATIENCE)
+        {
+            editor.echo("Still comparing the last one");
+            return Vec::new();
+        }
+        self.comparing = Some(Instant::now());
         editor.echo("Comparing…");
         vec![CopyWork::Compare(Comparing {
             key: row.text.clone(),
@@ -182,10 +242,11 @@ impl Offer {
             verdict,
             result,
         } = compared;
+        self.comparing = None;
         let diff = match result {
             Ok(diff) => diff,
             Err(known) => {
-                editor.message(format!("Comparing {name}: {known}"));
+                say_of_text(editor, &verdict, format!("Comparing {name}: {known}"));
                 return Vec::new();
             }
         };
@@ -195,8 +256,7 @@ impl Offer {
             editor.message(format!("The compare of {name} is ready: C-h r, then ="));
             return Vec::new();
         }
-        let buffer =
-            editor.add_internal_buffer(copy_buffer_name("compare", &name), Mode::EmergencyCopy);
+        let buffer = editor.add_internal_buffer(copy_buffer_name("compare", &name), Mode::CopyView);
         Self::judge(editor, buffer, &verdict);
         if let Some(shown) = editor.buffer_mut(buffer) {
             shown.apply_load(diff);
@@ -209,6 +269,7 @@ impl Offer {
             .into_iter()
             .collect();
         editor.show(buffer);
+        self.last_shown = Some(key.clone());
         self.compare = Some(Shown { buffer, key });
         work
     }
@@ -234,7 +295,7 @@ impl Offer {
         let row = row.clone();
         match refusal(editor, &row, view) {
             Some(why) => {
-                editor.message(why);
+                say_of_text(editor, &Self::verdict_of(&row), why);
                 Vec::new()
             }
             None => self.put_in_buffer(editor, row, view),
@@ -253,26 +314,35 @@ impl Offer {
             editor.message(format!("Cannot recover {}: {e}", row.name));
             return Vec::new();
         }
-        set_format(editor, target, &row);
+        let private = set_format(editor, target, &row);
         if let Some(buffer) = editor.buffer_mut(target) {
             buffer.set_copy_waits(false);
         }
-        editor.message(recovered_message(&row));
-        self.recovered.push((row, target));
+        editor.message(recovered_message(&row, private));
+        // What an earlier recovery here put in is what this replaces: it was undone, or its text
+        // is in its file. Its copy stays for a person to answer.
+        self.recovered
+            .retain(|recovered| recovered.buffer != target);
+        self.recovered.push(Recovered {
+            row,
+            buffer: target,
+            stands: true,
+        });
         // The window has moved on, so the way back goes, and with it the view.
-        editor.leave_copies();
-        editor.show(target);
+        editor.forget_way_back();
         let mut work = self.free_views(editor);
-        work.push(CopyWork::Scan(self.scan_request(editor)));
+        work.extend(self.ask_for_scan(editor));
         work
     }
 
     fn delete(&mut self, editor: &mut Editor, index: usize) -> Vec<CopyWork> {
         let row = &self.rows[index];
         let (text, meta, name) = (row.text.clone(), row.meta.clone(), row.name.clone());
-        if let Some(position) = self.recovered.iter().position(|(row, _)| row.text == text) {
-            let (_, buffer) = self.recovered.swap_remove(position);
-            if let Some(buffer) = editor.buffer_mut(buffer) {
+        self.marked.retain(|marked| *marked != text);
+        let recovered = self.recovered.iter().position(|r| r.row.text == text);
+        if let Some(position) = recovered {
+            let gone = self.recovered.swap_remove(position);
+            if let Some(buffer) = editor.buffer_mut(gone.buffer) {
                 buffer.forget_recovery();
             }
         }
@@ -293,18 +363,20 @@ impl Offer {
 /// Why `word` cannot go in a buffer, if it cannot.
 fn no_recovery(row: &Row) -> Option<String> {
     let name = &row.name;
-    match row.word {
-        Word::Unchanged | Word::Changed | Word::Gone => None,
-        Word::NoFile if row.target.is_some() => None,
-        Word::NoFile => Some(format!("{name} is not empty, so nothing goes in it")),
-        Word::NotOpen => Some(format!("Open {} first, with oso PATH", row.shown)),
-        Word::LeadsElsewhere => Some(format!(
+    match row.state {
+        RowState::Unchanged | RowState::Changed | RowState::Gone => None,
+        RowState::NoFile if row.target.is_some() => None,
+        RowState::NoFile => Some(format!("No empty buffer named {name} is here to put it in")),
+        RowState::NotOpen => Some(format!("Open {} first, with oso PATH", row.shown)),
+        RowState::LeadsElsewhere => Some(format!(
             "{} now leads somewhere other than where this copy belongs",
             row.shown
         )),
-        Word::Recovered => Some(format!("{name} already holds this text")),
-        Word::Damaged => Some("This copy has been changed since it was written".to_owned()),
-        Word::Unknown | Word::LeftBySave => Some("Nothing says where this text belongs".to_owned()),
+        RowState::Recovered => Some(format!("{name} already holds this text")),
+        RowState::Damaged => Some("This copy has been changed since it was written".to_owned()),
+        RowState::Unknown | RowState::LeftBySave => {
+            Some("Nothing says where this text belongs".to_owned())
+        }
     }
 }
 
@@ -324,6 +396,10 @@ fn refusal(editor: &Editor, row: &Row, view: BufferId) -> Option<String> {
     if source.file_info().binary || !source.invalid_bytes().is_empty() {
         return Some("This copy has been changed since it was written: it is not text".to_owned());
     }
+    let bom = if source.file_info().bom { BOM.len() } else { 0 };
+    if (source.text().len() + bom) as u64 != row.size {
+        return Some("This copy changed as it was read. Look at it again".to_owned());
+    }
     let Some(target) = row.target.and_then(|target| editor.buffer(target)) else {
         return Some(format!("{name} is not open any more"));
     };
@@ -341,40 +417,39 @@ fn refusal(editor: &Editor, row: &Row, view: BufferId) -> Option<String> {
             "{name} has unsaved edits. Save them or undo them first"
         ));
     }
-    if row.word == Word::NoFile && !target.text().is_empty() {
+    if row.state == RowState::NoFile && !target.text().is_empty() {
         return Some(format!("{name} is not empty, so nothing goes in it"));
     }
     None
 }
 
-/// With no file there, the copy says what a save should write, and a file that has gone comes
-/// back as `0600`.
-fn set_format(editor: &mut Editor, target: BufferId, row: &Row) {
-    let no_file_there = matches!(row.word, Word::Gone | Word::NoFile);
+/// With no file there, the copy says what a save should write, and a file that comes back does
+/// so as `0600`. That goes by what the buffer knows and not by what a `.meta` says. Returns
+/// whether it will.
+fn set_format(editor: &mut Editor, target: BufferId, row: &Row) -> bool {
     let Some(buffer) = editor.buffer_mut(target) else {
-        return;
+        return false;
     };
+    let visits_a_file = buffer.path().is_some();
+    let no_file_there = buffer
+        .baseline()
+        .is_none_or(|baseline| baseline.file.is_none());
     if no_file_there {
-        buffer.set_file_format(row.bom, row.line_ending.unwrap_or(LineEnding::Lf));
+        let line_ending = row.line_ending.unwrap_or(LineEnding::Lf);
+        buffer.take_format_of_copy(row.bom, line_ending, visits_a_file);
     }
-    if row.word == Word::Gone {
-        buffer.expect_a_file_that_has_gone(FileStamp {
-            modified: row.file_modified.unwrap_or(SystemTime::UNIX_EPOCH),
-            len: row.file_bytes.unwrap_or(0),
-            mode: 0o600,
-        });
-    }
+    no_file_there && visits_a_file
 }
 
 /// What a recovery says, which is more where saving does something a person should know.
-fn recovered_message(row: &Row) -> String {
+fn recovered_message(row: &Row, comes_back_private: bool) -> String {
     let name = &row.name;
-    match row.word {
-        Word::Changed => format!(
-            "Recovered {name}. The file changed since this copy was made, so C-x C-s replaces what is there now. C-z undoes this"
+    match row.state {
+        _ if comes_back_private => format!(
+            "Recovered {name}. Its file is not there, and C-x C-s makes it with mode 0600. C-z undoes this"
         ),
-        Word::Gone => format!(
-            "Recovered {name}. Its file has gone, and C-x C-s brings it back with mode 0600. C-z undoes this"
+        RowState::Changed => format!(
+            "Recovered {name}. The file changed since this copy was made, so C-x C-s replaces what is there now. C-z undoes this"
         ),
         _ => format!("Recovered {name}. C-x C-s saves it, and C-z undoes this"),
     }

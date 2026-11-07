@@ -24,6 +24,11 @@ pub(super) fn existing_private(path: &Path) -> io::Result<bool> {
     Ok(path.exists())
 }
 
+/// There is no count of names to go by.
+pub(super) fn has_one_name(_: &fs::Metadata) -> bool {
+    true
+}
+
 /// There is no owner to compare by.
 pub(super) fn is_this_users(_: &fs::Metadata) -> bool {
     true

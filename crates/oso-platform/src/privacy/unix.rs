@@ -41,6 +41,11 @@ pub(crate) fn euid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
+/// Whether a file with `metadata` has one name.
+pub(super) fn has_one_name(metadata: &fs::Metadata) -> bool {
+    metadata.nlink() == 1
+}
+
 /// Whether a file with `metadata` is this user's.
 pub(super) fn is_this_users(metadata: &fs::Metadata) -> bool {
     metadata.uid() == euid()

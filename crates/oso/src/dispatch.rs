@@ -337,8 +337,8 @@ impl Dispatcher {
         };
         let major = match editor.current().1.mode() {
             Mode::Fundamental => None,
-            Mode::EmergencyCopies => Some(&self.copy_keys[0]),
-            Mode::EmergencyCopy => Some(&self.copy_keys[1]),
+            Mode::CopyList => Some(&self.copy_keys[0]),
+            Mode::CopyView => Some(&self.copy_keys[1]),
         };
         let layers = Layers {
             minor,

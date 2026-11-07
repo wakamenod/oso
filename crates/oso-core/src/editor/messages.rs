@@ -71,8 +71,8 @@ pub(super) struct Echo {
     goes_with_the_window: bool,
 }
 
-/// Where a window was before it showed `*Messages*`, to go back to. M2-19 removes this
-/// with the way back, once `C-x b` leaves that buffer.
+/// Where a window was before it showed an internal buffer, to go back to. M2-19 removes this
+/// with the way back, once `C-x b` leaves those buffers.
 pub(super) struct Place {
     pub(super) buffer: BufferId,
     pub(super) selections: SelectionSet,
@@ -206,24 +206,48 @@ impl Editor {
         self.messages_buffer
     }
 
+    /// Where the selected window goes back to through the internal buffers it has gone to, if
+    /// it is on one and that place still exists, for a state handoff.
+    pub fn place_behind_internal(&self) -> Option<(BufferId, &SelectionSet, Scroll)> {
+        if !self.current().1.is_internal() {
+            return None;
+        }
+        let place = self.way_back.first()?;
+        let buffer = self.buffer(place.buffer)?;
+        (!buffer.is_internal()).then_some((place.buffer, &place.selections, place.scroll))
+    }
+
+    /// Shows the internal buffer `id`, to come back from later. If the window has already come
+    /// through it, this goes back to it, so that going between two of them cannot grow the way.
+    pub(super) fn go_to_internal(&mut self, id: BufferId) {
+        match self.way_back.iter().position(|place| place.buffer == id) {
+            Some(index) => self.way_back.truncate(index),
+            None => self.way_back.push(Place::of(self.window())),
+        }
+        self.show(id);
+    }
+
+    /// Goes back to where the window was before the internal buffer it is on.
+    pub(super) fn leave_internal(&mut self) {
+        let back = self.way_back.pop();
+        self.go_back(back);
+    }
+
     /// Shows `*Messages*` in the selected window, with its last row in view. From
     /// `*Messages*`, goes back to where the window was.
     pub fn toggle_messages(&mut self) {
-        let window = self.window();
-        if window.buffer() != self.messages_buffer {
-            self.before_messages = Some(Place::of(window));
-            self.show(self.messages_buffer);
+        if self.window().buffer() != self.messages_buffer {
+            self.go_to_internal(self.messages_buffer);
             let (window, buffer) = self.current_mut();
             window.selections = SelectionSet::new(buffer.text().len());
             self.follow_cursor();
             return;
         }
-        let back = self.before_messages.take();
-        self.go_back(back);
+        self.leave_internal();
     }
 
     /// Shows `back` as it was, or `*scratch*` if there is no such place any more.
-    pub(super) fn go_back(&mut self, back: Option<Place>) {
+    fn go_back(&mut self, back: Option<Place>) {
         match back.filter(|place| self.buffer(place.buffer).is_some()) {
             Some(Place {
                 buffer,

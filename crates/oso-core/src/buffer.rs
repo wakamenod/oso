@@ -29,12 +29,13 @@ use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
 mod baseline;
 mod internal;
+mod mode;
 mod recovery;
 mod splice;
 
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, FileStamp};
-pub use recovery::Mode;
+pub use mode::Mode;
 use splice::{SpliceText, apply, normalized, offset_edit};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
@@ -174,6 +175,8 @@ pub struct Buffer {
     mode: Mode,
     /// An emergency copy of its file waits for an answer.
     copy_waits: bool,
+    /// The file's own spelling, if something else may have been typed.
+    own_spelling: Option<PathBuf>,
     /// A copy's text was put in, until its copy has gone.
     recovery: Option<recovery::RecoveryMark>,
     /// A save of this buffer is running.
@@ -215,6 +218,7 @@ impl Buffer {
             internal: false,
             mode: Mode::Fundamental,
             copy_waits: false,
+            own_spelling: None,
             recovery: None,
             saving: false,
             loading: None,

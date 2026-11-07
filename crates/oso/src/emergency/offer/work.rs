@@ -1,7 +1,9 @@
 //! What an offer asks the host to start, and what those threads report (ADR 0064).
 //!
-//! Must not depend on: `app`, `dispatch` or winit; these are values and what runs off the UI
-//! thread, and the host owns the threads.
+//! Must not depend on: `app`, `dispatch` or winit.
+//!
+//! `Comparing::run` and `Deleting::run` read and remove files, on the threads that
+//! `spawn_work` starts, and never on the UI thread.
 
 use std::path::PathBuf;
 

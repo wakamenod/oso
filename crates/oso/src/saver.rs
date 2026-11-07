@@ -57,7 +57,7 @@ pub(crate) const WRITE_SIZE: usize = 1024 * 1024;
 
 /// Every temporary file's name starts with this. It is hidden, says what it is, and
 /// does not hold the file's own name, which could leave it too long for the system.
-pub(crate) const TEMPORARY_PREFIX: &str = ".oso-save-";
+const TEMPORARY_PREFIX: &str = ".oso-save-";
 
 /// How many names to try before giving up on the directory.
 const NAME_ATTEMPTS: u32 = 64;
@@ -504,6 +504,20 @@ fn open_new(path: &Path, mode: u32) -> io::Result<File> {
     #[cfg(not(unix))]
     let _ = mode;
     options.open(path)
+}
+
+/// Whether `text` is one or more ASCII digits.
+pub(crate) fn all_digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Whether `name` has the exact form [`Temporary::create`] gives a file.
+pub(crate) fn is_temporary_name(name: &str) -> bool {
+    let middle = name
+        .strip_prefix(TEMPORARY_PREFIX)
+        .and_then(|rest| rest.strip_suffix(".tmp"));
+    let parts = middle.map(|middle| middle.split('-').collect::<Vec<_>>());
+    parts.is_some_and(|parts| parts.len() == 3 && parts.iter().all(|part| all_digits(part)))
 }
 
 /// A temporary file's name, removed when this is dropped unless it was renamed, also
