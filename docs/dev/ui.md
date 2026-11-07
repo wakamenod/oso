@@ -76,11 +76,12 @@ takes a key from the person:
 ```
 3 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back
 
-   12 min ago  panic    1234 B  file unchanged   /home/me/notes/todo.txt
-   2 days ago  exit      420 B  not open         /home/me/notes/plan.txt
-   3 days ago  ?          88 B  unknown          /state/oso/emergency/1a2b3c4d5e6f7a8b-1790000000-77-0.txt
+todo.txt        12 min ago  panic    1234 B  file unchanged   /home/me/notes/todo.txt
+plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/plan.txt
+1a2b3c4d5e6f…   3 days ago  ?          88 B  unknown          /state/oso/emergency/1a2b3c4d5e6f7a8b-1790000000-77-0.txt
 ```
 
+- A row starts with the file's name, taken from its path, as a window cuts a long row at its edge. Names line up, and take at most 32 cells. The whole path comes last.
 - `v` or `RET` shows the copy's text, read-only, and `=` a line diff with its file. `q` goes back.
 - `r` shows the text, and `r` again there puts it in the file's buffer as one undo step. Nothing is
   written until `C-x C-s`, and the copy goes once that has reached the disk.

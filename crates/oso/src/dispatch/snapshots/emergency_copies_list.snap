@@ -1,11 +1,11 @@
 ---
 source: crates/oso/src/dispatch/grid_tests.rs
-description: "text: 2 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back\\n\\n   12 min ago  panic    1234 B  file unchanged   /home/me/notes.txt\\n   2 days ago  ?          88 B  not open         /home/me/a\\\\nb\\\\u{202e}.txt\\n"
+description: "text: 2 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back\\n\\nnotes.txt            12 min ago  panic    1234 B  file unchanged   /home/me/notes.txt\\na\\\\nb\\\\u{202e}.txt     2 days ago  ?          88 B  not open         /home/me/a\\\\nb\\\\u{202e}.txt\\n"
 ---
-│2 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back            │
-│                                                                                          │
-│   12 min ago  panic    1234 B  file unchanged   /home/me/notes.txt                       │
-:^                                                                                         :
-│   2 days ago  ?          88 B  not open         /home/me/a\nb\u{202e}.txt                │
-=%% *Emergency Copies*  3:0  Emergency Copies  UTF-8 LF                                    =
-"                                                                                          "
+│2 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back                                │
+│                                                                                                              │
+│notes.txt            12 min ago  panic    1234 B  file unchanged   /home/me/notes.txt                         │
+:^                                                                                                             :
+│a\nb\u{202e}.txt     2 days ago  ?          88 B  not open         /home/me/a\nb\u{202e}.txt                  │
+=%% *Emergency Copies*  3:0  Emergency Copies  UTF-8 LF                                                        =
+"                                                                                                              "
