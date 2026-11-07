@@ -39,9 +39,7 @@ On macOS:
 - **No bidirectional algorithm runs.** `CTTypesetter` makes each line with its embedding
   level forced, and no bidi control is added to the shaped text.
 - **A row is split by the direction of its scripts, inside the backend, and only between
-  graphemes.** A display cluster never holds more than a grapheme, so this never splits one.
-  Where a long grapheme is several display clusters, it stays one line, and its glyphs still
-  go to their clusters.
+  the graphemes of the text the shaper is given.** Each glyph still goes to its cluster.
   - A grapheme is right to left if each of its characters is in the blocks of right-to-left
     scripts (U+0590 to U+08FF, U+FB1D to U+FDFF, U+FE70 to U+FEFF, U+10800 to U+10FFF and
     U+1E800 to U+1EFFF) or extends the letter before it, and one of them is in the blocks.

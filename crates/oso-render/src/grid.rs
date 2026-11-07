@@ -322,6 +322,36 @@ mod tests {
         assert_eq!(columns, [0, 1, 2]);
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_real_shaper_keeps_each_glyph_on_its_own_column() {
+        let request = oso_platform::text::FontRequest {
+            families: &["Menlo"],
+            size_pt: 13.0,
+        };
+        let mut system = oso_platform::text::load(&request, 1.0).unwrap();
+        let cell = system.metrics().width;
+        let mut shaped = Vec::new();
+        let mut placed = Vec::new();
+        let mut placer = Placer::default();
+        // A letter, its marks, a character with a mirrored form, a letter, and a
+        // letter of the other direction with a mark from outside its block.
+        let text = "\u{5d1}\u{5b0}\u{5bc}<\u{5e8}a\u{301}\u{5d0}\u{301}";
+        system.shape(text, &mut shaped);
+        placer.place(&graphemes(text), &shaped, cell, &mut placed);
+        let mut columns: Vec<_> = placed.iter().map(|g| g.column).collect();
+        columns.dedup();
+        assert_eq!(columns, [0, 1, 2, 3, 4], "{placed:?}");
+        system.shape("<", &mut shaped);
+        let bracket = placed.iter().find(|g| g.column == 1).unwrap();
+        assert_eq!(bracket.key, shaped[0].key);
+        // Each one's pen is in its cell, or just past it for a mark.
+        assert!(
+            placed.iter().all(|g| g.offset[0].abs() <= cell),
+            "{placed:?}"
+        );
+    }
+
     #[test]
     fn stacked_marks_are_capped() {
         let text: String = std::iter::once('e')
