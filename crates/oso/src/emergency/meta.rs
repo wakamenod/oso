@@ -201,13 +201,12 @@ mod tests {
     use crate::emergency::write::meta_text;
     use crate::emergency::{Identity, Why};
     use oso_core::buffer::FileStamp;
-    use std::path::Path;
 
     fn identity(path: Option<&str>) -> Identity {
         Identity {
             name: "メモ 1.txt".to_owned(),
             path: path.map(PathBuf::from),
-            location: path.map(|path| Path::new("/real").join(path.trim_start_matches('/'))),
+            location: path.map(|path| PathBuf::from(format!("/real{path}"))),
             withheld: false,
             bom: true,
             line_ending: LineEnding::Crlf,

@@ -315,6 +315,19 @@ pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
     a.dev() == b.dev() && a.ino() == b.ino()
 }
 
+/// Whether two sets of metadata are known to be of one file. Unlike [`same_file`], this does
+/// not guess: where the system cannot say, two files are two.
+#[cfg(unix)]
+pub(crate) fn surely_same_file(a: &Metadata, b: &Metadata) -> bool {
+    same_file(a, b)
+}
+
+/// `std` keeps a file's identity unstable here, so nothing can be sure.
+#[cfg(not(unix))]
+pub(crate) fn surely_same_file(_: &Metadata, _: &Metadata) -> bool {
+    false
+}
+
 /// `std` keeps a file's identity unstable here, so this goes by what a save compares.
 #[cfg(not(unix))]
 pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {

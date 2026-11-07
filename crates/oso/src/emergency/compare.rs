@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use oso_core::decode::BOM;
 use similar::{Algorithm, DiffOp, capture_diff_slices_deadline, group_diff_ops};
 
-use crate::loader::same_file;
+use crate::loader::{same_file, surely_same_file};
 
 /// The largest side a diff takes.
 const MAX_BYTES: u64 = 64 * 1024 * 1024;
@@ -185,7 +185,10 @@ pub(super) fn diff_within(file: &str, copy: &str, deadline: Duration) -> Result<
 pub(super) fn diff_files(file: &Path, copy: File, copy_len: u64) -> Result<String, NoDiff> {
     let io_problem = |e: io::Error| NoDiff::Io(e.to_string());
     let (opened, metadata) = open_the_file(file).map_err(io_problem)?;
-    if copy.metadata().is_ok_and(|own| same_file(&metadata, &own)) {
+    if copy
+        .metadata()
+        .is_ok_and(|own| surely_same_file(&metadata, &own))
+    {
         return Err(NoDiff::Io("the file is the copy itself".to_owned()));
     }
     let large = NoDiff::TooLarge {
@@ -221,7 +224,7 @@ pub(super) fn same_bytes(file: &Path, mut copy: File, copy_len: u64) -> bool {
         return false;
     };
     let len = metadata.len();
-    if same_file(&metadata, &copy_metadata)
+    if surely_same_file(&metadata, &copy_metadata)
         || (len != copy_len && len != copy_len + BOM.len() as u64)
     {
         return false;
