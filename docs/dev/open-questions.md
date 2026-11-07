@@ -35,10 +35,9 @@ item notes when it must be settled.
   and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
   rows of ordinary text, so this waits until a profile shows it.
 - A path swapped for a FIFO between the loader's check and its open blocks
-  the loading thread (not the UI), and the same goes for the save's check that a
-  file is writable, which leaves the buffer saving and a confirmed exit waiting.
-  Opening with `O_NONBLOCK` closes this and needs `libc` behind an `oso-platform`
-  filesystem helper.
+  the loading thread (not the UI). Opening with `O_NONBLOCK` closes this, as
+  `oso_platform::file_meta::open_for_writing` does for a save
+  ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)).
 - UI-thread allocations per frame: every `SumTree` seek allocates a cursor
   stack, and every visible glyph hashes its key in the atlas with SipHash.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
@@ -55,12 +54,10 @@ item notes when it must be settled.
 
 ## M2
 
-- Safe save loses a file's extended attributes and ACLs, since `std` cannot copy them
-  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
-  `libc` is in release builds now ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)), so decide whether copying them is worth it.
+- Safe save loses a file's extended attributes other than the quarantine flag ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)). On macOS that includes Finder tags. Decide whether copying them is worth it.
 - A control socket's own file is not sealed as a screenshot is. It is a dev tool's, its peer is checked, and an inherited `deny delete` can leave a dead
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
-- Later, before anyone uses oso on Windows: decide what a private directory does about access lists there. It needs `windows-sys` as a direct
+- Later, before anyone uses oso on Windows: decide what a private directory and a save do about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
   buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. The same goes for
@@ -244,6 +241,25 @@ item notes when it must be settled.
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - OSC 7501 is a draft; track its revisions.
+- Terminal engine: compare `alacritty_terminal` (ADR 0015) and libghostty-vt
+  1.0 when M4's terminal work starts, by building with both, and decide in
+  an ADR. The bar is parity with the author's current Emacs terminal
+  (ghostel, built on libghostty-vt):
+  - inline images (Kitty graphics protocol)
+  - shell integration: directory tracking (OSC 7), prompt navigation
+    (OSC 133), calling whitelisted editor commands from the shell
+  - input modes (semi-char, char, line, read-only, copy)
+  - the terminal as the backend for compile, async shell commands and
+    comint-style buffers
+
+  `alacritty_terminal` lacks OSC 7, OSC 133, OSC 7501 and Kitty graphics.
+  It also gives the embedder no way to observe escape sequences it does not
+  handle, so OSC 7501 for ADR 0031 would need a second parser over the same
+  bytes. Kitty graphics would have to be implemented by oso. libghostty-vt
+  has all of these, but needs Zig to build on three OSes, has no official
+  Rust binding, and parses untrusted output in code that is not memory safe.
+  Also compare rendering of the Claude Code TUI and bulk-output performance.
+  Keep the engine behind a trait.
 - Terminal: PTY implementation per OS (ConPTY on Windows) and the full list of
   allowed and blocked escape sequences.
 - If oso is published with the Claude Code integration, check Anthropic's

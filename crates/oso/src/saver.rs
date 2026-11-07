@@ -1,5 +1,5 @@
 //! Safe save: writing a buffer's snapshot over its file on a background thread
-//! (ADR 0013, ADR 0029, ADR 0059). Losing or damaging a file is what this is
+//! (ADR 0013, ADR 0029, ADR 0059, ADR 0067). Losing or damaging a file is what this is
 //! designed against.
 //!
 //! Must not depend on: `app`, winit or the GPU; the caller supplies the report's way
@@ -13,13 +13,16 @@
 //! 1. Follow symbolic links to the file's real place, so that a link stays a link.
 //! 2. Check the baseline, so that a path now leading elsewhere writes nothing there, and
 //!    a file already changed costs no write.
-//! 3. Create a temporary file with `create_new` and mode 0600 in that file's
-//!    directory, so that the rename stays on one file system.
+//! 3. Create a temporary file with mode 0600 in that file's directory, so that the rename
+//!    stays on one file system, taking no access list from there, so that only this user can
+//!    read it while it fills, from its first moment.
 //! 4. Write the BOM and the text. Line endings are already in the text.
-//! 5. Give it the owner, the group and the mode of the file it replaces, fsync and close
-//!    it, and read back what the file is now.
-//! 6. Check the baseline again, right before the rename, and that the file's mode and
-//!    owner did not change meanwhile.
+//! 5. Give it the owner and the group of the file it replaces, then its quarantine flag and
+//!    access list, or what a file made there gets if there was no such file, and then the
+//!    mode. Nothing is denied too late, and nobody else can read it before now, then fsync and
+//!    close it, and read back what the file is now.
+//! 6. Check the baseline again, right before the rename, and that the file's mode, owner and
+//!    access list did not change meanwhile.
 //! 7. Rename it over the file, then fsync the directory.
 //!
 //! Up to the rename the file on disk is untouched, and after it the file holds the
@@ -44,11 +47,16 @@ use std::time::SystemTime;
 use oso_core::buffer::{Baseline, BufferId, ContentId, FileStamp};
 use oso_core::decode::BOM;
 use oso_core::editor::{Editor, SaveJob, SaveRefused};
+use oso_platform::file_meta::{self, AccessList, Quarantine};
 
 use crate::loader::{location, parent, stamp_of};
 
+mod attributes;
 mod leaving;
 
+#[cfg(all(test, unix))]
+use attributes::kept_mode;
+use attributes::{Made, attributes_moved, keep_mode, keep_owner};
 pub use leaving::{AfterSave, Agreement, AgreementCell, Leaving};
 
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
@@ -65,10 +73,6 @@ const NAME_ATTEMPTS: u32 = 64;
 /// A temporary file's mode while the text goes in: only the user can read it.
 pub(crate) const PRIVATE_MODE: u32 = 0o600;
 
-/// The mode a program asks for a new file, which the umask then narrows.
-#[cfg(unix)]
-const DEFAULT_MODE: u32 = 0o666;
-
 /// Why a save wrote nothing. The file on disk is as it was.
 #[derive(Debug)]
 pub enum SaveError {
@@ -80,6 +84,12 @@ pub enum SaveError {
     /// Where the buffer's file is could not be told when it was read, so no place is safe
     /// to write. Nothing changed on disk.
     UnknownLocation,
+    /// An access list could not be read, put on the new file or confirmed there, and what it allows
+    /// or denies must not be lost.
+    AccessList(io::Error),
+    /// The system refused the rename, and the access list the file would have denies someone
+    /// deleting it, which a rename needs, though whom it names cannot be told.
+    ListForbidsReplacing(io::Error),
     /// The file system refused.
     Io(io::Error),
     /// The saving thread panicked. This holds none of its message, which may quote text.
@@ -101,6 +111,8 @@ pub struct Written {
     stamp: FileStamp,
     /// The file is in place, but the disk did not confirm all of it.
     unsynced: Option<Unsynced>,
+    /// The file is in place, but its quarantine flag could not be kept.
+    quarantine_lost: Option<io::Error>,
 }
 
 /// What the disk did not confirm.
@@ -201,14 +213,20 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
         }
         Ok(Some(written)) => {
             editor.save_finished(buffer, written.content, written.stamp);
-            match written.unsynced {
-                None => format!("Wrote {path}"),
-                Some(Unsynced::File(e)) => format!(
-                    "Wrote the file, but the file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}: {path}"
-                ),
-                Some(Unsynced::Directory(e)) => format!(
-                    "Wrote the file, but the disk did not confirm the rename. A power cut could bring back what was there: {e}: {path}"
-                ),
+            let lost = written.quarantine_lost.map(|e| {
+                format!(
+                    "Wrote the file, but its quarantine flag could not be kept, so macOS may not check it when opened: {e}: {path}"
+                )
+            });
+            // What the disk did not confirm is worth more, so it stays on the echo row.
+            match (written.unsynced, lost) {
+                (None, Some(lost)) => lost,
+                (unsynced, lost) => {
+                    if let Some(lost) = lost {
+                        editor.message(lost);
+                    }
+                    written_message(unsynced, &path)
+                }
             }
         }
         Err(error) => {
@@ -226,12 +244,31 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
                 SaveError::UnknownLocation => format!(
                     "Not saved: where the path leads could not be told when it was read, so no place is safe: {path}"
                 ),
+                SaveError::AccessList(e) => format!(
+                    "Not saved: its access list could not be kept, and the file is as it was: {e}: {path}"
+                ),
+                SaveError::ListForbidsReplacing(e) => format!(
+                    "Not saved: the rename was refused, and its access list denies someone deleting it: {e}: {path}"
+                ),
                 SaveError::Io(e) => format!("Not saved: {e}: {path}"),
                 SaveError::Panicked => format!("Not saved: the save failed: {path}"),
             }
         }
     };
     editor.message(message);
+}
+
+/// What a save that wrote the file says of itself.
+fn written_message(unsynced: Option<Unsynced>, path: &std::path::Display<'_>) -> String {
+    match unsynced {
+        None => format!("Wrote {path}"),
+        Some(Unsynced::File(e)) => format!(
+            "Wrote the file, but the file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}: {path}"
+        ),
+        Some(Unsynced::Directory(e)) => format!(
+            "Wrote the file, but the disk did not confirm the rename. A power cut could bring back what was there: {e}: {path}"
+        ),
+    }
 }
 
 fn write(job: &SaveJob) -> Result<Option<Written>, SaveError> {
@@ -266,6 +303,9 @@ struct Prepared {
     temporary: Temporary,
     /// The file it replaces, as it was before the write.
     replaced: Option<Metadata>,
+    /// The access list it holds: that file's, or if there is none what it took from its directory.
+    list: AccessList,
+    quarantine_lost: Option<io::Error>,
     stamp: FileStamp,
     /// Why the text may not be on the disk yet.
     unsynced: Option<io::Error>,
@@ -283,17 +323,44 @@ fn prepare_with(
 ) -> Result<Prepared, SaveError> {
     let baseline = baseline_of(job)?;
     let replaced = unchanged_file(&job.path, baseline)?;
+    let mut kept_list = None;
+    let mut quarantine = Ok(None);
     if replaced.is_some() {
         // A rename needs only the directory, so it would replace a file the user has
         // made read-only, or may not write. Opening for writing changes nothing.
-        OpenOptions::new().write(true).open(&baseline.location)?;
+        file_meta::open_for_writing(&baseline.location)?;
+        kept_list = Some(AccessList::at(&baseline.location).map_err(SaveError::AccessList)?);
+        quarantine = Quarantine::at(&baseline.location);
     }
     // The real directory, so that a link changed during the write does not lose track of
     // the temporary file.
     let directory = parent(&baseline.location);
-    let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
+    // What a new file gets is what a file made there gets, and nothing goes in that one.
+    let made = match replaced {
+        Some(_) => None,
+        None => Some(Made::there(directory)?),
+    };
+    let (temporary, file) = Temporary::create_private(directory)?;
+    // A Linux file system still gives it a list, whose mask its mode shuts, so it grants
+    // nothing. It comes off, so that what goes on is only what is wanted.
+    AccessList::take_from(&file).map_err(SaveError::AccessList)?;
     write_text(&file, job)?;
-    keep_attributes(&file, replaced.as_ref(), baseline.file, directory)?;
+    let group_kept = keep_owner(&file, replaced.as_ref())?;
+    let quarantine_lost = quarantine
+        .and_then(|flag| flag.map_or(Ok(()), |flag| flag.give_to(&file)))
+        .err();
+    let (list, made_mode) = match made {
+        Some(made) => (made.list, Some(made.permissions)),
+        None => (kept_list.unwrap_or_default(), None),
+    };
+    list.give_to(&file).map_err(SaveError::AccessList)?;
+    keep_mode(
+        &file,
+        replaced.as_ref(),
+        baseline.file,
+        made_mode,
+        group_kept,
+    )?;
     let unsynced = unless_unsupported(sync(&file))?;
     // Read after closing it, as Windows may settle the modification time only then. The
     // name is ours until the rename, and that comes after, so a change made right after the
@@ -306,6 +373,8 @@ fn prepare_with(
     Ok(Prepared {
         temporary,
         replaced,
+        list,
+        quarantine_lost,
         stamp,
         unsynced,
     })
@@ -332,7 +401,23 @@ impl Prepared {
         if attributes_moved(self.replaced.as_ref(), now.as_ref()) {
             return Err(SaveError::Conflict);
         }
-        self.temporary.rename_over(&baseline.location)?;
+        // The rename would undo a list changed during the write, as it would a `chmod`.
+        if self.replaced.is_some() && now.is_some() {
+            let list = AccessList::at(&baseline.location).map_err(SaveError::AccessList)?;
+            if list != self.list {
+                return Err(SaveError::Conflict);
+            }
+        }
+        let forbidden = self.list.denies_deleting();
+        self.temporary
+            .rename_over(&baseline.location)
+            .map_err(|e| {
+                if forbidden && e.kind() == io::ErrorKind::PermissionDenied {
+                    SaveError::ListForbidsReplacing(e)
+                } else {
+                    e.into()
+                }
+            })?;
         let directory = sync_directory(parent(&baseline.location)).err();
         Ok(Written {
             content: job.content,
@@ -341,6 +426,7 @@ impl Prepared {
                 .unsynced
                 .map(Unsynced::File)
                 .or(directory.map(Unsynced::Directory)),
+            quarantine_lost: self.quarantine_lost,
         })
     }
 }
@@ -369,28 +455,6 @@ fn sync_is_unsupported(error: &io::Error) -> bool {
         error.kind(),
         io::ErrorKind::Unsupported | io::ErrorKind::InvalidInput
     )
-}
-
-/// Whether the attributes the new file took are out of date by now, as the rename would
-/// then undo a `chmod` made during the write. A file that came back counts, since it
-/// was not there to take them from. One deleted meanwhile has nothing left to keep.
-fn attributes_moved(before: Option<&Metadata>, now: Option<&Metadata>) -> bool {
-    match (before, now) {
-        (Some(before), Some(now)) => attributes(before) != attributes(now),
-        (None, Some(_)) => true,
-        (_, None) => false,
-    }
-}
-
-#[cfg(unix)]
-fn attributes(metadata: &Metadata) -> (u32, u32, u32) {
-    use std::os::unix::fs::MetadataExt;
-    (metadata.mode(), metadata.uid(), metadata.gid())
-}
-
-#[cfg(not(unix))]
-fn attributes(metadata: &Metadata) -> bool {
-    metadata.permissions().readonly()
 }
 
 /// The file at the buffer's location, if there is one, unless it is not what `baseline`
@@ -426,63 +490,6 @@ fn write_text(file: impl Write, job: &SaveJob) -> io::Result<()> {
         out.write_all(chunk.as_bytes())?;
     }
     out.flush()
-}
-
-/// Gives `file` the owner, group and mode of the file it replaces. If that file was
-/// deleted since it was `read`, it gets its mode back, as if its group were lost, and a
-/// file that never existed gets the default mode. Extended attributes, ACLs and other
-/// hard links do not carry over (ADR 0059).
-#[cfg(unix)]
-fn keep_attributes(
-    file: &File,
-    replaced: Option<&Metadata>,
-    read: Option<FileStamp>,
-    directory: &Path,
-) -> io::Result<()> {
-    use std::fs::Permissions;
-    use std::os::unix::fs::{MetadataExt, PermissionsExt, fchown};
-
-    let Some(old) = replaced else {
-        if let Some(read) = read {
-            return file.set_permissions(Permissions::from_mode(kept_mode(read.mode, false)));
-        }
-        let (_probe, probe_file) = Temporary::create(directory, DEFAULT_MODE)?;
-        return file.set_permissions(probe_file.metadata()?.permissions());
-    };
-    let new = file.metadata()?;
-    if old.uid() != new.uid() {
-        fchown(file, Some(old.uid()), None).map_err(|_| {
-            io::Error::other("the file belongs to another user, and a save would take it over")
-        })?;
-    }
-    let group_kept = old.gid() == new.gid() || fchown(file, None, Some(old.gid())).is_ok();
-    file.set_permissions(Permissions::from_mode(kept_mode(old.mode(), group_kept)))
-}
-
-/// The mode the new file gets from the `mode` of the old one. Set-user-ID and set-group-ID
-/// go, as they do when a file is written. If the file ends up in another group, that
-/// group gets no more than everyone else, since the bits were meant for the old one.
-#[cfg(unix)]
-fn kept_mode(mode: u32, group_kept: bool) -> u32 {
-    let mode = mode & 0o777;
-    if group_kept {
-        mode
-    } else {
-        mode & !(0o070 & !((mode & 0o007) << 3))
-    }
-}
-
-#[cfg(not(unix))]
-fn keep_attributes(
-    file: &File,
-    replaced: Option<&Metadata>,
-    _read: Option<FileStamp>,
-    _directory: &Path,
-) -> io::Result<()> {
-    match replaced {
-        Some(old) => file.set_permissions(old.permissions()),
-        None => Ok(()),
-    }
 }
 
 /// A rename is durable once its directory is synced. Windows has no such thing.
@@ -530,6 +537,21 @@ pub(crate) struct Temporary {
 impl Temporary {
     /// Creates a file with a new name beside nothing it could be mistaken for.
     pub(crate) fn create(directory: &Path, mode: u32) -> io::Result<(Self, File)> {
+        Self::create_with(directory, |path| open_new(path, mode))
+    }
+
+    /// Creates a file with a new name, as [`Self::create`] does, with mode 0600 and granting
+    /// nothing through an access list at any moment.
+    fn create_private(directory: &Path) -> io::Result<(Self, File)> {
+        Self::create_with(directory, file_meta::create_private)
+    }
+
+    /// Creates a file through `open`, which must make a new one, and fail with `AlreadyExists` for
+    /// a name already there.
+    fn create_with(
+        directory: &Path,
+        open: impl Fn(&Path) -> io::Result<File>,
+    ) -> io::Result<(Self, File)> {
         let stamp = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_or(0, |since| since.subsec_nanos());
@@ -537,7 +559,7 @@ impl Temporary {
         for attempt in 0..NAME_ATTEMPTS {
             let name = format!("{TEMPORARY_PREFIX}{process}-{stamp}-{attempt}.tmp");
             let path = directory.join(name);
-            match open_new(&path, mode) {
+            match open(&path) {
                 Ok(file) => {
                     let renamed = false;
                     return Ok((Self { path, renamed }, file));
@@ -563,7 +585,10 @@ impl Temporary {
 
 impl Drop for Temporary {
     fn drop(&mut self) {
-        if !self.renamed {
+        // A list it was given can deny removing it, and only until that list is gone, which comes
+        // after its mode is shut, so that it is never left more open.
+        if !self.renamed && fs::remove_file(&self.path).is_err() {
+            let _ = file_meta::clear_access_list_at(&self.path);
             let _ = fs::remove_file(&self.path);
         }
     }

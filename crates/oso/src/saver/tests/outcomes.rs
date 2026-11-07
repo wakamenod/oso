@@ -69,6 +69,7 @@ fn what_the_disk_did_not_confirm_is_said_as_it_is_and_counts_as_written() {
                 content: job.content,
                 stamp: stamp_of(&fs::metadata(&path).unwrap()).unwrap(),
                 unsynced: Some(unsynced),
+                quarantine_lost: None,
             })),
         };
         let message = applied(&mut editor, report);
@@ -76,6 +77,61 @@ fn what_the_disk_did_not_confirm_is_said_as_it_is_and_counts_as_written() {
         assert!(message.contains(said), "{message}");
         assert!(message.ends_with(&path.display().to_string()), "{message}");
         assert!(!editor.current().1.is_modified());
+    }
+}
+
+#[test]
+fn a_quarantine_flag_that_was_lost_is_said_and_the_save_counts() {
+    let scratch = Scratch::new("quarantine-lost-said");
+    let path = scratch.file("notes.txt", b"old\n");
+    let mut editor = visit(&path);
+    let job = job_of(&mut editor, SECRET);
+    let report = SaveReport {
+        buffer: job.buffer,
+        path: path.clone(),
+        outcome: Ok(Some(super::super::Written {
+            content: job.content,
+            stamp: stamp_of(&fs::metadata(&path).unwrap()).unwrap(),
+            unsynced: None,
+            quarantine_lost: Some(std::io::Error::other("no such right")),
+        })),
+    };
+    let message = applied(&mut editor, report);
+    assert!(message.starts_with("Wrote the file, but"), "{message}");
+    assert!(message.contains("quarantine flag"), "{message}");
+    assert!(message.contains("no such right"), "{message}");
+    assert!(message.ends_with(&path.display().to_string()), "{message}");
+    assert!(!message.contains("S3CRET"), "{message}");
+    assert!(!editor.current().1.is_modified());
+}
+
+#[test]
+fn what_a_list_stops_is_said_by_path_with_the_reason_first_and_quotes_no_text() {
+    let scratch = Scratch::new("list-messages");
+    let path = scratch.file("notes.txt", b"old\n");
+    for (error, said) in [
+        (
+            SaveError::AccessList(std::io::Error::other("no such right")),
+            "access list could not be kept",
+        ),
+        (
+            SaveError::ListForbidsReplacing(std::io::Error::other("no such right")),
+            "denies someone deleting",
+        ),
+    ] {
+        let mut editor = visit(&path);
+        let job = job_of(&mut editor, SECRET);
+        let report = SaveReport {
+            buffer: job.buffer,
+            path: path.clone(),
+            outcome: Err(error),
+        };
+        let message = applied(&mut editor, report);
+        assert!(message.starts_with("Not saved:"), "{message}");
+        assert!(message.contains(said), "{message}");
+        assert!(message.ends_with(&path.display().to_string()), "{message}");
+        assert!(!message.contains("S3CRET"), "{message}");
+        assert!(editor.current().1.is_modified());
     }
 }
 
