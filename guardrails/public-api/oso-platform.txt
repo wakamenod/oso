@@ -54,6 +54,7 @@ pub fn oso_platform::privacy::PrivateDir::clone(&self) -> oso_platform::privacy:
 impl core::fmt::Debug for oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn oso_platform::privacy::disable_core_dumps() -> std::io::error::Result<()>
+pub fn oso_platform::privacy::has_one_name(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::is_this_users(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::state_home() -> core::option::Option<std::path::PathBuf>
 pub mod oso_platform::process
