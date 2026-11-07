@@ -834,6 +834,28 @@ mod tests {
     }
 
     #[test]
+    fn the_wheel_leaves_the_cursor_where_a_composition_is() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        editor.set_preedit(Some(Preedit::new("か".into(), None)));
+        assert!(editor.scroll_view(30));
+        assert_eq!(editor.window().scroll().top, 30);
+        assert_eq!(
+            editor.window().selections.primary().cursor,
+            0,
+            "the cursor stays"
+        );
+        editor.set_preedit(None);
+        assert_eq!(editor.window().scroll().top, 0, "the view comes back to it");
+        assert!(editor.scroll_view(30));
+        assert_ne!(
+            editor.window().selections.primary().cursor,
+            0,
+            "with none, it moves"
+        );
+    }
+
+    #[test]
     fn the_view_follows_the_preedit_to_the_cursor_box() {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", "abcdefgh"));
         editor.set_view_size(ViewSize::new(3, 10));

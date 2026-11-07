@@ -44,7 +44,7 @@ impl ApplicationHandler<UserEvent> for App {
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
-        self.sync_ime();
+        self.after_event();
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -104,9 +104,7 @@ impl ApplicationHandler<UserEvent> for App {
 
             _ => {}
         }
-        // Before the next key is read: winit hands a key to the input method before
-        // it reaches oso (ADR 0069).
-        self.sync_ime();
+        self.after_event();
     }
 }
 

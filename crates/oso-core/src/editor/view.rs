@@ -120,13 +120,20 @@ impl Editor {
 
     /// Scrolls the selected window's view by `rows` (down toward the end
     /// if positive), for the mouse wheel and trackpad. Cursors left outside
-    /// the view move to its nearest row, as in Emacs. Returns whether the
-    /// view moved.
+    /// the view move to its nearest row, as in Emacs, but not while a preedit is
+    /// shown: the commit goes where the composition started, and the next command
+    /// brings the view back (ADR 0069). Returns whether the view moved.
     pub fn scroll_view(&mut self, rows: isize) -> bool {
+        let composing = self.preedit.is_some();
         let (window, buffer) = self.current_mut();
         let display = buffer.display();
         let row_count = display.row_count();
-        let top = window::wheel(window.scroll().top, window.size(), row_count, rows);
+        let scroll = window.scroll();
+        let top = window::wheel(scroll.top, window.size(), row_count, rows);
+        if composing {
+            window.set_scroll(Scroll { top, ..scroll });
+            return top != scroll.top;
+        }
         window.set_top(top, &display)
     }
 

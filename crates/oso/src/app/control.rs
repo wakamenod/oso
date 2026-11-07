@@ -100,12 +100,6 @@ impl App {
                 })
             }
         };
-        // Only a request can change the buffer during a composition. One that leaves a
-        // buffer that may hold secrets selected ends it, so the IME goes off there at once,
-        // as the OS would not end a composition the socket made (ADR 0069).
-        if self.composing() && self.editor.current().1.is_secret() {
-            self.end_composition();
-        }
         let _ = reply.send(result);
     }
 

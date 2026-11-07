@@ -30,6 +30,13 @@ fn a_preedit_draws_in_the_window_and_a_commit_is_one_undo_step() {
     assert_eq!(state["ime"]["allowed"], true);
     assert_eq!(state["ime"]["composing"], false);
     let before = app.screenshot().foreground().expect("the cursor is drawn");
+    // The cell goes to the OS when a key moves the cursor, before any frame, so that
+    // a composition the next key starts opens its candidate window there.
+    let top = state["ime"]["area"]["y"].as_f64().unwrap();
+    app.send_keys("C-n");
+    let moved = app.state()["ime"]["area"]["y"].as_f64().unwrap();
+    assert!(moved > top, "{moved} below {top}");
+    app.send_keys("C-p");
 
     ime(&mut app, json!({ "preedit": "にほ", "range": [6, 6] })).unwrap();
     let state = app.state();

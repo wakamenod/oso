@@ -134,12 +134,17 @@ fn self_insert_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
     if input.is_empty() {
         return Err(CommandError::new("No text to insert"));
     }
-    // As Emacs does for a count under 2. Text of several characters stays out, or
-    // 20 commits from an input method would undo as one step.
-    if args.count() < 2 && input.chars().nth(1).is_none() {
+    type_text(ctx, input, args.count())
+}
+
+/// Inserts `text` as typing does: a single character with a count under 2 asks to
+/// join the typing before it, as Emacs does. Text of several characters stays out, or
+/// a run of them would undo as one step.
+fn type_text(ctx: &mut Ctx<'_>, text: &str, count: isize) -> Result<(), CommandError> {
+    if count < 2 && text.chars().nth(1).is_none() {
         ctx.editor.allow_undo_join();
     }
-    insert_at_cursors(ctx, input, args.count())
+    insert_at_cursors(ctx, text, count)
 }
 
 /// The space a Japanese input method types for `SPC`, which winit cannot deliver
@@ -147,10 +152,7 @@ fn self_insert_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
 const FULL_WIDTH_SPACE: &str = "\u{3000}";
 
 fn insert_full_width_space(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    if args.count() < 2 {
-        ctx.editor.allow_undo_join();
-    }
-    insert_at_cursors(ctx, FULL_WIDTH_SPACE, args.count())
+    type_text(ctx, FULL_WIDTH_SPACE, args.count())
 }
 
 fn newline(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

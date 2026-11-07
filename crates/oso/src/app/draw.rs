@@ -229,7 +229,6 @@ impl App {
                 }
                 log::trace!("frame drawn in {:?}", frame.elapsed());
                 self.note_first_screens();
-                self.give_cursor_area();
             }
             // Not fatal: the frame is skipped and the next one retries.
             Err(e) => log::error!("render error: {e}"),

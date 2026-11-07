@@ -101,11 +101,12 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
 
 ### The candidate window
 
-- **The cursor's cell goes to the OS from the draw path,** after a frame is presented:
+- **The cursor's cell goes to the OS after every event,** before the next is read:
   `Editor::cursor_area` as a `PhysicalPosition` and `PhysicalSize`, only when the
-  rectangle or the scale factor differs from the last one given. That covers motion,
-  scrolling, resizing, a new scale and a finished load with one rule, and the event path
-  computes nothing.
+  rectangle or the scale factor differs from the last one given. A composition the next
+  key starts then opens its candidate window at the cell a command or a commit just
+  moved to, also before that frame is drawn, as a call during a composition moves
+  nothing. One rule covers motion, scrolling, resizing, a new scale and a finished load.
 - **Not before the first frame is presented,** where the first call costs about 3 ms.
   `set_ime_allowed` itself is called as soon as the window exists.
 - **Not during a composition,** where a call costs about 200 µs and moves nothing. The
@@ -116,8 +117,7 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
 ### When the IME is on
 
 - **One function decides whether the IME is wanted,** from the editor and the dispatcher,
-  after every key, commit, IME event, user event and socket request, before the next event
-  is read. It calls `set_ime_allowed` only when the answer changes. The IME is wanted
+  in one hook after every window event and user event, before the next event is read. It calls `set_ime_allowed` only when the answer changes. The IME is wanted
   unless:
   - the selected buffer shows emergency copies (`Mode::shows_copies`), where letters are
     answers (ADR 0064);
@@ -135,9 +135,14 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
   or `Disabled`. Keys cannot cause such a change, as they are swallowed; only a socket
   request or another thread can. Turning on happens at once, and gives the OS the
   cursor's cell if it moved while the IME was off.
-- **A socket request that leaves a buffer that may hold secrets selected ends a
-  composition,** so the IME goes off there at once. A composition the socket made has
-  no OS behind it to end it.
+- **Any event that leaves a buffer that may hold secrets selected ends a composition,**
+  in the same hook, so the IME goes off there at once. Only a socket request or another
+  thread can change the buffer during one, and a composition the socket made has no OS
+  behind it to end it.
+- **The wheel during a composition moves the view only.** The cursors stay, so the
+  commit goes where the composition started, and the command it runs brings the view
+  back. Moving the cursors to the view, as the wheel does otherwise, would move the
+  preedit to another line.
 - **A commit goes where typing goes at that moment,** as a key would. If a request
   changed the selected buffer during the composition, the commit goes there, and fails
   as a key would where text is refused.
@@ -209,9 +214,9 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   answer changes, under 1 µs.
 - **A preedit event** copies its text into the editor, follows, and draws a frame in which
   one row is shaped again, as one typed key would cost. Other rows are reused.
-- **A frame where the cursor moved on the screen** gains one `set_ime_cursor_area`, 20 to
-  60 µs, after the frame is presented. Each frame of a wheel or trackpad scroll moves it,
-  so a scroll pays this once a frame, after the frame.
+- **An event that moved the cursor on the screen** gains one `set_ime_cursor_area`, 20
+  to 60 µs, before the frame it asks for. That includes a key that moves the cursor, and
+  each wheel or trackpad event of a scroll.
 - **A commit** costs as typing the same text does, plus one undo step.
 - **The first key after launch** stalls the UI thread for about 21 to 32 ms with the IME
   allowed, against 6 to 15 ms without, once per process, as the OS's input method starts.
@@ -279,8 +284,13 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   every cursor.
 - **Joining a one-character commit to the typing before it,** as ADR 0056 lets a
   one-character input join: a phrase of one kana would undo with the word before it.
-- **Calling `set_ime_cursor_area` from the key path:** misses scrolling, resizing and a
-  finished load, and pays for keys that move nothing.
+- **Calling `set_ime_cursor_area` from the key path alone:** misses scrolling, resizing
+  and a finished load.
+- **Calling it from the draw path alone, after a presented frame:** costs keys nothing,
+  but a composition started before the next frame opens its candidate window at the old
+  cell, for the whole composition.
+- **Ending a composition on a wheel scroll:** the OS keeps it, and the next key would
+  bring it back.
 - **Giving the OS the segment's cell during a composition:** the spike saw such a call
   move nothing, at 200 µs each.
 - **Turning off at once, even during a composition:** the OS keeps the composition, and

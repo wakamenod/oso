@@ -13,11 +13,18 @@
 
 use std::ops::{ControlFlow, Range};
 
-use super::{DisplayCluster, DisplayPoint, DisplaySnapshot, text_clusters};
+use super::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot, text_clusters};
 
-/// Clusters between two entries of [`Preedit`]'s index, so that reading a row from
-/// a column deep in a long preedit segments at most this many before it.
-const STEP: usize = 256;
+/// One of a preedit's clusters, from the one pass that segments it, so that a row
+/// read from any column gives the same clusters, and costs no segmenting.
+#[derive(Clone, PartialEq, Eq)]
+struct Cluster {
+    /// Where its text is in the preedit's.
+    bytes: Range<usize>,
+    column: usize,
+    cells: usize,
+    kind: CellKind,
+}
 
 /// What an input method is composing, with the part it marks, in cells worked out
 /// once. No `Debug`: it is text being typed (ADR 0028).
@@ -33,8 +40,8 @@ pub struct Preedit {
     caret: Option<(usize, usize)>,
     /// The cells of the segment being converted, when `range` is not empty.
     segment: Option<Range<usize>>,
-    /// Where every [`STEP`]th cluster starts: its column and its byte.
-    steps: Vec<(usize, usize)>,
+    /// Its clusters, by column from its start.
+    clusters: Vec<Cluster>,
 }
 
 impl Preedit {
@@ -50,12 +57,15 @@ impl Preedit {
         let mut cells = 0;
         let mut caret = None;
         let mut segment: Option<Range<usize>> = None;
-        let mut steps = Vec::new();
-        for (index, cluster) in text_clusters(&text, 0).enumerate() {
-            if index % STEP == 0 {
-                steps.push((cluster.column, cluster.offset));
-            }
+        let mut clusters = Vec::new();
+        for cluster in text_clusters(&text, 0) {
             let end = cluster.offset + cluster.text.len();
+            clusters.push(Cluster {
+                bytes: cluster.offset..end,
+                column: cluster.column,
+                cells: cluster.cells,
+                kind: cluster.kind,
+            });
             let width = cluster.cells.max(1);
             if let Some(range) = &range {
                 let covers = |byte: usize| cluster.offset <= byte && byte < end;
@@ -75,21 +85,25 @@ impl Preedit {
             cells,
             caret,
             segment,
-            steps,
+            clusters,
         }
     }
 
-    /// The preedit's clusters from about `column` of its own, with columns from `at`:
-    /// from the last indexed cluster at or before it.
+    /// The preedit's clusters from the one that covers `column` of its own, with
+    /// columns from `at`: a search, and no segmenting.
     fn clusters_from(&self, at: usize, column: usize) -> impl Iterator<Item = DisplayCluster<'_>> {
-        let index = self.steps.partition_point(|&(start, _)| start <= column);
-        let (start, byte) = index
-            .checked_sub(1)
-            .map_or((0, 0), |index| self.steps[index]);
-        text_clusters(&self.text[byte..], at + start).map(move |mut cluster| {
-            cluster.offset += byte;
-            cluster
-        })
+        let first = self
+            .clusters
+            .partition_point(|cluster| cluster.column + cluster.cells.max(1) <= column);
+        self.clusters[first..]
+            .iter()
+            .map(move |cluster| DisplayCluster {
+                offset: cluster.bytes.start,
+                column: at + cluster.column,
+                cells: cluster.cells,
+                text: &self.text[cluster.bytes.clone()],
+                kind: cluster.kind,
+            })
     }
 
     pub fn text(&self) -> &str {
@@ -283,15 +297,40 @@ mod tests {
     #[test]
     fn a_long_preedit_is_read_from_near_the_column_asked_for() {
         let display = snapshot("ab");
-        let preedit = Preedit::new("か".repeat(3 * STEP), None);
-        let start = DisplayPoint::new(0, 1 + 2 * (STEP + 10));
+        let preedit = Preedit::new("か".repeat(768), None);
+        let start = DisplayPoint::new(0, 1 + 2 * 266);
         let late = row(&display, start, Some((1, &preedit)));
         assert_eq!(
             late[0].0, start.column,
             "the cluster at the column, and none before"
         );
-        assert_eq!(late.len(), 2 * STEP - 10 + 1, "the rest of it, then b");
+        assert_eq!(late.len(), 768 - 266 + 1, "the rest of it, then b");
         assert_eq!(late.last().unwrap().1, "b");
+    }
+
+    #[test]
+    fn any_column_reads_the_clusters_of_the_one_pass_even_past_a_clusters_limits() {
+        // A letter with more marks than a display cluster takes, between others.
+        let text = format!("か{}a\u{3000}b", "\u{301}".repeat(300));
+        let display = snapshot("");
+        let preedit = Preedit::new(text, None);
+        let whole = row(&display, DisplayPoint::new(0, 0), Some((0, &preedit)));
+        for column in 0..preedit.cells() {
+            let from = row(&display, DisplayPoint::new(0, column), Some((0, &preedit)));
+            // A cluster ends where the next starts, and the last at the preedit's end.
+            let ends = whole.iter().skip(1).map(|(start, _, _)| *start);
+            let expected: Vec<_> = whole
+                .iter()
+                .zip(ends.chain([preedit.cells()]))
+                .filter(|(_, end)| *end > column)
+                .map(|(cluster, _)| cluster.clone())
+                .collect();
+            assert_eq!(from.len(), expected.len(), "from column {column}");
+            for (got, want) in from.iter().zip(&expected) {
+                assert_eq!(got.0, want.0, "from column {column}");
+                assert_eq!(got.1, want.1, "from column {column}");
+            }
+        }
     }
 
     #[test]

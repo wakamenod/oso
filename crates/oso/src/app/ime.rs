@@ -86,7 +86,7 @@ impl App {
     /// Handles a report of the input method, from winit or the dev socket. Returns
     /// whether it asked for a frame.
     pub(super) fn ime_event(&mut self, event_loop: &ActiveEventLoop, event: ImeEvent) -> bool {
-        let redraw = match event {
+        match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
                     self.dispatcher.begin_composition(&mut self.editor);
@@ -103,13 +103,24 @@ impl App {
                 self.apply(event_loop, effects);
                 ended || effects.redraw
             }
-        };
+        }
+    }
+
+    /// What follows every event, before the next is read, as winit hands a key to the
+    /// input method before it reaches oso (ADR 0069): a composition ends if a buffer that
+    /// may hold secrets is selected, whatever selected it, then the IME is allowed as
+    /// wanted, and the OS gets the cursor's cell if it changed, so that a composition
+    /// started by the next key opens its candidate window there.
+    pub(super) fn after_event(&mut self) {
+        if self.composing() && self.editor.current().1.is_secret() {
+            self.end_composition();
+        }
         self.sync_ime();
-        redraw
+        self.give_cursor_area();
     }
 
     /// Drops the preedit, if one is shown. Returns whether one was.
-    pub(super) fn end_composition(&mut self) -> bool {
+    fn end_composition(&mut self) -> bool {
         let shown = self.editor.preedit().is_some();
         if shown {
             self.editor.set_preedit(None);
@@ -119,7 +130,7 @@ impl App {
     }
 
     /// Whether a composition is open.
-    pub(super) fn composing(&self) -> bool {
+    fn composing(&self) -> bool {
         self.editor.preedit().is_some()
     }
 
@@ -141,33 +152,30 @@ impl App {
     }
 
     /// Allows or forbids the IME as wanted, if that changed. Turning it off waits for
-    /// a composition to end. Called after every event, so it holds before the next key
-    /// is read.
+    /// a composition to end.
     pub(super) fn sync_ime(&mut self) {
         let next = next_allowed(self.ime.allowed, self.ime_wanted(), self.composing());
         let (Some(wanted), Some(view)) = (next, &self.view) else {
             return;
         };
-        let presented = view.render_state.presented_frames() > 0;
         view.window.set_ime_allowed(wanted);
         self.ime.allowed = wanted;
         log::debug!("IME allowed: {wanted}");
-        // The cursor may have moved while it was off.
-        if wanted && presented {
-            self.give_cursor_area();
-        }
     }
 
     /// Gives the OS the primary cursor's cell, for its candidate window, if it moved
-    /// since the last time. Called once a frame is presented, as the first call costs a
-    /// few milliseconds before the first frame, and when the IME turns on. Not during a
-    /// composition, where it moves nothing, and not while the IME is off, as in a buffer
-    /// that may hold secrets.
-    pub(super) fn give_cursor_area(&mut self) {
+    /// since the last time. Not before the first frame is presented, as the first call
+    /// costs a few milliseconds then, not during a composition, where it moves nothing,
+    /// and not while the IME is off, as in a buffer that may hold secrets.
+    fn give_cursor_area(&mut self) {
         if self.composing() || !self.ime.allowed {
             return;
         }
-        let Some(view) = &self.view else {
+        let Some(view) = self
+            .view
+            .as_ref()
+            .filter(|view| view.render_state.presented_frames() > 0)
+        else {
             return;
         };
         let Some(area) = self.editor.cursor_area(view.render_state.pixel_grid()) else {
