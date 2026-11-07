@@ -48,6 +48,8 @@ replacing or moving it". Which user an entry names cannot be told without asking
 someone else lets the save through.
 
 A temporary file holding such a list cannot be removed either. So when removing it fails, its list is cleared by its path and removing it is tried again.
+One a process left behind, listed `left by a save` ([ADR 0064](0064-recovering-an-emergency-copy.md)), has its own list cleared the same way when
+the person deletes it there, and only a list that denies deleting it.
 
 ### The quarantine flag
 
