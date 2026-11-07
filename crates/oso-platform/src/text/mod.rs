@@ -178,10 +178,15 @@ pub trait TextSystem {
     /// The cell grid of the primary font.
     fn metrics(&self) -> CellMetrics;
 
-    /// Shapes one row of text into `out`, replacing its contents, with the
-    /// glyphs in visual order. Characters the primary font lacks come from
-    /// fallback fonts. Line breaks and tabs are not handled: the caller
-    /// passes one row of text.
+    /// Shapes one row of text into `out`, replacing its contents. Each glyph
+    /// names the cluster it draws, and the caller places it by that, so the
+    /// row reads in the logical order of the text whatever the script. Within
+    /// a run of a right-to-left script the glyphs can come in the opposite
+    /// order. No character is shown as its mirrored form, and right-to-left
+    /// scripts are still shaped with their direction, so that their marks and
+    /// joining work (ADR 0066). Characters the primary font lacks come from
+    /// fallback fonts. Line breaks and tabs are not handled: the caller passes
+    /// one row of text.
     fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>);
 
     /// Rasterizes a glyph from [`Self::shape`]. `None` for glyphs that draw

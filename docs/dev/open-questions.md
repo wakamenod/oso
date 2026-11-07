@@ -267,7 +267,11 @@ item notes when it must be settled.
   agents test on Windows.
 - Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz. Until
   then Linux (and Windows, until DirectWrite) draws no text
-  ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)).
+  ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)). Each must keep cells in logical
+  order and show no mirrored form
+  ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
+- A right-to-left file in the `just perf` inputs, so its rows are measured
+  ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 - Exact command subsets for the directory editor and org.
 - PDF engine and isolation (pdfium, a pure-Rust renderer, a separate
   process); image decoders.
