@@ -61,9 +61,6 @@ These ADRs stay as they are; this one changes the following:
   sorts them by column as it did.
 - [ADR 0036](0036-text-system-and-glyph-atlas.md), font fallback: `CTLine` runs still give
   it, from a `CTLine` that a typesetter makes.
-- [ADR 0036](0036-text-system-and-glyph-atlas.md), "A cluster's glyphs keep their offsets
-  from the font": this holds within a run. A cluster whose characters fall in two runs has
-  its later glyphs after the earlier ones.
 - [ADR 0061](0061-panes-clipping-and-layers.md), "A row of one face ... stays one string":
   it is one call to `TextSystem::shape`, and the backend can split it by direction.
 
