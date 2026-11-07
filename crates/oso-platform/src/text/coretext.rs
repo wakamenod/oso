@@ -12,12 +12,14 @@
 //! system's cascade list for the primary font (CJK, emoji and so on).
 //!
 //! Lines come from a `CTTypesetter` with a forced embedding level, so no
-//! character is shown as its mirrored form (ADR 0066). A row is split by the
-//! direction of its scripts. Right-to-left scripts are shaped at level 1, since
-//! their marks and joining need it, and no character there has a mirrored form.
-//! Everything else is shaped at level 0.
+//! character is shown as its mirrored form (ADR 0066). A row is split between
+//! graphemes by the direction of its scripts. Right-to-left scripts are shaped
+//! at level 1, since their marks and joining need it, and no character there has
+//! a mirrored form. Everything else is shaped at level 0.
 
 use std::ptr::{self, NonNull};
+
+use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
 use objc2_core_foundation::{
     CFArray, CFAttributedString, CFBoolean, CFDictionary, CFIndex, CFNumber, CFRange, CFRetained,
@@ -249,17 +251,27 @@ impl TextSystem for CoreTextSystem {
 
     fn shape(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
         out.clear();
+        if text.is_empty() {
+            return;
+        }
+        if text.is_ascii() || !text.chars().any(is_right_to_left) {
+            self.shape_direction(text, 0, false, 0.0, out);
+            return;
+        }
+        let mut current = false;
         let mut start = 0;
         let mut pen = 0.0;
-        while let Some(first) = text[start..].chars().next() {
-            let right_to_left = is_right_to_left(first);
-            let len = text[start..]
-                .find(|c| !stays_in_run(c) && is_right_to_left(c) != right_to_left)
-                .unwrap_or(text.len() - start);
-            let end = start + len;
-            pen += self.shape_direction(&text[start..end], start, right_to_left, pen, out);
-            start = end;
+        for (byte, grapheme) in text.grapheme_indices(true) {
+            let right_to_left = grapheme_direction(grapheme).unwrap_or(current);
+            if right_to_left != current {
+                if byte > start {
+                    pen += self.shape_direction(&text[start..byte], start, current, pen, out);
+                    start = byte;
+                }
+                current = right_to_left;
+            }
         }
+        self.shape_direction(&text[start..], start, current, pen, out);
     }
 
     fn rasterize(&mut self, key: GlyphKey) -> Option<GlyphBitmap> {
@@ -395,27 +407,43 @@ fn is_right_to_left(c: char) -> bool {
     )
 }
 
-/// Whether `c` stays in the run before it. A mark or a joiner is shaped with its
-/// letter, or the font cannot place it there, and a space saves a run per word.
-/// None of these has a mirrored form either.
-fn stays_in_run(c: char) -> bool {
-    matches!(
-        u32::from(c),
-        0x20 | 0x200C..=0x200D
-            | 0x300..=0x36F
-            | 0x591..=0x5C7
-            | 0x610..=0x61A
-            | 0x64B..=0x65F
-            | 0x670
-            | 0x6D6..=0x6ED
-            | 0x711
-            | 0x730..=0x74A
-            | 0x1AB0..=0x1AFF
-            | 0x1DC0..=0x1DFF
-            | 0x20D0..=0x20FF
-            | 0xFE00..=0xFE0F
-            | 0xFE20..=0xFE2F
-    )
+/// Whether `c` extends the grapheme of a letter before it: a mark or a joiner,
+/// by the same table as the display model's. None of these has a mirrored form.
+fn extends_a_letter(c: char) -> bool {
+    let mut bytes = [b'a'; 5];
+    let len = 1 + c.encode_utf8(&mut bytes[1..]).len();
+    let Ok(text) = std::str::from_utf8(&bytes[..len]) else {
+        return false;
+    };
+    GraphemeCursor::new(1, len, true).is_boundary(text, 0) == Ok(false)
+}
+
+/// The direction of a grapheme, right to left or not: `None` for one that stays
+/// in the run it is in, as a space or ASCII punctuation with no mirrored form
+/// does. Right to left needs all of it to be: a prepended character can come
+/// before a character with a mirrored form, which then keeps level 0.
+fn grapheme_direction(grapheme: &str) -> Option<bool> {
+    let mut chars = grapheme.chars();
+    let first = chars.next()?;
+    if chars.as_str().is_empty() {
+        let neutral = first == ' '
+            || first.is_ascii_punctuation()
+                && !matches!(first, '(' | ')' | '<' | '>' | '[' | ']' | '{' | '}');
+        return if neutral {
+            None
+        } else {
+            Some(is_right_to_left(first))
+        };
+    }
+    let mut right_to_left = false;
+    for c in grapheme.chars() {
+        if is_right_to_left(c) {
+            right_to_left = true;
+        } else if !extends_a_letter(c) {
+            return Some(false);
+        }
+    }
+    Some(right_to_left)
 }
 
 /// A forced embedding `level`, so no bidirectional algorithm runs, and no limit
@@ -638,27 +666,90 @@ mod tests {
         }
     }
 
+    /// Every character that `prefix` then the character makes one grapheme of,
+    /// from the segmentation tables and no list here.
+    fn joining_after(prefix: char) -> impl Iterator<Item = char> {
+        ('\u{80}'..=char::MAX).filter(move |c| {
+            let text = format!("{prefix}{c}");
+            text.graphemes(true).nth(1).is_none()
+        })
+    }
+
+    /// Every character that makes one grapheme with the letter after it.
+    fn prepended() -> impl Iterator<Item = char> {
+        ('\u{80}'..=char::MAX).filter(|c| {
+            let text = format!("{c}a");
+            text.graphemes(true).nth(1).is_none()
+        })
+    }
+
     #[test]
-    fn a_mark_or_a_joiner_stays_on_its_letter() {
+    fn a_grapheme_is_never_split_by_direction() {
         let mut system = menlo(1.0);
-        let cell = system.metrics().width;
-        let mut out = Vec::new();
-        for (letter, after) in [
-            ("\u{5d0}", "\u{301}"),
-            ("\u{5d0}", "\u{308}"),
-            ("\u{710}", "\u{308}"),
-            ("\u{6cc}", "\u{200c}"),
-            ("\u{644}", "\u{200d}"),
-            ("\u{5d0}", "\u{fe00}"),
-        ] {
-            let text = format!("{letter}{after}");
-            system.shape(&text, &mut out);
-            let total: f32 = out.iter().map(|g| g.advance).sum();
-            assert!(total < 1.5 * cell, "{text:?}: {out:?}");
-            for glyph in &out {
-                assert!(glyph.x < cell, "{text:?}: {out:?}");
+        let (mut whole, mut split) = (Vec::new(), Vec::new());
+        let marks: Vec<char> = joining_after('a').collect();
+        assert!(marks.len() > 2000, "{}", marks.len());
+        for letter in ['\u{5d0}', '\u{633}', 'a', '\u{3b1}'] {
+            let right_to_left = is_right_to_left(letter);
+            for &mark in &marks {
+                let text = format!("{letter}{mark}");
+                system.shape(&text, &mut split);
+                whole.clear();
+                system.shape_direction(&text, 0, right_to_left, 0.0, &mut whole);
+                assert_eq!(split, whole, "{:?}", text.escape_unicode().to_string());
             }
         }
+    }
+
+    #[test]
+    fn a_prepended_character_keeps_a_mirrored_form_out_of_level_1() {
+        let mut system = menlo(1.0);
+        let mut out = Vec::new();
+        let want = key_of(&mut system, '(');
+        let mut count = 0;
+        for c in prepended() {
+            count += 1;
+            let text = format!("{c}(");
+            system.shape(&text, &mut out);
+            let glyph = out.iter().find(|g| g.cluster == c.len_utf8() as u32);
+            let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
+            assert_eq!(glyph.key, want, "{:?}", text.escape_unicode().to_string());
+        }
+        assert!(count > 20, "{count}");
+    }
+
+    #[test]
+    fn a_prepended_character_takes_the_direction_of_what_follows() {
+        assert_eq!(grapheme_direction("\u{6dd}\u{661}"), Some(true));
+        assert_eq!(grapheme_direction("\u{600}\u{5d0}"), Some(true));
+        assert_eq!(grapheme_direction("\u{600}("), Some(false));
+        assert_eq!(grapheme_direction("\u{600}a"), Some(false));
+    }
+
+    #[test]
+    fn punctuation_with_no_mirrored_form_keeps_its_glyph_in_a_right_to_left_run() {
+        let mut system = menlo(1.0);
+        let mut out = Vec::new();
+        for punctuation in (' '..='~').filter(|&c| grapheme_direction(&c.to_string()).is_none()) {
+            let want = key_of(&mut system, punctuation);
+            for letter in ['\u{5d0}', '\u{633}'] {
+                let text = format!("{letter}{punctuation}{letter}");
+                system.shape(&text, &mut out);
+                let glyph = out.iter().find(|g| g.cluster == letter.len_utf8() as u32);
+                let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
+                assert_eq!(glyph.key, want, "{text:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_grapheme_of_one_character_has_its_direction_unless_it_stays_in_the_run() {
+        assert_eq!(grapheme_direction("a"), Some(false));
+        assert_eq!(grapheme_direction("\u{65e5}"), Some(false));
+        assert_eq!(grapheme_direction("("), Some(false));
+        assert_eq!(grapheme_direction("\u{5d0}"), Some(true));
+        assert_eq!(grapheme_direction(" "), None);
+        assert_eq!(grapheme_direction(","), None);
     }
 
     #[test]
@@ -688,7 +779,7 @@ mod tests {
             '\u{1d7c3}',
         ] {
             assert!(!is_right_to_left(c), "{c:?}");
-            assert!(!stays_in_run(c), "{c:?}");
+            assert_eq!(grapheme_direction(&c.to_string()), Some(false), "{c:?}");
         }
         assert!(is_right_to_left('\u{fd3e}') && is_right_to_left('\u{fd3f}'));
         // The edges of the ranges.

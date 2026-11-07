@@ -38,14 +38,21 @@ On macOS:
 
 - **No bidirectional algorithm runs.** `CTTypesetter` makes each line with its embedding
   level forced, and no bidi control is added to the shaped text.
-- **A row is split by the direction of its scripts, inside the backend.**
-  - The blocks of right-to-left scripts (U+0590 to U+08FF, U+FB1D to U+FDFF, U+FE70 to
-    U+FEFF, U+10800 to U+10FFF and U+1E800 to U+1EFFF) are shaped at level 1.
-  - Everything else is shaped at level 0.
-  - A space, a joiner, a variation selector and a combining mark stay in the run they are
-    in, so that a mark is shaped with its letter and a run of words is one line.
-  - None of these characters has a mirrored form (`Bidi_Mirrored` in Unicode 17 has 554
-    characters and none is there), so what can be mirrored is always at level 0.
+- **A row is split by the direction of its scripts, inside the backend, and only between
+  graphemes.** A display cluster never holds more than a grapheme, so this never splits one.
+  Where a long grapheme is several display clusters, it stays one line, and its glyphs still
+  go to their clusters.
+  - A grapheme is right to left if each of its characters is in the blocks of right-to-left
+    scripts (U+0590 to U+08FF, U+FB1D to U+FDFF, U+FE70 to U+FEFF, U+10800 to U+10FFF and
+    U+1E800 to U+1EFFF) or extends the letter before it, and one of them is in the blocks.
+    It is shaped at level 1.
+  - Any other grapheme is shaped at level 0, so a character prepended to one with a mirrored
+    form does not bring it to level 1.
+  - A space and ASCII punctuation with no mirrored form stay in the run they are in.
+  - A row with none of those blocks is one call at level 0, with no scan of its graphemes.
+  - Nothing that reaches level 1 has a mirrored form: neither those blocks, the characters
+    that extend a letter, nor that punctuation (`Bidi_Mirrored` and
+    `GraphemeBreakProperty` in Unicode 17). So what can be mirrored is always at level 0.
 - **`kCTTypesetterOptionAllowUnboundedLayout` is set.** What bounds a row stays as it was,
   the budget of characters per column in `oso-render`
   ([ADR 0040](0040-buffers-loading-motion-and-scrolling.md),
@@ -70,16 +77,15 @@ These ADRs stay as they are; this one changes the following:
   Arabic keeps its joining forms and lam-alef, as they were before this ADR.
 - The public API does not change, only the doc of `TextSystem::shape`. `coretext.rs` has
   more `unsafe` blocks, each with a `// SAFETY:` comment. `objc2-core-foundation` gains the
-  feature `CFNumber`, and `objc2-core-text` the feature `CTTypesetter`. No crate is added.
+  feature `CFNumber`, and `objc2-core-text` the feature `CTTypesetter`. `oso-platform` now
+  uses `unicode-segmentation`, the version `oso-core` has. No crate is added.
 - Shaping costs about the same on a row of one direction, and more on a row that changes
-  direction often. In a release build with Menlo at scale 2, on one machine, best of 7
-  runs of 50 calls, in µs per row before and after: ASCII 128 characters 2.2 and 2.7,
-  Japanese 64 characters 4.7 and 5.0, Hebrew words 70 and 75, Arabic words 63 and 68,
-  pointed Hebrew 88 and 88, and Hebrew prose with punctuation and brackets 66 and 134. These
-  are for a row that changed: shaped rows are cached ([ADR 0051](0051-m2-plan-decisions.md)).
-- `just perf` passes its thresholds, in 3 pairs on one machine. `line_keys_p99_ms` went
-  from 1.40 to 1.61 ms in each. Shaping that text takes within about 5% of what it took, so
-  this is not explained by the cost of the call.
+  direction often. In a release build with Menlo at scale 2, on one machine, the median of 3
+  rounds of the best of 15 runs of 50 calls, in µs per row before and after: ASCII 128
+  characters 3.2 and 3.3, Japanese 64 characters 6.4 and 6.3, Hebrew words 70 and 73, Arabic
+  words 63 and 67, pointed Hebrew 88 and 91, and Hebrew prose with punctuation and brackets 67
+  and 105. These are for a row that changed: shaped rows are cached
+  ([ADR 0051](0051-m2-plan-decisions.md)).
 - `just perf` holds no right-to-left text, so it does not see those rows. Adding such a
   file is open (`open-questions.md`).
 - The tests are in `coretext.rs`, against the real shaper, and on Menlo and what it falls
@@ -100,8 +106,10 @@ These ADRs stay as they are; this one changes the following:
   since macOS 10.8.
 - **Breaking pieces around characters that have a mirrored form, with the algorithm still
   running:** keeps today's shaping, but needs a table of those 554 characters that must stay
-  complete, and a character it misses is mirrored. Splitting by direction needs a few ranges,
+  complete, and a character it misses is mirrored. Splitting by direction needs five ranges,
   and the forced level says what cannot happen outside them.
+- **A table of marks that stay in a run:** no new use of `unicode-segmentation`, but such a
+  table has to hold every mark of every script, or a mark goes to another line than its letter.
 - **Shaping each right-to-left cluster on its own:** the same letters and marks, but no
   joining, and a shaping call per cluster on every such row.
 - **Passing a direction through `TextSystem::shape`, or splitting in `oso-render`:** direction
