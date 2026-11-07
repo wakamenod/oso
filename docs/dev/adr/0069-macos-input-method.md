@@ -52,7 +52,9 @@ The author chose each UI choice below on 2026-11-07, from options put to them: h
 segment looks, where the box cursor goes, which cursor shows the preedit, the IME off in
 buffers that may hold secrets, in read-only buffers and while a prefix argument reads
 digits, `s-SPC` for a full-width space, a restart waiting for a composition, one undo step
-per commit, and the preedit metric. Which way Option stays Super waits for their keys.
+per commit, and the preedit metric. The way Option stays Super is from their keys, tried
+with the spike's logging on 2026-11-08, and they chose to keep giving the cursor area on
+every key that moves the cursor, though it costs keys, until winit is replaced.
 
 ### The preedit
 
@@ -164,25 +166,34 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
 
 ### Option as Super
 
-ADR 0051's "Option stays Super" holds. To keep it with a Japanese source:
+ADR 0051's "Option stays Super" holds with a Japanese source through
+**`OptionAsAlt::Both`**, set when the window is made, from winit's
+`WindowAttributesExtMacOS`, on macOS only. winit then gives the input method the key
+without Option's character. At the author's keyboard, with the Japanese source and the
+IME on, Option-x, -f, -e, -u, -n and -Space arrived as `s-x`, `s-f`, `s-e`, `s-u`, `s-n`
+and `s-SPC`, with no preedit, the dead keys among them too. So the IME does not go off
+while Option is held. No new dependency or `unsafe`.
 
-1. **First, `set_option_as_alt(OptionAsAlt::Both)`** on the window, from winit's
-   `WindowExtMacOS`. winit then gives the input method the key without Option's
-   character.
-2. **If Option-a still composes,** the IME also goes off while Option is held, from
-   `ModifiersChanged`, and back when it is released, through the same function and with
-   the same wait for a composition to end.
+**An Option key during a composition** goes to the input method, which ends the
+composition with an empty preedit and no commit. Only the key's release reaches oso. So
+the kana typed so far are gone, and the Super command does not run. Seen twice with
+Option-a. oso does nothing about it:
 
-Which one holds is recorded here once the author has tried the keys (open). Neither needs
-a new dependency or `unsafe`.
+- It cannot commit a composition through winit, and the key's press never arrives.
+- It does see Option go down first, in `ModifiersChanged`, so it could insert the last
+  preedit itself when a composition then ends with no commit. That guesses at what the
+  input method meant, from one input method's behavior, and would also insert when the
+  person meant to drop the composition.
+- A native view instead of winit sees the key before the input method does, and can
+  commit then ([`open-questions.md`](../open-questions.md)).
 
 ### A full-width space
 
 - **`SPC` stays half-width.** `insert-full-width-space` inserts U+3000 at every cursor,
   with a count, as `self-insert-command` would for that character. Its default key is
-  `s-SPC` (Option-Space), if Option arrives as Super with a Japanese source (above). It is
-  a default, which M3's user key layer can change
-  ([ADR 0051](0051-m2-plan-decisions.md)).
+  `s-SPC` (Option-Space), which arrives with a Japanese source too (above). It is a default,
+  which M3's user key layer can change ([ADR 0051](0051-m2-plan-decisions.md)). Shift-Space
+  arrives as `SPC` ([ADR 0033](0033-key-presses-and-notation.md)).
 
 ### The control socket and end-to-end flows
 
@@ -214,8 +225,9 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   answer changes, under 1 µs.
 - **A preedit event** copies its text into the editor, follows, and draws a frame in which
   one row is shaped again, as one typed key would cost. Other rows are reused.
-- **An event that moved the cursor on the screen** gains one `set_ime_cursor_area`, 20
-  to 60 µs, before the frame it asks for. That includes a key that moves the cursor, and
+- **An event that moved the cursor on the screen** gains one `set_ime_cursor_area` before
+  the frame it asks for: 20 to 60 µs in the spike, 29 to 177 µs in the author's later run,
+  and about 0.1 ms at p99 in `just perf`. That includes a key that moves the cursor, and
   each wheel or trackpad event of a scroll.
 - **A commit** costs as typing the same text does, plus one undo step.
 - **The first key after launch** stalls the UI thread for about 21 to 32 ms with the IME
@@ -239,8 +251,8 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   rectangles back for the underlines as it does one for the box.
 - **`oso`:** `app/ime.rs`, a concern beside `input`, for the events, the wanted function,
   the deferral and the cursor area; `Dispatcher::commit_text`; the command and its key in
-  `commands/edit.rs` and `bindings/edit.rs`; the socket method in `dev`; the preedit
-  metric in `examples/perf`.
+  `commands/edit.rs` and `bindings/edit.rs`; `OptionAsAlt` where `app/draw.rs` makes the
+  window; the socket method in `dev`; the preedit metric in `examples/perf`.
 - No new crate, crate edge, dependency or `unsafe`, and no change to
   `guardrails/layers.txt`. `oso-platform` gains no IME trait: winit's calls are the
   abstraction, and only the tip crate may use winit
@@ -259,6 +271,8 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   key after `C-u` to be a command or a digit.
 - Read-only buffers and the copies list never show a preedit.
 - `s-SPC` is taken.
+- Pressing an Option key while composing loses what was being composed. The candidate
+  window and the preedit both go, so it shows.
 - The socket gains `ime` and `get-state` a field, which `just release-safety` and the e2e
   flows cover.
 - A dev restart can wait on a composition left open.
@@ -308,5 +322,8 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   Shift out of characters, so the key cannot be bound without changing it.
 - **`C-x 8 SPC`:** Emacs's prefix for special characters, but Emacs gives that key a
   no-break space.
+- **Turning the IME off while Option is held:** the plan had it in case `OptionAsAlt`
+  failed, which it did not. It would not save a composition either: Option goes down
+  during it.
 - **An `oso-platform` IME trait:** nothing else would implement it yet, and the tip crate
   is the only winit user.

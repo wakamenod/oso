@@ -94,6 +94,13 @@ impl View {
     pub(super) fn open(event_loop: &ActiveEventLoop) -> Self {
         let started = Instant::now();
         let window_attributes = Window::default_attributes().with_title("oso Editor");
+        // Option stays Super with a Japanese input source too: winit then gives the input
+        // method the key without Option's character, and `s-a` arrives (ADR 0069).
+        #[cfg(target_os = "macos")]
+        let window_attributes = {
+            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
+            window_attributes.with_option_as_alt(OptionAsAlt::Both)
+        };
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
         let size = window.inner_size();
         let text_system = text::load(window.scale_factor());

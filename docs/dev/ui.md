@@ -144,6 +144,8 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   once a composition has ended.
 - `SPC` types a half-width space with a Japanese input source too. Option-Space
   (`s-SPC`, `insert-full-width-space`) types a full-width one.
+- Option keys stay Super with a Japanese input source. Pressed during a composition, an
+  Option key ends it and what was being composed is lost.
 
 ## Visual aids
 

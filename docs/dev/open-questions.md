@@ -177,9 +177,10 @@ item notes when it must be settled.
     Decide whether growing sideways follows the same rule.
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
-- By M2-12's merge: whether `set_option_as_alt` keeps Option as Super with a Japanese
-  input source, or the IME must also go off while Option is held, from the author's keys
-  ([ADR 0069](adr/0069-macos-input-method.md)). `s-SPC` depends on it.
+- An Option key pressed during a composition ends it with no commit, so what was being
+  composed is lost, and the Super command does not run. With winit oso cannot commit
+  first; a native view sees the key before the input method and can
+  ([ADR 0069](adr/0069-macos-input-method.md)).
 - The candidate window stays where a composition started, as winit gives the OS one
   rectangle. Check whether a new area during a conversion moves it at the next key, so
   that it can follow the segment ([ADR 0069](adr/0069-macos-input-method.md)).
