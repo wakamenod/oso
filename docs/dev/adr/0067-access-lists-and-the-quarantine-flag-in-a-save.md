@@ -1,6 +1,6 @@
 # 0067. Access lists and the quarantine flag in a save
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-07
 
 ## Context
