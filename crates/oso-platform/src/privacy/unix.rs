@@ -279,7 +279,7 @@ fn check_denies(path: &Path, stops: impl FnOnce(&[AccessEntry]) -> bool) -> io::
         Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
-                "an access list entry would stop a file being written there: {}",
+                "an access list would stop a file being written: {}",
                 path.display()
             ),
         ))
@@ -708,7 +708,7 @@ mod tests {
             plain_directory(&way);
             set_for_everyone(&way, "allow,directory_inherit", "read");
             let err = PrivateDir::open(&path).unwrap_err();
-            assert!(err.to_string().contains("directories made in it"), "{err}");
+            assert!(err.to_string().contains("subdirectories"), "{err}");
             assert!(PrivateDir::check(&path).is_err());
             assert!(!way.join("oso").exists(), "nothing new appears");
 

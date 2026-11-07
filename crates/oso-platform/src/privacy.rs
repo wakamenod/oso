@@ -118,9 +118,9 @@ impl DirProblem {
             Self::NotADirectory => "is not a directory",
             Self::WrongOwner => "is owned by another user",
             Self::LooseMode => "is accessible by other users (mode is not 0700)",
-            Self::ListGrants => "holds an access list entry that grants access",
-            Self::ListLetsChange => "holds an access list entry that lets it be changed",
-            Self::ListPassesOn => "holds an access list entry that directories made in it take",
+            Self::ListGrants => "has an access list that grants access",
+            Self::ListLetsChange => "has an access list that allows changes",
+            Self::ListPassesOn => "has an access list subdirectories take",
         }
     }
 }
