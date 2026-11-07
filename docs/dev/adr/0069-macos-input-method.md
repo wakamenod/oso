@@ -1,6 +1,6 @@
 # 0069. The macOS input method
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-07
 
 ## Context
