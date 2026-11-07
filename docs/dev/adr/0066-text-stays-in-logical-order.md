@@ -84,10 +84,14 @@ These ADRs stay as they are; this one changes the following:
   words 63 and 67, pointed Hebrew 88 and 91, and Hebrew prose with punctuation and brackets 67
   and 105. These are for a row that changed: shaped rows are cached
   ([ADR 0051](0051-m2-plan-decisions.md)).
-- `just perf` holds no right-to-left text, so it does not see those rows. Adding such a
-  file is open (`open-questions.md`).
-- The tests are in `coretext.rs`, against the real shaper, and on Menlo and what it falls
-  back to. SF Mono, the first default where it is installed, was not on the machine tested.
+- A key that reshapes a whole screen, such as a line break near the top or a page down to
+  rows not yet shaped, takes more on Hebrew prose. Worked out from those numbers, shaping 60 rows
+  goes from about 4.0 to 6.3 ms, and from about 6 to 9.5 ms where a row shapes 192 columns.
+  That last figure is past the 8 ms a key has, from shaping alone. It has not been measured.
+- `just perf` passes its thresholds, in 3 pairs on one machine, with no change beyond the
+  spread of the runs. It holds no right-to-left text, so it does not see those rows. Adding
+  such a file is open (`open-questions.md`).
+- The tests run against the real shaper, on Menlo and what it falls back to. SF Mono, the first default where it is installed, was not on the machine tested.
 - Linux and Windows have no text yet. Their backends have to keep these rules too
   (`open-questions.md`).
 - If a second backend needs the same split, `is_right_to_left` moves to `text/mod.rs`.
