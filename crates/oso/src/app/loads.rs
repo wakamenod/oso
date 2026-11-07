@@ -53,7 +53,9 @@ impl App {
                 Some(buffer)
             }
             Err(e) => {
-                log::warn!("cannot start loading: {e}");
+                let name = self.editor.buffer(buffer).map_or("", Buffer::name);
+                let message = format!("Cannot open: cannot start loading: {e}: {name:?}");
+                self.editor.message(message);
                 self.editor.kill_buffer(buffer);
                 None
             }

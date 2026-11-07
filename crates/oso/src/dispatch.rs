@@ -246,7 +246,7 @@ impl Dispatcher {
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
     /// failure is not fatal (ADR 0014), and leaves a message, which stays out of the log
-    /// around a secret buffer, as it can say where a cursor is. A panic names only the
+    /// around a secret buffer, as what it says can depend on the text. A panic names only the
     /// command, and is a bug to find, so it comes after the command is marked as ended.
     /// A command that is not a refused exit, even one that fails, resets the exit guard.
     /// What a panicking command left is held back from the emergency save until a command

@@ -253,7 +253,7 @@ impl DisplaySnapshot {
 
     /// Whether the buffer holds bidirectional controls. O(1).
     pub(crate) fn has_bidi_controls(&self) -> bool {
-        self.tab_map.summary().bidi_controls > 0
+        self.tab_map.summary().bidi_controls
     }
 
     /// The point at the end of the buffer.
@@ -743,9 +743,9 @@ pub(crate) mod tests {
             }
         }
 
-        /// The count of bidi controls follows edits, whatever they split or join.
+        /// Whether the buffer holds a bidi control follows edits, whatever they split or join.
         #[test]
-        fn bidi_controls_are_counted_through_edits(
+        fn bidi_controls_are_known_through_edits(
             edits in prop::collection::vec((0usize..200, 0usize..20, 0usize..5), 0..30),
         ) {
             const TEXTS: [&str; 5] = ["", "a\n", "\u{202e}", "\u{2069}—", "\u{200f}日本語"];

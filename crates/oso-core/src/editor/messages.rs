@@ -35,12 +35,16 @@ pub(super) const CUT: char = '…';
 /// A message as the log and `*Messages*` show it: control and non-printable
 /// characters are escaped, so that a name in it cannot move a terminal's cursor,
 /// reorder the line, or add a line of its own. Quotes and backslashes stay as they
-/// are.
+/// are, and so does a full-width space, which ordinary Japanese file names hold and which
+/// looks like what it is. A no-break space stays escaped, as nothing tells it from a space.
 fn log_text(text: &str) -> String {
+    const AS_THEY_ARE: [char; 4] = ['\'', '"', '\\', '\u{3000}'];
     let mut shown = String::with_capacity(text.len());
-    for part in text.split_inclusive(['\'', '"', '\\']) {
+    for part in text.split_inclusive(AS_THEY_ARE) {
         let (body, last) = match part.chars().next_back() {
-            Some(last @ ('\'' | '"' | '\\')) => (&part[..part.len() - 1], Some(last)),
+            Some(last) if AS_THEY_ARE.contains(&last) => {
+                (&part[..part.len() - last.len_utf8()], Some(last))
+            }
             _ => (part, None),
         };
         shown.extend(body.escape_debug());
@@ -83,8 +87,8 @@ impl Editor {
     /// A long one is cut, so what it says comes before any path it names.
     ///
     /// From a command run around a buffer that may hold secrets, this only reaches the
-    /// echo area, or nothing if the command took that buffer off the screen. What a command
-    /// says can depend on the text: "End of buffer" says where a cursor is.
+    /// echo area, or nothing if the command took that buffer off the screen, as what a
+    /// command says can depend on the text.
     pub fn message(&mut self, text: impl Into<String>) {
         if let Some(left_secret) = self.command_left_secret {
             if left_secret {
@@ -321,6 +325,29 @@ mod tests {
     }
 
     #[test]
+    fn the_log_keeps_a_full_width_space_and_escapes_what_can_hide() {
+        assert_eq!(log_text("メモ\u{3000}2.txt"), "メモ\u{3000}2.txt");
+        assert_eq!(log_text("\u{3000}"), "\u{3000}");
+        assert_eq!(
+            log_text("a\u{a0}b"),
+            "a\\u{a0}b",
+            "a no-break space looks like a space"
+        );
+        assert_eq!(log_text("a\u{3000}\n\u{202e}"), "a\u{3000}\\n\\u{202e}");
+    }
+
+    #[test]
+    fn a_full_width_space_stays_in_one_row_of_messages() {
+        let mut editor = Editor::default();
+        editor.message("Wrote メモ\u{3000}2.txt");
+        editor.message("Wrote a\u{3000}\nb");
+        assert_eq!(
+            messages_text(&editor),
+            "Wrote メモ\u{3000}2.txt\nWrote a\u{3000}\\nb\n"
+        );
+    }
+
+    #[test]
     fn every_message_is_a_row_of_messages() {
         let mut editor = Editor::default();
         editor.message("Saved");
@@ -419,10 +446,10 @@ mod tests {
     fn what_was_echoed_around_a_secret_goes_for_good_when_the_window_moves_on() {
         let mut editor = on_a_secret();
         let secret = editor.window().buffer();
-        editor.echo("End of buffer");
+        editor.echo("Said around it");
         assert_eq!(
             echo(&editor),
-            "End of buffer",
+            "Said around it",
             "for the person at the screen"
         );
         let other = editor.add_buffer(Buffer::new("other"));
@@ -436,7 +463,7 @@ mod tests {
     fn what_was_echoed_around_a_secret_goes_with_a_killed_buffer() {
         let mut editor = on_a_secret();
         let secret = editor.window().buffer();
-        editor.echo("End of buffer");
+        editor.echo("Said around it");
         editor.kill_buffer(secret);
         assert_eq!(echo(&editor), "");
     }
@@ -445,9 +472,9 @@ mod tests {
     fn a_message_from_a_command_around_a_secret_stays_in_the_echo_area() {
         let mut editor = on_a_secret();
         editor.begin_command();
-        editor.message("End of buffer");
+        editor.message("Said around it");
         editor.end_command();
-        assert_eq!(echo(&editor), "End of buffer");
+        assert_eq!(echo(&editor), "Said around it");
         assert_eq!(messages_text(&editor), "");
     }
 
@@ -457,8 +484,8 @@ mod tests {
         let other = editor.add_buffer(Buffer::new("other"));
         editor.begin_command();
         editor.show(other);
-        editor.message("End of buffer");
-        editor.echo("End of buffer");
+        editor.message("Said around it");
+        editor.echo("Said around it");
         editor.end_command();
         assert_eq!(echo(&editor), "");
         assert_eq!(messages_text(&editor), "");
@@ -470,7 +497,7 @@ mod tests {
         let secret = editor.window().buffer();
         editor.begin_command();
         editor.kill_buffer(secret);
-        editor.message("End of buffer");
+        editor.message("Said around it");
         editor.end_command();
         assert_eq!(echo(&editor), "");
         assert_eq!(messages_text(&editor), "");
@@ -482,7 +509,7 @@ mod tests {
         editor.begin_command();
         editor.begin_undo_group();
         editor.end_undo_group();
-        editor.message("End of buffer");
+        editor.message("Said around it");
         assert_eq!(
             messages_text(&editor),
             "",
@@ -685,8 +712,8 @@ mod tests {
         let unjudged = editor.add_buffer(Buffer::visiting(plain.clone()));
         editor.begin_command();
         editor.show(unjudged);
-        editor.message("End of buffer");
-        editor.echo("End of buffer");
+        editor.message("Said around it");
+        editor.echo("Said around it");
         editor.end_command();
         editor
             .buffer_mut(unjudged)
@@ -704,7 +731,7 @@ mod tests {
         editor.begin_command();
         editor.show(secret);
         editor.show(plain);
-        editor.message("End of buffer");
+        editor.message("Said around it");
         editor.end_command();
         assert_eq!(echo(&editor), "");
         assert_eq!(messages_text(&editor), "");

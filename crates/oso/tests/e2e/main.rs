@@ -279,7 +279,7 @@ fn assert_log_says_nothing_of_it(log: &str) {
     assert!(!log.contains('Ж'), "the log quotes a typed key");
     assert!(
         !log.contains("Beginning of buffer"),
-        "the log says where a secret buffer's cursor stopped"
+        "the log holds what a command said around a secret buffer"
     );
     // It logs this at the level `just e2e` sets, so the log is worth checking.
     assert!(

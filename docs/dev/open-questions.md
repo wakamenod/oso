@@ -153,6 +153,10 @@ item notes when it must be settled.
   (`handoff.rs`). Decide with M2-15, which carries more through a restart.
 - Identical messages are not merged in `*Messages*`, so holding a key that fails evicts its older rows in
   about 35 s. Emacs counts repeats on one row.
+- With `*Messages*` at its 1000 rows, each new message moves what someone is reading there, as the
+  view's top row is not lowered when the oldest row goes.
+- The modeline says `UTF-8 LF` before anything of a file has loaded, when neither is known yet.
+- `Status::echo_warnings` depends on a flag that could come from `Editor::frame`, which its callers have.
 - `Status` is built twice for a key that redraws, in `draw_frame` and in `about_to_wait`
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - By M2-12: `dispatch.rs` wraps `handle_key`, `insert_text` and `run_command` the same way, emptying the echo

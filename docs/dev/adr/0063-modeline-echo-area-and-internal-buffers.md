@@ -1,6 +1,6 @@
 # 0063. The modeline, the echo area and internal buffers
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-06
 
 ## Context
@@ -62,12 +62,11 @@ of cursors if there are several, the major mode, the encoding and the line endin
 - **`[bidi controls]` warns** for the nine Trojan Source controls (U+202A to U+202E, U+2066 to
   U+2069). LRM, RLM and ALM are left out: they can only tip a neutral character, and
   right-to-left prose has them everywhere. All twelve are still boxed.
-- **The count is in `TabSummary`,** so asking costs O(1) and an edit updates it along with the
-  rest. Each chunk is scanned once: a search for the lead byte 0xE2, then its characters only if it
-  has one. Japanese text rarely has that byte, and English with dashes or curly quotes pays about
-  1 µs per chunk. The count should describe the text, so when the FoldMap or InlayMap goes below the
-  TabMap it moves to the rope's summary, as hidden text would stop counting and virtual text would
-  start. `Buffer::has_bidi_controls` is what callers ask, so they do not change.
+- **`TabSummary` says whether a stretch holds one,** so asking costs O(1) and an edit updates it along with the
+  rest. Each chunk is scanned once: a search for the lead byte 0xE2, then for the three bytes of a control only if it
+  has one, with no decoding. Japanese text rarely has that byte. This should describe the text, so when the FoldMap or
+  InlayMap goes below the TabMap it moves to the rope's summary, as hidden text would stop counting and virtual text
+  would start. `Buffer::has_bidi_controls` is what callers ask, so they do not change.
 - **`[changed on disk]` warns** when a save found the file changed or elsewhere, while the buffer
   is modified. A save that gets through clears it. It knows no more than a save found out until
   M2-22 brings the watcher.
@@ -98,8 +97,8 @@ in such a file, with the text itself on the same screen.
   "C-x C-z is undefined" and "Quit" get there, so typed keys stay out of the `info` log (ADR 0056). Its
   text shows the keys. Unbound keys still reach the `debug` log as ADR 0056 has it.
 - **A message from a command run around a secret buffer goes the same way,** whatever the command and
-  whichever way it came, and if the command took that buffer off the screen it goes nowhere. "End of
-  buffer" says where the cursor is, and a log or `*Messages*` keeps it. So the rule is in `Editor::message`.
+  whichever way it came, and if the command took that buffer off the screen it goes nowhere. What a command says
+  can depend on the text, and a log or `*Messages*` keeps it. So the rule is in `Editor::message`.
   The dispatcher marks where a command begins and ends (`Editor::begin_command`, `Editor::end_command`), and
   the editor records when a window leaves such a buffer in between, which holds whatever then becomes of it. What
   a panic leaves names only the command, and comes after the end is marked, as it is a bug to find. This changes ADR 0056's "A failed
@@ -153,7 +152,8 @@ repeating it leaves the `Status` the same, so it draws nothing more.
 - **The editor makes `*Messages*` when it starts,** so a message never finds it missing, and
   `kill_buffer` leaves it. M2-19's `kill-buffer` decides whether a person may.
 - **Each message is one row, as the log escapes it,** so a file name cannot forge a line, and a name's
-  bidi control does not set off the warning there. The echo area and the modeline draw through
+  bidi control does not set off the warning there. A full-width space stays as it is, as ordinary Japanese names hold
+  it and it looks like what it is. A no-break space stays escaped, as nothing tells it from a space. The echo area and the modeline draw through
   `text_clusters` instead, which boxes it. It keeps the newest 1000, and is the only copy.
 - **A window showing `*Messages*` keeps a cursor at the end there,** as new rows arrive, and the view
   follows it, for a message from outside a command too.
@@ -206,8 +206,7 @@ These ADRs stay as they are; this one changes the following:
 - A key that only changes the echo area now draws a frame, of its cost and no more. A change of position
   shapes the modeline's row again, on each key that moves the cursor; `just perf` is in the pull request.
 - `*Messages*` holds at most about 4 MiB, with every message at its cap, and 50 KiB or so as they are.
-- `TabSummary` grows by a word, kept twice for each chunk: about 17 MiB on a 1 GB file, or 1.6%. Each chunk costs
-  one more scan as it is measured.
+- `TabSummary` gains a flag, in what was padding, and each chunk costs one more search as it is measured.
 - The buffer's id numbers shift by one, as `*Messages*` takes the one after `*scratch*`.
 - A key that changes only the echo area leaves no latency sample, as before, though it now has a frame.
 - `get-state` can name a window's buffer that its `buffers` leaves out. M2-19 decides whether `C-x b` lists
@@ -261,6 +260,8 @@ These ADRs stay as they are; this one changes the following:
   commands are many and each failure would have to be judged, where a rule for all of them needs no judgment.
 - **Hiding the bidi warning for a secret buffer:** it says one thing of the text, and the person needs it most
   there. The socket does not see it.
+- **A count of controls in the summary:** could say how many, but only whether any are there is asked, and it
+  would grow every item.
 - **Counting LRM, RLM and ALM too:** one rule for every bidi character, but every Arabic or Hebrew document warns.
 - **Keeping `Editor::messages` as a second copy, as strings:** handy for tests, which now read the buffer's rows,
   and nothing else would read it.
