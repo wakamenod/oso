@@ -132,7 +132,9 @@ they appear.
   returns. An OS callback that comes while the handler is running, such as an input method
   asking during a commit oso started, is answered from what the backend already holds, and is
   logged at `debug`. What it holds is geometry and ranges, never text of a buffer. A quit
-  request that comes then is answered "later".
+  request that comes then is answered "later". A request whose result the system gives at
+  once, such as a size Wayland applies with no configure of its own, comes back to the
+  handler as the event it stands for, a resize.
 - **A panic in the handler stops the loop.** Every OS callback runs the handler inside
   `catch_unwind`, as no unwind may cross an Objective-C or Win32 frame. The panic hook has
   already written the emergency copies, since it runs before unwinding
@@ -338,10 +340,10 @@ without waiting for notes typed on winit.
 
 1. **On winit, before anything native:** the tip crate's `app/` works on oso's own event types
    (ADR 0069's `ImeEvent` is the first), and only one file, `app/shell.rs`, knows winit. It
-   runs the loop and turns winit's events into `shell::Event`, its keys into
-   `keys::KeyInput` with the modifiers as `keys::Held`, and wraps the loop, the window and
-   the `Waker`. `keys.rs` translates `KeyInput` into `KeyPress` with no winit. Nothing
-   changes in behavior. No new dependency.
+   runs the loop and turns winit's events into `events::Event` and `events::Wheel`, defined
+   in `app/events.rs`, its real key presses into `keys::KeyInput` with the modifiers as
+   `keys::Held`, and wraps the loop, the window and the `Waker`. `keys.rs` translates
+   `KeyInput` into `KeyPress` with no winit. Nothing changes in behavior. No new dependency.
 2. **macOS native behind a cargo feature, `native-window` (chosen),** off by default, beside
    winit, until it is at parity: every e2e flow, `just perf` within noise, and the author's
    checks at the keyboard. The tip crate has a thin adapter for each, driving the same `App`.

@@ -23,7 +23,7 @@ use winit::window::{UserAttentionType, WindowId};
 use super::events::{Event, Wheel};
 use super::ime::ImeEvent;
 use super::{App, UserEvent};
-use crate::keys::{Held, KeyInput, SystemKey, SystemNamed};
+use crate::keys::{self, Held, KeyInput, SystemKey, SystemNamed};
 
 /// Runs the event loop until it ends. `start` makes the app, given the waker other threads
 /// reach it through, before the window opens. `started` is when the process started.
@@ -146,11 +146,15 @@ impl Window {
         self.0.set_outer_position(PhysicalPosition::new(x, y));
     }
 
-    /// Asks for a drawable area of `width` x `height`. Systems apply it now or later, and a
-    /// `Resized` says what it came to.
+    /// Asks for a drawable area of `width` x `height`. The size it came to if the system
+    /// applied it at once, as Wayland does, sending no `Resized` for it; `None` if a
+    /// `Resized` will say later.
     #[cfg(feature = "dev")]
-    pub(super) fn request_inner_size(&self, width: u32, height: u32) {
-        let _ = self.0.request_inner_size(PhysicalSize::new(width, height));
+    pub(super) fn request_inner_size(&self, width: u32, height: u32) -> Option<(u32, u32)> {
+        let size = self
+            .0
+            .request_inner_size(PhysicalSize::new(width, height))?;
+        Some((size.width, size.height))
     }
 
     pub(super) fn set_ime_allowed(&self, allowed: bool) {
@@ -169,7 +173,7 @@ impl Window {
 impl ApplicationHandler<UserEvent> for App {
     /// Called when the OS signals that the window is ready to be created (or resumed).
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.resume(&Loop(event_loop));
+        self.open_window(&Loop(event_loop));
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
@@ -183,7 +187,7 @@ impl ApplicationHandler<UserEvent> for App {
     /// The event loop is ending, on every exit. On macOS `applicationWillTerminate` leads
     /// here for a Dock quit or a logout.
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        self.loop_ending();
+        self.ending();
     }
 
     fn window_event(
@@ -193,28 +197,30 @@ impl ApplicationHandler<UserEvent> for App {
         event: WindowEvent,
     ) {
         let event_loop = Loop(event_loop);
-        if let WindowEvent::KeyboardInput {
-            event,
-            is_synthetic,
-            ..
-        } = &event
-        {
-            let base = key_without_modifiers(event);
-            let input = KeyInput {
-                key: key(&event.logical_key),
-                base: key(&base),
-                pressed: event.state == ElementState::Pressed,
-                repeat: event.repeat,
-                synthetic: *is_synthetic,
-            };
-            self.handle_window_event(&event_loop, Event::Key(input));
-        } else {
-            self.handle_window_event(&event_loop, translate(event));
+        match &event {
+            // Keys borrow from the event, so they are built here, and only for a real
+            // press: releases, lone modifiers' and made-up presses go no further than
+            // `Other`, as before.
+            WindowEvent::KeyboardInput {
+                event,
+                is_synthetic,
+                ..
+            } if keys::is_real_press(event.state == ElementState::Pressed, *is_synthetic) => {
+                let base = key_without_modifiers(event);
+                let input = KeyInput {
+                    key: key(&event.logical_key),
+                    base: key(&base),
+                    repeat: event.repeat,
+                };
+                self.handle_window_event(&event_loop, Event::Key(input));
+            }
+            _ => self.handle_window_event(&event_loop, translate(event)),
         }
     }
 }
 
-/// winit's window event as oso's. Keys, which borrow from the event, are built apart.
+/// winit's window event as oso's. A real key press, which borrows from the event, is built
+/// in `window_event`; any other key event is `Other`.
 fn translate(event: WindowEvent) -> Event<'static> {
     match event {
         WindowEvent::CloseRequested => Event::CloseRequested,
@@ -232,6 +238,7 @@ fn translate(event: WindowEvent) -> Event<'static> {
             Event::ModifiersChanged(held(modifiers.state()))
         }
         WindowEvent::Ime(ime) => translate_ime(ime).map_or(Event::Other, Event::Ime),
+        WindowEvent::KeyboardInput { .. } => Event::Other,
         _ => Event::Other,
     }
 }

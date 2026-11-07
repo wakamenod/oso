@@ -244,15 +244,19 @@ impl App {
             }
         }
         self.editor.show(shown);
-        // The size first, so that positions are restored against it. Most window
-        // systems apply it later, so the view takes it now, and a `Resized` event
-        // corrects this if the window ends up another size.
+        // The size first, so that positions are restored against it. A system that applies
+        // it at once says what it came to, with no `Resized`. Most apply it later, so the
+        // view takes the size asked for now, and a `Resized` event corrects this if the
+        // window ends up another size.
         if let (Some(view), Some(frame)) = (&mut self.view, state.frame) {
             if let Some((x, y)) = frame.position {
                 view.window.set_outer_position(x, y);
             }
-            view.window.request_inner_size(frame.width, frame.height);
-            self.resize(frame.width, frame.height);
+            let (width, height) = view
+                .window
+                .request_inner_size(frame.width, frame.height)
+                .unwrap_or((frame.width, frame.height));
+            self.resize(width, height);
         }
         self.restore = Some(handoff::Restore {
             buffer: shown,

@@ -39,9 +39,6 @@ impl App {
 
     /// Turns a key event from the window into a key press, and handles it.
     pub(super) fn handle_key_event(&mut self, event_loop: &Loop<'_>, input: &KeyInput<'_>) {
-        if !keys::is_real_press(input) {
-            return;
-        }
         if let Some(key) = keys::from_event(input, self.modifiers) {
             let mode = self.editor.current().1.mode();
             if input.repeat {

@@ -1,7 +1,8 @@
 //! The event loop's handler: sends each event from the window and from other
 //! threads to the part of the app that deals with it. Events come in oso's own
 //! types, defined here, which `shell` builds from winit's (ADR 0070). Each callback of the
-//! loop has one entry point here, so a window layer only translates.
+//! loop goes to one method of the app, here or in the concern it belongs to (`open_window`,
+//! `ending`), so a window layer only translates.
 //!
 //! Must not depend on: what a key does or how a frame is drawn. A new event adds
 //! an arm here, and its handling goes in a module beside this one.
@@ -54,17 +55,6 @@ fn keeps_state_true(event: &Event<'_>) -> bool {
 }
 
 impl App {
-    /// The OS is ready for the window to be made, or made again.
-    pub(super) fn resume(&mut self, event_loop: &Loop<'_>) {
-        self.open_window(event_loop);
-    }
-
-    /// The event loop is ending, on every exit. On macOS `applicationWillTerminate` leads
-    /// here for a Dock quit or a logout.
-    pub(super) fn loop_ending(&mut self) {
-        self.ending();
-    }
-
     /// A thread sent the event loop something.
     pub(super) fn handle_user_event(&mut self, event_loop: &Loop<'_>, event: UserEvent) {
         match event {

@@ -11,20 +11,17 @@ use std::ops::BitOr;
 
 use oso_core::key::{Key, KeyPress, Modifiers, NamedKey};
 
-/// A key event as the window system reports it, in oso's own types. The text it
-/// borrows lives as long as the event. No `Debug`, as it holds what the person types.
+/// A key press as the window system reports it, in oso's own types: only real presses
+/// ([`is_real_press`]) become one. The text it borrows lives as long as the event. No
+/// `Debug`, as it holds what the person types.
 #[derive(Clone, Copy)]
 pub struct KeyInput<'a> {
     /// The key with the modifiers and the layout applied: `A` with Shift, `å` with Option.
     pub key: SystemKey<'a>,
     /// The key as it would be without modifiers, but for Shift on some systems.
     pub base: SystemKey<'a>,
-    pub pressed: bool,
     /// Held down, and sent again by the system.
     pub repeat: bool,
-    /// Made up by the window system, for a key already held when the window gained the
-    /// focus.
-    pub synthetic: bool,
 }
 
 /// A key as the window system names it. `Debug` only in tests, as a character is what the
@@ -90,11 +87,11 @@ impl BitOr for Held {
     }
 }
 
-/// Whether a key event is a press the user made now. On X11 and Windows, winit
-/// generates presses for keys already held when the window gains focus, and one
-/// of those would run a command or type text nobody asked for.
-pub fn is_real_press(input: &KeyInput<'_>) -> bool {
-    input.pressed && !input.synthetic
+/// Whether a key event is a press the user made now: `pressed`, and not `synthetic`. On
+/// X11 and Windows, winit generates presses for keys already held when the window gains
+/// focus, and one of those would run a command or type text nobody asked for.
+pub fn is_real_press(pressed: bool, synthetic: bool) -> bool {
+    pressed && !synthetic
 }
 
 /// The key press for `input`, or `None` for keys oso does not handle yet:
@@ -205,9 +202,7 @@ fn single_char(text: &str) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Held, KeyInput, SystemKey, SystemNamed, is_real_press, several_characters, translate,
-    };
+    use super::{Held, SystemKey, SystemNamed, is_real_press, several_characters, translate};
     use oso_core::key::KeyPress;
 
     fn ch(s: &str) -> SystemKey<'_> {
@@ -234,17 +229,10 @@ mod tests {
 
     #[test]
     fn only_a_real_press_counts() {
-        let input = |pressed, synthetic| KeyInput {
-            key: ch("a"),
-            base: ch("a"),
-            pressed,
-            repeat: false,
-            synthetic,
-        };
-        assert!(is_real_press(&input(true, false)));
-        assert!(!is_real_press(&input(true, true)), "held at focus");
-        assert!(!is_real_press(&input(false, false)));
-        assert!(!is_real_press(&input(false, true)));
+        assert!(is_real_press(true, false));
+        assert!(!is_real_press(true, true), "held at focus");
+        assert!(!is_real_press(false, false));
+        assert!(!is_real_press(false, true));
     }
 
     #[test]
