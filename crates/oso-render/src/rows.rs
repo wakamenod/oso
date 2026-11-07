@@ -179,12 +179,13 @@ impl Rows {
         self.pieces.shaped.clear();
     }
 
-    /// Starts a frame of `buffer` at `revision`: another buffer's rows are
-    /// dropped.
+    /// Starts a frame of `buffer` at `revision`: another buffer's rows and
+    /// pieces are dropped.
     pub(crate) fn begin(&mut self, buffer: BufferId, revision: u64) {
         if self.buffer != Some(buffer) {
             self.buffer = Some(buffer);
             self.rows.clear();
+            self.pieces.shaped.clear();
         }
         self.revision = revision;
     }
@@ -194,6 +195,7 @@ impl Rows {
     pub(crate) fn begin_lines(&mut self) {
         if self.buffer.take().is_some() {
             self.rows.clear();
+            self.pieces.shaped.clear();
         }
     }
 
@@ -643,6 +645,21 @@ pub(crate) mod tests {
             ["name", "13:5"],
             "a new font shapes again"
         );
+    }
+
+    #[test]
+    fn another_buffers_pieces_are_dropped_with_its_rows() {
+        let buffer = Buffer::from_text("t", "a\rb");
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let mut editor = oso_core::editor::Editor::default();
+        let first = editor.window().buffer();
+        let second = editor.add_buffer(Buffer::from_text("t", ""));
+        rows.begin(first, 1);
+        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        rows.begin(second, 1);
+        rows.row(&buffer.display(), 0, 0..128, &mut system);
+        assert_eq!(system.shaped, ["a", "^M", "b", "a", "^M", "b"]);
     }
 
     #[test]
