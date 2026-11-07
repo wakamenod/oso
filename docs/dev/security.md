@@ -119,6 +119,9 @@ and invalid bytes are shown as escapes (`^M`, `\xFF`) in an escape color. Labels
 shaped apart from the text around them, so that text cannot change what a label reads.
 None of these characters reach the text shaper: their labels are shaped as
 ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+Cells stay in the logical order of the text and no character is shown as its mirrored
+form, in every script
+([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 A glyph paints only the cells of its cluster, in its row and in narrow bands above
 and below the row, and a label's glyphs keep their own cells
 ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).

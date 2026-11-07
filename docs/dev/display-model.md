@@ -102,6 +102,9 @@ The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
 - A tab advances to the next tab stop. `\n` and `\r\n` end the row.
 - Text that is no buffer's, such as a modeline's, is one row: there a tab and a line
   break are escapes as well (`display_map::text_clusters`).
+- Cells stay in the logical order of the text, left to right, in every script, and no
+  character is shown as its mirrored form. oso has no right-to-left display
+  ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 
 A glyph paints only the cells of its cluster and only its row. When the shaper
 draws several clusters as one ligature, its glyph paints the cells of all of

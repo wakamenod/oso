@@ -20,7 +20,8 @@
 //!   row is compared with what was shaped each frame (ADR 0061).
 //! - A row is shaped in pieces where the face changes, and at each span, so that
 //!   nothing forms across them: text cannot change how a label or another span
-//!   reads. A row of one piece is shaped whole.
+//!   reads. A row of one piece is one call to the shaper, which may split it by
+//!   direction (ADR 0066).
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -103,7 +104,7 @@ pub(crate) struct ShapedRow {
     text: String,
     graphemes: Vec<Grapheme>,
     /// Where the text was cut into pieces shaped on their own. Empty for a row
-    /// of one piece, which is shaped whole.
+    /// of one piece, which is one call to the shaper.
     breaks: Vec<u32>,
     /// Sorted by column.
     pub(crate) glyphs: Vec<PlacedGlyph>,

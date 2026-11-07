@@ -240,7 +240,9 @@ null text system: the cursor is drawn on the grid, and no text. See
   position. `oso-render` places them on the cell grid with the display
   model's cluster widths, so drawing and cursor motion agree: half-width
   clusters take one cell, full-width two, and a column's x is
-  `column × cell_width`. Cells are whole pixels.
+  `column × cell_width`. Cells are whole pixels. A glyph is placed by its cluster, so
+  cells stay in the logical order of the text, and no character is shown as its mirrored
+  form ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 - **Rasterizing** gives coverage bitmaps for text and premultiplied RGBA for
   color emoji. They are cached in a glyph atlas (one texture per format,
   packed in shelves, doubling when full), so a glyph is rasterized once
@@ -270,7 +272,8 @@ null text system: the cursor is drawn on the grid, and no text. See
   and goes through `display_map::text_clusters`, so its control characters, tabs and
   line breaks are escapes.
 - **Pieces:** a row is shaped in pieces wherever the face changes, and at each span, so
-  nothing forms across them. A row of one face is shaped whole.
+  nothing forms across them. A row of one face is one call to the shaper, which may split
+  it by direction ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels
   in an escape color; the raw characters never reach the shaper
