@@ -28,6 +28,19 @@ pub(crate) struct AccessEntry {
     /// What it names lets someone add to or remove from a directory, remove the directory itself,
     /// or change its list or owner.
     pub(crate) lets_change: bool,
+    /// What it names is what making, renaming and removing a file in a directory needs.
+    pub(crate) names_writing: bool,
+    /// What it names is what going through a directory needs.
+    pub(crate) names_searching: bool,
+    /// What it names is what making a directory in a directory needs.
+    pub(crate) names_making_directories: bool,
+    /// What it names is reading the list, which a file or directory that takes it could then
+    /// not have read.
+    pub(crate) names_reading_the_list: bool,
+    /// It counts for the directory itself, and not only for what is made in it.
+    pub(crate) applies_here: bool,
+    /// A file made in this directory takes the entry.
+    pub(crate) reaches_new_files: bool,
     /// A directory made in this one takes the entry.
     pub(crate) reaches_new_directories: bool,
 }
@@ -45,30 +58,17 @@ pub(crate) fn directory_access_list(path: &Path) -> io::Result<Vec<AccessEntry>>
     backend::list_at(path)
 }
 
-/// What [`seal`] found on a new file.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[must_use]
-pub struct Sealed {
-    had_grant: bool,
-}
-
-impl Sealed {
-    /// Whether the file had taken from its directory a list granting something, whoever to. It
-    /// no longer holds that, but the directory does.
-    pub fn had_grant(self) -> bool {
-        self.had_grant
-    }
-}
-
 /// Makes `file`, which this process has just created, grant nothing but what its mode says. Call
-/// this before anything goes in. On macOS it removes every access list entry, also from a list
-/// its owner may not read, and makes sure none is left. On Linux a new file made with a mode that
-/// gives its group nothing already grants nothing through a list, and on other systems nothing is
-/// done yet (ADR 0065). It touches the disk, so it belongs off the UI thread.
+/// this before anything goes in. On macOS it removes every access list entry and makes sure none
+/// is left. On Linux a new file made with a mode that gives its group nothing already grants
+/// nothing through a list, and on other systems nothing is done yet (ADR 0065). It touches the disk,
+/// so it belongs off the UI thread.
 ///
 /// # Errors
 ///
-/// If a list cannot be removed. The file must then hold nothing that matters.
-pub fn seal(file: &File) -> io::Result<Sealed> {
+/// If a list cannot be removed, or what the file took from its directory granted anything or could
+/// not be read: the directory is then no place for what goes in, whatever it said when it was
+/// checked. The list is gone from the file if it could be removed, so the file can be, too.
+pub fn seal(file: &File) -> io::Result<()> {
     backend::seal(file)
 }

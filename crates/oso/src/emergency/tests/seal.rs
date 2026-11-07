@@ -21,9 +21,9 @@ fn prepared() -> (Scratch, Entry) {
     (scratch, entry)
 }
 
-/// What `write_copy_with` does for each of its temporary files, seen from a seal that says it
-/// found a grant from the given call on. Returns how long each file was when sealed, and the result.
-fn sealing(grants_from: usize) -> (Vec<u64>, Scratch, io::Result<()>) {
+/// What `write_copy_with` does for each of its temporary files, seen from a seal that refuses from
+/// the given call on. Returns how long each file was when sealed, and the result.
+fn sealing(refuses_from: usize) -> (Vec<u64>, Scratch, io::Result<()>) {
     let (scratch, entry) = prepared();
     let directory = scratch.copies();
     let (ticks, _received) = std::sync::mpsc::channel();
@@ -37,7 +37,10 @@ fn sealing(grants_from: usize) -> (Vec<u64>, Scratch, io::Result<()>) {
         &|file| {
             let mut lengths = lengths.borrow_mut();
             lengths.push(file.metadata()?.len());
-            Ok(lengths.len() > grants_from)
+            if lengths.len() > refuses_from {
+                return Err(io::Error::other("refused by the seal"));
+            }
+            Ok(())
         },
     );
     (lengths.into_inner(), scratch, written)
@@ -52,11 +55,11 @@ fn each_file_of_a_copy_is_sealed_before_anything_goes_in() {
 }
 
 #[test]
-fn a_list_that_grants_anything_stops_the_copy_and_leaves_nothing() {
-    for grants_from in [0, 1] {
-        let (_, scratch, written) = sealing(grants_from);
+fn a_seal_that_refuses_stops_the_copy_and_leaves_nothing() {
+    for refuses_from in [0, 1] {
+        let (_, scratch, written) = sealing(refuses_from);
         let error = written.unwrap_err().to_string();
-        assert!(error.contains("access list"), "{error}");
+        assert!(error.contains("refused by the seal"), "{error}");
         assert!(!error.contains("text to keep"), "{error}");
         let left: Vec<_> = fs::read_dir(scratch.copies()).unwrap().collect();
         assert!(left.is_empty(), "{left:?}");

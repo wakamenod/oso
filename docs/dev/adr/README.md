@@ -70,7 +70,7 @@ old one's status.
 | 0061 | [Panes: drawing a frame as a list with clipping and layers](0061-panes-clipping-and-layers.md) | Accepted |
 | 0062 | [The emergency save, the panic hook and no core dumps](0062-emergency-save-and-the-panic-hook.md) | Accepted |
 | 0063 | [The modeline, the echo area and internal buffers](0063-modeline-echo-area-and-internal-buffers.md) | Accepted |
-| 0065 | [Access lists on private directories](0065-access-lists-on-private-directories.md) | Proposed |
+| 0065 | [Access lists on private directories](0065-access-lists-on-private-directories.md) | Accepted |
 
 ## Template
 

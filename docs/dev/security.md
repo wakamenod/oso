@@ -129,7 +129,7 @@ and below the row, and a label's glyphs keep their own cells
   history.
 - On a panic outside a command, or when the OS ends the app on macOS, unsaved buffers are written to a
   private directory (`0700`, files `0600`, refused if it is a symlink, another user's or looser, or if another user can change
-  anything on the way to it, through every link and directory it passes, in which case nothing is written, and oso says so at startup). On macOS, access lists count: only `deny` entries pass on the directory, what leads to it may not hold an `allow` that changes what is in it, and each copy holds no list before its text goes in ([ADR 0065](adr/0065-access-lists-on-private-directories.md)). Files matching secret patterns are excluded
+  anything on the way to it, through every link and directory it passes, in which case nothing is written, and oso says so at startup). On macOS, access lists count: only `deny` entries pass on the directory, what leads to it may not hold an `allow` that changes what is in it, and each copy holds no list before its text goes in, and at startup oso also says of a `deny` that would stop a copy ([ADR 0065](adr/0065-access-lists-on-private-directories.md)). Files matching secret patterns are excluded
   ([ADR 0028](adr/0028-secrets-handling.md) lists the defaults; users can extend them), and their text
   is not even held where the panic hook can reach it. A path that could not be resolved is saved only if no
   name on it, or on the way to where the walk stopped, matches ([ADR 0051](adr/0051-m2-plan-decisions.md)).

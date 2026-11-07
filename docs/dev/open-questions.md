@@ -60,6 +60,8 @@ item notes when it must be settled.
 - Safe save loses a file's extended attributes and ACLs, since `std` cannot copy them
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). On macOS that includes Finder tags.
   `libc` is in release builds now ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)), so decide whether copying them is worth it.
+- A control socket's own file is not sealed as a screenshot is. It is a dev tool's, its peer is checked, and an inherited `deny delete` can leave a dead
+  socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - Later, before anyone uses oso on Windows: decide what a private directory does about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its

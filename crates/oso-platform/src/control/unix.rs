@@ -186,7 +186,7 @@ impl ControlDir {
             .mode(0o600)
             .open(&path)
             .map_err(|e| with_path(e, "cannot create", &path))?;
-        if let Err(e) = sealed(&file) {
+        if let Err(e) = seal(&file) {
             let _ = fs::remove_file(&path);
             return Err(with_path(e, "cannot use", &path));
         }
@@ -264,19 +264,6 @@ fn default_path(
                 temp_dir.display()
             ),
         )),
-    }
-}
-
-/// Takes any access list off a new file, and refuses one that granted anything: the directory
-/// has changed since it was checked, and is no place for what goes in.
-fn sealed(file: &fs::File) -> io::Result<()> {
-    if seal(file)?.had_grant() {
-        Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "an access list on the directory gives access to what is written there",
-        ))
-    } else {
-        Ok(())
     }
 }
 

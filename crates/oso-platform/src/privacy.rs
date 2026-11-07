@@ -94,7 +94,7 @@ fn plain(path: &Path) -> io::Result<PathBuf> {
     } else {
         Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("{} is not an absolute path without ..", path.display()),
+            format!("not an absolute path without ..: {}", path.display()),
         ))
     }
 }
@@ -189,6 +189,36 @@ pub(crate) fn parent_list_problem(entries: &[AccessEntry]) -> Option<DirProblem>
         .then_some(DirProblem::ListPassesOn)
 }
 
+/// Whether this list on a private directory would stop a file being written in it, though nothing
+/// is wrong with what it grants. An entry that the files take counts if it hides the list, as
+/// nothing could then be told of what they took. `deny delete` and `deny list` do no such thing.
+pub(crate) fn list_stops_writing(entries: &[AccessEntry]) -> bool {
+    entries.iter().any(|entry| {
+        !entry.allows
+            && ((entry.applies_here && entry.names_writing)
+                || (entry.reaches_new_files && entry.names_reading_the_list))
+    })
+}
+
+/// Whether this list on a directory that leads to a private one would stop anyone going through it.
+/// Only searching counts: what is in it is not being written there.
+pub(crate) fn list_stops_the_way(entries: &[AccessEntry]) -> bool {
+    entries
+        .iter()
+        .any(|entry| !entry.allows && entry.applies_here && entry.names_searching)
+}
+
+/// Whether this list on a directory would stop a private directory being made under it and used. A
+/// directory takes what reaches it, so that counts as if it were on the new directory.
+pub(crate) fn list_stops_making(entries: &[AccessEntry]) -> bool {
+    entries.iter().any(|entry| {
+        !entry.allows
+            && ((entry.applies_here && entry.names_making_directories)
+                || (entry.reaches_new_directories
+                    && (entry.names_writing || entry.names_reading_the_list)))
+    })
+}
+
 /// Why a directory cannot be the parent of a private one, whether or not that one exists yet, for
 /// the control socket, which looks at one parent and not all the way.
 #[cfg(all(unix, feature = "dev"))]
@@ -199,36 +229,119 @@ pub(crate) fn whole_parent_list_problem(entries: &[AccessEntry]) -> Option<DirPr
 #[cfg(test)]
 mod tests {
     use super::{
-        AccessEntry, DirProblem, ancestor_is_safe, check_dir, own_list_problem, parent_is_safe,
+        AccessEntry, DirProblem, ancestor_is_safe, check_dir, list_stops_making,
+        list_stops_the_way, list_stops_writing, own_list_problem, parent_is_safe,
         parent_list_problem, way_list_problem,
     };
 
+    const NOTHING: AccessEntry = AccessEntry {
+        allows: false,
+        lets_change: false,
+        names_writing: false,
+        names_searching: false,
+        names_making_directories: false,
+        names_reading_the_list: false,
+        applies_here: true,
+        reaches_new_files: false,
+        reaches_new_directories: false,
+    };
     /// What macOS puts on `~` and on many of the directories under it.
     const DENY_DELETE: AccessEntry = AccessEntry {
-        allows: false,
         lets_change: true,
-        reaches_new_directories: false,
+        ..NOTHING
     };
     const ALLOW_READING: AccessEntry = AccessEntry {
         allows: true,
-        lets_change: false,
-        reaches_new_directories: false,
+        ..NOTHING
     };
     const ALLOW_CHANGING: AccessEntry = AccessEntry {
         allows: true,
         lets_change: true,
-        reaches_new_directories: false,
+        ..NOTHING
     };
     const ALLOW_FOR_NEW_DIRECTORIES: AccessEntry = AccessEntry {
         allows: true,
-        lets_change: false,
         reaches_new_directories: true,
+        ..NOTHING
     };
     const DENY_FOR_NEW_DIRECTORIES: AccessEntry = AccessEntry {
-        allows: false,
         lets_change: true,
         reaches_new_directories: true,
+        ..NOTHING
     };
+    const DENY_WRITING: AccessEntry = AccessEntry {
+        names_writing: true,
+        ..NOTHING
+    };
+    const DENY_SEARCHING: AccessEntry = AccessEntry {
+        names_writing: true,
+        names_searching: true,
+        names_making_directories: true,
+        ..NOTHING
+    };
+    const DENY_MAKING_DIRECTORIES: AccessEntry = AccessEntry {
+        names_making_directories: true,
+        ..NOTHING
+    };
+    const HIDES_THE_LIST: AccessEntry = AccessEntry {
+        names_reading_the_list: true,
+        applies_here: false,
+        ..NOTHING
+    };
+
+    #[test]
+    fn what_a_deny_stops_is_told_from_what_is_harmless() {
+        // Harmless wherever it is, also on what a new file or directory takes.
+        for harmless in [DENY_DELETE, DENY_FOR_NEW_DIRECTORIES, ALLOW_CHANGING] {
+            assert!(!list_stops_writing(&[harmless]));
+            assert!(!list_stops_the_way(&[harmless]));
+            assert!(!list_stops_making(&[harmless]));
+        }
+        assert!(list_stops_writing(&[DENY_DELETE, DENY_WRITING]));
+        assert!(!list_stops_the_way(&[DENY_WRITING]), "not going through");
+        assert!(!list_stops_making(&[DENY_WRITING]), "only files");
+
+        assert!(list_stops_writing(&[DENY_SEARCHING]));
+        assert!(list_stops_the_way(&[DENY_SEARCHING]));
+        assert!(list_stops_making(&[DENY_SEARCHING]));
+
+        assert!(!list_stops_writing(&[DENY_MAKING_DIRECTORIES]));
+        assert!(!list_stops_the_way(&[DENY_MAKING_DIRECTORIES]));
+        assert!(list_stops_making(&[DENY_MAKING_DIRECTORIES]));
+    }
+
+    #[test]
+    fn only_applying_or_being_taken_counts() {
+        let only_for_what_is_made = AccessEntry {
+            applies_here: false,
+            ..DENY_SEARCHING
+        };
+        assert!(!list_stops_writing(&[only_for_what_is_made]));
+        assert!(!list_stops_the_way(&[only_for_what_is_made]));
+        assert!(!list_stops_making(&[only_for_what_is_made]));
+
+        // A list that hides itself from what takes it.
+        assert!(!list_stops_writing(&[HIDES_THE_LIST]), "no file takes it");
+        assert!(list_stops_writing(&[AccessEntry {
+            reaches_new_files: true,
+            ..HIDES_THE_LIST
+        }]));
+        assert!(
+            !list_stops_making(&[HIDES_THE_LIST]),
+            "no directory takes it"
+        );
+        assert!(list_stops_making(&[AccessEntry {
+            reaches_new_directories: true,
+            ..HIDES_THE_LIST
+        }]));
+
+        // A new directory takes what would stop files being written in it.
+        assert!(list_stops_making(&[AccessEntry {
+            applies_here: false,
+            reaches_new_directories: true,
+            ..DENY_WRITING
+        }]));
+    }
 
     #[test]
     fn a_deny_is_harmless_wherever_it_is() {

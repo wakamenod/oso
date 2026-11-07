@@ -11,18 +11,22 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 
-use super::{AccessEntry, Sealed};
+use super::AccessEntry;
 
 const ACL_TYPE_EXTENDED: c_int = 0x100;
 const ACL_FIRST_ENTRY: c_int = 0;
 const ACL_NEXT_ENTRY: c_int = -1;
 const ACL_EXTENDED_DENY: c_int = 2;
+const ACL_ENTRY_FILE_INHERIT: c_int = 1 << 5;
 const ACL_ENTRY_DIRECTORY_INHERIT: c_int = 1 << 6;
+const ACL_ENTRY_ONLY_INHERIT: c_int = 1 << 8;
 
 const ACL_ADD_FILE: u64 = 1 << 2;
+const ACL_SEARCH: u64 = 1 << 3;
 const ACL_DELETE: u64 = 1 << 4;
 const ACL_ADD_SUBDIRECTORY: u64 = 1 << 5;
 const ACL_DELETE_CHILD: u64 = 1 << 6;
+const ACL_READ_SECURITY: u64 = 1 << 11;
 const ACL_WRITE_SECURITY: u64 = 1 << 12;
 const ACL_CHANGE_OWNER: u64 = 1 << 13;
 /// `KAUTH_ACE_GENERIC_ALL`. The system never tests the generic rights, but a list may hold them,
@@ -40,6 +44,10 @@ const CHANGING_RIGHTS: u64 = ACL_ADD_FILE
     | ACL_CHANGE_OWNER
     | GENERIC_ALL
     | GENERIC_WRITE;
+
+/// What making, renaming and removing a file in a directory needs. Renaming and removing go by
+/// `delete_child` on the directory, also for a file whose owner this user is.
+const WRITING_RIGHTS: u64 = ACL_ADD_FILE | ACL_DELETE_CHILD | ACL_SEARCH;
 
 unsafe extern "C" {
     fn acl_get_link_np(path: *const c_char, kind: c_int) -> *mut c_void;
@@ -90,9 +98,15 @@ impl List {
         loop {
             let mut entry = ptr::null_mut();
             // SAFETY: `self.0` is a live list owned by `self`, and `entry` a local that the call
-            // writes. A failure here only means there is no such entry.
+            // writes.
             if unsafe { acl_get_entry(self.0, which, &raw mut entry) } != 0 {
-                return Ok(entries);
+                // `EINVAL` is how the end of a list is told, also of an empty one, and `self.0`
+                // cannot be the other thing it means, a pointer that is not a list.
+                let error = io::Error::last_os_error();
+                return match error.raw_os_error() {
+                    Some(libc::EINVAL) => Ok(entries),
+                    _ => Err(error),
+                };
             }
             // SAFETY: the call just gave `entry` from `self`, which outlives this use of it.
             entries.push(unsafe { read_entry(entry) }?);
@@ -118,21 +132,45 @@ unsafe fn read_entry(entry: *mut c_void) -> io::Result<AccessEntry> {
     if !read {
         return Err(io::Error::last_os_error());
     }
-    // SAFETY: `flags` was just set by a call that succeeded, and its list is still alive.
-    let to_directories = unsafe { acl_get_flag_np(flags, ACL_ENTRY_DIRECTORY_INHERIT) };
-    if to_directories < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(classified(tag, rights, to_directories == 1))
+    let is_set = |flag| {
+        // SAFETY: `flags` was just set by a call that succeeded, and its list is still alive.
+        match unsafe { acl_get_flag_np(flags, flag) } {
+            -1 => Err(io::Error::last_os_error()),
+            set => Ok(set == 1),
+        }
+    };
+    Ok(classified(
+        tag,
+        rights,
+        Flags {
+            only_inherit: is_set(ACL_ENTRY_ONLY_INHERIT)?,
+            to_files: is_set(ACL_ENTRY_FILE_INHERIT)?,
+            to_directories: is_set(ACL_ENTRY_DIRECTORY_INHERIT)?,
+        },
+    ))
+}
+
+/// The flags of an entry that the rules ask about.
+#[derive(Clone, Copy, Default)]
+struct Flags {
+    only_inherit: bool,
+    to_files: bool,
+    to_directories: bool,
 }
 
 /// What an entry means to the rules. Only a deny takes rights away, so a tag this does not know
 /// counts as a grant.
-fn classified(tag: c_int, rights: u64, to_directories: bool) -> AccessEntry {
+fn classified(tag: c_int, rights: u64, flags: Flags) -> AccessEntry {
     AccessEntry {
         allows: tag != ACL_EXTENDED_DENY,
         lets_change: rights & CHANGING_RIGHTS != 0,
-        reaches_new_directories: to_directories,
+        names_writing: rights & WRITING_RIGHTS != 0,
+        names_searching: rights & ACL_SEARCH != 0,
+        names_making_directories: rights & (ACL_ADD_SUBDIRECTORY | ACL_SEARCH) != 0,
+        names_reading_the_list: rights & ACL_READ_SECURITY != 0,
+        applies_here: !flags.only_inherit,
+        reaches_new_files: flags.to_files,
+        reaches_new_directories: flags.to_directories,
     }
 }
 
@@ -166,23 +204,26 @@ fn empty_list(file: &File) -> io::Result<()> {
     }
 }
 
-pub(super) fn seal(file: &File) -> io::Result<Sealed> {
-    let had_grant = match list_of(file) {
-        Ok(found) if found.is_empty() => return Ok(Sealed { had_grant: false }),
+pub(super) fn seal(file: &File) -> io::Result<()> {
+    let grants = match list_of(file) {
+        Ok(found) if found.is_empty() => return Ok(()),
         Ok(found) => found.iter().any(|entry| entry.allows),
-        // A list can deny its owner reading it, and its directory's own list has said what could
-        // grant anything. Its owner can still remove it, and then nothing of it is left.
-        Err(e) if e.raw_os_error() == Some(libc::EACCES) => false,
+        // A list can deny its owner reading it. Nothing can be told of one, so it counts as a grant.
+        Err(e) if e.raw_os_error() == Some(libc::EACCES) => true,
         Err(e) => return Err(e),
     };
     empty_list(file)?;
-    if list_of(file)?.is_empty() {
-        Ok(Sealed { had_grant })
-    } else {
-        Err(io::Error::other(
+    if !list_of(file)?.is_empty() {
+        return Err(io::Error::other(
             "an access list could not be removed from a new file",
-        ))
+        ));
     }
+    if grants {
+        return Err(io::Error::other(
+            "an access list on the directory may give access to what is written there",
+        ));
+    }
+    Ok(())
 }
 
 /// Setting lists, for tests, on what they made themselves. `everyone` is named by its fixed
@@ -212,8 +253,8 @@ pub(crate) mod test_list {
     }
 
     /// Gives `path` one entry for `everyone`: `how` is `allow` or `deny` with any flags, as in
-    /// `allow,directory_inherit`, and `rights` as in `read,execute`. `acl_from_text` knows only
-    /// the names for files, which are the same bits as `list,search` and `add_file` on a directory.
+    /// `allow,directory_inherit`, and `rights` as in `read,execute`. `acl_from_text` does not know
+    /// `list`, `search`, `add_file` or `add_subdirectory`, but the names for files are the same bits.
     pub(crate) fn set_for_everyone(path: &Path, how: &str, rights: &str) {
         set(path, &for_everyone(how, rights));
     }
@@ -261,7 +302,10 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::test_list::{clear, set_for_everyone, set_on_link_for_everyone};
-    use super::{ACL_EXTENDED_DENY, CHANGING_RIGHTS, classified, list_at, list_of, seal};
+    use super::{
+        ACL_EXTENDED_DENY, CHANGING_RIGHTS, Flags, List, acl_get_entry, acl_init, classified,
+        list_at, list_of, seal,
+    };
 
     /// The `allow` tag.
     const ALLOW: i32 = 1;
@@ -291,9 +335,9 @@ mod tests {
 
     #[test]
     fn a_deny_never_counts_as_a_grant_and_an_unknown_tag_does() {
-        assert!(!classified(ACL_EXTENDED_DENY, !0, true).allows);
-        assert!(classified(ALLOW, 0, false).allows);
-        assert!(classified(0, 0, false).allows);
+        assert!(!classified(ACL_EXTENDED_DENY, !0, Flags::default()).allows);
+        assert!(classified(ALLOW, 0, Flags::default()).allows);
+        assert!(classified(0, 0, Flags::default()).allows);
     }
 
     #[test]
@@ -312,7 +356,46 @@ mod tests {
         }
         // Read or list, execute or search, the attributes and the list itself.
         let reading = (1 << 1) | (1 << 3) | (1 << 7) | (1 << 9) | (1 << 11) | (1 << 20) | (1 << 24);
-        assert!(!classified(ALLOW, reading, false).lets_change);
+        assert!(!classified(ALLOW, reading, Flags::default()).lets_change);
+    }
+
+    #[test]
+    fn rights_a_copy_needs_are_told_from_those_it_does_not() {
+        let entry = |rights| classified(ACL_EXTENDED_DENY, rights, Flags::default());
+        for writing in [1 << 2, 1 << 3, 1 << 6] {
+            assert!(entry(writing).names_writing, "{writing:#x}");
+        }
+        // Listing, deleting the directory itself, and making a directory in it.
+        for other in [1 << 1, 1 << 4, 1 << 5] {
+            assert!(!entry(other).names_writing, "{other:#x}");
+        }
+        assert!(entry(1 << 3).names_searching);
+        assert!(!entry(1 << 2).names_searching);
+        assert!(entry(1 << 5).names_making_directories);
+        assert!(entry(1 << 3).names_making_directories);
+        assert!(!entry(1 << 2).names_making_directories);
+        assert!(entry(1 << 11).names_reading_the_list);
+        assert!(!entry(1 << 12).names_reading_the_list);
+    }
+
+    #[test]
+    fn the_end_of_a_list_is_einval_and_so_only_that_reads_as_the_end() {
+        // SAFETY: a count of zero is valid. The list goes straight into `List`.
+        let empty = List(unsafe { acl_init(0) });
+        let mut entry = std::ptr::null_mut();
+        // SAFETY: `empty.0` is a live list, and `entry` a local the call writes.
+        let got = unsafe { acl_get_entry(empty.0, 0, &raw mut entry) };
+        assert_eq!(got, -1);
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::EINVAL)
+        );
+        assert_eq!(empty.entries().unwrap(), []);
+
+        let scratch = Scratch::new();
+        set_for_everyone(&scratch.0, "deny", "delete");
+        assert_eq!(list_at(&scratch.0).unwrap().len(), 1, "past the end too");
+        clear(&scratch.0);
     }
 
     #[test]
@@ -387,20 +470,21 @@ mod tests {
     }
 
     #[test]
-    fn sealing_a_file_with_no_list_finds_nothing() {
+    fn sealing_a_file_with_no_list_is_nothing_to_do() {
         let scratch = Scratch::new();
         let file = File::create(scratch.join("f")).unwrap();
-        assert!(!seal(&file).unwrap().had_grant());
+        seal(&file).unwrap();
         assert_eq!(list_of(&file).unwrap(), []);
     }
 
     #[test]
-    fn a_new_file_takes_its_directorys_list_and_sealing_takes_it_off() {
+    fn a_new_file_takes_its_directorys_list_and_a_grant_refuses_it_with_the_list_gone() {
         let scratch = Scratch::new();
         set_for_everyone(&scratch.0, "allow,file_inherit", "read");
         let file = File::create(scratch.join("f")).unwrap();
         assert_eq!(list_of(&file).unwrap().len(), 1, "it inherited the entry");
-        assert!(seal(&file).unwrap().had_grant());
+        let error = seal(&file).unwrap_err().to_string();
+        assert!(error.contains("access list"), "{error}");
         assert_eq!(list_of(&file).unwrap(), []);
         assert_eq!(list_at(&scratch.join("f")).unwrap(), []);
         assert_eq!(
@@ -419,28 +503,42 @@ mod tests {
         assert!(fs::rename(&stuck, scratch.join("moved")).is_err());
         assert!(fs::remove_file(&stuck).is_err());
 
-        assert!(!seal(&file).unwrap().had_grant());
+        seal(&file).unwrap();
         fs::rename(&stuck, scratch.join("moved")).unwrap();
         fs::remove_file(scratch.join("moved")).unwrap();
         clear(&scratch.0);
     }
 
+    fn inheriting(scratch: &Scratch, rights: &str) -> File {
+        set_for_everyone(&scratch.0, "deny,file_inherit,only_inherit", rights);
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(scratch.join("f"))
+            .unwrap()
+    }
+
     #[test]
-    fn sealing_removes_what_would_otherwise_stop_it_and_keeps_the_mode() {
-        for rights in ["readsecurity", "writesecurity", "delete"] {
+    fn a_deny_the_owner_keeps_clear_of_is_removed_and_the_mode_stays() {
+        for rights in ["writesecurity", "delete"] {
             let scratch = Scratch::new();
-            set_for_everyone(&scratch.0, "deny,file_inherit,only_inherit", rights);
-            let path = scratch.join("f");
-            let file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .open(&path)
-                .unwrap();
-            assert!(!seal(&file).unwrap().had_grant(), "{rights}");
+            let file = inheriting(&scratch, rights);
+            seal(&file).unwrap();
             assert_eq!(list_of(&file).unwrap(), [], "{rights}");
             assert_eq!(file.metadata().unwrap().mode() & 0o7777, 0o600, "{rights}");
             clear(&scratch.0);
         }
+    }
+
+    #[test]
+    fn a_list_that_cannot_be_read_counts_as_a_grant_and_is_gone_all_the_same() {
+        let scratch = Scratch::new();
+        let file = inheriting(&scratch, "readsecurity");
+        let error = seal(&file).unwrap_err().to_string();
+        assert!(error.contains("access list"), "{error}");
+        assert_eq!(list_of(&file).unwrap(), []);
+        clear(&scratch.0);
+        fs::remove_file(scratch.join("f")).unwrap();
     }
 }

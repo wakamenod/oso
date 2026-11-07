@@ -7,7 +7,7 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use super::{AccessEntry, Sealed};
+use super::AccessEntry;
 
 #[expect(
     clippy::unnecessary_wraps,
@@ -22,6 +22,6 @@ pub(super) fn list_at(_path: &Path) -> io::Result<Vec<AccessEntry>> {
     clippy::unnecessary_wraps,
     reason = "the same signature as on macOS, where it can fail"
 )]
-pub(super) fn seal(_file: &File) -> io::Result<Sealed> {
-    Ok(Sealed { had_grant: false })
+pub(super) fn seal(_file: &File) -> io::Result<()> {
+    Ok(())
 }

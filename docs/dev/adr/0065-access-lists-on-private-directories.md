@@ -1,6 +1,6 @@
 # 0065. Access lists on private directories
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-07
 
 ## Context
@@ -45,14 +45,28 @@ remedy, and the startup message says what to look at.
 ### Each copy
 
 Each of a copy's two temporary files is **sealed** before anything goes in: any list it took from its directory is removed, and read
-back as gone. If what it took granted anything, the directory has changed since it was checked, so the copy is refused, nothing is
-left, and the report says so without quoting text. An inherited `deny` is removed and the copy goes on, since a file may not be renamed or
-removed while it denies this user `delete`. So is one this user may not read: the directory's own list has said what could grant
-anything, and its owner can still remove it. So a `deny` cannot pass the startup check and then stop a copy at the crash.
+back as gone. If what it took granted anything, or could not be read, nothing can be said of the directory any more, whatever it said
+when it was checked. So the copy is refused, nothing is left, and the report says so without quoting text. An inherited `deny` that can be
+read is removed and the copy goes on, since a file may not be renamed or removed while it denies this user `delete`. `seal` itself returns the
+error, so that no caller can forget to ask, and the message is in one place.
+
+### What would stop a copy
+
+A `deny` grants nothing, but it can stop a copy being written, and finding that out at the crash would lose the text. So `PrivateDir::check`
+says at startup, and goes no further than warning, as with modes: `open` does not ask, and goes by what the system says.
+
+- **On the directory:** what making, renaming and removing a file needs, which is `add_file`, `delete_child` and `search`, and a `deny` of
+  reading the list that new files take, as sealing then refuses them.
+- **On the way:** `search`. Nothing else matters to what is under it.
+- **On the deepest directory, when something is to be made under it:** `add_subdirectory` and `search`, and what a new directory would take of
+  the above.
+
+`deny delete` and `deny list` stop nothing, so `group:everyone deny delete` stays harmless everywhere, inherited too.
 
 ### The control socket
 
-It follows the same rule on its directory and on its one parent, and a screenshot is sealed as a copy is, as that directory holds them. It
+It follows the same rule for what is granted, on its directory and on its one parent, and a screenshot is sealed as a copy is, as that
+directory holds them. It
 does not walk to the root, as a dev tool's check of one parent does not for modes either
 ([ADR 0062](0062-emergency-save-and-the-panic-hook.md)). As it has only that parent to look at, both rules for a parent apply whether or
 not the directory exists yet. It stays behind the `dev` feature.
@@ -69,10 +83,10 @@ not the directory exists yet. It stays behind the `dev` feature.
 
 - `oso_platform::file_meta` is a new public module, in a layer of its own below `privacy` in `guardrails/layers.txt`. It is the
   file-system module ADR 0059 and ADR 0062 expected, for what a file holds beyond its mode, and `architecture.md` says so. Its public API
-  is `seal` and `Sealed`, with no OS type in them.
+  is `seal`, with no OS type in it.
 - `file_meta::macos` declares the `acl_*` calls itself, with `unsafe extern "C"`, as `libc` does not have them. No dependency is added.
-- The rule is three pure functions in `privacy`, over entries that say only what the rule asks. They are tested on every system. What an
-  OS's bits mean stays in its backend: on macOS, which rights count as changing, and that a tag it does not know counts as a grant.
+- The rule is pure functions in `privacy`, over entries that say only what the rule asks. They are tested on every system. What an
+  OS's bits mean stays in its backend: on macOS, which rights count for what, and that a tag it does not know counts as a grant.
 
 ## Consequences
 
@@ -84,7 +98,8 @@ not the directory exists yet. It stays behind the `dev` feature.
   `dev` feature, meets it with a real list, set by `chmod`.
 - Tests set real lists on what they made themselves, naming `everyone` by its fixed identifier, so that they need no privileges and no
   directory service. The test helper sets a list by `acl_set_file`, as `acl_set_link_np` fails on a list its owner may not read.
-- `acl_from_text` knows only the names of rights for files. They are the same bits as those for directories.
+- `acl_from_text` does not know some names of rights for directories, such as `add_file` and `search`, so tests use the names for files, which are
+  the same bits.
 - How a save treats lists stays as [ADR 0059](0059-safe-save-and-the-exit-guard.md) says.
 
 ## Alternatives considered
