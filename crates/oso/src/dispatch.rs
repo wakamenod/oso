@@ -9,6 +9,7 @@
 
 use std::fmt::Write;
 
+use oso_core::buffer::Mode;
 #[cfg(any(test, feature = "dev"))]
 use oso_core::command::ArgSpec;
 use oso_core::command::{
@@ -30,6 +31,8 @@ pub struct Dispatcher {
     /// Active while the prefix argument reads digits, and a minus sign. They come
     /// first among the minor modes, as what is being typed is for them.
     prefix_keys: [Keymap; 2],
+    /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
+    copy_keys: [Keymap; 2],
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
@@ -51,8 +54,10 @@ impl Dispatcher {
     /// A dispatcher over `registry`, with `global` as the global keymap.
     pub fn with(registry: Registry, global: Keymap) -> Self {
         let (digits, minus) = bindings::prefix_keymaps(&registry);
+        let (list, copy) = bindings::recovery_keymaps(&registry);
         Self {
             prefix_keys: [digits, minus],
+            copy_keys: [list, copy],
             registry,
             global,
             resolver: KeyResolver::new(),
@@ -330,8 +335,14 @@ impl Dispatcher {
             Some(prefix) if prefix.reads_digits() => &reading[..1],
             _ => &[],
         };
+        let major = match editor.current().1.mode() {
+            Mode::Fundamental => None,
+            Mode::EmergencyCopies => Some(&self.copy_keys[0]),
+            Mode::EmergencyCopy => Some(&self.copy_keys[1]),
+        };
         let layers = Layers {
             minor,
+            major,
             ..Layers::global(&self.global)
         };
         match self.resolver.feed(&layers, key) {
@@ -387,6 +398,8 @@ mod grid_tests;
 mod motion_tests;
 #[cfg(test)]
 mod prefix_tests;
+#[cfg(test)]
+mod recovery_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

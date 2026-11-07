@@ -57,7 +57,7 @@ pub(crate) const WRITE_SIZE: usize = 1024 * 1024;
 
 /// Every temporary file's name starts with this. It is hidden, says what it is, and
 /// does not hold the file's own name, which could leave it too long for the system.
-const TEMPORARY_PREFIX: &str = ".oso-save-";
+pub(crate) const TEMPORARY_PREFIX: &str = ".oso-save-";
 
 /// How many names to try before giving up on the directory.
 const NAME_ATTEMPTS: u32 = 64;
@@ -127,6 +127,17 @@ impl SaveReport {
     /// Whether the text this was meant to put on disk is not there.
     pub fn failed(&self) -> bool {
         self.outcome.is_err()
+    }
+
+    /// The buffer this save was of.
+    pub fn buffer(&self) -> BufferId {
+        self.buffer
+    }
+
+    /// Whether the text reached the disk and the disk confirmed all of it, so that an
+    /// emergency copy of it has done its work (ADR 0064).
+    pub fn reached_the_disk(&self) -> bool {
+        matches!(&self.outcome, Ok(Some(written)) if written.unsynced.is_none())
     }
 
     /// The report of a save whose thread could not start.

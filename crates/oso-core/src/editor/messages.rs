@@ -18,7 +18,7 @@ use super::{Editor, Selected};
 use crate::buffer::{BufferId, Replacement};
 use crate::motion;
 use crate::selection::SelectionSet;
-use crate::window::Scroll;
+use crate::window::{Scroll, Window};
 
 /// The messages the editor keeps, as Emacs's `message-log-max`.
 const MAX_MESSAGES: usize = 1000;
@@ -74,9 +74,25 @@ pub(super) struct Echo {
 /// Where a window was before it showed `*Messages*`, to go back to. M2-19 removes this
 /// with the way back, once `C-x b` leaves that buffer.
 pub(super) struct Place {
-    buffer: BufferId,
-    selections: SelectionSet,
-    scroll: Scroll,
+    pub(super) buffer: BufferId,
+    pub(super) selections: SelectionSet,
+    pub(super) scroll: Scroll,
+}
+
+impl Place {
+    pub(super) fn of(window: &Window) -> Self {
+        Self {
+            buffer: window.buffer(),
+            selections: window.selections.clone(),
+            scroll: window.scroll(),
+        }
+    }
+}
+
+/// `text` as a row of an internal buffer shows it, escaped as in [`log_text`], so that a name
+/// from anywhere stays on one row and cannot reorder it.
+pub fn row_text(text: &str) -> String {
+    log_text(text)
 }
 
 impl Editor {
@@ -190,24 +206,12 @@ impl Editor {
         self.messages_buffer
     }
 
-    /// Where the window will go back to from `*Messages*`, if that buffer still exists,
-    /// for a state handoff.
-    pub fn place_behind_messages(&self) -> Option<(BufferId, &SelectionSet, Scroll)> {
-        let place = self.before_messages.as_ref()?;
-        self.buffer(place.buffer)?;
-        Some((place.buffer, &place.selections, place.scroll))
-    }
-
     /// Shows `*Messages*` in the selected window, with its last row in view. From
     /// `*Messages*`, goes back to where the window was.
     pub fn toggle_messages(&mut self) {
         let window = self.window();
         if window.buffer() != self.messages_buffer {
-            self.before_messages = Some(Place {
-                buffer: window.buffer(),
-                selections: window.selections.clone(),
-                scroll: window.scroll(),
-            });
+            self.before_messages = Some(Place::of(window));
             self.show(self.messages_buffer);
             let (window, buffer) = self.current_mut();
             window.selections = SelectionSet::new(buffer.text().len());
@@ -215,6 +219,11 @@ impl Editor {
             return;
         }
         let back = self.before_messages.take();
+        self.go_back(back);
+    }
+
+    /// Shows `back` as it was, or `*scratch*` if there is no such place any more.
+    pub(super) fn go_back(&mut self, back: Option<Place>) {
         match back.filter(|place| self.buffer(place.buffer).is_some()) {
             Some(Place {
                 buffer,
@@ -580,21 +589,21 @@ mod tests {
         let id = editor.window().buffer();
         editor.toggle_messages();
         editor.kill_buffer(id);
-        assert_eq!(editor.place_behind_messages(), None);
+        assert_eq!(editor.place_behind_internal(), None);
         editor.toggle_messages();
         assert_eq!(editor.current().1.name(), crate::editor::SCRATCH);
     }
 
     #[test]
-    fn the_place_behind_messages_is_what_it_goes_back_to() {
+    fn the_place_behind_internal_is_what_it_goes_back_to() {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", "abcdef"));
         let id = editor.window().buffer();
         editor.current_mut().0.selections = SelectionSet::new(3);
-        assert_eq!(editor.place_behind_messages(), None);
+        assert_eq!(editor.place_behind_internal(), None);
         editor.toggle_messages();
         let selections = SelectionSet::new(3);
         assert_eq!(
-            editor.place_behind_messages(),
+            editor.place_behind_internal(),
             Some((id, &selections, Scroll::default()))
         );
     }

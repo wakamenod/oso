@@ -613,6 +613,49 @@ mod scenarios {
     }
 
     #[test]
+    fn a_file_with_an_emergency_copy_says_so_first() {
+        let path = std::path::PathBuf::from("/tmp/notes.txt");
+        let mut buffer = Buffer::visiting(path.clone());
+        let text = b"on disk\n";
+        buffer.apply_load(oso_core::load::decode_all(text, Default::default()));
+        buffer.judge_secret(Some(&[path]));
+        buffer.set_copy_waits(true);
+        let mut editor = Editor::with_buffer(buffer);
+        editor.set_frame_size(FrameSize {
+            rows: 4,
+            columns: 60,
+        });
+        let full = text_grid(&editor);
+        editor.set_frame_size(FrameSize {
+            rows: 2,
+            columns: 60,
+        });
+        assert_frames("status_emergency_copy", text, &[full, text_grid(&editor)]);
+    }
+
+    #[test]
+    fn the_list_of_emergency_copies_shows_each_row_in_one_row() {
+        let rows = "2 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back\n\n\
+                    \u{20}  12 min ago  panic    1234 B  file unchanged   /home/me/notes.txt\n\
+                    \u{20}  2 days ago  ?          88 B  not open         /home/me/a\\nb\\u{202e}.txt\n";
+        let mut editor = Editor::default();
+        editor.set_frame_size(FrameSize {
+            rows: 6,
+            columns: 90,
+        });
+        let mut dispatcher = Dispatcher::new();
+        let keys: KeySequence = "C-h r".parse().unwrap();
+        dispatcher.handle_keys(&mut editor, keys.0);
+        let list = oso_core::load::decode_all(rows.as_bytes(), Default::default());
+        editor.set_copies_text(list, 2);
+        assert_frames(
+            "emergency_copies_list",
+            rows.as_bytes(),
+            &[text_grid(&editor)],
+        );
+    }
+
+    #[test]
     fn the_messages_buffer_shows_what_was_said() {
         check_frame(
             "status_messages_buffer",

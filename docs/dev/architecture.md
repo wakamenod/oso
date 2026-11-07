@@ -384,7 +384,7 @@ being saved, for only what changed. What a panicking command left is held back u
 happened: outside a command on the UI thread it writes the copies before unwinding, on threads of its
 own so that a panic in the writer costs one buffer and a blocked stderr holds nothing up. `exiting` writes the same
 way unless the app agreed to the end (`saver::Agreement`). A copy is `<stem>.txt`, the exact text, and `<stem>.meta`, which says where it
-belongs and is renamed in last. Recovery (M2-11) only ever offers one.
+belongs and is renamed in last. Recovery only ever offers one ([ADR 0064](adr/0064-recovering-an-emergency-copy.md)): threads read the directory, `emergency::Offer` holds what they found and what comes of an answer, commands only queue what a person asked, and a path in a `.meta` is never used to touch a file.
 
 Saving never touches the file until the whole new text is safely beside it. A
 command checks the buffer, ensures its final newline as an edit, and queues a job

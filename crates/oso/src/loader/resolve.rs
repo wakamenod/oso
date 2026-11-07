@@ -102,14 +102,19 @@ pub fn follow_links(path: &Path) -> io::Result<PathBuf> {
 }
 
 /// The real place `path` leads, whether or not anything is there: its links followed,
-/// and the part of its directory that exists canonical. Two paths have the same answer
-/// only if a file made through either lands in one place.
+/// and the part of its directory that exists canonical, and the file's own spelling if
+/// there is a file, as a file system that ignores case or normalizes names opens it under
+/// others (ADR 0064). Two paths have the same answer only if a file made through either
+/// lands in one place.
 ///
 /// # Errors
 ///
 /// If it cannot be told: as for [`follow_links`], or a directory that cannot be read.
 pub fn location(path: &Path) -> io::Result<PathBuf> {
     let target = follow_links(path)?;
+    if let Ok(real) = fs::canonicalize(&target) {
+        return Ok(real);
+    }
     let name = target
         .file_name()
         .ok_or_else(|| io::Error::other("the path names no file"))?;
@@ -211,6 +216,35 @@ mod tests {
         let longest = dir.join(format!("link{MAX_LINKS}"));
         assert_eq!(follow_links(&longest).unwrap(), real);
         assert!(follow_links(&dir.join(format!("link{}", MAX_LINKS + 1))).is_err());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Default volumes on macOS and Windows open a file under another case, and the two must
+    /// have one location, or an emergency copy goes unmatched (ADR 0064).
+    #[test]
+    fn a_location_takes_the_files_own_case_where_the_file_system_ignores_case() {
+        let dir = scratch_dir("case");
+        fs::write(dir.join("Notes.txt"), b"x").unwrap();
+        let other = dir.join("NOTES.txt");
+        if other.exists() {
+            assert_eq!(location(&other).unwrap(), dir.join("Notes.txt"));
+        } else {
+            assert_eq!(location(&other).unwrap(), other, "a new file, as typed");
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// macOS opens a file under another normalization, as Japanese names often come to differ.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_location_takes_the_files_own_normalization_on_macos() {
+        let dir = scratch_dir("normalization");
+        let (composed, decomposed) = ("\u{304C}.txt", "\u{304B}\u{3099}.txt");
+        fs::write(dir.join(composed), b"x").unwrap();
+        assert_eq!(location(&dir.join(decomposed)).unwrap(), dir.join(composed));
+        fs::remove_file(dir.join(composed)).unwrap();
+        fs::write(dir.join(decomposed), b"x").unwrap();
+        assert_eq!(location(&dir.join(composed)).unwrap(), dir.join(decomposed));
         fs::remove_dir_all(dir).unwrap();
     }
 

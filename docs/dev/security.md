@@ -136,6 +136,13 @@ and below the row, and a label's glyphs keep their own cells
   A confirmed exit writes nothing. A kill, a power cut, a force quit or running out of memory
   writes nothing either. A copy is only ever offered back: nothing in that directory may choose a path to
   write to without the person ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
+- Recovery treats that directory as untrusted input ([ADR 0064](adr/0064-recovering-an-emergency-copy.md)). A path in a `.meta` is
+  shown and compared, and no file operation ever uses it, so a copy reaches only the buffer of a file the person opened, on their answer,
+  and the disk only on `C-x C-s`. A directory refused by the checks above is not read. Each file must be regular, this user's, with one name,
+  and the file that was looked at once open. Reads are bounded: 64 KiB of a `.meta`, 1000 rows, 100,000 names, and what a copy says of its size.
+  A view of a copy is withheld from the socket if any path it names would count as secret, if its buffer's verdict says so, or if nothing says
+  whose it is. Nothing is deleted unasked but a copy found byte for byte equal to the file the person opened. A temporary file left by a save or a
+  copy is listed once over an hour old, and always withheld, as it may hold a secret buffer's text.
 - The kill ring syncs with the OS clipboard but is never persisted. Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the

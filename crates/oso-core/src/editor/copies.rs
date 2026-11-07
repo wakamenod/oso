@@ -1,0 +1,519 @@
+//! The buffers that show emergency copies, and putting a copy's text in a buffer (ADR 0064).
+//!
+//! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O. The host
+//! reads the directory and the copies, and holds what it found. A command only queues what
+//! a person answered, as it queues a save.
+
+use super::Editor;
+use super::messages::Place;
+use crate::buffer::{Buffer, BufferId, EditError, Mode};
+use crate::load::LoadSnapshot;
+use crate::selection::SelectionSet;
+use crate::window::Scroll;
+
+/// The name of the internal buffer that lists the emergency copies.
+const COPIES: &str = "*Emergency Copies*";
+
+/// What a person asked of the emergency copies, for the host to do. A number is a line of
+/// `*Emergency Copies*`, and means nothing in a buffer showing one copy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopyAction {
+    /// Show the text.
+    View(usize),
+    /// Show how it differs from its file.
+    Compare(usize),
+    /// Show the text, or if it is shown, put it in its file's buffer.
+    Recover(usize),
+    /// Delete it for good.
+    Delete(usize),
+    /// Read the directory again.
+    Refresh,
+    /// The list was opened or closed.
+    Toggled,
+    /// The window went back from a copy.
+    WentBack,
+}
+
+impl Editor {
+    /// Queues what a person asked of the emergency copies, for the host.
+    pub fn queue_copy_action(&mut self, action: CopyAction) {
+        self.copy_actions.push(action);
+    }
+
+    /// What a person asked of the emergency copies since the last call.
+    pub fn take_copy_actions(&mut self) -> Vec<CopyAction> {
+        std::mem::take(&mut self.copy_actions)
+    }
+
+    /// The list of copies, made the first time it is asked for.
+    fn copies_buffer(&mut self) -> BufferId {
+        if let Some(id) = self.copies_buffer {
+            return id;
+        }
+        let id = self.add_internal_buffer(COPIES, Mode::EmergencyCopies);
+        self.copies_buffer = Some(id);
+        id
+    }
+
+    /// Whether the list of copies has been asked for yet. Until then a host need not fill it.
+    pub fn has_copies_list(&self) -> bool {
+        self.copies_buffer.is_some()
+    }
+
+    /// Adds an internal buffer, shown in no window yet.
+    pub fn add_internal_buffer(&mut self, name: impl Into<String>, mode: Mode) -> BufferId {
+        let mut buffer = Buffer::internal(name);
+        buffer.set_mode(mode);
+        self.add_buffer(buffer)
+    }
+
+    /// Takes an internal buffer out, unless the editor needs it, and hands it over so that
+    /// the host can free a large text off the UI thread. A window showing it goes to the list.
+    pub fn remove_internal_buffer(&mut self, id: BufferId) -> Option<Buffer> {
+        let removable = self.buffer(id).is_some_and(Buffer::is_internal)
+            && id != self.messages_buffer
+            && Some(id) != self.copies_buffer;
+        if !removable {
+            return None;
+        }
+        if self.windows.iter().any(|window| window.buffer() == id) {
+            let list = self.copies_buffer();
+            self.window_moves_on();
+            for window in &mut self.windows {
+                if window.buffer() == id {
+                    window.show(list);
+                }
+            }
+        }
+        let position = self.buffers.iter().position(|(other, _)| *other == id)?;
+        Some(self.buffers.remove(position).1)
+    }
+
+    /// Shows the list of copies in the selected window. From any buffer showing copies, goes
+    /// back to where the window was.
+    pub fn toggle_copies(&mut self) {
+        if self.current().1.mode().shows_copies() {
+            self.leave_copies();
+            return;
+        }
+        self.before_copies = Some(Place::of(self.window()));
+        let list = self.copies_buffer();
+        self.show(list);
+    }
+
+    /// From a buffer showing one copy, goes to the list, and from the list, to where the
+    /// window was.
+    pub fn copies_back(&mut self) {
+        match self.current().1.mode() {
+            Mode::Fundamental => {}
+            Mode::EmergencyCopies => self.leave_copies(),
+            Mode::EmergencyCopy => {
+                let list = self.copies_buffer();
+                self.show(list);
+            }
+        }
+    }
+
+    /// Goes back to where the window was before it showed copies.
+    pub fn leave_copies(&mut self) {
+        let back = self.before_copies.take();
+        self.go_back(back);
+    }
+
+    /// Fills the list of copies with `snapshot`, which holds its rows, with the cursor of each
+    /// window that shows it at the start of `line`.
+    pub fn set_copies_text(&mut self, snapshot: LoadSnapshot, line: usize) {
+        let list = self.copies_buffer();
+        if let Some(buffer) = self.buffer_mut(list) {
+            buffer.apply_load(snapshot);
+        }
+        self.set_copies_cursor(line);
+    }
+
+    /// Puts the cursor of each window that shows the list of copies at the start of `line`.
+    pub fn set_copies_cursor(&mut self, line: usize) {
+        let Some(list) = self.copies_buffer else {
+            return;
+        };
+        let Some(buffer) = self.buffer(list) else {
+            return;
+        };
+        let start = buffer.text().line_start(line);
+        let shows_it = self.window().buffer() == list;
+        for window in &mut self.windows {
+            if window.buffer() == list {
+                window.selections = SelectionSet::new(start);
+            }
+        }
+        if shows_it {
+            self.follow_cursor();
+        }
+    }
+
+    /// The line the selected window's cursor is on, for a host that keeps the list's cursor
+    /// on its row as the rows change.
+    pub fn cursor_line(&self) -> usize {
+        let (window, buffer) = self.current();
+        let cursor = window.selections.primary().cursor;
+        buffer.text().offset_to_point(cursor).row
+    }
+
+    /// Where the selected window goes back to through the internal buffers it has gone to, if
+    /// it is on one and that place still exists, for a state handoff.
+    pub fn place_behind_internal(&self) -> Option<(BufferId, &SelectionSet, Scroll)> {
+        let mut buffer = self.window().buffer();
+        let mut found = None;
+        // There are two ways back, and each is taken once at most.
+        for _ in 0..=2 {
+            let shown = self.buffer(buffer)?;
+            if !shown.is_internal() {
+                return found;
+            }
+            let place: &Place = if buffer == self.messages_buffer {
+                self.before_messages.as_ref()?
+            } else {
+                self.before_copies.as_ref()?
+            };
+            found = Some((place.buffer, &place.selections, place.scroll));
+            buffer = place.buffer;
+        }
+        None
+    }
+
+    /// Replaces the text of `target` with that of `source`, a copy that has finished loading,
+    /// as one undo step, in O(1), with the cursors of each window showing it at the start.
+    ///
+    /// # Errors
+    ///
+    /// [`EditError::ReadOnly`] for a read-only buffer, and [`EditError::NoSuchBuffer`].
+    /// Nothing changes.
+    pub fn replace_text_from(
+        &mut self,
+        target: BufferId,
+        source: BufferId,
+    ) -> Result<(), EditError> {
+        let from = self.buffer(source).ok_or(EditError::NoSuchBuffer)?;
+        let buffer = self.buffer(target).ok_or(EditError::NoSuchBuffer)?;
+        let staged = buffer.stage_replacement(from)?;
+        let opening = self.opening(target, buffer);
+        let start = SelectionSet::new(0);
+        let after = (self.window().buffer() == target).then(|| start.clone());
+
+        // Nothing past this point can panic part way.
+        if let Some(buffer) = self.buffer_mut(target) {
+            buffer.commit_recovery(staged, opening, after);
+        }
+        for window in &mut self.windows {
+            if window.buffer() == target {
+                window.selections = start.clone();
+            }
+        }
+        match &mut self.undo_scope {
+            Some(scope) if !scope.touched.contains(&target) => scope.touched.push(target),
+            Some(_) => {}
+            None => self.join_ready = false,
+        }
+        self.follow_cursor();
+        Ok(())
+    }
+}
+
+/// A name for what `name` holds, as a buffer's name: it may be anything a `.meta` says, so it
+/// is cut, and the modeline escapes what it draws.
+pub fn copy_buffer_name(prefix: &str, name: &str) -> String {
+    const MOST: usize = 256;
+    let end = name.floor_char_boundary(MOST);
+    format!("*{prefix} {}*", &name[..end])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::buffer::{Replacement, Verdict};
+    use crate::display_map::TabWidth;
+    use crate::load::decode_all;
+    use crate::window::ViewSize;
+    use std::path::PathBuf;
+
+    /// An editor showing a file holding `text`, and an internal buffer holding `copy`.
+    fn with_copy(text: &str, copy: &str) -> (Editor, BufferId, BufferId) {
+        let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", text));
+        editor.set_view_size(ViewSize::new(10, 40));
+        let file = editor.window().buffer();
+        let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::EmergencyCopy);
+        let snapshot = decode_all(copy.as_bytes(), TabWidth::default());
+        editor.buffer_mut(view).unwrap().apply_load(snapshot);
+        (editor, file, view)
+    }
+
+    fn text(editor: &Editor, id: BufferId) -> String {
+        editor.buffer(id).unwrap().text().to_string()
+    }
+
+    fn type_text(editor: &mut Editor, id: BufferId, text: &str) {
+        let edit = Replacement { range: 0..0, text };
+        editor.begin_undo_group();
+        editor.apply_edits(id, &[edit]).unwrap();
+        editor.end_undo_group();
+    }
+
+    #[test]
+    fn a_recovery_is_one_undo_step_and_leaves_the_buffer_modified() {
+        let (mut editor, file, view) = with_copy("on disk\n", "the copy\nof the text\n");
+        editor.current_mut().0.selections = SelectionSet::new(3);
+        editor.begin_undo_group();
+        editor.replace_text_from(file, view).unwrap();
+        editor.end_undo_group();
+        assert_eq!(text(&editor, file), "the copy\nof the text\n");
+        assert!(editor.buffer(file).unwrap().is_modified());
+        assert_eq!(editor.window().selections.primary().cursor, 0);
+        assert_eq!(
+            editor.buffer(file).unwrap().display().row_count(),
+            3,
+            "the display map came with the text"
+        );
+
+        editor.undo().unwrap();
+        assert_eq!(text(&editor, file), "on disk\n");
+        assert!(!editor.buffer(file).unwrap().is_modified());
+        assert_eq!(editor.window().selections.primary().cursor, 3);
+
+        editor.redo().unwrap();
+        assert_eq!(text(&editor, file), "the copy\nof the text\n");
+        assert!(editor.buffer(file).unwrap().is_modified());
+    }
+
+    #[test]
+    fn a_recovery_shares_the_text_of_the_copy_and_leaves_the_copy_as_it_was() {
+        let (mut editor, file, view) = with_copy("", "the copy\n");
+        let revision = editor.buffer(view).unwrap().revision();
+        editor.replace_text_from(file, view).unwrap();
+        assert_eq!(text(&editor, view), "the copy\n");
+        assert_eq!(editor.buffer(view).unwrap().revision(), revision);
+    }
+
+    #[test]
+    fn an_empty_buffer_recovers_and_undoes_to_empty() {
+        let (mut editor, file, view) = with_copy("", "the copy\n");
+        editor.begin_undo_group();
+        editor.replace_text_from(file, view).unwrap();
+        editor.end_undo_group();
+        assert_eq!(text(&editor, file), "the copy\n");
+        editor.undo().unwrap();
+        assert_eq!(text(&editor, file), "");
+    }
+
+    #[test]
+    fn a_read_only_buffer_refuses_and_nothing_changes() {
+        let (mut editor, _, view) = with_copy("", "the copy\n");
+        let binary = editor.add_buffer(Buffer::from_bytes("b", b"\0\0"));
+        assert_eq!(
+            editor.replace_text_from(binary, view),
+            Err(EditError::ReadOnly(crate::buffer::ReadOnly::Binary))
+        );
+        assert_eq!(text(&editor, binary), "\0\0");
+        let missing = BufferId(9999);
+        assert_eq!(
+            editor.replace_text_from(missing, view),
+            Err(EditError::NoSuchBuffer)
+        );
+    }
+
+    #[test]
+    fn undo_withdraws_a_recovery_and_redo_brings_it_back_and_edits_do_not_touch_it() {
+        let (mut editor, file, view) = with_copy("on disk\n", "the copy\n");
+        assert!(!editor.buffer(file).unwrap().recovery_stands());
+        editor.begin_undo_group();
+        editor.replace_text_from(file, view).unwrap();
+        editor.end_undo_group();
+        assert!(editor.buffer(file).unwrap().recovery_stands());
+
+        type_text(&mut editor, file, "more ");
+        assert!(editor.buffer(file).unwrap().recovery_stands());
+        editor.undo().unwrap();
+        assert!(editor.buffer(file).unwrap().recovery_stands(), "the edit");
+        editor.undo().unwrap();
+        assert!(!editor.buffer(file).unwrap().recovery_stands(), "itself");
+        type_text(&mut editor, file, "other ");
+        assert!(
+            !editor.buffer(file).unwrap().recovery_stands(),
+            "typing after an undo does not bring it back"
+        );
+    }
+
+    #[test]
+    fn redo_brings_a_recovery_back() {
+        let (mut editor, file, view) = with_copy("on disk\n", "the copy\n");
+        editor.begin_undo_group();
+        editor.replace_text_from(file, view).unwrap();
+        editor.end_undo_group();
+        editor.undo().unwrap();
+        editor.redo().unwrap();
+        assert!(editor.buffer(file).unwrap().recovery_stands());
+        editor.buffer_mut(file).unwrap().forget_recovery();
+        assert!(!editor.buffer(file).unwrap().recovery_stands());
+    }
+
+    #[test]
+    fn the_list_is_made_when_first_asked_for_and_is_nobodys_work() {
+        let mut editor = Editor::default();
+        let before = editor.buffers().count();
+        editor.toggle_copies();
+        assert_eq!(editor.current().1.name(), COPIES);
+        assert_eq!(editor.current().1.mode(), Mode::EmergencyCopies);
+        assert!(editor.current().1.is_internal());
+        assert_eq!(editor.buffers().count(), before);
+        editor.toggle_copies();
+        assert_eq!(editor.current().1.mode(), Mode::Fundamental);
+    }
+
+    #[test]
+    fn it_goes_back_through_a_view_and_the_list_to_where_the_window_was() {
+        let (mut editor, file, view) = with_copy("abcdef", "x");
+        editor.current_mut().0.selections = SelectionSet::new(3);
+        editor.toggle_copies();
+        let list = editor.window().buffer();
+        editor.show(view);
+        editor.copies_back();
+        assert_eq!(editor.window().buffer(), list);
+        editor.copies_back();
+        assert_eq!(editor.window().buffer(), file);
+        assert_eq!(editor.window().selections.primary().cursor, 3);
+        editor.copies_back();
+        assert_eq!(editor.window().buffer(), file, "nothing to go back from");
+    }
+
+    #[test]
+    fn the_key_for_the_list_also_leaves_a_view() {
+        let (mut editor, file, view) = with_copy("abc", "x");
+        editor.toggle_copies();
+        editor.show(view);
+        editor.toggle_copies();
+        assert_eq!(editor.window().buffer(), file);
+    }
+
+    #[test]
+    fn it_goes_back_to_scratch_if_the_buffer_has_gone() {
+        let (mut editor, file, _) = with_copy("abc", "x");
+        editor.toggle_copies();
+        editor.kill_buffer(file);
+        assert_eq!(editor.place_behind_internal(), None);
+        editor.toggle_copies();
+        assert_eq!(editor.current().1.name(), crate::editor::SCRATCH);
+    }
+
+    #[test]
+    fn a_handoff_finds_the_real_place_behind_the_list_and_messages_either_way() {
+        let (mut editor, file, _) = with_copy("abcdef", "x");
+        editor.current_mut().0.selections = SelectionSet::new(3);
+        assert_eq!(
+            editor.place_behind_internal(),
+            None,
+            "on no internal buffer"
+        );
+        let cursor = SelectionSet::new(3);
+        editor.toggle_copies();
+        assert_eq!(
+            editor.place_behind_internal(),
+            Some((file, &cursor, Scroll::default()))
+        );
+        editor.toggle_messages();
+        assert_eq!(
+            editor.place_behind_internal(),
+            Some((file, &cursor, Scroll::default())),
+            "through the list"
+        );
+        editor.toggle_messages();
+        editor.toggle_copies();
+        editor.toggle_messages();
+        editor.toggle_copies();
+        assert_eq!(
+            editor.place_behind_internal(),
+            Some((file, &cursor, Scroll::default())),
+            "through messages"
+        );
+    }
+
+    #[test]
+    fn a_view_can_be_removed_and_the_list_and_messages_cannot() {
+        let (mut editor, _, view) = with_copy("abc", "x");
+        editor.toggle_copies();
+        let list = editor.window().buffer();
+        editor.show(view);
+        assert!(editor.remove_internal_buffer(view).is_some());
+        assert_eq!(
+            editor.window().buffer(),
+            list,
+            "the window moved to the list"
+        );
+        assert!(editor.buffer(view).is_none());
+        assert!(editor.remove_internal_buffer(list).is_none());
+        let messages = editor.messages_buffer();
+        assert!(editor.remove_internal_buffer(messages).is_none());
+    }
+
+    #[test]
+    fn the_list_takes_its_rows_and_puts_the_cursor_on_a_line() {
+        let mut editor = Editor::default();
+        editor.toggle_copies();
+        let snapshot = decode_all(b"header\n\nrow\nrow\n", TabWidth::default());
+        editor.set_copies_text(snapshot, 3);
+        assert_eq!(editor.cursor_line(), 3);
+        editor.set_copies_cursor(2);
+        assert_eq!(editor.cursor_line(), 2);
+        assert!(!editor.current().1.is_modified());
+    }
+
+    #[test]
+    fn actions_wait_for_the_host_in_order() {
+        let mut editor = Editor::default();
+        editor.queue_copy_action(CopyAction::Refresh);
+        editor.queue_copy_action(CopyAction::Delete(3));
+        assert_eq!(
+            editor.take_copy_actions(),
+            [CopyAction::Refresh, CopyAction::Delete(3)]
+        );
+        assert_eq!(editor.take_copy_actions(), []);
+    }
+
+    #[test]
+    fn a_copy_judged_by_its_paths_is_withheld_if_any_says_so_or_none_is_known() {
+        let mut buffer = Buffer::internal("c");
+        assert_eq!(buffer.verdict(), Verdict::Ordinary);
+        let judge = |buffer: &mut Buffer, path: &str, at_least| {
+            buffer.judge_copy(&[PathBuf::from(path)], at_least);
+            buffer.verdict()
+        };
+        assert_eq!(
+            judge(&mut buffer, "/home/me/notes.txt", Verdict::Ordinary),
+            Verdict::Ordinary
+        );
+        assert_eq!(
+            judge(&mut buffer, "/home/me/.env", Verdict::Ordinary),
+            Verdict::SecretName
+        );
+        assert_eq!(
+            judge(&mut buffer, "/home/me/notes.txt", Verdict::SecretName),
+            Verdict::SecretName,
+            "its file's verdict counts"
+        );
+        assert_eq!(
+            judge(&mut buffer, "/home/me/notes.txt", Verdict::Unresolved),
+            Verdict::Unresolved
+        );
+        assert_eq!(
+            judge(&mut buffer, "/home/me/notes.txt", Verdict::Unjudged),
+            Verdict::Unresolved,
+            "a file not yet judged tells nothing"
+        );
+        buffer.judge_copy(&[], Verdict::Ordinary);
+        assert_eq!(buffer.verdict(), Verdict::Unresolved, "nothing to go on");
+    }
+
+    #[test]
+    fn a_name_for_a_copy_is_cut_on_a_character() {
+        assert_eq!(copy_buffer_name("copy of", "a.txt"), "*copy of a.txt*");
+        let name = copy_buffer_name("copy of", &"日".repeat(200));
+        assert!(name.len() < 280 && name.ends_with('*'), "{}", name.len());
+    }
+}

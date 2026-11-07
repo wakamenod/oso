@@ -10,6 +10,7 @@ use oso_core::buffer::{Buffer, BufferId};
 use oso_core::window;
 
 use super::{App, UserEvent};
+use crate::emergency;
 use crate::loader::{self, LoadError, LoadHandle, LoadUpdate};
 
 /// A file loading into a buffer.
@@ -89,6 +90,27 @@ impl App {
         }
     }
 
+    /// Starts filling the internal buffer `buffer` with a copy's text, no further than `limit`.
+    pub(super) fn load_copy(&mut self, buffer: BufferId, path: PathBuf, limit: u64) {
+        let proxy = self.proxy.clone();
+        let started = Instant::now();
+        let open = move || emergency::open_copy(&path);
+        let spawned = loader::spawn_copy(buffer, open, limit, move |buffer| {
+            proxy.send_event(UserEvent::Load(buffer)).is_ok()
+        });
+        match spawned {
+            Ok(handle) => self.loads.push(Load {
+                handle,
+                started,
+                first_screen: None,
+            }),
+            Err(e) => {
+                self.editor.message(format!("Cannot read the copy: {e}"));
+                drop(self.editor.remove_internal_buffer(buffer));
+            }
+        }
+    }
+
     /// Applies one update of `self.loads[index]`. Returns whether a frame
     /// is needed: only if the window shows the buffer and reaches the part
     /// that changed, or the buffer was replaced.
@@ -119,7 +141,8 @@ impl App {
                     self.timings.load_first_content(load.started);
                 }
                 if done {
-                    no_baseline = buffer.baseline().is_none();
+                    no_baseline = buffer.baseline().is_none() && !buffer.is_internal();
+                    self.scan_for_copies |= !buffer.is_internal();
                     log::debug!("{:?} loaded in {:?}", buffer.name(), load.started.elapsed());
                     #[cfg(feature = "dev")]
                     self.timings.load_done(load.started);
@@ -132,6 +155,7 @@ impl App {
                 log::info!("(New file) {:?}", buffer.name());
                 no_baseline = buffer.baseline().is_none();
                 buffer.finish_empty();
+                self.scan_for_copies = true;
                 self.loads.swap_remove(index);
                 shown
             }
@@ -139,6 +163,8 @@ impl App {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);
                 self.editor.kill_buffer(id);
+                // An internal buffer stays through that, and a copy that failed to load is no use.
+                drop(self.editor.remove_internal_buffer(id));
                 self.loads.swap_remove(index);
                 shown
             }

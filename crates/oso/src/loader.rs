@@ -174,6 +174,15 @@ pub fn spawn<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHand
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
+    spawn_reading(buffer, wake, move |shared, post| load(&path, shared, post))
+}
+
+/// Starts `read` on a background thread, with what the thread and the UI share.
+fn spawn_reading<W, R>(buffer: BufferId, wake: W, read: R) -> io::Result<LoadHandle>
+where
+    W: Fn(BufferId) -> bool + Send + 'static,
+    R: FnOnce(&Shared, &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> + Send + 'static,
+{
     let shared = Arc::new(Shared::default());
     let thread_shared = Arc::clone(&shared);
     thread::Builder::new()
@@ -190,9 +199,8 @@ where
             };
             // A panic must not leave the buffer loading for good. Its
             // message, which may quote file content, is dropped.
-            let loaded = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                load(&path, &shared, &post)
-            }));
+            let loaded =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| read(&shared, &post)));
             match loaded {
                 Ok(Ok(())) => {}
                 Ok(Err(e)) => {
@@ -204,6 +212,21 @@ where
             }
         })?;
     Ok(LoadHandle { buffer, shared })
+}
+
+/// Starts filling `buffer` with what `open` gives, no further than `limit`, on a background
+/// thread: an emergency copy, read to be looked at (ADR 0064). `open` makes its own checks. This
+/// resolves nothing and records no baseline, as the buffer visits no file. `wake` is as for
+/// [`spawn`].
+pub fn spawn_copy<O, W>(buffer: BufferId, open: O, limit: u64, wake: W) -> io::Result<LoadHandle>
+where
+    O: FnOnce() -> io::Result<File> + Send + 'static,
+    W: Fn(BufferId) -> bool + Send + 'static,
+{
+    spawn_reading(buffer, wake, move |shared, post| {
+        let file = open().map_err(LoadError::Io)?;
+        read_into(file, limit, shared, post)
+    })
 }
 
 /// What a save records of a file, from its metadata. Loading and saving must agree on
@@ -274,14 +297,14 @@ fn baseline_of_opened(location: PathBuf, opened: &Metadata) -> Option<Baseline> 
 
 /// Whether two sets of metadata are of one file: its device and inode.
 #[cfg(unix)]
-fn same_file(a: &Metadata, b: &Metadata) -> bool {
+pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
     use std::os::unix::fs::MetadataExt;
     a.dev() == b.dev() && a.ino() == b.ino()
 }
 
 /// `std` keeps a file's identity unstable here, so this goes by what a save compares.
 #[cfg(not(unix))]
-fn same_file(a: &Metadata, b: &Metadata) -> bool {
+pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
     same_stamp(a, b)
 }
 
@@ -300,12 +323,21 @@ fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
 /// Only the size seen at open is read, so a file another process keeps
 /// appending to (a log) cannot be read forever.
 fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> {
-    let started = Instant::now();
     let opened = open(path);
     *shared.resolved() = Some(resolve(path));
     *shared.baseline() = baseline_after_open(path, &opened);
     let (file, metadata) = opened?;
-    let total = metadata.len();
+    read_into(file, metadata.len(), shared, send)
+}
+
+/// Reads `total` bytes of `file`, decodes them and sends them.
+fn read_into(
+    file: File,
+    total: u64,
+    shared: &Shared,
+    send: &dyn Fn(LoadUpdate) -> bool,
+) -> Result<(), LoadError> {
+    let started = Instant::now();
     let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];

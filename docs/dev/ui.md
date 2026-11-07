@@ -64,6 +64,29 @@ with hydra-posframe today.
   undefined key and "Quit" reach only the line
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 
+## Emergency copies
+
+After a crash, oso offers what it saved ([ADR 0064](adr/0064-recovering-an-emergency-copy.md)). Nothing
+takes a key from the person:
+
+- A notice in the echo area and `*Messages*`: `notes.txt has an emergency copy, from 12 minutes ago: C-h r`.
+- `[emergency copy]` first on the modeline of a buffer whose file has one, until it is answered.
+- `C-h r` shows `*Emergency Copies*`, one row per copy, the newest first, and goes back from it.
+
+```
+3 emergency copies.  v look  = compare  r recover  d delete  g refresh  q back
+
+   12 min ago  panic    1234 B  file unchanged   /home/me/notes/todo.txt
+   2 days ago  exit      420 B  not open         /home/me/notes/plan.txt
+   3 days ago  ?          88 B  unknown          /state/oso/emergency/1a2b3c4d5e6f7a8b-1790000000-77-0.txt
+```
+
+- `v` or `RET` shows the copy's text, read-only, and `=` a line diff with its file. `q` goes back.
+- `r` shows the text, and `r` again there puts it in the file's buffer as one undo step. Nothing is
+  written until `C-x C-s`, and the copy goes once that has reached the disk.
+- `d` says what it does, and `d` again deletes the copy for good.
+- A copy of a file not open needs `oso PATH`, or later `C-x C-f`. Its row gives the path.
+
 ## Modeline
 
 - Each window has its own modeline. The active window's modeline is visually
@@ -72,6 +95,7 @@ with hydra-posframe today.
   - a warning when the file contains bidirectional control characters
   - a warning when the file changed on disk while the buffer has unsaved
     changes
+  - a warning when an emergency copy of the file waits for an answer
   - buffer name and modified marker
   - loading progress, while a file is loading
   - line and column, plus the cursor count when there are several cursors
@@ -107,7 +131,7 @@ with hydra-posframe today.
   ([ADR 0051](adr/0051-m2-plan-decisions.md)). The OS candidate window is placed
   just below the cursor, as in other macOS apps.
 - The IME is switched off automatically when entering the minibuffer,
-  isearch or a menu, since those use single keys.
+  isearch, a menu or the list of emergency copies, since those use single keys.
 
 ## Visual aids
 

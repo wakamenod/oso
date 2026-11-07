@@ -18,6 +18,7 @@ use winit::keyboard::ModifiersState;
 
 #[cfg(feature = "dev")]
 mod control;
+mod copies;
 mod draw;
 mod events;
 mod input;
@@ -27,7 +28,7 @@ mod saves;
 #[cfg(feature = "dev")]
 use crate::dev;
 use crate::dispatch::Dispatcher;
-use crate::emergency::Emergency;
+use crate::emergency::{CopiesEvent, Emergency, Offer};
 use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
@@ -41,6 +42,8 @@ pub enum UserEvent {
     Save(SaveReport),
     /// No emergency copy could be written, for this reason (ADR 0062).
     NoEmergencyCopies(String),
+    /// A thread working on the emergency copies on offer has something to say (ADR 0064).
+    Copies(CopiesEvent),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -65,6 +68,11 @@ pub struct App {
     leaving: Leaving,
     /// What the panic hook and the end of the event loop write (ADR 0062).
     emergency: Emergency,
+    /// The emergency copies on offer (ADR 0064).
+    offer: Offer,
+    /// A file has loaded, so copies may belong to it. Asked for here, as a load's end can
+    /// come on the frame path, and looked into before the event loop waits.
+    scan_for_copies: bool,
     /// When the process started, until the first frame is presented.
     started: Option<Instant>,
     /// Wheel and trackpad scrolling not yet worth a whole row or column.
@@ -91,6 +99,7 @@ impl App {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
         let leaving = Leaving::with_cell(emergency.agreement_cell());
+        let offer = emergency.offer();
         Self {
             view: None,
             editor: Editor::default(),
@@ -100,6 +109,8 @@ impl App {
             loads: Vec::new(),
             leaving,
             emergency,
+            offer,
+            scan_for_copies: false,
             started: Some(started),
             wheel: WheelRemainder::default(),
             status: Status::default(),
@@ -122,6 +133,7 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &ActiveEventLoop, effects: Effects) {
         self.start_saves();
+        self.answer_about_copies();
         if effects.redraw {
             self.request_redraw();
         }

@@ -17,7 +17,8 @@
 //!
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
-//! modeline and the echo area say is in [`status`], and messages in [`messages`].
+//! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
+//! buffers that show emergency copies are in [`copies`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -31,11 +32,14 @@ use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 
+mod copies;
 mod messages;
 mod save;
 mod status;
 mod view;
 
+pub use copies::{CopyAction, copy_buffer_name};
+pub use messages::row_text;
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 
@@ -104,6 +108,12 @@ pub struct Editor {
     command_left_secret: Option<bool>,
     /// Where the selected window was before it showed `*Messages*`.
     before_messages: Option<messages::Place>,
+    /// The internal buffer that lists the emergency copies, once it has been asked for.
+    copies_buffer: Option<BufferId>,
+    /// Where the selected window was before it showed emergency copies.
+    before_copies: Option<messages::Place>,
+    /// What a person asked of the emergency copies, for the host.
+    copy_actions: Vec<CopyAction>,
     /// The echo area's line, until the next key.
     echo: Option<messages::Echo>,
     /// A prefix argument and a prefix key being typed, for the echo area. The dispatcher
@@ -136,6 +146,9 @@ impl Editor {
             messages_buffer: BufferId(0),
             command_left_secret: None,
             before_messages: None,
+            copies_buffer: None,
+            before_copies: None,
+            copy_actions: Vec::new(),
             echo: None,
             keys_in_progress: String::new(),
             save_jobs: Vec::new(),

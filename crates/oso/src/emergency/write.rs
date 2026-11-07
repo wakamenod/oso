@@ -20,7 +20,7 @@
 //! have changed since the directory was checked, so that it grants nothing beyond its mode.
 //!
 //! A copy is only ever offered. Whatever is in this directory, recovery must not let it
-//! choose a path to write to without the person.
+//! choose a path to write to without the person (`copies`, ADR 0064).
 
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
@@ -35,7 +35,7 @@ use super::{Entry, Identity, Ticks, Why};
 use crate::saver::{PRIVATE_MODE, Temporary, WRITE_SIZE, sync_directory, unless_unsupported};
 
 /// The first line of every metadata file, with the format's version.
-const META_HEADER: &str = "oso-emergency-copy 1";
+pub(super) const META_HEADER: &str = "oso-emergency-copy 1";
 
 /// How many stems to try before giving up.
 const STEM_ATTEMPTS: u32 = 64;
@@ -219,7 +219,7 @@ pub(super) fn meta_text(
 }
 
 /// `bytes` with everything but plain ASCII written as `%XX`.
-fn encoded(bytes: &[u8]) -> String {
+pub(super) fn encoded(bytes: &[u8]) -> String {
     use std::fmt::Write as _;
     let mut out = String::with_capacity(bytes.len());
     for byte in bytes {

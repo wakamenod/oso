@@ -51,6 +51,25 @@ fn a_window_on_messages_hands_over_where_it_goes_back_to() {
 }
 
 #[test]
+fn a_window_on_the_emergency_copies_hands_over_where_it_goes_back_to() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\ndef\n");
+    let at = SelectionSet::new(5);
+    let scroll = Scroll { top: 1, left: 0 };
+    editor.restore_positions(at.clone(), scroll);
+    editor.toggle_copies();
+    let state = export(&editor, &[], None, None).unwrap();
+    let parsed = parse(&state).unwrap();
+    assert_eq!(
+        parsed.buffers[parsed.shown],
+        Some(PathBuf::from(absolute("/p/a.txt")))
+    );
+    assert_eq!(parsed.selections, at);
+    assert_eq!(parsed.scroll, scroll);
+    assert!(!state.to_string().contains("Emergency"));
+    assert!(import_allowed(&editor).is_err(), "no *scratch* in view");
+}
+
+#[test]
 fn a_window_on_messages_with_nothing_behind_it_comes_back_on_scratch() {
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
     let file = editor.window().buffer();
