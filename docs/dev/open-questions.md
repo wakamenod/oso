@@ -244,6 +244,15 @@ item notes when it must be settled.
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - OSC 7501 is a draft; track its revisions.
+- Terminal engine: compare `alacritty_terminal` (ADR 0015) with
+  libghostty-vt 1.0 when M4's terminal work starts, and decide in an ADR.
+  libghostty-vt has a stable C ABI under semver, is MIT licensed, supports
+  Kitty graphics, scrollback reflow, search and selection, and is used by
+  JetBrains IDEs and Neovim. Its costs: it is written in Zig and needs Zig to
+  build on all three OSes, it has no official Rust binding, and it parses
+  untrusted terminal output in code that is not memory safe. Compare
+  rendering of the Claude Code TUI, build effort on three OSes, fuzzing and
+  performance. Keep the engine behind a trait either way.
 - Terminal: PTY implementation per OS (ConPTY on Windows) and the full list of
   allowed and blocked escape sequences.
 - If oso is published with the Claude Code integration, check Anthropic's
