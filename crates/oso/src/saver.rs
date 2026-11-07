@@ -141,6 +141,17 @@ impl SaveReport {
         self.outcome.is_err()
     }
 
+    /// The buffer this save was of.
+    pub fn buffer(&self) -> BufferId {
+        self.buffer
+    }
+
+    /// Whether the text reached the disk and the disk confirmed all of it, so that an
+    /// emergency copy of it has done its work (ADR 0064).
+    pub fn reached_the_disk(&self) -> bool {
+        matches!(&self.outcome, Ok(Some(written)) if written.unsynced.is_none())
+    }
+
     /// The report of a save whose thread could not start.
     pub fn not_started(buffer: BufferId, path: PathBuf, error: io::Error) -> Self {
         Self {
@@ -490,6 +501,20 @@ fn open_new(path: &Path, mode: u32) -> io::Result<File> {
     #[cfg(not(unix))]
     let _ = mode;
     options.open(path)
+}
+
+/// Whether `text` is one or more ASCII digits.
+pub(crate) fn all_digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+/// Whether `name` has the exact form [`Temporary::create`] gives a file.
+pub(crate) fn is_temporary_name(name: &str) -> bool {
+    let middle = name
+        .strip_prefix(TEMPORARY_PREFIX)
+        .and_then(|rest| rest.strip_suffix(".tmp"));
+    let parts = middle.map(|middle| middle.split('-').collect::<Vec<_>>());
+    parts.is_some_and(|parts| parts.len() == 3 && parts.iter().all(|part| all_digits(part)))
 }
 
 /// A temporary file's name, removed when this is dropped unless it was renamed, also

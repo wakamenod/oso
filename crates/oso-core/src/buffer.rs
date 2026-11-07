@@ -29,10 +29,13 @@ use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
 mod baseline;
 mod internal;
+mod mode;
+mod recovery;
 mod splice;
 
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, FileStamp};
+pub use mode::Mode;
 use splice::{SpliceText, apply, normalized, offset_edit};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
@@ -168,6 +171,14 @@ pub struct Buffer {
     changed_on_disk: bool,
     /// The editor keeps this buffer for itself.
     internal: bool,
+    /// Which keys it takes.
+    mode: Mode,
+    /// An emergency copy of its file waits for an answer.
+    copy_waits: bool,
+    /// The file's own spelling, if something else may have been typed.
+    own_spelling: Option<PathBuf>,
+    /// A copy's text was put in, until its copy has gone.
+    recovery: Option<recovery::RecoveryMark>,
     /// A save of this buffer is running.
     saving: bool,
     /// `Some` while the file loads.
@@ -205,6 +216,10 @@ impl Buffer {
             baseline: None,
             changed_on_disk: false,
             internal: false,
+            mode: Mode::Fundamental,
+            copy_waits: false,
+            own_spelling: None,
+            recovery: None,
             saving: false,
             loading: None,
             revision: 0,
@@ -319,6 +334,7 @@ impl Buffer {
         if let Some(baseline) = &mut self.baseline {
             baseline.file = Some(stamp);
         }
+        self.note_written(stamp);
     }
 
     /// Whether a save found the file changed since this buffer read it or wrote it.
@@ -437,6 +453,7 @@ impl Buffer {
         self.display = staged.display;
         self.revision += 1;
         self.history.cross(staged.direction, staged.crossed);
+        self.note_crossing();
     }
 
     /// Whether a command that starts with cursors `selections` may join the

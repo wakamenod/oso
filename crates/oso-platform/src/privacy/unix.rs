@@ -41,6 +41,16 @@ pub(crate) fn euid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
+/// Whether a file with `metadata` has one name.
+pub(super) fn has_one_name(metadata: &fs::Metadata) -> bool {
+    metadata.nlink() == 1
+}
+
+/// Whether a file with `metadata` is this user's.
+pub(super) fn is_this_users(metadata: &fs::Metadata) -> bool {
+    metadata.uid() == euid()
+}
+
 /// The per-user directory for state: `~/Library/Application Support` on macOS, otherwise
 /// `$XDG_STATE_HOME` or `~/.local/state`. The XDG specification and common sense say a
 /// relative path means nothing here.
@@ -82,6 +92,18 @@ pub(super) fn check_private(path: &Path) -> io::Result<()> {
                 fs::metadata(&deepest).map_err(|e| with_path(&e, "cannot inspect", &deepest))?;
             check_writable(&deepest, &meta)
         }
+        Err(e) => Err(with_path(&e, "cannot inspect", path)),
+    }
+}
+
+/// Whether a directory is at `path`, by the same checks of the way and of the directory itself
+/// that opening one makes, access lists among them. Nothing is created, so what would stop
+/// making anything has no say, and neither does whether this user could write there.
+pub(super) fn existing_private(path: &Path) -> io::Result<bool> {
+    check_the_way(path)?;
+    match fs::symlink_metadata(path) {
+        Ok(meta) => check_itself(path, &meta).map(|()| true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(with_path(&e, "cannot inspect", path)),
     }
 }
@@ -361,6 +383,46 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::PermissionDenied);
         assert!(err.to_string().contains("mode is not 0700"), "{err}");
         assert_eq!(mode(&path), 0o750);
+    }
+
+    #[test]
+    fn an_existing_directory_is_refused_as_opening_refuses_it_and_read_only_passes() {
+        let scratch = Scratch::new();
+        let path = scratch.join("d");
+        assert!(
+            PrivateDir::existing(&path).unwrap().is_none(),
+            "nothing there"
+        );
+        assert!(!path.exists(), "and nothing made");
+
+        PrivateDir::open(&path).unwrap();
+        assert_eq!(PrivateDir::existing(&path).unwrap().unwrap().path(), path);
+
+        fs::set_permissions(&path, Permissions::from_mode(0o500)).unwrap();
+        assert!(PrivateDir::check(&path).is_err(), "it could not be written");
+        assert!(PrivateDir::existing(&path).is_ok_and(|found| found.is_some()));
+
+        fs::set_permissions(&path, Permissions::from_mode(0o755)).unwrap();
+        assert!(PrivateDir::existing(&path).is_err(), "a looser mode");
+        fs::set_permissions(&path, Permissions::from_mode(0o700)).unwrap();
+
+        let link = scratch.join("link");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert!(PrivateDir::existing(&link).is_err(), "a link for it");
+        let file = scratch.join("file");
+        fs::write(&file, b"").unwrap();
+        assert!(PrivateDir::existing(&file).is_err(), "a file");
+        assert!(PrivateDir::existing("relative").is_err());
+
+        let shared = scratch.join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::create_dir(shared.join("d")).unwrap();
+        fs::set_permissions(shared.join("d"), Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(&shared, Permissions::from_mode(0o777)).unwrap();
+        assert!(
+            PrivateDir::existing(shared.join("d")).is_err(),
+            "on the way"
+        );
     }
 
     #[test]
@@ -644,6 +706,26 @@ mod tests {
             PrivateDir::check(&path).unwrap();
             PrivateDir::open(&path).unwrap();
             clear(&path);
+            clear(&way);
+        }
+
+        #[test]
+        fn reading_refuses_an_access_list_as_opening_does() {
+            let scratch = Scratch::new();
+            let path = scratch.join("d");
+            PrivateDir::open(&path).unwrap();
+            set_for_everyone(&path, "allow", "read");
+            let err = PrivateDir::existing(&path).unwrap_err();
+            assert!(err.to_string().contains("access list"), "{err}");
+            clear(&path);
+            assert!(PrivateDir::existing(&path).unwrap().is_some());
+
+            let way = scratch.join("way");
+            let below = way.join("d");
+            PrivateDir::open(&below).unwrap();
+            set_for_everyone(&way, "allow", "write");
+            let err = PrivateDir::existing(&below).unwrap_err();
+            assert!(err.to_string().contains("access list"), "{err}");
             clear(&way);
         }
 

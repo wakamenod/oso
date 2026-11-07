@@ -185,13 +185,13 @@ fn a_panic_writes_each_buffer_at_risk_exactly_and_with_where_it_belongs() {
         .collect();
     assert_eq!(metas.len(), 2);
     assert!(metas.iter().any(|meta| {
-        meta.contains("\nname notes.txt\npath /p/notes.txt\nlocation /p/notes.txt\nbom false\n")
+        meta.contains("\nname notes.txt\npath /p/notes.txt\nlocation /p/notes.txt\nwithheld false\nbom false\n")
             && meta.contains("\nwhy panic\n")
     }));
     assert!(
         metas
             .iter()
-            .any(|meta| meta.contains("\nname *scratch*\nbom false\n"))
+            .any(|meta| meta.contains("\nname *scratch*\nwithheld false\nbom false\n"))
     );
     assert!(
         metas
@@ -465,6 +465,7 @@ fn a_link_planted_where_a_copy_would_go_is_stepped_around_and_not_followed() {
         name: "n".to_owned(),
         path: None,
         location: None,
+        withheld: false,
         bom: false,
         line_ending: LineEnding::Lf,
     };
@@ -541,7 +542,7 @@ fn metadata_is_one_line_of_ascii_per_key_whatever_a_path_holds() {
     let meta = write::meta_text(&entry.identity, entry.file, 1, Why::Exit, 7);
     assert!(meta.is_ascii());
     assert!(!meta.contains('\u{1b}'));
-    assert_eq!(meta.lines().count(), 9);
+    assert_eq!(meta.lines().count(), 10);
     assert!(meta.ends_with("bytes 1\nwritten 7\nwhy exit\n"), "{meta}");
     let path_line = meta.lines().find(|line| line.starts_with("path ")).unwrap();
     assert!(path_line.contains("%E6%97%A5"), "{path_line}");

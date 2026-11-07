@@ -21,6 +21,26 @@ impl core::hash::Hash for oso_core::buffer::EditError
 pub fn oso_core::buffer::EditError::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::buffer::EditError
 impl core::marker::StructuralPartialEq for oso_core::buffer::EditError
+pub enum oso_core::buffer::Mode
+pub oso_core::buffer::Mode::CopyList
+pub oso_core::buffer::Mode::CopyView
+pub oso_core::buffer::Mode::Fundamental
+impl oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::name(self) -> &'static str
+pub fn oso_core::buffer::Mode::shows_copies(self) -> bool
+impl core::clone::Clone for oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::clone(&self) -> oso_core::buffer::Mode
+impl core::cmp::Eq for oso_core::buffer::Mode
+impl core::cmp::PartialEq for oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::eq(&self, &oso_core::buffer::Mode) -> bool
+impl core::default::Default for oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::default() -> oso_core::buffer::Mode
+impl core::fmt::Debug for oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::buffer::Mode
+impl core::marker::StructuralPartialEq for oso_core::buffer::Mode
 pub enum oso_core::buffer::ReadOnly
 pub oso_core::buffer::ReadOnly::Binary
 pub oso_core::buffer::ReadOnly::Internal
@@ -95,6 +115,16 @@ pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::verdict(&self) -> oso_core::buffer::Verdict
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::begin_loading(&mut self)
+pub fn oso_core::buffer::Buffer::forget_recovery(&mut self)
+pub fn oso_core::buffer::Buffer::judge_copy(&mut self, &[std::path::PathBuf], oso_core::buffer::Verdict)
+pub fn oso_core::buffer::Buffer::mode(&self) -> oso_core::buffer::Mode
+pub fn oso_core::buffer::Buffer::place_for_copy(&self) -> core::option::Option<&std::path::Path>
+pub fn oso_core::buffer::Buffer::recovery_stands(&self) -> bool
+pub fn oso_core::buffer::Buffer::set_copy_waits(&mut self, bool)
+pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
+pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 pub struct oso_core::buffer::BufferId(_)
@@ -735,6 +765,25 @@ impl core::fmt::Debug for oso_core::editor::ExitAction
 pub fn oso_core::editor::ExitAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::ExitAction
 impl core::marker::StructuralPartialEq for oso_core::editor::ExitAction
+pub enum oso_core::editor::RecoveryAction
+pub oso_core::editor::RecoveryAction::Compare(usize)
+pub oso_core::editor::RecoveryAction::Delete(usize)
+pub oso_core::editor::RecoveryAction::ForgetMarks
+pub oso_core::editor::RecoveryAction::MarkForDelete(usize)
+pub oso_core::editor::RecoveryAction::Recover(usize)
+pub oso_core::editor::RecoveryAction::Refresh
+pub oso_core::editor::RecoveryAction::Toggled
+pub oso_core::editor::RecoveryAction::View(usize)
+pub oso_core::editor::RecoveryAction::WentBack
+impl core::clone::Clone for oso_core::editor::RecoveryAction
+pub fn oso_core::editor::RecoveryAction::clone(&self) -> oso_core::editor::RecoveryAction
+impl core::cmp::Eq for oso_core::editor::RecoveryAction
+impl core::cmp::PartialEq for oso_core::editor::RecoveryAction
+pub fn oso_core::editor::RecoveryAction::eq(&self, &oso_core::editor::RecoveryAction) -> bool
+impl core::fmt::Debug for oso_core::editor::RecoveryAction
+pub fn oso_core::editor::RecoveryAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::RecoveryAction
+impl core::marker::StructuralPartialEq for oso_core::editor::RecoveryAction
 pub enum oso_core::editor::SaveRefused
 pub oso_core::editor::SaveRefused::AlreadySaving
 pub oso_core::editor::SaveRefused::NoFile
@@ -775,13 +824,28 @@ pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
 pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::add_internal_buffer(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::buffer::Mode) -> oso_core::buffer::BufferId
+pub fn oso_core::editor::Editor::copies_back(&mut self)
+pub fn oso_core::editor::Editor::cursor_line(&self) -> usize
+pub fn oso_core::editor::Editor::has_copies_list(&self) -> bool
+pub fn oso_core::editor::Editor::leave_all_internal(&mut self)
+pub fn oso_core::editor::Editor::queue_recovery_action(&mut self, oso_core::editor::RecoveryAction)
+pub fn oso_core::editor::Editor::remove_internal_buffer(&mut self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::buffer::Buffer>
+pub fn oso_core::editor::Editor::replace_text_from(&mut self, oso_core::buffer::BufferId, oso_core::buffer::BufferId) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::saved_copies_line(&self) -> core::option::Option<usize>
+pub fn oso_core::editor::Editor::set_copies_cursor(&mut self, usize)
+pub fn oso_core::editor::Editor::set_copies_text(&mut self, oso_core::load::LoadSnapshot, usize, core::option::Option<usize>)
+pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec::Vec<oso_core::editor::RecoveryAction>
+pub fn oso_core::editor::Editor::toggle_copies(&mut self)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::begin_command(&mut self)
 pub fn oso_core::editor::Editor::clear_echo(&mut self)
+pub fn oso_core::editor::Editor::clear_echo_saying(&mut self, &str)
 pub fn oso_core::editor::Editor::echo(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::end_command(&mut self)
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
-pub fn oso_core::editor::Editor::place_behind_messages(&self) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
+pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
@@ -849,6 +913,7 @@ impl core::fmt::Debug for oso_core::editor::Status
 pub fn oso_core::editor::Status::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Status
 pub const oso_core::editor::SCRATCH: &str
+pub fn oso_core::editor::row_text(&str) -> alloc::string::String
 pub mod oso_core::frame
 pub struct oso_core::frame::CellRect
 pub oso_core::frame::CellRect::column: usize

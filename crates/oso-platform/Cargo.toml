@@ -18,6 +18,7 @@ libc.workspace = true
 objc2-core-foundation.workspace = true
 objc2-core-graphics.workspace = true
 objc2-core-text.workspace = true
+unicode-segmentation.workspace = true
 
 [features]
 # The dev control socket transport (ADR 0016) and process spawning (ADR 0010).

@@ -1,0 +1,13 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: on disk\\n"
+---
+│on disk                                                     │
+:^                                                           :
+│                                                            │
+=[emergency copy] -- notes.txt  1:0  Fundamental  UTF-8 LF   =
+"                                                            "
+
+│on disk                                                     │
+:^                                                           :
+"[emergency copy]                                            "

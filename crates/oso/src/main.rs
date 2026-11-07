@@ -74,13 +74,6 @@ fn main() {
     // Sleep until an event arrives; frames are drawn only on demand.
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
-    {
-        let proxy = proxy.clone();
-        emergency.check_directory(move |problem| {
-            // It fails only once the event loop is gone, when there is nobody to tell.
-            let _ = proxy.send_event(UserEvent::NoEmergencyCopies(problem));
-        });
-    }
     log::debug!("event loop built {:?} after start", started.elapsed());
 
     #[cfg(feature = "dev")]
@@ -91,6 +84,7 @@ fn main() {
     let mut app = App::new(proxy, started, emergency);
     #[cfg(feature = "dev")]
     app.set_dev(dev);
+    app.check_emergency_directory();
     // Loading starts before the window exists, so the file is read while
     // the GPU starts up.
     if let Some(file) = file {

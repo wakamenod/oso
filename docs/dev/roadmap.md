@@ -167,7 +167,8 @@ throughout.
   their terminal ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)), and no core
   dumps ([ADR 0013](adr/0013-persistence.md),
   [ADR 0014](adr/0014-panic-strategy.md), [ADR 0028](adr/0028-secrets-handling.md)).
-- **M2-11** (after M2-7 and M2-10): recovering an emergency copy.
+- **M2-11** (after M2-7 and M2-10): recovering an emergency copy
+  ([ADR 0064](adr/0064-recovering-an-emergency-copy.md)). M2-12 must switch the IME off in its list.
 - **M2-12** (after M2-4 and M2-6): the macOS IME: inline preedit that pushes the
   text after it, the candidate window, one undo step per commit, and off in the
   minibuffer, isearch and menus.
