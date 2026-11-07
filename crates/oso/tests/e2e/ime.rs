@@ -106,10 +106,10 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_waits_for_a_composition() {
         assert!(allowed(&mut app), "after {keys} {back}");
     }
 
-    // A buffer that refuses text turns it off, but only once the composition ends.
+    // A prefix key turns it off, but only once the composition ends. Only a request
+    // can bring one during a composition, as the OS keeps the keys then.
     ime(&mut app, json!({ "preedit": "か" })).unwrap();
-    app.open_file(&binary);
-    app.wait_until_ready();
+    app.send_keys("C-x");
     let state = app.state();
     assert_eq!(state["ime"]["wanted"], false);
     assert_eq!(
@@ -118,6 +118,14 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_waits_for_a_composition() {
     );
     ime(&mut app, json!({ "clear": true })).unwrap();
     assert!(!allowed(&mut app));
+    app.send_keys("C-g");
+    assert!(allowed(&mut app));
+
+    // A file that refuses text has it off.
+    app.open_file(&binary);
+    let state = app.wait_until_ready();
+    assert!(!state["buffer"]["read_only"].is_null());
+    assert_eq!(state["ime"]["allowed"], false);
 
     // A request that leaves a buffer that may hold secrets selected ends a
     // composition, so that the IME goes off there at once.
