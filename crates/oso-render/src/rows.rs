@@ -15,13 +15,16 @@
 //!   shaped. Their escapes from the display model (`^M`, `\xFF`,
 //!   `U+202E`) are shaped instead, as plain ASCII labels (security.md, T3),
 //!   and invisible characters get a box, as do characters past a display
-//!   cluster's limits (ADR 0054).
+//!   cluster's limits (ADR 0054) and clusters cut past the budget of
+//!   characters (ADR 0068).
 //! - Text that is no buffer's comes as spans, through the same clusters. Its
 //!   row is compared with what was shaped each frame (ADR 0061).
 //! - A row is shaped in pieces where the face changes, and at each span, so that
 //!   nothing forms across them: text cannot change how a label or another span
-//!   reads. A row of one piece is one call to the shaper, which may split it by
-//!   direction (ADR 0066).
+//!   reads. A cluster cut past the budget is a piece of its own. A row of one
+//!   piece is one call to the shaper, which may split it by direction (ADR 0066).
+//!   Short pieces are kept by their text, so a label or a name is shaped once
+//!   (ADR 0068).
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -51,13 +54,48 @@ fn visible_part(text: &str, columns: usize) -> &str {
     &text[..text.floor_char_boundary(bytes)]
 }
 
+/// The longest piece of a row whose shaping is kept by its text, in bytes, and
+/// how many are kept. A shaper's output depends only on its text and the font,
+/// so a short piece, such as a label, a cut cluster's character or a name on
+/// the modeline, is shaped once and not again for each row or frame it is in.
+const KEPT_PIECE_BYTES: usize = 64;
+const KEPT_PIECES: usize = 1024;
+
+/// Shaped pieces of a row, by their text, for pieces of up to
+/// [`KEPT_PIECE_BYTES`]. No `Debug`: it holds buffer text (ADR 0028).
+#[derive(Default)]
+struct Pieces {
+    shaped: HashMap<Box<str>, Vec<ShapedGlyph>>,
+    /// Scratch space for a piece that is too long to keep.
+    long: Vec<ShapedGlyph>,
+}
+
+impl Pieces {
+    /// The glyphs of `text` shaped alone.
+    fn shape(&mut self, system: &mut dyn TextSystem, text: &str) -> &[ShapedGlyph] {
+        if text.len() > KEPT_PIECE_BYTES {
+            system.shape(text, &mut self.long);
+            return &self.long;
+        }
+        if !self.shaped.contains_key(text) {
+            if self.shaped.len() >= KEPT_PIECES {
+                self.shaped.clear();
+            }
+            let mut glyphs = Vec::new();
+            system.shape(text, &mut glyphs);
+            self.shaped.insert(text.into(), glyphs);
+        }
+        &self.shaped[text]
+    }
+}
+
 /// Shapes `text` into `out`. Each piece from a start in `breaks` is shaped on its
-/// own, using `piece` as scratch space, and with no breaks the text is one piece.
+/// own, through `pieces`, and with no breaks the text is one piece.
 fn shape_pieces(
     system: &mut dyn TextSystem,
     text: &str,
     breaks: &[u32],
-    piece: &mut Vec<ShapedGlyph>,
+    pieces: &mut Pieces,
     out: &mut Vec<ShapedGlyph>,
 ) {
     if breaks.is_empty() {
@@ -70,8 +108,8 @@ fn shape_pieces(
         let end = breaks
             .get(index + 1)
             .map_or(text.len(), |&end| end as usize);
-        system.shape(&text[start as usize..end], piece);
-        for glyph in piece.iter() {
+        let piece = pieces.shape(system, &text[start as usize..end]);
+        for glyph in piece {
             out.push(ShapedGlyph {
                 cluster: glyph.cluster + start,
                 x: glyph.x + pen,
@@ -108,7 +146,7 @@ pub(crate) struct ShapedRow {
     breaks: Vec<u32>,
     /// Sorted by column.
     pub(crate) glyphs: Vec<PlacedGlyph>,
-    /// Boxed characters: their first column and cells.
+    /// Boxed characters and cut clusters: their first column and cells.
     pub(crate) boxes: Vec<(usize, usize)>,
 }
 
@@ -125,8 +163,10 @@ pub(crate) struct Rows {
     graphemes: Vec<Grapheme>,
     breaks: Vec<u32>,
     boxes: Vec<(usize, usize)>,
+    /// Where the last box of a cut cluster ends, while it is the last box.
+    cut_end: Option<usize>,
     glyphs: Vec<ShapedGlyph>,
-    piece: Vec<ShapedGlyph>,
+    pieces: Pieces,
     placer: Placer,
     /// Rows shaped since the cache was created, for tests and logs.
     shaped: u64,
@@ -136,6 +176,7 @@ impl Rows {
     /// Forgets every row's shaping, for when the font changes.
     pub(crate) fn invalidate(&mut self) {
         self.rows.clear();
+        self.pieces.shaped.clear();
     }
 
     /// Starts a frame of `buffer` at `revision`: another buffer's rows are
@@ -225,7 +266,7 @@ impl Rows {
                 system,
                 &self.text,
                 &self.breaks,
-                &mut self.piece,
+                &mut self.pieces,
                 &mut self.glyphs,
             );
             self.placer.place(
@@ -256,8 +297,8 @@ impl Rows {
                 break;
             }
             let first = self.graphemes.len();
-            self.push_cluster(&cluster, Face::Text, budget, &mut spent);
-            self.break_at_faces(first, &mut face);
+            let cut = self.push_cluster(&cluster, Face::Text, budget, &mut spent);
+            self.break_at(first, cut, &mut face);
         }
     }
 
@@ -278,20 +319,27 @@ impl Rows {
                 }
                 column = cluster.column.saturating_add(cluster.cells);
                 let first = self.graphemes.len();
-                self.push_cluster(&cluster, span.face, budget, &mut spent);
-                self.break_at_faces(first, &mut face);
+                let cut = self.push_cluster(&cluster, span.face, budget, &mut spent);
+                self.break_at(first, cut, &mut face);
             }
         }
     }
 
     /// Starts a piece to shape wherever the graphemes from `first` on change from
-    /// `face`, the last one's.
-    fn break_at_faces(&mut self, first: usize, face: &mut Option<Face>) {
+    /// `face`, the last one's. A cluster that was `cut` is a piece of its own, so
+    /// nothing forms with what is around it.
+    fn break_at(&mut self, first: usize, cut: bool, face: &mut Option<Face>) {
+        if cut {
+            *face = None;
+        }
         for grapheme in &self.graphemes[first..] {
             if *face != Some(grapheme.face) {
                 *face = Some(grapheme.face);
                 self.breaks.push(grapheme.byte);
             }
+        }
+        if cut {
+            *face = None;
         }
     }
 
@@ -300,33 +348,43 @@ impl Rows {
         self.graphemes.clear();
         self.breaks.clear();
         self.boxes.clear();
+        self.cut_end = None;
     }
 
     /// Adds what `cluster` draws to the scratch space, with its text in
     /// `face`. Past `budget` characters, a run of several characters is cut
-    /// to its first one and boxed. A label comes a character a run, so it is
-    /// never cut.
+    /// to its first one and boxed, and this returns true. A label comes a
+    /// character a run, so it is never cut.
     fn push_cluster(
         &mut self,
         cluster: &DisplayCluster<'_>,
         face: Face,
         budget: usize,
         spent: &mut usize,
-    ) {
+    ) -> bool {
         let whole = *spent < budget;
+        let mut cut = false;
         cluster.for_each_run(|run| {
             let mut face = face.of_run(run.style);
             let mut text = run.text;
-            let first = first_char(run.text);
-            if !whole && first.len() < run.text.len() {
-                text = first;
+            if !whole && first_char(run.text).len() < run.text.len() {
+                text = first_char(run.text);
                 face = Face::Boxed;
-                self.boxes.push((run.column, run.cells));
+                cut = true;
+                // Cut clusters side by side share a box.
+                match self.boxes.last_mut() {
+                    Some((column, cells)) if self.cut_end == Some(run.column) => {
+                        *cells = run.column + run.cells - *column;
+                    }
+                    _ => self.boxes.push((run.column, run.cells)),
+                }
+                self.cut_end = Some(run.column + run.cells);
             }
             // One box per boxed character, across its label's runs.
             if run.style == CellStyle::Boxed {
                 if run.column == cluster.column {
                     self.boxes.push((run.column, run.cells));
+                    self.cut_end = None;
                 } else if let Some((_, cells)) = self.boxes.last_mut() {
                     *cells += run.cells;
                 }
@@ -340,6 +398,7 @@ impl Rows {
             *spent += text.chars().count();
             self.text.push_str(text);
         });
+        cut
     }
 }
 
@@ -535,6 +594,54 @@ pub(crate) mod tests {
         assert_eq!(
             faces,
             [(57, Face::Boxed), (58, Face::Text), (59, Face::Boxed)]
+        );
+    }
+
+    #[test]
+    fn each_cut_character_is_shaped_alone_and_cuts_side_by_side_share_a_box() {
+        let spend = format!("e{}", "\u{301}".repeat(8)).repeat(57);
+        let flag = "\u{1f1ef}\u{1f1f5}";
+        let text = format!("{spend}\u{200b}\u{301}\u{302}{flag}{flag}a");
+        let buffer = Buffer::from_text("t", &text);
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        assert_eq!(
+            system.shaped[1..],
+            ["U+200B", "\u{301}", "\u{1f1ef}", "a"],
+            "the second flag's piece is the first's, shaped once"
+        );
+        assert_eq!(shaped.boxes, [(57, 6), (63, 5)]);
+        let columns: Vec<_> = shaped.glyphs[shaped.glyphs.len() - 4..]
+            .iter()
+            .map(|g| (g.column, g.face))
+            .collect();
+        assert_eq!(
+            columns,
+            [
+                (63, Face::Boxed),
+                (64, Face::Boxed),
+                (66, Face::Boxed),
+                (68, Face::Text)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_short_piece_is_shaped_once() {
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let spans = [span("name", Face::Text), span("12:5", Face::Text)];
+        rows.line(0, &spans, 128, &mut system);
+        let spans = [span("name", Face::Text), span("13:5", Face::Text)];
+        rows.line(0, &spans, 128, &mut system);
+        assert_eq!(system.shaped, ["name", "12:5", "13:5"]);
+        rows.invalidate();
+        rows.line(0, &spans, 128, &mut system);
+        assert_eq!(
+            system.shaped[3..],
+            ["name", "13:5"],
+            "a new font shapes again"
         );
     }
 

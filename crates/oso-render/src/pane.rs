@@ -27,7 +27,8 @@ pub enum Face {
     /// The label of an escape (`^M`, `\xFF`), not to be mistaken for text
     /// that reads the same.
     Escape,
-    /// The label of a boxed code point (`U+202E`), and its box.
+    /// The label of a boxed code point (`U+202E`), and its box. Also a cluster
+    /// the renderer shapes only in part, past its budget of characters.
     Boxed,
     /// The cursor box, and the glyphs on it.
     Cursor,

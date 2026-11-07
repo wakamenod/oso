@@ -270,11 +270,19 @@ fn draw_pane<G: GlyphSource>(
     glyphs: &mut G,
 ) {
     let unscrolled = Layout::new(metrics, pane.region, Scroll::default());
+    // A text pane's cursor box is filled last, over its background and boxes, and
+    // none of them can take its place.
+    let held = usize::from(matches!(pane.content, PaneContent::Text(_)));
+    draws.held += held;
     if let Some(face) = pane.background {
         draws.fill(unscrolled.frame_cells(pane.region), face);
     }
     match &pane.content {
-        PaneContent::Text(view) => draw_text(draws, view, pane, metrics, rows, system, glyphs),
+        PaneContent::Text(view) => {
+            let cursor = draw_text(draws, view, pane, metrics, rows, system, glyphs);
+            draws.held -= held;
+            draws.fill(cursor, Face::Cursor);
+        }
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
             // A modeline or an echo area. Other panes are M2-16's and M3's to decide.
@@ -288,8 +296,8 @@ fn draw_pane<G: GlyphSource>(
     }
 }
 
-/// Draws a window's view of a buffer: the rows of its region, and the cursor box
-/// over the boxes behind invisible characters.
+/// Draws a window's view of a buffer: the rows of its region. Returns where its
+/// cursor box goes, to be filled over them.
 fn draw_text<G: GlyphSource>(
     draws: &mut Draws,
     view: &TextView,
@@ -298,7 +306,7 @@ fn draw_text<G: GlyphSource>(
     rows: &mut Rows,
     system: &mut dyn TextSystem,
     glyphs: &mut G,
-) {
+) -> Option<PixelRect> {
     let display = &view.display;
     // The box cursor covers the whole character under it, two cells for a
     // full-width one (ADR 0026).
@@ -309,10 +317,6 @@ fn draw_text<G: GlyphSource>(
         // Glyphs take the box's color only where the box is.
         layout = layout.with_cursor(view.cursor.row, cells);
     }
-    // The cursor box is filled after the boxes it goes over, and none of them
-    // can take its place.
-    let held = usize::from(cursor.is_some());
-    draws.held += held;
     rows.begin(view.buffer, view.revision);
     let columns = layout.shaped_columns();
     let top = view.scroll.top;
@@ -326,10 +330,7 @@ fn draw_text<G: GlyphSource>(
         }
     }
     rows.evict(visible.start.saturating_sub(visible.len())..visible.end + visible.len());
-    draws.held -= held;
-    if let Some(cells) = cursor {
-        draws.fill(layout.frame_cells(cells), Face::Cursor);
-    }
+    cursor.and_then(|cells| layout.frame_cells(cells))
 }
 
 /// Draws rows that are no buffer's, from the region's top row.
@@ -844,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn boxes_cannot_take_the_place_of_the_cursor_box() {
+    fn a_background_and_boxes_cannot_take_the_place_of_the_cursor_box() {
         let buffer = Buffer::from_text("t", &"\u{200b}".repeat(20));
         let content = PaneContent::Text(TextView {
             display: buffer.display(),
@@ -853,7 +854,8 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
         });
-        let panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
+        let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
+        panes[0].background = Some(Face::Modeline);
         let limits = Limits {
             rects: 5,
             quads: 1000,
@@ -862,7 +864,8 @@ mod tests {
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let colors: Vec<_> = scene.rects().iter().map(|r| r.color).collect();
         assert_eq!(colors.len(), 5);
-        assert_eq!(colors[..4], [Face::Boxed.background(); 4]);
+        assert_eq!(colors[0], Face::Modeline.background());
+        assert_eq!(colors[1..4], [Face::Boxed.background(); 3]);
         assert_eq!(colors[4], Face::Cursor.background());
     }
 

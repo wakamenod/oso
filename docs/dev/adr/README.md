@@ -73,7 +73,7 @@ old one's status.
 | 0064 | [Recovering an emergency copy](0064-recovering-an-emergency-copy.md) | Accepted |
 | 0065 | [Access lists on private directories](0065-access-lists-on-private-directories.md) | Accepted |
 | 0066 | [Text stays in logical order](0066-text-stays-in-logical-order.md) | Accepted |
-| 0068 | [What a row's bounds show, and room for the cursor box](0068-bounds-that-show-and-the-cursor-box.md) | Proposed |
+| 0068 | [Cut clusters, short pieces, the cursor box and lines by direction](0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md) | Proposed |
 
 ## Template
 

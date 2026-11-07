@@ -274,13 +274,16 @@ null text system: the cursor is drawn on the grid, and no text. See
 - **Pieces:** a row is shaped in pieces wherever the face changes, and at each span, so
   nothing forms across them. A row of one face is one call to the shaper, which may split
   it by direction ([ADR 0066](adr/0066-text-stays-in-logical-order.md)) into at most two
-  lines ([ADR 0068](adr/0068-bounds-that-show-and-the-cursor-box.md)).
+  lines ([ADR 0068](adr/0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md)).
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels
   in an escape color; the raw characters never reach the shaper
   (security.md, T3). Invisible characters also get a box, as do characters
   past a display cluster's limits
-  ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)).
+  ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)) and clusters cut past the
+  budget of characters, each shaped on its own
+  ([ADR 0068](adr/0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md)).
+  Pieces of up to 64 bytes are kept by their text, so a label or a name is shaped once.
 - **New glyphs** are rasterized at most 64 per frame, and the frame asks
   for another; uploads are batched per run of neighbors on an atlas
   shelf. See [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md).
@@ -303,7 +306,8 @@ for each layer, back to front:
 
 `scene` builds those ranges with no GPU, and `paint` uploads and records them, for the
 window and for a screenshot alike. Panes are built front to back, so the caps on quads
-and rectangles and the budget of new glyphs run out behind what is in front. A frame is
+and rectangles and the budget of new glyphs run out behind what is in front. A text pane
+holds one rectangle back for its cursor box, so nothing of its own takes its place. A frame is
 clipped to pixels on the CPU, so there is no scissor. Only the background is drawn in the
 margins and in what is left over of a cell at the right and bottom, apart from the band
 that glyphs on the frame's top row keep above it.

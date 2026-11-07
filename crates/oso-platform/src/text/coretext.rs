@@ -12,13 +12,8 @@
 //! system's cascade list for the primary font (CJK, emoji and so on).
 //!
 //! Lines come from a `CTTypesetter` with a forced embedding level, so no
-//! character is shown as its mirrored form (ADR 0066). A row is split between
-//! graphemes by the direction of its scripts. Right-to-left scripts are shaped
-//! at level 1, since their marks and joining need it, and nothing there has a
-//! mirrored form. Other graphemes are at level 0, but for a space or punctuation
-//! with no mirrored form, which stays in the run it is in. The runs of one
-//! direction are shaped together in one line, a space apart, so a row costs at
-//! most two lines however often it changes direction (ADR 0068).
+//! character is shown as its mirrored form (ADR 0066). A row of both directions
+//! is split into runs by `direction`, and is at most two lines.
 
 use std::ptr::{self, NonNull};
 
@@ -201,17 +196,10 @@ impl CoreTextSystem {
         }
     }
 
-    /// Appends the glyphs of `text`, of one direction, which starts `start`
-    /// bytes into the row.
-    fn shape_direction(
-        &mut self,
-        text: &str,
-        start: usize,
-        right_to_left: bool,
-        out: &mut Vec<ShapedGlyph>,
-    ) {
+    /// Appends the glyphs of `text`, a row of one direction.
+    fn shape_direction(&mut self, text: &str, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
         self.bytes.clear();
-        push_bytes(&mut self.bytes, text, start);
+        push_bytes(&mut self.bytes, text, 0);
         let line = CFString::from_str(text);
         self.shape_line(&line, right_to_left, out);
     }
@@ -289,12 +277,12 @@ impl TextSystem for CoreTextSystem {
             return;
         }
         if text.is_ascii() || !text.chars().any(is_right_to_left) {
-            self.shape_direction(text, 0, false, out);
+            self.shape_direction(text, false, out);
             return;
         }
         direction::split(text, &mut self.runs);
         if let [run] = self.runs[..] {
-            self.shape_direction(text, 0, run.right_to_left, out);
+            self.shape_direction(text, run.right_to_left, out);
             return;
         }
         self.shape_runs(text, false, out);
@@ -500,7 +488,7 @@ fn advance_of(font: &CTFont, c: char) -> Option<CGFloat> {
 
 #[cfg(test)]
 mod tests {
-    use super::direction::{extends_a_letter, grapheme_direction};
+    use super::direction::grapheme_direction;
     use super::*;
 
     const REQUEST: FontRequest<'static> = FontRequest {
@@ -675,7 +663,7 @@ mod tests {
                 let text = format!("{letter}{mark}");
                 system.shape(&text, &mut split);
                 whole.clear();
-                system.shape_direction(&text, 0, right_to_left, &mut whole);
+                system.shape_direction(&text, right_to_left, &mut whole);
                 assert_eq!(split, whole, "{:?}", text.escape_unicode().to_string());
             }
         }
@@ -708,6 +696,17 @@ mod tests {
             "\u{5e9}\u{5c1}\u{5b8}a\u{5d1}\u{5bc}\u{5b7}\u{5e8} 2024 \u{5e2}\u{5d5}\u{5dc}\u{5b8}\u{5dd}",
             "f(\u{5d0}) <\u{5d1}> [\u{5d2}] fi\u{5d3}fl",
             "\u{5d0}\u{5b4}a\u{5b4}\u{5d1}",
+            // What a shaper can build across graphemes, on both sides of a
+            // run of the other direction.
+            "\u{1f1ef}\u{5d0}\u{1f1f5}",
+            "\u{1f1ef}\u{1f1f5}\u{5d0}\u{1f1fa}\u{1f1f8}",
+            "\u{1f468}\u{200d}\u{5d0}\u{200d}\u{1f469}",
+            "\u{1f468}\u{5d0}\u{200d}\u{1f469}",
+            "\u{1100}\u{5d0}\u{1161}\u{11a8}",
+            "\u{915}\u{94d}\u{5d0}\u{937}",
+            "\u{915}\u{5d0}\u{94d}\u{937}",
+            "f\u{5d0}i \u{644}a\u{627} \u{5d0}\u{1f1ef}\u{5d1}\u{1f1f5}",
+            "\u{e01}\u{5d0}\u{e49}\u{e33}",
         ];
         for row in rows {
             let mut want = Vec::new();
@@ -776,14 +775,6 @@ mod tests {
     }
 
     #[test]
-    fn a_prepended_character_takes_the_direction_of_what_follows() {
-        assert_eq!(grapheme_direction("\u{6dd}\u{661}"), Some(true));
-        assert_eq!(grapheme_direction("\u{600}\u{5d0}"), Some(true));
-        assert_eq!(grapheme_direction("\u{600}("), Some(false));
-        assert_eq!(grapheme_direction("\u{600}a"), Some(false));
-    }
-
-    #[test]
     fn punctuation_with_no_mirrored_form_keeps_its_glyph_in_a_right_to_left_run() {
         let mut system = menlo(1.0);
         let mut out = Vec::new();
@@ -796,213 +787,6 @@ mod tests {
                 let glyph = glyph.unwrap_or_else(|| panic!("{text:?}: {out:?}"));
                 assert_eq!(glyph.key, want, "{text:?}");
             }
-        }
-    }
-
-    #[test]
-    fn a_grapheme_of_one_character_has_its_direction_unless_it_stays_in_the_run() {
-        assert_eq!(grapheme_direction("a"), Some(false));
-        assert_eq!(grapheme_direction("\u{65e5}"), Some(false));
-        assert_eq!(grapheme_direction("("), Some(false));
-        assert_eq!(grapheme_direction("\u{5d0}"), Some(true));
-        assert_eq!(grapheme_direction(" "), None);
-        assert_eq!(grapheme_direction(","), None);
-    }
-
-    /// Every character with `Bidi_Mirrored=Y` in `UnicodeData.txt` of Unicode 17, as
-    /// inclusive ranges.
-    const MIRRORED: [(u32, u32); 114] = [
-        (0x28, 0x29),
-        (0x3C, 0x3C),
-        (0x3E, 0x3E),
-        (0x5B, 0x5B),
-        (0x5D, 0x5D),
-        (0x7B, 0x7B),
-        (0x7D, 0x7D),
-        (0xAB, 0xAB),
-        (0xBB, 0xBB),
-        (0xF3A, 0xF3D),
-        (0x169B, 0x169C),
-        (0x2039, 0x203A),
-        (0x2045, 0x2046),
-        (0x207D, 0x207E),
-        (0x208D, 0x208E),
-        (0x2140, 0x2140),
-        (0x2201, 0x2204),
-        (0x2208, 0x220D),
-        (0x2211, 0x2211),
-        (0x2215, 0x2216),
-        (0x221A, 0x221D),
-        (0x221F, 0x2222),
-        (0x2224, 0x2224),
-        (0x2226, 0x2226),
-        (0x222B, 0x2233),
-        (0x2239, 0x2239),
-        (0x223B, 0x224C),
-        (0x2252, 0x2255),
-        (0x225F, 0x2260),
-        (0x2262, 0x2262),
-        (0x2264, 0x226B),
-        (0x226D, 0x228C),
-        (0x228F, 0x2292),
-        (0x2298, 0x2298),
-        (0x22A2, 0x22A3),
-        (0x22A6, 0x22B8),
-        (0x22BE, 0x22BF),
-        (0x22C9, 0x22CD),
-        (0x22D0, 0x22D1),
-        (0x22D6, 0x22ED),
-        (0x22F0, 0x22FF),
-        (0x2308, 0x230B),
-        (0x2320, 0x2321),
-        (0x2329, 0x232A),
-        (0x2768, 0x2775),
-        (0x27C0, 0x27C0),
-        (0x27C3, 0x27C6),
-        (0x27C8, 0x27C9),
-        (0x27CB, 0x27CD),
-        (0x27D3, 0x27D6),
-        (0x27DC, 0x27DE),
-        (0x27E2, 0x27EF),
-        (0x2983, 0x2998),
-        (0x299B, 0x29A0),
-        (0x29A2, 0x29AF),
-        (0x29B8, 0x29B8),
-        (0x29C0, 0x29C5),
-        (0x29C9, 0x29C9),
-        (0x29CE, 0x29D2),
-        (0x29D4, 0x29D5),
-        (0x29D8, 0x29DC),
-        (0x29E1, 0x29E1),
-        (0x29E3, 0x29E5),
-        (0x29E8, 0x29E9),
-        (0x29F4, 0x29F9),
-        (0x29FC, 0x29FD),
-        (0x2A0A, 0x2A1C),
-        (0x2A1E, 0x2A21),
-        (0x2A24, 0x2A24),
-        (0x2A26, 0x2A26),
-        (0x2A29, 0x2A29),
-        (0x2A2B, 0x2A2E),
-        (0x2A34, 0x2A35),
-        (0x2A3C, 0x2A3E),
-        (0x2A57, 0x2A58),
-        (0x2A64, 0x2A65),
-        (0x2A6A, 0x2A6D),
-        (0x2A6F, 0x2A70),
-        (0x2A73, 0x2A74),
-        (0x2A79, 0x2AA3),
-        (0x2AA6, 0x2AAD),
-        (0x2AAF, 0x2AD6),
-        (0x2ADC, 0x2ADC),
-        (0x2ADE, 0x2ADE),
-        (0x2AE2, 0x2AE6),
-        (0x2AEC, 0x2AEE),
-        (0x2AF3, 0x2AF3),
-        (0x2AF7, 0x2AFB),
-        (0x2AFD, 0x2AFD),
-        (0x2BFE, 0x2BFE),
-        (0x2E02, 0x2E05),
-        (0x2E09, 0x2E0A),
-        (0x2E0C, 0x2E0D),
-        (0x2E1C, 0x2E1D),
-        (0x2E20, 0x2E29),
-        (0x2E55, 0x2E5C),
-        (0x3008, 0x3011),
-        (0x3014, 0x301B),
-        (0xFE59, 0xFE5E),
-        (0xFE64, 0xFE65),
-        (0xFF08, 0xFF09),
-        (0xFF1C, 0xFF1C),
-        (0xFF1E, 0xFF1E),
-        (0xFF3B, 0xFF3B),
-        (0xFF3D, 0xFF3D),
-        (0xFF5B, 0xFF5B),
-        (0xFF5D, 0xFF5D),
-        (0xFF5F, 0xFF60),
-        (0xFF62, 0xFF63),
-        (0x1D6DB, 0x1D6DB),
-        (0x1D715, 0x1D715),
-        (0x1D74F, 0x1D74F),
-        (0x1D789, 0x1D789),
-        (0x1D7C3, 0x1D7C3),
-    ];
-
-    #[test]
-    fn no_character_with_a_mirrored_form_can_reach_level_1() {
-        assert_eq!(MIRRORED.iter().map(|(a, b)| b - a + 1).sum::<u32>(), 554);
-        let mirrored = MIRRORED
-            .iter()
-            .flat_map(|&(a, b)| a..=b)
-            .filter_map(char::from_u32);
-        for c in mirrored {
-            assert!(!is_right_to_left(c), "{c:?}");
-            assert!(!extends_a_letter(c), "{c:?}");
-            assert_eq!(
-                grapheme_direction(c.encode_utf8(&mut [0; 4])),
-                Some(false),
-                "{c:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_tables_are_of_the_unicode_version_checked() {
-        // On a new version, check `MIRRORED` and the ranges of `is_right_to_left` again.
-        assert_eq!(unicode_segmentation::UNICODE_VERSION, (17, 0, 0));
-    }
-
-    #[test]
-    fn only_characters_with_no_mirrored_form_can_share_a_right_to_left_run() {
-        // The closest characters with a mirrored form to the ranges, and ones
-        // that look as if they had one.
-        for c in [
-            '(',
-            ')',
-            '<',
-            '>',
-            '[',
-            ']',
-            '{',
-            '}',
-            '\u{ab}',
-            '\u{bb}',
-            '\u{2039}',
-            '\u{2264}',
-            '\u{fe59}',
-            '\u{fe5e}',
-            '\u{fe64}',
-            '\u{fe65}',
-            '\u{ff08}',
-            '\u{ff09}',
-            '\u{1d6db}',
-            '\u{1d7c3}',
-        ] {
-            assert!(!is_right_to_left(c), "{c:?}");
-            assert_eq!(grapheme_direction(&c.to_string()), Some(false), "{c:?}");
-        }
-        assert!(is_right_to_left('\u{fd3e}') && is_right_to_left('\u{fd3f}'));
-        // The edges of the ranges.
-        for c in [
-            '\u{58f}',
-            '\u{900}',
-            '\u{fb1c}',
-            '\u{fe6f}',
-            '\u{ff00}',
-            '\u{1e7ff}',
-            '\u{1f000}',
-        ] {
-            assert!(!is_right_to_left(c), "{c:?}");
-        }
-        for c in [
-            '\u{590}',
-            '\u{8ff}',
-            '\u{fb1d}',
-            '\u{fe70}',
-            '\u{10800}',
-            '\u{1efff}',
-        ] {
-            assert!(is_right_to_left(c), "{c:?}");
         }
     }
 
