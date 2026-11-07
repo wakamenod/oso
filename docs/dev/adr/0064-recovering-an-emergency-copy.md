@@ -1,6 +1,6 @@
 # 0064. Recovering an emergency copy
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-07
 
 ## Context
