@@ -33,6 +33,15 @@ pub const FAKE_SECRET: &str = "FAKE-E2E-NOT-A-REAL-SECRET";
 /// How long anything awaited may take. Generous, since CI draws in software.
 const TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long an instance may take to show the surface of its window. The UI thread
+/// creates it, which has taken over 10 s in software on CI.
+const SURFACE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// What `get-state` comes back with when the UI thread does not answer within the server's
+/// limit. The server's words, which a test cannot import. Should they change, a slow start
+/// fails again, and no freeze goes unnoticed.
+const NO_REPLY: &str = "get-state: the editor did not reply in time";
+
 /// How long an instance may take to exit when asked, while cleaning up.
 const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -65,6 +74,8 @@ pub struct App {
     reader: BufReader<ControlStream>,
     writer: ControlStream,
     next_id: u64,
+    /// Whether a state has shown the surface. From then on, no reply is a freeze.
+    surface_seen: bool,
     dir: ControlDir,
     /// Dropped after everything else, once `drop` has asked it to exit.
     process: Process,
@@ -96,6 +107,7 @@ impl App {
             reader,
             writer: stream,
             next_id: 1,
+            surface_seen: false,
             dir,
             process,
         };
@@ -202,9 +214,40 @@ impl App {
     /// Waits for the window, and for the file shown to finish loading, after
     /// which it is judged and its text can be read. Returns that state.
     pub fn wait_until_ready(&mut self) -> Value {
+        self.wait_for_surface();
         self.wait_for("window with a loaded buffer", |state| {
             !state["surface"].is_null() && state["buffer"]["loading"].is_null()
         })
+    }
+
+    /// Waits for a state that shows the surface, unless one has. Creating it can hold the
+    /// UI thread for longer than the server waits, so here a request with no reply is tried
+    /// again. This is the only place: once the surface is there, no reply fails the flow
+    /// as a freeze, in `wait_until_ready` too.
+    fn wait_for_surface(&mut self) {
+        if self.surface_seen {
+            return;
+        }
+        let started = Instant::now();
+        loop {
+            if let Ok(Some(status)) = self.process.child.try_wait() {
+                panic!("the instance exited with {status} while waiting for its window");
+            }
+            let last = match self.try_call("get-state", None) {
+                Ok(state) if !state["surface"].is_null() => {
+                    self.surface_seen = true;
+                    return;
+                }
+                Ok(_) => "showed no surface",
+                Err(e) if e == NO_REPLY => "had no reply, so the UI thread is stuck or very slow",
+                Err(e) => panic!("{e}"),
+            };
+            assert!(
+                started.elapsed() < SURFACE_TIMEOUT,
+                "no window after {SURFACE_TIMEOUT:?}; the last get-state {last}"
+            );
+            thread::sleep(POLL);
+        }
     }
 
     /// Takes a screenshot and reads it back.
