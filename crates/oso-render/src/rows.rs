@@ -62,10 +62,13 @@ const KEPT_PIECE_BYTES: usize = 64;
 const KEPT_PIECES: usize = 1024;
 
 /// Shaped pieces of a row, by their text, for pieces of up to
-/// [`KEPT_PIECE_BYTES`]. No `Debug`: it holds buffer text (ADR 0028).
+/// [`KEPT_PIECE_BYTES`]. They hold buffer text, so they go with the rows they
+/// came from and at each revision (ADR 0028). No `Debug` for the same reason.
 #[derive(Default)]
 struct Pieces {
-    shaped: HashMap<Box<str>, Vec<ShapedGlyph>>,
+    /// Where each piece's glyphs are in `shaped`.
+    index: HashMap<Box<str>, usize>,
+    shaped: Vec<Vec<ShapedGlyph>>,
     /// Scratch space for a piece that is too long to keep.
     long: Vec<ShapedGlyph>,
 }
@@ -77,15 +80,22 @@ impl Pieces {
             system.shape(text, &mut self.long);
             return &self.long;
         }
-        if !self.shaped.contains_key(text) {
-            if self.shaped.len() >= KEPT_PIECES {
-                self.shaped.clear();
-            }
-            let mut glyphs = Vec::new();
-            system.shape(text, &mut glyphs);
-            self.shaped.insert(text.into(), glyphs);
+        if let Some(&at) = self.index.get(text) {
+            return &self.shaped[at];
         }
-        &self.shaped[text]
+        if self.shaped.len() >= KEPT_PIECES {
+            self.clear();
+        }
+        let mut glyphs = Vec::new();
+        system.shape(text, &mut glyphs);
+        self.index.insert(text.into(), self.shaped.len());
+        self.shaped.push(glyphs);
+        &self.shaped[self.shaped.len() - 1]
+    }
+
+    fn clear(&mut self) {
+        self.index.clear();
+        self.shaped.clear();
     }
 }
 
@@ -176,16 +186,18 @@ impl Rows {
     /// Forgets every row's shaping, for when the font changes.
     pub(crate) fn invalidate(&mut self) {
         self.rows.clear();
-        self.pieces.shaped.clear();
+        self.pieces.clear();
     }
 
     /// Starts a frame of `buffer` at `revision`: another buffer's rows and
-    /// pieces are dropped.
+    /// kept pieces are dropped, and the pieces of another revision.
     pub(crate) fn begin(&mut self, buffer: BufferId, revision: u64) {
         if self.buffer != Some(buffer) {
             self.buffer = Some(buffer);
             self.rows.clear();
-            self.pieces.shaped.clear();
+            self.pieces.clear();
+        } else if self.revision != revision {
+            self.pieces.clear();
         }
         self.revision = revision;
     }
@@ -195,15 +207,16 @@ impl Rows {
     pub(crate) fn begin_lines(&mut self) {
         if self.buffer.take().is_some() {
             self.rows.clear();
-            self.pieces.shaped.clear();
+            self.pieces.clear();
         }
     }
 
     /// Drops cached rows outside `keep` once there are many more of them
-    /// than a screen.
+    /// than a screen, and the kept pieces with them.
     pub(crate) fn evict(&mut self, keep: Range<usize>) {
         if self.rows.len() > 2 * keep.len() + 64 {
             self.rows.retain(|row, _| keep.contains(row));
+            self.pieces.clear();
         }
     }
 
@@ -660,6 +673,25 @@ pub(crate) mod tests {
         rows.begin(second, 1);
         rows.row(&buffer.display(), 0, 0..128, &mut system);
         assert_eq!(system.shaped, ["a", "^M", "b", "a", "^M", "b"]);
+    }
+
+    #[test]
+    fn kept_pieces_go_at_a_new_revision_and_with_evicted_rows() {
+        let buffer = Buffer::from_text("t", &["a\rb"; 72].join("\n"));
+        let display = buffer.display();
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        rows.begin(buffer_id(), 1);
+        for row in 0..70 {
+            rows.row(&display, row, 0..128, &mut system);
+        }
+        assert_eq!(system.shaped, ["a", "^M", "b"], "shaped once for every row");
+        rows.begin(buffer_id(), 2);
+        rows.row(&display, 70, 0..128, &mut system);
+        assert_eq!(system.shaped.len(), 6, "a new revision shapes them again");
+        rows.evict(0..1);
+        rows.row(&display, 71, 0..128, &mut system);
+        assert_eq!(system.shaped.len(), 9, "evicted rows take their pieces");
     }
 
     #[test]

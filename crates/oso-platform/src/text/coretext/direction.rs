@@ -11,7 +11,8 @@
 //! The runs of one direction are joined into one line, each after a ZWNJ, which
 //! keeps letters from joining and ligatures from forming across it, so a row is
 //! at most two lines however often it changes direction. The ZWNJ is oso's own
-//! and maps to no byte of the row, so it draws nothing.
+//! and maps to no byte of the row, so it draws nothing. A joined line that does
+//! not come out as its runs would alone is shaped again with its runs apart.
 
 use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
 
@@ -81,6 +82,29 @@ pub(super) fn join(
         push_bytes(bytes, &text[run.start..end], run.start);
         line.push_str(&text[run.start..end]);
     }
+}
+
+/// Whether the first grapheme of each of `runs` of `text` has a glyph in
+/// `glyphs`, using `drawn` as scratch space. Shaped alone, a run's first
+/// grapheme always has one, even where a ligature leaves a later grapheme with
+/// none. So one without is a sign that a joined line formed something across a
+/// separator.
+pub(super) fn every_run_drawn(
+    text: &str,
+    runs: &[DirectionRun],
+    glyphs: &[ShapedGlyph],
+    drawn: &mut Vec<u32>,
+) -> bool {
+    drawn.clear();
+    drawn.extend(glyphs.iter().map(|glyph| glyph.cluster));
+    drawn.sort_unstable();
+    runs.iter().all(|run| {
+        let first = text[run.start..].graphemes(true).next().unwrap_or("");
+        let at = drawn.partition_point(|&cluster| (cluster as usize) < run.start);
+        drawn
+            .get(at)
+            .is_some_and(|&cluster| (cluster as usize) < run.start + first.len())
+    })
 }
 
 /// Moves the glyphs of each of `runs` so that the runs follow one another in
@@ -175,6 +199,33 @@ mod tests {
         join(text, &runs, false, &mut line, &mut bytes);
         assert_eq!(line, "a \u{200c}(b) ");
         assert_eq!(bytes, [0, 1, SEPARATOR, 8, 9, 10, 11]);
+    }
+
+    #[test]
+    fn a_run_whose_first_grapheme_has_no_glyph_is_seen() {
+        let glyph = |cluster: u32| ShapedGlyph {
+            key: super::super::super::GlyphKey {
+                font: super::super::super::FontId(0),
+                glyph: super::super::super::GlyphId(0),
+            },
+            cluster,
+            x: 0.0,
+            y: 0.0,
+            advance: 0.0,
+        };
+        let text = "a\u{5d0}\u{5b8}b\u{5d1}";
+        let mut runs = Vec::new();
+        split(text, &mut runs);
+        assert_eq!(runs.len(), 4);
+        let mut drawn = Vec::new();
+        let all = [glyph(5), glyph(0), glyph(1), glyph(3), glyph(6)];
+        assert!(every_run_drawn(text, &runs, &all, &mut drawn));
+        let mark_only = [glyph(0), glyph(3), glyph(5), glyph(6)];
+        assert!(every_run_drawn(text, &runs, &mark_only, &mut drawn));
+        let no_b = [glyph(0), glyph(1), glyph(6)];
+        assert!(!every_run_drawn(text, &runs, &no_b, &mut drawn));
+        let no_bet = [glyph(0), glyph(1), glyph(5)];
+        assert!(!every_run_drawn(text, &runs, &no_bet, &mut drawn));
     }
 
     #[test]

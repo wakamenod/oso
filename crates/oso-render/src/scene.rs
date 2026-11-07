@@ -272,16 +272,27 @@ fn draw_pane<G: GlyphSource>(
     let unscrolled = Layout::new(metrics, pane.region, Scroll::default());
     // A text pane's cursor box is filled last, over its background and boxes, and
     // none of them can take its place.
-    let held = usize::from(matches!(pane.content, PaneContent::Text(_)));
+    let cursor = match &pane.content {
+        PaneContent::Text(view) => cursor_cells(view, pane.region),
+        PaneContent::Lines(_) => None,
+    };
+    let held = usize::from(cursor.is_some());
     draws.held += held;
     if let Some(face) = pane.background {
         draws.fill(unscrolled.frame_cells(pane.region), face);
     }
     match &pane.content {
         PaneContent::Text(view) => {
-            let cursor = draw_text(draws, view, pane, metrics, rows, system, glyphs);
+            let mut layout = Layout::new(metrics, pane.region, view.scroll);
+            if let Some(cells) = cursor {
+                // Glyphs take the box's color only where the box is.
+                layout = layout.with_cursor(view.cursor.row, cells);
+            }
+            draw_text(draws, view, pane, &layout, rows, system, glyphs);
             draws.held -= held;
-            draws.fill(cursor, Face::Cursor);
+            if let Some(cells) = cursor {
+                draws.fill(layout.frame_cells(cells), Face::Cursor);
+            }
         }
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
@@ -296,27 +307,25 @@ fn draw_pane<G: GlyphSource>(
     }
 }
 
-/// Draws a window's view of a buffer: the rows of its region. Returns where its
-/// cursor box goes, to be filled over them.
+/// The frame's cells under the cursor box of `view` in `region`, if it shows.
+/// The box covers the whole character under it, two cells for a full-width one
+/// (ADR 0026).
+fn cursor_cells(view: &TextView, region: CellRect) -> Option<CellRect> {
+    let cells = motion::cursor_cells(&view.display, view.cursor);
+    frame::cursor_rect(region, view.scroll, view.cursor, cells)
+}
+
+/// Draws a window's view of a buffer in `layout`: the rows of its region.
 fn draw_text<G: GlyphSource>(
     draws: &mut Draws,
     view: &TextView,
     pane: &Pane<'_>,
-    metrics: CellMetrics,
+    layout: &Layout,
     rows: &mut Rows,
     system: &mut dyn TextSystem,
     glyphs: &mut G,
-) -> Option<PixelRect> {
+) {
     let display = &view.display;
-    // The box cursor covers the whole character under it, two cells for a
-    // full-width one (ADR 0026).
-    let cursor_cells = motion::cursor_cells(display, view.cursor);
-    let cursor = frame::cursor_rect(pane.region, view.scroll, view.cursor, cursor_cells);
-    let mut layout = Layout::new(metrics, pane.region, view.scroll);
-    if let Some(cells) = cursor {
-        // Glyphs take the box's color only where the box is.
-        layout = layout.with_cursor(view.cursor.row, cells);
-    }
     rows.begin(view.buffer, view.revision);
     let columns = layout.shaped_columns();
     let top = view.scroll.top;
@@ -325,12 +334,11 @@ fn draw_text<G: GlyphSource>(
         .min(display.row_count());
     for row in visible.clone() {
         let shaped = rows.row(display, row, columns.clone(), system);
-        if !draws.row(&layout, row, shaped, system, glyphs) {
+        if !draws.row(layout, row, shaped, system, glyphs) {
             break;
         }
     }
     rows.evict(visible.start.saturating_sub(visible.len())..visible.end + visible.len());
-    cursor.and_then(|cells| layout.frame_cells(cells))
 }
 
 /// Draws rows that are no buffer's, from the region's top row.
@@ -867,6 +875,20 @@ mod tests {
         assert_eq!(colors[0], Face::Modeline.background());
         assert_eq!(colors[1..4], [Face::Boxed.background(); 3]);
         assert_eq!(colors[4], Face::Cursor.background());
+    }
+
+    #[test]
+    fn a_pane_with_no_cursor_box_in_it_holds_no_rectangle() {
+        let buffer = Buffer::from_text("t", &"\u{200b}".repeat(20));
+        let panes = [pane(0, rect(0, 0, 2, 200), 0, view(&buffer))];
+        let limits = Limits {
+            rects: 5,
+            quads: 1000,
+        };
+        let mut scene = Scene::new(limits);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let colors: Vec<_> = scene.rects().iter().map(|r| r.color).collect();
+        assert_eq!(colors, [Face::Boxed.background(); 5]);
     }
 
     #[test]

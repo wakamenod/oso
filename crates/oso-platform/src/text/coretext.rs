@@ -86,9 +86,17 @@ pub(super) struct CoreTextSystem {
     /// and total advance.
     line: String,
     runs: Vec<DirectionRun>,
+    /// Whether a separator drew in the lines of a row, and scratch space for
+    /// the clusters drawn, to tell whether a joined row came out whole.
+    separator_drew: bool,
+    drawn: Vec<u32>,
     /// Lines made so far, for tests.
     #[cfg(test)]
     lines: usize,
+    /// For tests: a separator counts as drawing, as in a font that credits it a
+    /// glyph.
+    #[cfg(test)]
+    separator_draws: bool,
     glyphs: Vec<CGGlyph>,
     positions: Vec<CGPoint>,
     advances: Vec<CGSize>,
@@ -115,8 +123,12 @@ impl CoreTextSystem {
             bytes: Vec::new(),
             line: String::new(),
             runs: Vec::new(),
+            separator_drew: false,
+            drawn: Vec::new(),
             #[cfg(test)]
             lines: 0,
+            #[cfg(test)]
+            separator_draws: false,
             glyphs: Vec::new(),
             positions: Vec::new(),
             advances: Vec::new(),
@@ -179,8 +191,20 @@ impl CoreTextSystem {
             let byte = usize::try_from(self.indices[i])
                 .ok()
                 .and_then(|utf16| self.bytes.get(utf16));
-            // A separator between runs draws nothing.
-            let Some(&cluster) = byte.filter(|&&byte| byte != SEPARATOR) else {
+            // A separator between runs draws nothing. If its glyph has an
+            // advance, the font made something of it, and the row is shaped
+            // again with its runs apart.
+            if byte == Some(&SEPARATOR) {
+                #[cfg(test)]
+                if self.separator_draws {
+                    self.separator_drew = true;
+                }
+                if self.advances[i].width != 0.0 {
+                    self.separator_drew = true;
+                }
+                continue;
+            }
+            let Some(&cluster) = byte else {
                 continue;
             };
             out.push(ShapedGlyph {
@@ -215,6 +239,23 @@ impl CoreTextSystem {
         );
         if !self.line.is_empty() {
             let line = CFString::from_str(&self.line);
+            self.shape_line(&line, right_to_left, out);
+        }
+    }
+
+    /// Appends the glyphs of each run of `text` as a line of its own: what a row
+    /// whose joined lines did not come out whole is shaped as.
+    fn shape_apart(&mut self, text: &str, out: &mut Vec<ShapedGlyph>) {
+        for index in 0..self.runs.len() {
+            let DirectionRun {
+                start,
+                right_to_left,
+                ..
+            } = self.runs[index];
+            let end = self.runs.get(index + 1).map_or(text.len(), |run| run.start);
+            self.bytes.clear();
+            push_bytes(&mut self.bytes, &text[start..end], start);
+            let line = CFString::from_str(&text[start..end]);
             self.shape_line(&line, right_to_left, out);
         }
     }
@@ -285,8 +326,15 @@ impl TextSystem for CoreTextSystem {
             self.shape_direction(text, run.right_to_left, out);
             return;
         }
+        self.separator_drew = false;
         self.shape_runs(text, false, out);
         self.shape_runs(text, true, out);
+        if self.separator_drew
+            || !direction::every_run_drawn(text, &self.runs, out, &mut self.drawn)
+        {
+            out.clear();
+            self.shape_apart(text, out);
+        }
         direction::line_up(&mut self.runs, out);
     }
 
@@ -669,9 +717,9 @@ mod tests {
         }
     }
 
-    /// The glyphs of `text` by cluster: their keys and offsets from the cluster's
-    /// first glyph, which is what placing them on the grid reads.
-    fn by_cluster(system: &mut CoreTextSystem, text: &str) -> Vec<(u32, GlyphKey, i32, i32)> {
+    /// The glyphs of `text` by cluster: their keys, offsets from the cluster's
+    /// first glyph and advances, which is what placing them on the grid reads.
+    fn by_cluster(system: &mut CoreTextSystem, text: &str) -> Vec<(u32, GlyphKey, i32, i32, i32)> {
         let mut out = Vec::new();
         system.shape(text, &mut out);
         let mut glyphs: Vec<_> = out
@@ -679,7 +727,8 @@ mod tests {
             .map(|g| {
                 let first = out.iter().find(|f| f.cluster == g.cluster).unwrap();
                 let dx = ((g.x - first.x) * 64.0).round() as i32;
-                (g.cluster, g.key, dx, (g.y * 64.0).round() as i32)
+                let advance = (g.advance * 64.0).round() as i32;
+                (g.cluster, g.key, dx, (g.y * 64.0).round() as i32, advance)
             })
             .collect();
         glyphs.sort_by_key(|g| (g.0, g.1));
@@ -718,7 +767,7 @@ mod tests {
                     want.extend(
                         by_cluster(&mut system, &row[start..byte])
                             .into_iter()
-                            .map(|(c, k, x, y)| (c + start as u32, k, x, y)),
+                            .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
                     );
                     start = byte;
                 }
@@ -727,11 +776,27 @@ mod tests {
             want.extend(
                 by_cluster(&mut system, &row[start..])
                     .into_iter()
-                    .map(|(c, k, x, y)| (c + start as u32, k, x, y)),
+                    .map(|(c, k, x, y, a)| (c + start as u32, k, x, y, a)),
             );
             want.sort_by_key(|g| (g.0, g.1));
+            system.lines = 0;
             assert_eq!(by_cluster(&mut system, row), want, "{row:?}");
+            assert!(system.lines <= 2, "joined, not apart: {row:?}");
         }
+    }
+
+    #[test]
+    fn a_row_whose_separator_draws_is_shaped_with_its_runs_apart() {
+        let mut system = menlo(2.0);
+        let row = "\u{644}a\u{627} \u{5d0}\u{5b8}b(\u{5d1})";
+        let joined = by_cluster(&mut system, row);
+        system.separator_draws = true;
+        system.lines = 0;
+        let apart = by_cluster(&mut system, row);
+        let mut runs = Vec::new();
+        direction::split(row, &mut runs);
+        assert_eq!(system.lines, 2 + runs.len(), "joined, then each run alone");
+        assert_eq!(apart, joined, "the same glyphs as each run alone");
     }
 
     #[test]
