@@ -263,15 +263,12 @@ fn check_list(
 fn refused(path: &Path, why: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::PermissionDenied,
-        format!(
-            "refusing to use {} as a private directory: it {why}",
-            path.display()
-        ),
+        format!("refused: it {why}: {}", path.display()),
     )
 }
 
 fn with_path(e: &io::Error, what: &str, path: &Path) -> io::Error {
-    io::Error::new(e.kind(), format!("{what} {}: {e}", path.display()))
+    io::Error::new(e.kind(), format!("{what}: {e}: {}", path.display()))
 }
 
 #[cfg(test)]
