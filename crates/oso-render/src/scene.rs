@@ -348,9 +348,10 @@ fn underline_preedit(
         });
         draws.fill(rect, Face::Preedit);
     };
-    underline(at, preedit.cells(), line);
-    if let Some(segment) = preedit.segment() {
-        underline(at + segment.start, segment.len(), 2.0 * line);
+    let (all, segment) = preedit.underlines(at);
+    underline(all.start, all.len(), line);
+    if let Some(segment) = segment {
+        underline(segment.start, segment.len(), 2.0 * line);
     }
 }
 

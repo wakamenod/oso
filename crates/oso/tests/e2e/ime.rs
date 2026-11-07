@@ -119,6 +119,18 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_waits_for_a_composition() {
     ime(&mut app, json!({ "clear": true })).unwrap();
     assert!(!allowed(&mut app));
 
+    // A request that leaves a buffer that may hold secrets selected ends a
+    // composition, so that the IME goes off there at once.
+    app.show_buffer(&notes);
+    ime(&mut app, json!({ "preedit": "か" })).unwrap();
+    app.open_file(&env);
+    let state = app.wait_until_ready();
+    assert_eq!(state["ime"]["composing"], false);
+    assert_eq!(state["ime"]["allowed"], false);
+    let refused = ime(&mut app, json!({ "commit": "か" })).unwrap_err();
+    assert!(refused.contains("the input method is off"), "{refused}");
+    app.show_buffer(&notes);
+
     // A buffer that may hold secrets has it off, and gives no area.
     app.open_file(&env);
     let state = app.wait_until_ready();

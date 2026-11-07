@@ -100,6 +100,12 @@ impl App {
                 })
             }
         };
+        // Only a request can change the buffer during a composition. One that leaves a
+        // buffer that may hold secrets selected ends it, so the IME goes off there at once,
+        // as the OS would not end a composition the socket made (ADR 0069).
+        if self.composing() && self.editor.current().1.is_secret() {
+            self.end_composition();
+        }
         let _ = reply.send(result);
     }
 
@@ -147,11 +153,12 @@ impl App {
             dev::ImeReport::Clear => vec![cleared()],
             dev::ImeReport::Disabled => vec![ImeEvent::Disabled],
         };
+        let mut redraw = false;
         for event in events {
-            self.ime_event(event_loop, event);
+            redraw |= self.ime_event(event_loop, event);
         }
         let key = dev::HandledKey {
-            redraw: true,
+            redraw,
             withheld: watch.after_key(&self.editor),
         };
         self.timings.key_handled(received, key);

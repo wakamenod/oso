@@ -9,7 +9,7 @@
 //!   also comes unasked, when the input source changes.
 //! - Turning the IME off waits while a composition is open, as the OS keeps a
 //!   composition it was turned off in, and the next key would bring it back.
-//! - Nothing of a composition's text reaches a log, only its length (ADR 0028).
+//! - Nothing of a composition reaches a log but that one happened (ADR 0028).
 
 use std::ops::Range;
 
@@ -83,36 +83,39 @@ impl App {
         }
     }
 
-    /// Handles a report of the input method, from winit or the dev socket.
-    pub(super) fn ime_event(&mut self, event_loop: &ActiveEventLoop, event: ImeEvent) {
-        match event {
+    /// Handles a report of the input method, from winit or the dev socket. Returns
+    /// whether it asked for a frame.
+    pub(super) fn ime_event(&mut self, event_loop: &ActiveEventLoop, event: ImeEvent) -> bool {
+        let redraw = match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
-                // The first preedit is a key: keys never reach oso during a composition.
                 if self.editor.preedit().is_none() {
-                    self.editor.clear_echo();
-                    self.editor.reset_exit_guard();
+                    self.dispatcher.begin_composition(&mut self.editor);
                 }
-                log::trace!("preedit of {} bytes", text.len());
                 self.editor.set_preedit(Some(Preedit::new(text, range)));
                 self.request_redraw();
+                true
             }
             ImeEvent::Preedit(..) | ImeEvent::Disabled => self.end_composition(),
             ImeEvent::Commit(text) => {
-                self.end_composition();
-                log::trace!("commit of {} bytes", text.len());
+                let ended = self.end_composition();
+                log::trace!("commit");
                 let effects = self.dispatcher.commit_text(&mut self.editor, &text);
                 self.apply(event_loop, effects);
+                ended || effects.redraw
             }
-        }
+        };
         self.sync_ime();
+        redraw
     }
 
-    /// Drops the preedit, if one is shown.
-    fn end_composition(&mut self) {
-        if self.editor.preedit().is_some() {
+    /// Drops the preedit, if one is shown. Returns whether one was.
+    pub(super) fn end_composition(&mut self) -> bool {
+        let shown = self.editor.preedit().is_some();
+        if shown {
             self.editor.set_preedit(None);
             self.request_redraw();
         }
+        shown
     }
 
     /// Whether a composition is open.
@@ -145,17 +148,23 @@ impl App {
         let (Some(wanted), Some(view)) = (next, &self.view) else {
             return;
         };
+        let presented = view.render_state.presented_frames() > 0;
         view.window.set_ime_allowed(wanted);
         self.ime.allowed = wanted;
         log::debug!("IME allowed: {wanted}");
+        // The cursor may have moved while it was off.
+        if wanted && presented {
+            self.give_cursor_area();
+        }
     }
 
     /// Gives the OS the primary cursor's cell, for its candidate window, if it moved
-    /// since the last time. Called once a frame is presented: the first call costs a few
-    /// milliseconds before the first frame. Not during a composition, where it moves
-    /// nothing, and not in a buffer that may hold secrets, which has the IME off.
+    /// since the last time. Called once a frame is presented, as the first call costs a
+    /// few milliseconds before the first frame, and when the IME turns on. Not during a
+    /// composition, where it moves nothing, and not while the IME is off, as in a buffer
+    /// that may hold secrets.
     pub(super) fn give_cursor_area(&mut self) {
-        if self.composing() || self.editor.current().1.is_secret() {
+        if self.composing() || !self.ime.allowed {
             return;
         }
         let Some(view) = &self.view else {

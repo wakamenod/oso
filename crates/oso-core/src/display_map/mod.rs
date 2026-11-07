@@ -28,7 +28,9 @@
 //!
 //! Callers use only [`DisplayMap`] and [`DisplaySnapshot`], so adding a
 //! layer does not change their code. Text that is no buffer's has no layers, and
-//! goes through [`text_clusters`].
+//! goes through [`text_clusters`]. A row with an input method's preedit is read
+//! through [`row_clusters`], which a new layer must keep in step with
+//! [`DisplaySnapshot::clusters`].
 
 pub mod cell;
 mod preedit;

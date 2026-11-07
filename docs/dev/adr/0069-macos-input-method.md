@@ -60,8 +60,10 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
   for the selected window, as its text and an optional byte range. A range that is not
   on character boundaries of the text, or runs past it, is dropped and the text kept.
   Nothing writes it to a buffer, the undo history, an emergency copy, a state handoff or
-  a log; IME events are logged with their lengths only
-  ([ADR 0028](0028-secrets-handling.md)).
+  a log, and a log says only that a commit happened, nor does the socket's stand-in
+  give its text to `Debug` ([ADR 0028](0028-secrets-handling.md)). Short pieces of it may
+  stay in the renderer's cache of shaped pieces until the next edit, as any text drawn
+  does ([ADR 0068](0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md)).
 - **It is shown at the primary cursor only.** A commit inserts at every cursor, as
   typing does ([ADR 0007](0007-multi-cursor.md)).
 - **Its cells follow the buffer's rules.** It is segmented with `text_clusters`, so
@@ -88,8 +90,8 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
   span from the cursor to the box: it scrolls sideways by the fewest columns that show
   the box, and the preedit's start too when both fit. A preedit wider than the window
   shows its end, where typing happens.
-- **The first preedit of a composition counts as a key:** it empties the echo area and
-  resets the exit guard, as `Dispatcher::handle_key` does. Later ones change only the
+- **The first preedit of a composition counts as a key:** `Dispatcher::begin_composition`
+  empties the echo area and resets the exit guard, through the same wrapper as a key. Later ones change only the
   preedit and ask for a frame.
 - **Each commit is one undo step,** also a single character. A commit goes through a new
   `Dispatcher::commit_text`, the same path as `insert_text` but never asking to join the
@@ -127,16 +129,21 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
     hiragana.
 
   The minibuffer (M2-16), isearch (M2-20) and menus (M3) add their own condition to this
-  function. `Dispatcher::pending` leaves its dev-only `cfg`.
+  function. `Dispatcher::reads_keys` says whether a prefix key or argument waits.
 - **Turning off waits for the composition to end.** While a preedit is shown, a change to
   "not wanted" is kept, and applied at the composition's end: an empty preedit, a commit,
   or `Disabled`. Keys cannot cause such a change, as they are swallowed; only a socket
-  request or another thread can. Turning on happens at once.
+  request or another thread can. Turning on happens at once, and gives the OS the
+  cursor's cell if it moved while the IME was off.
+- **A socket request that leaves a buffer that may hold secrets selected ends a
+  composition,** so the IME goes off there at once. A composition the socket made has
+  no OS behind it to end it.
 - **A commit goes where typing goes at that moment,** as a key would. If a request
   changed the selected buffer during the composition, the commit goes there, and fails
   as a key would where text is refused.
 - **oso keeps its own state** and never reads it back from `Ime` events: whether it
-  wants the IME, whether it last allowed it, and whether a composition is open.
+  wants the IME, whether it last allowed it, and whether a composition is open, which is
+  whether the editor holds a preedit.
   - `Enabled` changes nothing.
   - `Disabled` ends any composition and drops the preedit, whether oso asked for it or
     not. It does not change what oso wants, and the next composition sends `Enabled`
@@ -145,7 +152,8 @@ per commit, and the preedit metric. Which way Option stays Super waits for their
 - **Focus changes nothing.** On `Focused(false)` during a composition the preedit stays
   drawn, and the composition continues on return, as the OS keeps it.
 - **A dev restart waits for a composition to end,** as it waits for a save:
-  `check-handover` refuses while a preedit is shown, and the next build tries again
+  `check-handover`, and `exit` with a generation, refuse while a preedit is shown, and
+  the next build tries again
   ([ADR 0055](0055-oso-dev-never-loses-unsaved-text.md)). Closing the window during a
   composition loses the preedit, which is not buffer text.
 
@@ -201,8 +209,9 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   answer changes, under 1 µs.
 - **A preedit event** copies its text into the editor, follows, and draws a frame in which
   one row is shaped again, as one typed key would cost. Other rows are reused.
-- **A frame where the cursor moved** gains one `set_ime_cursor_area`, 20 to 60 µs, after
-  the frame is presented.
+- **A frame where the cursor moved on the screen** gains one `set_ime_cursor_area`, 20 to
+  60 µs, after the frame is presented. Each frame of a wheel or trackpad scroll moves it,
+  so a scroll pays this once a frame, after the frame.
 - **A commit** costs as typing the same text does, plus one undo step.
 - **The first key after launch** stalls the UI thread for about 21 to 32 ms with the IME
   allowed, against 6 to 15 ms without, once per process, as the OS's input method starts.
@@ -251,7 +260,12 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
 - Soft wrap (M2-25) must decide what a preedit that pushes past the right edge does on a
   wrapped row.
 - The `open-questions.md` item on `dispatch.rs` wrapping `handle_key`, `insert_text` and
-  `run_command` the same way is done with `commit_text`, as one wrapper for all four.
+  `run_command` the same way is done: one wrapper, `as_input`, serves them,
+  `commit_text` and `begin_composition`. The exit guard stays outside it, as a prefix key
+  must not reset it.
+- The socket's `ime` takes a preedit of at most 64 KiB, so that segmenting one stays
+  short. A long preedit keeps an index of every 256th cluster, so a frame that shows its
+  end reads only from near there.
 
 ## Alternatives considered
 

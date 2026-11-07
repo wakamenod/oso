@@ -768,6 +768,51 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_changing_preedit_shapes_only_its_own_row_and_that_row_once_after() {
+        let buffer = Buffer::from_text("t", &"row of text\n".repeat(40));
+        let display = buffer.display();
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        rows.begin(buffer_id(), 1);
+        let mut frame = |rows: &mut Rows, preedit: Option<&Preedit>| {
+            let before = rows.shaped_count();
+            for row in 0..40 {
+                let spliced = preedit.filter(|_| row == 5).map(|preedit| (4, preedit));
+                rows.row(&display, row, 0..128, spliced, &mut system);
+            }
+            rows.shaped_count() - before
+        };
+        frame(&mut rows, None);
+        for text in ["か", "かな", "仮名"] {
+            let preedit = Preedit::new(text.into(), None);
+            assert_eq!(frame(&mut rows, Some(&preedit)), 1, "{text}");
+        }
+        assert_eq!(frame(&mut rows, None), 1, "the row goes back to its text");
+        assert_eq!(frame(&mut rows, None), 0);
+    }
+
+    #[test]
+    fn a_preedit_deep_in_a_long_line_reads_only_the_columns_asked_for() {
+        let buffer = Buffer::from_text("t", &"あ".repeat(1_000_000));
+        let preedit = Preedit::new("か".repeat(100), None);
+        let mut rows = Rows::default();
+        rows.begin(buffer_id(), 1);
+        for columns in [
+            999_936..1_000_064,
+            1_000_064..1_000_192,
+            1_000_192..1_000_320,
+        ] {
+            let mut system = Recorder::default();
+            let start = columns.start;
+            let spliced = Some((1_000_000, &preedit));
+            let shaped = rows.row(&buffer.display(), 0, columns, spliced, &mut system);
+            let read: usize = system.shaped.iter().map(|text| text.chars().count()).sum();
+            assert_eq!(read, 64, "from {start}");
+            assert_eq!(shaped.glyphs[0].column, start);
+        }
+    }
+
+    #[test]
     fn a_preedit_takes_the_preedit_face_and_its_escapes_their_own() {
         let buffer = Buffer::from_text("t", "x");
         let preedit = Preedit::new("a\u{1}".into(), None);

@@ -350,8 +350,8 @@ pub fn show_buffer(editor: &mut Editor, buffer: u64) -> Reply {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, screenshot_allowed,
-        show_buffer,
+        ImeFacts, MAX_TEXT, MAX_TEXT_ROWS, MAX_VISIBLE_TEXT, Reply, get_state, get_text, ime_state,
+        screenshot_allowed, show_buffer,
     };
     use oso_core::buffer::{Buffer, BufferId, Replacement};
     use oso_core::editor::Editor;
@@ -656,6 +656,36 @@ mod tests {
         assert_eq!(state["windows"][0]["buffer"], state["buffer"]["id"]);
         assert_eq!(state["buffer"]["lines"], 3);
         assert_eq!(state["keys"]["pending"], "");
+    }
+
+    #[test]
+    fn the_preedit_its_range_and_the_area_are_withheld_while_a_secret_is_shown() {
+        let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
+        let facts = ImeFacts {
+            wanted: true,
+            allowed: true,
+            area: Some(oso_core::frame::PixelRect {
+                x: 8.0,
+                y: 8.0,
+                width: 10.0,
+                height: 20.0,
+            }),
+        };
+        let preedit = oso_core::display_map::Preedit::new("にほ".into(), Some(6..6));
+        editor.set_preedit(Some(preedit));
+        let withheld = ime_state(&editor, &facts);
+        assert_eq!(withheld["composing"], true);
+        for hidden in ["preedit", "range", "area"] {
+            assert_eq!(withheld[hidden], json!(null), "{hidden}");
+        }
+        let scratch = editor.buffers().next().unwrap().0;
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let shown = ime_state(&editor, &facts);
+        assert_eq!(shown["preedit"], "にほ");
+        assert_eq!(shown["range"], json!([6, 6]));
+        assert_eq!(shown["area"]["width"], 10.0);
+        show_buffer(&mut editor, secret.get()).unwrap();
+        assert_eq!(ime_state(&editor, &facts)["preedit"], json!(null));
     }
 
     #[test]

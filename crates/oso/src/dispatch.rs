@@ -246,6 +246,13 @@ impl Dispatcher {
         })
     }
 
+    /// Starts an input method's composition, which counts as a key: keys never reach
+    /// oso during one (ADR 0069).
+    pub fn begin_composition(&mut self, editor: &mut Editor) {
+        editor.reset_exit_guard();
+        self.as_input(editor, |_, _| ());
+    }
+
     /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
     /// always as an undo step of its own, even of one character (ADR 0069).
     pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {

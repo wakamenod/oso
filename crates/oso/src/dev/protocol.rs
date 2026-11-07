@@ -40,6 +40,10 @@ const MAX_ECHO: usize = 64;
 /// echoed in errors, so this keeps responses small.
 const MAX_COMMAND_NAME: usize = 256;
 
+/// The longest preedit `ime` takes, in bytes. An input method's is a phrase or a
+/// sentence, and each one is segmented once when it comes (ADR 0069).
+const MAX_PREEDIT: usize = 64 * 1024;
+
 /// The largest count `run-command` passes on, in either direction. A command
 /// runs on the UI thread and may repeat its work this many times, so this
 /// plays the part of [`MAX_KEYS`].
@@ -101,8 +105,9 @@ pub enum UiOp {
     Ime(ImeReport),
 }
 
-/// What `ime` reports in place of the OS's input method.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What `ime` reports in place of the OS's input method. Its `Debug` gives lengths
+/// only: the text is what a person would type (ADR 0028).
+#[derive(Clone, PartialEq, Eq)]
 pub enum ImeReport {
     /// The text being composed, and the caret or the segment being converted, in
     /// bytes. An empty text ends the composition, as `Clear` does.
@@ -116,6 +121,24 @@ pub enum ImeReport {
     Clear,
     /// The input method turned off, as when the input source changes.
     Disabled,
+}
+
+impl std::fmt::Debug for ImeReport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Preedit { text, range } => f
+                .debug_struct("Preedit")
+                .field("bytes", &text.len())
+                .field("range", range)
+                .finish(),
+            Self::Commit(text) => f
+                .debug_struct("Commit")
+                .field("bytes", &text.len())
+                .finish(),
+            Self::Clear => f.write_str("Clear"),
+            Self::Disabled => f.write_str("Disabled"),
+        }
+    }
 }
 
 /// A parsed request.
@@ -323,6 +346,9 @@ fn parse_ime(params: &Map<String, Value>) -> Result<ImeReport, String> {
         return Err(USAGE.into());
     };
     match (name.as_str(), value) {
+        ("preedit", Value::String(text)) if text.len() > MAX_PREEDIT => Err(format!(
+            "ime takes a preedit of at most {MAX_PREEDIT} bytes"
+        )),
         ("preedit", Value::String(text)) => Ok(ImeReport::Preedit {
             text: text.clone(),
             range,
@@ -491,6 +517,8 @@ mod tests {
                 "{params}"
             );
         }
+        let long = json!({ "preedit": "a".repeat(super::MAX_PREEDIT + 1) }).to_string();
+        assert!(ime(&long).unwrap_err().message.contains("at most"));
     }
 
     #[test]

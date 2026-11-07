@@ -7,7 +7,7 @@
 //! The tests live here because `oso` is a binary crate, so `tests/` cannot
 //! reach the `Dispatcher`. The grid draws through the code the renderer uses
 //! (`DisplayCluster::for_each_run`, `Window::cursor_point`,
-//! `motion::cursor_cells`, `frame::cursor_rect`), so a snapshot fails when
+//! `motion::cursor_box`, `frame::cursor_rect`), so a snapshot fails when
 //! the cells on screen change. Pixels are not covered (ADR 0037, layer 4).
 //!
 //! A frame is its regions from the top (ADR 0057). Each row of the text area is
@@ -99,9 +99,10 @@ fn underline(at: usize, preedit: &Preedit, left: usize, columns: usize) -> Strin
             }
         }
     };
-    mark(at..at + preedit.cells(), '-');
-    if let Some(segment) = preedit.segment() {
-        mark(at + segment.start..at + segment.end, '=');
+    let (all, segment) = preedit.underlines(at);
+    mark(all, '-');
+    if let Some(segment) = segment {
+        mark(segment, '=');
     }
     format!("_{}_", marks.into_iter().collect::<String>())
 }

@@ -697,6 +697,7 @@ pub fn oso_core::display_map::Preedit::new(alloc::string::String, core::option::
 pub fn oso_core::display_map::Preedit::range(&self) -> core::option::Option<core::ops::range::Range<usize>>
 pub fn oso_core::display_map::Preedit::segment(&self) -> core::option::Option<core::ops::range::Range<usize>>
 pub fn oso_core::display_map::Preedit::text(&self) -> &str
+pub fn oso_core::display_map::Preedit::underlines(&self, usize) -> (core::ops::range::Range<usize>, core::option::Option<core::ops::range::Range<usize>>)
 impl core::clone::Clone for oso_core::display_map::Preedit
 pub fn oso_core::display_map::Preedit::clone(&self) -> oso_core::display_map::Preedit
 impl core::cmp::Eq for oso_core::display_map::Preedit
