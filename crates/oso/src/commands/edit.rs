@@ -33,9 +33,15 @@ const MAX_CROSSINGS: usize = 256;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "self-insert-command",
-        doc: "Insert the typed character at every cursor, N times.\n\nSingle characters typed in a row undo together, up to 20 of them. A count over 1, or text of several characters from an input method, is an undo step of its own. A negative N signals an error.",
+        doc: "Insert the typed character at every cursor, N times.\n\nSingle characters typed in a row undo together, up to 20 of them. A count over 1, text of several characters, or an input method's commit, is an undo step of its own. A negative N signals an error.",
         args: ArgSpec::Count,
         run: self_insert_command,
+    },
+    Command {
+        name: "insert-full-width-space",
+        doc: "Insert a full-width space (U+3000) at every cursor, N times.\n\n`SPC` inserts a half-width one, also with a Japanese input source. It undoes with the typing around it, as one typed character does. A negative N signals an error.",
+        args: ArgSpec::Count,
+        run: insert_full_width_space,
     },
     Command {
         name: "newline",
@@ -134,6 +140,17 @@ fn self_insert_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
         ctx.editor.allow_undo_join();
     }
     insert_at_cursors(ctx, input, args.count())
+}
+
+/// The space a Japanese input method types for `SPC`, which winit cannot deliver
+/// (ADR 0069).
+const FULL_WIDTH_SPACE: &str = "\u{3000}";
+
+fn insert_full_width_space(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    if args.count() < 2 {
+        ctx.editor.allow_undo_join();
+    }
+    insert_at_cursors(ctx, FULL_WIDTH_SPACE, args.count())
 }
 
 fn newline(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

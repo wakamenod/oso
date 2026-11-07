@@ -31,6 +31,7 @@
 //! goes through [`text_clusters`].
 
 pub mod cell;
+mod preedit;
 pub mod tab_map;
 
 use crate::decode::InvalidBytes;
@@ -38,6 +39,7 @@ use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
 pub use cell::{CellKind, CellStyle, Clusters, Escape, MAX_CLUSTER_BYTES, TabWidth, escape};
+pub use preedit::{Preedit, row_clusters};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.

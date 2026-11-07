@@ -9,6 +9,7 @@
 //! - Response: `{"id": 1, "result": ...}` or
 //!   `{"id": 1, "error": {"message": "..."}}`, echoing the request's `id`.
 
+use std::ops::Range;
 use std::path::PathBuf;
 
 use oso_core::display_map::cell::is_invisible;
@@ -95,6 +96,26 @@ pub enum UiOp {
     Panic,
     /// End the event loop with nobody having agreed to, as the OS does.
     EndUnasked,
+    /// Report this as the OS's input method would, as no flow can drive a real one
+    /// (ADR 0069).
+    Ime(ImeReport),
+}
+
+/// What `ime` reports in place of the OS's input method.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImeReport {
+    /// The text being composed, and the caret or the segment being converted, in
+    /// bytes. An empty text ends the composition, as `Clear` does.
+    Preedit {
+        text: String,
+        range: Option<Range<usize>>,
+    },
+    /// A commit, which the OS sends after an empty preedit.
+    Commit(String),
+    /// The composition ends with no commit.
+    Clear,
+    /// The input method turned off, as when the input source changes.
+    Disabled,
 }
 
 /// A parsed request.
@@ -170,6 +191,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "check-handover" => UiOp::CheckHandover,
         "dev-panic" => UiOp::Panic,
         "dev-end-unasked" => UiOp::EndUnasked,
+        "ime" => UiOp::Ime(parse_ime(params).map_err(|m| bad(&id, m))?),
         "export-state" => UiOp::ExportState,
         "import-state" => {
             let state = params
@@ -276,6 +298,42 @@ fn parse_run_command(params: &Map<String, Value>) -> Result<UiOp, String> {
     })
 }
 
+/// The parameters of `ime`: one of `preedit` (with an optional `range` of two byte
+/// offsets), `commit`, `clear` or `disabled`. A range off the text is the editor's to
+/// drop, as one from the OS would be.
+fn parse_ime(params: &Map<String, Value>) -> Result<ImeReport, String> {
+    const USAGE: &str = "ime takes one of \"preedit\" (a string, with an optional \"range\" of \
+                         two byte offsets), \"commit\" (a string), \"clear\" or \"disabled\" (true)";
+    let offset = |value: &Value| {
+        value
+            .as_u64()
+            .and_then(|offset| usize::try_from(offset).ok())
+            .ok_or_else(|| USAGE.to_owned())
+    };
+    let range = match params.get("range") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(pair)) => match pair.as_slice() {
+            [start, end] => Some(offset(start)?..offset(end)?),
+            _ => return Err(USAGE.into()),
+        },
+        Some(_) => return Err(USAGE.into()),
+    };
+    let mut named = params.iter().filter(|(name, _)| *name != "range");
+    let (Some((name, value)), None) = (named.next(), named.next()) else {
+        return Err(USAGE.into());
+    };
+    match (name.as_str(), value) {
+        ("preedit", Value::String(text)) => Ok(ImeReport::Preedit {
+            text: text.clone(),
+            range,
+        }),
+        ("commit", Value::String(text)) if range.is_none() => Ok(ImeReport::Commit(text.clone())),
+        ("clear", Value::Bool(true)) if range.is_none() => Ok(ImeReport::Clear),
+        ("disabled", Value::Bool(true)) if range.is_none() => Ok(ImeReport::Disabled),
+        _ => Err(USAGE.into()),
+    }
+}
+
 /// A required parameter that is a non-negative integer.
 fn parse_size(params: &Map<String, Value>, method: &str, name: &str) -> Result<usize, String> {
     params
@@ -349,8 +407,8 @@ pub fn request(id: u64, method: &str, params: Option<Value>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_COMMAND_ARG, MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, UiOp, failure, parse,
-        request, success,
+        ImeReport, MAX_COMMAND_ARG, MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, UiOp, failure,
+        parse, request, success,
     };
     use serde_json::{Value, json};
 
@@ -389,6 +447,50 @@ mod tests {
                 "<right>".parse().unwrap()
             ]))
         );
+    }
+
+    #[test]
+    fn ime_takes_one_report() {
+        let ime = |params: &str| parse(&format!(r#"{{"method": "ime", "params": {params}}}"#));
+        let report = |params: &str| match ime(params).unwrap().method {
+            Method::Ui(UiOp::Ime(report)) => report,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            report(r#"{"preedit": "にほん", "range": [3, 6]}"#),
+            ImeReport::Preedit {
+                text: "にほん".into(),
+                range: Some(3..6)
+            }
+        );
+        assert_eq!(
+            report(r#"{"preedit": "か"}"#),
+            ImeReport::Preedit {
+                text: "か".into(),
+                range: None
+            }
+        );
+        assert_eq!(
+            report(r#"{"commit": "日本"}"#),
+            ImeReport::Commit("日本".into())
+        );
+        assert_eq!(report(r#"{"clear": true}"#), ImeReport::Clear);
+        assert_eq!(report(r#"{"disabled": true}"#), ImeReport::Disabled);
+        for params in [
+            r#"{}"#,
+            r#"{"preedit": "a", "commit": "b"}"#,
+            r#"{"preedit": 1}"#,
+            r#"{"preedit": "a", "range": [1]}"#,
+            r#"{"preedit": "a", "range": [-1, 2]}"#,
+            r#"{"commit": "a", "range": [0, 0]}"#,
+            r#"{"clear": false}"#,
+            r#"{"range": [0, 0]}"#,
+        ] {
+            assert!(
+                ime(params).unwrap_err().message.starts_with("ime takes"),
+                "{params}"
+            );
+        }
     }
 
     #[test]

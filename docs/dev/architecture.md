@@ -35,7 +35,7 @@ crates/
 │                   keymaps, config; no GPU, #![forbid(unsafe_code)]
 ├── oso-render/     wgpu pipeline, glyph atlas
 └── oso-platform/   OS abstractions: the text-system trait and its
-                    shaping/rasterizing backends, IME, clipboard,
+                    shaping/rasterizing backends, clipboard,
                     filesystem and paths, process spawning, PTY
 ```
 
@@ -197,9 +197,16 @@ A panicking command is caught at the command boundary
   in `crates/oso/src/bindings/`, with a table for each module of commands.
 - A keymap may have a text command, which runs for a key that types a character
   (no Control, Meta or Super) and that it does not bind. The command reads the
-  character from `ctx.input()`. Other text, from an input method, goes to the same
-  command through `Dispatcher::insert_text`
-  ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md)).
+  character from `ctx.input()`. Other text goes to the same command through
+  `Dispatcher::insert_text`, and an input method's commit through
+  `Dispatcher::commit_text`, which keeps it an undo step of its own
+  ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md),
+  [ADR 0069](adr/0069-macos-input-method.md)).
+- The input method is winit's, in the tip crate (`app/ime.rs`). oso keeps its own state of
+  it, and turns it off where the next key is read as a key or cannot type: a pending
+  prefix or prefix argument, a read-only buffer, one that may hold secrets, and the list of
+  emergency copies. Turning off waits for a composition to end
+  ([ADR 0069](adr/0069-macos-input-method.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of

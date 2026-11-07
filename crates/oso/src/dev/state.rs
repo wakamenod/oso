@@ -22,8 +22,9 @@ use std::sync::mpsc;
 use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
-use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
+use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::editor::{Editor, Status};
+use oso_core::frame::PixelRect;
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::motion;
@@ -98,6 +99,38 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         state["echo"] = json!(status.echo);
     }
     state
+}
+
+/// What the app has told the OS of the input method, for [`ime_state`].
+pub struct ImeFacts {
+    /// Whether the app wants it on (ADR 0069).
+    pub wanted: bool,
+    /// Whether it last allowed it, which waits for a composition to end.
+    pub allowed: bool,
+    /// The cursor area last given to the OS, in physical pixels.
+    pub area: Option<PixelRect>,
+}
+
+/// The `ime` field of `get-state`: what the app wants and allowed, whether a composition
+/// is open, its preedit and range, and the area given to the OS. While a buffer that may
+/// hold secrets is shown, the preedit, its range and the area are null (ADR 0069).
+pub fn ime_state(editor: &Editor, facts: &ImeFacts) -> Value {
+    let preedit = editor.preedit();
+    let shown = !editor.shows_secret();
+    let area = facts.area.filter(|_| shown).map(
+        |area| json!({ "x": area.x, "y": area.y, "width": area.width, "height": area.height }),
+    );
+    json!({
+        "wanted": facts.wanted,
+        "allowed": facts.allowed,
+        "composing": preedit.is_some(),
+        "preedit": preedit.filter(|_| shown).map(Preedit::text),
+        "range": preedit
+            .filter(|_| shown)
+            .and_then(Preedit::range)
+            .map(|range| [range.start, range.end]),
+        "area": area,
+    })
 }
 
 fn scroll_state(window: &Window) -> Value {

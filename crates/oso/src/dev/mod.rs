@@ -26,9 +26,9 @@ use oso_platform::control::{CleanupGuard, ControlDir};
 use oso_render::Capture;
 use serde_json::json;
 
-pub use protocol::{Reply, UiOp};
+pub use protocol::{ImeReport, Reply, UiOp};
 pub use server::UiRequest;
-pub use state::{get_state, get_text, screenshot_allowed, show_buffer};
+pub use state::{ImeFacts, get_state, get_text, ime_state, screenshot_allowed, show_buffer};
 pub use timing::{HandledKey, SecretWatch, Timings};
 
 /// The option that sends emergency copies elsewhere, so that the end-to-end flows can

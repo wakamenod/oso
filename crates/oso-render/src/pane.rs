@@ -5,7 +5,7 @@
 //! GPU. These are plain data, and everything else in this crate reads them.
 
 use oso_core::buffer::BufferId;
-use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot};
+use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::frame::CellRect;
 use oso_core::window::Scroll;
 
@@ -36,13 +36,16 @@ pub enum Face {
     Modeline,
     /// A warning that must be seen, on whatever is behind it.
     Warning,
+    /// Text an input method is composing, and its underline (ADR 0069). It is
+    /// shaped apart from the text around it.
+    Preedit,
 }
 
 impl Face {
     /// The color of coverage glyphs.
     pub(crate) fn foreground(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Modeline => FOREGROUND,
+            Self::Text | Self::Modeline | Self::Preedit => FOREGROUND,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
@@ -56,6 +59,7 @@ impl Face {
             Self::Boxed => ESCAPE_BOX,
             Self::Cursor => CURSOR,
             Self::Modeline => MODELINE,
+            Self::Preedit => FOREGROUND,
         }
     }
 
@@ -87,7 +91,7 @@ impl Layer {
 }
 
 /// A window's view of a buffer.
-pub struct TextView {
+pub struct TextView<'a> {
     /// The buffer's display model.
     pub display: DisplaySnapshot,
     /// The buffer, so that cached shaping of another one is not reused.
@@ -97,8 +101,11 @@ pub struct TextView {
     pub revision: u64,
     /// The display row and column at the top left.
     pub scroll: Scroll,
-    /// Where the cursor box goes.
+    /// The primary cursor. The box goes here, or where `preedit` puts it.
     pub cursor: DisplayPoint,
+    /// What an input method is composing, spliced into the cursor's row at the
+    /// cursor and pushing the rest of it (ADR 0069).
+    pub preedit: Option<&'a Preedit>,
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its
@@ -113,7 +120,7 @@ pub struct Span<'a> {
 /// What a pane shows.
 pub enum PaneContent<'a> {
     /// Rows of a buffer.
-    Text(TextView),
+    Text(TextView<'a>),
     /// Rows that are no buffer's, from the pane's top row, each a list of spans
     /// from its first column. Each shown row is read and compared with what
     /// was shaped every frame, so they carry no revision. Large and long-lived

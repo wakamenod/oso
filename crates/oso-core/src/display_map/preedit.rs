@@ -1,0 +1,268 @@
+//! Text an input method is composing, the preedit, and a display row's clusters
+//! with it spliced in at the cursor (ADR 0069). It is no buffer's: nothing here
+//! changes the display map, and the renderer and the text-grid snapshots both read
+//! the cursor's row through [`row_clusters`], so they agree.
+//!
+//! Must not depend on: `tab_map`'s internals, or anything that knows where the
+//! cursor is; the caller says where the preedit goes.
+//!
+//! The preedit's cells come from [`text_clusters`], so it takes the cells and
+//! escapes it would take as text that is no buffer's. What follows it on the row
+//! keeps its own cells, moved right by the preedit's width; a tab there keeps the
+//! width of its buffer column.
+
+use std::ops::{ControlFlow, Range};
+
+use super::{DisplayCluster, DisplayPoint, DisplaySnapshot, text_clusters};
+
+/// What an input method is composing, with the part it marks, in cells worked out
+/// once. No `Debug`: it is text being typed (ADR 0028).
+#[derive(Clone, PartialEq, Eq)]
+pub struct Preedit {
+    text: String,
+    /// The input method's range, in bytes on character boundaries of `text`.
+    range: Option<Range<usize>>,
+    /// The cells `text` takes.
+    cells: usize,
+    /// Where the caret is, when `range` is a caret before the end: the cells
+    /// before it, and those of the cluster it is on.
+    caret: Option<(usize, usize)>,
+    /// The cells of the segment being converted, when `range` is not empty.
+    segment: Option<Range<usize>>,
+}
+
+impl Preedit {
+    /// The preedit `text`, with `range` in bytes as the input method gives it: the
+    /// caret if it is empty, else the segment being converted. A range off the
+    /// text's character boundaries, or past its end, is dropped and the text kept.
+    pub fn new(text: String, range: Option<Range<usize>>) -> Self {
+        let range = range.filter(|range| {
+            range.start <= range.end
+                && text.is_char_boundary(range.start)
+                && text.is_char_boundary(range.end)
+        });
+        let mut cells = 0;
+        let mut caret = None;
+        let mut segment: Option<Range<usize>> = None;
+        for cluster in text_clusters(&text, 0) {
+            let end = cluster.offset + cluster.text.len();
+            let width = cluster.cells.max(1);
+            if let Some(range) = &range {
+                let covers = |byte: usize| cluster.offset <= byte && byte < end;
+                if range.is_empty() && covers(range.start) {
+                    caret = Some((cluster.column, width));
+                }
+                if !range.is_empty() && cluster.offset < range.end && range.start < end {
+                    let start = segment.as_ref().map_or(cluster.column, |s| s.start);
+                    segment = Some(start..cluster.column + width);
+                }
+            }
+            cells = cluster.column + width;
+        }
+        Self {
+            text,
+            range,
+            cells,
+            caret,
+            segment,
+        }
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// The input method's range in bytes, if it gave one that fits the text.
+    pub fn range(&self) -> Option<Range<usize>> {
+        self.range.clone()
+    }
+
+    /// The cells the preedit takes on its row.
+    pub fn cells(&self) -> usize {
+        self.cells
+    }
+
+    /// The cells of the segment being converted, from the preedit's start.
+    pub fn segment(&self) -> Option<Range<usize>> {
+        self.segment.clone()
+    }
+
+    /// Where the cursor box goes: the cells from the preedit's start, and the cells
+    /// of the preedit's cluster there. `None` puts it after the preedit, on what
+    /// follows, while typing at the end and while converting (ADR 0069).
+    pub fn caret(&self) -> Option<(usize, usize)> {
+        self.caret
+    }
+}
+
+/// Calls `each` for the clusters of `start.row` from the one that covers
+/// `start.column`, as [`DisplaySnapshot::clusters`] gives them, with `preedit`
+/// spliced in at column `at` and what follows it moved right by its cells, until
+/// `each` breaks. Each cluster comes with whether it is the preedit's. `at` is where
+/// a cluster starts, as a cursor is.
+pub fn row_clusters<'a>(
+    display: &'a DisplaySnapshot,
+    start: DisplayPoint,
+    preedit: Option<(usize, &'a Preedit)>,
+    mut each: impl FnMut(DisplayCluster<'a>, bool) -> ControlFlow<()>,
+) {
+    let Some((at, preedit)) = preedit else {
+        for cluster in display.clusters(start) {
+            if each(cluster, false).is_break() {
+                return;
+            }
+        }
+        return;
+    };
+    if start.column < at {
+        for cluster in display.clusters(start) {
+            if cluster.column >= at || each(cluster, false).is_break() {
+                break;
+            }
+        }
+    }
+    for cluster in text_clusters(&preedit.text, at) {
+        if cluster.column + cluster.cells.max(1) <= start.column {
+            continue;
+        }
+        if each(cluster, true).is_break() {
+            return;
+        }
+    }
+    let width = preedit.cells;
+    let from = start.column.saturating_sub(width).max(at);
+    for mut cluster in display.clusters(DisplayPoint::new(start.row, from)) {
+        cluster.column += width;
+        if each(cluster, false).is_break() {
+            return;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::display_map::{DisplayMap, TabWidth};
+    use crate::rope::Rope;
+
+    fn snapshot(text: &str) -> DisplaySnapshot {
+        DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot()
+    }
+
+    /// The row's clusters from `start` as (column, text, whether the preedit's).
+    fn row(
+        display: &DisplaySnapshot,
+        start: DisplayPoint,
+        preedit: Option<(usize, &Preedit)>,
+    ) -> Vec<(usize, String, bool)> {
+        let mut out = Vec::new();
+        row_clusters(display, start, preedit, |cluster, own| {
+            out.push((cluster.column, cluster.text.to_owned(), own));
+            ControlFlow::Continue(())
+        });
+        out.retain(|(_, text, _)| text != "\n");
+        out
+    }
+
+    fn texts(row: &[(usize, String, bool)]) -> String {
+        row.iter().map(|(_, text, _)| text.as_str()).collect()
+    }
+
+    #[test]
+    fn the_preedit_takes_its_cells_from_the_clusters() {
+        let preedit = Preedit::new("にほんa".into(), None);
+        assert_eq!(preedit.cells(), 7);
+        assert_eq!(preedit.caret(), None);
+        assert_eq!(preedit.segment(), None);
+        // A control character is its escape, as text that is no buffer's.
+        assert_eq!(Preedit::new("a\u{1}".into(), None).cells(), 3);
+    }
+
+    #[test]
+    fn a_caret_before_the_end_puts_the_box_on_its_cluster() {
+        let text = "にほん".to_owned();
+        assert_eq!(Preedit::new(text.clone(), Some(3..3)).caret(), Some((2, 2)));
+        assert_eq!(Preedit::new(text.clone(), Some(9..9)).caret(), None);
+        assert_eq!(Preedit::new(text, Some(0..0)).caret(), Some((0, 2)));
+    }
+
+    #[test]
+    fn a_range_marks_the_segment_in_cells() {
+        // 日本 then 語: the IME converts the second clause.
+        let preedit = Preedit::new("日本語".into(), Some(6..9));
+        assert_eq!(preedit.segment(), Some(4..6));
+        assert_eq!(preedit.caret(), None);
+        let emoji = Preedit::new("😀".into(), Some(0..4));
+        assert_eq!(emoji.segment(), Some(0..2));
+    }
+
+    #[test]
+    fn a_range_off_the_text_is_dropped_and_the_text_kept() {
+        let backward = Range { start: 4, end: 2 };
+        for range in [1..1, 0..1, backward, 0..10] {
+            let preedit = Preedit::new("日本".into(), Some(range.clone()));
+            assert_eq!(preedit.range(), None, "{range:?}");
+            assert_eq!(preedit.text(), "日本");
+            assert_eq!(preedit.cells(), 4);
+        }
+    }
+
+    #[test]
+    fn the_preedit_pushes_the_rest_of_the_row() {
+        let display = snapshot("abcd\nnext\n");
+        let preedit = Preedit::new("かな".into(), None);
+        let spliced = row(&display, DisplayPoint::new(0, 0), Some((2, &preedit)));
+        assert_eq!(texts(&spliced), "abかなcd");
+        let columns: Vec<_> = spliced.iter().map(|(column, _, _)| *column).collect();
+        assert_eq!(columns, [0, 1, 2, 4, 6, 7]);
+        let own: Vec<_> = spliced.iter().map(|(_, _, own)| *own).collect();
+        assert_eq!(own, [false, false, true, true, false, false]);
+        assert_eq!(texts(&row(&display, DisplayPoint::new(0, 0), None)), "abcd");
+    }
+
+    #[test]
+    fn a_preedit_at_the_end_of_the_row_comes_last() {
+        let display = snapshot("ab");
+        let preedit = Preedit::new("x".into(), None);
+        let spliced = row(&display, DisplayPoint::new(0, 0), Some((2, &preedit)));
+        assert_eq!(texts(&spliced), "abx");
+    }
+
+    #[test]
+    fn a_row_read_from_a_later_column_starts_where_it_is_shown() {
+        let display = snapshot("abcdef");
+        let preedit = Preedit::new("XYZ".into(), None);
+        // Past the preedit: the text after it, from its moved column.
+        let late = row(&display, DisplayPoint::new(0, 6), Some((1, &preedit)));
+        assert_eq!(texts(&late), "def");
+        assert_eq!(late[0].0, 6);
+        // Inside it: the rest of the preedit, then what it pushed.
+        let inside = row(&display, DisplayPoint::new(0, 2), Some((1, &preedit)));
+        assert_eq!(texts(&inside), "YZbcdef");
+        // A cluster that ends at the start is left out, as it shows nothing.
+        let wide = Preedit::new("日".into(), None);
+        let after = row(&display, DisplayPoint::new(0, 3), Some((1, &wide)));
+        assert_eq!(texts(&after), "bcdef");
+    }
+
+    #[test]
+    fn each_can_stop_the_row() {
+        let display = snapshot("abcdef");
+        let preedit = Preedit::new("XY".into(), None);
+        let mut seen = 0;
+        row_clusters(
+            &display,
+            DisplayPoint::new(0, 0),
+            Some((1, &preedit)),
+            |_, _| {
+                seen += 1;
+                if seen == 2 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        );
+        assert_eq!(seen, 2);
+    }
+}

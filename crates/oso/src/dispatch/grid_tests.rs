@@ -14,12 +14,19 @@
 //! one line between `│`, the modeline's between `=` and the echo area's between
 //! `"`. Below a row that needs it, a line between `:` marks its cells. See
 //! `docs/dev/testing.md`. The modeline and the echo area are the spans the app draws,
-//! laid out by `text_clusters`, as the renderer does.
+//! laid out by `text_clusters`, as the renderer does. A preedit is read into its row
+//! through `row_clusters` and placed by `motion::cursor_box`, as the renderer does,
+//! and a line between `_` below its row marks its underline with `-` and the segment
+//! being converted with `=` (ADR 0069).
 
 use oso_core::buffer::Buffer;
 use std::ops::Range;
 
-use oso_core::display_map::{CellRun, CellStyle, DisplayPoint, DisplaySnapshot, text_clusters};
+use std::ops::ControlFlow;
+
+use oso_core::display_map::{
+    CellRun, CellStyle, DisplayPoint, DisplaySnapshot, Preedit, row_clusters, text_clusters,
+};
 use oso_core::editor::{Editor, Status};
 use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
@@ -54,8 +61,10 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let display = buffer.display();
     let scroll = window.scroll();
     let point = window.cursor_point(&display);
+    let preedit = editor.preedit();
     // The cursor box as the renderer draws it.
-    let cursor = frame::cursor_rect(area, scroll, point, motion::cursor_cells(&display, point));
+    let (place, cells) = motion::cursor_box(&display, point, preedit);
+    let cursor = frame::cursor_rect(area, scroll, place, cells);
     for index in 0..area.rows {
         let row = scroll.top + index;
         let cursor = cursor
@@ -64,13 +73,37 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
                 let start = cells.column - area.column;
                 start..start + cells.columns
             });
-        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor);
+        let spliced = preedit
+            .filter(|_| row == point.row)
+            .map(|preedit| (point.column, preedit));
+        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor, spliced);
         lines.push(format!("│{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
             lines.push(format!(":{marks}:"));
         }
+        if let Some((at, preedit)) = spliced {
+            lines.push(underline(at, preedit, scroll.left, area.columns));
+        }
     }
+}
+
+/// The line under a row with `preedit` at column `at`: `-` under its cells and `=`
+/// under the segment being converted, as the renderer's thin and thick underlines.
+fn underline(at: usize, preedit: &Preedit, left: usize, columns: usize) -> String {
+    let mut marks = vec![' '; columns];
+    let mut mark = |cells: Range<usize>, mark: char| {
+        for column in cells {
+            if let Some(cell) = column.checked_sub(left).and_then(|i| marks.get_mut(i)) {
+                *cell = mark;
+            }
+        }
+    };
+    mark(at..at + preedit.cells(), '-');
+    if let Some(segment) = preedit.segment() {
+        mark(at + segment.start..at + segment.end, '=');
+    }
+    format!("_{}_", marks.into_iter().collect::<String>())
 }
 
 /// A region of at most one row, between `edge`s: `spans`, one after the other, up to
@@ -105,32 +138,40 @@ fn draw_spans(spans: &[&str], area: CellRect, edge: char, lines: &mut Vec<String
 }
 
 /// The text of one row of `columns` cells and a mark for each of them. `cursor`
-/// holds the cells under the cursor box, counted from the row's left edge.
+/// holds the cells under the cursor box, counted from the row's left edge. A
+/// `preedit` goes in at its column.
 fn draw_row(
     display: &DisplaySnapshot,
     row: usize,
     scroll: Scroll,
     columns: usize,
     cursor: Range<usize>,
+    preedit: Option<(usize, &Preedit)>,
 ) -> (String, Vec<char>) {
     let view = scroll.left..scroll.left + columns;
     let mut text = String::new();
     let mut marks = vec![' '; columns];
     let mut drawn = view.start;
-    for cluster in display.clusters(DisplayPoint::new(row, view.start)) {
-        if cluster.column >= view.end {
-            break;
-        }
-        cluster.for_each_run(|run| {
-            let start = run.column.max(view.start);
-            let end = (run.column + run.cells).min(view.end);
-            if start < end {
-                let cells = &mut marks[start - view.start..end - view.start];
-                draw_run(&run, start, cells, &mut text);
-                drawn = end;
+    row_clusters(
+        display,
+        DisplayPoint::new(row, view.start),
+        preedit,
+        |cluster, _| {
+            if cluster.column >= view.end {
+                return ControlFlow::Break(());
             }
-        });
-    }
+            cluster.for_each_run(|run| {
+                let start = run.column.max(view.start);
+                let end = (run.column + run.cells).min(view.end);
+                if start < end {
+                    let cells = &mut marks[start - view.start..end - view.start];
+                    draw_run(&run, start, cells, &mut text);
+                    drawn = end;
+                }
+            });
+            ControlFlow::Continue(())
+        },
+    );
     text.extend(std::iter::repeat_n(' ', view.end - drawn));
     marks[cursor].fill('^');
     (text, marks)
@@ -655,6 +696,37 @@ mod scenarios {
             rows.as_bytes(),
             &[text_grid(&editor)],
         );
+    }
+
+    #[test]
+    fn a_preedit_pushes_its_row_and_the_box_and_view_follow_it() {
+        let text = "ab日c\nnext\n";
+        let mut editor = open(text.as_bytes(), (2, 12));
+        let mut dispatcher = Dispatcher::new();
+        let keys: KeySequence = "C-f C-f".parse().unwrap();
+        dispatcher.handle_keys(&mut editor, keys.0);
+        let mut frames = Vec::new();
+        let mut show = |editor: &mut Editor, step: &str, text: &str, range| {
+            editor.set_preedit(Some(Preedit::new(text.into(), range)));
+            frames.push(format!("{step}\n{}", text_grid(editor)));
+        };
+        show(&mut editor, "typing", "にほ", Some(6..6));
+        show(&mut editor, "caret inside", "にほ", Some(3..3));
+        show(
+            &mut editor,
+            "converting the second clause",
+            "日本語",
+            Some(6..9),
+        );
+        show(
+            &mut editor,
+            "wider than the window",
+            "にほんごにゅうりょく",
+            None,
+        );
+        editor.set_preedit(None);
+        frames.push(format!("cleared\n{}", text_grid(&editor)));
+        assert_frames("preedit_in_its_row", text.as_bytes(), &frames);
     }
 
     #[test]

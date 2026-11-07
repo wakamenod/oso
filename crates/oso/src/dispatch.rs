@@ -23,6 +23,13 @@ use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+/// Whether a command's edits may join the undo step before, if it asks.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    MayJoin,
+    Apart,
+}
+
 /// Runs commands for key presses. Keys from the window and from the dev
 /// control socket both come through here.
 pub struct Dispatcher {
@@ -85,6 +92,30 @@ impl Dispatcher {
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
+    }
+
+    /// Whether the next key is read as a key rather than typed: a prefix key is
+    /// pending, or a prefix argument reads digits or a minus. The input method stays
+    /// off then, as a letter or a digit would start a composition (ADR 0069).
+    pub fn reads_keys(&self) -> bool {
+        !self.resolver.pending().is_empty()
+            || self
+                .prefix
+                .is_some_and(|prefix| prefix.reads_digits() || prefix.reads_minus())
+    }
+
+    /// Runs `work` as one input, as Emacs does a key: the echo area empties first,
+    /// but for what waits behind keys in progress, and then shows the keys it left in
+    /// progress (ADR 0063).
+    fn as_input<R>(
+        &mut self,
+        editor: &mut Editor,
+        work: impl FnOnce(&mut Self, &mut Editor) -> R,
+    ) -> R {
+        editor.clear_echo();
+        let out = work(self, editor);
+        self.show_keys_in_progress(editor);
+        out
     }
 
     /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.
@@ -170,10 +201,7 @@ impl Dispatcher {
         name: &str,
         arg: Option<isize>,
     ) -> (Effects, Result<(), String>) {
-        editor.clear_echo();
-        let outcome = self.run_named(editor, name, arg);
-        self.show_keys_in_progress(editor);
-        outcome
+        self.as_input(editor, |this, editor| this.run_named(editor, name, arg))
     }
 
     #[cfg(any(test, feature = "dev"))]
@@ -203,24 +231,31 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
-        let (effects, result) = self.execute(editor, id, args, "", None);
+        let (effects, result) = self.execute(editor, id, args, "", None, Step::MayJoin);
         (effects, result.map_err(|e| e.to_string()))
     }
 
     /// Inserts `text`, which may hold several characters, as a key that types
     /// them would: through the text command of the active keymaps, as one command
     /// and one undo step. A pending prefix makes it an undefined key sequence.
-    /// A key that types several characters comes through here, and input method
-    /// commits will (M2-12).
+    /// A key that types several characters comes through here.
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
         editor.reset_exit_guard();
-        editor.clear_echo();
-        let effects = self.run_text(editor, text);
-        self.show_keys_in_progress(editor);
-        effects
+        self.as_input(editor, |this, editor| {
+            this.run_text(editor, text, Step::MayJoin)
+        })
     }
 
-    fn run_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+    /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
+    /// always as an undo step of its own, even of one character (ADR 0069).
+    pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        editor.reset_exit_guard();
+        self.as_input(editor, |this, editor| {
+            this.run_text(editor, text, Step::Apart)
+        })
+    }
+
+    fn run_text(&mut self, editor: &mut Editor, text: &str, step: Step) -> Effects {
         if !self.resolver.pending().is_empty() {
             let keys = display_keys(self.resolver.pending()).to_string();
             log::debug!("{keys} and text are undefined");
@@ -233,7 +268,7 @@ impl Dispatcher {
         match Layers::global(&self.global).text_command() {
             Some(id) if !text.is_empty() => {
                 let args = Args::with_prefix(self.prefix.take());
-                self.execute(editor, id, args, text, None).0
+                self.execute(editor, id, args, text, None, step).0
             }
             _ => Effects::default(),
         }
@@ -263,6 +298,7 @@ impl Dispatcher {
         args: Args,
         input: &str,
         key_char: Option<char>,
+        step: Step,
     ) -> (Effects, Result<(), ExecuteError>) {
         let repeats = match self.last {
             Some((last, repeats)) if last == id => repeats.saturating_add(1),
@@ -272,6 +308,9 @@ impl Dispatcher {
         let exit_attempt = editor.exit_attempt();
         editor.begin_command();
         editor.begin_undo_group();
+        if step == Step::Apart {
+            editor.keep_undo_step_apart();
+        }
         let invocation = Invocation {
             input,
             key_char,
@@ -322,10 +361,7 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
-        editor.clear_echo();
-        let effects = self.resolve_key(editor, key);
-        self.show_keys_in_progress(editor);
-        effects
+        self.as_input(editor, |this, editor| this.resolve_key(editor, key))
     }
 
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
@@ -357,7 +393,8 @@ impl Dispatcher {
                     Key::Named(_) => None,
                 };
                 let args = Args::with_prefix(self.prefix.take());
-                self.execute(editor, id, args, input, key_char).0
+                self.execute(editor, id, args, input, key_char, Step::MayJoin)
+                    .0
             }
             Resolution::Pending => {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
@@ -394,6 +431,8 @@ mod edit_tests;
 mod emergency_tests;
 #[cfg(test)]
 mod grid_tests;
+#[cfg(test)]
+mod ime_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]

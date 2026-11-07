@@ -474,3 +474,22 @@ fn undoing_a_huge_kill_brings_back_the_text() {
     let tab_width = TabWidth::default();
     crate::display_map::tests::check_against(&buffer.display(), &start, tab_width);
 }
+
+#[test]
+fn a_step_kept_apart_joins_neither_side() {
+    let (mut editor, id) = editor_with("");
+    self_insert(&mut editor, "a");
+    editor.begin_undo_group();
+    editor.keep_undo_step_apart();
+    editor.allow_undo_join();
+    let end = editor.windows[0].selections.primary().cursor;
+    editor.apply_edits(id, &[edit(end..end, "あ")]).unwrap();
+    editor.end_undo_group();
+    self_insert(&mut editor, "b");
+    assert_eq!(text(&editor, id), "aあb");
+    assert_eq!(editor.buffer(id).unwrap().undo_lens(), (3, 0));
+    editor.undo().unwrap();
+    assert_eq!(text(&editor, id), "aあ");
+    editor.undo().unwrap();
+    assert_eq!(text(&editor, id), "a");
+}

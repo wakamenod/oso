@@ -1,0 +1,42 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: ab日c\\nnext\\n"
+---
+typing
+│abにほ日c   │
+:  <><>^^    :
+_  ----      _
+│next        │
+=-- test  1:2=
+"            "
+
+caret inside
+│abにほ日c   │
+:  <>^^<>    :
+_  ----      _
+│next        │
+=-- test  1:2=
+"            "
+
+converting the second clause
+│ab日本語日c │
+:  <><><>^^  :
+_  ----==    _
+│next        │
+=-- test  1:2=
+"            "
+
+wider than the window
+│ゅうりょく日│
+:<><><><><>^^:
+_----------  _
+│            │
+=-- test  1:2=
+"            "
+
+cleared
+│日c         │
+:^^          :
+│xt          │
+=-- test  1:2=
+"            "
