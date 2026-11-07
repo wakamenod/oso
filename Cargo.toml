@@ -33,6 +33,9 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
 objc2-core-text = { version = "0.3.2", default-features = false, features = ["std", "CTFont", "CTFontDescriptor", "CTFontTraits", "CTLine", "CTRun", "CTStringAttributes", "objc2-core-graphics"] }
 # Property-based testing: automatically explores boundary values (e.g. usize::MAX).
 proptest = "1"
+# Line diff for comparing an emergency copy with its file (ADR 0064). Only `std`, for
+# the deadline: with it, none of its optional dependencies is built.
+similar = { version = "3.2", default-features = false, features = ["std"] }
 # Text-grid snapshots (ADR 0037). Tests only, never in a release build.
 insta = { version = "1.49", default-features = false }
 
