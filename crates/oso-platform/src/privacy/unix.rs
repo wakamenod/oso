@@ -9,7 +9,11 @@ use std::io;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
 
-use super::{ancestor_is_safe, check_dir};
+use super::{
+    DirProblem, ancestor_is_safe, check_dir, list_stops_making, list_stops_the_way,
+    list_stops_writing, own_list_problem, parent_list_problem, way_list_problem,
+};
+use crate::file_meta::{AccessEntry, directory_access_list};
 
 /// The most symbolic links the way to a private directory may pass through, as in Linux.
 const MAX_LINKS: usize = 40;
@@ -60,16 +64,20 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
 }
 
 /// Whether the directory at `path` could not be used, as far as can be told creating nothing:
-/// it would be refused, or this user could not write to it or create it. The modes say that, and
-/// an access list could say otherwise, which is why this only warns, and opening does not ask.
+/// it would be refused, or this user could not write to it or create it. The modes say that, and an
+/// access list can say more on macOS. An access list could also say otherwise, which is why this
+/// only warns, and opening does not ask, and goes by what the system says.
 pub(super) fn check_private(path: &Path) -> io::Result<()> {
-    let deepest = check_the_way(path)?;
+    let deepest = walk_the_way(path, true)?;
     match fs::symlink_metadata(path) {
         Ok(meta) => {
             check_itself(path, &meta)?;
+            check_denies(path, list_stops_writing)?;
             check_writable(path, &meta)
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            check_list(&deepest, parent_list_problem)?;
+            check_denies(&deepest, list_stops_making)?;
             let meta =
                 fs::metadata(&deepest).map_err(|e| with_path(&e, "cannot inspect", &deepest))?;
             check_writable(&deepest, &meta)
@@ -106,7 +114,10 @@ fn can_write_in(mode: u32, owner: u32, euid: u32) -> bool {
 /// mode `0700` too, once nothing on the way lets another user replace it. The way is walked
 /// again after that, as what did not exist before has been judged only now.
 pub(super) fn open_private(path: &Path) -> io::Result<()> {
-    check_the_way(path)?;
+    let deepest = check_the_way(path)?;
+    if matches!(fs::symlink_metadata(path), Err(e) if e.kind() == io::ErrorKind::NotFound) {
+        check_list(&deepest, parent_list_problem)?;
+    }
     if let Some(parent) = path.parent() {
         DirBuilder::new()
             .mode(0o700)
@@ -136,6 +147,11 @@ struct Step {
 /// create, unless a link led to it, as a link to nothing can be made to lead anywhere. Returns
 /// the deepest directory that exists on the way, with no links in it.
 fn check_the_way(path: &Path) -> io::Result<PathBuf> {
+    walk_the_way(path, false)
+}
+
+/// [`check_the_way`], which if `warn` also says what would stop anything going through.
+fn walk_the_way(path: &Path, warn: bool) -> io::Result<PathBuf> {
     let parent = path.parent().unwrap_or(Path::new(""));
     let mut steps: VecDeque<Step> = steps_of(parent, false);
     let mut current = PathBuf::new();
@@ -157,6 +173,9 @@ fn check_the_way(path: &Path) -> io::Result<PathBuf> {
             Err(e) => return Err(with_path(&e, "cannot inspect", &next)),
         };
         check_ancestor(&next, &meta)?;
+        if warn && !meta.file_type().is_symlink() {
+            check_denies(&next, list_stops_the_way)?;
+        }
         if meta.file_type().is_symlink() {
             links += 1;
             if links > MAX_LINKS {
@@ -194,37 +213,90 @@ fn check_ancestor(ancestor: &Path, meta: &fs::Metadata) -> io::Result<()> {
     } else {
         meta.mode()
     };
-    if ancestor_is_safe(mode, meta.uid(), euid()) {
-        Ok(())
-    } else {
-        Err(refused(ancestor, "can be changed by other users"))
+    if !ancestor_is_safe(mode, meta.uid(), euid()) {
+        return Err(refused(ancestor, "can be changed by other users"));
     }
+    // A link can hold a list of its own, and what it leads to is walked next.
+    check_list(ancestor, way_list_problem)
 }
 
 /// Checks the directory itself, from its `lstat` results.
 fn check_itself(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
-    check_dir(
+    match itself_problem(path, meta).map_err(|e| with_path(&e, "cannot inspect", path))? {
+        Some(problem) => Err(refused(path, problem.message())),
+        None => Ok(()),
+    }
+}
+
+/// What keeps the directory at `path`, with these `lstat` results, from being private.
+///
+/// # Errors
+///
+/// If its access list cannot be read.
+pub(crate) fn itself_problem(path: &Path, meta: &fs::Metadata) -> io::Result<Option<DirProblem>> {
+    let by_mode = check_dir(
         meta.file_type().is_symlink(),
         meta.is_dir(),
         meta.uid(),
         meta.mode(),
         euid(),
-    )
-    .map_err(|problem| refused(path, problem.message()))
+    );
+    match by_mode {
+        Err(problem) => Ok(Some(problem)),
+        Ok(()) => list_problem(path, own_list_problem),
+    }
+}
+
+/// What `rule` finds wrong with the access list of the directory at `path`.
+///
+/// # Errors
+///
+/// If the list cannot be read, which says nothing of what it holds.
+pub(crate) fn list_problem(
+    path: &Path,
+    rule: impl FnOnce(&[AccessEntry]) -> Option<DirProblem>,
+) -> io::Result<Option<DirProblem>> {
+    Ok(rule(&directory_access_list(path)?))
+}
+
+/// Refuses the directory at `path` if `rule` finds anything wrong with its access list, or the
+/// list cannot be read.
+fn check_list(
+    path: &Path,
+    rule: impl FnOnce(&[AccessEntry]) -> Option<DirProblem>,
+) -> io::Result<()> {
+    match list_problem(path, rule).map_err(|e| with_path(&e, "cannot inspect", path))? {
+        Some(problem) => Err(refused(path, problem.message())),
+        None => Ok(()),
+    }
+}
+
+/// Says if `stops` finds what would stop a file being written where this list is. This is for
+/// warning only, as opening goes by what the system says.
+fn check_denies(path: &Path, stops: impl FnOnce(&[AccessEntry]) -> bool) -> io::Result<()> {
+    let entries = directory_access_list(path).map_err(|e| with_path(&e, "cannot inspect", path))?;
+    if stops(&entries) {
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "an access list would stop a file being written: {}",
+                path.display()
+            ),
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn refused(path: &Path, why: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::PermissionDenied,
-        format!(
-            "refusing to use {} as a private directory: it {why}",
-            path.display()
-        ),
+        format!("refused: it {why}: {}", path.display()),
     )
 }
 
 fn with_path(e: &io::Error, what: &str, path: &Path) -> io::Error {
-    io::Error::new(e.kind(), format!("{what} {}: {e}", path.display()))
+    io::Error::new(e.kind(), format!("{what}: {e}: {}", path.display()))
 }
 
 #[cfg(test)]
@@ -543,6 +615,379 @@ mod tests {
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
         assert!(PrivateDir::check(Path::new("relative")).is_err());
         assert!(!Path::new("relative").exists());
+    }
+
+    #[cfg(target_os = "macos")]
+    mod lists {
+        use std::fs::{self, Permissions};
+        use std::os::unix::fs::PermissionsExt;
+        use std::path::Path;
+
+        use super::Scratch;
+        use crate::file_meta::test_list::{clear, set_for_everyone, set_on_link_for_everyone};
+        use crate::privacy::PrivateDir;
+
+        /// A directory on the way, whose mode does not depend on the umask.
+        fn plain_directory(path: &Path) {
+            fs::create_dir(path).unwrap();
+            fs::set_permissions(path, Permissions::from_mode(0o755)).unwrap();
+        }
+
+        #[test]
+        fn a_deny_on_the_directory_or_on_the_way_passes() {
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            let path = way.join("d");
+            PrivateDir::open(&path).unwrap();
+            set_for_everyone(&way, "deny", "delete");
+            set_for_everyone(&path, "deny", "delete");
+            PrivateDir::check(&path).unwrap();
+            PrivateDir::open(&path).unwrap();
+            clear(&path);
+            clear(&way);
+        }
+
+        #[test]
+        fn any_allow_on_the_directory_is_refused_and_not_repaired() {
+            let scratch = Scratch::new();
+            let path = scratch.join("d");
+            PrivateDir::open(&path).unwrap();
+            set_for_everyone(&path, "allow", "read");
+            for err in [
+                PrivateDir::open(&path).unwrap_err(),
+                PrivateDir::check(&path).unwrap_err(),
+            ] {
+                assert!(err.to_string().contains("access list"), "{err}");
+            }
+            assert_eq!(
+                crate::file_meta::directory_access_list(&path)
+                    .unwrap()
+                    .len(),
+                1
+            );
+        }
+
+        #[test]
+        fn an_allow_only_for_what_is_made_in_the_directory_is_refused_too() {
+            let scratch = Scratch::new();
+            let path = scratch.join("d");
+            PrivateDir::open(&path).unwrap();
+            set_for_everyone(&path, "allow,file_inherit,only_inherit", "read");
+            assert!(PrivateDir::check(&path).is_err());
+        }
+
+        #[test]
+        fn an_allow_that_only_reads_is_fine_on_the_way() {
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            plain_directory(&way);
+            set_for_everyone(&way, "allow", "read,execute");
+            PrivateDir::open(way.join("d")).unwrap();
+        }
+
+        #[test]
+        fn an_allow_that_changes_what_is_on_the_way_is_refused_and_nothing_appears() {
+            for rights in ["write", "append", "delete", "writesecurity", "chown"] {
+                let scratch = Scratch::new();
+                let way = scratch.join("way");
+                plain_directory(&way);
+                set_for_everyone(&way, "allow", rights);
+                let path = way.join("d");
+                let err = PrivateDir::open(&path).unwrap_err();
+                assert!(err.to_string().contains("access list"), "{rights}: {err}");
+                assert!(PrivateDir::check(&path).is_err(), "{rights}");
+                assert!(!path.exists(), "{rights}");
+            }
+        }
+
+        #[test]
+        fn what_would_reach_a_new_directory_is_refused_only_if_one_is_to_be_made() {
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            let path = way.join("oso").join("d");
+            plain_directory(&way);
+            set_for_everyone(&way, "allow,directory_inherit", "read");
+            let err = PrivateDir::open(&path).unwrap_err();
+            assert!(err.to_string().contains("subdirectories"), "{err}");
+            assert!(PrivateDir::check(&path).is_err());
+            assert!(!way.join("oso").exists(), "nothing new appears");
+
+            // A directory made before the list did not take it, and nothing more is made.
+            clear(&way);
+            PrivateDir::open(&path).unwrap();
+            set_for_everyone(&way, "allow,directory_inherit", "read");
+            PrivateDir::check(&path).unwrap();
+            PrivateDir::open(&path).unwrap();
+        }
+
+        #[test]
+        fn an_entry_only_for_files_stops_at_its_own_directory() {
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            plain_directory(&way);
+            set_for_everyone(&way, "allow,file_inherit", "read");
+            let path = way.join("oso").join("d");
+            PrivateDir::check(&path).unwrap();
+            PrivateDir::open(&path).unwrap();
+            assert_eq!(crate::file_meta::directory_access_list(&path).unwrap(), []);
+        }
+
+        #[test]
+        fn a_links_own_list_counts_on_the_way() {
+            let scratch = Scratch::new();
+            let real = scratch.join("real");
+            PrivateDir::open(&real).unwrap();
+            let link = scratch.join("link");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            PrivateDir::open(link.join("d")).unwrap();
+
+            set_on_link_for_everyone(&link, "allow", "delete");
+            let err = PrivateDir::open(link.join("d")).unwrap_err();
+            assert!(err.to_string().contains("access list"), "{err}");
+            assert!(PrivateDir::check(&link.join("d")).is_err());
+
+            set_on_link_for_everyone(&link, "allow", "read");
+            PrivateDir::open(link.join("d")).unwrap();
+        }
+
+        #[test]
+        fn a_list_that_cannot_be_read_is_refused_as_nothing_can_be_told() {
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            let path = way.join("d");
+            PrivateDir::open(&path).unwrap();
+            for hidden in [&path, &way] {
+                set_for_everyone(hidden, "deny", "readsecurity");
+                let open = PrivateDir::open(&path);
+                let check = PrivateDir::check(&path);
+                clear(hidden);
+                assert!(open.is_err());
+                assert!(check.is_err());
+            }
+            PrivateDir::open(&path).unwrap();
+        }
+
+        #[test]
+        fn what_would_stop_a_file_in_the_directory_is_warned_of_and_opening_does_not_ask() {
+            for (how, rights) in [
+                ("deny", "write"),
+                ("deny", "execute"),
+                ("deny", "delete_child"),
+                ("deny,file_inherit,only_inherit", "readsecurity"),
+            ] {
+                let scratch = Scratch::new();
+                let path = scratch.join("d");
+                PrivateDir::open(&path).unwrap();
+                set_for_everyone(&path, how, rights);
+                let warned = PrivateDir::check(&path);
+                let opened = PrivateDir::open(&path);
+                clear(&path);
+                let warned = warned.unwrap_err().to_string();
+                assert!(warned.contains("would stop"), "{rights}: {warned}");
+                opened.unwrap();
+            }
+        }
+
+        #[test]
+        fn what_a_copy_does_not_need_is_not_warned_of() {
+            for (how, rights) in [
+                ("deny", "delete"),
+                ("deny", "read"),
+                ("deny", "append"),
+                ("deny,file_inherit,only_inherit", "delete"),
+                ("deny,file_inherit,only_inherit", "write"),
+            ] {
+                let scratch = Scratch::new();
+                let path = scratch.join("d");
+                PrivateDir::open(&path).unwrap();
+                set_for_everyone(&path, how, rights);
+                let warned = PrivateDir::check(&path);
+                clear(&path);
+                warned.unwrap();
+            }
+        }
+
+        #[test]
+        fn on_the_way_only_what_stops_going_through_is_warned_of() {
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            let path = way.join("d");
+            plain_directory(&way);
+            PrivateDir::open(&path).unwrap();
+
+            set_for_everyone(&way, "deny", "write");
+            let writing = PrivateDir::check(&path);
+            set_for_everyone(&way, "deny", "execute");
+            let searching = PrivateDir::check(&path);
+            clear(&way);
+            writing.unwrap();
+            assert!(searching.is_err());
+        }
+
+        #[test]
+        fn what_would_stop_a_directory_being_made_and_used_is_warned_of_and_nothing_appears() {
+            for (how, rights) in [
+                ("deny", "append"),
+                ("deny,directory_inherit,only_inherit", "readsecurity"),
+                ("deny,directory_inherit,only_inherit", "write"),
+            ] {
+                let scratch = Scratch::new();
+                let way = scratch.join("way");
+                plain_directory(&way);
+                set_for_everyone(&way, how, rights);
+                let warned = PrivateDir::check(&way.join("oso").join("d"));
+                let made = way.join("oso").exists();
+                clear(&way);
+                let warned = warned.unwrap_err().to_string();
+                assert!(warned.contains("would stop"), "{rights}: {warned}");
+                assert!(!made, "{rights}");
+            }
+
+            // What stops at the directory it is on reaches nothing that is to be made.
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            plain_directory(&way);
+            set_for_everyone(&way, "deny,file_inherit,only_inherit", "readsecurity");
+            let warned = PrivateDir::check(&way.join("oso").join("d"));
+            clear(&way);
+            warned.unwrap();
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    mod lists {
+        use std::ffi::CString;
+        use std::fs::{self, File, OpenOptions};
+        use std::os::fd::AsRawFd;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::path::Path;
+
+        use super::{Scratch, mode};
+        use crate::privacy::PrivateDir;
+
+        const USER_OBJ: u16 = 0x01;
+        const USER: u16 = 0x02;
+        const GROUP_OBJ: u16 = 0x04;
+        const MASK: u16 = 0x10;
+        const OTHER: u16 = 0x20;
+
+        /// `system.posix_acl_*` as the kernel takes it: a version, then tag, rights and ID.
+        fn list_bytes(entries: &[(u16, u16, u32)]) -> Vec<u8> {
+            let mut bytes = 2u32.to_le_bytes().to_vec();
+            for (tag, rights, id) in entries {
+                bytes.extend_from_slice(&tag.to_le_bytes());
+                bytes.extend_from_slice(&rights.to_le_bytes());
+                bytes.extend_from_slice(&id.to_le_bytes());
+            }
+            bytes
+        }
+
+        /// A list that gives another user everything. The ID need not belong to anyone.
+        fn list_for_another_user() -> Vec<u8> {
+            list_bytes(&[
+                (USER_OBJ, 7, u32::MAX),
+                (USER, 7, 12345),
+                (GROUP_OBJ, 0, u32::MAX),
+                (MASK, 7, u32::MAX),
+                (OTHER, 0, u32::MAX),
+            ])
+        }
+
+        /// Sets the list called `name` on `path`, or says the file system has none. Only outside
+        /// CI may that pass as nothing to test.
+        fn set_list(path: &Path, name: &str, bytes: &[u8]) -> bool {
+            let file = File::open(path).unwrap();
+            let name = CString::new(name).unwrap();
+            // SAFETY: the descriptor is borrowed from `file`, and `name` and `bytes` outlive the
+            // call, which only reads them, `bytes` for the length given.
+            let set = unsafe {
+                libc::fsetxattr(
+                    file.as_raw_fd(),
+                    name.as_ptr(),
+                    bytes.as_ptr().cast(),
+                    bytes.len(),
+                    0,
+                )
+            };
+            if set == 0 {
+                return true;
+            }
+            let error = std::io::Error::last_os_error();
+            assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP), "{error}");
+            assert!(
+                std::env::var_os("CI").is_none(),
+                "the file system must have ACLs for this test: {error}"
+            );
+            false
+        }
+
+        /// The rights in the mask of the access list on `path`.
+        fn mask_of(path: &Path) -> Option<u16> {
+            let path = CString::new(path.as_os_str().as_bytes()).unwrap();
+            let name = CString::new("system.posix_acl_access").unwrap();
+            let mut buffer = [0u8; 256];
+            // SAFETY: `path` and `name` outlive the call, which only reads them, and `buffer` is
+            // a live local the call writes at most its length of.
+            let read = unsafe {
+                libc::lgetxattr(
+                    path.as_ptr(),
+                    name.as_ptr(),
+                    buffer.as_mut_ptr().cast(),
+                    buffer.len(),
+                )
+            };
+            let read = usize::try_from(read).ok()?;
+            buffer[4..read].chunks_exact(8).find_map(|entry| {
+                (u16::from_le_bytes([entry[0], entry[1]]) == MASK)
+                    .then(|| u16::from_le_bytes([entry[2], entry[3]]))
+            })
+        }
+
+        #[test]
+        fn a_default_list_grants_nothing_on_what_is_made_with_these_modes() {
+            let scratch = Scratch::new();
+            let shared = scratch.join("shared");
+            fs::create_dir(&shared).unwrap();
+            if !set_list(
+                &shared,
+                "system.posix_acl_default",
+                &list_for_another_user(),
+            ) {
+                return;
+            }
+            let path = shared.join("oso").join("emergency");
+            PrivateDir::open(&path).unwrap();
+            for directory in [path.parent().unwrap(), &path] {
+                assert_eq!(mode(directory), 0o700);
+                assert_eq!(mask_of(directory), Some(0));
+            }
+            let copy = path.join("copy");
+            drop(
+                OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .open(&copy)
+                    .unwrap(),
+            );
+            assert_eq!(mode(&copy), 0o600);
+            assert_eq!(mask_of(&copy), Some(0));
+        }
+
+        #[test]
+        fn what_an_access_list_grants_shows_in_the_mode_and_is_refused() {
+            let scratch = Scratch::new();
+            let path = scratch.join("d");
+            fs::create_dir(&path).unwrap();
+            if !set_list(&path, "system.posix_acl_access", &list_for_another_user()) {
+                return;
+            }
+            assert_eq!(mode(&path), 0o770);
+            assert!(PrivateDir::open(&path).is_err());
+            assert!(PrivateDir::open(path.join("inner")).is_err());
+            assert!(!path.join("inner").exists());
+        }
     }
 
     #[test]

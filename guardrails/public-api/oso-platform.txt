@@ -40,6 +40,8 @@ pub fn oso_platform::control::ControlStream::read(&mut self, &mut [u8]) -> std::
 impl std::io::Write for oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::flush(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io::error::Result<usize>
+pub mod oso_platform::file_meta
+pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
 pub mod oso_platform::privacy
 pub struct oso_platform::privacy::PrivateDir
 impl oso_platform::privacy::PrivateDir
