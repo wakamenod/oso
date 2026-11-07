@@ -57,7 +57,9 @@ fn a_preedit_draws_in_the_window_and_a_commit_is_one_undo_step() {
     assert_eq!(state["ime"]["preedit"], Value::Null);
     assert_visible_row(&state, 0, "日本abc");
     assert_eq!(cursor(&state), (0, 4));
-    app.call("check-handover", None);
+    // Now what holds a restart is the edit, which a file can carry.
+    let refused = app.try_call("check-handover", None).unwrap_err();
+    assert!(refused.contains("unsaved edits"), "{refused}");
 
     app.send_keys("x");
     ime(&mut app, json!({ "commit": "、" })).unwrap();
