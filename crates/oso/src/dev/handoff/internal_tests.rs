@@ -153,3 +153,24 @@ fn positions_still_waiting_behind_messages_are_the_imported_ones() {
     let state = export(&editor, &[], None, Some(&restore)).unwrap();
     assert_eq!(state["windows"][0]["selections"][0]["cursor"], 2);
 }
+
+#[test]
+fn a_composition_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = Editor::default();
+    let before = generation(&editor);
+    let preedit = oso_core::display_map::Preedit::new("にほん".into(), None);
+    editor.set_preedit(Some(preedit));
+    assert_eq!(
+        check(&editor),
+        Err("cannot hand over: a composition is open".into())
+    );
+    let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+    assert!(refused.ends_with("a composition is open"), "{refused}");
+    assert_eq!(
+        exit_allowed(&editor, None),
+        Ok(()),
+        "asked plainly, it exits"
+    );
+    editor.set_preedit(None);
+    assert_eq!(check(&editor), Ok(json!({ "generation": before })));
+}

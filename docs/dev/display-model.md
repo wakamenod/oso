@@ -174,6 +174,11 @@ one layer:
   modeline and the echo row ([ADR 0061](adr/0061-panes-clipping-and-layers.md),
   [ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and `Editor::cursor_area` gives
   the input method the cursor's rectangle.
+- An input method's preedit is no buffer's and needs no InlayMap: `Editor` holds it, and
+  `display_map::row_clusters` splices it into the cursor's row, moving what follows by its
+  cells. The renderer and the text-grid snapshots both read that row through it, and
+  `motion::cursor_box` places the cursor box on the preedit's caret or after it
+  ([ADR 0069](adr/0069-macos-input-method.md)).
 
 ## Terminal views
 

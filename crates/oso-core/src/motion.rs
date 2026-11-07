@@ -13,7 +13,7 @@
 //! A motion that reads text cluster by cluster is limited, so that a count or a long
 //! run of one kind of character cannot stall a key ([`WalkBudget`], ADR 0058).
 
-use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot};
+use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot, Preedit};
 use crate::selection::{Goal, Selection};
 use crate::sum_tree::Bias;
 
@@ -195,6 +195,26 @@ pub fn cursor_cells(display: &DisplaySnapshot, point: DisplayPoint) -> usize {
     match display.clusters(point).next() {
         Some(cluster) if cluster.kind != CellKind::Tab => cluster.cells.max(1),
         _ => 1,
+    }
+}
+
+/// Where the cursor box at `point` goes on the row as shown, and the cells it covers,
+/// with `preedit` spliced in at `point` (ADR 0069): on the preedit's caret, or else just
+/// after the preedit, on what follows it.
+pub fn cursor_box(
+    display: &DisplaySnapshot,
+    point: DisplayPoint,
+    preedit: Option<&Preedit>,
+) -> (DisplayPoint, usize) {
+    let Some(preedit) = preedit else {
+        return (point, cursor_cells(display, point));
+    };
+    match preedit.caret() {
+        Some((before, cells)) => (DisplayPoint::new(point.row, point.column + before), cells),
+        None => (
+            DisplayPoint::new(point.row, point.column + preedit.cells()),
+            cursor_cells(display, point),
+        ),
     }
 }
 
@@ -739,6 +759,29 @@ mod tests {
         assert_eq!(cursor_cells(&d, DisplayPoint::new(0, 1)), 2);
         assert_eq!(cursor_cells(&d, DisplayPoint::new(0, 3)), 1, "a tab");
         assert_eq!(cursor_cells(&d, DisplayPoint::new(0, 9)), 1, "line end");
+    }
+
+    #[test]
+    fn the_cursor_box_goes_on_the_preedits_caret_or_after_it() {
+        let d = display("a日b");
+        let at = DisplayPoint::new(0, 1);
+        assert_eq!(cursor_box(&d, at, None), (at, 2));
+        let typing = Preedit::new("かな".into(), Some(6..6));
+        assert_eq!(
+            cursor_box(&d, at, Some(&typing)),
+            (DisplayPoint::new(0, 5), 2),
+            "after it, on 日"
+        );
+        let inside = Preedit::new("かな".into(), Some(3..3));
+        assert_eq!(
+            cursor_box(&d, at, Some(&inside)),
+            (DisplayPoint::new(0, 3), 2)
+        );
+        let converting = Preedit::new("仮名".into(), Some(0..3));
+        assert_eq!(
+            cursor_box(&d, at, Some(&converting)),
+            (DisplayPoint::new(0, 5), 2)
+        );
     }
 
     #[test]

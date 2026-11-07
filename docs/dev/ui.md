@@ -129,10 +129,21 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 
 - Preedit text is drawn **inline at the cursor, underlined**, and pushes the
   text after it along its row. It is never written to the buffer
-  ([ADR 0051](adr/0051-m2-plan-decisions.md)). The OS candidate window is placed
-  just below the cursor, as in other macOS apps.
+  ([ADR 0051](adr/0051-m2-plan-decisions.md)). The segment being converted has a
+  thicker underline, as in other macOS apps. With several cursors, the preedit shows at
+  the primary one, and the commit goes to every cursor
+  ([ADR 0069](adr/0069-macos-input-method.md)).
+- The cursor box goes where the input method's caret is: usually just after the
+  preedit, on the text it pushed.
+- The OS candidate window is placed just below the cursor, as in other macOS apps.
+- Each commit undoes as one step.
 - The IME is switched off automatically when entering the minibuffer,
-  isearch, a menu or the list of emergency copies, since those use single keys.
+  isearch, a menu or the list of emergency copies, since those use single keys. It is
+  also off while a prefix key (`C-x`) or a prefix argument (`C-u`, `M-5`) waits for the
+  next key, in read-only buffers and in buffers that may hold secrets. It goes off only
+  once a composition has ended.
+- `SPC` types a half-width space with a Japanese input source too. Option-Space
+  (`s-SPC`, `insert-full-width-space`) types a full-width one.
 
 ## Visual aids
 

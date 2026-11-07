@@ -276,7 +276,8 @@ fn draw_pane<G: GlyphSource>(
         PaneContent::Text(view) => cursor_cells(view, pane.region),
         PaneContent::Lines(_) => None,
     };
-    let held = usize::from(cursor.is_some());
+    // So are a preedit's two underlines.
+    let held = usize::from(cursor.is_some()) + preedit_lines(pane);
     draws.held += held;
     if let Some(face) = pane.background {
         draws.fill(unscrolled.frame_cells(pane.region), face);
@@ -290,6 +291,7 @@ fn draw_pane<G: GlyphSource>(
             }
             draw_text(draws, view, pane, &layout, rows, system, glyphs);
             draws.held -= held;
+            underline_preedit(draws, view, &layout, metrics);
             if let Some(cells) = cursor {
                 draws.fill(layout.frame_cells(cells), Face::Cursor);
             }
@@ -309,10 +311,48 @@ fn draw_pane<G: GlyphSource>(
 
 /// The frame's cells under the cursor box of `view` in `region`, if it shows.
 /// The box covers the whole character under it, two cells for a full-width one
-/// (ADR 0026).
-fn cursor_cells(view: &TextView, region: CellRect) -> Option<CellRect> {
-    let cells = motion::cursor_cells(&view.display, view.cursor);
-    frame::cursor_rect(region, view.scroll, view.cursor, cells)
+/// (ADR 0026), and goes where a preedit puts it (ADR 0069).
+fn cursor_cells(view: &TextView<'_>, region: CellRect) -> Option<CellRect> {
+    let (point, cells) = motion::cursor_box(&view.display, view.cursor, view.preedit);
+    frame::cursor_rect(region, view.scroll, point, cells)
+}
+
+/// The rectangles a pane's preedit underlines take.
+fn preedit_lines(pane: &Pane<'_>) -> usize {
+    match &pane.content {
+        PaneContent::Text(view) if view.preedit.is_some() => 2,
+        _ => 0,
+    }
+}
+
+/// Underlines `view`'s preedit, one line thick, and the segment being converted
+/// two lines thick, at the bottom of its cells, as macOS text views draw them
+/// (ADR 0069).
+fn underline_preedit(
+    draws: &mut Draws,
+    view: &TextView<'_>,
+    layout: &Layout,
+    metrics: CellMetrics,
+) {
+    let Some(preedit) = view.preedit else {
+        return;
+    };
+    let line = (metrics.height / 16.0).round().max(1.0);
+    let at = view.cursor.column;
+    let mut underline = |column: usize, cells: usize, thickness: f32| {
+        let cells = layout.display_cells(view.cursor.row, column, cells);
+        let rect = cells.map(|rect| PixelRect {
+            y: rect.y + rect.height - thickness,
+            height: thickness,
+            ..rect
+        });
+        draws.fill(rect, Face::Preedit);
+    };
+    let (all, segment) = preedit.underlines(at);
+    underline(all.start, all.len(), line);
+    if let Some(segment) = segment {
+        underline(segment.start, segment.len(), 2.0 * line);
+    }
 }
 
 /// Draws a window's view of a buffer in `layout`: the rows of its region.
@@ -332,8 +372,10 @@ fn draw_text<G: GlyphSource>(
     let visible = top..top
         .saturating_add(pane.region.rows)
         .min(display.row_count());
+    let preedit = view.preedit.map(|preedit| (view.cursor.column, preedit));
     for row in visible.clone() {
-        let shaped = rows.row(display, row, columns.clone(), system);
+        let spliced = preedit.filter(|_| row == view.cursor.row);
+        let shaped = rows.row(display, row, columns.clone(), spliced, system);
         if !draws.row(layout, row, shaped, system, glyphs) {
             break;
         }
@@ -440,6 +482,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
+            preedit: None,
         })
     }
 
@@ -532,6 +575,7 @@ mod tests {
                     revision: 1,
                     scroll: Scroll { top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
+                    preedit: None,
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -602,6 +646,7 @@ mod tests {
             revision: 1,
             scroll: Scroll { top: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
+            preedit: None,
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
@@ -679,6 +724,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
+            preedit: None,
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -693,6 +739,44 @@ mod tests {
     }
 
     #[test]
+    fn a_preedit_is_underlined_its_segment_more_thickly_and_the_box_goes_after_it() {
+        use oso_core::display_map::Preedit;
+        let buffer = Buffer::from_text("t", "abc");
+        // Converting な, the second of two cells of kana.
+        let preedit = Preedit::new("かな".into(), Some(3..6));
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(0, 1),
+            preedit: Some(&preedit),
+        });
+        let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects: Vec<_> = scene
+            .rects()
+            .iter()
+            .map(|rect| (rect.position, rect.size, rect.color))
+            .collect();
+        let line = Face::Preedit.background();
+        assert_eq!(
+            rects,
+            [
+                ([18.0, 27.0], [40.0, 1.0], line),
+                ([38.0, 26.0], [20.0, 2.0], line),
+                ([58.0, 8.0], [10.0, 20.0], Face::Cursor.background()),
+            ],
+            "the box is on b, pushed to column 5"
+        );
+        assert_eq!(
+            quad_cells(&scene, 0..scene.quads().len() as u32),
+            [(0, 0), (0, 1), (0, 3), (0, 5), (0, 6)]
+        );
+    }
+
+    #[test]
     fn panes_keep_their_own_rows() {
         let (one, two) = (Buffer::from_text("t", "one"), Buffer::from_text("t", "two"));
         let mut editor = oso_core::editor::Editor::default();
@@ -704,6 +788,7 @@ mod tests {
                 revision: 1,
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(1000, 0),
+                preedit: None,
             })
         };
         let panes = |first, second_id| {
@@ -861,6 +946,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
+            preedit: None,
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);

@@ -21,6 +21,7 @@ mod control;
 mod copies;
 mod draw;
 mod events;
+mod ime;
 mod input;
 mod loads;
 mod saves;
@@ -84,6 +85,8 @@ pub struct App {
     /// for, and room to compare it with what they would say now.
     status: Status,
     next_status: Status,
+    /// What oso has told the OS about the input method (ADR 0069).
+    ime: ime::ImeState,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -119,6 +122,7 @@ impl App {
             wheel: WheelRemainder::default(),
             status: Status::default(),
             next_status: Status::default(),
+            ime: ime::ImeState::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]

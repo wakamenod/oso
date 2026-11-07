@@ -154,8 +154,6 @@ item notes when it must be settled.
 - `Status::echo_warnings` depends on a flag that could come from `Editor::frame`, which its callers have.
 - `Status` is built twice for a key that redraws, in `draw_frame` and in `about_to_wait`
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-- By M2-12: `dispatch.rs` wraps `handle_key`, `insert_text` and `run_command` the same way, emptying the echo
-  area and then showing the keys in progress. Tidy this with the input method's way in.
 - By M2-16: `Buffer::is_internal` also means read-only with no undo, and the minibuffer's buffer
   is internal but takes typing. Split the two.
 - By M2-19: whether `C-x b` lists `*Messages*`, and whether `kill-buffer` may kill it, which today
@@ -179,20 +177,16 @@ item notes when it must be settled.
     Decide whether growing sideways follows the same rule.
 - Clipboard backend: `arboard` or `objc2-app-kit`, chosen with M2-14 through the
   dependency approval.
-- By M2-12, from trying the macOS IME by hand (winit 0.30), with its ADR to record
-  them:
-  - `set_ime_allowed(false)` is enough to switch the IME off, so no new `unsafe` is
-    needed. The OS indicator stays on the input source.
-  - With the IME on and a Japanese input source, Option-a starts a composition
-    instead of arriving as `s-a`. Try `set_option_as_alt` first, then switching the
-    IME off while Option is held.
-  - A plain letter can start a composition, so the IME goes off while a prefix is
-    pending too, as in the minibuffer, isearch and menus. Check this at the keyboard.
-  - Space arrives as `SPC`, and winit cannot deliver a full-width one. Space stays
-    half-width, and a command, `insert-full-width-space`, inserts the other.
-  - Switching off during a composition leaves it with the OS, and the next key brings
-    it back. Defer switching off until the composition ends.
-  - With several cursors, decide which one shows the preedit.
+- By M2-12's merge: whether `set_option_as_alt` keeps Option as Super with a Japanese
+  input source, or the IME must also go off while Option is held, from the author's keys
+  ([ADR 0069](adr/0069-macos-input-method.md)). `s-SPC` depends on it.
+- The candidate window stays where a composition started, as winit gives the OS one
+  rectangle. Check whether a new area during a conversion moves it at the next key, so
+  that it can follow the segment ([ADR 0069](adr/0069-macos-input-method.md)).
+- By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
+  Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
+- By M2-16, M2-20 and M3: the minibuffer, isearch and menus add their condition to
+  `wants_ime` in `app/ime.rs` ([ADR 0069](adr/0069-macos-input-method.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box

@@ -84,7 +84,14 @@ fn run(
     input: &str,
 ) -> (Effects, Result<(), String>) {
     let id = dispatcher.registry.lookup(name).unwrap();
-    let (effects, result) = dispatcher.execute(editor, id, Args::numeric(count), input, None);
+    let (effects, result) = dispatcher.execute(
+        editor,
+        id,
+        Args::numeric(count),
+        input,
+        None,
+        super::Step::MayJoin,
+    );
     (effects, result.map_err(|e| e.to_string()))
 }
 

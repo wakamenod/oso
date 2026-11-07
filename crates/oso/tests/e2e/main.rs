@@ -10,6 +10,7 @@
 #![cfg(unix)]
 
 mod harness;
+mod ime;
 mod png;
 mod recovery;
 

@@ -39,6 +39,9 @@ methods:
                     and has no edits
   exit [GENERATION] exits the instance: without asking, unsaved text or not, or,
                     given a generation, only if nothing has changed since it
+  ime JSON          reports what the OS's input method would, such as
+                    '{\"preedit\": \"にほ\", \"range\": [6, 6]}', '{\"commit\": \"日本\"}',
+                    '{\"clear\": true}' or '{\"disabled\": true}'
 
 Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
 and screenshot fails while one is shown.
@@ -156,6 +159,11 @@ fn parse_params(
             let state: Value =
                 serde_json::from_str(&state).map_err(|e| format!("import-state: {e}"))?;
             Some(json!({ "state": state }))
+        }
+        "ime" => {
+            let report = positional.next().ok_or("ime needs JSON")?;
+            let report: Value = serde_json::from_str(&report).map_err(|e| format!("ime: {e}"))?;
+            Some(report)
         }
         "send-keys" => {
             let keys = positional.next().ok_or("send-keys needs KEYS")?;
@@ -383,6 +391,14 @@ mod tests {
                 .unwrap_err()
                 .starts_with("import-state:")
         );
+    }
+
+    #[test]
+    fn ime_takes_a_report_as_json() {
+        let parsed = parse(&["ime", r#"{"commit":"日本"}"#]).unwrap().unwrap();
+        assert_eq!(parsed.params, Some(json!({ "commit": "日本" })));
+        assert_eq!(parse(&["ime"]), Err("ime needs JSON".into()));
+        assert!(parse(&["ime", "{nope"]).unwrap_err().starts_with("ime:"));
     }
 
     #[test]

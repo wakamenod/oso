@@ -43,7 +43,7 @@ pub(super) fn with_panes<R>(
 /// The selected window, then the rows reserved below it. The later panes come first if
 /// a frame runs out of room, so no amount of text can take their place (ADR 0061).
 fn panes<'a>(
-    editor: &Editor,
+    editor: &'a Editor,
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -57,6 +57,7 @@ fn panes<'a>(
         revision: buffer.revision(),
         scroll: window.scroll(),
         cursor,
+        preedit: editor.preedit(),
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),
@@ -128,6 +129,8 @@ impl App {
                 log::debug!("resumed {:?} after start", started.elapsed());
             }
             self.view = Some(View::open(event_loop));
+            // At once: it costs under 1 µs and does not slow the first frame.
+            self.sync_ime();
             self.update_frame_size();
             // Content that loaded while the window opened shows in the
             // first frame.

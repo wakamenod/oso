@@ -196,8 +196,15 @@ pub fn check(editor: &Editor) -> Reply {
     for (_, buffer) in editor.buffers() {
         file_to_read_again(buffer)?;
     }
+    if editor.preedit().is_some() {
+        return Err(COMPOSING.into());
+    }
     Ok(json!({ "generation": generation(editor) }))
 }
+
+/// Why a restart waits for a composition to end: its text is in no buffer, so a new
+/// instance would lose it (ADR 0069).
+const COMPOSING: &str = "cannot hand over: a composition is open";
 
 /// Names what an instance holds that a file does not: which buffers exist, and
 /// the content of each modified one. It is not a counter, as undoing an edit
@@ -225,6 +232,9 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
     match expected {
         Some(_) if editor.buffers().any(|(_, buffer)| buffer.is_saving()) => {
             Err(format!("{EXIT_REFUSED}: a save is running"))
+        }
+        Some(_) if editor.preedit().is_some() => {
+            Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"

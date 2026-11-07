@@ -689,6 +689,21 @@ impl core::fmt::Debug for oso_core::display_map::cell::Escape
 pub fn oso_core::display_map::cell::Escape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::display_map::cell::Escape
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::Escape
+pub struct oso_core::display_map::Preedit
+impl oso_core::display_map::Preedit
+pub fn oso_core::display_map::Preedit::caret(&self) -> core::option::Option<(usize, usize)>
+pub fn oso_core::display_map::Preedit::cells(&self) -> usize
+pub fn oso_core::display_map::Preedit::new(alloc::string::String, core::option::Option<core::ops::range::Range<usize>>) -> Self
+pub fn oso_core::display_map::Preedit::range(&self) -> core::option::Option<core::ops::range::Range<usize>>
+pub fn oso_core::display_map::Preedit::segment(&self) -> core::option::Option<core::ops::range::Range<usize>>
+pub fn oso_core::display_map::Preedit::text(&self) -> &str
+pub fn oso_core::display_map::Preedit::underlines(&self, usize) -> (core::ops::range::Range<usize>, core::option::Option<core::ops::range::Range<usize>>)
+impl core::clone::Clone for oso_core::display_map::Preedit
+pub fn oso_core::display_map::Preedit::clone(&self) -> oso_core::display_map::Preedit
+impl core::cmp::Eq for oso_core::display_map::Preedit
+impl core::cmp::PartialEq for oso_core::display_map::Preedit
+pub fn oso_core::display_map::Preedit::eq(&self, &oso_core::display_map::Preedit) -> bool
+impl core::marker::StructuralPartialEq for oso_core::display_map::Preedit
 pub struct oso_core::display_map::TabMap
 impl oso_core::display_map::tab_map::TabMap
 pub fn oso_core::display_map::tab_map::TabMap::clusters(&self, oso_core::display_map::tab_map::TabPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
@@ -751,6 +766,7 @@ impl core::marker::Copy for oso_core::display_map::cell::TabWidth
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
 pub const oso_core::display_map::MAX_CLUSTER_BYTES: usize
 pub fn oso_core::display_map::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
+pub fn oso_core::display_map::row_clusters<'a>(&'a oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint, core::option::Option<(usize, &'a oso_core::display_map::Preedit)>, impl core::ops::function::FnMut(oso_core::display_map::DisplayCluster<'a>, bool) -> core::ops::control_flow::ControlFlow<()>)
 pub fn oso_core::display_map::text_clusters(&str, usize) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::display_map::DisplayCluster<'_>>
 pub mod oso_core::editor
 pub enum oso_core::editor::ExitAction
@@ -813,6 +829,7 @@ pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::end_undo_group(&mut self)
 pub fn oso_core::editor::Editor::end_undo_group_after_panic(&mut self)
+pub fn oso_core::editor::Editor::keep_undo_step_apart(&mut self)
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::redo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
@@ -863,10 +880,12 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) -> core::option::Option<oso_core::frame::PixelRect>
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
+pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
+pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
@@ -1323,6 +1342,7 @@ pub const oso_core::motion::TOO_MUCH: &str
 pub fn oso_core::motion::buffer_end(&oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::motion::cluster_end(&oso_core::display_map::DisplaySnapshot, usize) -> usize
 pub fn oso_core::motion::cluster_start(&oso_core::display_map::DisplaySnapshot, usize) -> usize
+pub fn oso_core::motion::cursor_box(&oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint, core::option::Option<&oso_core::display_map::Preedit>) -> (oso_core::display_map::DisplayPoint, usize)
 pub fn oso_core::motion::cursor_cells(&oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint) -> usize
 pub fn oso_core::motion::line_after_fraction(&oso_core::display_map::DisplaySnapshot, usize, usize) -> usize
 pub fn oso_core::motion::line_end(&oso_core::display_map::DisplaySnapshot, usize) -> usize
