@@ -10,6 +10,9 @@
 //! - Turning the IME off waits while a composition is open, as the OS keeps a
 //!   composition it was turned off in, and the next key would bring it back.
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
+//! - Only [`ImeEvent::from_winit`] and the calls on the window know winit. The rest
+//!   works on [`ImeEvent`] and the editor, so a window layer other than winit swaps only
+//!   those.
 
 use std::ops::Range;
 

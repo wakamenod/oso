@@ -183,6 +183,13 @@ item notes when it must be settled.
 - The candidate window stays where a composition started, as winit gives the OS one
   rectangle. Check whether a new area during a conversion moves it at the next key, so
   that it can follow the segment ([ADR 0069](adr/0069-macos-input-method.md)).
+- When winit is replaced on every system, as the author plans after M2-12: a native view
+  answers `firstRectForCharacterRange` when the input method asks, so the cursor area no
+  longer needs giving on every key that moves the cursor, and that cost goes (about 0.1 ms
+  a key at p99 in `just perf` at M2-12). The candidate window can then follow the segment
+  being converted too. In `app/ime.rs`, only `ImeEvent::from_winit` and the calls on the
+  window know winit, so the replacement swaps those
+  ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M2-16, M2-20 and M3: the minibuffer, isearch and menus add their condition to
