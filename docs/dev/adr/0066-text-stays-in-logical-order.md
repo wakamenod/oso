@@ -80,6 +80,9 @@ These ADRs stay as they are; this one changes the following:
   Japanese 64 characters 4.7 and 5.0, Hebrew words 70 and 75, Arabic words 63 and 68,
   pointed Hebrew 88 and 88, and Hebrew prose with punctuation and brackets 66 and 134. These
   are for a row that changed: shaped rows are cached ([ADR 0051](0051-m2-plan-decisions.md)).
+- `just perf` passes its thresholds, in 3 pairs on one machine. `line_keys_p99_ms` went
+  from 1.40 to 1.61 ms in each. Shaping that text takes within about 5% of what it took, so
+  this is not explained by the cost of the call.
 - `just perf` holds no right-to-left text, so it does not see those rows. Adding such a
   file is open (`open-questions.md`).
 - The tests are in `coretext.rs`, against the real shaper, and on Menlo and what it falls

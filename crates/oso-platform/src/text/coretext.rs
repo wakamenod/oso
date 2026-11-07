@@ -178,8 +178,9 @@ impl CoreTextSystem {
         }
     }
 
-    /// Appends the glyphs of `text`, of one direction, which starts `start` bytes into the row
-    /// and `pen` pixels along it, and returns their total advance.
+    /// Appends the glyphs of `text`, of one direction, which starts `start`
+    /// bytes into the row and `pen` pixels along it, and returns their total
+    /// advance.
     fn shape_direction(
         &mut self,
         text: &str,
