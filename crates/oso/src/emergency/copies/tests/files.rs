@@ -93,3 +93,72 @@ fn a_read_only_directory_can_still_be_read() {
     assert_eq!(words(&found), [RowState::NotOpen]);
     assert_eq!(found.problem, None);
 }
+
+/// Runs `chmod` with `args`, as this crate has no bindings of its own, and the dev feature is what
+/// lets a test start a process.
+#[cfg(all(target_os = "macos", feature = "dev"))]
+fn chmod(args: &[&std::ffi::OsStr]) {
+    use oso_platform::process::{Executable, Sink, Spawn, spawn};
+
+    let chmod = Executable::absolute("/bin/chmod").unwrap();
+    let args: Vec<std::ffi::OsString> = args.iter().map(|arg| (*arg).to_owned()).collect();
+    let mut child = spawn(&Spawn {
+        executable: &chmod,
+        args: &args,
+        cwd: None,
+        project: None,
+        inherit: &[],
+        stdout: Sink::Null,
+        stderr: Sink::Null,
+        own_process_group: false,
+    })
+    .unwrap();
+    assert!(child.wait().unwrap().success());
+}
+
+/// A leftover that took the list of the file it was to replace.
+#[cfg(all(target_os = "macos", feature = "dev"))]
+#[test]
+fn deleting_removes_what_denies_deleting_it() {
+    let scratch = Scratch::new();
+    let directory = copies_of(&scratch);
+    let text = directory.join(".oso-save-1-2-0.tmp");
+    fs::write(&text, "text").unwrap();
+    chmod(&[
+        "+a".as_ref(),
+        "everyone deny delete".as_ref(),
+        text.as_ref(),
+    ]);
+    assert!(
+        fs::remove_file(&text).is_err(),
+        "the list stops a plain delete"
+    );
+
+    remove_copy(&text, None).unwrap();
+    assert!(!text.exists());
+}
+
+/// When the directory stops the second try too, the file is left owner-only, never more open.
+#[cfg(all(target_os = "macos", feature = "dev"))]
+#[test]
+fn a_leftover_that_cannot_be_deleted_is_left_owner_only() {
+    let scratch = Scratch::new();
+    let directory = copies_of(&scratch);
+    let text = directory.join(".oso-save-1-3-0.tmp");
+    fs::write(&text, "text").unwrap();
+    fs::set_permissions(&text, fs::Permissions::from_mode(0o644)).unwrap();
+    chmod(&[
+        "+a".as_ref(),
+        "everyone deny delete".as_ref(),
+        text.as_ref(),
+    ]);
+    let entry = "everyone deny delete_child";
+    chmod(&["+a".as_ref(), entry.as_ref(), directory.as_ref()]);
+    let removed = remove_copy(&text, None);
+    chmod(&["-a".as_ref(), entry.as_ref(), directory.as_ref()]);
+    assert!(removed.is_err());
+    assert_eq!(
+        fs::metadata(&text).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}

@@ -871,6 +871,31 @@ mod tests {
         }
 
         #[test]
+        fn looking_for_an_existing_directory_goes_by_the_same_rule_as_opening_one() {
+            let scratch = Scratch::new();
+            let way = scratch.join("way");
+            let path = way.join("d");
+            plain_directory(&way);
+            PrivateDir::open(&path).unwrap();
+            assert!(PrivateDir::existing(&path).unwrap().is_some());
+
+            set_for_everyone(&path, "allow", "read");
+            let err = PrivateDir::existing(&path).unwrap_err();
+            assert!(err.to_string().contains("access list"), "{err}");
+            clear(&path);
+
+            set_for_everyone(&way, "allow", "write");
+            assert!(PrivateDir::existing(&path).is_err());
+            clear(&way);
+
+            // What would only stop writing there has no say, as nothing is written.
+            set_for_everyone(&path, "deny", "write");
+            let denied = PrivateDir::existing(&path);
+            clear(&path);
+            assert!(denied.unwrap().is_some());
+        }
+
+        #[test]
         fn what_a_copy_does_not_need_is_not_warned_of() {
             for (how, rights) in [
                 ("deny", "delete"),

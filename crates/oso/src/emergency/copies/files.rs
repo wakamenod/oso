@@ -7,10 +7,17 @@ use std::io;
 use std::path::Path;
 use std::time::SystemTime;
 
+use oso_platform::file_meta::{AccessList, clear_access_list_at};
 use oso_platform::privacy::{has_one_name, is_this_users};
 
 use super::LEFT_BEHIND;
 use crate::loader::same_file;
+
+/// Whether the access list of the file at `path` denies deleting it. Only that list is cleared, and
+/// only for a file being deleted.
+fn denies_deleting(path: &Path) -> bool {
+    AccessList::at(path).is_ok_and(|list| list.denies_deleting())
+}
 
 /// A regular file of this user's with one name, by what `symlink_metadata` says, before
 /// anything opens it, as opening a pipe blocks. A hard link is a name for some other file's text.
@@ -54,9 +61,18 @@ pub(super) fn seconds_of(time: SystemTime) -> Option<u64> {
 }
 
 /// Removes a copy: the `.meta` first, so that a failure halfway leaves a text nothing offers,
-/// never an offer with nothing behind it. What has gone already is no failure.
+/// never an offer with nothing behind it. What has gone already is no failure. A file whose access
+/// list denies deleting it, such as a save's temporary file that took the list of the file it was
+/// to replace, has that list cleared first, as it is being deleted (ADR 0067).
 pub(in crate::emergency) fn remove_copy(text: &Path, meta: Option<&Path>) -> io::Result<()> {
     let gone = |path: &Path| match fs::remove_file(path) {
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied && denies_deleting(path) => {
+            clear_access_list_at(path)?;
+            match fs::remove_file(path) {
+                Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+                _ => Ok(()),
+            }
+        }
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     };
