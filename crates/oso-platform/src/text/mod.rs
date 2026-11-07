@@ -180,9 +180,10 @@ pub trait TextSystem {
 
     /// Shapes one row of text into `out`, replacing its contents. Each glyph
     /// names the cluster it draws, and the caller places it by that, so the
-    /// row reads in the logical order of the text whatever the script. Within
-    /// a run of a right-to-left script the glyphs can come in the opposite
-    /// order. No character is shown as its mirrored form, and right-to-left
+    /// row reads in the logical order of the text whatever the script. The
+    /// glyphs need not come in that order: within a run of a right-to-left
+    /// script they come in the opposite order, and runs of one direction can
+    /// come together. No character is shown as its mirrored form, and right-to-left
     /// scripts are still shaped with their direction, so that their marks and
     /// joining work (ADR 0066). Characters the primary font lacks come from
     /// fallback fonts. Line breaks and tabs are not handled: the caller passes

@@ -94,7 +94,9 @@ The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
 - A display cluster holds at most 8 marks after its first character and 16
   characters. Each character past that, to the end of the grapheme cluster, is
   a boxed code point, but ASCII, which stays text. A new chunk starts the limits
-  over ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)).
+  over ([ADR 0054](adr/0054-limits-on-a-display-cluster.md)). Past the renderer's
+  budget of characters per row, a cluster of several characters shows its first one
+  in a box ([ADR 0068](adr/0068-bounds-that-show-and-the-cursor-box.md)).
 - Control characters are shown as escapes, as in Emacs: `^@` to `^_`, `^?`
   (2 cells) and `\200` to `\237` (4 cells). A lone `\r` is shown as `^M`.
 - An invalid byte of the file is shown as `\xNN` in 4 cells, in the escape

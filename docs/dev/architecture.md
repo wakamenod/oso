@@ -273,7 +273,8 @@ null text system: the cursor is drawn on the grid, and no text. See
   line breaks are escapes.
 - **Pieces:** a row is shaped in pieces wherever the face changes, and at each span, so
   nothing forms across them. A row of one face is one call to the shaper, which may split
-  it by direction ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
+  it by direction ([ADR 0066](adr/0066-text-stays-in-logical-order.md)) into at most two
+  lines ([ADR 0068](adr/0068-bounds-that-show-and-the-cursor-box.md)).
 - **Escapes** for control characters, invalid bytes and invisible
   characters come from the display model and are shaped as ASCII labels
   in an escape color; the raw characters never reach the shaper

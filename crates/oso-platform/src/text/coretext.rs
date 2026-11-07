@@ -16,11 +16,14 @@
 //! graphemes by the direction of its scripts. Right-to-left scripts are shaped
 //! at level 1, since their marks and joining need it, and nothing there has a
 //! mirrored form. Other graphemes are at level 0, but for a space or punctuation
-//! with no mirrored form, which stays in the run it is in.
+//! with no mirrored form, which stays in the run it is in. The runs of one
+//! direction are shaped together in one line, a space apart, so a row costs at
+//! most two lines however often it changes direction (ADR 0068).
 
 use std::ptr::{self, NonNull};
 
-use unicode_segmentation::{GraphemeCursor, UnicodeSegmentation};
+#[cfg(test)]
+use unicode_segmentation::UnicodeSegmentation;
 
 use objc2_core_foundation::{
     CFArray, CFAttributedString, CFBoolean, CFDictionary, CFIndex, CFNumber, CFRange, CFRetained,
@@ -34,6 +37,10 @@ use objc2_core_text::{
     CTFont, CTFontOrientation, CTFontSymbolicTraits, CTRun, CTTypesetter, kCTFontAttributeName,
     kCTTypesetterOptionAllowUnboundedLayout, kCTTypesetterOptionForcedEmbeddingLevel,
 };
+
+mod direction;
+
+use direction::{DirectionRun, SEPARATOR, is_right_to_left, push_bytes};
 
 use super::{
     CellMetrics, FontId, FontRequest, GlyphBitmap, GlyphFormat, GlyphId, GlyphKey, ShapedGlyph,
@@ -77,8 +84,16 @@ pub(super) struct CoreTextSystem {
     level_0: CFRetained<CFDictionary<CFString, CFType>>,
     level_1: CFRetained<CFDictionary<CFString, CFType>>,
     /// Scratch buffers reused across calls to `shape`. `bytes` maps UTF-16
-    /// offsets, which CoreText uses, to byte offsets.
+    /// offsets, which CoreText uses, to byte offsets, or to [`SEPARATOR`].
     bytes: Vec<u32>,
+    /// The text of one line, and the runs of one direction of a row: where
+    /// each starts, whether it is right to left, and its glyphs' leftmost pen
+    /// and total advance.
+    line: String,
+    runs: Vec<DirectionRun>,
+    /// Lines made so far, for tests.
+    #[cfg(test)]
+    lines: usize,
     glyphs: Vec<CGGlyph>,
     positions: Vec<CGPoint>,
     advances: Vec<CGSize>,
@@ -103,6 +118,10 @@ impl CoreTextSystem {
             level_0: typesetter_options(0),
             level_1: typesetter_options(1),
             bytes: Vec::new(),
+            line: String::new(),
+            runs: Vec::new(),
+            #[cfg(test)]
+            lines: 0,
             glyphs: Vec::new(),
             positions: Vec::new(),
             advances: Vec::new(),
@@ -165,7 +184,8 @@ impl CoreTextSystem {
             let byte = usize::try_from(self.indices[i])
                 .ok()
                 .and_then(|utf16| self.bytes.get(utf16));
-            let Some(&cluster) = byte else {
+            // A separator between runs draws nothing.
+            let Some(&cluster) = byte.filter(|&&byte| byte != SEPARATOR) else {
                 continue;
             };
             out.push(ShapedGlyph {
@@ -182,28 +202,44 @@ impl CoreTextSystem {
     }
 
     /// Appends the glyphs of `text`, of one direction, which starts `start`
-    /// bytes into the row and `pen` pixels along it, and returns their total
-    /// advance.
+    /// bytes into the row.
     fn shape_direction(
         &mut self,
         text: &str,
         start: usize,
         right_to_left: bool,
-        pen: f32,
         out: &mut Vec<ShapedGlyph>,
-    ) -> f32 {
+    ) {
         self.bytes.clear();
-        for (byte, c) in text.char_indices() {
-            let byte = u32::try_from(start + byte).unwrap_or(u32::MAX);
-            self.bytes.extend(std::iter::repeat_n(byte, c.len_utf16()));
+        push_bytes(&mut self.bytes, text, start);
+        let line = CFString::from_str(text);
+        self.shape_line(&line, right_to_left, out);
+    }
+
+    /// Appends the glyphs of the runs of `text` in one direction as one line.
+    fn shape_runs(&mut self, text: &str, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
+        direction::join(
+            text,
+            &self.runs,
+            right_to_left,
+            &mut self.line,
+            &mut self.bytes,
+        );
+        if !self.line.is_empty() {
+            let line = CFString::from_str(&self.line);
+            self.shape_line(&line, right_to_left, out);
         }
-        let string = CFString::from_str(text);
+    }
+
+    /// Appends the glyphs of `text` as one line at the embedding level of its
+    /// direction. `bytes` maps it to the row.
+    fn shape_line(&mut self, text: &CFString, right_to_left: bool, out: &mut Vec<ShapedGlyph>) {
         // SAFETY: the default allocator, a valid string, and attributes that
         // map the font attribute name to a font, as CoreText expects.
         let attributed =
-            unsafe { CFAttributedString::new(None, Some(&string), Some(self.attributes.as_ref())) };
+            unsafe { CFAttributedString::new(None, Some(text), Some(self.attributes.as_ref())) };
         let Some(attributed) = attributed else {
-            return 0.0;
+            return;
         };
         let options = if right_to_left {
             &self.level_1
@@ -216,8 +252,12 @@ impl CoreTextSystem {
             CTTypesetter::with_attributed_string_and_options(&attributed, Some(options.as_ref()))
         };
         let Some(typesetter) = typesetter else {
-            return 0.0;
+            return;
         };
+        #[cfg(test)]
+        {
+            self.lines += 1;
+        }
         let all = CFRange {
             location: 0,
             length: 0,
@@ -230,18 +270,11 @@ impl CoreTextSystem {
         // SAFETY: a CFArray holds CF objects; each is checked to be a run
         // before use.
         let runs: CFRetained<CFArray<CFType>> = unsafe { CFRetained::cast_unchecked(runs) };
-        let first = out.len();
         for run in runs.iter() {
             if let Ok(run) = run.downcast::<CTRun>() {
                 self.collect_run(&run, out);
             }
         }
-        let mut advance = 0.0;
-        for glyph in &mut out[first..] {
-            glyph.x += pen;
-            advance += glyph.advance;
-        }
-        advance
     }
 }
 
@@ -256,23 +289,17 @@ impl TextSystem for CoreTextSystem {
             return;
         }
         if text.is_ascii() || !text.chars().any(is_right_to_left) {
-            self.shape_direction(text, 0, false, 0.0, out);
+            self.shape_direction(text, 0, false, out);
             return;
         }
-        let mut current = false;
-        let mut start = 0;
-        let mut pen = 0.0;
-        for (byte, grapheme) in text.grapheme_indices(true) {
-            let right_to_left = grapheme_direction(grapheme).unwrap_or(current);
-            if right_to_left != current {
-                if byte > start {
-                    pen += self.shape_direction(&text[start..byte], start, current, pen, out);
-                    start = byte;
-                }
-                current = right_to_left;
-            }
+        direction::split(text, &mut self.runs);
+        if let [run] = self.runs[..] {
+            self.shape_direction(text, 0, run.right_to_left, out);
+            return;
         }
-        self.shape_direction(&text[start..], start, current, pen, out);
+        self.shape_runs(text, false, out);
+        self.shape_runs(text, true, out);
+        direction::line_up(&mut self.runs, out);
     }
 
     fn rasterize(&mut self, key: GlyphKey) -> Option<GlyphBitmap> {
@@ -398,55 +425,6 @@ fn font_attribute() -> &'static CFString {
     unsafe { kCTFontAttributeName }
 }
 
-/// Whether `c` is in a block of a right-to-left script. Its letters need
-/// embedding level 1 to shape as they should. None of these characters has a
-/// mirrored form (`Bidi_Mirrored` in Unicode 17), so that level cannot show one.
-fn is_right_to_left(c: char) -> bool {
-    matches!(
-        u32::from(c),
-        0x590..=0x8FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFF | 0x10800..=0x10FFF | 0x1E800..=0x1EFFF
-    )
-}
-
-/// Whether `c` extends the grapheme of a letter before it: a mark or a joiner,
-/// by the same table as the display model's. None of these has a mirrored form.
-fn extends_a_letter(c: char) -> bool {
-    let mut bytes = [b'a'; 5];
-    let len = 1 + c.encode_utf8(&mut bytes[1..]).len();
-    let Ok(text) = std::str::from_utf8(&bytes[..len]) else {
-        return false;
-    };
-    GraphemeCursor::new(1, len, true).is_boundary(text, 0) == Ok(false)
-}
-
-/// The direction of a grapheme, right to left or not: `None` for one that stays
-/// in the run it is in, as a space or ASCII punctuation with no mirrored form
-/// does. Right to left needs all of it to be: a prepended character can come
-/// before a character with a mirrored form, which then keeps level 0.
-fn grapheme_direction(grapheme: &str) -> Option<bool> {
-    let mut chars = grapheme.chars();
-    let first = chars.next()?;
-    if chars.as_str().is_empty() {
-        let neutral = first == ' '
-            || first.is_ascii_punctuation()
-                && !matches!(first, '(' | ')' | '<' | '>' | '[' | ']' | '{' | '}');
-        return if neutral {
-            None
-        } else {
-            Some(is_right_to_left(first))
-        };
-    }
-    let mut right_to_left = false;
-    for c in grapheme.chars() {
-        if is_right_to_left(c) {
-            right_to_left = true;
-        } else if !extends_a_letter(c) {
-            return Some(false);
-        }
-    }
-    Some(right_to_left)
-}
-
 /// A forced embedding `level`, so no bidirectional algorithm runs, and no limit
 /// on a line's length from CoreText: `oso-render` bounds what it shapes per row.
 fn typesetter_options(level: i32) -> CFRetained<CFDictionary<CFString, CFType>> {
@@ -522,6 +500,7 @@ fn advance_of(font: &CTFont, c: char) -> Option<CGFloat> {
 
 #[cfg(test)]
 mod tests {
+    use super::direction::{extends_a_letter, grapheme_direction};
     use super::*;
 
     const REQUEST: FontRequest<'static> = FontRequest {
@@ -696,9 +675,86 @@ mod tests {
                 let text = format!("{letter}{mark}");
                 system.shape(&text, &mut split);
                 whole.clear();
-                system.shape_direction(&text, 0, right_to_left, 0.0, &mut whole);
+                system.shape_direction(&text, 0, right_to_left, &mut whole);
                 assert_eq!(split, whole, "{:?}", text.escape_unicode().to_string());
             }
+        }
+    }
+
+    /// The glyphs of `text` by cluster: their keys and offsets from the cluster's
+    /// first glyph, which is what placing them on the grid reads.
+    fn by_cluster(system: &mut CoreTextSystem, text: &str) -> Vec<(u32, GlyphKey, i32, i32)> {
+        let mut out = Vec::new();
+        system.shape(text, &mut out);
+        let mut glyphs: Vec<_> = out
+            .iter()
+            .map(|g| {
+                let first = out.iter().find(|f| f.cluster == g.cluster).unwrap();
+                let dx = ((g.x - first.x) * 64.0).round() as i32;
+                (g.cluster, g.key, dx, (g.y * 64.0).round() as i32)
+            })
+            .collect();
+        glyphs.sort_by_key(|g| (g.0, g.1));
+        glyphs
+    }
+
+    #[test]
+    fn runs_of_one_direction_shape_as_if_each_were_alone() {
+        let mut system = menlo(2.0);
+        let rows = [
+            "\u{644}a\u{627}",
+            "\u{628}a\u{628}a\u{628}",
+            "\u{633}\u{644}\u{627}\u{645} x \u{639}\u{644}\u{64a}\u{643}\u{645} (1) \u{645}\u{631}\u{62d}\u{628}\u{627}",
+            "\u{5e9}\u{5c1}\u{5b8}a\u{5d1}\u{5bc}\u{5b7}\u{5e8} 2024 \u{5e2}\u{5d5}\u{5dc}\u{5b8}\u{5dd}",
+            "f(\u{5d0}) <\u{5d1}> [\u{5d2}] fi\u{5d3}fl",
+            "\u{5d0}\u{5b4}a\u{5b4}\u{5d1}",
+        ];
+        for row in rows {
+            let mut want = Vec::new();
+            let mut start = 0;
+            let mut current = None;
+            for (byte, grapheme) in row.grapheme_indices(true) {
+                let direction = grapheme_direction(grapheme).or(current).unwrap_or(false);
+                if current.is_some_and(|c| c != direction) {
+                    want.extend(
+                        by_cluster(&mut system, &row[start..byte])
+                            .into_iter()
+                            .map(|(c, k, x, y)| (c + start as u32, k, x, y)),
+                    );
+                    start = byte;
+                }
+                current = Some(direction);
+            }
+            want.extend(
+                by_cluster(&mut system, &row[start..])
+                    .into_iter()
+                    .map(|(c, k, x, y)| (c + start as u32, k, x, y)),
+            );
+            want.sort_by_key(|g| (g.0, g.1));
+            assert_eq!(by_cluster(&mut system, row), want, "{row:?}");
+        }
+    }
+
+    #[test]
+    fn a_row_makes_at_most_two_lines_however_often_it_changes_direction() {
+        let mut system = menlo(1.0);
+        let mut out = Vec::new();
+        for unit in ["\u{5d0}a", "\u{628}a", "\u{5d0}\u{5b8}(", "a \u{5d0} "] {
+            let row = unit.repeat(200);
+            system.lines = 0;
+            system.shape(&row, &mut out);
+            assert_eq!(system.lines, 2, "{unit:?}");
+            let starts: Vec<_> = row.grapheme_indices(true).map(|(b, _)| b as u32).collect();
+            let mut drawn: Vec<_> = out
+                .iter()
+                .map(|g| {
+                    assert!((g.cluster as usize) < row.len(), "no separator draws");
+                    starts.partition_point(|&s| s <= g.cluster) - 1
+                })
+                .collect();
+            drawn.sort_unstable();
+            drawn.dedup();
+            assert_eq!(drawn.len(), starts.len(), "every grapheme draws: {unit:?}");
         }
     }
 

@@ -36,11 +36,11 @@ use crate::grid::{Grapheme, PlacedGlyph, Placer};
 use crate::pane::{Face, Span};
 
 /// The characters shaped per row, per column shaped. Real text has at most
-/// three or so; past this budget, clusters are shaped by their first
-/// character only. A row's text then has at most this many characters per
-/// column plus one more, and one cluster: hostile text costs a bounded
-/// amount per row, about 20 bytes per column at worst. The display model
-/// bounds a cluster's length (ADR 0054).
+/// three or so; past this budget, a cluster of several characters is shaped by
+/// its first one, in a box, so that what is left out shows (ADR 0068). A row's
+/// text then has at most this many characters per column plus one more, and
+/// one cluster: hostile text costs a bounded amount per row, about 20 bytes per
+/// column at worst. The display model bounds a cluster's length (ADR 0054).
 const CHARS_PER_COLUMN: usize = 4;
 
 /// The part of `text` that can show in `columns` columns: a display cluster takes
@@ -303,7 +303,9 @@ impl Rows {
     }
 
     /// Adds what `cluster` draws to the scratch space, with its text in
-    /// `face`. Past `budget` characters, only its first one is shaped.
+    /// `face`. Past `budget` characters, a run of several characters is cut
+    /// to its first one and boxed. A label comes a character a run, so it is
+    /// never cut.
     fn push_cluster(
         &mut self,
         cluster: &DisplayCluster<'_>,
@@ -313,6 +315,14 @@ impl Rows {
     ) {
         let whole = *spent < budget;
         cluster.for_each_run(|run| {
+            let mut face = face.of_run(run.style);
+            let mut text = run.text;
+            let first = first_char(run.text);
+            if !whole && first.len() < run.text.len() {
+                text = first;
+                face = Face::Boxed;
+                self.boxes.push((run.column, run.cells));
+            }
             // One box per boxed character, across its label's runs.
             if run.style == CellStyle::Boxed {
                 if run.column == cluster.column {
@@ -325,13 +335,8 @@ impl Rows {
                 byte: self.text.len() as u32,
                 column: run.column,
                 cells: u32::try_from(run.cells).unwrap_or(u32::MAX),
-                face: face.of_run(run.style),
+                face,
             });
-            let text = if whole {
-                run.text
-            } else {
-                first_char(run.text)
-            };
             *spent += text.chars().count();
             self.text.push_str(text);
         });
@@ -505,6 +510,32 @@ pub(crate) mod tests {
                 "the budget is spent before clusters are cut: {chars}"
             );
         }
+    }
+
+    #[test]
+    fn a_cluster_cut_past_the_budget_shows_in_a_box() {
+        // 57 cells of 9 characters spend the budget of 128 columns, so the
+        // clusters after them are cut.
+        let spend = format!("e{}", "\u{301}".repeat(8)).repeat(57);
+        let buffer = Buffer::from_text("t", &format!("{spend}e\u{301}xb\u{5bc}\u{5b8}"));
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let shaped = rows.row(&buffer.display(), 0, 0..128, &mut system);
+        assert_eq!(system.shaped[0], spend, "shaped whole so far");
+        assert_eq!(system.shaped[1..], ["e", "x", "b"]);
+        assert_eq!(
+            shaped.boxes,
+            [(57, 1), (59, 1)],
+            "only what lost characters"
+        );
+        let faces: Vec<_> = shaped.glyphs[shaped.glyphs.len() - 3..]
+            .iter()
+            .map(|g| (g.column, g.face))
+            .collect();
+        assert_eq!(
+            faces,
+            [(57, Face::Boxed), (58, Face::Text), (59, Face::Boxed)]
+        );
     }
 
     #[test]

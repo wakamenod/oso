@@ -58,12 +58,15 @@ struct Draws {
     limits: Limits,
     rects: Vec<Rect>,
     quads: Vec<GlyphInstance>,
+    /// Rectangles held back for what is filled last, such as a cursor box.
+    held: usize,
 }
 
 impl Draws {
     /// Fills `rect`, if it shows and there is room.
     fn fill(&mut self, rect: Option<PixelRect>, face: Face) {
-        if let Some(rect) = rect.filter(|_| self.rects.len() < self.limits.rects) {
+        let room = self.rects.len() + self.held < self.limits.rects;
+        if let Some(rect) = rect.filter(|_| room) {
             self.rects.push(Rect {
                 position: [rect.x, rect.y],
                 size: [rect.width, rect.height],
@@ -129,6 +132,7 @@ impl Scene {
                 limits,
                 rects: Vec::new(),
                 quads: Vec::new(),
+                held: 0,
             },
             layers: Vec::new(),
         }
@@ -305,6 +309,10 @@ fn draw_text<G: GlyphSource>(
         // Glyphs take the box's color only where the box is.
         layout = layout.with_cursor(view.cursor.row, cells);
     }
+    // The cursor box is filled after the boxes it goes over, and none of them
+    // can take its place.
+    let held = usize::from(cursor.is_some());
+    draws.held += held;
     rows.begin(view.buffer, view.revision);
     let columns = layout.shaped_columns();
     let top = view.scroll.top;
@@ -318,6 +326,7 @@ fn draw_text<G: GlyphSource>(
         }
     }
     rows.evict(visible.start.saturating_sub(visible.len())..visible.end + visible.len());
+    draws.held -= held;
     if let Some(cells) = cursor {
         draws.fill(layout.frame_cells(cells), Face::Cursor);
     }
@@ -832,6 +841,29 @@ mod tests {
         build(&mut scene, &[back, front], &mut FakeAtlas::default());
         assert_eq!(scene.rects().len(), 1);
         assert_eq!(scene.rects()[0].color, Face::Cursor.background());
+    }
+
+    #[test]
+    fn boxes_cannot_take_the_place_of_the_cursor_box() {
+        let buffer = Buffer::from_text("t", &"\u{200b}".repeat(20));
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(0, 0),
+        });
+        let panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
+        let limits = Limits {
+            rects: 5,
+            quads: 1000,
+        };
+        let mut scene = Scene::new(limits);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let colors: Vec<_> = scene.rects().iter().map(|r| r.color).collect();
+        assert_eq!(colors.len(), 5);
+        assert_eq!(colors[..4], [Face::Boxed.background(); 4]);
+        assert_eq!(colors[4], Face::Cursor.background());
     }
 
     #[test]

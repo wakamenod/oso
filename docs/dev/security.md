@@ -119,6 +119,8 @@ and invalid bytes are shown as escapes (`^M`, `\xFF`) in an escape color. Labels
 shaped apart from the text around them, so that text cannot change what a label reads.
 None of these characters reach the text shaper: their labels are shaped as
 ASCII instead ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+A cluster the renderer shapes only in part, past its budget of characters, shows
+in a box ([ADR 0068](adr/0068-bounds-that-show-and-the-cursor-box.md)).
 Cells stay in the logical order of the text and no character is shown as its mirrored
 form, in every script
 ([ADR 0066](adr/0066-text-stays-in-logical-order.md)).
