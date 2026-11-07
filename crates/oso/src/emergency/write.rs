@@ -16,8 +16,8 @@
 //! in a name, where it could be too long for the system. A collision is harmless, as
 //! recovery compares the metadata too. Both files start under a temporary name made with
 //! `create_new` and mode `0600`, and a free stem is never one already there, so that no
-//! later copy can touch an earlier one. Each holds no access list before anything goes in, as
-//! something may have changed since the directory was checked.
+//! later copy can touch an earlier one. Each is sealed before anything goes in, as something may
+//! have changed since the directory was checked, so that it grants nothing beyond its mode.
 //!
 //! A copy is only ever offered. Whatever is in this directory, recovery must not let it
 //! choose a path to write to without the person.
@@ -48,14 +48,14 @@ pub(super) fn write_copy(
     now: SystemTime,
     ticks: &Ticks<'_>,
 ) -> io::Result<()> {
-    write_copy_sealing(directory, entry, why, now, ticks, &|file| {
-        Ok(file_meta::seal(file)?.grants_others())
+    write_copy_with(directory, entry, why, now, ticks, &|file| {
+        Ok(file_meta::seal(file)?.had_grant())
     })
 }
 
-/// [`write_copy`], with `seal` to take any access list off a new file, and to say whether that
-/// list granted anything.
-pub(super) fn write_copy_sealing(
+/// [`write_copy`], with `seal` to make a new file grant nothing beyond its mode, and to say whether
+/// it had taken anything that did.
+pub(super) fn write_copy_with(
     directory: &Path,
     entry: &Entry,
     why: Why,
@@ -99,8 +99,9 @@ pub(super) fn write_copy_sealing(
     Ok(())
 }
 
-/// A temporary file with nothing in it and no access list. If it had taken one that granted
-/// anything, the directory has changed since it was checked, and is no place for a copy.
+/// A temporary file with nothing in it, granting nothing beyond its mode. If it had taken a list
+/// that granted anything, the directory has changed since it was checked, and is no place for a
+/// copy.
 fn sealed_temporary(
     directory: &Path,
     seal: &dyn Fn(&File) -> io::Result<bool>,
@@ -108,7 +109,7 @@ fn sealed_temporary(
     let (temporary, file) = Temporary::create(directory, PRIVATE_MODE)?;
     if seal(&file)? {
         return Err(io::Error::other(
-            "an access list on the directory gives other users access to what is written there",
+            "an access list on the directory gives access to what is written there",
         ));
     }
     Ok((temporary, file))

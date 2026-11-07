@@ -13,7 +13,7 @@ use super::{
     DirProblem, ancestor_is_safe, check_dir, own_list_problem, parent_list_problem,
     way_list_problem,
 };
-use crate::file_meta::{ListEntry, directory_list};
+use crate::file_meta::{AccessEntry, directory_access_list};
 
 /// The most symbolic links the way to a private directory may pass through, as in Linux.
 const MAX_LINKS: usize = 40;
@@ -205,34 +205,56 @@ fn check_ancestor(ancestor: &Path, meta: &fs::Metadata) -> io::Result<()> {
     if !ancestor_is_safe(mode, meta.uid(), euid()) {
         return Err(refused(ancestor, "can be changed by other users"));
     }
-    if meta.file_type().is_symlink() {
-        // Links hold no list. What one leads to is walked next.
-        return Ok(());
-    }
+    // A link can hold a list of its own, and what it leads to is walked next.
     check_list(ancestor, way_list_problem)
 }
 
 /// Checks the directory itself, from its `lstat` results.
 fn check_itself(path: &Path, meta: &fs::Metadata) -> io::Result<()> {
-    check_dir(
+    match itself_problem(path, meta).map_err(|e| with_path(&e, "cannot inspect", path))? {
+        Some(problem) => Err(refused(path, problem.message())),
+        None => Ok(()),
+    }
+}
+
+/// What keeps the directory at `path`, with these `lstat` results, from being private.
+///
+/// # Errors
+///
+/// If its access list cannot be read.
+pub(crate) fn itself_problem(path: &Path, meta: &fs::Metadata) -> io::Result<Option<DirProblem>> {
+    let by_mode = check_dir(
         meta.file_type().is_symlink(),
         meta.is_dir(),
         meta.uid(),
         meta.mode(),
         euid(),
-    )
-    .map_err(|problem| refused(path, problem.message()))?;
-    check_list(path, own_list_problem)
+    );
+    match by_mode {
+        Err(problem) => Ok(Some(problem)),
+        Ok(()) => list_problem(path, own_list_problem),
+    }
 }
 
-/// Refuses the directory at `path` if `problem` finds anything wrong with its access list. A
-/// list that cannot be read says nothing of what it holds, so that is refused too.
+/// What `rule` finds wrong with the access list of the directory at `path`.
+///
+/// # Errors
+///
+/// If the list cannot be read, which says nothing of what it holds.
+pub(crate) fn list_problem(
+    path: &Path,
+    rule: impl FnOnce(&[AccessEntry]) -> Option<DirProblem>,
+) -> io::Result<Option<DirProblem>> {
+    Ok(rule(&directory_access_list(path)?))
+}
+
+/// Refuses the directory at `path` if `rule` finds anything wrong with its access list, or the
+/// list cannot be read.
 fn check_list(
     path: &Path,
-    problem: impl FnOnce(&[ListEntry]) -> Option<DirProblem>,
+    rule: impl FnOnce(&[AccessEntry]) -> Option<DirProblem>,
 ) -> io::Result<()> {
-    let entries = directory_list(path).map_err(|e| with_path(&e, "cannot inspect", path))?;
-    match problem(&entries) {
+    match list_problem(path, rule).map_err(|e| with_path(&e, "cannot inspect", path))? {
         Some(problem) => Err(refused(path, problem.message())),
         None => Ok(()),
     }
@@ -575,7 +597,7 @@ mod tests {
         use std::fs;
 
         use super::Scratch;
-        use crate::file_meta::macos::test_list::{clear, set_for_everyone};
+        use crate::file_meta::test_list::{clear, set_for_everyone, set_on_link_for_everyone};
         use crate::privacy::PrivateDir;
 
         #[test]
@@ -604,7 +626,12 @@ mod tests {
             ] {
                 assert!(err.to_string().contains("access list"), "{err}");
             }
-            assert_eq!(crate::file_meta::directory_list(&path).unwrap().len(), 1);
+            assert_eq!(
+                crate::file_meta::directory_access_list(&path)
+                    .unwrap()
+                    .len(),
+                1
+            );
         }
 
         #[test]
@@ -648,7 +675,7 @@ mod tests {
             fs::create_dir(&way).unwrap();
             set_for_everyone(&way, "allow,directory_inherit", "read");
             let err = PrivateDir::open(&path).unwrap_err();
-            assert!(err.to_string().contains("pass access on"), "{err}");
+            assert!(err.to_string().contains("directories made in it"), "{err}");
             assert!(PrivateDir::check(&path).is_err());
             assert!(!way.join("oso").exists(), "nothing new appears");
 
@@ -669,7 +696,25 @@ mod tests {
             let path = way.join("oso").join("d");
             PrivateDir::check(&path).unwrap();
             PrivateDir::open(&path).unwrap();
-            assert_eq!(crate::file_meta::directory_list(&path).unwrap(), []);
+            assert_eq!(crate::file_meta::directory_access_list(&path).unwrap(), []);
+        }
+
+        #[test]
+        fn a_links_own_list_counts_on_the_way() {
+            let scratch = Scratch::new();
+            let real = scratch.join("real");
+            PrivateDir::open(&real).unwrap();
+            let link = scratch.join("link");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            PrivateDir::open(link.join("d")).unwrap();
+
+            set_on_link_for_everyone(&link, "allow", "delete");
+            let err = PrivateDir::open(link.join("d")).unwrap_err();
+            assert!(err.to_string().contains("access list"), "{err}");
+            assert!(PrivateDir::check(&link.join("d")).is_err());
+
+            set_on_link_for_everyone(&link, "allow", "read");
+            PrivateDir::open(link.join("d")).unwrap();
         }
 
         #[test]

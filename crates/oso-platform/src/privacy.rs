@@ -10,7 +10,7 @@
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-use crate::file_meta::ListEntry;
+use crate::file_meta::AccessEntry;
 
 #[cfg(not(unix))]
 mod other;
@@ -22,7 +22,7 @@ mod unix;
 use unix as backend;
 
 #[cfg(all(unix, feature = "dev"))]
-pub(crate) use unix::euid;
+pub(crate) use unix::{euid, itself_problem, list_problem};
 
 /// Turns core dumps off for this process and whatever it starts, for good: a dump would
 /// hold every buffer. Windows has no such limit for a process to set, so there this does
@@ -118,11 +118,9 @@ impl DirProblem {
             Self::NotADirectory => "is not a directory",
             Self::WrongOwner => "is owned by another user",
             Self::LooseMode => "is accessible by other users (mode is not 0700)",
-            Self::ListGrants => "is accessible by other users through an access list",
-            Self::ListLetsChange => "can be changed by other users through an access list",
-            Self::ListPassesOn => {
-                "would pass access on to directories made in it, through an access list"
-            }
+            Self::ListGrants => "holds an access list entry that grants access",
+            Self::ListLetsChange => "holds an access list entry that lets it be changed",
+            Self::ListPassesOn => "holds an access list entry that directories made in it take",
         }
     }
 }
@@ -165,7 +163,7 @@ pub(crate) fn ancestor_is_safe(mode: u32, owner: u32, euid: u32) -> bool {
 /// Why the access list of a private directory keeps it from being one. It may grant nothing
 /// at all, whoever an entry names: telling this user from others means asking a directory
 /// service. A `deny` takes rights away, so it does no harm.
-pub(crate) fn own_list_problem(entries: &[ListEntry]) -> Option<DirProblem> {
+pub(crate) fn own_list_problem(entries: &[AccessEntry]) -> Option<DirProblem> {
     entries
         .iter()
         .any(|entry| entry.allows)
@@ -174,54 +172,61 @@ pub(crate) fn own_list_problem(entries: &[ListEntry]) -> Option<DirProblem> {
 
 /// Why the access list of a directory that leads to a private one keeps it from being one. An
 /// entry that only reads is fine, as mode `0755` is.
-pub(crate) fn way_list_problem(entries: &[ListEntry]) -> Option<DirProblem> {
+pub(crate) fn way_list_problem(entries: &[AccessEntry]) -> Option<DirProblem> {
     entries
         .iter()
-        .any(|entry| entry.allows && entry.changes_contents)
+        .any(|entry| entry.allows && entry.lets_change)
         .then_some(DirProblem::ListLetsChange)
 }
 
 /// Why a private directory cannot be made under a directory with this access list. Only what
 /// reaches a new directory counts: a list reaches only what is made after it, and an entry
 /// for files stops at this one.
-pub(crate) fn parent_list_problem(entries: &[ListEntry]) -> Option<DirProblem> {
+pub(crate) fn parent_list_problem(entries: &[AccessEntry]) -> Option<DirProblem> {
     entries
         .iter()
         .any(|entry| entry.allows && entry.reaches_new_directories)
         .then_some(DirProblem::ListPassesOn)
 }
 
+/// Why a directory cannot be the parent of a private one, whether or not that one exists yet, for
+/// the control socket, which looks at one parent and not all the way.
+#[cfg(all(unix, feature = "dev"))]
+pub(crate) fn whole_parent_list_problem(entries: &[AccessEntry]) -> Option<DirProblem> {
+    way_list_problem(entries).or_else(|| parent_list_problem(entries))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        DirProblem, ListEntry, ancestor_is_safe, check_dir, own_list_problem, parent_is_safe,
+        AccessEntry, DirProblem, ancestor_is_safe, check_dir, own_list_problem, parent_is_safe,
         parent_list_problem, way_list_problem,
     };
 
     /// What macOS puts on `~` and on many of the directories under it.
-    const DENY_DELETE: ListEntry = ListEntry {
+    const DENY_DELETE: AccessEntry = AccessEntry {
         allows: false,
-        changes_contents: true,
+        lets_change: true,
         reaches_new_directories: false,
     };
-    const ALLOW_READING: ListEntry = ListEntry {
+    const ALLOW_READING: AccessEntry = AccessEntry {
         allows: true,
-        changes_contents: false,
+        lets_change: false,
         reaches_new_directories: false,
     };
-    const ALLOW_CHANGING: ListEntry = ListEntry {
+    const ALLOW_CHANGING: AccessEntry = AccessEntry {
         allows: true,
-        changes_contents: true,
+        lets_change: true,
         reaches_new_directories: false,
     };
-    const ALLOW_FOR_NEW_DIRECTORIES: ListEntry = ListEntry {
+    const ALLOW_FOR_NEW_DIRECTORIES: AccessEntry = AccessEntry {
         allows: true,
-        changes_contents: false,
+        lets_change: false,
         reaches_new_directories: true,
     };
-    const DENY_FOR_NEW_DIRECTORIES: ListEntry = ListEntry {
+    const DENY_FOR_NEW_DIRECTORIES: AccessEntry = AccessEntry {
         allows: false,
-        changes_contents: true,
+        lets_change: true,
         reaches_new_directories: true,
     };
 

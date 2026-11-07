@@ -43,7 +43,7 @@ pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io:
 pub mod oso_platform::file_meta
 pub struct oso_platform::file_meta::Sealed
 impl oso_platform::file_meta::Sealed
-pub fn oso_platform::file_meta::Sealed::grants_others(self) -> bool
+pub fn oso_platform::file_meta::Sealed::had_grant(self) -> bool
 impl core::clone::Clone for oso_platform::file_meta::Sealed
 pub fn oso_platform::file_meta::Sealed::clone(&self) -> oso_platform::file_meta::Sealed
 impl core::cmp::Eq for oso_platform::file_meta::Sealed

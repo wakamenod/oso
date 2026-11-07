@@ -33,7 +33,8 @@ does not know:
 - **A list that cannot be read** is refused, as nothing can be told of it. An owner can be denied reading a list, and that
   gives an error and not an empty list. Having no list, and a file system with no lists, are the same as an empty one.
 
-Symbolic links hold no lists, and what one leads to is walked next. As with a looser mode, a refused directory is not repaired, as
+A symbolic link on the way can hold a list of its own: `acl_set_link_np` refuses one, as `acl_set(3)` says, but a descriptor of the link can
+set one, and `chmod -h` does. So it is judged like a directory there, and what it leads to is walked next. As with a looser mode, a refused directory is not repaired, as
 something may already have read what is in it. `PrivateDir::check` finds all of this at startup, which is when a person hears of it,
 with what is refused and why.
 
@@ -46,16 +47,19 @@ remedy, and the startup message says what to look at.
 Each of a copy's two temporary files is **sealed** before anything goes in: any list it took from its directory is removed, and read
 back as gone. If what it took granted anything, the directory has changed since it was checked, so the copy is refused, nothing is
 left, and the report says so without quoting text. An inherited `deny` is removed and the copy goes on, since a file may not be renamed or
-removed while it denies this user `delete`.
+removed while it denies this user `delete`. So is one this user may not read: the directory's own list has said what could grant
+anything, and its owner can still remove it. So a `deny` cannot pass the startup check and then stop a copy at the crash.
 
 ### The control socket
 
-It follows the same rule, on its directory and its parent, as that directory also holds screenshots. It stays behind the `dev` feature.
-As it has only the one parent to look at, both rules for a parent apply whether or not the directory exists yet.
+It follows the same rule on its directory and on its one parent, and a screenshot is sealed as a copy is, as that directory holds them. It
+does not walk to the root, as a dev tool's check of one parent does not for modes either
+([ADR 0062](0062-emergency-save-and-the-panic-hook.md)). As it has only that parent to look at, both rules for a parent apply whether or
+not the directory exists yet. It stays behind the `dev` feature.
 
 ### On other systems
 
-- **Linux:** nothing new to check. The group bits of a mode are a list's mask, so what an access list grants shows in the mode, and the
+- **Linux:** nothing new to check. The group bits of a mode are a POSIX list's mask, so what an access list grants shows in the mode, and the
   existing checks see it. A default list gives a new file or directory a mask no wider than the mode it was asked for, so with `0600` and
   `0700` it grants nothing. A test on Linux keeps both true.
 - **Windows** stays as ADR 0062 says, and is left for later, recorded in `open-questions.md`. It needs `windows-sys` as a direct dependency.
@@ -63,16 +67,21 @@ As it has only the one parent to look at, both rules for a parent apply whether 
 
 ### Where it lives
 
-- `oso_platform::file_meta` is a new public module, in a layer of its own below `privacy` in `guardrails/layers.txt`, as ADR 0062
-  expected of the next code to need this. Its public API is `seal` and `Sealed`, with no OS type in them.
+- `oso_platform::file_meta` is a new public module, in a layer of its own below `privacy` in `guardrails/layers.txt`. It is the
+  file-system module ADR 0059 and ADR 0062 expected, for what a file holds beyond its mode, and `architecture.md` says so. Its public API
+  is `seal` and `Sealed`, with no OS type in them.
 - `file_meta::macos` declares the `acl_*` calls itself, with `unsafe extern "C"`, as `libc` does not have them. No dependency is added.
-- The rule is three pure functions in `privacy`, over entries that say only what the rule asks. They are tested on every system.
+- The rule is three pure functions in `privacy`, over entries that say only what the rule asks. They are tested on every system. What an
+  OS's bits mean stays in its backend: on macOS, which rights count as changing, and that a tag it does not know counts as a grant.
 
 ## Consequences
 
 - A directory with an `allow` entry gets no copies, even an entry for this user. The person hears at startup, and can remove it.
-- Finding this costs one more call per directory walked, on macOS only, and sealing one or two per file. All of it is off the UI thread.
-- `write_copy` takes the seal as a parameter inside, so that a test can see it runs before any text, on any system.
+- On macOS only, finding this costs one more call per directory walked, and opening walks twice. Sealing costs one call per file with no
+  list and three with one. In release builds all of it is off the UI thread, unless the emergency writer's thread could not start. Dev builds
+  also check the control socket's directory at startup, where they already look at it, on the thread that goes on to be the UI thread.
+- `write_copy` takes the seal as a parameter inside, so that a test can see it runs before any text, on any system. A test on macOS, with the
+  `dev` feature, meets it with a real list, set by `chmod`.
 - Tests set real lists on what they made themselves, naming `everyone` by its fixed identifier, so that they need no privileges and no
   directory service. The test helper sets a list by `acl_set_file`, as `acl_set_link_np` fails on a list its owner may not read.
 - `acl_from_text` knows only the names of rights for files. They are the same bits as those for directories.

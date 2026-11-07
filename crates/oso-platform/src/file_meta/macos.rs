@@ -11,7 +11,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 
-use super::{ListEntry, Sealed};
+use super::{AccessEntry, Sealed};
 
 const ACL_TYPE_EXTENDED: c_int = 0x100;
 const ACL_FIRST_ENTRY: c_int = 0;
@@ -66,21 +66,25 @@ impl Drop for List {
 }
 
 impl List {
-    /// Takes what a read returned, with the system's error still current. No list, and a file
-    /// system with no lists, read as `None`. `ENOENT` is also what a name that is gone gives, and
-    /// the caller has just found it there.
-    fn from_read(list: *mut c_void) -> io::Result<Option<Self>> {
+    /// The entries of what a read returned, with the system's error still current if that is null.
+    /// No list, and a file system with no lists, read as no entries. `ENOENT` is also what a name
+    /// that is gone gives, and the caller has just found it there.
+    ///
+    /// # Safety
+    ///
+    /// `list` must be null, or a list an `acl_*` call has just handed over, which this then frees.
+    unsafe fn read(list: *mut c_void) -> io::Result<Vec<AccessEntry>> {
         if !list.is_null() {
-            return Ok(Some(Self(list)));
+            return Self(list).entries();
         }
         let error = io::Error::last_os_error();
         match error.raw_os_error() {
-            Some(libc::ENOENT | libc::ENOTSUP | libc::EOPNOTSUPP) => Ok(None),
+            Some(libc::ENOENT | libc::ENOTSUP | libc::EOPNOTSUPP) => Ok(Vec::new()),
             _ => Err(error),
         }
     }
 
-    fn entries(&self) -> io::Result<Vec<ListEntry>> {
+    fn entries(&self) -> io::Result<Vec<AccessEntry>> {
         let mut entries = Vec::new();
         let mut which = ACL_FIRST_ENTRY;
         loop {
@@ -90,18 +94,22 @@ impl List {
             if unsafe { acl_get_entry(self.0, which, &raw mut entry) } != 0 {
                 return Ok(entries);
             }
-            entries.push(read_entry(entry)?);
+            // SAFETY: the call just gave `entry` from `self`, which outlives this use of it.
+            entries.push(unsafe { read_entry(entry) }?);
             which = ACL_NEXT_ENTRY;
         }
     }
 }
 
-/// `entry` must come from a live list, and stays valid for this call as the caller holds that list.
-fn read_entry(entry: *mut c_void) -> io::Result<ListEntry> {
+/// What one entry says.
+///
+/// # Safety
+///
+/// `entry` must point into a list that stays alive for this call.
+unsafe fn read_entry(entry: *mut c_void) -> io::Result<AccessEntry> {
     let (mut tag, mut rights, mut flags) = (0, 0, ptr::null_mut());
-    // SAFETY: `entry` points into a list the caller keeps alive for this call, and each
-    // out-pointer is an initialized local the call only writes. `flags` points into the same list,
-    // and is not kept past this function.
+    // SAFETY: the caller keeps `entry`'s list alive, and each out-pointer is an initialized local
+    // the call only writes. `flags` points into the same list, and is not kept past this function.
     let read = unsafe {
         acl_get_tag_type(entry, &raw mut tag) == 0
             && acl_get_permset_mask_np(entry, &raw mut rights) == 0
@@ -120,33 +128,25 @@ fn read_entry(entry: *mut c_void) -> io::Result<ListEntry> {
 
 /// What an entry means to the rules. Only a deny takes rights away, so a tag this does not know
 /// counts as a grant.
-fn classified(tag: c_int, rights: u64, to_directories: bool) -> ListEntry {
-    ListEntry {
+fn classified(tag: c_int, rights: u64, to_directories: bool) -> AccessEntry {
+    AccessEntry {
         allows: tag != ACL_EXTENDED_DENY,
-        changes_contents: rights & CHANGING_RIGHTS != 0,
+        lets_change: rights & CHANGING_RIGHTS != 0,
         reaches_new_directories: to_directories,
     }
 }
 
-pub(super) fn list_at(path: &Path) -> io::Result<Vec<ListEntry>> {
+pub(super) fn list_at(path: &Path) -> io::Result<Vec<AccessEntry>> {
     let path = CString::new(path.as_os_str().as_bytes()).map_err(io::Error::from)?;
-    // SAFETY: `path` is NUL-terminated, outlives the call and is only read. A result that is not
-    // null goes straight into `List`, which frees it.
-    let list = unsafe { acl_get_link_np(path.as_ptr(), ACL_TYPE_EXTENDED) };
-    match List::from_read(list)? {
-        Some(list) => list.entries(),
-        None => Ok(Vec::new()),
-    }
+    // SAFETY: `path` is NUL-terminated, outlives the call and is only read, and `List::read` takes
+    // what the call hands over, with its error still current.
+    unsafe { List::read(acl_get_link_np(path.as_ptr(), ACL_TYPE_EXTENDED)) }
 }
 
-fn list_of(file: &File) -> io::Result<Vec<ListEntry>> {
-    // SAFETY: the descriptor is borrowed from `file` for the call. A result that is not null goes
-    // straight into `List`, which frees it.
-    let list = unsafe { acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED) };
-    match List::from_read(list)? {
-        Some(list) => list.entries(),
-        None => Ok(Vec::new()),
-    }
+fn list_of(file: &File) -> io::Result<Vec<AccessEntry>> {
+    // SAFETY: the descriptor is borrowed from `file` for the call, and `List::read` takes what the
+    // call hands over, with its error still current.
+    unsafe { List::read(acl_get_fd_np(file.as_raw_fd(), ACL_TYPE_EXTENDED)) }
 }
 
 /// Gives `file` a list with no entries.
@@ -167,18 +167,22 @@ fn empty_list(file: &File) -> io::Result<()> {
 }
 
 pub(super) fn seal(file: &File) -> io::Result<Sealed> {
-    let found = list_of(file)?;
-    if !found.is_empty() {
-        empty_list(file)?;
-        if !list_of(file)?.is_empty() {
-            return Err(io::Error::other(
-                "an access list could not be removed from a new file",
-            ));
-        }
+    let had_grant = match list_of(file) {
+        Ok(found) if found.is_empty() => return Ok(Sealed { had_grant: false }),
+        Ok(found) => found.iter().any(|entry| entry.allows),
+        // A list can deny its owner reading it, and its directory's own list has said what could
+        // grant anything. Its owner can still remove it, and then nothing of it is left.
+        Err(e) if e.raw_os_error() == Some(libc::EACCES) => false,
+        Err(e) => return Err(e),
+    };
+    empty_list(file)?;
+    if list_of(file)?.is_empty() {
+        Ok(Sealed { had_grant })
+    } else {
+        Err(io::Error::other(
+            "an access list could not be removed from a new file",
+        ))
     }
-    Ok(Sealed {
-        grants_others: found.iter().any(|entry| entry.allows),
-    })
 }
 
 /// Setting lists, for tests, on what they made themselves. `everyone` is named by its fixed
@@ -186,10 +190,13 @@ pub(super) fn seal(file: &File) -> io::Result<Sealed> {
 #[cfg(test)]
 pub(crate) mod test_list {
     use std::ffi::{CString, c_char, c_int, c_void};
+    use std::fs::OpenOptions;
+    use std::os::fd::AsRawFd;
     use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
     use std::path::Path;
 
-    use super::{ACL_TYPE_EXTENDED, List, acl_init};
+    use super::{ACL_TYPE_EXTENDED, List, acl_init, acl_set_fd_np};
 
     unsafe extern "C" {
         fn acl_from_text(text: *const c_char) -> *mut c_void;
@@ -208,6 +215,25 @@ pub(crate) mod test_list {
     /// `allow,directory_inherit`, and `rights` as in `read,execute`. `acl_from_text` knows only
     /// the names for files, which are the same bits as `list,search` and `add_file` on a directory.
     pub(crate) fn set_for_everyone(path: &Path, how: &str, rights: &str) {
+        set(path, &for_everyone(how, rights));
+    }
+
+    /// [`set_for_everyone`] on a link, and not on what it leads to, through a descriptor of the
+    /// link itself, as `acl_set_link_np` refuses links.
+    pub(crate) fn set_on_link_for_everyone(link: &Path, how: &str, rights: &str) {
+        let list = for_everyone(how, rights);
+        let link = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_SYMLINK)
+            .open(link)
+            .unwrap();
+        // SAFETY: the descriptor is borrowed from `link` for the call, and `list` is a live list the
+        // call only reads.
+        let set = unsafe { acl_set_fd_np(link.as_raw_fd(), list.0, ACL_TYPE_EXTENDED) };
+        assert_eq!(set, 0, "{}", std::io::Error::last_os_error());
+    }
+
+    fn for_everyone(how: &str, rights: &str) -> List {
         let text = CString::new(format!(
             "!#acl 1\ngroup:ABCDEFAB-CDEF-ABCD-EFAB-CDEF0000000C:everyone:12:{how}:{rights}\n"
         ))
@@ -215,7 +241,7 @@ pub(crate) mod test_list {
         // SAFETY: `text` is NUL-terminated, outlives the call and is only read.
         let list = unsafe { acl_from_text(text.as_ptr()) };
         assert!(!list.is_null(), "{}", std::io::Error::last_os_error());
-        set(path, &List(list));
+        List(list)
     }
 
     /// Takes every entry off `path`, which also works on a list its owner may not read.
@@ -229,11 +255,12 @@ pub(crate) mod test_list {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::{self, File};
+    use std::fs::{self, File, OpenOptions};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::test_list::{clear, set_for_everyone};
+    use super::test_list::{clear, set_for_everyone, set_on_link_for_everyone};
     use super::{ACL_EXTENDED_DENY, CHANGING_RIGHTS, classified, list_at, list_of, seal};
 
     /// The `allow` tag.
@@ -285,7 +312,7 @@ mod tests {
         }
         // Read or list, execute or search, the attributes and the list itself.
         let reading = (1 << 1) | (1 << 3) | (1 << 7) | (1 << 9) | (1 << 11) | (1 << 20) | (1 << 24);
-        assert!(!classified(ALLOW, reading, false).changes_contents);
+        assert!(!classified(ALLOW, reading, false).lets_change);
     }
 
     #[test]
@@ -310,13 +337,13 @@ mod tests {
             panic!("one entry");
         };
         assert!(entry.allows);
-        assert!(!entry.changes_contents);
+        assert!(!entry.lets_change);
 
         set_for_everyone(&scratch.0, "allow,directory_inherit", "write");
         let [entry] = list_at(&scratch.0).unwrap()[..] else {
             panic!("one entry");
         };
-        assert!(entry.changes_contents);
+        assert!(entry.lets_change);
         assert!(entry.reaches_new_directories);
 
         set_for_everyone(&scratch.0, "allow,file_inherit", "read");
@@ -330,13 +357,22 @@ mod tests {
     }
 
     #[test]
-    fn a_link_is_not_followed() {
+    fn a_link_is_not_followed_and_holds_a_list_of_its_own() {
         let scratch = Scratch::new();
         let real = scratch.join("real");
         fs::create_dir(&real).unwrap();
         set_for_everyone(&real, "allow", "read");
-        std::os::unix::fs::symlink(&real, scratch.join("link")).unwrap();
-        assert_eq!(list_at(&scratch.join("link")).unwrap(), []);
+        let link = scratch.join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(list_at(&link).unwrap(), []);
+
+        clear(&real);
+        set_on_link_for_everyone(&link, "allow", "delete");
+        let [entry] = list_at(&link).unwrap()[..] else {
+            panic!("one entry");
+        };
+        assert!(entry.lets_change);
+        assert_eq!(list_at(&real).unwrap(), [], "the list is the link's");
     }
 
     #[test]
@@ -354,7 +390,7 @@ mod tests {
     fn sealing_a_file_with_no_list_finds_nothing() {
         let scratch = Scratch::new();
         let file = File::create(scratch.join("f")).unwrap();
-        assert!(!seal(&file).unwrap().grants_others());
+        assert!(!seal(&file).unwrap().had_grant());
         assert_eq!(list_of(&file).unwrap(), []);
     }
 
@@ -364,7 +400,7 @@ mod tests {
         set_for_everyone(&scratch.0, "allow,file_inherit", "read");
         let file = File::create(scratch.join("f")).unwrap();
         assert_eq!(list_of(&file).unwrap().len(), 1, "it inherited the entry");
-        assert!(seal(&file).unwrap().grants_others());
+        assert!(seal(&file).unwrap().had_grant());
         assert_eq!(list_of(&file).unwrap(), []);
         assert_eq!(list_at(&scratch.join("f")).unwrap(), []);
         assert_eq!(
@@ -383,8 +419,28 @@ mod tests {
         assert!(fs::rename(&stuck, scratch.join("moved")).is_err());
         assert!(fs::remove_file(&stuck).is_err());
 
-        assert!(!seal(&file).unwrap().grants_others());
+        assert!(!seal(&file).unwrap().had_grant());
         fs::rename(&stuck, scratch.join("moved")).unwrap();
         fs::remove_file(scratch.join("moved")).unwrap();
+        clear(&scratch.0);
+    }
+
+    #[test]
+    fn sealing_removes_what_would_otherwise_stop_it_and_keeps_the_mode() {
+        for rights in ["readsecurity", "writesecurity", "delete"] {
+            let scratch = Scratch::new();
+            set_for_everyone(&scratch.0, "deny,file_inherit,only_inherit", rights);
+            let path = scratch.join("f");
+            let file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(&path)
+                .unwrap();
+            assert!(!seal(&file).unwrap().had_grant(), "{rights}");
+            assert_eq!(list_of(&file).unwrap(), [], "{rights}");
+            assert_eq!(file.metadata().unwrap().mode() & 0o7777, 0o600, "{rights}");
+            clear(&scratch.0);
+        }
     }
 }

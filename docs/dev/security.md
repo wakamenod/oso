@@ -205,7 +205,8 @@ and below the row, and a label's glyphs keep their own cells
     the temporary directory), created `0700` and refused if it is a symlink,
     owned by another user or has a looser mode, or if other users can
     write to its parent and it is not sticky, and on macOS by the same rule for
-    access lists ([ADR 0065](adr/0065-access-lists-on-private-directories.md))
+    access lists, on the directory and its parent
+    ([ADR 0065](adr/0065-access-lists-on-private-directories.md))
   - checks on both ends that the peer runs as the same user (`getpeereid`,
     `SO_PEERCRED`)
   - limits request and response lines to 1 MiB, clients to 4 (each disconnected after
