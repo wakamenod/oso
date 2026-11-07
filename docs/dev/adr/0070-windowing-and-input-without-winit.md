@@ -1,6 +1,6 @@
 # 0070. Windowing and input without winit
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -53,7 +53,8 @@ The author chose on 2026-11-08, from options put to them: what Option, Command a
 during a composition, a commit when the IME turns off during one, how quitting is guarded, the
 cursor's line as text for the input method, press-and-hold off, Wayland only, IMM32 first, a
 cargo feature, `oso_platform::window`, and starting at once. They are marked "(chosen)" where
-they appear.
+they appear. Accepting this ADR, the author also chose that a Dock quit let through the guard
+counts as agreed, and the fuller account of who reads the cursor's line.
 
 ### A window layer in `oso-platform`
 
