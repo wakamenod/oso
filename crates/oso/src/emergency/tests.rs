@@ -15,6 +15,7 @@ use super::{Emergency, Entry, LIMITS, Report, Why, directory_problem, write};
 use crate::saver::Agreement;
 
 mod hook;
+mod seal;
 
 /// The text published for `id`, if any.
 pub(crate) fn published_text(emergency: &Emergency, id: BufferId) -> Option<String> {
@@ -396,7 +397,7 @@ fn an_unsafe_directory_gets_nothing_and_says_so() {
         let report = emergency.shared.write_copies(Why::Panic);
         assert_eq!((report.wrote, report.failed), (0, 1));
         let shown = report.to_string();
-        assert!(shown.contains("refusing to use"), "{shown}");
+        assert!(shown.contains("refused: it"), "{shown}");
         assert!(shown.contains("could not write 1"), "{shown}");
         assert!(texts(&scratch.copies()).is_empty());
     }
@@ -426,7 +427,7 @@ fn a_directory_that_would_be_refused_is_found_out_before_any_crash_and_nothing_i
             problem.contains("No emergency copy can be written"),
             "{problem}"
         );
-        assert!(problem.contains("refusing to use"), "{problem}");
+        assert!(problem.contains("refused: it"), "{problem}");
     }
 }
 

@@ -18,7 +18,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use super::{is_plain_name, owner_pid, socket_pid};
-use crate::privacy::{check_dir, euid, parent_is_safe};
+use crate::file_meta::seal;
+use crate::privacy::{
+    euid, itself_problem, list_problem, parent_is_safe, whole_parent_list_problem,
+};
 
 /// The private directory that holds control sockets and the files they
 /// write. Every way to get one checks the directory first.
@@ -70,7 +73,9 @@ impl ControlDir {
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(Path::new("."));
-        let meta = fs::metadata(parent).map_err(|e| with_path(e, "cannot inspect", parent))?;
+        // All of this goes by the one place a link leads to.
+        let real = fs::canonicalize(parent).map_err(|e| with_path(e, "cannot inspect", parent))?;
+        let meta = fs::metadata(&real).map_err(|e| with_path(e, "cannot inspect", parent))?;
         if !parent_is_safe(meta.mode()) {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
@@ -80,31 +85,22 @@ impl ControlDir {
                 ),
             ));
         }
-        Ok(())
+        match list_problem(&real, whole_parent_list_problem)
+            .map_err(|e| with_path(e, "cannot inspect", parent))?
+        {
+            Some(problem) => Err(refused(parent, problem.message())),
+            None => Ok(()),
+        }
     }
 
     /// Checks the directory without following a symlink at `path` itself.
     fn checked(path: PathBuf) -> io::Result<Self> {
         let meta =
             fs::symlink_metadata(&path).map_err(|e| with_path(e, "cannot inspect", &path))?;
-        check_dir(
-            meta.file_type().is_symlink(),
-            meta.is_dir(),
-            meta.uid(),
-            meta.mode(),
-            euid(),
-        )
-        .map_err(|problem| {
-            io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!(
-                    "refusing to use {} for the control socket: it {}",
-                    path.display(),
-                    problem.message()
-                ),
-            )
-        })?;
-        Ok(Self { path })
+        match itself_problem(&path, &meta).map_err(|e| with_path(e, "cannot inspect", &path))? {
+            Some(problem) => Err(refused(&path, problem.message())),
+            None => Ok(Self { path }),
+        }
     }
 
     /// The directory's path.
@@ -190,6 +186,10 @@ impl ControlDir {
             .mode(0o600)
             .open(&path)
             .map_err(|e| with_path(e, "cannot create", &path))?;
+        if let Err(e) = seal(&file) {
+            let _ = fs::remove_file(&path);
+            return Err(with_path(e, "cannot use", &path));
+        }
         // No fsync: the file is a short-lived dev artifact read right away.
         file.write_all(bytes)?;
         Ok(path)
@@ -265,6 +265,16 @@ fn default_path(
             ),
         )),
     }
+}
+
+fn refused(path: &Path, why: &str) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::PermissionDenied,
+        format!(
+            "refusing to use {} for the control socket: it {why}",
+            path.display()
+        ),
+    )
 }
 
 fn with_path(e: io::Error, what: &str, path: &Path) -> io::Error {
@@ -581,6 +591,63 @@ mod tests {
     fn default_path_refuses_a_relative_temp_dir() {
         let err = default_path(None, PathBuf::from("tmp"), 501).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_list_on_the_directory_or_its_parent_counts_as_it_does_for_any_private_directory() {
+        use crate::file_meta::test_list::{clear, set_for_everyone};
+
+        let scratch = Scratch::new();
+        let parent = scratch.join("parent");
+        fs::create_dir(&parent).unwrap();
+        fs::set_permissions(&parent, Permissions::from_mode(0o755)).unwrap();
+        let path = parent.join("c");
+
+        set_for_everyone(&parent, "allow", "write");
+        assert!(ControlDir::at(&path).is_err());
+        assert!(!path.exists());
+        set_for_everyone(&parent, "allow,directory_inherit", "read");
+        assert!(ControlDir::at(&path).is_err());
+        assert!(!path.exists());
+        set_for_everyone(&parent, "deny", "delete");
+        ControlDir::at(&path).unwrap();
+        clear(&parent);
+
+        set_for_everyone(&path, "allow", "read");
+        let err = ControlDir::at(&path).unwrap_err();
+        assert!(err.to_string().contains("access list"), "{err}");
+        set_for_everyone(&path, "deny", "readsecurity");
+        let err = ControlDir::at(&path).unwrap_err();
+        clear(&path);
+        assert!(err.to_string().contains("cannot inspect"), "{err}");
+        set_for_everyone(&parent, "deny", "readsecurity");
+        let err = ControlDir::at(&path).unwrap_err();
+        clear(&parent);
+        assert!(err.to_string().contains("cannot inspect"), "{err}");
+
+        set_for_everyone(&path, "deny", "delete");
+        ControlDir::at(&path).unwrap();
+        clear(&path);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_list_taken_after_the_check_stops_a_private_file_and_leaves_nothing() {
+        use crate::file_meta::test_list::{clear, set_for_everyone};
+
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        set_for_everyone(dir.path(), "allow,file_inherit", "read");
+        let err = dir.write_private_file("shot.png", b"made up").unwrap_err();
+        assert!(err.to_string().contains("access list"), "{err}");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+
+        // A deny taken the same way is only removed.
+        set_for_everyone(dir.path(), "deny,file_inherit,only_inherit", "delete");
+        let path = dir.write_private_file("shot.png", b"made up").unwrap();
+        fs::remove_file(path).unwrap();
+        clear(dir.path());
     }
 
     #[test]
