@@ -8,13 +8,13 @@ use std::time::Instant;
 
 use oso_core::buffer::Mode;
 use oso_core::key::KeyPress;
+use oso_platform::window::{Held, KeyInput, Wheel};
 
 use super::App;
-use super::events::Wheel;
 use super::shell::Loop;
 #[cfg(feature = "dev")]
 use crate::dev;
-use crate::keys::{self, Held, KeyInput};
+use crate::keys;
 
 /// Rows one notch of a mouse wheel scrolls.
 const WHEEL_ROWS: f64 = 3.0;

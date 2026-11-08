@@ -12,10 +12,10 @@ use serde_json::json;
 
 use super::App;
 use super::draw::with_panes;
-use super::ime::ImeEvent;
 use super::shell::Loop;
 use crate::dev;
 use crate::dev::handoff;
+use oso_platform::window::ImeEvent;
 
 impl App {
     /// Answers a control socket request on the UI thread.

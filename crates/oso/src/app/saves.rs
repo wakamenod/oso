@@ -11,8 +11,8 @@ use oso_core::editor::ExitAction;
 
 use super::shell::Loop;
 use super::{App, UserEvent};
-use crate::keys::Held;
 use crate::saver::{self, AfterSave, SaveReport};
+use oso_platform::window::Held;
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].

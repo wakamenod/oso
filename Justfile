@@ -9,9 +9,14 @@ cargo_public_api := "0.52.0"
 # Snapshots are taken for one target so that they read the same on every OS.
 api_target := "x86_64-unknown-linux-gnu"
 api_crates := "oso-core oso-platform oso-render"
+# oso's own macOS window layer exists only there, so oso-platform also has a snapshot
+# taken for macOS, on macOS (ADR 0070).
+api_macos_target := "aarch64-apple-darwin"
 # Benchmarks build with the dev feature, so they keep out of target/release,
 # where the release binary lives (ADR 0046).
 perf_target := "target/perf-build"
+# The same with oso's own macOS window layer (ADR 0070), apart so neither overwrites the other.
+perf_native_target := "target/perf-native"
 # The whole test run stays within this on the author's Mac (ADR 0037).
 test_budget_s := "30"
 # The design health report lists this many surviving mutants.
@@ -189,6 +194,17 @@ e2e runs="1":
             || { echo "e2e: run $run of {{runs}} failed"; exit 1; }
     done
 
+# The same flows on oso's own macOS window layer (ADR 0070), until it is the default there
+e2e-native runs="1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ "{{runs}}" =~ ^[0-9]+$ ]] || { echo "error: not a number of runs: {{runs}}"; exit 1; }
+    export RUST_LOG=oso=debug,wgpu=warn
+    for run in $(seq 1 {{runs}}); do
+        cargo test --locked -p oso --features dev,native-window --test e2e -- --ignored --test-threads=1 \
+            || { echo "e2e-native: run $run of {{runs}} failed"; exit 1; }
+    done
+
 # Draw panes on a real GPU and read the pixels (ADR 0061); needs no window and no text backend
 pixel-tests:
     cargo test --locked -p oso-render -- --ignored
@@ -201,6 +217,11 @@ pixel-tests:
 perf out="target/perf/perf.json" *args="":
     cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --bin oso --example perf
     {{perf_target}}/release/examples/perf run --oso {{perf_target}}/release/oso --out "{{out}}" {{args}}
+
+# Benchmark oso's own macOS window layer (ADR 0070) as `perf` does winit's, to compare the two
+perf-native out="target/perf/perf-native.json" *args="":
+    cargo build --locked --release --target-dir {{perf_native_target}} -p oso --features dev,native-window --bin oso --example perf
+    {{perf_native_target}}/release/examples/perf run --oso {{perf_native_target}}/release/oso --out "{{out}}" {{args}}
 
 # Compare a result with a baseline, and fail on a large regression; a missing baseline passes with a note
 perf-compare base new summary="target/perf/summary.md":
@@ -305,6 +326,31 @@ public-api:
     done
     git diff --quiet -- Cargo.lock \
         || { echo "error: generating the snapshots changed Cargo.lock"; exit 1; }
+    if [ "$(uname -s)" = Darwin ]; then just public-api-macos; fi
+
+# Update oso-platform's macOS snapshot, which holds the native window layer (ADR 0070).
+# Needs macOS, as its build compiles for it.
+public-api-macos:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have=$(cargo public-api --version 2>/dev/null || true)
+    [ "$have" = "cargo-public-api {{cargo_public_api}}" ] \
+        || { echo "error: need cargo-public-api {{cargo_public_api}}, found '${have:-none}'"; exit 1; }
+    cargo +{{nightly}} public-api --color never -p oso-platform --all-features -ss \
+        --target {{api_macos_target}} > guardrails/public-api/oso-platform-macos.txt
+    git diff --quiet -- Cargo.lock \
+        || { echo "error: generating the snapshot changed Cargo.lock"; exit 1; }
+
+# Fail if oso-platform's macOS API differs from its committed snapshot
+public-api-macos-check: public-api-macos
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! git diff --exit-code -- guardrails/public-api/oso-platform-macos.txt; then
+        echo "error: oso-platform's macOS API differs from its snapshot (above)."
+        echo "Run 'just public-api-macos' and commit it (ADR 0038, ADR 0070)."
+        exit 1
+    fi
+    echo "public API on macOS: matches the snapshot"
 
 # Fail if the public API differs from the committed snapshots
 public-api-check: public-api
