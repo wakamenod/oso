@@ -39,8 +39,8 @@ fn stands_for_number(prefix: Option<Prefix>) -> Option<isize> {
 }
 
 impl Dispatcher {
-    /// Runs the command `id`, or first opens a prompt for what its spec reads. Returns
-    /// what the host should do.
+    /// Runs the command `id`, or first opens a prompt for what its spec reads, or waits for
+    /// the clipboard. Returns what the host should do.
     pub(super) fn run_or_read(
         &mut self,
         editor: &mut Editor,
@@ -67,6 +67,11 @@ impl Dispatcher {
                 )
             }
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
+            // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
+            Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
+                self.wait_for_clipboard(editor, id, args, &invocation);
+                return (Effects::default(), Ok(()));
+            }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;
@@ -167,7 +172,7 @@ impl Dispatcher {
         // As a key would: a prefix key or argument in progress is dropped, not carried under
         // the question.
         self.resolver.reset();
-        self.forget_keys();
+        self.forget_keys(editor);
         self.show_keys_in_progress(editor);
         let effects = self
             .execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)

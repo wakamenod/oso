@@ -162,6 +162,17 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   rope slices, so killing a huge region copies nothing. History is bounded in
   bytes, 64 MiB per buffer, not counting the group last recorded or crossed, which
   always stays. It is not persisted to disk.
+- **The kill ring** (`oso_core::kill`, [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md))
+  is owned by `Editor`. A kill takes one piece per cursor as rope slices, merging ranges
+  that overlap, so it copies nothing on the UI thread, and appends to the newest entry
+  when the command before also killed. It keeps 120 entries and 64 MiB, and a yank
+  inserts at most 16 MiB. An entry killed from a buffer that may hold secrets is secret,
+  and yanking it makes the target buffer secret (`Verdict::Yanked`).
+- **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
+  the system's clipboard, and one answers each read within 500 ms. The host hands it what
+  a command killed, joined there with line breaks, and `yank` waits for its read through
+  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank.
+  macOS uses `NSPasteboard`; Linux and Windows have none until their window layers.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
   restore the stored one, and a buffer is modified when its id differs from the
   saved one. So undoing to the saved state is unmodified, and a buffer whose saved

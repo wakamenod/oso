@@ -80,7 +80,9 @@ old one's status.
 | 0071 | [The mark and the region](0071-mark-and-region.md) | Accepted |
 | 0072 | [Floating windows, the minibuffer and questions](0072-floating-windows-the-minibuffer-and-questions.md) | Accepted |
 | 0073 | [Secure input in secret buffers](0073-secure-input-in-secret-buffers.md) | Accepted |
+| 0074 | [The kill ring and the clipboard](0074-the-kill-ring-and-the-clipboard.md) | Accepted |
 | 0077 | [Choices for the native layer's stage 2](0077-choices-for-the-native-layers-stage-2.md) | Proposed |
+| 0080 | [Workflow dependency lockfile](0080-workflow-dependency-lockfile.md) | Accepted |
 
 ## Template
 

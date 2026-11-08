@@ -36,6 +36,7 @@ impl App {
                 self.editor.message(problem);
             }
             UserEvent::Copies(event) => self.copies_event(event),
+            UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
