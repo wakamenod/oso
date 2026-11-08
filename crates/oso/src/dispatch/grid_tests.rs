@@ -86,17 +86,28 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
             (true, false) => layout.input.column,
             (false, _) => inner.column + inner.columns,
         };
+        // The answer's row holds the label's last row, as the renderer draws it.
+        let at = if on_input {
+            layout.label.len().saturating_sub(1)
+        } else {
+            index
+        };
         let label = layout
             .label
-            .get(index)
+            .get(at)
             .map_or("", |range| &prompt.label()[range.clone()]);
-        let last = index + 1 == layout.label.len();
+        let last = at + 1 == layout.label.len();
         let cut = if last && layout.label_cut {
             minibuffer::CUT
         } else {
             ""
         };
-        let (mut text, mut marks) = spans_row(&[label, cut], label_end - inner.column);
+        let suffix = if last {
+            &prompt.label()[layout.suffix.clone()]
+        } else {
+            ""
+        };
+        let (mut text, mut marks) = spans_row(&[label, cut, suffix], label_end - inner.column);
         if on_input {
             let (input, input_marks) = draw_input(editor, layout.input);
             text.push_str(&input);

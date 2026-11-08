@@ -1402,14 +1402,19 @@ pub fn oso_core::minibuffer::Prompt::id(&self) -> oso_core::minibuffer::PromptId
 pub fn oso_core::minibuffer::Prompt::kind(&self) -> oso_core::minibuffer::Kind
 pub fn oso_core::minibuffer::Prompt::label(&self) -> &str
 pub fn oso_core::minibuffer::Prompt::message(&self) -> core::option::Option<&str>
+pub fn oso_core::minibuffer::Prompt::message_withheld(&self) -> bool
 impl core::fmt::Debug for oso_core::minibuffer::Prompt
 pub fn oso_core::minibuffer::Prompt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::minibuffer::PromptId(_)
 impl core::clone::Clone for oso_core::minibuffer::PromptId
 pub fn oso_core::minibuffer::PromptId::clone(&self) -> oso_core::minibuffer::PromptId
 impl core::cmp::Eq for oso_core::minibuffer::PromptId
+impl core::cmp::Ord for oso_core::minibuffer::PromptId
+pub fn oso_core::minibuffer::PromptId::cmp(&self, &oso_core::minibuffer::PromptId) -> core::cmp::Ordering
 impl core::cmp::PartialEq for oso_core::minibuffer::PromptId
 pub fn oso_core::minibuffer::PromptId::eq(&self, &oso_core::minibuffer::PromptId) -> bool
+impl core::cmp::PartialOrd for oso_core::minibuffer::PromptId
+pub fn oso_core::minibuffer::PromptId::partial_cmp(&self, &oso_core::minibuffer::PromptId) -> core::option::Option<core::cmp::Ordering>
 impl core::fmt::Debug for oso_core::minibuffer::PromptId
 pub fn oso_core::minibuffer::PromptId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::minibuffer::PromptId
@@ -1420,6 +1425,7 @@ pub oso_core::minibuffer::PromptLayout::label: alloc::vec::Vec<core::ops::range:
 pub oso_core::minibuffer::PromptLayout::label_cut: bool
 pub oso_core::minibuffer::PromptLayout::message: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::regions: oso_core::frame::FloatRegions
+pub oso_core::minibuffer::PromptLayout::suffix: core::ops::range::Range<usize>
 impl core::clone::Clone for oso_core::minibuffer::PromptLayout
 pub fn oso_core::minibuffer::PromptLayout::clone(&self) -> oso_core::minibuffer::PromptLayout
 impl core::cmp::Eq for oso_core::minibuffer::PromptLayout
@@ -1433,6 +1439,7 @@ pub const oso_core::minibuffer::HISTORY_LENGTH: usize
 pub const oso_core::minibuffer::MAX_DEPTH: usize
 pub const oso_core::minibuffer::MAX_ENTRY_BYTES: usize
 pub const oso_core::minibuffer::MAX_LABEL_ROWS: usize
+pub const oso_core::minibuffer::QUESTION_END: &str
 pub fn oso_core::minibuffer::cells_of(&str) -> usize
 pub fn oso_core::minibuffer::cut_to(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::fit_message(&str, usize) -> (&str, &'static str)

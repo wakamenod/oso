@@ -245,6 +245,38 @@ fn the_close_button_exits_at_once_with_nothing_at_risk_and_asks_from_a_prompt() 
     assert_eq!(editor.prompts().len(), 2, "a question over the prompt");
 }
 
+/// Asks a question and answers it at once, so that each answer runs it again.
+fn ask_and_answer(
+    ctx: &mut oso_core::command::Ctx<'_>,
+    _: oso_core::command::Args,
+) -> Result<(), oso_core::command::CommandError> {
+    let error =
+        |e: oso_core::minibuffer::PromptError| oso_core::command::CommandError::new(e.to_string());
+    ctx.editor.ask("Again?", "ask-and-answer").map_err(error)?;
+    ctx.editor.answer_question(true).map_err(error)?;
+    Ok(())
+}
+
+#[test]
+fn what_is_left_past_the_bound_on_follow_ups_does_not_run_later() {
+    use oso_core::command::{ArgSpec, Command, Registry};
+    let mut registry = Registry::new();
+    registry
+        .register(Command {
+            name: "ask-and-answer",
+            doc: "Ask and answer at once.",
+            args: ArgSpec::None,
+            run: ask_and_answer,
+        })
+        .unwrap();
+    let mut d = Dispatcher::with(registry, oso_core::keymap::Keymap::default());
+    let mut editor = Editor::default();
+    let (_, result) = d.run_command(&mut editor, "ask-and-answer", None);
+    assert_eq!(result, Ok(()));
+    assert!(editor.take_prompt_outcome().is_none(), "dropped");
+    assert!(editor.prompt().is_none());
+}
+
 #[cfg(feature = "dev")]
 mod passphrase {
     use super::*;
@@ -283,6 +315,31 @@ mod passphrase {
         assert!(state.get("echo").is_none(), "and not over the socket");
         send(&mut d, &mut editor, "<f34> M-p");
         assert_eq!(answer(&editor), "", "it entered no history");
+    }
+
+    #[test]
+    fn a_prompt_opened_over_a_passphrase_keeps_run_command_refused() {
+        let (mut d, mut editor) = on(LINES);
+        send(&mut d, &mut editor, "<f34> a b M-g g");
+        assert_eq!(editor.prompts().len(), 2);
+        let (_, result) = d.run_command(&mut editor, "backward-char", None);
+        assert!(result.unwrap_err().contains("passphrase prompt is open"));
+    }
+
+    #[test]
+    fn what_a_passphrase_command_says_in_a_prompt_is_withheld_from_the_socket() {
+        let (mut d, mut editor) = on(LINES);
+        send(&mut d, &mut editor, "M-g g");
+        editor.begin_command();
+        editor.command_reads_passphrase();
+        editor.message("Wrong passphrase");
+        editor.end_command();
+        let prompt = editor.prompt().unwrap();
+        assert_eq!(prompt.message(), Some("Wrong passphrase"));
+        assert!(prompt.message_withheld());
+        let state = crate::dev::get_state(&editor, &[], None);
+        assert!(state["prompts"][0]["message"].is_null());
+        send(&mut d, &mut editor, "C-g");
     }
 
     #[test]

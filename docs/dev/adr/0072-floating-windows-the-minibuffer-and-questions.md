@@ -73,6 +73,7 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   Retina display), so a prompt is 3 rows tall. `Pane::border` draws the four sides inside the region.
 - **A small frame gives up the row above first, then the ring.** A float is never taller than the text
   area, so the modeline and the echo row stay in view, and a frame of one row has the float over it.
+  A label taller than the float keeps its last row, with the answer or `(y or n)`.
 - **Two layers.** `Layer::FLOAT` (16) holds the float's background and border, one pane over all of it.
   `Layer::FLOAT_CONTENT` (17) holds what is inside, in panes that never overlap one another: up to two of
   the label, the answer and a message, with fixed ids 3 to 7 after the tiled 0 to 2. Glyphs there keep
@@ -165,7 +166,8 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   result such as a finished save, so a `y` typed in prose cannot answer a question that appeared under
   the person's fingers. A background result says what it found and which key asks. **A question a
   control socket request opened is answered over the socket:** keys from the window say so and leave
-  it open, but `C-g`, so an agent's question cannot take a person's typing as its answer.
+  it open, but `C-g`, so an agent's question cannot take a person's typing as its answer. The app tells
+  such a question by its id, newer than any prompt open before the request.
 - **The exit guard asks (chosen):** `C-x C-c` and the close button, with a buffer modified or a save
   running, ask `2 modified buffers and 1 save running; exit without saving? (y or n)`. `y` exits as the
   repeat of ADR 0059 did, unless a save has since failed or left its buffer modified, or more buffers are
@@ -179,7 +181,8 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   file, and only for the buffer the question was asked of. A change made after the question is kept,
   and asked about again. A file gone meanwhile comes back with the mode it had when read, not the one
   found. The name in the question is cut to 40 cells first, so that the question's own words and its
-  `(y or n)` always show. A path that now leads elsewhere,
+  `(y or n)` always show. A later failed save that finds no regular file there forgets the file found,
+  and an unmodified buffer asks nothing: its save writes only if the file has gone. A path that now leads elsewhere,
   or a file that is no regular file, is refused as before. A new baseline forgets what was found.
 
 ### Nested prompts
@@ -242,8 +245,9 @@ nowhere else.
   and is dropped as it closes, as a buffer that may hold secrets going off the screen. The command that
   gets it runs with its messages kept out of the log and `*Messages*`, and its echo out of `get-state`
   (`Editor::command_reads_passphrase`), so an error that quotes the answer goes no further than the
-  screen. While a passphrase prompt is open, `run-command` runs only `keyboard-quit`, as a reply could
-  say something of what is typed there. M2-14's kills from it must reach neither the kill ring nor the OS
+  screen. While a passphrase prompt is open, also beneath another prompt, `run-command` runs only
+  `keyboard-quit`, as a reply could say something of what is typed there. A message its command says
+  in a prompt is withheld from `get-state` there too. M2-14's kills from it must reach neither the kill ring nor the OS
   clipboard, while a yank into it works. M3's keyboard macros must not record what is typed there.
   `Debug` of what carries an answer (`Invocation`, `Outcome`, `Prompt`) prints none of it.
 - **It shows one `*` per character (chosen),** in view at the cursor (`PaneContent::Masked`), counted

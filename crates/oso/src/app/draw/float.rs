@@ -59,16 +59,15 @@ impl<'a> Parts<'a> {
                 } else {
                     ""
                 };
-                [
-                    Span {
-                        text: &self.label[range.clone()],
-                        face: Face::Prompt,
-                    },
-                    Span {
-                        text: cut,
-                        face: Face::Prompt,
-                    },
-                ]
+                let suffix = if last {
+                    &self.label[self.layout.suffix.clone()]
+                } else {
+                    ""
+                };
+                [&self.label[range.clone()], cut, suffix].map(|text| Span {
+                    text,
+                    face: Face::Prompt,
+                })
             })
             .collect();
         let (said, cut) =
@@ -83,7 +82,7 @@ impl<'a> Parts<'a> {
 
 /// The spans of a float's rows, which its lines borrow.
 pub(super) struct Spans<'a> {
-    label: Vec<[Span<'a>; 2]>,
+    label: Vec<[Span<'a>; 3]>,
     message: [Span<'a>; 4],
 }
 
@@ -135,15 +134,21 @@ pub(super) fn panes<'a>(
         border: regions.framed().then_some(Face::FloatBorder),
         content: PaneContent::Lines(&[]),
     });
-    let above = lines.label.len();
+    // The label's rows above the answer's row, as many as the float holds there. In a frame
+    // too short for all of them, the last row, with the answer or `(y or n)`, is the one kept.
+    let row = layout.input.row;
+    let above = (row - inner.row).min(lines.label.len());
     if above > 0 {
         let region = CellRect {
-            rows: above.min(inner.rows),
+            rows: above,
             ..inner
         };
-        list.push(content(4, region, PaneContent::Lines(&lines.label)));
+        list.push(content(
+            4,
+            region,
+            PaneContent::Lines(&lines.label[..above]),
+        ));
     }
-    let row = layout.input.row;
     let end = if parts.kind.is_question() {
         layout.message.column.min(inner.column + inner.columns)
     } else {
@@ -152,7 +157,7 @@ pub(super) fn panes<'a>(
     let last = CellRect {
         row,
         column: inner.column,
-        rows: usize::from(inner.rows > above),
+        rows: usize::from(inner.rows > 0),
         columns: end - inner.column,
     };
     list.push(content(5, last, PaneContent::Lines(&lines.last)));

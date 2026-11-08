@@ -146,6 +146,10 @@ impl Dispatcher {
                 break;
             }
         }
+        // What is left past the bound must not run, confirmed, after some later key.
+        if let Some(left) = editor.take_prompt_outcome() {
+            log::error!("a prompt's outcome was left past {MOST_FOLLOW_UPS} commands: {left:?}");
+        }
         effects
     }
 

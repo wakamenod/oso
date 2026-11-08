@@ -37,15 +37,9 @@ enum Step {
 /// control socket both come through here.
 pub struct Dispatcher {
     registry: Registry,
-    global: Keymap,
-    /// Active while the prefix argument reads digits, and a minus sign. They come
-    /// first among the minor modes, as what is being typed is for them.
-    prefix_keys: [Keymap; 2],
-    /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
-    copy_keys: [Keymap; 2],
-    /// The keys of a prompt that reads an answer, above the global ones, and of a
-    /// question, in place of them (ADR 0072).
-    prompt_keys: [Keymap; 2],
+    /// Every keymap, held apart from the resolver, so that working out which are active
+    /// borrows only them.
+    keymaps: Keymaps,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -74,13 +68,15 @@ impl Dispatcher {
         let (list, copy) = bindings::recovery_keymaps(&registry);
         let (minibuffer, question) = bindings::prompt_keymaps(&registry);
         Self {
-            prefix_keys: [digits, minus],
-            copy_keys: [list, copy],
-            prompt_keys: [minibuffer, question],
+            keymaps: Keymaps {
+                global,
+                prefix: [digits, minus],
+                copy: [list, copy],
+                prompt: [minibuffer, question],
+            },
             reading: Vec::new(),
             passphrase_next: false,
             registry,
-            global,
             resolver: KeyResolver::new(),
             prefix: None,
             last: None,
@@ -137,7 +133,7 @@ impl Dispatcher {
     /// dropped.
     #[cfg(any(test, feature = "dev"))]
     pub fn restore_pending(&mut self, editor: &mut Editor, keys: &[KeyPress]) {
-        let layers = Layers::global(&self.global);
+        let layers = Layers::global(&self.keymaps.global);
         for key in keys {
             if !matches!(self.resolver.feed(&layers, *key), Resolution::Pending) {
                 self.resolver.reset();
@@ -236,9 +232,11 @@ impl Dispatcher {
             );
         };
         // A reply could say something of what is typed there.
+        // Any open one, also beneath a prompt opened from it.
         let passphrase = editor
-            .prompt()
-            .is_some_and(|prompt| prompt.kind() == oso_core::minibuffer::Kind::Passphrase);
+            .prompts()
+            .iter()
+            .any(|prompt| prompt.kind() == oso_core::minibuffer::Kind::Passphrase);
         if passphrase && name != "keyboard-quit" {
             return (
                 Effects::default(),
@@ -310,9 +308,11 @@ impl Dispatcher {
             self.forget_keys();
             return Effects::default();
         }
-        let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
-        let text_command =
-            active_layers(self.keymaps(), &reading, self.prefix, editor).text_command();
+        let reading = self.keymaps.reading();
+        let text_command = self
+            .keymaps
+            .active(&reading, self.prefix, editor)
+            .text_command();
         match text_command {
             Some(id) if !text.is_empty() => {
                 let args = Args::with_prefix(self.prefix.take());
@@ -413,22 +413,9 @@ impl Dispatcher {
         self.as_input(editor, |this, editor| this.resolve_key(editor, key))
     }
 
-    fn keymaps(&self) -> Keymaps<'_> {
-        Keymaps {
-            global: &self.global,
-            copy: &self.copy_keys,
-            prompt: &self.prompt_keys,
-        }
-    }
-
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
-        let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
-        let keymaps = Keymaps {
-            global: &self.global,
-            copy: &self.copy_keys,
-            prompt: &self.prompt_keys,
-        };
-        let layers = active_layers(keymaps, &reading, self.prefix, editor);
+        let reading = self.keymaps.reading();
+        let layers = self.keymaps.active(&reading, self.prefix, editor);
         match self.resolver.feed(&layers, key) {
             Resolution::Command(id) => {
                 // The text comes from the key, so keys from the window and from
@@ -483,48 +470,60 @@ impl Dispatcher {
     }
 }
 
-/// The keymaps active now. A question's keys take the global keymap's place, so that
-/// no other key reaches a command, and a prompt's go above it (ADR 0072). `reading` holds
-/// the keymaps of a prefix argument.
-fn active_layers<'a>(
-    dispatcher: Keymaps<'a>,
-    reading: &'a [&'a Keymap; 2],
-    prefix: Option<Prefix>,
-    editor: &Editor,
-) -> Layers<'a> {
-    if editor
-        .prompt()
-        .is_some_and(|prompt| prompt.kind().is_question())
-    {
-        return Layers::global(&dispatcher.prompt[1]);
-    }
-    let minor: &[&Keymap] = match prefix {
-        Some(prefix) if prefix.reads_minus() => reading,
-        Some(prefix) if prefix.reads_digits() => &reading[..1],
-        _ => &[],
-    };
-    let major = if editor.prompt().is_some() {
-        Some(&dispatcher.prompt[0])
-    } else {
-        match editor.current().1.mode() {
-            Mode::Fundamental => None,
-            Mode::CopyList => Some(&dispatcher.copy[0]),
-            Mode::CopyView => Some(&dispatcher.copy[1]),
-        }
-    };
-    Layers {
-        minor,
-        major,
-        ..Layers::global(dispatcher.global)
-    }
+/// Every keymap a dispatcher holds.
+struct Keymaps {
+    global: Keymap,
+    /// Active while the prefix argument reads digits, and a minus sign. They come
+    /// first among the minor modes, as what is being typed is for them.
+    prefix: [Keymap; 2],
+    /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
+    copy: [Keymap; 2],
+    /// The keys of a prompt that reads an answer, above the global ones, and of a
+    /// question, in place of them (ADR 0072).
+    prompt: [Keymap; 2],
 }
 
-/// The keymaps a dispatcher holds, borrowed apart from its resolver.
-#[derive(Clone, Copy)]
-struct Keymaps<'a> {
-    global: &'a Keymap,
-    copy: &'a [Keymap; 2],
-    prompt: &'a [Keymap; 2],
+impl Keymaps {
+    /// The prefix argument's keymaps, as [`Keymaps::active`] takes them.
+    fn reading(&self) -> [&Keymap; 2] {
+        [&self.prefix[0], &self.prefix[1]]
+    }
+
+    /// The keymaps active now. A question's keys take the global keymap's place, so that
+    /// no other key reaches a command, and a prompt's go above it (ADR 0072). `reading`
+    /// holds the keymaps of a prefix argument.
+    fn active<'a>(
+        &'a self,
+        reading: &'a [&'a Keymap; 2],
+        prefix: Option<Prefix>,
+        editor: &Editor,
+    ) -> Layers<'a> {
+        if editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question())
+        {
+            return Layers::global(&self.prompt[1]);
+        }
+        let minor: &[&Keymap] = match prefix {
+            Some(prefix) if prefix.reads_minus() => reading,
+            Some(prefix) if prefix.reads_digits() => &reading[..1],
+            _ => &[],
+        };
+        let major = if editor.prompt().is_some() {
+            Some(&self.prompt[0])
+        } else {
+            match editor.current().1.mode() {
+                Mode::Fundamental => None,
+                Mode::CopyList => Some(&self.copy[0]),
+                Mode::CopyView => Some(&self.copy[1]),
+            }
+        };
+        Layers {
+            minor,
+            major,
+            ..Layers::global(&self.global)
+        }
+    }
 }
 
 #[cfg(test)]

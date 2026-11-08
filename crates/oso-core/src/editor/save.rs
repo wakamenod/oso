@@ -164,7 +164,9 @@ impl Editor {
         if let Some(refused) = refusal(buffer) {
             return Err(refused);
         }
-        let found = buffer.save_over();
+        // An unmodified buffer has nothing to save over a file with: it writes only if the file
+        // has gone, and asks nothing.
+        let found = buffer.save_over().filter(|_| buffer.is_modified());
         // An unmodified buffer stays as it is unless the file has gone, which only the
         // host can tell, and then it holds what the file held.
         let only_if_gone = !buffer.is_modified();
@@ -268,6 +270,9 @@ impl Editor {
     pub fn save_failed(&mut self, id: BufferId) {
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_saving(false);
+            // A save over a file needs the one this failure found, if it found one, and
+            // [`Editor::may_save_over`] says so after this.
+            buffer.forget_save_over();
         }
         self.reset_exit_guard();
     }

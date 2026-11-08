@@ -137,7 +137,7 @@ fn prompts_state(editor: &Editor) -> Value {
                 "prompt": shown.then(|| prompt.label()),
                 "text": buffer.map(|buffer| answer_text(buffer.text())),
                 "cursor": cursor,
-                "message": prompt.message().filter(|_| shown),
+                "message": prompt.message().filter(|_| shown && !prompt.message_withheld()),
                 "region": region,
             })
         })

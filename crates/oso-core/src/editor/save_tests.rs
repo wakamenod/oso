@@ -497,3 +497,26 @@ fn y_saves_over_only_the_buffer_it_was_asked_about() {
         "asked about the first, so the second asks again"
     );
 }
+
+#[test]
+fn a_later_failure_that_found_no_file_to_go_over_forgets_the_one_found() {
+    let mut editor = visiting(b"abc\n");
+    let id = editor.window().buffer();
+    insert(&mut editor, 0, "x");
+    editor.file_changed_on_disk(id);
+    editor.may_save_over(id, stamp(9));
+    // The next save finds the path leading elsewhere, and nothing to go over.
+    editor.save_failed(id);
+    editor.file_changed_on_disk(id);
+    assert_ne!(editor.start_save(), Err(SaveRefused::ChangedOnDisk));
+}
+
+#[test]
+fn an_unmodified_buffer_asks_nothing_about_saving_over() {
+    let mut editor = visiting(b"abc\n");
+    let id = editor.window().buffer();
+    editor.file_changed_on_disk(id);
+    editor.may_save_over(id, stamp(9));
+    assert!(!editor.current().1.is_modified());
+    assert_ne!(editor.start_save(), Err(SaveRefused::ChangedOnDisk));
+}

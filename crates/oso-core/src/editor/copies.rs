@@ -187,7 +187,8 @@ impl Editor {
     /// the list it is on. A buffer line and not a display row, on purpose: a row of the list
     /// that wraps still means one copy.
     pub fn cursor_line(&self) -> usize {
-        let (window, buffer) = self.current();
+        // The window beneath a prompt, which shows the list, also while a prompt is open.
+        let (window, buffer) = self.tiled();
         let cursor = window.selections.primary().cursor;
         buffer.text().offset_to_point(cursor).row
     }

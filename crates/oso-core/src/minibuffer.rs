@@ -100,8 +100,8 @@ impl fmt::Display for PromptError {
 impl std::error::Error for PromptError {}
 
 /// Names one prompt, so that what waits for its answer finds it whatever opens and closes
-/// meanwhile. No two prompts of one editor share one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// meanwhile. No two prompts of one editor share one, and a later one's is greater.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PromptId(pub(crate) u64);
 
 /// The whole number `text` holds, as a prompt for a number reads it, with spaces around it.
@@ -132,6 +132,9 @@ pub struct Prompt {
     pub(crate) beneath: usize,
     /// What a key typed in it said, until the next key.
     pub(crate) message: Option<String>,
+    /// That message was said by a command that got a passphrase, so the control socket
+    /// leaves it out.
+    pub(crate) message_withheld: bool,
     /// Whether its answer may enter its history: not one opened while a buffer that may
     /// hold secrets is shown.
     pub(crate) records: bool,
@@ -165,6 +168,12 @@ impl Prompt {
     /// What a key typed in it said, until the next key.
     pub fn message(&self) -> Option<&str> {
         self.message.as_deref()
+    }
+
+    /// Whether its message was said by a command that got a passphrase, which the control
+    /// socket leaves out (ADR 0072).
+    pub fn message_withheld(&self) -> bool {
+        self.message_withheld
     }
 }
 
@@ -244,8 +253,11 @@ pub struct PromptLayout {
     pub regions: FloatRegions,
     /// The rows of the label, each a range of it, from the top of the inner cells.
     pub label: Vec<Range<usize>>,
-    /// Whether the label was cut, and ends with `…`.
+    /// Whether the label was cut, and its last row ends with `…`.
     pub label_cut: bool,
+    /// A question's `(y or n)`, a range of the label that ends its last row, after a `…`
+    /// if the rest was cut. It is never broken or cut. Empty for a prompt that reads.
+    pub suffix: Range<usize>,
     /// Where the answer is typed, on the label's last row after it. Empty for a question.
     pub input: CellRect,
     /// Where a message goes, at the end of that row. Empty with none.
@@ -322,11 +334,29 @@ fn label_width(kind: Kind, inner_columns: usize) -> usize {
 pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str>) -> PromptLayout {
     // The width does not depend on the rows.
     let columns = float_regions(frame, 1).inner.columns;
-    let (rows, label_cut) = rows_of(label, label_width(kind, columns), MAX_LABEL_ROWS);
+    let width = label_width(kind, columns);
+    // A question's `(y or n)` goes whole at the end of the last row, so that it always shows.
+    let body = match kind {
+        Kind::Question { .. } => label.strip_suffix(QUESTION_END).unwrap_or(label),
+        _ => label,
+    };
+    let suffix = body.len()..label.len();
+    let suffix_cells = cells_of(&label[suffix.clone()]);
+    let (mut rows, mut label_cut) = rows_of(body, width, MAX_LABEL_ROWS);
+    let row_cells = |rows: &[Range<usize>], cut: bool| {
+        rows.last().map_or(0, |row| cells_of(&body[row.clone()])) + usize::from(cut)
+    };
+    if suffix_cells > 0 && row_cells(&rows, label_cut) + suffix_cells > width {
+        if rows.len() < MAX_LABEL_ROWS && !label_cut {
+            rows.push(body.len()..body.len());
+        } else {
+            rows = cut_last(body, rows, width.saturating_sub(suffix_cells));
+            label_cut = true;
+        }
+    }
     let regions = float_regions(frame, rows.len());
     let inner = regions.inner;
-    let last = rows.last().map_or(0, |row| cells_of(&label[row.clone()]));
-    let after = last + usize::from(label_cut);
+    let after = row_cells(&rows, label_cut) + suffix_cells;
     let row = inner.row
         + rows
             .len()
@@ -364,10 +394,14 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
         regions,
         label: rows,
         label_cut,
+        suffix,
         input,
         message,
     }
 }
+
+/// What ends a question's label: what the keys that answer it are.
+pub const QUESTION_END: &str = " (y or n)";
 
 /// `message` cut at a whole cluster to fit, with the brackets around it, in `columns` cells,
 /// and `…` if it was cut: what a prompt's message row shows.
@@ -486,6 +520,31 @@ mod tests {
         assert_eq!(layout.input.columns, 0, "nothing is typed in a question");
         let short = super::layout(&frame, "Exit? (y or n)", kind, None);
         assert_eq!(short.label.len(), 1);
+        assert_eq!(&"Exit? (y or n)"[short.suffix.clone()], QUESTION_END);
+    }
+
+    #[test]
+    fn a_questions_y_or_n_ends_its_last_row_whole_however_the_rest_is_cut() {
+        let kind = Kind::Question { yes: "x" };
+        let frame = frame(40);
+        let width = float_regions(&frame, 1).inner.columns;
+        for words in [3, 7, 10, 60] {
+            let label = format!("{}{QUESTION_END}", "word ".repeat(words).trim_end());
+            let layout = layout(&frame, &label, kind, None);
+            let last = layout.label.last().unwrap();
+            let cells = cells_of(&label[last.clone()])
+                + usize::from(layout.label_cut)
+                + cells_of(&label[layout.suffix.clone()]);
+            assert!(cells <= width, "{words} words: {cells} cells in {width}");
+            assert_eq!(&label[layout.suffix.clone()], QUESTION_END, "{words} words");
+            assert!(layout.label.len() <= MAX_LABEL_ROWS);
+            assert!(
+                layout
+                    .label
+                    .iter()
+                    .all(|row| row.end <= layout.suffix.start)
+            );
+        }
     }
 
     #[test]

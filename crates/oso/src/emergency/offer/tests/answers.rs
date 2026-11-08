@@ -425,6 +425,35 @@ fn the_cursor_stays_on_its_copy_as_rows_change() {
 }
 
 #[test]
+fn the_cursor_stays_on_its_copy_while_a_prompt_is_open() {
+    let mut fixture = Fixture::new("on disk\n", "the copy\n");
+    copy_written_at(
+        &fixture,
+        "00000000000000bb-1780000000-77-0",
+        "older\n",
+        1_780_000_000,
+    );
+    fixture.scan();
+    fixture.open_list();
+    fixture.editor.set_copies_cursor(HEADER_ROWS + 1);
+    let number = oso_core::minibuffer::Kind::Number { history: None };
+    fixture.editor.open_prompt("Go to line: ", number).unwrap();
+    copy_written_at(
+        &fixture,
+        "00000000000000cc-1800000000-77-0",
+        "newer\n",
+        1_800_000_000,
+    );
+    fixture.answer(RecoveryAction::Refresh);
+    fixture.editor.quit();
+    assert_eq!(
+        fixture.line(),
+        HEADER_ROWS + 2,
+        "it moved down with its row"
+    );
+}
+
+#[test]
 fn a_text_that_changed_after_the_scan_is_not_recovered() {
     let mut fixture = Fixture::new("on disk\n", "the whole copy\n");
     fixture.scan();

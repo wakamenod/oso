@@ -43,7 +43,7 @@ impl Editor {
         let depth = self.prompts.len() + 1;
         let mut label = label.into();
         if kind.is_question() {
-            label.push_str(" (y or n)");
+            label.push_str(minibuffer::QUESTION_END);
         }
         if depth > 1 {
             label = format!("[{depth}] {label}");
@@ -63,6 +63,7 @@ impl Editor {
             buffer,
             beneath,
             message: None,
+            message_withheld: false,
             records,
             walk: None,
             typed: None,
@@ -232,8 +233,14 @@ impl Editor {
     /// Shows `text` in the innermost prompt until the next key, as a message from a key
     /// typed there does.
     pub fn prompt_says(&mut self, text: impl Into<String>) {
+        self.say_in_prompt(text.into(), false);
+    }
+
+    /// Shows `text` in the innermost prompt, withheld from the control socket if `withheld`.
+    pub(super) fn say_in_prompt(&mut self, text: String, withheld: bool) {
         if let Some(prompt) = self.prompts.last_mut() {
-            prompt.message = Some(text.into());
+            prompt.message = Some(text);
+            prompt.message_withheld = withheld;
         }
         self.relayout_prompt();
     }

@@ -184,7 +184,7 @@ impl Editor {
     /// it, where the person is looking (ADR 0072).
     fn put_echo(&mut self, echo: Echo) {
         if self.message_goes_in_prompt() {
-            self.prompt_says(echo.text);
+            self.say_in_prompt(echo.text, echo.withheld);
         } else {
             self.echo = Some(echo);
         }

@@ -333,4 +333,47 @@ mod tests {
         assert_eq!(panes[0].0.rows, 1);
         assert_eq!((panes[1].0.rows, panes[2].0.rows), (0, 0));
     }
+
+    #[test]
+    fn a_float_too_short_for_its_label_keeps_the_answers_row_and_nothing_overlaps() {
+        let mut editor = Editor::default();
+        editor.set_frame_size(FrameSize {
+            rows: 4,
+            columns: 40,
+        });
+        let long = "a question long enough to take three rows of a narrow float";
+        editor.ask(long, "keyboard-quit").unwrap();
+        let status = Status::default();
+        with_panes(&editor, &status, |panes| {
+            let inside: Vec<_> = panes
+                .iter()
+                .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
+                .collect();
+            for (i, a) in inside.iter().enumerate() {
+                for b in &inside[..i] {
+                    let rows = |p: &Pane<'_>| p.region.row..p.region.row + p.region.rows;
+                    let columns =
+                        |p: &Pane<'_>| p.region.column..p.region.column + p.region.columns;
+                    let meet = |x: std::ops::Range<usize>, y: std::ops::Range<usize>| {
+                        x.start < y.end && y.start < x.end
+                    };
+                    assert!(
+                        !(meet(rows(a), rows(b)) && meet(columns(a), columns(b))),
+                        "{:?} and {:?} overlap",
+                        a.region,
+                        b.region
+                    );
+                }
+            }
+            let shown: String = inside
+                .iter()
+                .filter_map(|pane| match &pane.content {
+                    PaneContent::Lines(lines) => lines.first().copied(),
+                    _ => None,
+                })
+                .flat_map(|row| row.iter().map(|span| span.text))
+                .collect();
+            assert!(shown.contains("(y or n)"), "{shown}");
+        });
+    }
 }

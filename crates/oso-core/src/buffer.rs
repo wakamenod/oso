@@ -372,6 +372,10 @@ impl Buffer {
         self.save_over = Some(found);
     }
 
+    pub(crate) fn forget_save_over(&mut self) {
+        self.save_over = None;
+    }
+
     /// Whether a save of this buffer is running. Until it ends, the disk may hold
     /// either the old state or the one being written.
     pub fn is_saving(&self) -> bool {
