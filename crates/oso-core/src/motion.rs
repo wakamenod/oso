@@ -89,6 +89,14 @@ impl WalkBudget {
         self.ran_out
     }
 
+    /// A budget of `bytes`, for a command that needs less than a whole one.
+    pub(crate) const fn with_limit(bytes: usize) -> Self {
+        Self {
+            left: bytes,
+            ran_out: false,
+        }
+    }
+
     /// The reads of one stop.
     pub(crate) fn stop(&mut self) -> StopWalk<'_> {
         StopWalk {

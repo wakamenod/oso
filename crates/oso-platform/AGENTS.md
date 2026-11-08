@@ -4,9 +4,10 @@ OS abstractions: the text system backends, the clipboard (ADR 0074), and later
 IME, filesystem and the PTY (ADR 0003, ADR 0004). `clipboard` runs on threads of
 its own, as reading it can wait on another process. `privacy` holds what keeps text
 private to its user: no core dumps, and private directories (ADR 0062), and
-`file_meta` what decides who may reach a file beyond its mode (ADR 0065). The dev
-control socket transport lives in `control`, and process spawning in `process`,
-behind the `dev` feature. `window` holds the window layer's events, which the tip crate's
+`file_meta` what decides who may reach a file beyond its mode (ADR 0065). The
+control sockets' transport lives in `control`, in every build, for the dev socket
+and the agent channel (ADR 0085); only the dev tooling and the agent channel
+listen. Process spawning lives in `process`, behind the `dev` feature. `window` holds the window layer's events, which the tip crate's
 winit adapter builds too, and with `native-window` the macOS backend in `window/appkit/`
 (ADR 0070).
 

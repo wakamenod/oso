@@ -51,6 +51,7 @@ Command {
     name: "forward-char",
     doc: "Move point N characters forward (backward if N is negative).",
     args: ArgSpec::Count,
+    reach: Reach::Look,
     run: forward_char,
 },
 ```
@@ -61,6 +62,14 @@ Command {
   `args.count()` (the numeric prefix argument, 1 by default, negative to
   reverse). If a new kind of argument is needed, extend `Args` and
   `ArgSpec` in `oso-core` and propose it in an ADR.
+- `reach`: how far the agent channel may reach it (ADR 0085). `Reach::Look`
+  if it moves, marks, shows or opens and changes no text or file;
+  `Reach::Change` if it edits text or saves; `Reach::Person` if it needs a
+  person at the keyboard: it exits, answers a prompt, reads the clipboard,
+  needs a key or a passphrase, spawns a process, trusts a project, or shows
+  what a buffer that may hold secrets withholds. When in doubt, `Person`. A
+  `Person` command also goes in the list in
+  `commands::tests::the_agent_channel_refuses_what_needs_a_person`.
 - Duplicate names fail `commands::tests::every_command_registers`.
 
 ## 3. Bind keys

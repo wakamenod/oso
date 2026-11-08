@@ -3,7 +3,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 #[cfg(test)]
 use oso_core::editor::Editor;
 
@@ -12,6 +12,7 @@ pub const COMMANDS: &[Command] = &[Command {
     name: "view-echo-area-messages",
     doc: "Show the `*Messages*` buffer, with its last message in view.\n\nFrom `*Messages*`, go back to where the window was, as nothing else leaves it until `C-x b` arrives.",
     args: ArgSpec::None,
+    reach: Reach::Look,
     run: view_echo_area_messages,
 }];
 

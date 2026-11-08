@@ -34,10 +34,15 @@ const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
 // count and label in a teal accent. Every one at least 4.5:1 on the background and on the
 // selected row, which the tests check, until M2-23's theme.
 const SELECTED: [f32; 4] = [0.028, 0.058, 0.212, 1.0];
-const MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
+const COMPLETION_MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
 const ANNOTATION: [f32; 4] = [0.423, 0.479, 0.730, 1.0];
 const BINDING: [f32; 4] = [0.078, 0.546, 1.0, 1.0];
 const COMPLETION_PROMPT: [f32; 4] = [0.114, 0.680, 0.429, 1.0];
+// isearch's matches (ADR 0082): a muted amber for the others in view, and a strong one for
+// the current match, behind text that keeps its colour, until the themes (M2-23). The text
+// stays 4.6:1 on the strong one and 8:1 on the muted one, against ADR 0027's 4.5:1.
+const MATCH: [f32; 4] = [0.12, 0.05, 0.005, 1.0];
+const CURRENT_MATCH: [f32; 4] = [0.32, 0.12, 0.004, 1.0];
 
 /// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height
 /// over 16) and the shadow's color and strength (ADR 0075). It is read every frame, as the
@@ -133,6 +138,10 @@ pub enum Face {
     CompletionBinding,
     /// A completion's count and label, at the start of its answer's row.
     CompletionPrompt,
+    /// An isearch match in view, drawn as the region is (ADR 0082).
+    SearchMatch,
+    /// The current isearch match, which stands out from the others.
+    SearchCurrent,
 }
 
 impl Face {
@@ -144,8 +153,10 @@ impl Face {
             | Self::Preedit
             | Self::Float
             | Self::Region
-            | Self::CompletionSelected => FOREGROUND,
-            Self::CompletionMatch => MATCH,
+            | Self::CompletionSelected
+            | Self::SearchMatch
+            | Self::SearchCurrent => FOREGROUND,
+            Self::CompletionMatch => COMPLETION_MATCH,
             Self::CompletionAnnotation => ANNOTATION,
             Self::CompletionBinding => BINDING,
             Self::CompletionPrompt => COMPLETION_PROMPT,
@@ -177,6 +188,8 @@ impl Face {
             Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Key => KEY,
             Self::Region => REGION,
+            Self::SearchMatch => MATCH,
+            Self::SearchCurrent => CURRENT_MATCH,
         }
     }
 
@@ -258,9 +271,11 @@ pub struct TextView<'a> {
     /// What an input method is composing, spliced into the cursor's row at the
     /// cursor and pushing the rest of it (ADR 0069).
     pub preedit: Option<&'a Preedit>,
-    /// The frame's cells the regions between marks and cursors take, behind the text
-    /// and its boxes, as `frame::region_cells` gives them (ADR 0071).
-    pub region_cells: &'a [CellRect],
+    /// The frame's cells filled behind the text and its boxes, each list in its face's
+    /// background, back to front: isearch's matches (ADR 0082), then the regions between
+    /// marks and cursors (ADR 0071), as `Editor::isearch_cells` and `frame::region_cells`
+    /// give them.
+    pub fills: &'a [(Face, &'a [CellRect])],
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its

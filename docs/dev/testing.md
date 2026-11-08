@@ -69,7 +69,9 @@ underline with `-`, and the segment being converted with `=`
 
 Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
-([ADR 0071](adr/0071-mark-and-region.md)).
+([ADR 0071](adr/0071-mark-and-region.md)). The same line marks the current isearch match
+with `#` and the other matches in view with `~`, from `Editor::search_cells`
+([ADR 0082](adr/0082-isearch.md)).
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `#`
@@ -117,8 +119,11 @@ Some tests check the repository rather than behavior:
 - `crates/oso/tests/workspace_lints.rs`: every crate uses the workspace
   lints.
 - `crates/oso/tests/architecture`: dependency direction, confined crates,
-  file sizes, `static` items, module headers and conflict markers
-  ([ADR 0038](adr/0038-architecture-guardrails.md),
+  file sizes, `static` items, module headers, conflict markers, and where the
+  control directory may be made, listened on, cleaned or written to: only the
+  dev tooling, until the agent channel's start command joins it
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md),
+  [ADR 0038](adr/0038-architecture-guardrails.md),
   [ADR 0039](adr/0039-architecture-guardrail-mechanics.md),
   [ADR 0041](adr/0041-module-responsibility-headers.md),
   [ADR 0042](adr/0042-statics-snapshots-and-render-errors.md)).
@@ -254,8 +259,8 @@ what you type goes into their buffers, which can fail a flow.
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
-| emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit, to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
-| exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. What makes it ask again is tested through the `Dispatcher` |
+| emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit (on oso's own layer a quit Apple event with a logout reason), to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
+| exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. On oso's own macOS layer a person's quit, as another app sends it, asks the same question, `n` stays and `y` goes with nothing written (ADR 0084). What makes it ask again is tested through the `Dispatcher` |
 | prompts | `M-g g` reads a line in a float and goes there, `C-g` runs nothing, the IME off in a prompt and on after it, the exit question on `n` and `y`, a passphrase withheld from `get-state`, screenshots and the log, and a restart held while a prompt is open (ADR 0072) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
@@ -426,15 +431,16 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
-  the dev features too (`--all-features`).
+  the dev features too (`--all-features`). The macOS job also runs
+  `just public-api-macos-check`, below, so that a push starts one macOS job.
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
 - `just public-api-check` on Linux: the public API matches
   `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
-  `just public-api-macos-check` on macOS for `oso-platform`'s macOS API, with the native
-  window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
+  `just public-api-macos-check` in the macOS `just ci` job for `oso-platform`'s macOS API,
+  with the native window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue

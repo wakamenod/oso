@@ -18,13 +18,14 @@
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
-//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], and kills and
-//! yanks in [`kill`].
+//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], kills and
+//! yanks in [`kill`], isearch in [`isearch`], and files read again after they changed on disk
+//! in [`reload`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, EditError, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -32,21 +33,28 @@ use crate::selection::SelectionSet;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 use follow::Selected;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 mod completion;
 mod copies;
 mod follow;
+mod isearch;
 mod kill;
 mod messages;
 mod prompts;
+mod reload;
 mod save;
 mod status;
 mod view;
 
+pub use crate::search::{SearchJob, SearchReport};
 pub use copies::RecoveryAction;
+pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
+pub use reload::{Leftover, ReloadOutcome};
 pub use save::{ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 
@@ -132,6 +140,14 @@ pub struct Editor {
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
+    /// The isearch under way in the selected window (ADR 0082).
+    isearch: Option<Isearch>,
+    /// The generation of the search job that may run, which a worker checks to stop.
+    search_live: Arc<AtomicU64>,
+    /// A job for a worker, until the host takes it.
+    search_job: Option<SearchJob>,
+    /// Buffers a person asked to read again from their files, for the host (ADR 0083).
+    reverts: Vec<(BufferId, ContentId)>,
 }
 
 impl Default for Editor {
@@ -172,6 +188,10 @@ impl Editor {
             passphrase_command: false,
             save_over_asked: None,
             kills: kill::Kills::default(),
+            isearch: None,
+            search_live: Arc::new(AtomicU64::new(0)),
+            search_job: None,
+            reverts: Vec::new(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -229,6 +249,8 @@ impl Editor {
     /// through here, but a killed buffer's, so that what was around a buffer that may hold
     /// secrets, before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        // A search keeps to the buffer it began in (ADR 0082).
+        self.isearch_abandon();
         self.note_secret_shown();
         self.windows[index].show(buffer);
         self.note_secret_shown();
@@ -242,6 +264,7 @@ impl Editor {
         }
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
+            self.isearch_abandon();
             self.window_moves_on();
             // Before it goes, as what it was cannot be asked after.
             self.note_secret_shown();
@@ -957,9 +980,13 @@ mod tests {
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
+mod isearch_tests;
+#[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod prompt_tests;
+#[cfg(test)]
+mod reload_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

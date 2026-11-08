@@ -18,6 +18,8 @@ use oso_core::command::{
 use oso_core::editor::Editor;
 use oso_core::key::Key;
 use oso_core::key::KeyPress;
+#[cfg(any(test, feature = "dev"))]
+use oso_core::keymap::Layers;
 use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
 
 use crate::emergency::Publisher;
@@ -44,6 +46,9 @@ pub struct Dispatcher {
     /// Every keymap, held apart from the resolver, so that working out which are active
     /// borrows only them.
     keymaps: Keymaps,
+    /// The commands that run in a search rather than end it, for `run-command` (ADR 0082).
+    #[cfg(any(test, feature = "dev"))]
+    isearch_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -76,6 +81,9 @@ impl Dispatcher {
         let (digits, minus) = bindings::prefix_keymaps(&registry);
         let (list, copy) = bindings::recovery_keymaps(&registry);
         let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
+        let isearch = bindings::isearch_keymap(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let isearch_commands = bindings::isearch_commands(&registry);
         Self {
             keymaps: Keymaps {
                 global,
@@ -84,7 +92,10 @@ impl Dispatcher {
                 minibuffer,
                 question,
                 completing,
+                isearch,
             },
+            #[cfg(any(test, feature = "dev"))]
+            isearch_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -162,7 +173,7 @@ impl Dispatcher {
     /// dropped.
     #[cfg(any(test, feature = "dev"))]
     pub fn restore_pending(&mut self, editor: &mut Editor, keys: &[KeyPress]) {
-        let layers = oso_core::keymap::Layers::global(&self.keymaps.global);
+        let layers = Layers::global(&self.keymaps.global);
         for key in keys {
             if !matches!(self.resolver.feed(&layers, *key), Resolution::Pending) {
                 self.resolver.reset();
@@ -320,13 +331,17 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
+        // A command isearch's keys do not run ends a search first, as a key would
+        // (ADR 0082).
+        let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();
         // A yank waits for the clipboard as it does from a key, and replies at once.
         let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
             self.run_or_read(editor, id, args, invocation)
         } else {
             self.execute(editor, id, args, invocation, Step::MayJoin)
         };
-        let effects = effects.union(self.after_prompts(editor));
+        let mut effects = effects.union(self.after_prompts(editor));
+        effects.redraw |= ended_search;
         (effects, result.map_err(|e| e.to_string()))
     }
 
@@ -507,6 +522,16 @@ impl Dispatcher {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
                 return Effects::default();
             }
+            Resolution::Unbound(keys) if editor.isearch().is_some() && keys.len() == 1 => {
+                // It ends the search where it is, and then does what it would have
+                // (ADR 0082). isearch binds no prefix, so this is the key alone.
+                editor.isearch_exit();
+                let ran = self.resolve_key(editor, key);
+                return ran.union(Effects {
+                    redraw: true,
+                    ..Effects::default()
+                });
+            }
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
                 // which stays out of the log (ADR 0028).
@@ -564,6 +589,8 @@ mod emergency_tests;
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
+#[cfg(test)]
+mod isearch_tests;
 #[cfg(test)]
 mod kill_tests;
 #[cfg(test)]
@@ -848,12 +875,14 @@ mod tests {
             name: "show-secret",
             doc: "Show a secret buffer, as `C-x b` will.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, true),
         };
         let plain_command = Command {
             name: "show-plain",
             doc: "Show an ordinary buffer, as `C-x b` will.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, false),
         };
         registry
@@ -908,6 +937,7 @@ mod tests {
                 name: "explode",
                 doc: "Panic, to test the command boundary.",
                 args: ArgSpec::None,
+                reach: oso_core::command::Reach::Look,
                 run: explode,
             })
             .unwrap();
@@ -973,6 +1003,7 @@ mod tests {
                 name: "explode",
                 doc: "Panics.",
                 args: ArgSpec::None,
+                reach: oso_core::command::Reach::Look,
                 run: explode,
             })
             .unwrap();

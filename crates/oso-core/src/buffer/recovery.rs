@@ -13,7 +13,7 @@ use super::{
 };
 use crate::decode::{FileInfo, LineEnding};
 use crate::load::Progress;
-use crate::secret;
+use crate::secret::{self, stricter};
 use crate::selection::SelectionSet;
 use crate::undo::{Opening, Splice};
 
@@ -38,18 +38,7 @@ struct Side {
 }
 
 /// The modification time of a file that has gone, by which no file can pass for it.
-const NO_TIME: SystemTime = SystemTime::UNIX_EPOCH;
-
-/// The verdict that withholds more, as a name that matches says more than not knowing, and
-/// a secret kill yanked in is never copied either (ADR 0074).
-fn stricter(one: Verdict, other: Verdict) -> Verdict {
-    match (one, other) {
-        (Verdict::SecretName, _) | (_, Verdict::SecretName) => Verdict::SecretName,
-        (Verdict::Yanked, _) | (_, Verdict::Yanked) => Verdict::Yanked,
-        (Verdict::Ordinary, other) => other,
-        (one, _) => one,
-    }
-}
+pub(super) const NO_TIME: SystemTime = SystemTime::UNIX_EPOCH;
 
 impl Buffer {
     /// Which keys this buffer takes.
@@ -112,6 +101,7 @@ impl Buffer {
                 modified: NO_TIME,
                 len: 0,
                 mode: 0o600,
+                identity: None,
             });
         }
         let side = self.side();

@@ -15,6 +15,7 @@ mod delegates;
 mod gate;
 mod handles;
 mod keys;
+mod quit;
 mod runloop;
 mod secure;
 mod view;
@@ -37,7 +38,7 @@ use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
 };
 
-use super::{Event, Handler};
+use super::{Event, Handler, QuitAnswer, QuitReason};
 use delegates::{AppDelegate, WindowDelegate};
 pub use handles::{Control, RenderTarget, Waker, Window};
 use runloop::Hooks;
@@ -100,6 +101,8 @@ enum Delivery<'a> {
     /// Other threads sent something; the adapter takes all of it.
     UserEvents,
     BeforeWaiting,
+    /// The OS asks to end; the answer goes in `State::quit_answer`.
+    Quit(QuitReason),
     Exiting,
 }
 
@@ -124,6 +127,10 @@ impl<T, H: Handler<T>> Dispatch for Adapter<T, H> {
                 }
             }
             Delivery::BeforeWaiting => self.handler.before_waiting(control),
+            Delivery::Quit(reason) => {
+                let answer = self.handler.quit_requested(control, reason);
+                control.state.quit_answer.set(Some(answer));
+            }
             Delivery::Exiting => self.handler.exiting(),
         }
     }
@@ -137,6 +144,8 @@ enum Request {
     InnerSize(u32, u32),
     ImeAllowed(bool),
     DiscardComposition,
+    /// The app's answer to an end it held (`QuitAnswer::Later`).
+    AnswerQuit(bool),
 }
 
 /// An event that came while the handler ran. Only those that keep what the app knows of the
@@ -145,6 +154,7 @@ enum Pending {
     Resized,
     ScaleFactorChanged,
     Occluded(bool),
+    Focused,
     ModifiersChanged(super::Held),
     CloseRequested,
 }
@@ -180,6 +190,10 @@ struct State {
     /// A frame skipped because the window was hidden, owed until it is visible.
     hidden_frame: Cell<gate::HiddenFrame>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
+    /// The handler's answer to the last request to end, while it is being asked.
+    quit_answer: Cell<Option<QuitAnswer>>,
+    /// AppKit holds an end for the app's answer (`NSTerminateLater`).
+    quit_held: Cell<bool>,
 }
 
 impl State {
@@ -203,6 +217,8 @@ impl State {
             reported_scale: Cell::new(0.0),
             hidden_frame: Cell::new(gate::HiddenFrame::default()),
             panic: RefCell::new(None),
+            quit_answer: Cell::new(None),
+            quit_held: Cell::new(false),
         }
     }
 
@@ -236,7 +252,12 @@ impl State {
         drop(dispatch);
         if let Err(payload) = result {
             self.update_secure(gate::SecureInput::release);
+            // First, so that nothing reaches the handler again, `exiting` included.
             *self.panic.borrow_mut() = Some(payload);
+            // An end AppKit holds for an answer that will not come goes now. AppKit then ends
+            // the process itself, with the copies the panic hook wrote, and the panic is not
+            // resumed.
+            self.answer_held_quit(true);
             self.stop();
             return;
         }
@@ -249,6 +270,7 @@ impl State {
             Delivery::Window(Event::Resized { .. }) => Pending::Resized,
             Delivery::Window(Event::ScaleFactorChanged(_)) => Pending::ScaleFactorChanged,
             Delivery::Window(Event::Occluded(occluded)) => Pending::Occluded(occluded),
+            Delivery::Window(Event::Focused) => Pending::Focused,
             Delivery::Window(Event::ModifiersChanged(held)) => Pending::ModifiersChanged(held),
             Delivery::Window(Event::CloseRequested) => Pending::CloseRequested,
             Delivery::Window(Event::RedrawRequested) => {
@@ -284,6 +306,7 @@ impl State {
                 Pending::Resized => self.resized_event(),
                 Pending::ScaleFactorChanged => Event::ScaleFactorChanged(self.scale_factor()),
                 Pending::Occluded(occluded) => Event::Occluded(occluded),
+                Pending::Focused => Event::Focused,
                 Pending::ModifiersChanged(held) => Event::ModifiersChanged(held),
                 Pending::CloseRequested => Event::CloseRequested,
             };
@@ -303,6 +326,10 @@ impl State {
     }
 
     fn apply(&'static self, request: Request) {
+        if let Request::AnswerQuit(yes) = request {
+            self.answer_held_quit(yes);
+            return;
+        }
         let Some((window, view, _)) = self.window.get() else {
             return;
         };
@@ -331,6 +358,8 @@ impl State {
                 }
             }
             Request::DiscardComposition => view.discard_marked(),
+            // Answered above, with or without a window.
+            Request::AnswerQuit(_) => {}
         }
     }
 
@@ -366,8 +395,8 @@ impl State {
         if self.panic.borrow().is_some() || self.exited.get() {
             return;
         }
-        // Not while the handler runs: it hears it once it returns. The quit guard answers a
-        // quit "later" meanwhile, so AppKit does not end the process before (ADR 0070).
+        // Not while the handler runs: it hears it once it returns. AppKit ends the process only
+        // once the app has answered yes, which it does outside the handler (ADR 0084).
         if self.dispatch.try_borrow_mut().is_err() {
             self.exit_waiting.set(true);
             return;

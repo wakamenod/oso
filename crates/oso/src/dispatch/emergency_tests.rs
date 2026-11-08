@@ -45,6 +45,7 @@ fn dispatcher(emergency: &Emergency) -> Dispatcher {
             name: "edit-then-panic",
             doc: "Edit, then panic.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: edit_then_panic,
         })
         .unwrap();
@@ -53,6 +54,7 @@ fn dispatcher(emergency: &Emergency) -> Dispatcher {
             name: "save-then-panic",
             doc: "Start a save, then panic.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: save_then_panic,
         })
         .unwrap();

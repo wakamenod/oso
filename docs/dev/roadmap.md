@@ -211,11 +211,26 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 - **M2-25** (after M2-9 and M2-24): soft wrap, with the WrapMap
   ([ADR 0006](adr/0006-display-model.md)).
 
+**The agent channel, pulled forward from M4** ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)),
+alongside the steps above, after M2-16:
+
+- **AC-1**: a reach on every command, and the agent channel in release builds: `run`, `open`,
+  `state`, `text`, `commands` and `cancel`, `ArgSpec::Text` and `insert`, the connection question,
+  the `Agent` segment and `*Agent*`, and the change to `just release-safety`.
+- **AC-2** (after AC-1): `oso mcp`, the stdio bridge, with the tools `state`, `text`, `commands`,
+  `look`, `change` and `open`.
+- Each later step gives its commands a reach, such as `C-x C-f`, `C-x b` and window splits.
+
 ### M3 — Coding
 
 - Loading the TOML configuration, with a user key layer above the global keymap
   ([ADR 0019](adr/0019-configuration.md),
   [ADR 0051](adr/0051-m2-plan-decisions.md)).
+  A setting starts the agent channel at launch
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Whatever opening or saving starts, such as a format on save, waits in a buffer the agent
+  channel opened or saved until the person acts there
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML.
 - Window splits, indentation, project trust model.
 - Project file finding and asynchronous ripgrep search.
@@ -236,7 +251,7 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
   ([ADR 0015](adr/0015-terminal.md)).
 - Claude Code integration ([ADR 0031](adr/0031-claude-code-integration.md)):
   the official `claude` TUI in a terminal view, hooks for session identity
-  and state, the `oso mcp` bridge for review and worktree tools, session
+  and state, review and worktree tools on the `oso mcp` bridge, session
   list, notifications, worktree sessions, and restore via `--resume`.
 
 ### After M4

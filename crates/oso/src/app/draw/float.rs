@@ -130,6 +130,7 @@ impl<'a> Parts<'a> {
             keys: self.keys(),
             candidates,
             count,
+            region: &self.region,
         }
     }
 
@@ -276,6 +277,8 @@ pub(super) struct Spans<'a> {
     keys: [Span<'a>; 12],
     candidates: Vec<Vec<Span<'a>>>,
     count: [Span<'a>; 2],
+    /// The cells of a region in the answer.
+    region: &'a [CellRect],
 }
 
 impl<'a> Spans<'a> {
@@ -287,6 +290,7 @@ impl<'a> Spans<'a> {
             keys: [&self.keys],
             candidates: self.candidates.iter().map(|row| &row[..]).collect(),
             count: [&self.count],
+            fills: [(Face::Region, self.region)],
         }
     }
 }
@@ -298,6 +302,8 @@ pub(super) struct Lines<'a> {
     keys: [&'a [Span<'a>]; 1],
     candidates: Vec<&'a [Span<'a>]>,
     count: [&'a [Span<'a>]; 1],
+    /// What the answer's pane fills behind its text: its region (ADR 0076).
+    fills: [(Face, &'a [CellRect]); 1],
 }
 
 /// Adds the float's panes to `list`, after the tiled ones.
@@ -373,7 +379,7 @@ pub(super) fn panes<'a>(
         list.push(content(5, region, PaneContent::Lines(&lines.keys)));
     }
     if layout.input.columns > 0 {
-        list.push(content(6, layout.input, answer(editor, parts)));
+        list.push(content(6, layout.input, answer(editor, parts, lines)));
     }
     if parts.message.is_some() && layout.message.columns > 0 {
         list.push(content(
@@ -433,7 +439,7 @@ fn selected_row(parts: &Parts<'_>) -> Option<CellRect> {
 
 /// What the answer's pane shows: the prompt's window, or one `*` per character of a
 /// passphrase.
-fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>) -> PaneContent<'a> {
+fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) -> PaneContent<'a> {
     if let Some((text, cursor)) = &parts.mask {
         return PaneContent::Masked(Masked {
             text,
@@ -451,6 +457,6 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>) -> PaneContent<'a> {
         cursor,
         cursor_style: CursorStyle::Box,
         preedit: editor.preedit(),
-        region_cells: &parts.region,
+        fills: &lines.fills,
     })
 }

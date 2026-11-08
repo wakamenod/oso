@@ -10,7 +10,7 @@ use std::process::{Child, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use oso_platform::control::{ControlDir, ControlStream};
+use oso_platform::control::{ControlDir, ControlStream, Socket};
 use serde_json::{Value, json};
 
 use crate::process;
@@ -177,7 +177,8 @@ fn connect(child: &mut Child) -> Result<ControlStream, String> {
         if let Ok(Some(status)) = child.try_wait() {
             return Err(format!("the app exited at once: {status}"));
         }
-        let connected = ControlDir::open_existing().and_then(|dir| dir.connect(Some(child.id())));
+        let connected =
+            ControlDir::open_existing().and_then(|dir| dir.connect(Socket::Dev, Some(child.id())));
         match connected {
             Ok((_, stream)) => return Ok(stream),
             Err(e) if started.elapsed() > CONNECT_TIMEOUT => {

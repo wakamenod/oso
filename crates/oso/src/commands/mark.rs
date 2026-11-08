@@ -9,7 +9,7 @@
 //! `oso-core`, and so do `C-g` and `C-SPC C-SPC`. A motion with Shift shows them
 //! from where it started, as Emacs's `shift-select-mode` (`shift_select`).
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::motion;
 use oso_core::selection::MarkActive;
 
@@ -19,24 +19,28 @@ pub const COMMANDS: &[Command] = &[
         name: "set-mark-command",
         doc: "Set the mark at every cursor, and show the region.\n\nThe old mark goes first in the mark ring. Repeated at once, hide the region and keep the mark, to come back to with `C-u C-SPC`. With a prefix argument, go to the mark instead, as `pop-to-mark-command` does.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: set_mark_command,
     },
     Command {
         name: "exchange-point-and-mark",
         doc: "Put every cursor where its mark is and the mark where it was, and show the region.\n\nWith a prefix argument, hide the region instead. Signal \"No mark set in this buffer\" if the primary cursor has no mark.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: exchange_point_and_mark,
     },
     Command {
         name: "pop-to-mark-command",
         doc: "Go to the mark with one cursor, and hide the region.\n\nThe mark then goes back to the newest in the mark ring, and the old one goes last there, so repeating it goes back through the ring. Signal \"No mark set in this buffer\" if the primary cursor has no mark.",
         args: ArgSpec::None,
+        reach: Reach::Look,
         run: pop_to_mark_command,
     },
     Command {
         name: "mark-whole-buffer",
         doc: "Put one cursor at the start of the buffer and its mark at the end, and show the region.\n\nWhere the cursor was goes first in the mark ring, after the old mark.",
         args: ArgSpec::None,
+        reach: Reach::Look,
         run: mark_whole_buffer,
     },
 ];

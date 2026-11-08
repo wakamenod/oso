@@ -59,8 +59,7 @@ item notes when it must be settled.
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - Later, before anyone uses oso on Windows: decide what a private directory and a save do about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
-- A file changed on disk can be saved over once asked, but nothing yet reloads it (M2-22). A
-  buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
+- A buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
   (M2-18), and a file owned by another user, or with hard links, cannot be saved at all; decide
   whether a question should offer writing in place
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md), [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
@@ -121,8 +120,6 @@ item notes when it must be settled.
   guarded `exit` or the wait when leaving
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 
-- isearch must not match the U+FFFD of an invalid byte
-  (`InvalidBytes`, ADR 0040).
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
@@ -215,15 +212,17 @@ item notes when it must be settled.
   the input method asking for the rectangle of the range it names, so the candidate window
   follows the segment; no input context while the IME is off; the cursor's line for the
   input method;
-  the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
-  runs must still reach `exiting`; whether frames keep up during a live resize, now that the
+  whether frames keep up during a live resize, now that the
   view also draws when AppKit displays its layer; `open_window` and `request_attention`
   queued as the other requests are;
   startup and `open_from_launch_ms` measured again with more runs, where the native layer's
   medians sat a few milliseconds above winit's within overlapping ranges; and the author's
   checks at the keyboard of what remains: a window covered by another app and uncovered
-  drawing again with no key, a composition committed when the IME turns off, and each item
-  above as it lands. The author checked at the keyboard on 2026-11-08
+  drawing again with no key, a composition committed when the IME turns off, a Dock quit
+  asking the exit question, and a real Log Out, cancelled from the system's dialog, going
+  past it, which shows oso reads a real logout's reason
+  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each item above as it
+  lands. The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting
@@ -238,8 +237,8 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-20 and M3: isearch and menus add their condition to `wants_ime` in `app/ime.rs`, as
-  prompts have ([ADR 0069](adr/0069-macos-input-method.md)).
+- By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
+  have ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M2-18: matching on a worker thread past 5000 candidates, with the generation and the
   snapshot ADR 0076 fixes, for large directories. The worker gives back matches; where the list
   is scrolled to stays with the prompt
@@ -253,6 +252,10 @@ item notes when it must be settled.
   ([ADR 0057](adr/0057-frame-layout.md)).
 
 ## M3
+
+- The configuration setting that starts the agent channel at launch: its name, and whether it
+  may skip the question on each connection, which ADR 0085 always asks
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 - With configurable fonts: `Placer::place` ends a span where the style changes,
   so a shaper cluster crossing a boundary between text and a label is cut to its
@@ -287,8 +290,11 @@ item notes when it must be settled.
 ## M4
 
 - Claude Code hooks: which events map to which states, and how
-  `oso integration install claude` merges with existing user settings
-  ([ADR 0031](adr/0031-claude-code-integration.md)).
+  `oso integration install claude` merges with existing user settings, and registers `oso mcp`
+  ([ADR 0031](adr/0031-claude-code-integration.md),
+  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Which review and worktree tools join `oso mcp`, and the reach of each
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - OSC 7501 is a draft; track its revisions.
@@ -327,9 +333,10 @@ item notes when it must be settled.
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.
 
-- Dev control socket on Windows: a named pipe restricted to the current
-  user ([ADR 0032](adr/0032-control-socket-transport.md)). Needed when
-  agents test on Windows.
+- Dev control socket and agent channel on Windows: a named pipe restricted to the current
+  user ([ADR 0032](adr/0032-control-socket-transport.md),
+  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). Needed when agents test or drive oso on
+  Windows.
 - Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz. Until
   then Linux (and Windows, until DirectWrite) draws no text
   ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)). Each must keep cells in logical

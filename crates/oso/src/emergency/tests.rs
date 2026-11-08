@@ -561,6 +561,7 @@ fn metadata_says_what_the_file_was_so_that_a_change_since_can_be_told() {
         modified: SystemTime::UNIX_EPOCH + Duration::new(5, 700),
         len: 3,
         mode: 0o644,
+        identity: None,
     };
     let location = PathBuf::from("/p/a.txt");
     editor.buffer_mut(id).unwrap().set_baseline(Baseline {

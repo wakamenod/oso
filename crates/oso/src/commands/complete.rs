@@ -7,7 +7,7 @@
 //! and runs that command in its place, so `execute-extended-command` itself only names what
 //! it reads. The rest move the selection, which the editor keeps with the prompt.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::minibuffer::PromptError;
 
 /// The commands of completion.
@@ -19,48 +19,56 @@ pub const COMMANDS: &[Command] = &[
             prompt: "M-x",
             history: "command",
         },
+        reach: Reach::Person,
         run: execute_extended_command,
     },
     Command {
         name: "next-completion",
         doc: "Select the next candidate, or the one a prefix argument says.\n\nAt the last it stays.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: next_completion,
     },
     Command {
         name: "previous-completion",
         doc: "Select the candidate before, or the one a prefix argument says.\n\nAt the first it stays.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: previous_completion,
     },
     Command {
         name: "first-completion",
         doc: "Select the first candidate.",
         args: ArgSpec::None,
+        reach: Reach::Look,
         run: first_completion,
     },
     Command {
         name: "last-completion",
         doc: "Select the last candidate.",
         args: ArgSpec::None,
+        reach: Reach::Look,
         run: last_completion,
     },
     Command {
         name: "scroll-completions-up",
         doc: "Select the candidate a page of rows further on.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: scroll_completions_up,
     },
     Command {
         name: "scroll-completions-down",
         doc: "Select the candidate a page of rows back.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: scroll_completions_down,
     },
     Command {
         name: "insert-completion",
         doc: "Put the selected candidate in the prompt's answer, to edit it before giving it.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: insert_completion,
     },
 ];

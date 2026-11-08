@@ -76,7 +76,7 @@ mod tests {
     use super::with_prefix;
     use crate::dispatch::Dispatcher;
     use oso_core::buffer::Buffer;
-    use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Registry};
+    use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Reach, Registry};
     use oso_core::complete::Candidate;
     use oso_core::editor::Editor;
     use oso_core::keymap::Keymap;
@@ -115,6 +115,7 @@ mod tests {
                 name,
                 doc: "A test command.",
                 args: ArgSpec::None,
+                reach: Reach::Look,
                 run: noop,
             };
             registry.register(command).unwrap();

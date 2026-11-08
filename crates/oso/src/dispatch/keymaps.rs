@@ -1,6 +1,6 @@
-//! The keymaps a dispatcher holds, and which are active for the editor's state: the global
-//! one, a prefix argument's, the emergency copies' and the prompts' (ADR 0034, ADR 0072,
-//! ADR 0076).
+//! The keymaps a dispatcher holds, and which of them are active at a moment: a prefix
+//! argument's, a prompt's, a completion's or a question's, isearch's, a mode's and the global
+//! one (ADR 0034, ADR 0072, ADR 0076, ADR 0082).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a window.
 
@@ -25,12 +25,14 @@ pub(super) struct Keymaps {
     /// The keys of a prompt that completes, with the minibuffer's, above the global ones
     /// (ADR 0076).
     pub(super) completing: Keymap,
+    /// The keys of a search under way, in place of the others (ADR 0082).
+    pub(super) isearch: Keymap,
 }
 
 impl Keymaps {
     /// Every keymap, active or not. Each field is named here, so that a keymap added to the
     /// struct cannot be left out of what `M-x` judges commands by.
-    pub(super) fn all(&self) -> [&Keymap; 8] {
+    pub(super) fn all(&self) -> [&Keymap; 9] {
         let Self {
             global,
             prefix: [digits, minus],
@@ -38,9 +40,10 @@ impl Keymaps {
             minibuffer,
             question,
             completing,
+            isearch,
         } = self;
         [
-            global, digits, minus, list, copy, minibuffer, question, completing,
+            global, digits, minus, list, copy, minibuffer, question, completing, isearch,
         ]
     }
 
@@ -50,8 +53,9 @@ impl Keymaps {
     }
 
     /// The keymaps active now. A question's keys take the global keymap's place, so that
-    /// no other key reaches a command, and a prompt's go above it (ADR 0072). `reading`
-    /// holds the keymaps of a prefix argument.
+    /// no other key reaches a command, and a prompt's go above it (ADR 0072), a completion's
+    /// with them (ADR 0076). So do isearch's, and a key they do not bind ends the search first
+    /// (ADR 0082). `reading` holds the keymaps of a prefix argument.
     pub(super) fn active<'a>(
         &'a self,
         reading: &'a [&'a Keymap; 2],
@@ -63,6 +67,9 @@ impl Keymaps {
             .is_some_and(|prompt| prompt.kind().is_question())
         {
             return Layers::global(&self.question);
+        }
+        if editor.isearch().is_some() {
+            return Layers::global(&self.isearch);
         }
         let minor: &[&Keymap] = match prefix {
             Some(prefix) if prefix.reads_minus() => reading,

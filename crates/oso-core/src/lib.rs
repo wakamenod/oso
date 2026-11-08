@@ -24,6 +24,7 @@ pub mod load;
 pub mod minibuffer;
 pub mod motion;
 pub mod rope;
+mod search;
 mod secret;
 pub mod selection;
 pub mod sum_tree;
