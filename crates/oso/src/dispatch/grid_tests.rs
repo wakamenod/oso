@@ -64,7 +64,8 @@ fn text_grid(editor: &Editor) -> String {
     lines.join("\n")
 }
 
-/// The innermost prompt's float, if one is open: where it is, then its cells.
+/// The innermost prompt's float, if one is open: where it is, then its cells. The answer's
+/// field shows as `[` and `]` in the padding beside it, and a key's chip as `[y]`.
 fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
     let (Some(prompt), Some(layout)) = (editor.prompt(), editor.prompt_layout()) else {
         return;
@@ -74,62 +75,76 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
         "float at row {}, column {}: {} x {}",
         outer.row, outer.column, outer.rows, outer.columns
     ));
-    let framed = layout.regions.framed();
+    let framed = layout.regions.inner != layout.regions.outer;
     let edge = if framed { '│' } else { '|' };
-    if framed {
-        lines.push(format!("┌{}┐", "─".repeat(inner.columns)));
-    }
-    let question = prompt.kind().is_question();
+    let label = prompt.label();
+    let rows = &layout.label;
     for index in 0..inner.rows {
         let row = inner.row + index;
-        let on_input = row == layout.input.row;
-        let label_end = match (on_input, question) {
-            (true, true) => layout.message.column,
-            (true, false) => layout.input.column,
-            (false, _) => inner.column + inner.columns,
+        // What goes on the row, by column from the inner cells' left edge.
+        let mut parts: Vec<(usize, String, Vec<char>)> = Vec::new();
+        let cells = layout.label_cells;
+        if (cells.row..cells.row + cells.rows).contains(&row) {
+            let at = row - cells.row;
+            let cut = if at + 1 == rows.len() && layout.label_cut {
+                minibuffer::CUT
+            } else {
+                ""
+            };
+            let text = rows.get(at).map_or("", |range| &label[range.clone()]);
+            let (text, marks) = spans_row(&[text, cut], cells.columns);
+            parts.push((0, text, marks));
+        }
+        if row == layout.input.row && layout.input.columns > 0 {
+            let (text, marks) = draw_input(editor, layout.input);
+            parts.push((layout.input.column - inner.column, text, marks));
+        }
+        if row == layout.message.row && layout.message.columns > 0 {
+            let message = prompt.message().unwrap_or("");
+            let (message, cut) = minibuffer::fit_message(message, layout.message.columns);
+            let (text, marks) = spans_row(&[" [", message, cut, "]"], layout.message.columns);
+            parts.push((layout.message.column - inner.column, text, marks));
+        }
+        let keys = layout.keys.iter().zip(&layout.verbs).zip(minibuffer::KEYS);
+        let verbs = match prompt.kind() {
+            Kind::Question { verbs, .. } => verbs,
+            _ => ["", ""],
         };
-        // The answer's row holds the label's last row, as the renderer draws it.
-        let at = if on_input {
-            layout.label.len().saturating_sub(1)
-        } else {
-            index
-        };
-        let label = layout
-            .label
-            .get(at)
-            .map_or("", |range| &prompt.label()[range.clone()]);
-        let last = at + 1 == layout.label.len();
-        let cut = if last && layout.label_cut {
-            minibuffer::CUT
-        } else {
-            ""
-        };
-        let suffix = if last {
-            &prompt.label()[layout.suffix.clone()]
-        } else {
-            ""
-        };
-        let (mut text, mut marks) = spans_row(&[label, cut, suffix], label_end - inner.column);
-        if on_input {
-            let (input, input_marks) = draw_input(editor, layout.input);
-            text.push_str(&input);
-            marks.extend(input_marks);
-            if layout.message.columns > 0 {
-                let message = prompt.message().unwrap_or("");
-                let (message, cut) = minibuffer::fit_message(message, layout.message.columns);
-                let spans = [" [", message, cut, "]"];
-                let (said, said_marks) = spans_row(&spans, layout.message.columns);
-                text.push_str(&said);
-                marks.extend(said_marks);
+        for (((key, verb), shown), said) in keys.zip(verbs) {
+            if row == key.row && key.columns > 0 {
+                let chip = format!("[{}]", shown.trim());
+                let (text, marks) = spans_row(&[&chip], key.columns);
+                parts.push((key.column - inner.column, text, marks));
+            }
+            if row == verb.row && verb.columns > 0 {
+                let (text, marks) = spans_row(&[" ", said], verb.columns);
+                parts.push((verb.column - inner.column, text, marks));
             }
         }
-        lines.push(format!("{edge}{text}{edge}"));
+        parts.sort_by_key(|part| part.0);
+        let (mut text, mut marks) = (String::new(), Vec::new());
+        for (column, part, part_marks) in parts {
+            let gap = column.saturating_sub(marks.len());
+            text.extend(std::iter::repeat_n(' ', gap));
+            marks.extend(std::iter::repeat_n(' ', gap));
+            text.push_str(&part);
+            marks.extend(part_marks);
+        }
+        let gap = inner.columns.saturating_sub(marks.len());
+        text.extend(std::iter::repeat_n(' ', gap));
+        marks.extend(std::iter::repeat_n(' ', gap));
+        let field = layout.field.columns > 0 && row == layout.field.row;
+        let (open, close) = if field { ('[', ']') } else { (' ', ' ') };
+        let side = (inner.column - outer.column).saturating_sub(1);
+        let pad = " ".repeat(side);
+        lines.push(format!("{edge}{pad}{open}{text}{close}{pad}{edge}"));
         if marks.iter().any(|&mark| mark != ' ') {
-            lines.push(format!(":{}:", marks.into_iter().collect::<String>()));
+            let marks = marks.into_iter().collect::<String>();
+            lines.push(format!(":{pad} {marks} {pad}:"));
         }
     }
-    if framed {
-        lines.push(format!("└{}┘", "─".repeat(inner.columns)));
+    if layout.regions.padded_below() {
+        lines.push(format!("└{}┘", "─".repeat(outer.columns)));
     }
 }
 
@@ -507,7 +522,7 @@ mod scenarios {
     }
 
     #[test]
-    fn a_prompt_floats_a_row_below_the_top_and_its_answer_scrolls_sideways() {
+    fn a_prompt_hangs_from_the_top_and_its_answer_scrolls_sideways() {
         let text = "# Notes\n\nAgenda\n- budget\n- hiring\n- office\n";
         let steps = [
             "M-g g",
@@ -520,7 +535,7 @@ mod scenarios {
     }
 
     #[test]
-    fn a_question_takes_the_whole_row_and_breaks_when_it_is_long() {
+    fn a_question_has_its_keys_on_a_row_and_breaks_when_it_is_long() {
         let text = "notes\n";
         check_frame("prompt_question", text, (8, 64), &["x C-x C-c", "a"]);
         check_frame("prompt_long_question", text, (8, 30), &["x C-x C-c"]);
@@ -537,9 +552,15 @@ mod scenarios {
     }
 
     #[test]
-    fn a_short_frame_gives_up_the_row_above_and_then_the_ring() {
+    fn a_short_frame_gives_up_the_padding_then_the_gap_then_shares_a_row() {
         check_frame("prompt_in_5_rows", "notes\n", (5, 64), &["M-g g 1"]);
         check_frame("prompt_in_4_rows", "notes\n", (4, 64), &["M-g g 1"]);
+        check_frame(
+            "prompt_in_3_rows",
+            "notes\n",
+            (3, 64),
+            &["M-g g 1", "C-g x C-x C-c"],
+        );
     }
 
     #[cfg(feature = "dev")]

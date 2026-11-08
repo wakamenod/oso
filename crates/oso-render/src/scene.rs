@@ -4,9 +4,10 @@
 //!
 //! Must not depend on: `capture`, `paint` or a font backend.
 //!
-//! - Each layer is one range of rectangles and one of quads, drawn back to
-//!   front, so a frame costs one draw per layer per pipeline, however many panes
-//!   and glyphs it has.
+//! - Each layer is one range of rectangles, one of rounded boxes and one of quads,
+//!   drawn back to front in that order, so a frame costs one draw per layer per
+//!   pipeline, however many panes and glyphs it has. A layer with no rounded box
+//!   draws none.
 //! - Panes are built front to back, the reverse of how they are drawn. The caps
 //!   on quads and rectangles and the budget of new glyphs then run out behind
 //!   what is in front, so no amount of text in a pane can take the place of what
@@ -23,10 +24,14 @@ use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
-use crate::pane::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
+use crate::pane::{
+    CursorStyle, Face, Layer, Masked, PANEL, Pane, PaneContent, PaneId, Span, TextView,
+};
 use crate::rows::{Rows, ShapedRow};
-use crate::shape::Rect;
+use crate::shape::{MAX_ROUNDED, Rect, Rounded};
 use crate::text::{GlyphInstance, Layout};
+
+mod panel;
 
 /// Where a frame's glyphs come from, as an atlas gives them.
 pub(crate) trait GlyphSource {
@@ -50,6 +55,7 @@ pub(crate) struct Limits {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LayerDraw {
     pub(crate) rects: Range<u32>,
+    pub(crate) rounded: Range<u32>,
     pub(crate) quads: Range<u32>,
 }
 
@@ -57,6 +63,7 @@ pub(crate) struct LayerDraw {
 struct Draws {
     limits: Limits,
     rects: Vec<Rect>,
+    rounded: Vec<Rounded>,
     quads: Vec<GlyphInstance>,
     /// Rectangles held back for what is filled last, such as a cursor box.
     held: usize,
@@ -131,6 +138,7 @@ impl Scene {
             draws: Draws {
                 limits,
                 rects: Vec::new(),
+                rounded: Vec::new(),
                 quads: Vec::new(),
                 held: 0,
             },
@@ -152,6 +160,10 @@ impl Scene {
 
     pub(crate) fn rects(&self) -> &[Rect] {
         &self.draws.rects
+    }
+
+    pub(crate) fn rounded(&self) -> &[Rounded] {
+        &self.draws.rounded
     }
 
     pub(crate) fn quads(&self) -> &[GlyphInstance] {
@@ -214,6 +226,7 @@ impl Scene {
         glyphs: &mut G,
     ) {
         self.draws.rects.clear();
+        self.draws.rounded.clear();
         self.draws.quads.clear();
         self.layers.clear();
         let mut current = None;
@@ -221,9 +234,12 @@ impl Scene {
             let pane = &panes[index];
             if current != Some(pane.layer) {
                 current = Some(pane.layer);
-                let (rects, quads) = (self.draws.rects.len() as u32, self.draws.quads.len() as u32);
+                let rects = self.draws.rects.len() as u32;
+                let rounded = self.draws.rounded.len() as u32;
+                let quads = self.draws.quads.len() as u32;
                 self.layers.push(LayerDraw {
                     rects: rects..rects,
+                    rounded: rounded..rounded,
                     quads: quads..quads,
                 });
             }
@@ -231,6 +247,7 @@ impl Scene {
             draw_pane(&mut self.draws, pane, metrics, rows, system, glyphs);
             if let Some(layer) = self.layers.last_mut() {
                 layer.rects.end = self.draws.rects.len() as u32;
+                layer.rounded.end = self.draws.rounded.len() as u32;
                 layer.quads.end = self.draws.quads.len() as u32;
             }
         }
@@ -284,13 +301,12 @@ fn draw_pane<G: GlyphSource>(
     if let Some(face) = pane.background {
         draws.fill(unscrolled.frame_cells(pane.region), face);
     }
-    if let Some(face) = pane.border {
-        let width = 2.0 * line_width(metrics);
-        if let Some(rect) = unscrolled.frame_cells(pane.region) {
-            for side in outline(rect, width) {
-                draws.fill(Some(side), face);
-            }
-        }
+    if let Some(panel) = &pane.panel {
+        let room = MAX_ROUNDED.saturating_sub(draws.rounded.len());
+        let cell = [metrics.width, metrics.height];
+        draws
+            .rounded
+            .extend(panel::boxes(panel, pane.region, cell, &PANEL).take(room));
     }
     match &pane.content {
         PaneContent::Text(view) => {
@@ -349,7 +365,7 @@ fn draw_pane<G: GlyphSource>(
 
 /// A thin line's width in whole pixels, as the metrics give the cell's height.
 fn line_width(metrics: CellMetrics) -> f32 {
-    (metrics.height / 16.0).round().max(1.0)
+    panel::point(metrics.height).round().max(1.0)
 }
 
 /// The four sides of `rect`, `width` thick, inside it.
@@ -432,7 +448,7 @@ fn underline_preedit(
     let Some(preedit) = view.preedit else {
         return;
     };
-    let line = (metrics.height / 16.0).round().max(1.0);
+    let line = line_width(metrics);
     let at = view.cursor.column;
     let mut underline = |column: usize, cells: usize, thickness: f32| {
         let cells = layout.display_cells(view.cursor.row, column, cells);
@@ -502,7 +518,7 @@ fn draw_lines<G: GlyphSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pane::Bands;
+    use crate::pane::{Bands, Panel};
     use crate::rows::tests::Recorder;
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::display_map::DisplayPoint;
@@ -590,7 +606,7 @@ mod tests {
             region,
             layer: Layer(layer),
             background: None,
-            border: None,
+            panel: None,
             bands: Bands::NONE,
             content,
         }
@@ -820,34 +836,103 @@ mod tests {
     }
 
     #[test]
-    fn a_border_is_a_line_along_the_inside_of_the_region() {
+    fn a_panel_is_rounded_boxes_cut_to_the_region_and_the_margin_above_it() {
+        let keys = [rect(3, 4, 1, 3), rect(3, 8, 1, 3)];
         let panes = [Pane {
-            background: Some(Face::Float),
-            border: Some(Face::FloatBorder),
-            bands: Bands::NONE,
-            ..pane(0, rect(1, 1, 3, 4), 16, PaneContent::Lines(&[]))
+            panel: Some(Panel {
+                cells: rect(0, 2, 4, 10),
+                field: Some(rect(2, 4, 1, 6)),
+                field_room: rect(1, 3, 3, 8),
+                keys: &keys,
+            }),
+            ..pane(0, rect(0, 0, 6, 12), 16, PaneContent::Lines(&[]))
         }];
         let mut scene = Scene::new(LIMITS);
         build(&mut scene, &panes, &mut FakeAtlas::default());
-        let rects = scene.rects();
-        assert_eq!(rects.len(), 5, "the background and four sides");
-        assert_eq!(rects[0].color, Face::Float.background());
-        let sides: Vec<_> = rects[1..].iter().map(|r| (r.position, r.size)).collect();
-        // Cells are 10 x 20 px from (8, 8); the line is twice a thin one, 2 px here.
+        assert!(scene.rects().is_empty(), "no background, no border");
+        let rounded = scene.rounded();
+        assert_eq!(rounded.len(), 4, "the panel, its field and two keys");
+        assert_eq!(scene.layers()[0].rounded, 0..4);
+        // Cells are 10 x 20 px from (8, 8), and a point is 20 / 16 px. On the top row the
+        // panel reaches the surface's edge, with its top corners square.
+        let panel = rounded[0];
+        assert_eq!(panel.rect, [28.0, 0.0, 100.0, 88.0]);
+        assert_eq!(panel.radii, [0.0, 0.0, 10.0, 10.0]);
+        // Every quad is cut to the region, and to the margin above it on the top row.
+        for r in rounded {
+            let [x0, y0, x1, y1] = r.bounds;
+            assert!(
+                x0 >= 8.0 && y0 >= 0.0 && x1 <= 128.0 && y1 <= 128.0,
+                "{r:?}"
+            );
+        }
+        assert_eq!(panel.bounds[1], 0.0);
+        assert!(panel.shadow[3] > 0.0 && panel.params[2] > 0.0);
+        // The field reaches past its cells and its outline ends there.
+        let field = rounded[1];
         assert_eq!(
-            sides,
-            [
-                ([18.0, 28.0], [40.0, 2.0]),
-                ([18.0, 86.0], [40.0, 2.0]),
-                ([18.0, 28.0], [2.0, 60.0]),
-                ([56.0, 28.0], [2.0, 60.0]),
-            ]
+            field.rect,
+            [48.0 - 7.0, 48.0 - 4.0, 60.0 + 14.0, 20.0 + 8.0]
         );
-        assert!(
-            rects[1..]
-                .iter()
-                .all(|r| r.color == Face::FloatBorder.background())
-        );
+        assert_eq!(field.fill, Face::Field.background());
+        assert_eq!(field.outline, Face::Field.foreground());
+        assert_eq!(rounded[2].fill, Face::Key.background());
+    }
+
+    #[test]
+    fn a_field_reaches_only_into_its_room_and_a_box_out_of_the_region_is_dropped() {
+        let keys = [rect(9, 4, 1, 3)];
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(0, 2, 2, 10),
+                // No gap and no padding: the field keeps to its row.
+                field: Some(rect(1, 4, 1, 6)),
+                field_room: rect(1, 4, 1, 6),
+                keys: &keys,
+            }),
+            ..pane(0, rect(0, 0, 2, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rounded = scene.rounded();
+        assert_eq!(rounded.len(), 2, "the key below the region is dropped");
+        // The row's cells are x 48..108 and y 28..48, the outline 1 px inside them.
+        assert_eq!(rounded[1].rect, [49.0, 29.0, 58.0, 18.0]);
+        // The shadow stops at the region's bottom, y 48.
+        assert_eq!(rounded[0].bounds[3], 48.0);
+    }
+
+    #[test]
+    fn a_shadow_with_little_room_below_shrinks_to_end_inside_its_pane() {
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(0, 2, 2, 10),
+                field: None,
+                field_room: rect(0, 0, 0, 0),
+                keys: &[],
+            }),
+            ..pane(0, rect(0, 0, 3, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let panel = scene.rounded()[0];
+        // The panel ends at y 48 and the pane at 68: the shadow's reach fits in 20 px.
+        let [_, down, sigma, _] = panel.params;
+        assert!(3.0 * sigma + down <= 20.0 + 1e-3, "{sigma} {down}");
+        assert!(panel.shadow[3] < PANEL.shadow[3]);
+    }
+
+    #[test]
+    fn a_frame_with_no_panel_has_no_rounded_box() {
+        let lines: [&[Span<'_>]; 1] = [&line("abc")];
+        let panes = [Pane {
+            background: Some(Face::Text),
+            ..pane(0, rect(0, 0, 3, 10), 0, PaneContent::Lines(&lines))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        assert!(scene.rounded().is_empty());
+        assert!(scene.layers().iter().all(|layer| layer.rounded.is_empty()));
     }
 
     #[test]

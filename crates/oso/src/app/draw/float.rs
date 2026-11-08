@@ -1,18 +1,18 @@
-//! The panes of an open prompt's float: its background and border, what it says, the
-//! answer and a message (ADR 0072).
+//! The panes of an open prompt's float: its panel, what it says, the answer or a
+//! question's keys, and a message (ADR 0072, ADR 0075).
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 //!
-//! The float's background and border are one pane in [`Layer::FLOAT`], over the tiled
-//! panes, and what it shows is in [`Layer::FLOAT_CONTENT`], in panes that never overlap
-//! one another. A passphrase shows one `*` per character, and nothing of it reaches a
+//! The float's panel, with its field and key chips, is one pane in [`Layer::FLOAT`], over
+//! the tiled panes, and what it shows is in [`Layer::FLOAT_CONTENT`], in panes that never
+//! overlap one another. A passphrase shows one `*` per character, and nothing of it reaches a
 //! pane.
 
 use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
 use oso_core::minibuffer::{self, Kind, PromptLayout};
 use oso_render::{
-    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView,
+    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
 
 /// The most panes a float takes.
@@ -50,26 +50,23 @@ impl<'a> Parts<'a> {
 
     /// The spans of its rows.
     pub(super) fn spans(&self) -> Spans<'_> {
+        // A question's label reads as the text does, and a prompt's is dim beside its answer.
+        let face = if self.kind.is_question() {
+            Face::Float
+        } else {
+            Face::Prompt
+        };
         let rows = &self.layout.label;
         let label = rows
             .iter()
             .enumerate()
             .map(|(index, range)| {
-                let last = index + 1 == rows.len();
-                let cut = if last && self.layout.label_cut {
+                let cut = if index + 1 == rows.len() && self.layout.label_cut {
                     minibuffer::CUT
                 } else {
                     ""
                 };
-                let suffix = if last {
-                    &self.label[self.layout.suffix.clone()]
-                } else {
-                    ""
-                };
-                [&self.label[range.clone()], cut, suffix].map(|text| Span {
-                    text,
-                    face: Face::Prompt,
-                })
+                [&self.label[range.clone()], cut].map(|text| Span { text, face })
             })
             .collect();
         let (said, cut) =
@@ -78,36 +75,81 @@ impl<'a> Parts<'a> {
             text,
             face: Face::Float,
         });
-        Spans { label, message }
+        Spans {
+            label,
+            message,
+            keys: self.keys(),
+        }
+    }
+
+    /// A question's keys and their verbs, each at the column `minibuffer::layout` gives it,
+    /// from the first key's: spaces up to it, then what it shows. Empty for a prompt.
+    fn keys(&self) -> [Span<'a>; 12] {
+        let mut spans = std::array::from_fn(|_| Span {
+            text: "",
+            face: Face::Float,
+        });
+        let Kind::Question { verbs, .. } = self.kind else {
+            return spans;
+        };
+        let [y, n] = self.layout.keys;
+        let [yes, no] = self.layout.verbs;
+        let mut at = y.column;
+        let parts = [
+            (y, ["", minibuffer::KEYS[0]], Face::Key),
+            (yes, [" ", verbs[0]], Face::Prompt),
+            (n, ["", minibuffer::KEYS[1]], Face::Key),
+            (no, [" ", verbs[1]], Face::Prompt),
+        ];
+        for (index, (cells, texts, face)) in parts.into_iter().enumerate() {
+            if cells.columns == 0 {
+                continue;
+            }
+            let gap = cells.column.saturating_sub(at).min(SPACES.len());
+            spans[index * 3] = Span {
+                text: &SPACES[..gap],
+                face: Face::Float,
+            };
+            spans[index * 3 + 1] = Span {
+                text: texts[0],
+                face,
+            };
+            spans[index * 3 + 2] = Span {
+                text: texts[1],
+                face,
+            };
+            at = cells.column + cells.columns;
+        }
+        spans
     }
 }
 
+/// Spaces for the gaps between a question's keys.
+const SPACES: &str = "        ";
+
 /// The spans of a float's rows, which its lines borrow.
 pub(super) struct Spans<'a> {
-    label: Vec<[Span<'a>; 3]>,
+    label: Vec<[Span<'a>; 2]>,
     message: [Span<'a>; 4],
+    keys: [Span<'a>; 12],
 }
 
 impl<'a> Spans<'a> {
     /// The rows as the panes take them.
     pub(super) fn lines(&'a self) -> Lines<'a> {
-        let mut label: Vec<&[Span<'a>]> = self.label.iter().map(|row| &row[..]).collect();
-        let last = label.pop().map_or([&[][..]], |row| [row]);
         Lines {
-            label,
-            last,
+            label: self.label.iter().map(|row| &row[..]).collect(),
             message: [&self.message],
+            keys: [&self.keys],
         }
     }
 }
 
 /// A float's rows, as [`PaneContent::Lines`] takes them.
 pub(super) struct Lines<'a> {
-    /// The label's rows but the last.
     label: Vec<&'a [Span<'a>]>,
-    /// The label's last row, which the answer follows.
-    last: [&'a [Span<'a>]; 1],
     message: [&'a [Span<'a>]; 1],
+    keys: [&'a [Span<'a>]; 1],
 }
 
 /// Adds the float's panes to `list`, after the tiled ones.
@@ -120,57 +162,65 @@ pub(super) fn panes<'a>(
     let layout = &parts.layout;
     let regions = layout.regions;
     let inner = regions.inner;
+    // A frame of no rows has no room for a float.
+    if inner.rows == 0 {
+        return;
+    }
+    // The answer's row, or the keys'.
+    let last = inner.row + inner.rows - 1;
     // A pane's glyphs keep a band only into the float's padding, where its region borders on
-    // it, so that none draws over another pane of the float or outside it (ADR 0072).
-    let framed = regions.framed();
+    // it, and each row of padding goes to the panes of one row at most, so that no glyph draws
+    // over another pane of the float or outside it (ADR 0072, ADR 0075). The gap and the
+    // padding below both go to the answer's row; the label keeps to its own rows.
     let content = |id, region: CellRect, content| Pane {
         id: PaneId(id),
         region,
         layer: Layer::FLOAT_CONTENT,
         background: None,
-        border: None,
+        panel: None,
         bands: Bands {
-            above: framed && region.row == inner.row,
-            below: framed && region.row + region.rows == inner.row + inner.rows,
+            above: regions.gap && region.row == last,
+            below: regions.padded_below() && region.row == last,
         },
         content,
     };
+    let field = Some(layout.field).filter(|field| field.columns > 0);
+    let keys: &[CellRect] = if parts.kind.is_question() {
+        &layout.keys
+    } else {
+        &[]
+    };
+    // The panel's pane is the text area beneath, which its shadow stays in (ADR 0075).
     list.push(Pane {
         id: PaneId(3),
-        region: regions.outer,
+        region: editor.frame().window.text,
         layer: Layer::FLOAT,
-        background: Some(Face::Float),
-        border: framed.then_some(Face::FloatBorder),
+        background: None,
+        panel: Some(Panel {
+            cells: regions.outer,
+            field,
+            field_room: layout.field_room,
+            keys,
+        }),
         bands: Bands::NONE,
         content: PaneContent::Lines(&[]),
     });
-    // The label's rows above the answer's row, as many as the float holds there. In a frame
-    // too short for all of them, the last row, with the answer or `(y or n)`, is the one kept.
-    let row = layout.input.row;
-    let above = (row - inner.row).min(lines.label.len());
-    if above > 0 {
-        let region = CellRect {
-            rows: above,
-            ..inner
-        };
+    if layout.label_cells.rows > 0 && layout.label_cells.columns > 0 {
         list.push(content(
             4,
-            region,
-            PaneContent::Lines(&lines.label[..above]),
+            layout.label_cells,
+            PaneContent::Lines(&lines.label),
         ));
     }
-    let end = if parts.kind.is_question() {
-        layout.message.column.min(inner.column + inner.columns)
-    } else {
-        layout.input.column
-    };
-    let last = CellRect {
-        row,
-        column: inner.column,
-        rows: usize::from(inner.rows > 0),
-        columns: end - inner.column,
-    };
-    list.push(content(5, last, PaneContent::Lines(&lines.last)));
+    let [y, _] = layout.keys;
+    if parts.kind.is_question() && y.columns > 0 {
+        let end = inner.column + inner.columns;
+        let region = CellRect {
+            columns: end - y.column,
+            ..y
+        };
+        list.push(content(5, region, PaneContent::Lines(&lines.keys)));
+    }
     if layout.input.columns > 0 {
         list.push(content(6, layout.input, answer(editor, parts)));
     }

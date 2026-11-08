@@ -165,9 +165,11 @@ one layer:
   placement is decided per feature.
 - `oso_core::frame` lays out a frame in whole cells: the window's text area and
   modeline, and the echo area. `frame::float_regions` places a float over them, outside the
-  layout: a prompt's, a row below the top at the center, whose window goes after the tiled
+  layout: a prompt's, attached to the top edge at the center, whose window goes after the tiled
   ones and is the selected one while it is open
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). `Editor` holds the layout,
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
+  [ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)). Its panel, field and key
+  chips are rounded boxes the renderer draws in pixels around those cells. `Editor` holds the layout,
   and a window's `ViewSize` is its text area, so scrolling and the cursor stop above
   the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).
 - `Editor::status_into` says what the modeline and the echo area read, and the app draws

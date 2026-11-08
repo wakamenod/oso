@@ -19,7 +19,7 @@ use atlas::RasterBudget;
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
 use paint::Painter;
 pub use pane::{
-    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView,
+    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
 
 use std::sync::Arc;

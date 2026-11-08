@@ -40,20 +40,23 @@ fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandE
                 ctx,
                 format!("{refused}; exit without saving?"),
                 "save-buffers-kill-terminal",
+                ["exit", "stay"],
             )?;
         }
     }
     Ok(())
 }
 
-/// Asks `question`, whose `y` runs `command`, and shows it.
+/// Asks `question`, whose `y` runs `command`, and shows it, with `verbs` saying what `y`
+/// and `n` do (ADR 0075).
 pub(super) fn ask(
     ctx: &mut Ctx<'_>,
     question: String,
     command: &'static str,
+    verbs: [&'static str; 2],
 ) -> Result<(), CommandError> {
     ctx.editor
-        .ask(question, command)
+        .ask_with(question, command, verbs)
         .map_err(|error| CommandError::new(error.to_string()))?;
     ctx.request_redraw();
     Ok(())
@@ -103,7 +106,8 @@ mod tests {
         assert_eq!(
             prompt.kind(),
             Kind::Question {
-                yes: "save-buffers-kill-terminal"
+                yes: "save-buffers-kill-terminal",
+                verbs: ["exit", "stay"],
             }
         );
     }
