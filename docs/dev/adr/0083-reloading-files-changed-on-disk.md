@@ -33,6 +33,11 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   stamp holds the device and inode of the file the load opened or the save wrote. The file is
   then read again off the UI thread. If the text is the same, only the baseline changes,
   silently. A change of mode alone only updates the baseline.
+- **Safe save compares the same way** (amending
+  [ADR 0059](0059-safe-save-and-the-exit-guard.md)): another file renamed in counts as a
+  change even with the same time and size, so a save asks before it goes over it. oso's own
+  save records the device and inode of the file it renamed in, so the next save does not ask.
+  The author chose this on 2026-11-08 as well.
 - **The editor decides.** `Editor::files_seen` takes what the looks found and says which
   files to read again. It sets and clears the warnings and says each thing once. The host
   only looks, reads and frees.
