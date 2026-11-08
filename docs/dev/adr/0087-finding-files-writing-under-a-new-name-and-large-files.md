@@ -336,6 +336,12 @@ accepted, the status of ADR 0030, ADR 0040, ADR 0051, ADR 0059 and ADR 0085 gain
 - [ADR 0059](0059-safe-save-and-the-exit-guard.md), "**No file** says `Buffer has no file name`.
   `C-x C-w` comes in M2-18": `C-x C-w` writes such a buffer, and one whose load could not tell
   where its file was, under a new name.
+- ADR 0059, "**Rename, then fsync the directory.**" (step 7 of the order of a write): where nothing
+  was at the file's place, for `C-x C-w` and for any save of a file that did not exist or has gone,
+  the temporary file gets the file's name as a second name, which fails if something has come
+  there since step 6, and then loses its own; the directory is then synced. A file system with no
+  second names, or a list that denies deleting the file, keeps the rename. A file that is there
+  is replaced by the rename as before.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "This covers a buffer the channel opened and,
   once it exists, saving under a new name": `write-file` is `Person`, so the channel does not save
   under a new name.
