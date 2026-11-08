@@ -173,6 +173,10 @@ impl Editor {
         let completes = matches!(self.prompt().map(Prompt::kind), Some(Kind::Complete { .. }));
         // What was typed last is matched first.
         self.match_completion();
+        // A prompt that reads a path gives a path (ADR 0087).
+        if let Some(given) = self.submit_path(typed) {
+            return given;
+        }
         // Around a secret no history orders the list, so its first candidate is no choice: an
         // empty answer takes one only once the person moved to it (ADR 0076).
         // A list in an order of its own, as buffers most recent first, needs no history to make
@@ -231,6 +235,19 @@ impl Editor {
             self.prompt_says("Not a number");
             return Err(PromptError::Invalid);
         }
+        self.give_answer(text)
+    }
+
+    /// Gives `text` as the innermost prompt's answer, records it in its history, and closes
+    /// the prompt.
+    ///
+    /// # Errors
+    ///
+    /// [`PromptError::NoPrompt`] if the innermost prompt is a question or there is none.
+    pub(super) fn give_answer(&mut self, text: String) -> Result<(), PromptError> {
+        let Some(prompt) = self.prompts.last().filter(|p| !p.kind.is_question()) else {
+            return Err(PromptError::NoPrompt);
+        };
         let id = prompt.id;
         // Also not if a buffer that may hold secrets came beneath it since it opened.
         let records = !prompt.around_secret && !prompt.from_socket && !self.shows_secret();
@@ -380,6 +397,7 @@ impl Editor {
         }
         let prompt = self.prompts.pop()?;
         self.forget_marks(prompt.id);
+        self.forget_files(prompt.id);
         self.windows.pop();
         self.selected = prompt.beneath;
         let id = prompt.buffer;

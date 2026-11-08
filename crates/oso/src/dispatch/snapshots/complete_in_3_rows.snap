@@ -8,5 +8,5 @@ keys: M-x
 =-- test  1:0  Fundamental  UTF-8 LF                                             =
 "                                                                                "
 float at row 0, column 15: 1 x 49
-│ 1/51  M-x                                       │
+│ 1/55  M-x                                       │
 :           ^                                     :

@@ -324,7 +324,7 @@ impl Dispatcher {
                 return (Effects::default(), Err(refused));
             }
             // A buffer's name, or a mark's row, is text, which `run-command` does not carry yet.
-            (ArgSpec::Buffer { .. } | ArgSpec::Mark { .. }, _) => {
+            (ArgSpec::Buffer { .. } | ArgSpec::Mark { .. } | ArgSpec::File { .. }, _) => {
                 let refused =
                     format!("{name} reads a buffer's name in a prompt, through send-keys");
                 return (Effects::default(), Err(refused));
@@ -595,6 +595,8 @@ mod edit_tests;
 #[cfg(test)]
 mod emergency_tests;
 #[cfg(test)]
+mod file_tests;
+#[cfg(test)]
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
@@ -787,7 +789,7 @@ mod tests {
             &"C-x".parse::<KeySequence>().unwrap().0[..]
         );
         assert_eq!(
-            send(&mut dispatcher, &mut editor, "C-f"),
+            send(&mut dispatcher, &mut editor, "C-t"),
             Effects::default()
         );
         assert_eq!(cursor(&editor), 3);

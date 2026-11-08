@@ -89,12 +89,9 @@ impl std::fmt::Debug for LoadUpdate {
     }
 }
 
-/// The size from which a file is not read unless the person agreed to it: 2 GiB. Running out
-/// of memory aborts, and no emergency save runs then (ADR 0051, ADR 0087).
-pub const LARGE: u64 = 1 << 31;
-
-/// The most a load reads unless the person agreed to more: just under [`LARGE`].
-pub const UNASKED: u64 = LARGE - 1;
+#[cfg(test)]
+use oso_core::load::LARGE;
+pub use oso_core::load::{UNASKED, gib};
 
 /// Why a file could not be loaded.
 #[derive(Debug)]
@@ -205,13 +202,6 @@ impl Drop for LoadHandle {
     fn drop(&mut self) {
         self.shared.cancel.store(true, Ordering::Relaxed);
     }
-}
-
-/// `bytes` as GiB with one decimal, as a question or a message about a large file says it.
-pub fn gib(bytes: u64) -> String {
-    // Tenths of a GiB, rounded down, so a file just under a limit never reads as at it.
-    let tenths = u128::from(bytes) * 10 / (1 << 30);
-    format!("{}.{} GiB", tenths / 10, tenths % 10)
 }
 
 /// Starts loading `path` into `buffer` on a background thread, refusing a file of more than

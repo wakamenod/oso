@@ -107,7 +107,7 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
             parts.push((layout.input.column - inner.column, text, marks));
         }
         if row == layout.count.row && layout.count.columns > 0 {
-            parts.extend(draw_count(prompt, layout));
+            parts.extend(draw_count(editor, prompt, layout));
         }
         if row == layout.message.row && layout.message.columns > 0 {
             let message = prompt.message().unwrap_or("");
@@ -177,10 +177,18 @@ fn draw_keys(
 }
 
 /// A list's count, such as `3/57`, at the start of its cells, from the inner cells' left.
-fn draw_count(prompt: &Prompt, layout: &PromptLayout) -> Option<(usize, String, Vec<char>)> {
+fn draw_count(
+    editor: &Editor,
+    prompt: &Prompt,
+    layout: &PromptLayout,
+) -> Option<(usize, String, Vec<char>)> {
     let candidates = prompt.candidates()?;
     let place = candidates.selected().map_or(0, |place| place + 1);
-    let count = format!("{place}/{}", candidates.len());
+    let count = if editor.files_pending() {
+        "…/…".to_owned()
+    } else {
+        format!("{place}/{}", candidates.len())
+    };
     let (text, marks) = spans_row(&[&count], layout.count.columns);
     Some((
         layout.count.column - layout.regions.inner.column,

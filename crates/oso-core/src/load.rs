@@ -14,6 +14,20 @@ use crate::display_map::{DisplayMap, TabWidth};
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
 
+/// The size from which a file is not read unless the person agreed to it: 2 GiB. Running out
+/// of memory aborts, and no emergency save runs then (ADR 0051, ADR 0087).
+pub const LARGE: u64 = 1 << 31;
+
+/// The most a load reads unless the person agreed to more: just under [`LARGE`].
+pub const UNASKED: u64 = LARGE - 1;
+
+/// `bytes` as GiB with one decimal, as a question or a message about a large file says it.
+pub fn gib(bytes: u64) -> String {
+    // Tenths of a GiB, rounded down, so a file just under a limit never reads as at it.
+    let tenths = u128::from(bytes) * 10 / (1 << 30);
+    format!("{}.{} GiB", tenths / 10, tenths % 10)
+}
+
 /// How far a file has loaded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Progress {

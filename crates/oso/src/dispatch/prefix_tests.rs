@@ -119,7 +119,7 @@ fn c_g_cancels_the_prefix_at_any_point() {
     assert_eq!(cursors(&editor), [2]);
     send(&mut d, &mut editor, "C-u C-x C-g C-f");
     assert_eq!(cursors(&editor), [3], "with a pending prefix key too");
-    send(&mut d, &mut editor, "C-u C-x C-f");
+    send(&mut d, &mut editor, "C-u C-x C-t");
     send(&mut d, &mut editor, "C-f");
     assert_eq!(cursors(&editor), [4], "an undefined sequence drops it");
 }

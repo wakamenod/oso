@@ -206,6 +206,11 @@ impl App {
             }
             // Only a reload sends one, and `reloads` takes it.
             LoadUpdate::Reloaded(_) => false,
+            LoadUpdate::Failed(LoadError::TooLarge(bytes)) => {
+                self.stopped_as_large(id, bytes);
+                self.loads.swap_remove(index);
+                shown
+            }
             LoadUpdate::Failed(e) => {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);
@@ -228,6 +233,25 @@ impl App {
         #[cfg(feature = "dev")]
         let redraw = self.try_restore_positions() || redraw;
         redraw
+    }
+
+    /// A load of `id` stopped before reading, as its file holds `bytes`, 2 GiB or more: the
+    /// buffer goes, and the next `C-x C-f` of that file asks (ADR 0087).
+    fn stopped_as_large(&mut self, id: BufferId, bytes: u64) {
+        let Some(buffer) = self.editor.buffer(id) else {
+            return;
+        };
+        let path = buffer.path().map(std::path::Path::to_path_buf);
+        let message = format!(
+            "{} is {}; C-x C-f asks to open it",
+            buffer.name(),
+            loader::gib(bytes)
+        );
+        if let Some(path) = path {
+            self.editor.remember_large(path, bytes);
+        }
+        self.editor.message(message);
+        self.editor.kill_buffer(id);
     }
 
     /// Logs how long the first screen of each new file took, once drawn,

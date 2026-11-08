@@ -7,6 +7,7 @@
 mod buffers;
 mod complete;
 mod edit;
+mod files;
 mod isearch;
 mod kill;
 mod mark;
@@ -30,6 +31,7 @@ use oso_core::keymap::Keymap;
 const TABLES: &[&[(&str, &str)]] = &[
     complete::BINDINGS,
     edit::BINDINGS,
+    files::BINDINGS,
     isearch::BINDINGS,
     kill::BINDINGS,
     mark::BINDINGS,
