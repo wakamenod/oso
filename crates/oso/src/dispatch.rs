@@ -25,6 +25,7 @@ use oso_core::minibuffer::Kind;
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod clipboard;
 mod extended;
 mod prompts;
 
@@ -54,6 +55,11 @@ pub struct Dispatcher {
     last: Option<(CommandId, usize)>,
     /// Keeps the emergency save up to date, in the running app (ADR 0062).
     publisher: Option<Publisher>,
+    /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
+    waiting: Option<clipboard::Waiting>,
+    /// The input being handled came through the dev socket, which never reads the system
+    /// clipboard. It travels with what waits or is held.
+    from_socket: bool,
 }
 
 impl Dispatcher {
@@ -83,6 +89,8 @@ impl Dispatcher {
             prefix: None,
             last: None,
             publisher: None,
+            waiting: None,
+            from_socket: false,
         }
     }
 
@@ -213,6 +221,12 @@ impl Dispatcher {
         name: &str,
         arg: Option<isize>,
     ) -> (Effects, Result<(), String>) {
+        if self.waits_for_clipboard() {
+            return (
+                Effects::default(),
+                Err("a yank is waiting for the clipboard".into()),
+            );
+        }
         self.as_input(editor, |this, editor| this.run_named(editor, name, arg))
     }
 
@@ -267,7 +281,7 @@ impl Dispatcher {
                 return (Effects::default(), Err(refused));
             }
             (_, None) => Args::with_prefix(self.prefix.take()),
-            (ArgSpec::Count | ArgSpec::Key, Some(n)) => {
+            (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Some(n)) => {
                 self.prefix = None;
                 Args::numeric(n)
             }
@@ -275,7 +289,12 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
-        let (effects, result) = self.execute(editor, id, args, invocation, Step::MayJoin);
+        // A yank waits for the clipboard as it does from a key, and replies at once.
+        let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
+            self.run_or_read(editor, id, args, invocation)
+        } else {
+            self.execute(editor, id, args, invocation, Step::MayJoin)
+        };
         let effects = effects.union(self.after_prompts(editor));
         (effects, result.map_err(|e| e.to_string()))
     }
@@ -285,6 +304,9 @@ impl Dispatcher {
     /// and one undo step. A pending prefix makes it an undefined key sequence.
     /// A key that types several characters comes through here.
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        if self.hold_text(text, false) {
+            return Effects::default();
+        }
         self.as_input(editor, |this, editor| {
             this.run_text(editor, text, Step::MayJoin)
         })
@@ -293,12 +315,18 @@ impl Dispatcher {
     /// Starts an input method's composition, which counts as a key: keys never reach
     /// oso during one (ADR 0069).
     pub fn begin_composition(&mut self, editor: &mut Editor) {
+        if self.hold_composition() {
+            return;
+        }
         self.as_input(editor, |_, _| ());
     }
 
     /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
     /// always as an undo step of its own, even of one character (ADR 0069).
     pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        if self.hold_text(text, true) {
+            return Effects::default();
+        }
         self.as_input(editor, |this, editor| {
             this.run_text(editor, text, Step::Apart)
         })
@@ -322,7 +350,7 @@ impl Dispatcher {
             // The text stays out of it, as it does from a log.
             editor.echo(format!("{keys} is undefined"));
             self.resolver.reset();
-            self.forget_keys();
+            self.forget_keys(editor);
             return Effects::default();
         }
         let reading = self.keymaps.reading();
@@ -346,9 +374,10 @@ impl Dispatcher {
 
     /// An undefined or cancelled key sequence drops the prefix argument and ends a
     /// run of one command.
-    fn forget_keys(&mut self) {
+    fn forget_keys(&mut self, editor: &mut Editor) {
         self.prefix = None;
         self.last = None;
+        editor.forget_kills();
     }
 
     /// Runs one command, invoked as `invocation` says but for its repeats, which are
@@ -390,6 +419,7 @@ impl Dispatcher {
         let result = self.registry.execute(id, &mut ctx, args);
         drop(boundary);
         let mut effects = ctx.effects();
+        editor.note_command_ended(effects.prefix.is_some());
         self.prefix = effects.prefix.take();
         match &result {
             Ok(()) => editor.end_undo_group(),
@@ -427,6 +457,9 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        if self.hold_key(key) {
+            return Effects::default();
+        }
         self.as_input(editor, |this, editor| this.resolve_key(editor, key))
     }
 
@@ -458,13 +491,13 @@ impl Dispatcher {
                 } else {
                     editor.echo(format!("{} is undefined", display_keys(keys)));
                 }
-                self.forget_keys();
+                self.forget_keys(editor);
                 return Effects::default();
             }
             Resolution::Cancelled => {
                 log::debug!("Quit");
                 editor.echo("Quit");
-                self.forget_keys();
+                self.forget_keys(editor);
                 return Effects::default();
             }
         };
@@ -557,6 +590,8 @@ mod emergency_tests;
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
+#[cfg(test)]
+mod kill_tests;
 #[cfg(test)]
 mod mark_tests;
 #[cfg(test)]

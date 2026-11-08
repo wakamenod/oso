@@ -107,6 +107,7 @@ mod tests {
         assert_eq!(save.key(), "C-x C-s");
         assert!(save.annotation().starts_with("Save"));
         assert_eq!(find("forward-char").map(Candidate::key), Some("C-f"));
+        assert_eq!(find("yank").map(Candidate::key), Some("C-y"));
         assert!(find("execute-extended-command").is_some());
         // Not one that reads its key, nor one of a keymap not active.
         for name in [

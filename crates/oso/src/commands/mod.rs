@@ -10,6 +10,7 @@ mod complete;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+mod kill;
 mod mark;
 mod messages;
 mod minibuffer;
@@ -35,6 +36,7 @@ const TABLES: &[&[Command]] = &[
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
+    kill::COMMANDS,
     mark::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,

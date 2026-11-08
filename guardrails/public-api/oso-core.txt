@@ -12,6 +12,8 @@ impl core::cmp::PartialEq for oso_core::buffer::EditError
 pub fn oso_core::buffer::EditError::eq(&self, &oso_core::buffer::EditError) -> bool
 impl core::convert::From<oso_core::buffer::EditError> for oso_core::command::CommandError
 pub fn oso_core::command::CommandError::from(oso_core::buffer::EditError) -> Self
+impl core::convert::From<oso_core::buffer::EditError> for oso_core::editor::YankError
+pub fn oso_core::editor::YankError::from(oso_core::buffer::EditError) -> Self
 impl core::error::Error for oso_core::buffer::EditError
 impl core::fmt::Debug for oso_core::buffer::EditError
 pub fn oso_core::buffer::EditError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -65,9 +67,11 @@ pub oso_core::buffer::Verdict::Passphrase
 pub oso_core::buffer::Verdict::SecretName
 pub oso_core::buffer::Verdict::Unjudged
 pub oso_core::buffer::Verdict::Unresolved
+pub oso_core::buffer::Verdict::Yanked
 impl oso_core::buffer::Verdict
 pub const fn oso_core::buffer::Verdict::is_withheld(self) -> bool
 pub const fn oso_core::buffer::Verdict::may_be_copied(self) -> bool
+pub const fn oso_core::buffer::Verdict::may_be_killed(self) -> bool
 impl core::clone::Clone for oso_core::buffer::Verdict
 pub fn oso_core::buffer::Verdict::clone(&self) -> oso_core::buffer::Verdict
 impl core::cmp::Eq for oso_core::buffer::Verdict
@@ -184,6 +188,7 @@ pub oso_core::command::ArgSpec::Command
 pub oso_core::command::ArgSpec::Command::history: &'static str
 pub oso_core::command::ArgSpec::Command::prompt: &'static str
 pub oso_core::command::ArgSpec::Count
+pub oso_core::command::ArgSpec::CountAndClipboard
 pub oso_core::command::ArgSpec::Key
 pub oso_core::command::ArgSpec::None
 pub oso_core::command::ArgSpec::Number
@@ -191,6 +196,8 @@ pub oso_core::command::ArgSpec::Number::history: &'static str
 pub oso_core::command::ArgSpec::Number::prompt: &'static str
 pub oso_core::command::ArgSpec::Passphrase
 pub oso_core::command::ArgSpec::Passphrase::prompt: &'static str
+impl oso_core::command::ArgSpec
+pub const fn oso_core::command::ArgSpec::reads_clipboard(self, core::option::Option<oso_core::command::Prefix>) -> bool
 impl core::clone::Clone for oso_core::command::ArgSpec
 pub fn oso_core::command::ArgSpec::clone(&self) -> oso_core::command::ArgSpec
 impl core::cmp::Eq for oso_core::command::ArgSpec
@@ -316,6 +323,7 @@ pub struct oso_core::command::Ctx<'a>
 pub oso_core::command::Ctx::editor: &'a mut oso_core::editor::Editor
 impl<'a> oso_core::command::Ctx<'a>
 pub fn oso_core::command::Ctx<'a>::answer(&self) -> core::option::Option<&'a str>
+pub fn oso_core::command::Ctx<'a>::clipboard(&self) -> core::option::Option<&'a oso_core::kill::FromClipboard>
 pub fn oso_core::command::Ctx<'a>::confirmed(&self) -> bool
 pub fn oso_core::command::Ctx<'a>::effects(&self) -> oso_core::command::Effects
 pub fn oso_core::command::Ctx<'a>::input(&self) -> &'a str
@@ -347,6 +355,7 @@ impl core::marker::Copy for oso_core::command::Effects
 impl core::marker::StructuralPartialEq for oso_core::command::Effects
 pub struct oso_core::command::Invocation<'a>
 pub oso_core::command::Invocation::answer: core::option::Option<&'a str>
+pub oso_core::command::Invocation::clipboard: core::option::Option<&'a oso_core::kill::FromClipboard>
 pub oso_core::command::Invocation::confirmed: bool
 pub oso_core::command::Invocation::input: &'a str
 pub oso_core::command::Invocation::key_char: core::option::Option<char>
@@ -879,6 +888,32 @@ impl core::fmt::Display for oso_core::editor::SaveRefused
 pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
+pub enum oso_core::editor::YankError
+pub oso_core::editor::YankError::Edit(oso_core::buffer::EditError)
+pub oso_core::editor::YankError::Empty
+pub oso_core::editor::YankError::TooMuch
+impl core::clone::Clone for oso_core::editor::YankError
+pub fn oso_core::editor::YankError::clone(&self) -> oso_core::editor::YankError
+impl core::cmp::Eq for oso_core::editor::YankError
+impl core::cmp::PartialEq for oso_core::editor::YankError
+pub fn oso_core::editor::YankError::eq(&self, &oso_core::editor::YankError) -> bool
+impl core::convert::From<oso_core::buffer::EditError> for oso_core::editor::YankError
+pub fn oso_core::editor::YankError::from(oso_core::buffer::EditError) -> Self
+impl core::error::Error for oso_core::editor::YankError
+impl core::fmt::Debug for oso_core::editor::YankError
+pub fn oso_core::editor::YankError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::YankError
+pub fn oso_core::editor::YankError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::YankError
+impl core::marker::StructuralPartialEq for oso_core::editor::YankError
+pub struct oso_core::editor::ClipboardWrite
+pub oso_core::editor::ClipboardWrite::id: u64
+pub oso_core::editor::ClipboardWrite::pieces: alloc::vec::Vec<oso_core::kill::Piece>
+pub oso_core::editor::ClipboardWrite::secret: bool
+impl oso_core::editor::ClipboardWrite
+pub fn oso_core::editor::ClipboardWrite::text(&self) -> alloc::string::String
+impl core::fmt::Debug for oso_core::editor::ClipboardWrite
+pub fn oso_core::editor::ClipboardWrite::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -977,6 +1012,15 @@ pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::forget_kills(&mut self)
+pub fn oso_core::editor::Editor::kill(&mut self, impl core::iter::traits::collect::IntoIterator<Item = core::ops::range::Range<usize>>, oso_core::kill::Direction, bool) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::kill_ring(&self) -> &oso_core::kill::KillRing
+pub fn oso_core::editor::Editor::note_clipboard_written(&mut self, u64, oso_core::kill::Fingerprint)
+pub fn oso_core::editor::Editor::note_command_ended(&mut self, bool)
+pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option::Option<oso_core::editor::ClipboardWrite>
+pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
+pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor
@@ -1386,6 +1430,99 @@ pub fn oso_core::keymap::TableError::fmt(&self, &mut core::fmt::Formatter<'_>) -
 impl core::marker::StructuralPartialEq for oso_core::keymap::TableError
 pub const oso_core::keymap::CANCEL: oso_core::key::KeyPress
 pub fn oso_core::keymap::display_keys(&[oso_core::key::KeyPress]) -> impl core::fmt::Display + '_
+pub mod oso_core::kill
+pub enum oso_core::kill::Direction
+pub oso_core::kill::Direction::Backward
+pub oso_core::kill::Direction::Forward
+impl core::clone::Clone for oso_core::kill::Direction
+pub fn oso_core::kill::Direction::clone(&self) -> oso_core::kill::Direction
+impl core::cmp::Eq for oso_core::kill::Direction
+impl core::cmp::PartialEq for oso_core::kill::Direction
+pub fn oso_core::kill::Direction::eq(&self, &oso_core::kill::Direction) -> bool
+impl core::fmt::Debug for oso_core::kill::Direction
+pub fn oso_core::kill::Direction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::kill::Direction
+impl core::marker::StructuralPartialEq for oso_core::kill::Direction
+pub enum oso_core::kill::FromClipboard
+pub oso_core::kill::FromClipboard::NoAnswer
+pub oso_core::kill::FromClipboard::Nothing
+pub oso_core::kill::FromClipboard::Own
+pub oso_core::kill::FromClipboard::Text
+pub oso_core::kill::FromClipboard::Text::concealed: bool
+pub oso_core::kill::FromClipboard::Text::fingerprint: oso_core::kill::Fingerprint
+pub oso_core::kill::FromClipboard::Text::text: oso_core::rope::Rope
+pub oso_core::kill::FromClipboard::TooLarge
+impl core::clone::Clone for oso_core::kill::FromClipboard
+pub fn oso_core::kill::FromClipboard::clone(&self) -> oso_core::kill::FromClipboard
+impl core::cmp::Eq for oso_core::kill::FromClipboard
+impl core::cmp::PartialEq for oso_core::kill::FromClipboard
+pub fn oso_core::kill::FromClipboard::eq(&self, &Self) -> bool
+impl core::fmt::Debug for oso_core::kill::FromClipboard
+pub fn oso_core::kill::FromClipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::kill::Fingerprint
+pub oso_core::kill::Fingerprint::hash: u64
+pub oso_core::kill::Fingerprint::len: usize
+impl core::clone::Clone for oso_core::kill::Fingerprint
+pub fn oso_core::kill::Fingerprint::clone(&self) -> oso_core::kill::Fingerprint
+impl core::cmp::Eq for oso_core::kill::Fingerprint
+impl core::cmp::PartialEq for oso_core::kill::Fingerprint
+pub fn oso_core::kill::Fingerprint::eq(&self, &oso_core::kill::Fingerprint) -> bool
+impl core::fmt::Debug for oso_core::kill::Fingerprint
+pub fn oso_core::kill::Fingerprint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::kill::Fingerprint
+pub fn oso_core::kill::Fingerprint::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::kill::Fingerprint
+impl core::marker::StructuralPartialEq for oso_core::kill::Fingerprint
+pub struct oso_core::kill::KillEntry
+impl oso_core::kill::KillEntry
+pub fn oso_core::kill::KillEntry::came_from_clipboard(&self) -> bool
+pub fn oso_core::kill::KillEntry::id(&self) -> u64
+pub fn oso_core::kill::KillEntry::is_empty(&self) -> bool
+pub fn oso_core::kill::KillEntry::is_secret(&self) -> bool
+pub fn oso_core::kill::KillEntry::joined(&self) -> alloc::string::String
+pub fn oso_core::kill::KillEntry::len(&self) -> usize
+pub fn oso_core::kill::KillEntry::pieces(&self) -> &[oso_core::kill::Piece]
+impl core::fmt::Debug for oso_core::kill::KillEntry
+pub fn oso_core::kill::KillEntry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::kill::KillRing
+impl oso_core::kill::KillRing
+pub fn oso_core::kill::KillRing::append(&mut self, alloc::vec::Vec<oso_core::kill::Piece>, oso_core::kill::Direction, bool) -> core::result::Result<u64, alloc::vec::Vec<oso_core::kill::Piece>>
+pub fn oso_core::kill::KillRing::get(&self, usize) -> core::option::Option<&oso_core::kill::KillEntry>
+pub fn oso_core::kill::KillRing::holds_secret(&self, oso_core::kill::Fingerprint) -> bool
+pub fn oso_core::kill::KillRing::is_empty(&self) -> bool
+pub fn oso_core::kill::KillRing::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::kill::KillEntry>
+pub fn oso_core::kill::KillRing::len(&self) -> usize
+pub fn oso_core::kill::KillRing::make_newest_secret(&mut self)
+pub fn oso_core::kill::KillRing::new() -> Self
+pub fn oso_core::kill::KillRing::newest_written(&self) -> core::option::Option<oso_core::kill::Fingerprint>
+pub fn oso_core::kill::KillRing::note_written(&mut self, u64, oso_core::kill::Fingerprint)
+pub fn oso_core::kill::KillRing::push(&mut self, alloc::vec::Vec<oso_core::kill::Piece>, bool) -> u64
+pub fn oso_core::kill::KillRing::push_from_clipboard(&mut self, oso_core::rope::Rope, bool) -> u64
+impl core::default::Default for oso_core::kill::KillRing
+pub fn oso_core::kill::KillRing::default() -> oso_core::kill::KillRing
+impl core::fmt::Debug for oso_core::kill::KillRing
+pub fn oso_core::kill::KillRing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::kill::Piece
+impl oso_core::kill::Piece
+pub fn oso_core::kill::Piece::chunks(&self) -> impl core::iter::traits::iterator::Iterator<Item = &str> + '_
+pub fn oso_core::kill::Piece::is_empty(&self) -> bool
+pub fn oso_core::kill::Piece::len(&self) -> usize
+pub fn oso_core::kill::Piece::text(&self) -> alloc::string::String
+impl core::clone::Clone for oso_core::kill::Piece
+pub fn oso_core::kill::Piece::clone(&self) -> oso_core::kill::Piece
+impl core::convert::From<oso_core::rope::Rope> for oso_core::kill::Piece
+pub fn oso_core::kill::Piece::from(oso_core::rope::Rope) -> Self
+impl core::default::Default for oso_core::kill::Piece
+pub fn oso_core::kill::Piece::default() -> oso_core::kill::Piece
+impl core::fmt::Debug for oso_core::kill::Piece
+pub fn oso_core::kill::Piece::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_core::kill::MAX_BYTES: usize
+pub const oso_core::kill::MAX_CLIPBOARD: usize
+pub const oso_core::kill::MAX_ENTRIES: usize
+pub const oso_core::kill::MAX_YANK: usize
+pub const oso_core::kill::PIECE_SEPARATOR: &str
+pub fn oso_core::kill::join(&[oso_core::kill::Piece]) -> alloc::string::String
+pub fn oso_core::kill::kill_ranges(impl core::iter::traits::collect::IntoIterator<Item = core::ops::range::Range<usize>>, bool) -> alloc::vec::Vec<core::ops::range::Range<usize>>
 pub mod oso_core::load
 pub struct oso_core::load::Builder
 impl oso_core::load::Builder
@@ -1625,6 +1762,8 @@ impl core::clone::Clone for oso_core::rope::Rope
 pub fn oso_core::rope::Rope::clone(&self) -> oso_core::rope::Rope
 impl core::convert::From<&str> for oso_core::rope::Rope
 pub fn oso_core::rope::Rope::from(&str) -> Self
+impl core::convert::From<oso_core::rope::Rope> for oso_core::kill::Piece
+pub fn oso_core::kill::Piece::from(oso_core::rope::Rope) -> Self
 impl core::default::Default for oso_core::rope::Rope
 pub fn oso_core::rope::Rope::default() -> oso_core::rope::Rope
 impl core::fmt::Debug for oso_core::rope::Rope

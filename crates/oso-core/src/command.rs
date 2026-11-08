@@ -22,6 +22,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use crate::buffer::EditError;
 use crate::editor::Editor;
+use crate::kill::FromClipboard;
 
 /// The function behind a command.
 pub type CommandFn = fn(&mut Ctx<'_>, Args) -> Result<(), CommandError>;
@@ -80,6 +81,19 @@ pub enum ArgSpec {
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).
     Key,
+    /// A numeric prefix argument, and with none or only `C-u`, what the OS clipboard
+    /// holds, read with [`Ctx::clipboard`]. The dispatcher reads the clipboard first, off
+    /// the UI thread, and runs the command once it has the answer, as `yank` needs
+    /// (ADR 0074).
+    CountAndClipboard,
+}
+
+impl ArgSpec {
+    /// Whether a command with this spec, given `prefix`, waits for the clipboard.
+    pub const fn reads_clipboard(self, prefix: Option<Prefix>) -> bool {
+        matches!(self, Self::CountAndClipboard)
+            && matches!(prefix, None | Some(Prefix::Universal(_)))
+    }
 }
 
 /// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher
@@ -247,6 +261,8 @@ pub struct Invocation<'a> {
     pub confirmed: bool,
     /// Its key had Shift, which its binding has not (Emacs's shift translation).
     pub shifted: bool,
+    /// What the OS clipboard held, for a command that waited for it.
+    pub clipboard: Option<&'a FromClipboard>,
 }
 
 impl fmt::Debug for Invocation<'_> {
@@ -327,6 +343,12 @@ impl<'a> Ctx<'a> {
     /// not, as `S-<right>` runs `forward-char`. A motion then selects (ADR 0071).
     pub fn shifted(&self) -> bool {
         self.invocation.shifted
+    }
+
+    /// What the OS clipboard held, for a command whose [`ArgSpec`] reads it. `None` when
+    /// it was not read: another spec, a numeric prefix, or a caller with no clipboard.
+    pub fn clipboard(&self) -> Option<&'a FromClipboard> {
+        self.invocation.clipboard
     }
 
     /// Leaves `prefix` for the next command, in place of the one this command got.

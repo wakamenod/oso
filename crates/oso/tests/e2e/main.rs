@@ -12,6 +12,7 @@
 mod complete;
 mod harness;
 mod ime;
+mod kill;
 mod mark;
 mod png;
 mod prompts;

@@ -18,7 +18,8 @@
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
-//! buffers that show emergency copies are in [`copies`], and prompts in [`prompts`].
+//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], and kills and
+//! yanks in [`kill`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -35,6 +36,7 @@ use follow::Selected;
 mod completion;
 mod copies;
 mod follow;
+mod kill;
 mod messages;
 mod prompts;
 mod save;
@@ -42,6 +44,7 @@ mod status;
 mod view;
 
 pub use copies::RecoveryAction;
+pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
 pub use save::{ExitRefused, SaveJob, SaveRefused};
@@ -121,6 +124,8 @@ pub struct Editor {
     /// The buffer a question about saving over its changed file was asked of, so that `y`
     /// saves that buffer and no other.
     save_over_asked: Option<BufferId>,
+    /// The kill ring, and whether the command before killed (ADR 0074).
+    kills: kill::Kills,
 }
 
 impl Default for Editor {
@@ -158,6 +163,7 @@ impl Editor {
             next_prompt: 0,
             passphrase_command: false,
             save_over_asked: None,
+            kills: kill::Kills::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));

@@ -6,6 +6,7 @@
 
 mod complete;
 mod edit;
+mod kill;
 mod mark;
 mod messages;
 mod minibuffer;
@@ -27,6 +28,7 @@ use oso_core::keymap::Keymap;
 const TABLES: &[&[(&str, &str)]] = &[
     complete::BINDINGS,
     edit::BINDINGS,
+    kill::BINDINGS,
     mark::BINDINGS,
     messages::BINDINGS,
     #[cfg(feature = "dev")]
