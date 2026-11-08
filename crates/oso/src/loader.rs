@@ -49,8 +49,7 @@ use oso_core::rope::Rope;
 mod resolve;
 mod watch;
 
-pub use resolve::{Resolved, location, parent};
-use resolve::{own_spelling, resolve};
+pub use resolve::{Resolved, location, own_spelling, parent, resolve};
 pub use watch::Watcher;
 
 /// Bytes read at a time.

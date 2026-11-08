@@ -75,6 +75,10 @@ item notes when it must be settled.
   it turns the IME on for that prompt, for Japanese file names; if not, the author decides again
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
   [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `C-x C-f`'s look at a row follows a symbolic link to say what it leads to, which can reach an
+  automounted or slow file system and hold that listing thread until it answers. Decide whether a
+  look stops at links that leave the listed tree
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - `C-x C-f` matches file names code point by code point, so a name stored decomposed (NFD), as older
   macOS volumes and zip archives keep them, does not match the composed form an input method types.
   Normalizing needs `unicode-normalization`, a dependency; decide once it is seen to matter
@@ -211,10 +215,10 @@ item notes when it must be settled.
 - The candidate window stays where a composition started, as winit gives the OS one
   rectangle. Check whether a new area during a conversion moves it at the next key, so
   that it can follow the segment ([ADR 0069](adr/0069-macos-input-method.md)).
-- At ADR 0070's stage 2, on macOS: a native view answers `firstRectForCharacterRange`
-  when the input method asks, so the cursor area no longer needs giving on every key that
-  moves the cursor (about 0.1 ms a key at p99 in `just perf` at M2-12), and the candidate
-  window can follow the segment being converted
+- The app still gives the window the cursor's cell on every key that moves the cursor (about
+  0.1 ms a key at p99 in `just perf` at M2-12), though oso's own layer only keeps it until
+  the input method asks. Measure whether giving it only when a composition may start, or
+  when the input method asks, is worth it
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - `oso_platform::window::Held` names the modifiers as the window system does, beside
@@ -224,20 +228,19 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
   the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the input method asking for the rectangle of the range it names, so the candidate window
-  follows the segment; no input context while the IME is off; the cursor's line for the
-  input method;
+  the cursor's line for the input method;
   whether frames keep up during a live resize, now that the
   view also draws when AppKit displays its layer; `open_window` and `request_attention`
   queued as the other requests are;
   startup and `open_from_launch_ms` measured again with more runs, where the native layer's
   medians sat a few milliseconds above winit's within overlapping ranges; and the author's
   checks at the keyboard of what remains: a window covered by another app and uncovered
-  drawing again with no key, a composition committed when the IME turns off, a Dock quit
-  asking the exit question, and a real Log Out, cancelled from the system's dialog, going
-  past it, which shows oso reads a real logout's reason
-  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each item above as it
-  lands. The author checked at the keyboard on 2026-11-08
+  drawing again with no key, a composition committed when the IME turns off, the candidate
+  window following the segment being converted, no text service reading the view while the
+  IME is off, no Writing Tools for it, a Dock quit asking the exit question, and a real Log
+  Out, cancelled from the system's dialog, going past it, which shows oso reads a real
+  logout's reason ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each
+  item above as it lands. The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting
