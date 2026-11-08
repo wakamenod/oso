@@ -1,5 +1,5 @@
-//! What the input method may learn of the cursor, the cell the app last gave and where the
-//! composition is laid out, answered only while oso has the IME on (ADR 0069,
+//! What the input method may learn of the cursor: the cell the app last gave, where the
+//! composition is laid out and the excerpt of the cursor's line, answered only while oso has the IME on (ADR 0069,
 //! ADR 0070, ADR 0077); when secure input is held (ADR 0073); and a frame owed to a window
 //! that was hidden. Plain values, tested without a window or a clock.
 //!
@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 use crate::window::{CursorArea, utf16};
 
 /// Whether oso has the IME on, the cursor's cell the app last gave, and where it lays out the
-/// composition. No `Debug`: it holds text being typed (ADR 0028).
+/// composition, and the excerpt of the cursor's line. No `Debug`: it holds text being typed
+/// and text of a buffer, which no `Debug` prints (ADR 0028, ADR 0070).
 #[derive(Default)]
 pub(super) struct ImeGate {
     allowed: bool,
@@ -22,11 +23,13 @@ pub(super) struct ImeGate {
     laid_out: String,
     first: Option<CursorArea>,
     positions: Vec<f32>,
-    /// The cursor's line as the app last gave it (ADR 0077), empty with none, where the
-    /// cursor is in it in bytes and in UTF-16 units, the input method's coordinates.
-    line: String,
-    line_cursor: usize,
-    line_units: usize,
+    /// The excerpt of the cursor's line as the app last gave it (ADR 0077), whether one was,
+    /// and where the cursor is in it in bytes and in UTF-16 units, the input method's
+    /// coordinates. Dropped when the IME goes off.
+    excerpt: String,
+    has_excerpt: bool,
+    excerpt_cursor: usize,
+    excerpt_units: usize,
 }
 
 impl ImeGate {
@@ -37,8 +40,12 @@ impl ImeGate {
     /// Turns the IME on or off. Off keeps the cell, which is no text, so that the first
     /// composition after a prefix key, or back from a buffer that may hold secrets, opens its
     /// candidate window at the cursor: the app gives the cell again only when it moves.
+    /// The excerpt goes with the IME, so that no text of a buffer outlives it here.
     pub(super) fn set_allowed(&mut self, allowed: bool) {
         self.allowed = allowed;
+        if !allowed {
+            self.drop_excerpt();
+        }
     }
 
     pub(super) fn set_area(&mut self, area: CursorArea) {
@@ -56,44 +63,73 @@ impl ImeGate {
         });
     }
 
-    /// The cursor's line, and where the cursor is in it in bytes, or none with `None`. A
-    /// cursor off the line's character boundaries goes to the one before it.
-    pub(super) fn set_cursor_line(&mut self, line: Option<(&str, usize)>) {
-        self.line.clear();
-        let (text, cursor) = line.unwrap_or_default();
-        self.line.push_str(text);
-        let mut cursor = cursor.min(text.len());
-        while !text.is_char_boundary(cursor) {
+    /// Takes the excerpt of the cursor's line from `excerpt`, with where the cursor is in it in
+    /// bytes, leaving the one held before there for reuse, or drops it with `None`. A cursor off
+    /// the excerpt's character boundaries goes to the one before it.
+    pub(super) fn set_excerpt(&mut self, excerpt: &mut String, cursor: Option<usize>) {
+        let Some(cursor) = cursor else {
+            self.drop_excerpt();
+            return;
+        };
+        std::mem::swap(&mut self.excerpt, excerpt);
+        let mut cursor = cursor.min(self.excerpt.len());
+        while !self.excerpt.is_char_boundary(cursor) {
             cursor -= 1;
         }
-        self.line_cursor = cursor;
-        self.line_units = utf16::utf16_len(&text[..cursor]);
+        self.has_excerpt = true;
+        self.excerpt_cursor = cursor;
+        self.excerpt_units = utf16::utf16_len(&self.excerpt[..cursor]);
     }
 
-    /// How long the cursor's line is, and where the cursor is in it, in bytes; none with no
-    /// line.
+    fn drop_excerpt(&mut self) {
+        self.excerpt.clear();
+        self.has_excerpt = false;
+        self.excerpt_cursor = 0;
+        self.excerpt_units = 0;
+    }
+
+    /// How long the excerpt is, and where the cursor is in it, in bytes; none with none given.
     #[cfg(feature = "dev")]
-    pub(super) fn cursor_line(&self) -> Option<(usize, usize)> {
-        (!self.line.is_empty()).then_some((self.line.len(), self.line_cursor))
+    pub(super) fn excerpt_extent(&self) -> Option<(usize, usize)> {
+        self.has_excerpt
+            .then_some((self.excerpt.len(), self.excerpt_cursor))
     }
 
     /// Where the cursor, and so a composition, starts in the input method's coordinates, in
-    /// UTF-16 units of the cursor's line before it.
-    pub(super) fn line_offset(&self) -> usize {
-        self.line_units
+    /// UTF-16 units of the excerpt before it.
+    pub(super) fn excerpt_offset(&self) -> usize {
+        self.excerpt_units
     }
 
     /// The text of `units` in the input method's coordinates, with the units it covers: the
-    /// cursor's line with the `marked` text at the cursor, cut to it. None while the IME is
-    /// off, or for a range that starts past it.
+    /// excerpt with the `marked` text at the cursor, cut to it and rounded up to character
+    /// boundaries as [`utf16::locate`] rounds. None while the IME is off, or for a range that
+    /// starts past it. Only the answer is built.
     pub(super) fn text(&self, marked: &str, units: Range<usize>) -> Option<(String, Range<usize>)> {
         if !self.allowed {
             return None;
         }
-        let (before, after) = self.line.split_at(self.line_cursor);
-        let document = [before, marked, after].concat();
-        let at = utf16::locate(&document, units);
-        (!at.past_end).then(|| (document[at.bytes].to_owned(), at.units))
+        let (before, after) = self.excerpt.split_at(self.excerpt_cursor);
+        let end = units.end.max(units.start);
+        let mut answer = String::new();
+        let (mut at, mut first, mut last) = (0, None, 0);
+        for c in before.chars().chain(marked.chars()).chain(after.chars()) {
+            if at >= end {
+                break;
+            }
+            if at >= units.start {
+                first.get_or_insert(at);
+                answer.push(c);
+                last = at + c.len_utf16();
+            }
+            at += c.len_utf16();
+        }
+        let covered = match first {
+            Some(first) => first..last,
+            None if at >= units.start => at..at,
+            None => return None,
+        };
+        Some((answer, covered))
     }
 
     /// The cell to answer the input method with: none while the IME is off.
@@ -114,8 +150,8 @@ impl ImeGate {
         let Some(first) = self.first.filter(|_| self.laid_out == marked) else {
             return Some((area, None));
         };
-        // The composition starts at the cursor, after the part of its line before it.
-        let offset = self.line_units;
+        // The composition starts at the cursor, after the part of the excerpt before it.
+        let offset = self.excerpt_units;
         if units.start < offset {
             return Some((area, None));
         }
@@ -377,12 +413,14 @@ mod tests {
     }
 
     #[test]
-    fn the_input_method_reads_the_cursors_line_with_the_composition_at_the_cursor() {
+    fn the_input_method_reads_the_excerpt_with_the_composition_at_the_cursor() {
         let mut gate = ImeGate::default();
         gate.set_allowed(true);
         gate.set_area(CELL);
-        gate.set_cursor_line(Some(("東京 都", 6)));
-        assert_eq!(gate.line_offset(), 2, "two units before the cursor");
+        let mut given = String::from("東京 都");
+        gate.set_excerpt(&mut given, Some(6));
+        assert!(given.is_empty(), "the one held before, for reuse");
+        assert_eq!(gate.excerpt_offset(), 2, "two units before the cursor");
         let text = |gate: &ImeGate, marked, units| gate.text(marked, units).map(|(text, _)| text);
         assert_eq!(text(&gate, "", 0..4), Some("東京 都".into()));
         assert_eq!(text(&gate, "か", 1..5), Some("京か 都".into()));
@@ -405,22 +443,48 @@ mod tests {
         assert_eq!(
             gate.rect("か", 0..1),
             Some((CELL, None)),
-            "the line before it"
+            "the excerpt before it"
         );
+        // Turning the IME off drops the excerpt, so nothing of it is answered once it is on.
         gate.set_allowed(false);
         assert_eq!(text(&gate, "", 0..4), None, "off");
         gate.set_allowed(true);
-        gate.set_cursor_line(None);
         assert_eq!(
-            (gate.line_offset(), text(&gate, "", 0..9)),
+            (gate.excerpt_offset(), text(&gate, "", 0..9)),
             (0, Some(String::new()))
         );
-        gate.set_cursor_line(Some(("かな", 4)));
+        let mut given = String::from("かな");
+        gate.set_excerpt(&mut given, Some(4));
         assert_eq!(
-            gate.line_offset(),
+            gate.excerpt_offset(),
             1,
             "a cursor inside a character goes before it"
         );
+        gate.set_excerpt(&mut String::new(), None);
+        assert_eq!(text(&gate, "", 0..9), Some(String::new()), "dropped");
+    }
+
+    #[test]
+    fn the_text_answered_is_the_document_cut_as_locate_cuts_it() {
+        let mut gate = ImeGate::default();
+        gate.set_allowed(true);
+        gate.set_excerpt(&mut String::from("a😀b"), Some(1));
+        for marked in ["", "か😀"] {
+            let document = format!("a{marked}😀b");
+            let len = super::utf16::utf16_len(&document);
+            for start in (0..=len + 1).chain([usize::MAX, isize::MAX as usize]) {
+                for end in (0..=len + 1).chain([usize::MAX]) {
+                    let found = super::utf16::locate(&document, start..end);
+                    let answer = gate.text(marked, start..end);
+                    if found.past_end {
+                        assert_eq!(answer, None, "{marked:?} {start}..{end}");
+                    } else {
+                        let expected = (document[found.bytes].to_owned(), found.units);
+                        assert_eq!(answer, Some(expected), "{marked:?} {start}..{end}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

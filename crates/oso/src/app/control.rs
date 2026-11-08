@@ -147,12 +147,12 @@ impl App {
             .and_then(|view| view.window.gives_input_context());
         state["ime"]["input_context"] = context.map_or(serde_json::Value::Null, Into::into);
         // How much of the cursor's line the window holds for the input method, never its
-        // text, and none where none is given, as in a buffer that may hold secrets (ADR 0044).
-        let line = self
-            .view
-            .as_ref()
-            .and_then(|view| view.window.ime_cursor_line());
-        state["ime"]["cursor_line"] = line.map_or(
+        // text, and none where none is given or while a buffer that may hold secrets is shown,
+        // as `area` is withheld (ADR 0044, ADR 0070).
+        let extent = (self.view.as_ref())
+            .and_then(|view| view.window.ime_excerpt_extent())
+            .filter(|_| !self.editor.shows_secret());
+        state["ime"]["excerpt"] = extent.map_or(
             serde_json::Value::Null,
             |(len, cursor)| json!({ "len": len, "cursor": cursor }),
         );

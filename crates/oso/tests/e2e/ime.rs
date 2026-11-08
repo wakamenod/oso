@@ -229,7 +229,7 @@ fn a_composition_waits_where_its_text_would_not_go_in_as_typed() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn the_input_method_gets_a_bounded_part_of_the_cursors_line_only() {
+fn the_input_method_gets_a_bounded_excerpt_of_an_ordinary_line_only() {
     let scratch = Scratch::new("ime-line");
     let mut long = "a".repeat(1_000_000);
     long.push('\n');
@@ -240,39 +240,48 @@ fn the_input_method_gets_a_bounded_part_of_the_cursors_line_only() {
     // oso's own layer gives at most 2000 bytes each side of the cursor of an ordinary buffer
     // while the IME is on, and the socket says how much, never what (ADR 0077); winit none.
     let native = cfg!(all(target_os = "macos", feature = "native-window"));
-    let line = |app: &mut App| app.state()["ime"]["cursor_line"].clone();
     app.run_command("forward-char", Some(500_000)).unwrap();
-    let given = app.wait_for("the cursor's line", |state| {
+    let given = app.wait_for("the excerpt", |state| {
         !native
-            || state["ime"]["cursor_line"]["cursor"]
+            || state["ime"]["excerpt"]["cursor"]
                 .as_u64()
                 .is_some_and(|at| at > 1000)
     });
     if native {
         let (len, at) = (
-            &given["ime"]["cursor_line"]["len"],
-            &given["ime"]["cursor_line"]["cursor"],
+            &given["ime"]["excerpt"]["len"],
+            &given["ime"]["excerpt"]["cursor"],
         );
         let (len, at) = (len.as_u64().unwrap(), at.as_u64().unwrap());
         assert!(at <= 2000 && len - at <= 2000, "{len} {at}");
         assert!(at >= 1990 && len - at >= 1990, "{len} {at}");
     } else {
-        assert_eq!(line(&mut app), Value::Null);
+        assert_eq!(app.state()["ime"]["excerpt"], Value::Null);
     }
     app.send_keys("C-x");
-    app.wait_for("no line while the IME is off", |state| {
-        state["ime"]["cursor_line"] == Value::Null
+    app.wait_for("no excerpt while the IME is off", |state| {
+        state["ime"]["excerpt"] == Value::Null
     });
     app.send_keys("C-g");
+    // A question during a composition keeps the IME on, so only the prompt keeps the line
+    // from the input method then.
+    ime(&mut app, json!({ "preedit": "か" })).unwrap();
+    app.send_keys("x C-x C-c");
+    let state = app.wait_for("no excerpt in a question", |state| {
+        state["ime"]["excerpt"] == Value::Null
+    });
+    assert_eq!(state["ime"]["allowed"], true, "the composition holds it on");
+    ime(&mut app, json!({ "clear": true })).unwrap();
+    app.send_keys("n");
     app.open_file(&env);
     app.wait_until_ready();
-    app.wait_for("no line from a buffer that may hold secrets", |state| {
-        state["ime"]["cursor_line"] == Value::Null
+    app.wait_for("no excerpt from a buffer that may hold secrets", |state| {
+        state["ime"]["excerpt"] == Value::Null
     });
     app.show_buffer(&long_id);
-    app.wait_for("the line again", |state| {
+    app.wait_for("the excerpt again", |state| {
         !native
-            || state["ime"]["cursor_line"]["len"]
+            || state["ime"]["excerpt"]["len"]
                 .as_u64()
                 .is_some_and(|len| len > 1000)
     });

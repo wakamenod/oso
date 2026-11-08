@@ -241,11 +241,11 @@ define_class!(
             }
         }
 
-        /// In the cursor's line, where the cursor is, or the caret or segment in the text being
-        /// composed there (ADR 0077).
+        /// In the excerpt of the cursor's line, where the cursor is, or the caret or segment in
+        /// the text being composed there (ADR 0077).
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
-            let offset = self.ivars().state.ime.borrow().line_offset();
+            let offset = self.ivars().state.ime.borrow().excerpt_offset();
             if self.ivars().marked.borrow().is_empty() {
                 NSRange::new(offset, 0)
             } else {
@@ -254,14 +254,14 @@ define_class!(
             }
         }
 
-        /// The text being composed, at the cursor in its line.
+        /// The text being composed, at the cursor in the excerpt of its line.
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
             let marked = self.ivars().marked.borrow();
             if marked.is_empty() {
                 NSRange::new(not_found(), 0)
             } else {
-                let offset = self.ivars().state.ime.borrow().line_offset();
+                let offset = self.ivars().state.ime.borrow().excerpt_offset();
                 NSRange::new(offset, utf16::utf16_len(&marked))
             }
         }
@@ -271,8 +271,9 @@ define_class!(
             !self.ivars().marked.borrow().is_empty()
         }
 
-        /// The cursor's line, with the text being composed at the cursor, as far as the range
-        /// asks and the line goes; nothing while the IME is off (ADR 0070, ADR 0077).
+        /// The excerpt of the cursor's line, with the text being composed at the cursor, as far
+        /// as the range asks and the excerpt goes; nothing while the IME is off (ADR 0070,
+        /// ADR 0077).
         #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
         fn attributed_substring(
             &self,

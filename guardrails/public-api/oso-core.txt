@@ -924,6 +924,7 @@ pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
+pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor

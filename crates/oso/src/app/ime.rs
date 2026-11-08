@@ -21,7 +21,7 @@ use oso_core::frame::PixelRect;
 use oso_platform::window::ImeEvent;
 
 use super::App;
-use super::shell::{COMMITS_WHEN_TURNED_OFF, Loop};
+use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
 /// cannot type (ADR 0069), or a prompt is selected (ADR 0072). Isearch and menus add their
@@ -58,11 +58,12 @@ pub(super) struct ImeState {
     positions: Vec<f32>,
     /// The next layout is worked out here, so that a key of a composition allocates nothing.
     scratch: Vec<f32>,
-    /// The cursor's line as last given (ADR 0077), and what it was worked out from: the
-    /// buffer, its revision, whether it may hold secrets, and the cursor. None while the IME is off. Never
-    /// logged.
-    line: String,
-    line_for: Option<(BufferId, u64, bool, usize)>,
+    /// The excerpt of the cursor's line is worked out here and handed to the window, which
+    /// leaves the one it held here for reuse. Never logged.
+    excerpt: String,
+    /// What the excerpt last given was worked out from ([`Editor::excerpt_stamp`]), or none
+    /// while the IME is off.
+    excerpt_for: Option<(BufferId, u64, usize)>,
 }
 
 impl App {
@@ -102,10 +103,12 @@ impl App {
             }
         }
         self.sync_ime(event_loop);
+        // Before the OS hears of secure input, so that no excerpt is held for a buffer that
+        // may hold secrets while it does.
+        self.give_excerpt();
         self.sync_secure_input();
         self.give_cursor_area();
         self.give_preedit_layout();
-        self.give_cursor_line();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a
@@ -243,7 +246,7 @@ impl App {
     /// view may scroll or the grid change, and given only when it changed. None once the
     /// composition ends.
     fn give_preedit_layout(&mut self) {
-        let Some(view) = &self.view else {
+        let Some(view) = self.view.as_ref().filter(|_| ANSWERS_INPUT_METHOD) else {
             return;
         };
         let mut positions = std::mem::take(&mut self.ime.scratch);
@@ -265,37 +268,28 @@ impl App {
         ime.scratch = positions;
     }
 
-    /// Gives the window the cursor's line, which the input method may read for reconversion
-    /// and better predictions (ADR 0070, ADR 0077): after an event in which the buffer, its
-    /// text or verdict, or the cursor changed, only while the IME is on, and only from a
-    /// buffer that gives one. None while the IME is off.
-    fn give_cursor_line(&mut self) {
-        let Some(view) = &self.view else {
+    /// Gives the window the excerpt of the cursor's line, which the input method may read for
+    /// reconversion and better predictions (ADR 0070, ADR 0077): only while the IME is on,
+    /// only where [`Editor::excerpt_stamp`] says one is given, and again when that changes.
+    /// None while the IME is off.
+    fn give_excerpt(&mut self) {
+        let Some(view) = self.view.as_ref().filter(|_| ANSWERS_INPUT_METHOD) else {
             return;
         };
-        let line_for = self.ime.allowed.then(|| {
-            let (window, buffer) = self.editor.current();
-            let cursor = window.selections.primary().cursor;
-            (
-                window.buffer(),
-                buffer.revision(),
-                buffer.is_secret(),
-                cursor,
-            )
-        });
-        if line_for == self.ime.line_for {
+        let excerpt_for = self
+            .ime
+            .allowed
+            .then(|| self.editor.excerpt_stamp())
+            .flatten();
+        if excerpt_for == self.ime.excerpt_for {
             return;
         }
-        self.ime.line_for = line_for;
-        let cursor = match line_for {
-            Some(_) => self.editor.cursor_excerpt(&mut self.ime.line),
-            None => {
-                self.ime.line.clear();
-                None
-            }
+        self.ime.excerpt_for = excerpt_for;
+        let cursor = match excerpt_for {
+            Some(_) => self.editor.cursor_excerpt(&mut self.ime.excerpt),
+            None => None,
         };
-        let line = cursor.map(|cursor| (self.ime.line.as_str(), cursor));
-        view.window.set_ime_cursor_line(line);
+        view.window.set_ime_excerpt(&mut self.ime.excerpt, cursor);
     }
 }
 

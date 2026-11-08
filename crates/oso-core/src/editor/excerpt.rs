@@ -5,97 +5,88 @@
 //! Must not depend on: the window layer, or how the input method counts text. The excerpt is
 //! never logged.
 //!
-//! - It holds at most [`EXCERPT_REACH`] bytes before the cursor and as many after, cut on
-//!   grapheme cluster boundaries and never past the line's ends. Its ends are found by
-//!   walking at most those bytes from the cursor, never back to the start of the line, so a
-//!   long line costs no more than a short one.
+//! - It holds at most [`EXCERPT_REACH`] bytes before the cursor and as many after, cut where
+//!   a cursor can stop (display clusters, so a flag or an emoji family is never split) and
+//!   never past the line's ends. Its ends are found through the display map, never by
+//!   walking back to the start of the line, so a long line costs no more than a short one.
 //! - Only a buffer whose verdict is `Ordinary`, and not an internal one, gives it, and none
-//!   comes while a prompt is selected.
-
-use unicode_segmentation::UnicodeSegmentation;
+//!   comes while a prompt is selected. Nothing is read from any other.
 
 use super::Editor;
+use crate::buffer::BufferId;
+use crate::display_map::DisplaySnapshot;
+use crate::motion;
 use crate::rope::Rope;
 use crate::secret::Verdict;
 use crate::sum_tree::Bias;
 
 /// The most bytes of the cursor's line given on each side of the cursor.
-pub(crate) const EXCERPT_REACH: usize = 2000;
+const EXCERPT_REACH: usize = 2000;
 
 impl Editor {
-    /// The cursor's line for the input method: into `out`, emptied first, the selected
-    /// window's line around its primary cursor, bounded as the module says. Returns where the
-    /// cursor is in it, in bytes, or `None`, with `out` empty, for a buffer that may hold
-    /// secrets or is internal, and while a prompt is selected.
-    pub fn cursor_excerpt(&self, out: &mut String) -> Option<usize> {
-        out.clear();
+    /// What [`Editor::cursor_excerpt`] gives depends on: the selected buffer, its revision and
+    /// the primary cursor, or `None` where it gives nothing. The host gives the excerpt again
+    /// when this changes.
+    pub fn excerpt_stamp(&self) -> Option<(BufferId, u64, usize)> {
         let (window, buffer) = self.current();
         let gives = buffer.verdict() == Verdict::Ordinary && !buffer.is_internal();
-        if !gives || self.prompt().is_some() {
-            return None;
+        (gives && self.prompt().is_none()).then(|| {
+            let cursor = window.selections.primary().cursor;
+            (window.buffer(), buffer.revision(), cursor)
+        })
+    }
+
+    /// The cursor's line for the input method: into `out`, emptied first, the selected
+    /// window's line around its primary cursor, bounded as the module says. Returns where the
+    /// cursor is in it, in bytes, or `None`, with `out` empty and nothing read, where
+    /// [`Editor::excerpt_stamp`] is `None`.
+    pub fn cursor_excerpt(&self, out: &mut String) -> Option<usize> {
+        out.clear();
+        let (_, _, cursor) = self.excerpt_stamp()?;
+        let buffer = self.current().1;
+        let text = buffer.text();
+        let cursor = text.clip_offset(cursor, Bias::Left);
+        let (start, end) = excerpt_ends(text, &buffer.display(), cursor);
+        for chunk in text.chunks_in_range(start..end) {
+            out.push_str(chunk);
         }
-        Some(excerpt(
-            buffer.text(),
-            window.selections.primary().cursor,
-            out,
-        ))
+        Some(cursor - start)
     }
 }
 
-/// The line of `text` around `cursor`, bounded as the module says, into `out`, which is
-/// emptied first. Returns where the cursor is in it.
-fn excerpt(text: &Rope, cursor: usize, out: &mut String) -> usize {
-    out.clear();
-    let cursor = text.clip_offset(cursor, Bias::Left);
-    // The bytes within reach, on character boundaries.
-    let start = text.clip_offset(cursor.saturating_sub(EXCERPT_REACH), Bias::Right);
-    let end = text.clip_offset(cursor.saturating_add(EXCERPT_REACH), Bias::Left);
-    for chunk in text.chunks_in_range(start..end) {
-        out.push_str(chunk);
-    }
-    let at = cursor - start;
-    // The line's ends, where they are within reach.
-    let line_start = out[..at].rfind('\n').map(|i| i + 1);
-    let line_end = out[at..].find('\n').map(|i| at + i);
-    // Otherwise the reach cut the line, maybe inside a cluster: the cut moves inward to the
-    // first boundary the window's own clusters give.
-    let head = line_start.unwrap_or_else(|| {
-        if start == 0 {
-            0
-        } else {
-            out.grapheme_indices(true)
-                .nth(1)
-                .map_or(at, |(i, _)| i.min(at))
-        }
-    });
-    let tail = line_end.unwrap_or_else(|| {
-        if end == text.len() {
-            out.len()
-        } else {
-            out.grapheme_indices(true)
-                .next_back()
-                .map_or(at, |(i, _)| i.max(at))
-        }
-    });
-    // A line that ends in CR LF ends before the CR.
-    let tail = if line_end.is_some() && out[..tail].ends_with('\r') && tail > at {
-        tail - 1
+/// The ends of the excerpt of `text` around `cursor`, which is where a cursor can stop: the
+/// line's ends where they are within reach, and otherwise the nearest stops inside the reach.
+fn excerpt_ends(text: &Rope, display: &DisplaySnapshot, cursor: usize) -> (usize, usize) {
+    let row = display.offset_to_display_point(cursor).row;
+    let line_start = motion::line_start(display, row);
+    let line_end = motion::line_end(display, row).max(cursor);
+    let reach_start = text.clip_offset(cursor.saturating_sub(EXCERPT_REACH), Bias::Right);
+    let reach_end = text.clip_offset(cursor.saturating_add(EXCERPT_REACH), Bias::Left);
+    let start = if line_start >= reach_start {
+        line_start
     } else {
-        tail
+        motion::cluster_end(display, reach_start)
     };
-    out.truncate(tail);
-    out.drain(..head);
-    at - head
+    let end = if line_end <= reach_end {
+        line_end
+    } else {
+        motion::cluster_start(display, reach_end)
+    };
+    (start.min(cursor), end.max(cursor))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::buffer::Buffer;
+    use crate::minibuffer::Kind;
+    use crate::selection::SelectionSet;
 
     fn cut(text: &str, cursor: usize) -> (String, usize) {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", text));
+        editor.current_mut().0.selections = SelectionSet::new(cursor);
         let mut out = String::from("old");
-        let at = excerpt(&Rope::from(text), cursor, &mut out);
+        let at = editor.cursor_excerpt(&mut out).unwrap();
         (out, at)
     }
 
@@ -105,38 +96,67 @@ mod tests {
         assert_eq!(cut("one\r\ntwo\r\n", 7), ("two".into(), 2), "CR LF");
         assert_eq!(cut("", 0), (String::new(), 0));
         assert_eq!(cut("ab\n", 3), (String::new(), 0), "the empty last line");
-        assert_eq!(cut("かな", 4), ("かな".into(), 3), "inside a character");
     }
 
     #[test]
     fn a_long_line_gives_at_most_its_reach_on_each_side() {
         let line = "あ".repeat(400_000);
-        let cursor = 3 * 200_000;
-        let (out, at) = cut(&line, cursor);
+        let (out, at) = cut(&line, 3 * 200_000);
         assert!(at <= EXCERPT_REACH && out.len() - at <= EXCERPT_REACH);
-        // A cut drops the cluster it may have split, two characters here at most.
-        assert!(at > EXCERPT_REACH - 6 && out.len() - at > EXCERPT_REACH - 6);
+        assert!(at > EXCERPT_REACH - 3 && out.len() - at > EXCERPT_REACH - 3);
         assert!(out.chars().all(|c| c == 'あ'));
     }
 
     #[test]
-    fn a_cut_falls_between_clusters() {
-        // Accents join the letter before them: no cut leaves one alone at an end.
-        let line = "e\u{301}".repeat(2000);
-        let cursor = 3 * 1000;
-        let (out, at) = cut(&line, cursor);
-        assert!(out.starts_with('e') && out.ends_with('\u{301}'));
-        assert_eq!(&out[at..at + 1], "e");
+    fn a_cut_never_splits_what_a_cursor_steps_over() {
+        // Flags pair regional indicators from the start of their run, and a family joins
+        // its people with zero-width joiners: a cut inside one moves to its edge.
+        for unit in ["🇯🇵", "👨\u{200d}👩\u{200d}👧", "e\u{301}"] {
+            let line = unit.repeat(3000);
+            let (out, at) = cut(&line, unit.len() * 1500);
+            assert!(
+                at <= EXCERPT_REACH && out.len() - at <= EXCERPT_REACH,
+                "{unit:?}"
+            );
+            assert_eq!(out.len() % unit.len(), 0, "{unit:?}");
+            assert_eq!(at % unit.len(), 0, "{unit:?}");
+            assert!(out.starts_with(unit) && out.ends_with(unit), "{unit:?}");
+        }
     }
 
     #[test]
-    fn only_an_ordinary_buffer_gives_its_line() {
-        let mut out = String::new();
-        let editor = Editor::with_buffer(Buffer::from_text("t", "one\ntwo"));
+    fn only_an_ordinary_buffer_outside_a_prompt_gives_its_line() {
+        let mut out = String::from("old");
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "one\ntwo"));
         assert_eq!(editor.cursor_excerpt(&mut out), Some(0));
         assert_eq!(out, "one");
-        let secret = Editor::with_buffer(Buffer::visiting(".env".into()));
-        assert_eq!(secret.cursor_excerpt(&mut out), None);
-        assert!(out.is_empty());
+        let mut none = |editor: &Editor, why: &str| {
+            assert_eq!(editor.excerpt_stamp(), None, "{why}");
+            assert_eq!(editor.cursor_excerpt(&mut out), None, "{why}");
+            assert!(out.is_empty(), "{why}");
+        };
+        none(
+            &Editor::with_buffer(Buffer::visiting(".env".into())),
+            "unjudged",
+        );
+        let mut named = Buffer::visiting(".env".into());
+        named.judge_secret(None);
+        assert_eq!(named.verdict(), Verdict::SecretName);
+        none(&Editor::with_buffer(named), "a secret name");
+        let mut unresolved = Buffer::visiting("notes.txt".into());
+        unresolved.judge_unresolved(&[]);
+        assert_eq!(unresolved.verdict(), Verdict::Unresolved);
+        none(&Editor::with_buffer(unresolved), "unresolved");
+        let internal = Buffer::internal("*Messages*");
+        assert_eq!(internal.verdict(), Verdict::Ordinary);
+        none(&Editor::with_buffer(internal), "internal");
+        let question = Kind::Question { yes: "exit" };
+        editor.open_prompt("Exit? ", question).unwrap();
+        none(&editor, "a question over an ordinary buffer");
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", "one"));
+        editor
+            .open_prompt("Passphrase: ", Kind::Passphrase)
+            .unwrap();
+        none(&editor, "a passphrase");
     }
 }

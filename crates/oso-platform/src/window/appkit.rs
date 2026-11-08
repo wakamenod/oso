@@ -237,6 +237,8 @@ impl State {
         drop(dispatch);
         if let Err(payload) = result {
             self.update_secure(gate::SecureInput::release);
+            // Nothing of a buffer stays for the input method once no handler runs.
+            self.update_ime(|ime| ime.set_allowed(false));
             *self.panic.borrow_mut() = Some(payload);
             self.stop();
             return;
