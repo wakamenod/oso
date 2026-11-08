@@ -291,14 +291,15 @@ fn parse_for_oso_dev(method: &str, params: &Map<String, Value>) -> Result<UiOp, 
     match method {
         "export-text" => parse_export_text(params),
         "import-text" => parse_import_text(params),
-        _ => parse_dev_message(params),
+        "dev-message" => parse_dev_message(params),
+        other => Err(unknown(other)),
     }
 }
 
 /// The parameters of `export-text`.
 fn parse_export_text(params: &Map<String, Value>) -> Result<UiOp, String> {
     Ok(UiOp::ExportText {
-        export: parse_size(params, "export-text", "export")? as u64,
+        export: parse_u64(params, "export-text", "export")?,
         item: parse_size(params, "export-text", "item")?,
         offset: parse_size(params, "export-text", "offset")?,
     })
@@ -310,11 +311,19 @@ fn parse_import_text(params: &Map<String, Value>) -> Result<UiOp, String> {
         return Err("import-text needs a string parameter \"text\"".into());
     };
     Ok(UiOp::ImportText(CarriedPiece {
-        export: parse_size(params, "import-text", "export")? as u64,
+        export: parse_u64(params, "import-text", "export")?,
         item: parse_size(params, "import-text", "item")?,
         offset: parse_size(params, "import-text", "offset")?,
         text: text.clone(),
     }))
+}
+
+/// A non-negative integer parameter `name` of `method`.
+fn parse_u64(params: &Map<String, Value>, method: &str, name: &str) -> Result<u64, String> {
+    params
+        .get(name)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| format!("{method} needs a non-negative integer parameter {name:?}"))
 }
 
 /// The `text` parameter of `dev-message`.
@@ -524,7 +533,7 @@ fn is_unsafe(c: char) -> bool {
 pub fn escaped_len(text: &str) -> usize {
     text.chars()
         .map(|c| match c {
-            '"' | '\\' => 2,
+            '"' | '\\' | '\n' | '\t' | '\r' | '\u{8}' | '\u{c}' => 2,
             c if c < ' ' => 6,
             c if is_unsafe(c) => 6 * c.len_utf16(),
             c => c.len_utf8(),

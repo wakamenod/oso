@@ -2,8 +2,8 @@
 //! of each, `export-text` gives it in pieces from that snapshot, and `import-text` stages
 //! the pieces in the new instance until `import-state` takes them.
 //!
-//! Must not depend on: `app`, `server` or sockets; the caller runs the jobs here on threads
-//! of its own and replies.
+//! Must not depend on: `app`, `server` or sockets; the jobs here start threads of their
+//! own, which reply on the channel the caller gives.
 //!
 //! Pieces are copied and built on background threads, so the UI thread only clones ropes
 //! and looks up a snapshot. No text here ever reaches a log: [`CarriedPiece`]'s `Debug`
@@ -22,7 +22,7 @@ use oso_core::rope::Rope;
 use oso_core::sum_tree::Bias;
 use serde_json::json;
 
-use crate::dev::protocol::{MAX_LINE, Reply, escaped_len};
+use super::super::protocol::{MAX_LINE, Reply, escaped_len};
 
 /// The most text one restart carries, the kill ring included.
 pub const MAX_CARRIED: usize = 64 * 1024 * 1024;
@@ -62,6 +62,11 @@ impl Exported {
             items,
             at: Instant::now(),
         }
+    }
+
+    /// Whether this is too old for `export-text`, and can go.
+    pub fn is_stale(&self) -> bool {
+        self.at.elapsed() > KEPT
     }
 
     /// The job that copies the piece of `item` from `offset`, if this is the export asked for
@@ -116,7 +121,8 @@ fn piece_at(parts: &[Rope], offset: usize) -> Result<String, String> {
     if offset > total {
         return Err(format!("offset {offset} is past the item's {total} bytes"));
     }
-    let mut text = String::new();
+    let mut text = String::with_capacity(PIECE.min(total - offset));
+    let mut escaped = 0;
     let mut start = offset;
     for part in parts {
         if start >= part.len() {
@@ -126,16 +132,18 @@ fn piece_at(parts: &[Rope], offset: usize) -> Result<String, String> {
         if text.is_empty() && part.clip_offset(start, Bias::Left) != start {
             return Err(format!("offset {offset} is inside a character"));
         }
-        let end = part.clip_offset((start + PIECE - text.len()).min(part.len()), Bias::Left);
-        text.extend(part.chunks_in_range(start..end));
-        start = 0;
-        if end < part.len() {
-            break;
+        // Up to whichever comes first, in one pass: the text's bound or its line's.
+        for chunk in part.chunks_in_range(start..part.len()) {
+            for c in chunk.chars() {
+                let mut buffer = [0; 4];
+                escaped += escaped_len(c.encode_utf8(&mut buffer));
+                if text.len() + c.len_utf8() > PIECE || escaped > PIECE_LINE {
+                    return Ok(text);
+                }
+                text.push(c);
+            }
         }
-    }
-    while escaped_len(&text) > PIECE_LINE {
-        let half = text.floor_char_boundary(text.len() / 2);
-        text.truncate(half);
+        start = 0;
     }
     Ok(text)
 }
@@ -230,16 +238,29 @@ impl Staging {
         Ok(json!({ "end": builder.len() }))
     }
 
+    /// Forgets what was staged if no piece has come for [`KEPT`], on another thread.
+    pub fn drop_stale(&self) {
+        let mut staged = self.lock();
+        if staged.as_ref().is_some_and(|s| s.last.elapsed() > KEPT) {
+            drop_later(staged.take());
+        }
+    }
+
     /// Takes every item of `export`, whose lengths are `lengths`, and forgets what was
     /// staged, whether they had all arrived or not. O(the items).
     pub fn take(&self, export: u64, lengths: &[usize]) -> Result<Vec<LoadSnapshot>, String> {
-        let Some(mut staged) = self.lock().take() else {
+        let Some(staged) = self.lock().take() else {
             return lengths
                 .iter()
                 .map(|&len| (len == 0).then(empty).ok_or_else(missing))
                 .collect();
         };
-        if staged.export != export && lengths.iter().any(|&len| len > 0) {
+        let mut staged = DropLater(Some(staged));
+        let Some(staged) = staged.0.as_mut() else {
+            return Err(missing());
+        };
+        let stale = staged.last.elapsed() > KEPT;
+        if (stale || staged.export != export) && lengths.iter().any(|&len| len > 0) {
             return Err(missing());
         }
         lengths
@@ -254,6 +275,26 @@ impl Staging {
                 _ => Err(missing()),
             })
             .collect()
+    }
+}
+
+/// Drops `value` on a thread of its own, as freeing up to [`MAX_CARRIED`] of ropes and
+/// display maps would hold the UI thread for milliseconds. Inline if no thread starts.
+pub fn drop_later<T: Send + 'static>(value: T) {
+    let spawned = thread::Builder::new()
+        .name("oso-drop".into())
+        .spawn(move || drop(value));
+    if let Err(e) = spawned {
+        log::debug!("cannot start a thread to drop staged text: {e}");
+    }
+}
+
+/// What staged pieces are left of an import, dropped with [`drop_later`].
+struct DropLater<T: Send + 'static>(Option<T>);
+
+impl<T: Send + 'static> Drop for DropLater<T> {
+    fn drop(&mut self) {
+        drop_later(self.0.take());
     }
 }
 
@@ -318,6 +359,13 @@ mod tests {
         let pieces = pieces(&parts);
         assert!(pieces.iter().all(|piece| escaped_len(piece) <= PIECE_LINE));
         assert_eq!(pieces.concat(), controls);
+    }
+
+    #[test]
+    fn tab_indented_code_with_short_lines_fills_whole_pieces() {
+        let code = "\t\tx();\n".repeat(PIECE);
+        let parts = [Rope::from(code.as_str())];
+        assert_eq!(piece_at(&parts, 0).unwrap().len(), PIECE);
     }
 
     #[test]

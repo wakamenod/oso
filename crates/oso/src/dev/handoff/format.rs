@@ -26,9 +26,12 @@ use crate::dev::state::goal_state;
 /// The most buffers one state may open, each with a loading thread.
 pub const MAX_BUFFERS: usize = 1024;
 
-/// The most selections one state may hold, and the most kill pieces. Restoring them runs on
-/// the UI thread.
+/// The most selections one state may hold. Restoring them runs on the UI thread.
 pub const MAX_SELECTIONS: usize = 10_000;
+
+/// The most pieces the kills of one state may hold, as many as one kill with every
+/// selection takes.
+pub const MAX_KILL_PIECES: usize = MAX_SELECTIONS;
 
 /// The most histories one state may carry.
 pub const MAX_HISTORIES: usize = 64;
@@ -288,7 +291,12 @@ impl Items {
         if !self.claimed.insert(item) {
             return Err(format!("item {item} is claimed twice"));
         }
-        if parts.is_some_and(|parts| parts.iter().sum::<usize>() != len) {
+        let sum = |parts: &[usize]| {
+            parts
+                .iter()
+                .try_fold(0usize, |sum, &part| sum.checked_add(part))
+        };
+        if parts.is_some_and(|parts| sum(parts) != Some(len)) {
             return Err(format!("item {item}'s parts do not add up to its length"));
         }
         Ok(item)
@@ -310,9 +318,9 @@ fn parse_kills(state: &Map<String, Value>, items: &mut Items) -> Result<Vec<Kill
             let entry = entry.as_object().ok_or("a kill is not an object")?;
             let pieces = sizes(entry, "pieces")?;
             pieces_in_all += pieces.len();
-            if pieces.is_empty() || pieces_in_all > MAX_SELECTIONS {
+            if pieces.is_empty() || pieces_in_all > MAX_KILL_PIECES {
                 return Err(format!(
-                    "a kill has no pieces, or the kills more than {MAX_SELECTIONS}"
+                    "a kill has no pieces, or the kills more than {MAX_KILL_PIECES}"
                 ));
             }
             let item = items.claim(entry, Some(&pieces))?;

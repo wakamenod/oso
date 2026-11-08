@@ -21,8 +21,13 @@ fn a_modified_file_is_carried_with_what_was_known_of_it_and_no_text_in_the_state
     let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
     let id = editor.window().buffer();
     let facts = editor.buffer(id).unwrap().file_facts();
+    assert_eq!(check(&editor).unwrap()["unsaved"], false);
     type_text(&mut editor);
-    assert!(check(&editor).is_ok());
+    assert_eq!(
+        check(&editor).unwrap()["unsaved"],
+        true,
+        "it may hand over, not be closed"
+    );
     let (state, exported) = super::super::export(&editor, &[], None, None, 7).unwrap();
     assert!(
         !state.to_string().contains(TYPED),
@@ -320,4 +325,10 @@ fn bad_carried_fields_are_refused() {
         let message = parse(&state).unwrap_err();
         assert!(message.contains(expected), "{expected}: {message}");
     }
+}
+
+#[test]
+fn piece_lengths_that_overflow_are_refused_without_a_panic() {
+    let state = carrying(|s| s["kills"][0]["pieces"] = json!([u64::MAX, 2]));
+    assert!(parse(&state).unwrap_err().contains("add up"));
 }

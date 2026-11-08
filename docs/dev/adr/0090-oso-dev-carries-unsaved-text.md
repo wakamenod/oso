@@ -60,14 +60,19 @@ The author chose these on 2026-11-08, through the coordinator.
   instance stages for that item. A piece out of order is an error. The rope and display map are
   built on a background thread, as a load builds them.
 - **`import-state`** then takes the state. It changes nothing unless every item has arrived at
-  its full length. It replies only once every carried text is in its buffer, so a crash before
-  the reply keeps the old instance and its text.
+  its full length, and a file that cannot begin to load or be judged leaves the instance clean
+  again. It replies only once every carried text is in its buffer and every carried path has
+  been judged, so that the emergency save covers the text before the old instance goes
+  ([ADR 0062](0062-emergency-save-and-the-panic-hook.md)). A crash before the reply keeps the
+  old instance and its text. The reply gives the new instance's generation right after the
+  import.
 - **The supervisor relays one piece at a time,** from the old instance to the new one, and holds
   nothing more. The text is never written to a file. It stays in the two editors' memory and
   passes through the same-user sockets in the control directory, which is `0700`.
-- **A snapshot is dropped** at the exit or the next export, and is refused 60 s after the
-  export. Staged pieces are dropped once the import takes them or is refused, or when a
-  piece comes more than 60 s after the one before.
+- **A snapshot is dropped** at the next export, when an exit for a generation is refused, or
+  at the first request 60 s after the export, which `export-text` refuses from then on.
+  Staged pieces are dropped once the import takes them or is refused, or at the first
+  request 60 s after the last piece. What is dropped is freed on a thread of its own.
 - **All the text carried, the kill ring included, is at most 64 MiB.** If the buffers' text is
   more, the restart waits, and the echo area names the largest buffer to save. Kill entries
   fill what the buffers and histories leave, the newest first, and older ones that do not fit
@@ -78,8 +83,13 @@ The author chose these on 2026-11-08, through the coordinator.
 
 - **Each carried buffer is judged again.** A background thread opens and resolves its path as
   a load does, and reads nothing. Until then the buffer counts as a file not judged yet, so
-  the socket withholds it. It can be typed into at once. Its positions apply at once, since its
-  text is all there.
+  the socket withholds it and the emergency save leaves it out. It can be typed into at once.
+  Its positions apply at once, since its text is all there.
+- **An instance with unsaved text is never closed.** `check-handover` also says whether an
+  instance holds text no file does, as `unsaved`. Such an instance can hand over, but the
+  supervisor does not close it, beside the old one or as one that got no window. A new instance
+  that took over a state holds only what the old one still holds, so it is closed with the
+  generation its import reported, and stays once it has been typed into.
 - **A reader takes its own version and the one before,** so version 2 reads the version 1 state
   that instances running today write, and a later version 3 will read version 2. Anything else,
   or any bad field, leaves the new instance clean beside the old one, which keeps its text. Its
@@ -119,8 +129,8 @@ The author chose these on 2026-11-08, through the coordinator.
 - **Why a restart waits reaches the old instance's echo area the same way,** for example
   `oso dev: restart held: cannot hand over .env: it has unsaved edits and may hold secrets`.
   While a buffer that may hold secrets is shown, the reason stays the single one of ADR 0079.
-- They go to the current instance and to the one beside it, through a new dev method,
-  `dev-message {text}`, of at most 1 KiB.
+- Build errors go to the current instance and to the one beside it, and why a restart waits to
+  the old instance, through a new dev method, `dev-message {text}`, of at most 1 KiB.
 
 ### Smaller points
 
@@ -151,12 +161,25 @@ These ADRs stay as they are; this one changes the following:
 - [ADR 0055](0055-oso-dev-never-loses-unsaved-text.md):
   - "A file with unsaved edits makes `export-state` fail": only one that may hold secrets, one
     holding a recovered copy not saved yet, or carried text over 64 MiB in all.
-  - The generation covers the kill ring too, as above.
+  - The generation covers the kill ring too, as above, and "a save between the export and the
+    exit does not change it" no longer holds: the saved buffer stops being modified.
+  - "No generation is ever reported while a file holds edits", which made closing an instance
+    safe: one is, and `unsaved` is what keeps such an instance from being closed.
+- [ADR 0059](0059-safe-save-and-the-exit-guard.md), "`oso dev`'s handoff reads the file again,
+  so a fresh baseline comes with it": a carried buffer brings the baseline it had, and whether a
+  save found its file changed.
 - [ADR 0071](0071-mark-and-region.md), "A restart drops the marks and the ring": a restart
   carries them, and whether the region shows.
 - [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md), a history is "never written
   to disk or carried through a restart": `oso dev` carries it to the instance that replaces this
   one. It is still never written to disk.
+- [ADR 0074](0074-the-kill-ring-and-the-clipboard.md), "Where an entry came from survives the
+  round trip": not through a restart under `oso dev`, which does not carry the fingerprints,
+  for text the clipboard has not kept marked concealed.
+- [ADR 0079](0079-state-and-restarts-around-a-secret-buffer.md), a file not judged yet "is
+  loading, as after a restart, and its positions are the ones it came in with": a carried buffer
+  is not judged yet and not loading, and its positions apply at once. It still does not count
+  as a secret buffer shown.
 
 ## Consequences
 
@@ -166,7 +189,8 @@ These ADRs stay as they are; this one changes the following:
   if its text is changed back by hand.
 - A large unsaved buffer slows the restart: 64 MiB takes two requests per 512 KiB piece.
 - After a restart, a secret that went to the clipboard comes back by a yank as ordinary text,
-  since its fingerprint is not carried. This happens only under `oso dev`.
+  since its fingerprint is not carried, unless the clipboard kept the concealed mark oso put on
+  it. This happens only under `oso dev`.
 - A same-user client can read the unsaved text of a buffer that cannot hold secrets through
   `export-text`, as it already can through `get-text`, and can stage text in a new instance, as
   it already can by typing.
@@ -176,6 +200,9 @@ These ADRs stay as they are; this one changes the following:
   log, which goes to the same terminal, so the errors show there a second time, one row each.
 - Old kill entries can be dropped at a restart, when the buffers' text and newer kills fill
   64 MiB.
+- Two instances that each hold unsaved text both stay until the person closes one, as ADR 0055
+  has it for two edited ones: an instance left beside the old one after it was typed into holds
+  later restarts.
 
 ## Alternatives considered
 

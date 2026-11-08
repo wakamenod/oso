@@ -11,7 +11,7 @@
 use serde_json::Value;
 
 /// The most errors sent as rows of their own.
-pub const MAX_ROWS: usize = 20;
+const MAX_ROWS: usize = 20;
 
 /// What one line of cargo's output says of the build, if it is a compiler message.
 #[derive(Debug, PartialEq, Eq)]

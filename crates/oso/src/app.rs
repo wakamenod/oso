@@ -117,19 +117,10 @@ pub struct App {
     /// Questions a control socket request opened, which keys from the window do not answer.
     #[cfg(feature = "dev")]
     remote_questions: Vec<oso_core::minibuffer::PromptId>,
-    /// Positions handed over from the previous instance, until their file has
-    /// loaded.
+    /// What a restart under `oso dev` keeps: positions still to restore, the latest export,
+    /// and what an import has brought so far.
     #[cfg(feature = "dev")]
-    restore: Option<dev::handoff::Restore>,
-    /// How many states this instance has exported, which names the latest.
-    #[cfg(feature = "dev")]
-    exports: u64,
-    /// The texts the latest export carries, for `export-text`.
-    #[cfg(feature = "dev")]
-    exported: Option<dev::handoff::carry::Exported>,
-    /// The texts `import-text` has brought for the import that follows.
-    #[cfg(feature = "dev")]
-    staging: dev::handoff::carry::Staging,
+    handover: handover::Handover,
 }
 
 impl App {
@@ -174,13 +165,7 @@ impl App {
             #[cfg(feature = "dev")]
             remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
-            restore: None,
-            #[cfg(feature = "dev")]
-            exports: 0,
-            #[cfg(feature = "dev")]
-            exported: None,
-            #[cfg(feature = "dev")]
-            staging: dev::handoff::carry::Staging::default(),
+            handover: handover::Handover::default(),
         }
     }
 

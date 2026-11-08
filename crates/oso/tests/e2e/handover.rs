@@ -72,9 +72,9 @@ fn unsaved_text_its_region_and_its_kills_move_to_a_new_instance_and_save_there()
     let (state, _) = hand_over(&mut old, &mut new);
     assert_eq!(state["version"], 2);
 
-    let after = new.wait_for("the carried file judged", |state| {
-        state["buffer"]["secret"] == false
-    });
+    // The import replied only once the file was judged, so the emergency save covers it.
+    let after = new.state();
+    assert_eq!(after["buffer"]["secret"], false);
     assert_eq!(after["buffer"]["path"].as_str(), file.to_str());
     assert_eq!(after["buffer"]["modified"], true);
     assert_eq!(after["cursor"], before["cursor"]);

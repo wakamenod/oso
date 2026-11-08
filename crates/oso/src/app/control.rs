@@ -34,6 +34,7 @@ impl App {
             let _ = reply.send(Err("the editor is shutting down".into()));
             return;
         }
+        self.drop_stale_texts();
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
         self.dispatcher.set_input_from_socket(true);
         let result = self.answer_control(event_loop, op, received, reply);
@@ -116,11 +117,16 @@ impl App {
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
             dev::UiOp::Clipboard(op) => self.memory_clipboard(op),
-            dev::UiOp::ImportState(state) => self.import_state(*state),
+            dev::UiOp::ImportState(state) => return self.answer_import(*state, reply),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
             dev::UiOp::Exit { generation } => {
-                handoff::exit_allowed(&self.editor, generation).map(|()| {
+                let allowed = handoff::exit_allowed(&self.editor, generation);
+                if allowed.is_err() {
+                    // That restart is over, and its snapshot need hold no text.
+                    self.forget_export();
+                }
+                allowed.map(|()| {
                     self.leave(event_loop, true);
                     json!({ "exiting": true })
                 })

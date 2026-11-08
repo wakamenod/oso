@@ -3,7 +3,8 @@
 //! guard on `exit` (ADR 0023, ADR 0047, ADR 0055, ADR 0059, ADR 0090).
 //!
 //! Must not depend on: `app`, `server`, winit or sockets; these are plain
-//! functions of the editor state, and the caller opens the files.
+//! functions of the editor state, and the caller opens the files. Only [`carry`]
+//! starts threads, to copy and build the texts off the UI thread.
 //!
 //! A buffer without edits is handed over by its path, and the new instance reads
 //! it from disk and judges it like any file it opens. The text of a modified
@@ -47,9 +48,9 @@ mod format;
 
 use carry::{Exported, Item, MAX_CARRIED};
 #[cfg(test)]
-use format::{MAX_BUFFERS, MAX_FRAME_SIDE};
+use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
 pub use format::{MAX_ITEMS, State, parse};
-use format::{MAX_SELECTIONS, facts_state, selections_state};
+use format::{MAX_KILL_PIECES, facts_state, selections_state};
 
 /// The version of the state format. Bump it on any change that the previous
 /// reader would get wrong, and keep reading the one before.
@@ -254,10 +255,14 @@ fn handed(buffer: &Buffer) -> Result<Handed<'_>, String> {
     }
 }
 
-/// The bytes of buffer text a handover carries, or an error naming the largest buffer if it
-/// is more than a restart carries, or naming a buffer that cannot be handed over.
+/// The bytes of text a handover carries apart from kills, or an error naming the largest
+/// buffer if it is more than a restart carries, or naming a buffer that cannot be handed
+/// over.
 fn carried_bytes(editor: &Editor) -> Result<usize, String> {
-    let mut total = 0;
+    let mut total: usize = editor
+        .histories()
+        .flat_map(|(_, answers)| answers.map(str::len))
+        .sum();
     let mut largest: Option<&Buffer> = None;
     for (_, buffer) in editor.buffers() {
         if let Handed::Carried(_) = handed(buffer)? {
@@ -297,7 +302,7 @@ fn histories_state(editor: &Editor, items: &mut Vec<Item>) -> Vec<Value> {
 /// may hold secrets or from the clipboard (ADR 0074), and only as many of the newest as fit
 /// in `room` bytes and the bound on pieces. An O(1) snapshot of each piece's parts.
 fn kills_state(editor: &Editor, mut room: usize, items: &mut Vec<Item>) -> Vec<Value> {
-    let mut pieces_left = MAX_SELECTIONS;
+    let mut pieces_left = MAX_KILL_PIECES;
     let mut kills = Vec::new();
     let carried = editor
         .kill_ring()
@@ -333,22 +338,26 @@ fn kill_state(entry: &KillEntry, items: &mut Vec<Item>) -> Value {
     })
 }
 
-/// The result of `check-handover`: the instance's generation, or why its text
-/// would not survive a restart. These are the buffers `export` would refuse,
-/// without building a state, so that the supervisor can ask before it opens a new
-/// window.
+/// The result of `check-handover`: the instance's generation, and whether it holds
+/// text no file does, or why its text would not survive a restart. These are the
+/// buffers `export` would refuse, without building a state, so that the supervisor can
+/// ask before it opens a new window. One that holds such text can hand over, but must
+/// not be closed (ADR 0055).
 pub fn check(editor: &Editor) -> Reply {
     if shows_judged_secret(editor) {
         return Err(SECRET_SHOWN.into());
     }
     carried_bytes(editor)?;
+    let unsaved = editor
+        .buffers()
+        .any(|(_, buffer)| matches!(handed(buffer), Ok(Handed::Carried(_))));
     if editor.preedit().is_some() {
         return Err(COMPOSING.into());
     }
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
-    Ok(json!({ "generation": generation(editor) }))
+    Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
 }
 
 /// Why a restart waits for a composition to end: its text is in no buffer, so a new

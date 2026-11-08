@@ -188,7 +188,8 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 - **M2-15** (after M2-2, M2-7, M2-13 and M2-14): `oso dev` carries unsaved text, and
   sends build errors to the echo area
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
-  [ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+  [ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
+  [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)).
 - **M2-16** (after M2-7): floating windows and minibuffer input, reading a command's
   arguments, yes/no prompts and the `C-g` chain ([ADR 0008](adr/0008-floating-ui.md)).
 - **M2-17** (after M2-16): completion: the orderless matcher, 18 candidate rows,

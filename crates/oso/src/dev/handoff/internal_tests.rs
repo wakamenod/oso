@@ -21,7 +21,10 @@ fn messages_hold_no_restart_and_change_no_generation() {
     let before = generation(&editor);
     editor.message("Wrote a.txt");
     assert_eq!(generation(&editor), before);
-    assert_eq!(check(&editor), Ok(json!({ "generation": before })));
+    assert_eq!(
+        check(&editor),
+        Ok(json!({ "generation": before, "unsaved": false }))
+    );
     let state = export(&editor, &[], None, None).unwrap();
     assert_eq!(state["generation"], before);
     assert_eq!(state["buffers"].as_array().unwrap().len(), 2);
@@ -180,5 +183,8 @@ fn a_composition_holds_the_handover_and_an_exit_for_a_generation() {
         "asked plainly, it exits"
     );
     editor.set_preedit(None);
-    assert_eq!(check(&editor), Ok(json!({ "generation": before })));
+    assert_eq!(
+        check(&editor),
+        Ok(json!({ "generation": before, "unsaved": false }))
+    );
 }

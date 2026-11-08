@@ -283,9 +283,11 @@ and below the row, and a label's glyphs keep their own cells
   that may hold secrets with unsaved edits holds the restart, and the refusal names it
   without quoting it ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md),
   [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)). The new instance judges each
-  carried path again and withholds the buffer until then. The fingerprints of secret
-  kills are not carried, so a secret copied to the clipboard before a restart yanks back
-  as ordinary text after it, under `oso dev` only. Build errors reach the editor as
+  carried path again and withholds the buffer until then. Minibuffer histories are carried
+  too; they never hold an answer given around a secret buffer or a passphrase. The
+  fingerprints of secret kills are not carried, so a secret copied to the clipboard before a
+  restart yanks back as ordinary text after it, under `oso dev` only, unless the clipboard
+  kept the concealed mark. Build errors reach the editor as
   cargo's message and span, never its rendered text with escape sequences.
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this, only the agent

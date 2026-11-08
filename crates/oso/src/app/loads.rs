@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use oso_core::buffer::{Buffer, BufferId};
+use oso_core::buffer::{Buffer, BufferId, Verdict};
 use oso_core::window;
 
 use super::{App, UserEvent};
@@ -65,15 +65,15 @@ impl App {
 
     /// Adds a buffer for `path` holding `text`, carried unsaved from another instance, and
     /// starts judging the path, which reads nothing of the file (ADR 0090). Until then it
-    /// counts as a file not judged yet. If the thread cannot start, it stays so, and keeps
-    /// its text.
+    /// counts as a file not judged yet. `None`, and nothing added, if the thread cannot
+    /// start.
     #[cfg(feature = "dev")]
     pub(super) fn visit_carried(
         &mut self,
         path: PathBuf,
         text: oso_core::load::LoadSnapshot,
         facts: oso_core::buffer::FileFacts,
-    ) -> BufferId {
+    ) -> Option<BufferId> {
         let mut buffer = Buffer::visiting(path.clone());
         buffer.apply_carried(text, facts);
         let buffer = self.editor.add_buffer(buffer);
@@ -82,14 +82,20 @@ impl App {
         match loader::spawn_judging(buffer, path, move |buffer| {
             waker.send(UserEvent::Load(buffer))
         }) {
-            Ok(handle) => self.loads.push(Load {
-                handle,
-                started,
-                first_screen: None,
-            }),
-            Err(e) => log::warn!("cannot start judging a carried buffer: {e}"),
+            Ok(handle) => {
+                self.loads.push(Load {
+                    handle,
+                    started,
+                    first_screen: None,
+                });
+                Some(buffer)
+            }
+            Err(e) => {
+                log::warn!("cannot start judging a carried buffer: {e}");
+                self.editor.kill_buffer(buffer);
+                None
+            }
         }
-        buffer
     }
 
     /// A loading thread has an update for `buffer`: takes it in, and asks for a
@@ -100,6 +106,8 @@ impl App {
             && let Some(update) = self.loads[index].handle.take()
         {
             let redraw = self.apply_load(index, update);
+            #[cfg(feature = "dev")]
+            self.reply_to_import();
             // Not in `apply_load`, as `poll_loads` runs on the frame path. A buffer still
             // loading is not at risk, so nothing is lost by waiting for this event.
             self.dispatcher.publish_for_emergency(&self.editor);
@@ -117,6 +125,8 @@ impl App {
                 self.apply_load(index, update);
             }
         }
+        #[cfg(feature = "dev")]
+        self.reply_to_import();
     }
 
     /// Starts filling an internal buffer with a copy's text.
@@ -247,9 +257,10 @@ impl App {
                     started.elapsed()
                 );
             }
-            editor
-                .buffer(load.handle.buffer())
-                .is_some_and(|buffer| buffer.loading().is_some())
+            // A carried buffer has all its text, and waits only for its verdict.
+            editor.buffer(load.handle.buffer()).is_some_and(|buffer| {
+                buffer.loading().is_some() || buffer.verdict() == Verdict::Unjudged
+            })
         });
     }
 }

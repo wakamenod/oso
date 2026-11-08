@@ -9,8 +9,8 @@
 //!
 //! On a change it runs an incremental build, shown in the terminal. If that
 //! fails, the instance keeps running, and its echo area and `*Messages*` say why.
-//! If it succeeds, and nothing holds the restart, the new binary starts, takes over
-//! the old instance's state and unsaved text, and only then does the old one exit. A new binary that cannot start is closed and the
+//! If it succeeds, and nothing holds the restart, the new binary starts and takes
+//! over the old instance's state and unsaved text. Only then does the old one exit. A new binary that cannot start is closed and the
 //! old one kept. One that refuses the state stays open beside the old one until
 //! the next build, which closes it unless it has been edited.
 //!
@@ -271,6 +271,8 @@ struct Running {
     dir: ControlDir,
     /// Which build made its binary.
     build: u64,
+    /// The generation its import reported, if it took over a state.
+    imported: Option<u64>,
 }
 
 impl Running {
@@ -295,6 +297,7 @@ impl Running {
             child,
             dir: dir.clone(),
             build,
+            imported: None,
         })
     }
 
@@ -374,6 +377,14 @@ impl Instance for Running {
 
     fn stop(&mut self, generation: u64) -> Result<(), NotStopped> {
         self.stop_within(generation, EXIT_TIMEOUT)
+    }
+
+    fn imported(&self) -> Option<u64> {
+        self.imported
+    }
+
+    fn set_imported(&mut self, generation: Option<u64>) {
+        self.imported = generation;
     }
 }
 
@@ -531,6 +542,7 @@ mod tests {
                 child,
                 dir: dir.clone(),
                 build: 0,
+                imported: None,
             }
         }
 

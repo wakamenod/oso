@@ -2,7 +2,7 @@
 //!
 //! Must not depend on: `editor` or prompts; a history holds strings by name.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 use super::{HISTORY_LENGTH, MAX_ENTRY_BYTES};
 
@@ -32,11 +32,12 @@ impl Histories {
     /// leaves out what it holds already and what [`Histories::record`] would not keep.
     pub(crate) fn extend_older(&mut self, name: &str, older: impl IntoIterator<Item = String>) {
         let list = self.list_mut(name);
+        let mut held: HashSet<String> = list.iter().cloned().collect();
         for text in older {
             if list.len() >= HISTORY_LENGTH {
                 break;
             }
-            if !text.is_empty() && text.len() <= MAX_ENTRY_BYTES && !list.contains(&text) {
+            if !text.is_empty() && text.len() <= MAX_ENTRY_BYTES && held.insert(text.clone()) {
                 list.push_back(text);
             }
         }
