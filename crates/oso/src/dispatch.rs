@@ -324,10 +324,15 @@ impl Dispatcher {
                 let refused = format!("{name} reads a command's name; run the command itself");
                 return (Effects::default(), Err(refused));
             }
-            // A buffer's name, or a mark's row, is text, which `run-command` does not carry yet.
+            // A buffer's name, a mark's row or a path is text, which `run-command` does not carry
+            // yet.
             (ArgSpec::Buffer { .. } | ArgSpec::Mark { .. } | ArgSpec::File { .. }, _) => {
-                let refused =
-                    format!("{name} reads a buffer's name in a prompt, through send-keys");
+                let what = match command.args {
+                    ArgSpec::Buffer { .. } => "a buffer's name",
+                    ArgSpec::Mark { .. } => "a mark",
+                    _ => "a path",
+                };
+                let refused = format!("{name} reads {what} in a prompt, through send-keys");
                 return (Effects::default(), Err(refused));
             }
             (_, None) => Args::with_prefix(self.prefix.take()),

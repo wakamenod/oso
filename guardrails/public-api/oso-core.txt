@@ -442,74 +442,20 @@ impl core::fmt::Debug for oso_core::command::Registry
 pub fn oso_core::command::Registry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub type oso_core::command::CommandFn = fn(&mut oso_core::command::Ctx<'_>, oso_core::command::Args) -> core::result::Result<(), oso_core::command::CommandError>
 pub mod oso_core::complete
-pub mod oso_core::complete::path
-pub enum oso_core::complete::path::Expanded
-pub oso_core::complete::path::Expanded::Need(alloc::vec::Vec<std::path::PathBuf>)
-pub oso_core::complete::path::Expanded::Ready(alloc::vec::Vec<oso_core::complete::path::Found>, bool)
-impl core::clone::Clone for oso_core::complete::path::Expanded
-pub fn oso_core::complete::path::Expanded::clone(&self) -> oso_core::complete::path::Expanded
-impl core::cmp::Eq for oso_core::complete::path::Expanded
-impl core::cmp::PartialEq for oso_core::complete::path::Expanded
-pub fn oso_core::complete::path::Expanded::eq(&self, &oso_core::complete::path::Expanded) -> bool
-impl core::fmt::Debug for oso_core::complete::path::Expanded
-pub fn oso_core::complete::path::Expanded::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::complete::path::Expanded
-pub enum oso_core::complete::path::NameKind
-pub oso_core::complete::path::NameKind::Directory
-pub oso_core::complete::path::NameKind::File
-pub oso_core::complete::path::NameKind::Link
-pub oso_core::complete::path::NameKind::Other
-impl core::clone::Clone for oso_core::complete::path::NameKind
-pub fn oso_core::complete::path::NameKind::clone(&self) -> oso_core::complete::path::NameKind
-impl core::cmp::Eq for oso_core::complete::path::NameKind
-impl core::cmp::PartialEq for oso_core::complete::path::NameKind
-pub fn oso_core::complete::path::NameKind::eq(&self, &oso_core::complete::path::NameKind) -> bool
-impl core::fmt::Debug for oso_core::complete::path::NameKind
-pub fn oso_core::complete::path::NameKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::complete::path::NameKind
-impl core::marker::StructuralPartialEq for oso_core::complete::path::NameKind
-pub struct oso_core::complete::path::Found
-pub oso_core::complete::path::Found::directory: bool
-pub oso_core::complete::path::Found::path: std::path::PathBuf
-pub oso_core::complete::path::Found::text: alloc::string::String
-impl core::clone::Clone for oso_core::complete::path::Found
-pub fn oso_core::complete::path::Found::clone(&self) -> oso_core::complete::path::Found
-impl core::cmp::Eq for oso_core::complete::path::Found
-impl core::cmp::PartialEq for oso_core::complete::path::Found
-pub fn oso_core::complete::path::Found::eq(&self, &oso_core::complete::path::Found) -> bool
-impl core::fmt::Debug for oso_core::complete::path::Found
-pub fn oso_core::complete::path::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::complete::path::Found
-pub struct oso_core::complete::path::Name
-pub oso_core::complete::path::Name::kind: oso_core::complete::path::NameKind
-pub oso_core::complete::path::Name::name: alloc::string::String
-impl core::clone::Clone for oso_core::complete::path::Name
-pub fn oso_core::complete::path::Name::clone(&self) -> oso_core::complete::path::Name
-impl core::cmp::Eq for oso_core::complete::path::Name
-impl core::cmp::PartialEq for oso_core::complete::path::Name
-pub fn oso_core::complete::path::Name::eq(&self, &oso_core::complete::path::Name) -> bool
-impl core::fmt::Debug for oso_core::complete::path::Name
-pub fn oso_core::complete::path::Name::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::complete::path::Name
-pub struct oso_core::complete::path::Plan
-pub oso_core::complete::path::Plan::last: alloc::string::String
-pub oso_core::complete::path::Plan::root: std::path::PathBuf
-pub oso_core::complete::path::Plan::segments: alloc::vec::Vec<alloc::string::String>
-pub oso_core::complete::path::Plan::start: usize
-impl core::clone::Clone for oso_core::complete::path::Plan
-pub fn oso_core::complete::path::Plan::clone(&self) -> oso_core::complete::path::Plan
-impl core::cmp::Eq for oso_core::complete::path::Plan
-impl core::cmp::PartialEq for oso_core::complete::path::Plan
-pub fn oso_core::complete::path::Plan::eq(&self, &oso_core::complete::path::Plan) -> bool
-impl core::fmt::Debug for oso_core::complete::path::Plan
-pub fn oso_core::complete::path::Plan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::complete::path::Plan
-pub const oso_core::complete::path::MAX_EXPANDED: usize
-pub fn oso_core::complete::path::as_typed(&oso_core::complete::path::Plan) -> std::path::PathBuf
-pub fn oso_core::complete::path::expand<'a>(&oso_core::complete::path::Plan, impl core::ops::function::Fn(&std::path::Path) -> core::option::Option<&'a [oso_core::complete::path::Name]>, impl core::ops::function::Fn(&std::path::Path) -> bool) -> oso_core::complete::path::Expanded
-pub fn oso_core::complete::path::plan(&str, core::option::Option<&std::path::Path>, &std::path::Path) -> oso_core::complete::path::Plan
-pub fn oso_core::complete::path::start(&str) -> usize
-pub fn oso_core::complete::path::typed_form(&std::path::Path, bool, core::option::Option<&std::path::Path>) -> alloc::string::String
+pub enum oso_core::complete::NameKind
+pub oso_core::complete::NameKind::Directory
+pub oso_core::complete::NameKind::File
+pub oso_core::complete::NameKind::Link
+pub oso_core::complete::NameKind::Other
+impl core::clone::Clone for oso_core::complete::NameKind
+pub fn oso_core::complete::NameKind::clone(&self) -> oso_core::complete::NameKind
+impl core::cmp::Eq for oso_core::complete::NameKind
+impl core::cmp::PartialEq for oso_core::complete::NameKind
+pub fn oso_core::complete::NameKind::eq(&self, &oso_core::complete::NameKind) -> bool
+impl core::fmt::Debug for oso_core::complete::NameKind
+pub fn oso_core::complete::NameKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::complete::NameKind
+impl core::marker::StructuralPartialEq for oso_core::complete::NameKind
 pub struct oso_core::complete::Candidate
 impl oso_core::complete::Candidate
 pub fn oso_core::complete::Candidate::annotation(&self) -> &str
@@ -523,6 +469,7 @@ impl oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::get(&self, usize) -> core::option::Option<&oso_core::complete::Candidate>
 pub fn oso_core::complete::Candidates::in_order_given(&self) -> bool
 pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
+pub fn oso_core::complete::Candidates::item_at(&self, usize) -> core::option::Option<usize>
 pub fn oso_core::complete::Candidates::len(&self) -> usize
 pub fn oso_core::complete::Candidates::on_input(&self) -> bool
 pub fn oso_core::complete::Candidates::previews(&self) -> bool
@@ -535,6 +482,17 @@ pub fn oso_core::complete::Candidates::top(&self) -> usize
 pub fn oso_core::complete::Candidates::total(&self) -> usize
 impl core::fmt::Debug for oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::complete::Name
+pub oso_core::complete::Name::kind: oso_core::complete::NameKind
+pub oso_core::complete::Name::name: alloc::string::String
+impl core::clone::Clone for oso_core::complete::Name
+pub fn oso_core::complete::Name::clone(&self) -> oso_core::complete::Name
+impl core::cmp::Eq for oso_core::complete::Name
+impl core::cmp::PartialEq for oso_core::complete::Name
+pub fn oso_core::complete::Name::eq(&self, &oso_core::complete::Name) -> bool
+impl core::fmt::Debug for oso_core::complete::Name
+pub fn oso_core::complete::Name::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::complete::Name
 pub struct oso_core::complete::Query
 impl oso_core::complete::Query
 pub fn oso_core::complete::Query::highlights(&self, &oso_core::complete::Candidate, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
@@ -549,6 +507,7 @@ impl core::fmt::Debug for oso_core::complete::Query
 pub fn oso_core::complete::Query::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::complete::Query
 pub const oso_core::complete::ROWS: usize
+pub fn oso_core::complete::typed_form(&std::path::Path, bool, core::option::Option<&std::path::Path>) -> alloc::string::String
 pub mod oso_core::decode
 pub enum oso_core::decode::LineEnding
 pub oso_core::decode::LineEnding::Crlf
@@ -1217,8 +1176,10 @@ pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
-pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::path::Name]>>)
+pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
 pub fn oso_core::editor::Editor::file_looked(&mut self, &std::path::Path, alloc::vec::Vec<(alloc::string::String, oso_core::editor::Looked)>)
+pub fn oso_core::editor::Editor::file_prompt_open(&self) -> bool
+pub fn oso_core::editor::Editor::files_cut(&self) -> bool
 pub fn oso_core::editor::Editor::files_pending(&self) -> bool
 pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::option::Option<u64>
 pub fn oso_core::editor::Editor::open_file_prompt(&mut self, &str, &'static str, &str, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
@@ -1279,6 +1240,7 @@ pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Statu
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
 pub struct oso_core::editor::Elsewhere
+pub oso_core::editor::Elsewhere::name: alloc::string::String
 pub oso_core::editor::Elsewhere::open: alloc::vec::Vec<std::path::PathBuf>
 pub oso_core::editor::Elsewhere::over: core::option::Option<oso_core::editor::Over>
 impl core::clone::Clone for oso_core::editor::Elsewhere

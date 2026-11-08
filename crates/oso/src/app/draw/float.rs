@@ -55,7 +55,11 @@ impl<'a> Parts<'a> {
             let count = if editor.files_pending() {
                 "…/…".to_owned()
             } else {
-                format!("{place}/{}", candidates.len())
+                {
+                    // Past a limit, `+` says some were left out (ADR 0087).
+                    let more = if editor.files_cut() { "+" } else { "" };
+                    format!("{place}/{}{more}", candidates.len())
+                }
             };
             (candidates, count)
         });

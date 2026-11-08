@@ -149,9 +149,10 @@ impl Dispatcher {
             .1
             .path()
             .and_then(std::path::Path::parent)
-            .map_or(start.clone(), std::path::Path::to_path_buf);
-        let initial = oso_core::complete::path::typed_form(&directory, true, editor.home());
-        match editor.open_file_prompt(prompt, history, &initial, start) {
+            .map_or(start, std::path::Path::to_path_buf);
+        let initial = oso_core::complete::typed_form(&directory, true, editor.home());
+        // A relative path typed in place of it starts there too.
+        match editor.open_file_prompt(prompt, history, &initial, directory) {
             Ok(prompt) => self.reading.push(Reading {
                 id,
                 prefix,

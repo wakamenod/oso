@@ -49,9 +49,11 @@ pub struct Plan {
 /// A candidate: what its row shows, and the path it stands for.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Found {
-    /// The name, with the directories from the first segment that matched several before it,
-    /// and `/` after a directory.
-    pub text: String,
+    /// The name, with `/` after a directory, which the last segment is matched against.
+    pub name: String,
+    /// The directories from the first segment that matched several, which tell rows of one
+    /// name apart, shown beside the name and not matched.
+    pub context: String,
     pub path: PathBuf,
     pub directory: bool,
 }
@@ -145,14 +147,18 @@ pub fn expand<'a>(
             Err(need) => return Expanded::Need(need),
         }
     }
+    let need: Vec<PathBuf> = reached
+        .iter()
+        .filter(|(directory, _)| listing(directory).is_none())
+        .map(|(directory, _)| directory.clone())
+        .collect();
+    if !need.is_empty() {
+        return Expanded::Need(need);
+    }
     let hidden = plan.last.starts_with('.');
     let mut found = Vec::new();
-    let mut need = Vec::new();
     for (directory, shown) in &reached {
-        let Some(names) = listing(directory) else {
-            need.push(directory.clone());
-            continue;
-        };
+        let names = listing(directory).unwrap_or(&[]);
         for name in names {
             if name.name.starts_with('.') && !hidden {
                 continue;
@@ -160,17 +166,14 @@ pub fn expand<'a>(
             let is_directory = name.kind == NameKind::Directory;
             let slash = if is_directory { "/" } else { "" };
             found.push(Found {
-                text: format!("{shown}{}{slash}", name.name),
+                name: format!("{}{slash}", name.name),
+                context: shown.clone(),
                 path: directory.join(&name.name),
                 directory: is_directory,
             });
         }
     }
-    if need.is_empty() {
-        Expanded::Ready(found, cut)
-    } else {
-        Expanded::Need(need)
-    }
+    Expanded::Ready(found, cut)
 }
 
 /// The directories one `segment` reaches from those `reached`, and whether some were left out
@@ -252,7 +255,12 @@ fn step<'a>(
 /// The typed text that stands for `path` as a candidate: from the home directory as `~/` when it
 /// is under it, with `/` after a directory.
 pub fn typed_form(path: &Path, directory: bool, home: Option<&Path>) -> String {
-    let slash = if directory { "/" } else { "" };
+    // The root is its own `/`.
+    let slash = if directory && path.parent().is_some() {
+        "/"
+    } else {
+        ""
+    };
     match home.and_then(|home| path.strip_prefix(home).ok()) {
         Some(rest) if rest.as_os_str().is_empty() => "~/".to_owned(),
         Some(rest) => format!("~/{}{slash}", rest.display()),

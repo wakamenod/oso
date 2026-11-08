@@ -19,10 +19,11 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+pub use path::{Name, NameKind, typed_form};
 pub(crate) use query::MAX_INPUT_BYTES;
 pub use query::Query;
 
-pub mod path;
+pub(crate) mod path;
 mod query;
 
 /// The most candidate rows a prompt shows, until configuration sets it (ADR 0026).
@@ -388,13 +389,23 @@ impl Candidates {
     /// The match shown at `place`, from 0: an exact match of the input first, then the rest
     /// in their order.
     pub fn get(&self, place: usize) -> Option<&Candidate> {
+        self.items.get(self.item_at(place)?)
+    }
+
+    /// The index in the items given of the match shown at `place`, for a caller that keeps
+    /// more of each item beside it.
+    pub fn item_at(&self, place: usize) -> Option<usize> {
         let at = match self.exact {
             Some(exact) if place == 0 => exact,
             Some(exact) if place <= exact => place - 1,
             _ => place,
         };
-        let index = *self.matches.get(at)?;
-        self.items.get(index as usize)
+        Some(*self.matches.get(at)? as usize)
+    }
+
+    /// The place where the item at `index` shows, if it matches.
+    pub(crate) fn place_of(&self, index: usize) -> Option<usize> {
+        (0..self.len()).find(|place| self.item_at(*place) == Some(index))
     }
 
     /// Where the selected candidate shows, while any matches and what is typed is not selected.

@@ -35,6 +35,7 @@ fn prompt() -> Editor {
     editor.file_listed(
         PathBuf::from("/home/me"),
         names(&[("notes", D), ("todo.md", F), (".config", D)]),
+        false,
     );
     editor
 }
@@ -92,6 +93,7 @@ fn tab_puts_the_whole_path_in_and_ret_on_a_directory_goes_into_it() {
     editor.file_listed(
         PathBuf::from("/home/me/notes"),
         names(&[("plan.md", NameKind::File)]),
+        false,
     );
     assert_eq!(rows(&editor), ["plan.md"]);
     editor.submit_prompt().unwrap();
@@ -140,7 +142,7 @@ fn a_directory_that_cannot_be_read_says_so_and_lists_nothing() {
         .unwrap();
     // The directory it starts in is known, so the one above it needs no listing.
     assert_eq!(editor.take_file_requests(), [PathBuf::from("/locked")]);
-    editor.file_listed(PathBuf::from("/locked"), None);
+    editor.file_listed(PathBuf::from("/locked"), None, false);
     assert!(rows(&editor).is_empty());
     assert_eq!(editor.prompt().unwrap().message(), Some("Cannot list it"));
 }
@@ -149,9 +151,86 @@ fn a_directory_that_cannot_be_read_says_so_and_lists_nothing() {
 fn a_listing_after_the_prompt_closed_changes_nothing() {
     let mut editor = prompt();
     editor.quit();
-    editor.file_listed(PathBuf::from("/home/me/notes"), names(&[]));
+    editor.file_listed(PathBuf::from("/home/me/notes"), names(&[]), false);
     assert!(editor.prompt().is_none());
     assert_eq!(editor.take_file_requests(), Vec::<PathBuf>::new());
+}
+
+/// Answers every listing the prompt asks for from `tree`, a listing cut short where `cut`.
+fn serve(editor: &mut Editor, tree: &[(&str, &[(&str, NameKind)])], cut: bool) {
+    for _ in 0..8 {
+        let asked = editor.take_file_requests();
+        if asked.is_empty() {
+            return;
+        }
+        for directory in asked {
+            let listed = tree
+                .iter()
+                .find(|(path, _)| Path::new(path) == directory)
+                .and_then(|(_, entries)| names(entries));
+            editor.file_listed(directory, listed, cut);
+        }
+    }
+}
+
+#[test]
+fn only_the_name_is_matched_beside_the_directories_that_tell_rows_apart() {
+    use NameKind::{Directory as D, File as F};
+    let mut editor = Editor::default();
+    editor
+        .open_file_prompt("Find file:", "file", "/h/", PathBuf::from("/"))
+        .unwrap();
+    typing(&mut editor, "D/");
+    let tree: &[(&str, &[(&str, NameKind)])] = &[
+        ("/", &[("h", D)]),
+        ("/h", &[("Desktop", D), ("Documents", D)]),
+        ("/h/Desktop", &[("a.txt", F)]),
+        ("/h/Documents", &[("b.md", F)]),
+    ];
+    serve(&mut editor, tree, false);
+    assert_eq!(rows(&editor), ["b.md", "a.txt"], "shorter first");
+    typing(&mut editor, "t");
+    assert_eq!(
+        rows(&editor),
+        ["a.txt"],
+        "not every row for the t of Desktop"
+    );
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert_eq!(candidates.get(0).unwrap().annotation(), "Desktop/");
+}
+
+#[test]
+fn a_listing_no_plan_waits_for_keeps_the_selection_where_it_is() {
+    let mut editor = prompt();
+    editor.move_completion(1).unwrap();
+    editor.file_listed(PathBuf::from("/elsewhere"), names(&[]), false);
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert_eq!(
+        candidates.selected_candidate().map(|c| c.text()),
+        Some("todo.md")
+    );
+}
+
+#[test]
+fn a_question_over_the_prompt_keeps_it_open_for_its_listings() {
+    let mut editor = prompt();
+    editor.ask("Go on?", "keyboard-quit").unwrap();
+    assert!(editor.file_prompt_open());
+    assert!(!editor.files_pending());
+}
+
+#[test]
+fn a_listing_cut_short_shows_in_the_count() {
+    let mut editor = Editor::default();
+    editor
+        .open_file_prompt("Find file:", "file", "/big/", PathBuf::from("/"))
+        .unwrap();
+    let tree: &[(&str, &[(&str, NameKind)])] = &[
+        ("/", &[("big", NameKind::Directory)]),
+        ("/big", &[("a", NameKind::File)]),
+    ];
+    serve(&mut editor, tree, true);
+    assert!(editor.files_cut());
 }
 
 fn looked(annotation: &str, bytes: u64, directory: bool) -> crate::editor::Looked {
@@ -197,10 +276,19 @@ fn a_link_looked_at_as_a_directory_is_gone_into() {
         .open_file_prompt("Find file:", "file", "/r/", PathBuf::from("/"))
         .unwrap();
     editor.take_file_requests();
-    editor.file_listed(PathBuf::from("/r"), names(&[("to-dir", NameKind::Link)]));
+    editor.file_listed(
+        PathBuf::from("/r"),
+        names(&[("to-dir", NameKind::Link)]),
+        false,
+    );
     editor.file_looked(
         Path::new("/r"),
         vec![("to-dir".to_owned(), looked("l", 0, true))],
+    );
+    assert_eq!(
+        rows(&editor),
+        ["to-dir/"],
+        "a link to a directory reads as one"
     );
     editor.submit_prompt().unwrap();
     assert!(editor.prompt().is_some(), "went into it");

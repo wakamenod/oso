@@ -28,6 +28,9 @@ pub struct Looked {
     pub directory: bool,
 }
 
+/// The most candidates a prompt that reads a path lists, as a listing keeps of one directory.
+pub const MAX_FOUND: usize = 100_000;
+
 /// What a prompt that reads a path keeps beside its candidates.
 #[derive(Debug, Default)]
 pub(super) struct FileList {
@@ -42,6 +45,13 @@ pub(super) struct FileList {
     asked: HashSet<PathBuf>,
     /// The directories the plan needs and nobody has asked for.
     wanted: Vec<PathBuf>,
+    /// The directories the plan waits for, asked or not: once the last comes, it is expanded
+    /// again, and not before, so that listings arriving one by one cost one expansion.
+    waiting: Vec<PathBuf>,
+    /// A segment matched more directories than are kept, or a listing or the list was cut.
+    cut: bool,
+    /// A listing kept fewer names than its directory has.
+    listing_cut: bool,
     /// The candidates shown, in the order of their items.
     found: Vec<Found>,
     /// What a look found of each path, for its row's annotation and its size (ADR 0087).
@@ -119,6 +129,17 @@ impl Editor {
         wanted
     }
 
+    /// Whether the innermost prompt that reads a path left candidates out: past the limits of a
+    /// listing, of a segment's directories or of the list. The count says so with `+`.
+    pub fn files_cut(&self) -> bool {
+        self.reads_path() && self.file_list.cut
+    }
+
+    /// Whether a prompt that reads a path is open, innermost or not.
+    pub fn file_prompt_open(&self) -> bool {
+        self.file_list.prompt.is_some()
+    }
+
     /// Whether the innermost prompt that reads a path waits for a listing.
     pub fn files_pending(&self) -> bool {
         self.reads_path() && !self.file_list.asked.is_empty()
@@ -136,7 +157,7 @@ impl Editor {
 
     /// Takes in what listing `directory` found: its names, or `None` if it could not be read,
     /// which the prompt then says. Nothing happens once the prompt that asked has closed.
-    pub fn file_listed(&mut self, directory: PathBuf, names: Option<Arc<[Name]>>) {
+    pub fn file_listed(&mut self, directory: PathBuf, names: Option<Arc<[Name]>>, truncated: bool) {
         if self.file_list.prompt.is_none() {
             return;
         }
@@ -144,9 +165,18 @@ impl Editor {
         if names.is_none() && self.reads_path() {
             self.prompt_says("Cannot list it");
         }
-        self.file_list.listings.insert(directory, names);
-        self.file_list.plan = None;
-        self.refresh_files();
+        self.file_list.listing_cut |= truncated;
+        let list = &mut self.file_list;
+        let awaited = list.waiting.iter().position(|other| *other == directory);
+        list.listings.insert(directory, names);
+        // One that this plan does not wait for, or one of several it waits for, is only kept.
+        if let Some(index) = awaited {
+            list.waiting.swap_remove(index);
+            if list.waiting.is_empty() {
+                list.plan = None;
+                self.refresh_files();
+            }
+        }
     }
 
     /// Plans what the innermost prompt that reads a path holds, if that changed or a listing
@@ -186,34 +216,51 @@ impl Editor {
         match expanded {
             Expanded::Need(directories) => {
                 let list = &mut self.file_list;
+                list.waiting.clone_from(&directories);
                 for directory in directories {
                     if !list.asked.contains(&directory) && !list.wanted.contains(&directory) {
                         list.wanted.push(directory);
                     }
                 }
             }
-            Expanded::Ready(found, _) => self.show_files(found),
+            Expanded::Ready(mut found, cut) => {
+                self.file_list.waiting.clear();
+                // Matching runs on the UI thread, so the list is bounded until it runs on a
+                // worker past 5000 (ADR 0076, ADR 0087).
+                let more = found.len() > MAX_FOUND;
+                found.truncate(MAX_FOUND);
+                self.file_list.cut = cut || more || self.file_list.listing_cut;
+                self.show_files(found);
+            }
         }
     }
 
-    /// Makes `found` the innermost prompt's candidates.
+    /// Makes `found` the innermost prompt's candidates: each its name, matched by the last
+    /// segment, with the directories that tell rows of one name apart beside it. The row
+    /// selected stays selected, by its path.
     fn show_files(&mut self, found: Vec<Found>) {
         let looks = &self.file_list.looks;
         let items: Arc<[Candidate]> = found
             .iter()
             .map(|found| {
-                let note = looks
-                    .get(&found.path)
-                    .map_or("", |looked| looked.annotation.as_str());
-                Candidate::new(found.text.as_str(), "", note)
+                let looked = looks.get(&found.path);
+                let note = match looked {
+                    Some(looked) if !found.context.is_empty() => {
+                        format!("{}  {}", found.context, looked.annotation)
+                    }
+                    Some(looked) => looked.annotation.clone(),
+                    None => found.context.clone(),
+                };
+                // A link that leads to a directory reads as one.
+                let directory = looked.is_some_and(|looked| looked.directory);
+                let name = if directory && !found.name.ends_with('/') {
+                    format!("{}/", found.name)
+                } else {
+                    found.name.clone()
+                };
+                Candidate::new(name, "", note)
             })
             .collect();
-        // What is selected stays selected as the rows fill in.
-        let selected = self
-            .prompts
-            .last()
-            .and_then(|prompt| prompt.candidates())
-            .and_then(|candidates| candidates.selected_candidate().map(|c| c.text().to_owned()));
         let history = self
             .prompts
             .last()
@@ -228,17 +275,18 @@ impl Editor {
         } else {
             Vec::new()
         };
+        let selected = self.selected_file().map(|(found, _)| found.path.clone());
         if let Some(prompt) = self.prompts.last_mut()
             && let Some((candidates, _)) = prompt.completion.as_mut()
         {
             let on_input = candidates.on_input();
             *candidates = candidates.with_items(items, entries.iter().map(String::as_str));
-            if let Some(selected) = selected.filter(|_| !on_input) {
-                let place = (0..candidates.len())
-                    .find(|place| candidates.get(*place).is_some_and(|c| c.text() == selected));
-                if let Some(place) = place.filter(|place| *place > 0) {
-                    candidates.select(place);
-                }
+            let index = selected.and_then(|path| found.iter().position(|found| found.path == path));
+            if let Some(place) = index.and_then(|index| candidates.place_of(index))
+                && place > 0
+                && !on_input
+            {
+                candidates.select(place);
             }
         }
         self.file_list.found = found;
@@ -252,12 +300,8 @@ impl Editor {
             return None;
         }
         let candidates = self.prompts.last()?.candidates()?;
-        let text = candidates.selected_candidate()?.text();
-        let found = self
-            .file_list
-            .found
-            .iter()
-            .find(|found| found.text == text)?;
+        let index = candidates.item_at(candidates.selected()?)?;
+        let found = self.file_list.found.get(index)?;
         let looked = self.file_list.looks.get(&found.path);
         let directory = found.directory || looked.is_some_and(|looked| looked.directory);
         let typed = path::typed_form(&found.path, directory, self.home.as_deref());
@@ -307,7 +351,17 @@ impl Editor {
             return Some(self.give_answer(path.display().to_string()));
         }
         let path = self.typed_file()?;
-        Some(self.give_answer(path.display().to_string()))
+        // A path typed with `/` at its end names a directory, which `C-x C-w` writes into.
+        let text = self
+            .prompts
+            .last()
+            .and_then(|prompt| self.buffer(prompt.buffer));
+        let slash = text.is_some_and(|buffer| buffer.text().to_string().ends_with('/'));
+        let mut answer = path.display().to_string();
+        if slash && !answer.ends_with('/') {
+            answer.push('/');
+        }
+        Some(self.give_answer(answer))
     }
 
     /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
@@ -372,11 +426,11 @@ impl Editor {
         let list = &self.file_list;
         let mut asked: Vec<(PathBuf, Vec<String>)> = Vec::new();
         let mut paths = Vec::new();
-        for (_, candidate) in candidates.shown(rows) {
-            let Some(found) = list
-                .found
-                .iter()
-                .find(|found| found.text == candidate.text())
+        let top = candidates.top();
+        for place in top..(top + rows).min(candidates.len()) {
+            let Some(found) = candidates
+                .item_at(place)
+                .and_then(|index| list.found.get(index))
             else {
                 continue;
             };

@@ -269,7 +269,9 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         "preview": preview,
         // A prompt that reads a path: the directory it starts from, and whether a listing is
         // on its way (ADR 0087).
-        "directory": editor.file_directory().map(|directory| directory.display().to_string()),
+        "directory": editor
+            .file_directory()
+            .map(|directory| oso_core::complete::typed_form(directory, true, editor.home())),
         "pending": editor.files_pending(),
     })
 }

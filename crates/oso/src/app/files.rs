@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
 
-use oso_core::complete::path::{Name, NameKind};
+use oso_core::complete::{Name, NameKind};
 use oso_core::editor::Looked;
 
 use super::{App, UserEvent, Waker};
@@ -51,10 +51,13 @@ impl App {
         let mut changed = false;
         let now = SystemTime::now();
         for answer in self.lister.take() {
-            let (directory, entries) = match answer {
+            let (directory, entries, truncated) = match answer {
                 Answer::Listed {
-                    directory, entries, ..
-                } => (directory, entries),
+                    directory,
+                    entries,
+                    truncated,
+                    ..
+                } => (directory, entries, truncated),
                 Answer::Looked {
                     directory, looks, ..
                 } => {
@@ -65,10 +68,13 @@ impl App {
                 }
             };
             let names = entries.ok().map(|entries| {
+                // A name that is not UTF-8 is left out, as a path made from a lossy copy of it
+                // would name another file.
                 entries
                     .iter()
-                    .map(|entry| Name {
-                        name: entry.name.to_string_lossy().into_owned(),
+                    .filter_map(|entry| Some((entry, entry.name.to_str()?)))
+                    .map(|(entry, name)| Name {
+                        name: name.to_owned(),
                         kind: match entry.kind {
                             Kind::File => NameKind::File,
                             Kind::Directory => NameKind::Directory,
@@ -78,7 +84,7 @@ impl App {
                     })
                     .collect::<Arc<[Name]>>()
             });
-            self.editor.file_listed(directory, names);
+            self.editor.file_listed(directory, names, truncated);
             changed = true;
         }
         self.serve_files();
@@ -89,7 +95,8 @@ impl App {
 
     /// The prompt that read a path has closed: what waits for its listings goes.
     pub(super) fn forget_listings(&mut self) {
-        if !self.editor.files_pending() && self.editor.file_directory().is_none() {
+        // Only once it has closed: a question over it must not drop what it waits for.
+        if !self.editor.file_prompt_open() {
             self.lister.forget();
         }
     }

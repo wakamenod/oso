@@ -53,9 +53,13 @@ fn expand_in(tree: &HashMap<PathBuf, Vec<Name>>, input: &str) -> Expanded {
     expand(&plan, |dir| tree.get(dir).map(Vec::as_slice), |_| false)
 }
 
-fn texts(expanded: &Expanded) -> Vec<&str> {
+/// Each row as it reads: its context, then its name.
+fn texts(expanded: &Expanded) -> Vec<String> {
     match expanded {
-        Expanded::Ready(found, _) => found.iter().map(|found| found.text.as_str()).collect(),
+        Expanded::Ready(found, _) => found
+            .iter()
+            .map(|found| format!("{}{}", found.context, found.name))
+            .collect(),
         Expanded::Need(_) => panic!("{expanded:?}"),
     }
 }
@@ -144,8 +148,8 @@ fn a_whole_name_matches_only_itself_and_case_is_smart() {
 #[test]
 fn hidden_names_show_only_when_the_last_segment_starts_with_a_dot() {
     let tree = tree();
-    assert!(!texts(&expand_in(&tree, "~/")).contains(&".config/"));
-    assert!(texts(&expand_in(&tree, "~/.")).contains(&".config/"));
+    assert!(!texts(&expand_in(&tree, "~/")).contains(&".config/".to_owned()));
+    assert!(texts(&expand_in(&tree, "~/.")).contains(&".config/".to_owned()));
 }
 
 #[test]
@@ -210,4 +214,9 @@ fn a_directory_known_to_exist_is_gone_into_without_listing_what_holds_it() {
     let known = |path: &Path| path == Path::new("/a") || path == Path::new("/a/b");
     let expanded = expand(&plan, |dir| tree.get(dir).map(Vec::as_slice), known);
     assert_eq!(texts(&expanded), ["c.md"]);
+}
+
+#[test]
+fn the_root_is_typed_as_one_slash() {
+    assert_eq!(typed_form(Path::new("/"), true, None), "/");
 }
