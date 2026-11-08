@@ -251,9 +251,12 @@ impl State {
         drop(dispatch);
         if let Err(payload) = result {
             self.update_secure(gate::SecureInput::release);
-            // An end AppKit holds for an answer that will not come goes now.
-            self.answer_held_quit(true);
+            // First, so that nothing reaches the handler again, `exiting` included.
             *self.panic.borrow_mut() = Some(payload);
+            // An end AppKit holds for an answer that will not come goes now. AppKit then ends
+            // the process itself, with the copies the panic hook wrote, and the panic is not
+            // resumed.
+            self.answer_held_quit(true);
             self.stop();
             return;
         }

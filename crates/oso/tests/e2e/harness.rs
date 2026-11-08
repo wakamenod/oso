@@ -128,26 +128,20 @@ impl App {
         self.process.child.id()
     }
 
-    /// Asks this instance to quit as another app or the Dock does: `terminate`, a quit Apple
-    /// event with no reason, which oso's own layer takes as a person's (ADR 0084). Returns
-    /// whether osascript sent it.
+    /// Asks this instance, and only it, to quit as another app or the Dock does: `terminate`, a
+    /// quit Apple event with no reason, which oso's own layer takes as a person's (ADR 0084).
+    /// Returns whether osascript sent it.
     #[cfg(target_os = "macos")]
     pub fn ask_to_quit(&self) -> bool {
-        let pid = self.pid();
-        let script = format!(
-            "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate"
-        );
+        let script = format!("{}\napp.terminate;", self.this_instance_script());
         run_osascript(&script)
     }
 
-    /// Asks this instance, and only it, to quit as the end of the session does: a quit Apple
-    /// event with a logout reason (`keyAEQuitReason`), which oso never refuses (ADR 0084).
-    /// The event goes to this instance's process ID, after osascript has checked that the
-    /// app there runs the binary this test launched, so that it can never reach the login
-    /// window or another app, where a logout reason could end the session. Returns whether
-    /// osascript sent it.
+    /// JavaScript for Automation that sets `app` to this instance's `NSRunningApplication`, and
+    /// `pid` to its process ID, or throws unless the app there runs the binary this test
+    /// launched, so that a script that goes on can reach no other app.
     #[cfg(target_os = "macos")]
-    pub fn ask_to_quit_for_logout(&self) -> bool {
+    fn this_instance_script(&self) -> String {
         let pid = self.pid();
         assert!(
             pid > 0 && pid != std::process::id(),
@@ -155,23 +149,39 @@ impl App {
         );
         let binary = fs::canonicalize(env!("CARGO_BIN_EXE_oso")).expect("the binary is there");
         let expected = serde_json::Value::from(binary.to_str().expect("a path in UTF-8"));
-        // 'aevt' 'quit' to `pid` alone, with the reason 'why?' = 'logo' as an attribute, as
-        // the system sends it, and no reply awaited.
-        let script = format!(
+        format!(
             "ObjC.import('AppKit');
-            const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid});
+            const pid = {pid};
+            const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(pid);
             const resolved = (url) => url.URLByResolvingSymlinksInPath.path.js;
             const launched = resolved($.NSURL.fileURLWithPath({expected}));
             if (app.isNil() || resolved(app.executableURL) !== launched) {{
                 throw new Error('not the instance this test launched');
-            }}
-            const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier({pid});
+            }}"
+        )
+    }
+
+    /// Asks this instance, and only it, to quit as the end of the session does: a quit Apple
+    /// event with a logout reason (`keyAEQuitReason`), which oso never refuses (ADR 0084).
+    /// The event goes to this instance's process ID, after osascript has checked that the
+    /// app there runs the binary this test launched ([`App::this_instance_script`]), so that
+    /// it can never reach the login window or another app, where a logout reason could end
+    /// the session. Returns whether
+    /// osascript sent it.
+    #[cfg(target_os = "macos")]
+    pub fn ask_to_quit_for_logout(&self) -> bool {
+        // 'aevt' 'quit' to `pid` alone, with the reason 'why?' = 'logo' as an attribute, as
+        // the system sends it, and no reply awaited.
+        let script = format!(
+            "{}
+            const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier(pid);
             const quit = $.NSAppleEventDescriptor
                 .appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
                     0x61657674, 0x71756974, target, -1, 0);
             quit.setAttributeDescriptorForKeyword(
                 $.NSAppleEventDescriptor.descriptorWithTypeCode(0x6c6f676f), 0x7768793f);
-            quit.sendEventWithOptionsTimeoutError(1, 10, null);"
+            quit.sendEventWithOptionsTimeoutError(1, 10, null);",
+            self.this_instance_script()
         );
         run_osascript(&script)
     }

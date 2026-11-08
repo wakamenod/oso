@@ -172,7 +172,9 @@ impl Leaving {
         if !self.any_worth_waiting_for(editor) {
             return None;
         }
-        let deadline = now + SESSION_END_WAIT;
+        // Another request while one waits does not extend the wait.
+        let fresh = now + SESSION_END_WAIT;
+        let deadline = self.session_end.map_or(fresh, |held| held.min(fresh));
         self.session_end = Some(deadline);
         Some(deadline)
     }
@@ -344,6 +346,11 @@ mod tests {
         leaving.begin_session_end(&editor, now).unwrap();
         assert!(leaving.take_session_end(), "the app goes by itself");
         assert!(!leaving.take_session_end() && !leaving.session_end_waits());
+        // A second request while one waits keeps the first one's bound.
+        let first = leaving.begin_session_end(&editor, now).unwrap();
+        let later = now + Duration::from_secs(3);
+        assert_eq!(leaving.begin_session_end(&editor, later), Some(first));
+        assert!(leaving.take_session_end());
         // One wake for both waits: the earlier.
         assert_eq!(leaving.next_wake(), None);
         let exit = leaving.begin(&editor, false, now).unwrap();

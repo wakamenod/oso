@@ -81,7 +81,12 @@ impl App {
             // an exit is under way.
             QuitReason::Person => {
                 self.handle_window_event(event_loop, Event::CloseRequested);
-                QuitAnswer::Cancel
+                // With nothing to ask about or wait for, the close request has ended oso: yes.
+                if event_loop.exiting() {
+                    QuitAnswer::Now
+                } else {
+                    QuitAnswer::Cancel
+                }
             }
             QuitReason::SessionEnd => {
                 match self.leaving.begin_session_end(&self.editor, Instant::now()) {

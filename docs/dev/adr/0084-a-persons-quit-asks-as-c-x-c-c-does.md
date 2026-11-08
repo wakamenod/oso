@@ -20,15 +20,17 @@ made both choices below on 2026-11-08, through the coordinator.
 
 ## Decision
 
-- **A person's quit is oso's own close request.** A quit with no reason, or with any reason
-  but the end of the session (the Dock, another app, a script), is answered no to the OS
-  (`NSTerminateCancel`). The app then handles it as the window's close button and
-  `C-x C-c` are handled: with a modified buffer the exit question opens, `y` exits and
+- **A person's quit is oso's own close request.** A quit with no reason, as the Dock and
+  other apps send it, is the app's to handle as the window's close button and `C-x C-c` are
+  handled, and the OS is answered no (`NSTerminateCancel`), unless that has already ended oso: with a modified buffer the exit question opens, `y` exits and
   counts as agreed, so nothing is written ([ADR 0062](0062-emergency-save-and-the-panic-hook.md)),
   and `n` stays. With nothing modified oso exits at once, and with a save running it waits
   with the window hidden, as an exit does (ADR 0077, choice 3).
 - **The end of the session** (a logout, a restart or a shutdown, told by the quit Apple
-  event's `keyAEQuitReason`) is never refused, as ADR 0070 says. It waits at most 5 s for
+  event's `keyAEQuitReason`) is never refused, as ADR 0070 says. So is a quit with a reason
+  oso does not know, as a later system may send: refusing a real end of the session could
+  have the process killed with no copies, and a forged one gives nothing a local kill would
+  not. The reason is logged. It waits at most 5 s for
   running saves (ADR 0077, choice 2), and `exiting` writes copies of what is at risk.
 - **The e2e flows send real quit Apple events.** The end of the session is a quit Apple
   event with `keyAEQuitReason` set to a logout (`kAELogOut`), sent through osascript's
