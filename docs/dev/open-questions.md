@@ -203,8 +203,8 @@ item notes when it must be settled.
   method asking for the rectangle of the range it names, so the candidate window follows the
   segment; no input context while the IME is off; the cursor's line for the input method;
   the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
-  runs must still reach `exiting`; frames during a live resize, which are drawn only before
-  the loop waits; `open_window` and `request_attention` queued as the other requests are;
+  runs must still reach `exiting`; whether frames keep up during a live resize, now that the
+  view also draws when AppKit displays its layer; `open_window` and `request_attention` queued as the other requests are;
   and the author's checks at the keyboard
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland

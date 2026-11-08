@@ -84,6 +84,21 @@ define_class!(
             layer.into_super()
         }
 
+        /// AppKit displays the layer itself, through `updateLayer`, and not by drawing.
+        #[unsafe(method(wantsUpdateLayer))]
+        fn wants_update_layer(&self) -> bool {
+            true
+        }
+
+        /// AppKit wants the view shown, as when the window first appears: a frame now,
+        /// rather than when the loop next waits, as winit draws from `drawRect:`.
+        #[unsafe(method(updateLayer))]
+        fn update_layer(&self) {
+            let state = self.ivars().state;
+            state.redraw.set(false);
+            state.deliver(Delivery::Window(Event::RedrawRequested));
+        }
+
         #[unsafe(method(viewDidChangeBackingProperties))]
         fn view_did_change_backing_properties(&self) {
             if let Some(layer) = self.layer() {
