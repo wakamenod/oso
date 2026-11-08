@@ -216,8 +216,9 @@ A panicking command is caught at the command boundary
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
   emergency copies and a prompt. Turning off during a composition commits it first, where
-  typing goes then, on oso's own layer, and waits for it to end on winit, which cannot
-  commit one ([ADR 0069](adr/0069-macos-input-method.md),
+  typing goes then, on oso's own layer if it would go in as typed there
+  (`Dispatcher::types_text`), and otherwise waits for it to end, as always on winit, which
+  cannot commit one ([ADR 0069](adr/0069-macos-input-method.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the

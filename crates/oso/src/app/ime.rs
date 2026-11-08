@@ -8,8 +8,9 @@
 //! - oso keeps its own state and never reads it back from the events: `Disabled`
 //!   also comes unasked, when the input source changes.
 //! - Turning the IME off during a composition commits it first, where typing goes then, on
-//!   oso's own window layer (ADR 0077). winit cannot commit one, and the OS keeps a
-//!   composition it was turned off in, so there it waits for the composition to end.
+//!   oso's own window layer, if it would go in as typed there (ADR 0077). Otherwise, and on
+//!   winit, which cannot commit one, it waits for the composition to end, as the OS keeps a
+//!   composition it was turned off in. A commit never takes a prefix argument.
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
 //! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
 //!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
@@ -36,8 +37,8 @@ fn wants_ime(buffer: &Buffer, reads_keys: bool, in_prompt: bool) -> bool {
 }
 
 /// What to allow the IME as now, if that changes. Turning it off during a composition
-/// commits it first where the window layer `commits` (ADR 0077), and otherwise waits for the
-/// composition to end, as winit keeps it (ADR 0069).
+/// commits it first when it `commits` there (ADR 0077), and otherwise waits for the
+/// composition to end, as the OS keeps it (ADR 0069).
 fn next_allowed(allowed: bool, wanted: bool, composing: bool, commits: bool) -> Option<bool> {
     (wanted != allowed && (wanted || !composing || commits)).then_some(wanted)
 }
@@ -68,10 +69,8 @@ impl App {
             ImeEvent::Preedit(..) | ImeEvent::Disabled => self.end_composition(),
             ImeEvent::Commit(text) => {
                 let ended = self.end_composition();
-                log::trace!("commit");
-                let effects = self.dispatcher.commit_text(&mut self.editor, &text);
-                self.apply(event_loop, effects);
-                ended || effects.redraw
+                let redraw = self.commit(event_loop, &text);
+                ended || redraw
             }
         }
     }
@@ -143,33 +142,40 @@ impl App {
     }
 
     /// Allows or forbids the IME as wanted, if that changed. Turning it off during a
-    /// composition commits it first on oso's own window layer, and waits for it to end on
-    /// winit's (ADR 0077).
+    /// composition commits it first on oso's own window layer, where it would go in as typed
+    /// and oso is not leaving, and otherwise waits for it to end, as on winit's (ADR 0077).
     pub(super) fn sync_ime(&mut self, event_loop: &Loop<'_>) {
         let composing = self.composing();
-        let next = next_allowed(
-            self.ime.allowed,
-            self.ime_wanted(),
-            composing,
-            COMMITS_WHEN_TURNED_OFF,
-        );
+        let commits = COMMITS_WHEN_TURNED_OFF
+            && composing
+            && self.dispatcher.types_text(&self.editor)
+            && !self.is_leaving(event_loop);
+        let next = next_allowed(self.ime.allowed, self.ime_wanted(), composing, commits);
         let Some(wanted) = next else {
             return;
         };
         if !wanted && composing {
-            self.commit_before_turning_off(event_loop);
+            self.commit_composition(event_loop);
+            // The commit may have changed what is wanted. The IME stays on then, and the
+            // window's input method drops what it holds, so that it is not committed twice.
+            if self.ime_wanted() {
+                if let Some(view) = &self.view {
+                    view.window.discard_composition();
+                }
+                return;
+            }
         }
         let Some(view) = &self.view else {
             return;
         };
+        // Turning it off also drops what the window's input method holds.
         view.window.set_ime_allowed(wanted);
         self.ime.allowed = wanted;
         log::debug!("IME allowed: {wanted}");
     }
 
-    /// Commits the composition as it is shown, where typing goes now (ADR 0077), and has the
-    /// window's input method drop its own, so that it is not committed twice.
-    fn commit_before_turning_off(&mut self, event_loop: &Loop<'_>) {
+    /// Commits the composition as it is shown, where typing goes now (ADR 0077).
+    fn commit_composition(&mut self, event_loop: &Loop<'_>) {
         let Some(text) = self
             .editor
             .preedit()
@@ -178,12 +184,16 @@ impl App {
             return;
         };
         self.end_composition();
-        if let Some(view) = &self.view {
-            view.window.discard_composition();
-        }
+        self.commit(event_loop, &text);
+    }
+
+    /// Puts committed `text` in where typing goes, through typing's checks, as the input
+    /// method's commits go. Returns whether it asked for a frame.
+    fn commit(&mut self, event_loop: &Loop<'_>, text: &str) -> bool {
         log::trace!("commit");
-        let effects = self.dispatcher.commit_text(&mut self.editor, &text);
+        let effects = self.dispatcher.commit_text(&mut self.editor, text);
         self.apply(event_loop, effects);
+        effects.redraw
     }
 
     /// Gives the OS the primary cursor's cell, for its candidate window, if it moved

@@ -27,7 +27,11 @@ The author chose, from options put to them:
    (`invalidateCharacterCoordinates`). It asks for the cursor's place when it needs it.
 5. **A commit goes where typing goes at that moment,** also when the IME turns off because
    another buffer was selected. A buffer that refuses text refuses it, and one that may hold
-   secrets drops the composition, as ADR 0069 has it.
+   secrets drops the composition, as ADR 0069 has it. **A commit is made only where its text
+   would go in as typed** (the coordinator's review of the first pull request): with a prefix
+   key or a prefix argument waiting, a question open, or nothing active that takes text, the
+   IME stays on until the composition ends, as on winit, and so it does once oso is leaving.
+   A commit never takes a prefix argument, and never answers a question.
 6. **The input method learns where each character of the composition is drawn.** After
    each event that changed the composition, the app gives the window the x of each of its
    characters from the cursor's cell, as the next frame lays them out, so
@@ -49,9 +53,11 @@ The author chose, from options put to them:
 
 ## Consequences
 
-- On the native layer, turning the IME off never leaves a composition behind: the IME goes
-  off at once, and the text goes where a typed letter would, or is refused as one would be.
-  On winit it stays on until the composition ends.
+- On the native layer, turning the IME off where the text would go in as typed never leaves
+  a composition behind: the IME goes off at once, and the text goes where a typed letter
+  would, or is refused as one would be. Where it would not, and on winit, the IME stays on
+  until the composition ends, so no text is lost to a prefix key, a prefix argument or a
+  question.
 - A logout is held up by oso for at most 5 s. A save that has not ended by then may or may not
   reach the disk, and its buffer has an emergency copy either way.
 - A Dock quit behaves as the quit key does.
@@ -80,6 +86,8 @@ is made for them: they stay in oso's process until the input method asks.
   with `C-x C-c`, and gets the same rule.
 - **Telling the input method after each frame in which the cursor moved:** about one call to
   the OS per key that moves the cursor, for a candidate window that is not open.
+- **Committing whatever waits:** text after a prefix key would be lost with the key, a prefix
+  argument would repeat it, and a question would refuse it.
 - **Committing into the buffer the composition started in:** needs that buffer remembered, and
   an edit outside the selected window.
 - **One rectangle for the segment being converted:** less to give, but any other range of the

@@ -92,7 +92,7 @@ fn a_preedit_draws_in_the_window_and_a_commit_is_one_undo_step() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn the_ime_is_off_where_keys_are_read_as_keys_and_a_composition_is_kept() {
+fn the_ime_is_off_where_keys_are_read_as_keys_and_turning_off_keeps_the_text() {
     let scratch = Scratch::new("ime-off");
     let file = scratch.write("notes.txt", b"abc\n");
     let binary = scratch.write("data.bin", b"\xff\xfe\n");
@@ -165,4 +165,31 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_a_composition_is_kept() {
     assert_eq!(state["ime"]["area"], Value::Null);
     app.show_buffer(&notes);
     assert!(allowed(&mut app));
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_composition_waits_where_its_text_would_not_go_in_as_typed() {
+    let scratch = Scratch::new("ime-wait");
+    let file = scratch.write("notes.txt", b"abc\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    // A prefix key, a prefix argument, or a question: on either layer the IME stays on until
+    // the composition ends, so the text takes no argument and answers nothing (ADR 0077).
+    // Only the socket brings these during a composition, as the OS keeps the keys then.
+    for (keys, back) in [("C-x", "C-g"), ("C-u", "C-g"), ("x C-x C-c", "n")] {
+        ime(&mut app, json!({ "preedit": "か" })).unwrap();
+        app.send_keys(keys);
+        let state = app.state();
+        assert_eq!(state["ime"]["wanted"], false, "after {keys}");
+        assert_eq!(state["ime"]["allowed"], true, "{keys} waits");
+        assert_eq!(state["ime"]["composing"], true, "{keys} keeps it");
+        ime(&mut app, json!({ "clear": true })).unwrap();
+        assert!(!allowed(&mut app), "off once it ended, after {keys}");
+        app.send_keys(back);
+        assert!(allowed(&mut app), "after {keys} {back}");
+    }
+    let state = app.state();
+    assert_visible_row(&state, 0, "xabc");
+    assert_eq!(state["prompts"], json!([]));
 }
