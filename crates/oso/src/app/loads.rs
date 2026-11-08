@@ -201,13 +201,12 @@ impl App {
         redraw
     }
 
-    /// Logs how long the first screen of each new file took, once drawn, unless a buffer
-    /// that may hold secrets is shown, and forgets loads that finished.
+    /// Logs how long the first screen of each new file took, once drawn,
+    /// and forgets loads that finished.
     pub(super) fn note_first_screens(&mut self) {
         let editor = &self.editor;
-        let shown = !editor.shows_secret();
         self.loads.retain_mut(|load| {
-            if let Some(started) = load.first_screen.take().filter(|_| shown) {
+            if let Some(started) = load.first_screen.take() {
                 log::debug!(
                     "first frame of the file drawn {:?} after loading started",
                     started.elapsed()

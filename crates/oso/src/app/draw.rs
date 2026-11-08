@@ -252,7 +252,7 @@ impl App {
                 if let Some(started) = self.started.take() {
                     log::debug!("first frame {:?} after start", started.elapsed());
                 }
-                self.trace_time(false, "frame drawn", frame);
+                log::trace!("frame drawn in {:?}", frame.elapsed());
                 self.note_first_screens();
             }
             // Not fatal: the frame is skipped and the next one retries.

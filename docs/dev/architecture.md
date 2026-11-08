@@ -494,8 +494,9 @@ Full details are in [`security.md`](security.md).
     timed apart from startup
     ([ADR 0046](adr/0046-performance-regression-checks.md)). Keys and frames around a
     buffer that may hold secrets stay out of them
-    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)), and so do its loads and
-    timing lines in the log ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
+    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)), and so do its loads. While
+    one is shown, the log keeps warnings and errors only
+    ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

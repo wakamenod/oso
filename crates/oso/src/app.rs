@@ -22,6 +22,7 @@ mod events;
 mod ime;
 mod input;
 mod loads;
+mod log_gate;
 mod saves;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
 // Both give the same loop, window and waker, under the one name.
@@ -39,6 +40,7 @@ use crate::emergency::{CopiesEvent, Emergency, Offer};
 use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
+pub use log_gate::LogGate;
 use oso_platform::window::Held;
 use shell::Loop;
 pub use shell::{Waker, run};
@@ -97,6 +99,9 @@ pub struct App {
     next_status: Status,
     /// What oso has told the OS about the input method (ADR 0069).
     ime: ime::ImeState,
+    /// What keeps the log to warnings and errors around a buffer that may hold secrets
+    /// (ADR 0078).
+    log_gate: LogGate,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -113,8 +118,8 @@ pub struct App {
 
 impl App {
     /// An app with no window yet, showing `*scratch*`. Loading threads
-    /// report through `waker`.
-    pub fn new(waker: Waker, started: Instant, emergency: Emergency) -> Self {
+    /// report through `waker`, and `log_gate` is the installed logger's.
+    pub fn new(waker: Waker, started: Instant, emergency: Emergency, log_gate: LogGate) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
         let leaving = Leaving::with_cell(emergency.agreement_cell());
@@ -136,6 +141,7 @@ impl App {
             status: Status::default(),
             next_status: Status::default(),
             ime: ime::ImeState::default(),
+            log_gate,
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]
@@ -171,12 +177,15 @@ impl App {
         }
     }
 
-    /// Logs at trace level how long `what` took since `started`, unless a buffer that may
-    /// hold secrets is shown, or was before it if `secret_before`, as the log's times would
-    /// say when keys were pressed there.
-    fn trace_time(&self, secret_before: bool, what: &str, started: Instant) {
-        if !secret_before && !self.editor.shows_secret() {
-            log::trace!("{what} in {:?}", started.elapsed());
-        }
+    /// Starts handling an event: the log keeps to warnings and errors if a buffer that may hold
+    /// secrets is shown, until the next event (ADR 0078).
+    fn begin_logging(&self) {
+        self.log_gate.begin(self.editor.shows_secret());
+    }
+
+    /// Keeps the log to warnings and errors until the next event if a buffer that may hold
+    /// secrets is shown now.
+    fn note_logging(&self) {
+        self.log_gate.note(self.editor.shows_secret());
     }
 }

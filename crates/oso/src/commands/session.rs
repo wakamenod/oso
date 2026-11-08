@@ -27,9 +27,7 @@ fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     if ctx.editor.quit() != Quit::Nothing {
         ctx.request_redraw();
     }
-    if !ctx.editor.shows_secret() {
-        log::debug!("Quit");
-    }
+    log::debug!("Quit");
     ctx.editor.echo("Quit");
     Ok(())
 }

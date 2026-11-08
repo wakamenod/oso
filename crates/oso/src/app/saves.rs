@@ -23,7 +23,7 @@ impl App {
                 // It fails only once the event loop is gone, past the time limit.
                 let _ = waker.send(UserEvent::Save(report));
             });
-            self.trace_time(false, "save started", started);
+            log::trace!("save started in {:?}", started.elapsed());
             if let Err(e) = spawned {
                 saver::apply(&mut self.editor, SaveReport::not_started(buffer, path, e));
                 self.dispatcher.publish_for_emergency(&self.editor);

@@ -19,13 +19,14 @@ written.
   before its first content arrives, so the verdict is known when the times start.
 - **A first screen drawn while such a buffer is shown is not recorded,** and the load then has
   none, not a later one.
-- **No timing line reaches the log while such a buffer is shown,** or for a key that left one:
-  how long a key, a text, a frame or a save took. The renderer logs no timings of its own, as it
-  does not know what a pane shows. The app's line for each frame stands for them.
-- **The loading thread logs no times either.** The UI thread logs a finished load, with its size,
-  only for a buffer that cannot hold secrets, as the thread does not know the verdict.
-- **Keys pressed while such a buffer is shown are not logged,** as a pending prefix, an undefined
-  key or a quit. What the echo area shows is unchanged.
+- **While a buffer that may hold secrets is shown, the log keeps warnings and errors only,**
+  from every crate. That holds through an event that begins or ends with one shown, and, for
+  keys sent together, from the key around one to the end of the batch. One logger does
+  this, behind a flag the app sets as it handles each event and each key, so no line has to
+  ask, and a new one cannot forget to.
+- **The loading thread logs no times.** The UI thread logs a finished load, with its size, only
+  for a buffer that cannot hold secrets, as the thread does not know the verdict and its lines
+  can come at any time.
 - The first frame of the process stays, as ADR 0060 has it.
 
 ### Where this differs from accepted ADRs
@@ -39,10 +40,9 @@ ADR 0060 stays as it is; this one changes the following:
 ## Consequences
 
 - The benchmarks load ordinary files, so their numbers do not change.
-- A trace log of a session in such a buffer shows less, and a slow frame there cannot be found in
-  it. Measuring one needs an ordinary file with the same text.
-- The renderer's own trace lines for preparing and presenting a frame are gone. The app's
-  "frame drawn" line covers both.
+- A log of a session in such a buffer shows less, and a slow frame there cannot be found in it.
+  Measuring one needs an ordinary file with the same text.
+- A warning or an error still shows, and must quote no text, as ADR 0028 has it for every line.
 
 ## Alternatives considered
 
@@ -50,6 +50,6 @@ ADR 0060 stays as it is; this one changes the following:
   `take-timings` can be read right after a secret file is opened.
 - **Dropping the times once a buffer is judged secret, after recording them:** the verdict comes
   before the first content, so there is nothing to wait for.
-- **Telling the renderer whether a secret is shown, so it can keep its lines:** a new argument
-  for two log lines, which the app's line already covers.
-- **A coarser time in the log:** still says when keys were pressed.
+- **A check at each line that logs a time or a key:** lines are added all the time, and one
+  without the check would say nothing of it.
+- **Keeping info lines:** they name files and say what happened, which can say as much.

@@ -39,19 +39,22 @@ impl App {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
-                let secret_before = self.editor.shows_secret();
                 let timings = &mut self.timings;
+                let log_gate = &self.log_gate;
                 let mut watch = dev::SecretWatch::new(&self.editor);
                 let effects =
                     self.dispatcher
                         .handle_keys_with(&mut self.editor, keys, |editor, effects| {
+                            let withheld = watch.after_key(editor);
+                            // So that what the keys after it log, until the batch ends, is held too.
+                            log_gate.note(withheld);
                             let key = dev::HandledKey {
                                 redraw: effects.redraw,
-                                withheld: watch.after_key(editor),
+                                withheld,
                             };
                             timings.key_handled(received, key);
                         });
-                self.trace_time(secret_before, "key handled", started);
+                log::trace!("key handled in {:?}", started.elapsed());
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }
