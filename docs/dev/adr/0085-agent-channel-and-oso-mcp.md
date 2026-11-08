@@ -60,6 +60,18 @@ The author chose these on 2026-11-08, through the coordinator.
   file would start, such as a language server or a format on save, waits in a buffer the
   channel opened or saved until the person acts in that buffer from the window.
 - `save-buffer` and the kills are `Change`. Undo is `Change`.
+
+### What the channel may write
+
+- **A channel save writes without asking only a buffer the person visited:** one opened from
+  the window, from oso's command line, or brought back by a restart of such a buffer.
+- **Any other save from the channel asks the person,** as a question the channel opened: with
+  the `Agent:` label, from the keyboard only, after 500 ms with no key. This covers a buffer the
+  channel opened and, once it exists, saving under a new name.
+- **oso's configuration and trust files are never saved from the channel,** whatever the person
+  answers (M3 onward, [ADR 0009](0009-project-trust.md), [ADR 0019](0019-configuration.md)).
+- Each rule here and above gets a test of its own: a unit test where it is a plain function,
+  and an end-to-end flow over the channel's socket where it needs the app.
 - A guard test lists the `Person` commands, so a change to the list shows in review.
 
 ### What the channel can do
@@ -77,6 +89,8 @@ The author chose these on 2026-11-08, through the coordinator.
   is no `send-keys`.
 - **`open`**: visits an absolute path of at most 4096 bytes in the selected window, as
   `oso FILE` does, and moves to a line if one is given. It is `Look`. Opening executes nothing.
+  - Only a file that already exists opens. A missing path is refused, so the channel cannot
+    start a new file.
   - A path that matches the secret patterns as given is refused before anything opens.
   - A file the channel opens is shown only once the loader has judged it ordinary
     ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)). One judged otherwise is
@@ -219,7 +233,7 @@ These ADRs stay as they are; this one changes the following:
 - [ADR 0044](0044-control-socket-trust-and-secret-buffers.md), release builds contain no way for
   a same-user process to run commands: they contain the channel, which runs `Look` and `Change`
   commands only after the person agrees to the connection, and none while a buffer that may hold
-  secrets is shown.
+  secrets is shown. It saves without asking only buffers the person visited.
 - [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md), a question opens only from
   a command, and one a socket request opened is answered over the socket: the channel's
   connection question opens from a connection, and a question a channel command opened is
@@ -237,8 +251,9 @@ These ADRs stay as they are; this one changes the following:
   rules for reading files, except files that may hold secrets, by the same patterns as
   everywhere. The agent's own permission prompt for each tool still applies.
 - The channel adds a local entry point to release builds. It reaches no process, and the dev
-  methods are not on it. A same-user process that the person lets connect can edit and save any
-  file oso has open.
+  methods are not on it. A same-user process that the person lets connect can edit and save the
+  files the person opened. It creates no file, and writes no other file, without asking the
+  person, and never writes oso's own configuration or trust.
 - An agent's work and the person's do not interleave: the agent waits out a key sequence, a
   prompt, a composition and a second after each key, and retries after a refusal. While a
   buffer that may hold secrets is on the screen, the agent can only read the state.
@@ -277,6 +292,11 @@ These ADRs stay as they are; this one changes the following:
 - **Opening a file the patterns match, and withholding it as the dev socket does:** the
   channel would then run nothing while it is shown, so opening it serves no purpose.
 - **Text only of buffers the person opened:** "open this file and read it" is a main use.
+- **Opening a missing path and saving any buffer, as the person can:** with `insert`, an agent
+  could create or replace any file the person can write, such as one that runs at login or on
+  a git operation.
+- **Asking before every channel save:** the person would answer a question for each change they
+  asked the agent to make in a file they have open.
 - **One `run` tool for every command:** the agent's permission rules could not tell looking from
   changing.
 - **The official MCP SDK (`rmcp`):** it brings an async runtime and many crates for four methods.

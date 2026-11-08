@@ -201,9 +201,11 @@ and below the row, and a label's glyphs keep their own cells
 - Claude Code runs as its official TUI in a terminal view (M4,
   [ADR 0031](adr/0031-claude-code-integration.md)).
 - Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
-  socket with a peer user check; no TCP port is opened, and there is no code-execution tool
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is an agent steered by text it
-  read, and other processes of the same user:
+  socket with a peer user check; no TCP port is opened. There is no code-execution tool, and
+  no way to write a file that could run code later without the person's yes: the channel opens
+  only files that exist, saves without asking only buffers the person visited, and never saves
+  oso's configuration or trust ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is
+  an agent steered by text it read, and other processes of the same user:
   - The channel is off until the person runs `agent-channel-start`, and each new connection
     asks the person, from the keyboard only, naming the process that connects. A refusal holds
     off new connections for 60 s. The modeline shows `Agent` while it is on, and `*Agent*`
@@ -225,7 +227,7 @@ and below the row, and a label's glyphs keep their own cells
     no prompt history.
   - Screenshots, the restart handoff, timings and hot reload stay dev-only.
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
-    edits and saves the files oso has open.
+    edits the files oso has open. Any save of a buffer the person did not visit asks the person.
 - Hooks are installed only by an explicit command that shows the settings
   change first.
 

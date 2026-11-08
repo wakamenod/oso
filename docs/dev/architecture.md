@@ -534,7 +534,8 @@ Full details are in [`security.md`](security.md).
   - Each connection waits for the person's yes. The channel runs nothing while a buffer that may
     hold secrets is shown, while the person is in a prompt, a key sequence or a composition or
     typed in the last second, or while its own question is open. A question it opens is answered
-    from the window. Its kills stay in oso's kill ring.
+    from the window. Its kills stay in oso's kill ring. It opens only files that exist, and a
+    save of a buffer the person did not visit asks the person.
   - `oso-platform::control` is built in every build, and names the peer's process and its
     parent for the connection question.
   - `oso mcp` is a subcommand: JSON-RPC over stdio, with the tools `state`, `text`, `commands`,
