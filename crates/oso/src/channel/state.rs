@@ -130,6 +130,7 @@ pub const fn kind(kind: Kind) -> &'static str {
     match kind {
         Kind::Number { .. } => "number",
         Kind::Passphrase => "passphrase",
+        Kind::Complete { .. } => "complete",
         Kind::Question { .. } => "question",
     }
 }
@@ -190,7 +191,13 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::None => "none",
                     ArgSpec::Count => "count",
                     ArgSpec::Number { .. } => "number",
-                    ArgSpec::Passphrase { .. } | ArgSpec::CountAndClipboard => "person",
+                    // A buffer's name is read in a prompt, which the channel never opens.
+                    ArgSpec::Passphrase { .. }
+                    | ArgSpec::CountAndClipboard
+                    | ArgSpec::Command { .. }
+                    | ArgSpec::Buffer { .. }
+                    | ArgSpec::Mark { .. }
+                    | ArgSpec::Key => "person",
                 },
                 "reach": if command.reach == Reach::Change { "change" } else { "look" },
             })

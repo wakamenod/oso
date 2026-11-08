@@ -35,9 +35,11 @@ item notes when it must be settled.
   and is read again, which costs about 0.05 to 0.12 ms for a screen of 60
   rows of ordinary text, so this waits until a profile shows it.
 - A path swapped for a FIFO between the loader's check and its open blocks
-  the loading thread (not the UI). Opening with `O_NONBLOCK` closes this, as
-  `oso_platform::file_meta::open_for_writing` does for a save
-  ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)).
+  the loading thread (not the UI). M2-18 closes this: the loader opens through
+  `oso_platform::file_meta::open_for_reading`, without waiting on the file, as
+  `open_for_writing` does for a save
+  ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md),
+  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - UI-thread allocations per frame: every `SumTree` seek allocates a cursor
   stack, and every visible glyph hashes its key in the atlas with SipHash.
   A frame costs 0.07 to 0.5 ms of CPU (p50 to p99) today; an inline cursor
@@ -69,9 +71,18 @@ item notes when it must be settled.
 - By M2-14: kills from a passphrase prompt reach neither the kill ring nor the OS clipboard, and a
   yank into it works. By M3: keyboard macros do not record what is typed there
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- By M2-18: try at the keyboard whether かな reaches oso while the IME is off in a prompt, and decide
-  whether it turns the IME on for that prompt, for Japanese file names
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- By M2-18: try at the keyboard whether かな reaches oso while the IME is off in a prompt. If it does,
+  it turns the IME on for that prompt, for Japanese file names; if not, the author decides again
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
+  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `C-x C-f`'s look at a row follows a symbolic link to say what it leads to, which can reach an
+  automounted or slow file system and hold that listing thread until it answers. Decide whether a
+  look stops at links that leave the listed tree
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `C-x C-f` matches file names code point by code point, so a name stored decomposed (NFD), as older
+  macOS volumes and zip archives keep them, does not match the composed form an input method types.
+  Normalizing needs `unicode-normalization`, a dependency; decide once it is seen to matter
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - The emergency save, small things to settle ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)):
   - `write_copy` drops what `unless_unsupported` returns, so its report says nothing when a file system cannot confirm a sync, as a save's message does.
   - A panic that cannot unwind under a command aborts without the copies, as the hook takes the first panic under a command to be caught.
@@ -80,7 +91,7 @@ item notes when it must be settled.
 - `saver::write_text` and `emergency::write`'s `write_text` are near copies, as are their checks that the whole text was kept. Join them if a third user arrives.
 - By M2-14 and M2-18: `Verdict` gains a variant for a tainting yank, which judging a path again must not clear, M2-14 decides whether a kill from an `Unresolved`
   buffer taints, and `C-x C-w` must give an entry in the emergency state a new identity, as its path changes with no text change
-  ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
+  ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md); ADR 0087 decides the last for M2-18).
 - Tier 2, before Linux or Windows are daily systems: a logout may not reach `exiting` there, so only a panic writes copies ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
   winit on Windows does not handle the end of a session, and on Linux one usually comes as a signal, or a close request that the exit guard refuses.
   oso's own Windows layer brings `WM_ENDSESSION` to `exiting` ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)); Linux's signal stays.
@@ -94,7 +105,9 @@ item notes when it must be settled.
   `C-x C-f` should find the buffer already visiting a file. And `C-x C-w` must decide what writing
   a secret buffer to a new path means over the socket, since `save-buffer` writes only where the
   file was, which is what keeps its text in the editor
-  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). M2-18 closes both: one file opens in one
+  buffer, found by device and inode, and `write-file` is the person's only, keeping a secret
+  verdict wherever it writes ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - By M2-15: the generation that guards `exit` does not change on a save between the
   export and the exit, and does not cover marks, the kill ring or file information
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
@@ -103,7 +116,8 @@ item notes when it must be settled.
   restart comes back shown.
 - By M2-19: a window that shows another buffer loses its marks and its mark ring, as it
   loses its cursors. Decide where a window keeps a buffer's places when `C-x b` comes back
-  to it ([ADR 0071](adr/0071-mark-and-region.md)).
+  to it ([ADR 0071](adr/0071-mark-and-region.md)). M2-19 closes this: a window keeps a place
+  per buffer ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - Motion functions take display rows (`motion::line_start(display, row)`),
   which are buffer lines while there is no soft wrap. When the WrapMap
   lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines
@@ -118,11 +132,14 @@ item notes when it must be settled.
   commands. It must also think about a running save: `saving` lives on the
   `Buffer`, so a killed buffer's save no longer counts for the exit guard, a
   guarded `exit` or the wait when leaving
-  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). M2-19 closes this: a kill cancels
+  the load right after the command, and refuses while a save runs
+  ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
-  them on a background thread.
+  them on a background thread. M2-19 does this for a kill
+  ([ADR 0088](adr/0088-switching-and-killing-buffers.md)); a failed load stays.
 - Large deletions free part of their trees on the UI thread
   ([ADR 0053](adr/0053-edit-core.md)). Killing 89 MB of a 100 MB buffer takes about
   1.2 ms, nearly all of it freeing the old display map's items. Its text stays in the
@@ -168,7 +185,9 @@ item notes when it must be settled.
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
 - By M2-19: whether `C-x b` lists `*Messages*`, and whether `kill-buffer` may kill it, which today
   it leaves. `C-h e` going back and the `Place` behind it go then. How the modeline shows long names
-  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+  ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)). M2-19 decides the first three:
+  `C-x b` lists it, nobody kills it, and `C-h e` goes back through the window's places
+  ([ADR 0088](adr/0088-switching-and-killing-buffers.md)); long names stay cut, as ADR 0063 says.
 - `S-RET`, `S-DEL` and other shifted named keys with no binding do nothing. Emacs falls back to
   the unshifted key, so holding Shift a moment too long still types. Decide whether
   `KeyResolver` does the same, or record that oso differs.
@@ -196,10 +215,10 @@ item notes when it must be settled.
 - The candidate window stays where a composition started, as winit gives the OS one
   rectangle. Check whether a new area during a conversion moves it at the next key, so
   that it can follow the segment ([ADR 0069](adr/0069-macos-input-method.md)).
-- At ADR 0070's stage 2, on macOS: a native view answers `firstRectForCharacterRange`
-  when the input method asks, so the cursor area no longer needs giving on every key that
-  moves the cursor (about 0.1 ms a key at p99 in `just perf` at M2-12), and the candidate
-  window can follow the segment being converted
+- The app still gives the window the cursor's cell on every key that moves the cursor (about
+  0.1 ms a key at p99 in `just perf` at M2-12), though oso's own layer only keeps it until
+  the input method asks. Measure whether giving it only when a composition may start, or
+  when the input method asks, is worth it
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - `oso_platform::window::Held` names the modifiers as the window system does, beside
@@ -209,20 +228,17 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
   the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the input method asking for the rectangle of the range it names, so the candidate window
-  follows the segment; no input context while the IME is off; the cursor's line for the
-  input method;
-  whether frames keep up during a live resize, now that the
-  view also draws when AppKit displays its layer; `open_window` and `request_attention`
-  queued as the other requests are;
-  startup and `open_from_launch_ms` measured again with more runs, where the native layer's
-  medians sat a few milliseconds above winit's within overlapping ranges; and the author's
-  checks at the keyboard of what remains: a window covered by another app and uncovered
-  drawing again with no key, a composition committed when the IME turns off, a Dock quit
-  asking the exit question, and a real Log Out, cancelled from the system's dialog, going
-  past it, which shows oso reads a real logout's reason
-  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each item above as it
-  lands. The author checked at the keyboard on 2026-11-08
+  the cursor's line for the input method; and the author's checks at the keyboard of what
+  remains: a window covered by another app and uncovered drawing again with no key, a
+  composition committed when the IME turns off, the candidate window following the segment
+  being converted, no text service reading the view while the IME is off, no Writing Tools
+  for it, a Dock quit asking the exit question, and a real Log Out, cancelled from the
+  system's dialog, going past it, which shows oso reads a real logout's reason
+  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), a live resize, the
+  window's corner dragged slowly and fast, with no text stretched or smeared and no blank
+  frame, `get-state`'s `live_resize` showing a frame for each step
+  ([ADR 0086](adr/0086-frames-during-a-live-resize.md)), and each item above as it lands.
+  The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting
@@ -239,19 +255,27 @@ item notes when it must be settled.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
   have ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-17: a region in a prompt's answer is not drawn, as `Editor::region_cells` gives the tiled
-  window's ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- By M2-17: the selected candidate needs a background per row in `PaneContent::Lines`
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- By M2-18: matching on a worker thread past 5000 candidates, with the generation and the
+  snapshot ADR 0076 fixes, for large directories. The worker gives back matches; where the list
+  is scrolled to stays with the prompt
+  ([ADR 0076](adr/0076-completion-and-m-x.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
   ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+- Following the OS's dark or light appearance, as an opt-in entry of `load-theme` that picks
+  the pair's dark or light theme. It needs appearance events on both window layers
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
   M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
   ([ADR 0057](adr/0057-frame-layout.md)).
 
 ## M3
+
+- Whether users can define their own themes, or override a built-in one's palette entries
+  and mappings, and in what format. Themes are data to keep it possible. Configuration
+  names the default theme and `<f5>`'s pair
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 
 - The configuration setting that starts the agent channel at launch: its name, and whether it
   may skip the question on each connection, which ADR 0085 always asks

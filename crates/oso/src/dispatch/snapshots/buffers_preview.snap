@@ -1,0 +1,126 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: notes\\n"
+---
+keys: C-x b
+│notes                                                                                               │
+:o                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 1, column 19: 19 x 62
+│ 1/4 Switch to buffer:                                        │
+:                       ^                                      :
+│>.env                0  …│may hold secrets                    │
+│ plan.md            14  …│                                    │
+│ *Messages*          0  …│                                    │
+│ test                6  …│                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+keys: C-n
+│notes                                                                                               │
+:o                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 1, column 19: 19 x 62
+│ 2/4 Switch to buffer:                                        │
+:                       ^                                      :
+│ .env                0  …│oudget                              │
+│>plan.md            14  …│hiring                              │
+│ *Messages*          0  …│                                    │
+│ test                6  …│                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+keys: C-g
+│notes                                                                                               │
+:^                                                                                                   :
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"Quit                                                                                                "

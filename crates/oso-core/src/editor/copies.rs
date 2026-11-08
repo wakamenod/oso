@@ -88,7 +88,10 @@ impl Editor {
                 }
             }
         }
-        self.way_back.retain(|place| place.buffer != id);
+        self.way_back.retain(|other| *other != id);
+        for window in &mut self.windows {
+            window.places_mut().forget(id);
+        }
         let position = self.buffers.iter().position(|(other, _)| *other == id)?;
         Some(self.buffers.remove(position).1)
     }
@@ -145,8 +148,8 @@ impl Editor {
         buffer.apply_load(snapshot);
         if let Some(saved_line) = saved_line {
             let start = buffer.text().line_start(saved_line);
-            for place in &mut self.way_back {
-                if place.buffer == list {
+            for window in &mut self.windows {
+                if let Some(place) = window.places_mut().get_mut(list) {
                     place.selections = SelectionSet::new(start);
                 }
             }
@@ -158,7 +161,8 @@ impl Editor {
     /// can change behind it, and it must come back to the same copy.
     pub fn saved_copies_line(&self) -> Option<usize> {
         let list = self.copies_buffer?;
-        let place = self.way_back.iter().find(|place| place.buffer == list)?;
+        let window = &self.windows[self.tiled_index()];
+        let (_, place) = window.places().find(|(id, _)| *id == list)?;
         let cursor = place.selections.primary().cursor;
         Some(self.buffer(list)?.text().offset_to_point(cursor).row)
     }
@@ -533,7 +537,6 @@ mod tests {
         let other = editor.add_buffer(Buffer::from_text("other", "y"));
         editor.toggle_copies();
         editor.show(other);
-        assert!(editor.way_back.is_empty());
         assert_eq!(editor.place_behind_internal(), None);
         editor.toggle_copies();
         let place = editor.place_behind_internal().map(|(buffer, _, _)| buffer);
@@ -547,7 +550,9 @@ mod tests {
             editor.toggle_copies();
             editor.toggle_messages();
         }
-        assert!(editor.way_back.len() <= 2, "{}", editor.way_back.len());
+        // Each buffer once, however often.
+        let places = editor.window().places().count();
+        assert!(places <= 3, "{places}");
     }
 
     #[test]
@@ -605,7 +610,6 @@ mod tests {
         editor.leave_all_internal();
         assert_eq!(editor.window().buffer(), file);
         assert_eq!(editor.window().selections.primary().cursor, 3);
-        assert!(editor.way_back.is_empty());
     }
 
     #[test]

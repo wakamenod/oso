@@ -76,8 +76,19 @@ impl Dispatcher {
                 Args::NONE
             }
             (ArgSpec::Number { .. }, None) => return refused(format!("{name} needs a number")),
+            // The channel never opens a prompt, and gives no buffer's name yet.
+            (ArgSpec::Buffer { .. }, _) => {
+                return refused(format!("{name} reads a buffer's name; ask the person"));
+            }
             // `Person` commands, refused above; listed so that a new spec must be decided.
-            (ArgSpec::Passphrase { .. } | ArgSpec::CountAndClipboard, _) => {
+            (
+                ArgSpec::Passphrase { .. }
+                | ArgSpec::CountAndClipboard
+                | ArgSpec::Command { .. }
+                | ArgSpec::Mark { .. }
+                | ArgSpec::Key,
+                _,
+            ) => {
                 return refused(format!("{name} needs a person at the keyboard"));
             }
         };

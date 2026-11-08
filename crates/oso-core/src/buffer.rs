@@ -30,6 +30,8 @@ use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 mod baseline;
 mod internal;
 mod mode;
+mod names;
+mod naming;
 mod recovery;
 mod reload;
 pub(crate) use reload::Noticed;
@@ -38,6 +40,7 @@ mod splice;
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, DiskState, FileStamp};
 pub use mode::Mode;
+pub(crate) use names::{base as file_base, distinct as distinct_names};
 use splice::{SpliceText, apply, normalized, offset_edit};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
@@ -192,6 +195,9 @@ pub struct Buffer {
     copy_waits: bool,
     /// The file's own spelling, if something else may have been typed.
     own_spelling: Option<PathBuf>,
+    /// Changes whenever the name or the path does, so that what is kept of them elsewhere,
+    /// such as an emergency entry, can tell (ADR 0062, ADR 0087).
+    naming: u32,
     /// A copy's text was put in, until its copy has gone.
     recovery: Option<recovery::RecoveryMark>,
     /// A save of this buffer is running.
@@ -243,6 +249,7 @@ impl Buffer {
             mode: Mode::Fundamental,
             copy_waits: false,
             own_spelling: None,
+            naming: 0,
             recovery: None,
             saving: false,
             loading: None,

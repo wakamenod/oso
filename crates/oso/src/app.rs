@@ -198,6 +198,7 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
+        self.forget_killed();
         self.start_saves();
         self.start_searches();
         self.start_reverts();

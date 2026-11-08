@@ -299,6 +299,11 @@ macOS. The glyphs come from a fake text system, so they assert the same on both,
 failure on Linux is real. There are no stored images to compare. Once M2-16 draws floats,
 a flow can take over.
 
+**Themes** ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)): a unit test checks
+the contrast of every face's pairs in every theme, with no GPU. A pixel test keeps each theme's
+text gamma curve, and a sample frame for each theme is drawn off screen as PNGs for the author
+to choose colours from.
+
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
 [ADR 0032](adr/0032-control-socket-transport.md)):
@@ -379,10 +384,12 @@ socket. Windows open and take the focus, and a hidden window fails the run.
 Files are generated in a temporary directory and never committed. It writes
 JSON to `target/perf/perf.json`; `just perf OUT --quick` is for trying it out.
 
-`just perf-remote BASE PAIRS FEATURES` runs the same harness on another Mac, named
-by the ssh host in `OSO_PERF_HOST`. It builds BASE (by default `origin/main`) and the
-working tree here, both with FEATURES (by default `dev`; `dev,native-window` for
-oso's own macOS window layer), copies the two binaries and the harness there, and runs them in
+`just perf-remote BASE PAIRS FEATURES BASE_FEATURES` runs the same harness on another
+Mac, named by the ssh host in `OSO_PERF_HOST`. It builds BASE (by default `origin/main`)
+and the working tree here, both with FEATURES (by default `dev`; `dev,native-window` for
+oso's own macOS window layer), or the base with BASE_FEATURES if given, so that
+`just perf-remote origin/main 5 dev,native-window dev` measures the native layer against
+winit, copies the two binaries and the harness there, and runs them in
 alternating pairs, the base first, under `caffeinate -d`. The results and logs come
 back to `target/perf/remote/`, each pair is compared as `just perf-compare` does, and
 each run says how much the host swapped meanwhile. Nothing runs there but the
@@ -397,6 +404,7 @@ OS and architecture. Nothing is built or installed there.
 | `type_p50_ms`, `type_p99_ms`, `del_p99_ms` | the same while typing there (ASCII, Japanese, an emoji and line breaks), and while `DEL` removes it | 5, 400 keys each |
 | `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; reported only (ADR 0069) | 5, 400 reports each |
 | `prompt_type_p99_ms` | digits typed into `goto-line`'s open prompt to the frames that draw them, there; reported only (ADR 0072) | 5, 400 keys each |
+| `mx_type_p99_ms` | a letter and `DEL` typed in turn into `M-x` listing every command, to the frames that draw them; reported only (ADR 0076) | 5, 400 keys each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |
@@ -429,16 +437,25 @@ run them for long periods.
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
+A pull request that changes nothing but `docs/` builds nothing: its first job, `changes`,
+finds that from the files it changes since it left `main`, and every job below that builds
+or checks code is skipped, so it shows as skipped, not failed. The gitleaks scan and
+`just markers`, which looks for conflict markers in every tracked file with `git grep`,
+still run. A push to `main` always runs everything.
+
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
-  the dev features too (`--all-features`).
+  the dev features too (`--all-features`). The macOS job also runs
+  `just public-api-macos-check`, below, so that a push starts one macOS job.
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
+- `just markers` on Linux: no conflict marker in any tracked file, without a build, as
+  the architecture test checks within `just ci`
 - `just public-api-check` on Linux: the public API matches
   `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
-  `just public-api-macos-check` on macOS for `oso-platform`'s macOS API, with the native
-  window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
+  `just public-api-macos-check` in the macOS `just ci` job for `oso-platform`'s macOS API,
+  with the native window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue
