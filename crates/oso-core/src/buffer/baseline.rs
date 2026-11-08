@@ -26,7 +26,8 @@ impl FileStamp {
     }
 
     /// Whether `other` is the same file with the same content, as far as both say: another
-    /// file of the same time and size, renamed in, is not (ADR 0083).
+    /// file of the same time and size, renamed in, is not (ADR 0083). A stamp with no identity,
+    /// as where the system gives none or one made up for a file gone, goes by time and size.
     pub fn same_file(self, other: Self) -> bool {
         self.same_content(other)
             && match (self.identity, other.identity) {

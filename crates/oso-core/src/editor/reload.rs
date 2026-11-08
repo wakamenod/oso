@@ -34,7 +34,6 @@ pub enum ReloadOutcome {
 
 /// Text a reload left: the one before it, or the one read and not put in. Dropping it can
 /// take long for a large file, so the host drops it on another thread.
-#[derive(Default)]
 #[expect(dead_code, reason = "held only to be dropped where the host says")]
 pub struct Leftover {
     text: Option<Rope>,
@@ -45,8 +44,9 @@ pub struct Leftover {
 impl Leftover {
     fn of_snapshot(snapshot: LoadSnapshot) -> Self {
         Self {
+            text: None,
+            display: None,
             snapshot: Some(snapshot),
-            ..Self::default()
         }
     }
 }

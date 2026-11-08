@@ -22,7 +22,9 @@ pub(super) struct Disk {
     files: Vec<(BufferId, PathBuf)>,
     /// What it last saw of them, sorted by buffer.
     seen: Vec<(BufferId, DiskState)>,
-    /// The files being read again.
+    /// The files being read again. A read whose buffer has changed since runs to its end, and
+    /// its text is refused then: so a read that hangs, as on a mount gone away, keeps its
+    /// buffer from starting another.
     running: Vec<Running>,
     /// The names of buffers reloaded since that was last said.
     reloaded: Vec<String>,
@@ -105,7 +107,6 @@ impl App {
     /// Nothing is allocated and no file is touched while nothing changes.
     pub(super) fn check_disk(&mut self) {
         self.sync_watched_files();
-        self.drop_stale_reloads();
         let disk = &self.disk;
         let reads = self.editor.files_seen(&disk.seen, |id| disk.busy(id));
         for id in reads {
@@ -144,28 +145,6 @@ impl App {
             .retain(|(id, _)| files.iter().any(|(file, _)| file == id));
         if let Some(watcher) = &self.disk.watcher {
             watcher.watch(self.disk.files.clone());
-        }
-    }
-
-    /// Stops reading a file again into a buffer that has changed since, as its text could not
-    /// go in. The editor decides again what the buffer needs at its next look.
-    fn drop_stale_reloads(&mut self) {
-        let editor = &self.editor;
-        let stale = |running: &Running| {
-            !editor
-                .buffer(running.handle.buffer())
-                .is_some_and(|buffer| buffer.content_id() == running.read_from)
-        };
-        if !self.disk.running.iter().any(stale) {
-            return;
-        }
-        let (stale, kept): (Vec<Running>, Vec<Running>) = std::mem::take(&mut self.disk.running)
-            .into_iter()
-            .partition(|running| stale(running));
-        self.disk.running = kept;
-        for running in stale {
-            // A text read and not taken is freed off the UI thread, and so is the read.
-            free_elsewhere((running.handle.take(), running.handle));
         }
     }
 

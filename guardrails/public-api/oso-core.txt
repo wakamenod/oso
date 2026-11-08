@@ -1027,8 +1027,6 @@ pub fn oso_core::editor::ExitRefused::fmt(&self, &mut core::fmt::Formatter<'_>) 
 impl core::marker::Copy for oso_core::editor::ExitRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::ExitRefused
 pub struct oso_core::editor::Leftover
-impl core::default::Default for oso_core::editor::Leftover
-pub fn oso_core::editor::Leftover::default() -> oso_core::editor::Leftover
 pub struct oso_core::editor::SaveJob
 pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::Baseline>
 pub oso_core::editor::SaveJob::bom: bool
