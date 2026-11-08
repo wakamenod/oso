@@ -1,4 +1,4 @@
-//! Prompts in the running app (ADR 0072): a line read and gone to, `C-g`, the input
+//! Prompts in the running app (ADR 0072, ADR 0075): a line read and gone to, `C-g`, the input
 //! method off while one is open, a passphrase withheld from the socket and the log, and a
 //! restart held while a prompt waits.
 //!
@@ -24,7 +24,7 @@ fn m_g_g_reads_a_line_in_a_float_and_goes_there() {
     let prompt = &state["prompts"][0];
     assert_eq!(prompt["kind"], "number");
     assert_eq!(prompt["prompt"], "Go to line: ");
-    assert_eq!(prompt["region"]["row"], 1, "a row below the top");
+    assert_eq!(prompt["region"]["row"], 0, "attached to the top edge");
     assert_eq!(state["ime"]["wanted"], false, "a prompt reads keys");
     assert_eq!(state["buffer"]["name"], "lines.txt", "the window beneath");
     let shown = app.screenshot().foreground().expect("the float is drawn");
