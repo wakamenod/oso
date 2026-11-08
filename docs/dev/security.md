@@ -283,8 +283,10 @@ and below the row, and a label's glyphs keep their own cells
   its path ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
 - `take-timings` records no key if a secret-pattern buffer is shown just before or after
   it or when its frame is presented, and no frames while one is shown, but the first
-  frame and the first load's times
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  frame ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). It times no load of
+  such a buffer, and no first screen drawn while one is shown. While one is shown, the log
+  keeps warnings and errors only, from every crate
+  ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - Responses are safe to print: DEL, C1 controls, bidi controls and invisible
   characters from a file go out as `\uXXXX`
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
