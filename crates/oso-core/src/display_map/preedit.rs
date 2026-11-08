@@ -15,6 +15,10 @@ use std::ops::{ControlFlow, Range};
 
 use super::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot, text_clusters};
 
+/// The most characters of a preedit whose places are given to the input method, far
+/// above any composition typed, so that one from another process costs a bounded list.
+pub(crate) const MOST_PLACED_CHARS: usize = 4096;
+
 /// One of a preedit's clusters, from the one pass that segments it, so that a row
 /// read from any column gives the same clusters, and costs no segmenting.
 #[derive(Clone, PartialEq, Eq)]
@@ -120,16 +124,24 @@ impl Preedit {
         self.cells
     }
 
-    /// The column, from the preedit's start, of the cluster that holds `byte`, and the
-    /// preedit's width at or past its end: where the input method's range would be drawn
-    /// (ADR 0077). A search, and no segmenting.
-    pub fn column_of(&self, byte: usize) -> usize {
-        let at = self
-            .clusters
-            .partition_point(|cluster| cluster.bytes.end <= byte);
-        self.clusters
-            .get(at)
-            .map_or(self.cells, |cluster| cluster.column)
+    /// Where each of its characters is drawn, into `out`, emptied first: its x from the
+    /// preedit's start, then that of its end, with cells `cell_width` pixels wide. A
+    /// character takes its cluster's place. Nothing for a preedit of more than
+    /// [`MOST_PLACED_CHARS`] characters, whose input method then gets the cursor's cell
+    /// (ADR 0077). One walk of the clusters.
+    pub(crate) fn char_positions(&self, cell_width: f32, out: &mut Vec<f32>) {
+        out.clear();
+        for cluster in &self.clusters {
+            let x = cluster.column as f32 * cell_width;
+            for _ in self.text[cluster.bytes.clone()].chars() {
+                if out.len() == MOST_PLACED_CHARS {
+                    out.clear();
+                    return;
+                }
+                out.push(x);
+            }
+        }
+        out.push(self.cells as f32 * cell_width);
     }
 
     /// The cells of the segment being converted, from the preedit's start.
@@ -230,15 +242,24 @@ mod tests {
     }
 
     #[test]
-    fn a_byte_is_drawn_in_its_clusters_column() {
-        // A wide letter takes two cells, and an accent joins the letter before it.
-        let preedit = Preedit::new("にe\u{301}a".into(), None);
-        let columns: Vec<usize> = (0..=preedit.text().len())
-            .map(|byte| preedit.column_of(byte))
-            .collect();
-        assert_eq!(columns, [0, 0, 0, 2, 2, 2, 3, 4]);
-        assert_eq!(preedit.column_of(usize::MAX), preedit.cells());
-        assert_eq!(Preedit::new(String::new(), None).column_of(0), 0);
+    fn a_character_is_drawn_in_its_clusters_place() {
+        let mut out = vec![99.0];
+        // A wide letter, an accent joined to the letter before it, an emoji of two cells.
+        let preedit = Preedit::new("にe\u{301}😀a".into(), None);
+        preedit.char_positions(8.0, &mut out);
+        assert_eq!(out, [0.0, 16.0, 16.0, 24.0, 40.0, 48.0]);
+        Preedit::new(String::new(), None).char_positions(8.0, &mut out);
+        assert_eq!(out, [0.0], "only the end");
+    }
+
+    #[test]
+    fn a_preedit_too_long_to_place_gets_no_places() {
+        let mut out = Vec::new();
+        let most = "a".repeat(MOST_PLACED_CHARS);
+        Preedit::new(most.clone(), None).char_positions(1.0, &mut out);
+        assert_eq!(out.len(), MOST_PLACED_CHARS + 1, "every one and the end");
+        Preedit::new(most + "a", None).char_positions(1.0, &mut out);
+        assert!(out.is_empty());
     }
 
     #[test]

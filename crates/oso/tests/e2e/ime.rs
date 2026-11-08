@@ -166,3 +166,32 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_a_composition_is_kept() {
     app.show_buffer(&notes);
     assert!(allowed(&mut app));
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn no_input_context_is_given_while_the_ime_is_off() {
+    let scratch = Scratch::new("ime-context");
+    let file = scratch.write("notes.txt", b"abc\n");
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    let notes = app.wait_until_ready()["buffer"]["id"].clone();
+    // oso's own layer gives none while the IME is off, so no text service reads the view
+    // then (ADR 0070); winit keeps its own, and the socket reports none.
+    let native = cfg!(all(target_os = "macos", feature = "native-window"));
+    let context = |on: bool| if native { json!(on) } else { Value::Null };
+    let given = |app: &mut App| app.state()["ime"]["input_context"].clone();
+    assert_eq!(given(&mut app), context(true));
+    app.send_keys("C-x");
+    assert_eq!(given(&mut app), context(false), "a prefix key");
+    app.send_keys("C-g");
+    assert_eq!(given(&mut app), context(true));
+    app.open_file(&env);
+    app.wait_until_ready();
+    assert_eq!(
+        given(&mut app),
+        context(false),
+        "a buffer that may hold secrets"
+    );
+    app.show_buffer(&notes);
+    assert_eq!(given(&mut app), context(true));
+}

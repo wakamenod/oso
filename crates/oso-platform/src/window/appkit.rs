@@ -169,7 +169,8 @@ struct State {
     exit: Cell<bool>,
     exited: Cell<bool>,
     deadline: Cell<Option<Instant>>,
-    /// Whether oso has the IME on, and the cursor's cell the app last gave.
+    /// Whether oso has the IME on, the cursor's cell the app last gave, and where each
+    /// character of a composition is laid out.
     ime: RefCell<gate::ImeGate>,
     /// The loop ended while the handler ran: it hears so once it returns.
     exit_waiting: Cell<bool>,

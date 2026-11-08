@@ -1,6 +1,7 @@
-//! What the input method may learn of the cursor, the cell the app last gave, answered only
-//! while oso has the IME on (ADR 0069, ADR 0070); when secure input is held (ADR 0073); and a
-//! frame owed to a window that was hidden. Plain values, tested without a window or a clock.
+//! What the input method may learn of the cursor, the cell the app last gave and where each
+//! character of a composition is drawn, answered only while oso has the IME on (ADR 0069,
+//! ADR 0070, ADR 0077); when secure input is held (ADR 0073); and a frame owed to a window
+//! that was hidden. Plain values, tested without a window or a clock.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 
@@ -9,15 +10,15 @@ use std::time::{Duration, Instant};
 
 use crate::window::CursorArea;
 
-/// Whether oso has the IME on, the cursor's cell the app last gave, and where the app drew
-/// each part of the composition from that cell's left.
+/// Whether oso has the IME on, the cursor's cell the app last gave, and where it lays out
+/// each character of the composition from that cell's left.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct ImeGate {
     allowed: bool,
     area: Option<CursorArea>,
-    /// The x of each UTF-16 unit of the composition, and of its end, in physical pixels
-    /// (ADR 0077). Empty with no composition drawn.
-    offsets: Vec<f32>,
+    /// The x of each character of the composition, then of its end, in physical pixels
+    /// (ADR 0077). Empty with no composition.
+    positions: Vec<f32>,
 }
 
 impl ImeGate {
@@ -36,9 +37,9 @@ impl ImeGate {
         self.area = Some(area);
     }
 
-    pub(super) fn set_offsets(&mut self, offsets: &[f32]) {
-        self.offsets.clear();
-        self.offsets.extend_from_slice(offsets);
+    pub(super) fn set_positions(&mut self, positions: &[f32]) {
+        self.positions.clear();
+        self.positions.extend_from_slice(positions);
     }
 
     /// The cell to answer the input method with: none while the IME is off.
@@ -46,21 +47,29 @@ impl ImeGate {
         if self.allowed { self.area } else { None }
     }
 
-    /// Where `units` of a composition `marked` UTF-16 units long are drawn: none while the IME
-    /// is off. A range outside the composition, or one of a composition the app has not
-    /// drawn yet, gets the cell (ADR 0077).
-    pub(super) fn rect(&self, units: Range<usize>, marked: usize) -> Option<CursorArea> {
+    /// Where `chars` of a composition `marked_len` characters long are, and whether that is
+    /// their own place: none while the IME is off. No range, as one outside the composition,
+    /// or one of a composition the app has not laid out yet, gets the cell (ADR 0077).
+    pub(super) fn rect(
+        &self,
+        chars: Option<Range<usize>>,
+        marked_len: usize,
+    ) -> Option<(CursorArea, bool)> {
         let area = self.area()?;
-        if self.offsets.len() != marked + 1 || units.start > marked {
-            return Some(area);
-        }
-        let end = units.end.clamp(units.start, marked);
-        let (start, end) = (self.offsets[units.start], self.offsets[end]);
-        Some(CursorArea {
+        let Some(chars) = chars.filter(|chars| {
+            self.positions.len() == marked_len + 1
+                && chars.start <= chars.end
+                && chars.end <= marked_len
+        }) else {
+            return Some((area, false));
+        };
+        let (start, end) = (self.positions[chars.start], self.positions[chars.end]);
+        let placed = CursorArea {
             x: area.x + start,
             width: end - start,
             ..area
-        })
+        };
+        Some((placed, true))
     }
 }
 
@@ -249,24 +258,65 @@ mod tests {
     }
 
     #[test]
-    fn a_range_of_the_composition_is_where_the_app_drew_it() {
+    fn a_range_of_the_composition_is_where_the_app_lays_it_out() {
         let mut gate = ImeGate::default();
         gate.set_allowed(true);
         gate.set_area(CELL);
-        // "かa😀": a wide letter, a narrow one, and an emoji of two units.
-        gate.set_offsets(&[0.0, 16.0, 24.0, 24.0, 40.0]);
-        let at = |x: f32, width: f32| Some(CursorArea { x, width, ..CELL });
-        assert_eq!(gate.rect(0..1, 4), at(8.0, 16.0), "the first letter");
-        assert_eq!(gate.rect(1..4, 4), at(24.0, 24.0), "the segment after it");
-        assert_eq!(gate.rect(4..4, 4), at(48.0, 0.0), "the caret at the end");
-        assert_eq!(gate.rect(2..usize::MAX, 4), at(32.0, 16.0), "clamped to it");
-        assert_eq!(gate.rect(5..6, 4), Some(CELL), "past the composition");
-        assert_eq!(gate.rect(0..1, 2), Some(CELL), "one not drawn yet");
-        gate.set_offsets(&[]);
-        assert_eq!(gate.rect(0..1, 4), Some(CELL), "none drawn");
-        gate.set_offsets(&[0.0, 16.0, 24.0, 24.0, 40.0]);
+        // "かa😀": a wide letter, a narrow one, and an emoji of two cells.
+        gate.set_positions(&[0.0, 16.0, 24.0, 40.0]);
+        let at = |x: f32, width: f32| Some((CursorArea { x, width, ..CELL }, true));
+        assert_eq!(gate.rect(Some(0..1), 3), at(8.0, 16.0), "the first letter");
+        assert_eq!(
+            gate.rect(Some(1..3), 3),
+            at(24.0, 24.0),
+            "the segment after it"
+        );
+        assert_eq!(
+            gate.rect(Some(3..3), 3),
+            at(48.0, 0.0),
+            "the caret at the end"
+        );
+        assert_eq!(
+            gate.rect(None, 3),
+            Some((CELL, false)),
+            "outside the composition"
+        );
+        assert_eq!(
+            gate.rect(Some(0..1), 2),
+            Some((CELL, false)),
+            "one not laid out yet"
+        );
+        gate.set_positions(&[]);
+        assert_eq!(
+            gate.rect(Some(0..1), 3),
+            Some((CELL, false)),
+            "none laid out"
+        );
+        gate.set_positions(&[0.0, 16.0, 24.0, 40.0]);
         gate.set_allowed(false);
-        assert_eq!(gate.rect(0..1, 4), None, "off");
+        assert_eq!(gate.rect(Some(0..1), 3), None, "off");
+    }
+
+    #[test]
+    fn no_range_or_length_reaches_past_the_positions() {
+        let mut gate = ImeGate::default();
+        gate.set_allowed(true);
+        gate.set_area(CELL);
+        let ends = [0, 1, 2, 3, 4, usize::MAX];
+        for given in 0..5 {
+            gate.set_positions(&[0.0, 8.0, 16.0, 24.0][..given]);
+            for (start, end, marked_len) in ends.iter().flat_map(|&s| {
+                ends.iter()
+                    .flat_map(move |&e| [0, 1, 3, 4].map(|m| (s, e, m)))
+            }) {
+                let (area, placed) = gate.rect(Some(start..end), marked_len).unwrap();
+                assert_eq!(
+                    placed,
+                    given == marked_len + 1 && start <= end && end <= marked_len
+                );
+                assert!(area.x >= CELL.x && area.width >= 0.0);
+            }
+        }
     }
 
     /// The system's own count of enables, behind a `settle` that accepts as told.

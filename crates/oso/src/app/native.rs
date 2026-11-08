@@ -154,6 +154,12 @@ impl Window {
         Some(self.0.secure_input())
     }
 
+    /// Whether the view gives the input method a context, for the dev socket.
+    #[cfg(feature = "dev")]
+    pub(super) fn gives_input_context(&self) -> Option<bool> {
+        Some(self.0.gives_input_context())
+    }
+
     /// Drops the composition the input method holds, with no commit.
     pub(super) fn discard_composition(&self) {
         self.0.discard_composition();
@@ -170,10 +176,10 @@ impl Window {
         });
     }
 
-    /// Tells the input method where each part of the composition is drawn (ADR 0077). Only
-    /// kept, as the cursor area is.
-    pub(super) fn set_ime_preedit_offsets(&self, offsets: &[f32]) {
-        self.0.set_ime_preedit_offsets(offsets);
+    /// Tells the input method where each character of the composition is drawn (ADR 0077).
+    /// Only kept, as the cursor area is.
+    pub(super) fn set_ime_preedit_positions(&self, positions: &[f32]) {
+        self.0.set_ime_preedit_positions(positions);
     }
 }
 

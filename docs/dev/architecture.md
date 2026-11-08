@@ -211,7 +211,8 @@ A panicking command is caught at the command boundary
   `Dispatcher::commit_text`, which keeps it an undo step of its own
   ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md),
   [ADR 0069](adr/0069-macos-input-method.md)).
-- The input method is winit's, reported through `app/shell.rs` and handled in `app/ime.rs`
+- The input method is the window layer's, reported through `app/shell.rs` on winit or
+  `app/native.rs` on oso's own layer, and handled in `app/ime.rs`
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
@@ -219,9 +220,9 @@ A panicking command is caught at the command boundary
   typing goes then, on oso's own layer, and waits for it to end on winit, which cannot
   commit one ([ADR 0069](adr/0069-macos-input-method.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)). The app gives the window
-  the cursor's cell when it moves and, during a composition, where each of its parts is
-  drawn. On oso's own layer the view only keeps them, and answers the input method's
-  question about a range with that part's place, so the candidate window follows the
+  the cursor's cell when it moves and, after each event that changes a composition, where
+  each of its characters is drawn (`Editor::preedit_positions`). On oso's own layer the view
+  only keeps them, and answers the input method's question about a range with that place, so the candidate window follows the
   segment being converted. While the IME is off it gives no input context, so no text
   service reads it, and Writing Tools are off for it.
 - `Layers` holds the active keymaps, highest priority first: keymap at

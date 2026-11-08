@@ -21,8 +21,8 @@ use objc2::rc::{AutoreleasePool, Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSTextInputContext, NSView,
-    NSWritingToolsBehavior,
+    NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSTextInputContext,
+    NSTextInputTraits, NSView, NSWritingToolsBehavior,
 };
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound,
@@ -86,13 +86,6 @@ define_class!(
             } else {
                 None
             }
-        }
-
-        /// Writing Tools are off for the view, as it gives no buffer text to rewrite
-        /// (ADR 0070).
-        #[unsafe(method(writingToolsBehavior))]
-        fn writing_tools_behavior(&self) -> NSWritingToolsBehavior {
-            NSWritingToolsBehavior::None
         }
 
         /// Places count from the top left, as the app's do.
@@ -169,6 +162,17 @@ define_class!(
 
     // SAFETY: `NSObjectProtocol` has no requirements.
     unsafe impl NSObjectProtocol for OsoView {}
+
+    // SAFETY: the protocol's methods are all optional, and the one here has the signature
+    // AppKit declares for it.
+    unsafe impl NSTextInputTraits for OsoView {
+        /// Writing Tools are off for the view, which rewrites no buffer text for another
+        /// process (ADR 0070).
+        #[unsafe(method(writingToolsBehavior))]
+        fn writing_tools_behavior(&self) -> NSWritingToolsBehavior {
+            NSWritingToolsBehavior::None
+        }
+    }
 
     // SAFETY: every required method is here, with the signatures AppKit declares.
     unsafe impl NSTextInputClient for OsoView {
@@ -277,14 +281,27 @@ define_class!(
         }
 
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
-        fn first_rect(&self, range: NSRange, _actual: NSRangePointer) -> NSRect {
-            // While the input method is off, as in a buffer that may hold secrets, no place.
-            let marked = utf16::utf16_len(&self.ivars().marked.borrow());
+        fn first_rect(&self, range: NSRange, actual: NSRangePointer) -> NSRect {
             let units = range.location..range.location.saturating_add(range.length);
-            let rect = self.ivars().state.ime.borrow().rect(units, marked);
-            rect.map_or(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)), |area| {
-                self.on_screen(area)
-            })
+            let marked = self.ivars().marked.borrow();
+            let inside = utf16::char_range(&marked, units);
+            let marked_len = marked.chars().count();
+            drop(marked);
+            let chars = inside.as_ref().map(|(chars, _)| chars.clone());
+            let answer = self.ivars().state.ime.borrow().rect(chars, marked_len);
+            // While the input method is off, as in a buffer that may hold secrets, no place.
+            let Some((area, placed)) = answer else {
+                return NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
+            };
+            // The range cut to the composition, as the answer covers no more.
+            if let (true, Some((_, units))) = (placed, inside)
+                && !actual.is_null()
+            {
+                // SAFETY: AppKit passes null or a pointer to an `NSRange` it owns for the length
+                // of the call, which is not null here.
+                unsafe { actual.write(NSRange::new(units.start, units.end - units.start)) };
+            }
+            self.on_screen(area)
         }
 
         #[unsafe(method(characterIndexForPoint:))]
@@ -451,11 +468,20 @@ impl OsoView {
         }
     }
 
-    /// The input context NSView keeps for the view, whether or not the IME is on.
+    /// The input context NSView keeps for the view, whether or not the IME is on: NSView's
+    /// own method, past the view's override, which gives none while the IME is off.
     fn own_input_context(&self) -> Option<Retained<NSTextInputContext>> {
-        // SAFETY: NSView's `inputContext` takes no arguments and returns an input context or
-        // nil.
+        // SAFETY: `self` is an `OsoView`, whose superclass is NSView, so the lookup from NSView
+        // finds NSView's `inputContext`. It takes no arguments and returns an
+        // `NSTextInputContext *` or nil, which `Retained` retains, and the view is used only on
+        // the main thread.
         unsafe { msg_send![super(self, NSView::class()), inputContext] }
+    }
+
+    /// Whether the view gives an input context now, for the dev socket's check.
+    #[cfg(feature = "dev")]
+    pub(super) fn gives_input_context(&self) -> bool {
+        self.inputContext().is_some()
     }
 
     /// `area`, in physical pixels of the view, in points on the screen.

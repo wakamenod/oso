@@ -177,6 +177,12 @@ impl Window {
         None
     }
 
+    /// winit keeps the input context to itself, so the dev socket reports none.
+    #[cfg(feature = "dev")]
+    pub(super) fn gives_input_context(&self) -> Option<bool> {
+        None
+    }
+
     /// Drops the composition the input method holds, with no commit. winit has no call for
     /// it; it drops the composition when the IME goes off, which follows (ADR 0069).
     pub(super) fn discard_composition(&self) {}
@@ -189,9 +195,9 @@ impl Window {
         );
     }
 
-    /// winit gives the input method one rectangle, the cursor area's, so where the parts of a
-    /// composition are drawn goes nowhere (ADR 0077).
-    pub(super) fn set_ime_preedit_offsets(&self, _offsets: &[f32]) {}
+    /// winit gives the input method one rectangle, the cursor area's, so where the characters
+    /// of a composition are drawn goes nowhere (ADR 0077).
+    pub(super) fn set_ime_preedit_positions(&self, _positions: &[f32]) {}
 }
 
 impl ApplicationHandler<UserEvent> for App {

@@ -139,6 +139,13 @@ impl App {
             area: self.ime_area(),
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
+        // Whether the view gives the input method a context, which it does only while the IME
+        // is on (ADR 0070); null on winit.
+        let context = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.gives_input_context());
+        state["ime"]["input_context"] = context.map_or(serde_json::Value::Null, Into::into);
         // Whether secure input is wanted, held by oso, and on for any process in the system
         // (ADR 0073): nothing a process of the same user cannot read already (ADR 0044).
         let secure = self

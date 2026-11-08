@@ -83,6 +83,17 @@ impl Editor {
         Some(grid.rect(cell))
     }
 
+    /// Where each character of the composition is drawn, into `out`, emptied first: its x
+    /// from the composition's start, which is the cursor's cell, in physical pixels, then
+    /// that of its end. Empty with no composition, or with one too long to place, for which
+    /// the input method gets the cursor's cell (ADR 0077).
+    pub fn preedit_positions(&self, grid: PixelGrid, out: &mut Vec<f32>) {
+        match &self.preedit {
+            Some(preedit) => preedit.char_positions(grid.cell_width(), out),
+            None => out.clear(),
+        }
+    }
+
     /// Hides the selected window's regions and keeps its marks, as `C-g` does, first
     /// in the chain of what it cancels (ADR 0030, ADR 0071). Returns whether a region
     /// was shown, so that a caller can stop there and ask for a frame.

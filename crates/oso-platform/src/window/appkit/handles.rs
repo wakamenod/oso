@@ -212,12 +212,22 @@ impl Window {
         self.state.update_ime(|ime| ime.set_area(area));
     }
 
-    /// Where the app drew the composition: the x of each of its UTF-16 units from the cursor
-    /// area's left, then of its end, in physical pixels, or none with no composition. Only
-    /// kept, so that the input method's question about a range of it is answered with the
-    /// place it is drawn, and the candidate window follows the segment being converted.
-    pub fn set_ime_preedit_offsets(&self, offsets: &[f32]) {
-        self.state.update_ime(|ime| ime.set_offsets(offsets));
+    /// Where the app lays out each character of the composition: its x from the cursor
+    /// area's left, then that of its end, in physical pixels, or none with no composition.
+    /// Only kept, so that the input method's question about a range of it is answered with
+    /// that place, and the candidate window follows the segment being converted (ADR 0077).
+    pub fn set_ime_preedit_positions(&self, positions: &[f32]) {
+        self.state.update_ime(|ime| ime.set_positions(positions));
+    }
+
+    /// Whether the view gives the input method a context now, which it does only while the
+    /// IME is on, for the dev socket's check.
+    #[cfg(feature = "dev")]
+    pub fn gives_input_context(&self) -> bool {
+        self.state
+            .window
+            .get()
+            .is_some_and(|(_, view, _)| view.gives_input_context())
     }
 }
 
