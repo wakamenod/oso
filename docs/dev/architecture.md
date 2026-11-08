@@ -331,16 +331,21 @@ glyphs:
 ```
 for each layer, back to front:
   rectangles: backgrounds, boxes, cursors, selections   (shape renderer)
+  rounded boxes: a float's panel, field and key chips   (shape renderer, one quad each)
   glyphs from the atlas                                 (text renderer)
 ```
+
+A layer with no rounded box draws none, so a frame with no float costs nothing more
+([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)).
 
 `scene` builds those ranges with no GPU, and `paint` uploads and records them, for the
 window and for a screenshot alike. Panes are built front to back, so the caps on quads
 and rectangles and the budget of new glyphs run out behind what is in front. A text pane
 holds one rectangle back for its cursor box, so nothing of its own takes its place. A frame is
-clipped to pixels on the CPU, so there is no scissor. Only the background is drawn in the
-margins and in what is left over of a cell at the right and bottom, apart from the band
-that glyphs on the frame's top row keep above it.
+clipped to pixels on the CPU, so there is no scissor; a rounded box's quad is cut to its
+pane there too. Only the background is drawn in the margins and in what is left over of a
+cell at the right and bottom, apart from the band that glyphs on the frame's top row keep
+above it, and a float's panel, which covers the top margin above it.
 
 The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
 on input that changes the view, on resize, when the window becomes visible, and when

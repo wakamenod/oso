@@ -12,11 +12,12 @@ keys: x C-x C-c
 │                                                                │
 =** test  1:1  Fundamental  UTF-8 LF                             =
 "                                                                "
-float at row 1, column 12: 4 x 40
-┌──────────────────────────────────────┐
-│1 modified buffer; exit without       │
-│saving? (y or n)                      │
-└──────────────────────────────────────┘
+float at row 0, column 12: 5 x 40
+│  1 modified buffer; exit without       │
+│  saving?                               │
+│                                        │
+│                    [y] exit  [n] stay  │
+└────────────────────────────────────────┘
 
 keys: a
 │xnotes                                                          │
@@ -28,8 +29,9 @@ keys: a
 │                                                                │
 =** test  1:1  Fundamental  UTF-8 LF                             =
 "                                                                "
-float at row 1, column 12: 4 x 40
-┌──────────────────────────────────────┐
-│1 modified buffer; exit without       │
-│saving? (y or n)       [Answer y or n]│
-└──────────────────────────────────────┘
+float at row 0, column 12: 5 x 40
+│  1 modified buffer; exit without       │
+│  saving?                               │
+│                                        │
+│   [Answer y or n]  [y] exit  [n] stay  │
+└────────────────────────────────────────┘

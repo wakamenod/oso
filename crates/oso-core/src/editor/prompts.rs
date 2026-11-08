@@ -85,7 +85,22 @@ impl Editor {
         question: impl Into<String>,
         yes: &'static str,
     ) -> Result<PromptId, PromptError> {
-        self.open_prompt(question, Kind::Question { yes })
+        self.ask_with(question, yes, minibuffer::VERBS)
+    }
+
+    /// Asks `question` as [`Self::ask`] does, with `verbs` saying what `y` and `n` do after
+    /// their keys, such as `exit` and `stay` (ADR 0075).
+    ///
+    /// # Errors
+    ///
+    /// [`PromptError::TooDeep`] with [`MAX_DEPTH`] open already.
+    pub fn ask_with(
+        &mut self,
+        question: impl Into<String>,
+        yes: &'static str,
+        verbs: [&'static str; 2],
+    ) -> Result<PromptId, PromptError> {
+        self.open_prompt(question, Kind::Question { yes, verbs })
     }
 
     /// The open prompts, the outermost first.
@@ -161,7 +176,7 @@ impl Editor {
     ///
     /// [`PromptError::NoPrompt`] unless the innermost prompt is a question.
     pub fn answer_question(&mut self, yes: bool) -> Result<(), PromptError> {
-        let Some(Kind::Question { yes: command }) = self.prompt().map(Prompt::kind) else {
+        let Some(Kind::Question { yes: command, .. }) = self.prompt().map(Prompt::kind) else {
             return Err(PromptError::NoPrompt);
         };
         self.close_innermost();

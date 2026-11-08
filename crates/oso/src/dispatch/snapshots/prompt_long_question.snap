@@ -12,8 +12,9 @@ keys: x C-x C-c
 │                              │
 =** test  1:1  Fundamental  UTF=
 "                              "
-float at row 1, column 2: 4 x 26
-┌────────────────────────┐
-│1 modified buffer; exit │
-│without saving? (y or n)│
-└────────────────────────┘
+float at row 0, column 2: 5 x 26
+│  1 modified buffer;      │
+│  exit without saving?    │
+│                          │
+│      [y] exit  [n] stay  │
+└──────────────────────────┘

@@ -25,8 +25,10 @@ pub enum oso_render::Face
 pub oso_render::Face::Boxed
 pub oso_render::Face::Cursor
 pub oso_render::Face::Escape
+pub oso_render::Face::Field
 pub oso_render::Face::Float
 pub oso_render::Face::FloatBorder
+pub oso_render::Face::Key
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
@@ -134,10 +136,10 @@ pub oso_render::Masked::text: &'a str
 pub struct oso_render::Pane<'a>
 pub oso_render::Pane::background: core::option::Option<oso_render::Face>
 pub oso_render::Pane::bands: oso_render::Bands
-pub oso_render::Pane::border: core::option::Option<oso_render::Face>
 pub oso_render::Pane::content: oso_render::PaneContent<'a>
 pub oso_render::Pane::id: oso_render::PaneId
 pub oso_render::Pane::layer: oso_render::Layer
+pub oso_render::Pane::panel: core::option::Option<oso_render::Panel<'a>>
 pub oso_render::Pane::region: oso_core::frame::CellRect
 pub struct oso_render::PaneId(pub u32)
 impl core::clone::Clone for oso_render::PaneId
@@ -149,6 +151,11 @@ impl core::fmt::Debug for oso_render::PaneId
 pub fn oso_render::PaneId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_render::PaneId
 impl core::marker::StructuralPartialEq for oso_render::PaneId
+pub struct oso_render::Panel<'a>
+pub oso_render::Panel::cells: oso_core::frame::CellRect
+pub oso_render::Panel::field: core::option::Option<oso_core::frame::CellRect>
+pub oso_render::Panel::field_room: oso_core::frame::CellRect
+pub oso_render::Panel::keys: &'a [oso_core::frame::CellRect]
 pub struct oso_render::RenderState
 impl oso_render::RenderState
 pub fn oso_render::RenderState::capture(&mut self, &[oso_render::Pane<'_>]) -> core::result::Result<oso_render::Capture, oso_render::CaptureError>

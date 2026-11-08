@@ -907,6 +907,7 @@ pub fn oso_core::editor::Editor::toggle_copies(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask(&mut self, impl core::convert::Into<alloc::string::String>, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::ask_with(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::command_reads_passphrase(&mut self)
 pub fn oso_core::editor::Editor::open_prompt(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::minibuffer::Kind) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::prompt(&self) -> core::option::Option<&oso_core::minibuffer::Prompt>
@@ -1031,10 +1032,11 @@ pub fn oso_core::frame::CellRect::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::frame::CellRect
 impl core::marker::StructuralPartialEq for oso_core::frame::CellRect
 pub struct oso_core::frame::FloatRegions
+pub oso_core::frame::FloatRegions::gap: bool
 pub oso_core::frame::FloatRegions::inner: oso_core::frame::CellRect
 pub oso_core::frame::FloatRegions::outer: oso_core::frame::CellRect
 impl oso_core::frame::FloatRegions
-pub fn oso_core::frame::FloatRegions::framed(&self) -> bool
+pub fn oso_core::frame::FloatRegions::padded_below(&self) -> bool
 impl core::clone::Clone for oso_core::frame::FloatRegions
 pub fn oso_core::frame::FloatRegions::clone(&self) -> oso_core::frame::FloatRegions
 impl core::cmp::Eq for oso_core::frame::FloatRegions
@@ -1503,6 +1505,7 @@ pub oso_core::minibuffer::Kind::Number
 pub oso_core::minibuffer::Kind::Number::history: core::option::Option<&'static str>
 pub oso_core::minibuffer::Kind::Passphrase
 pub oso_core::minibuffer::Kind::Question
+pub oso_core::minibuffer::Kind::Question::verbs: [&'static str; 2]
 pub oso_core::minibuffer::Kind::Question::yes: &'static str
 impl oso_core::minibuffer::Kind
 pub fn oso_core::minibuffer::Kind::history(self) -> core::option::Option<&'static str>
@@ -1565,12 +1568,16 @@ pub fn oso_core::minibuffer::PromptId::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::marker::Copy for oso_core::minibuffer::PromptId
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptId
 pub struct oso_core::minibuffer::PromptLayout
+pub oso_core::minibuffer::PromptLayout::field: oso_core::frame::CellRect
+pub oso_core::minibuffer::PromptLayout::field_room: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::input: oso_core::frame::CellRect
+pub oso_core::minibuffer::PromptLayout::keys: [oso_core::frame::CellRect; 2]
 pub oso_core::minibuffer::PromptLayout::label: alloc::vec::Vec<core::ops::range::Range<usize>>
+pub oso_core::minibuffer::PromptLayout::label_cells: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::label_cut: bool
 pub oso_core::minibuffer::PromptLayout::message: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::regions: oso_core::frame::FloatRegions
-pub oso_core::minibuffer::PromptLayout::suffix: core::ops::range::Range<usize>
+pub oso_core::minibuffer::PromptLayout::verbs: [oso_core::frame::CellRect; 2]
 impl core::clone::Clone for oso_core::minibuffer::PromptLayout
 pub fn oso_core::minibuffer::PromptLayout::clone(&self) -> oso_core::minibuffer::PromptLayout
 impl core::cmp::Eq for oso_core::minibuffer::PromptLayout
@@ -1581,10 +1588,13 @@ pub fn oso_core::minibuffer::PromptLayout::fmt(&self, &mut core::fmt::Formatter<
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptLayout
 pub const oso_core::minibuffer::CUT: &str
 pub const oso_core::minibuffer::HISTORY_LENGTH: usize
+pub const oso_core::minibuffer::KEYS: [&str; 2]
+pub const oso_core::minibuffer::KEY_GAP: usize
 pub const oso_core::minibuffer::MAX_DEPTH: usize
 pub const oso_core::minibuffer::MAX_ENTRY_BYTES: usize
 pub const oso_core::minibuffer::MAX_LABEL_ROWS: usize
 pub const oso_core::minibuffer::QUESTION_END: &str
+pub const oso_core::minibuffer::VERBS: [&str; 2]
 pub fn oso_core::minibuffer::cells_of(&str) -> usize
 pub fn oso_core::minibuffer::cut_to(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::fit_message(&str, usize) -> (&str, &'static str)
