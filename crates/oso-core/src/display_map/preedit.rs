@@ -120,6 +120,18 @@ impl Preedit {
         self.cells
     }
 
+    /// The column, from the preedit's start, of the cluster that holds `byte`, and the
+    /// preedit's width at or past its end: where the input method's range would be drawn
+    /// (ADR 0077). A search, and no segmenting.
+    pub fn column_of(&self, byte: usize) -> usize {
+        let at = self
+            .clusters
+            .partition_point(|cluster| cluster.bytes.end <= byte);
+        self.clusters
+            .get(at)
+            .map_or(self.cells, |cluster| cluster.column)
+    }
+
     /// The cells of the segment being converted, from the preedit's start.
     pub fn segment(&self) -> Option<Range<usize>> {
         self.segment.clone()
@@ -215,6 +227,18 @@ mod tests {
 
     fn texts(row: &[(usize, String, bool)]) -> String {
         row.iter().map(|(_, text, _)| text.as_str()).collect()
+    }
+
+    #[test]
+    fn a_byte_is_drawn_in_its_clusters_column() {
+        // A wide letter takes two cells, and an accent joins the letter before it.
+        let preedit = Preedit::new("にe\u{301}a".into(), None);
+        let columns: Vec<usize> = (0..=preedit.text().len())
+            .map(|byte| preedit.column_of(byte))
+            .collect();
+        assert_eq!(columns, [0, 0, 0, 2, 2, 2, 3, 4]);
+        assert_eq!(preedit.column_of(usize::MAX), preedit.cells());
+        assert_eq!(Preedit::new(String::new(), None).column_of(0), 0);
     }
 
     #[test]

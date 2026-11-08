@@ -211,6 +211,14 @@ impl Window {
     pub fn set_ime_cursor_area(&self, area: CursorArea) {
         self.state.update_ime(|ime| ime.set_area(area));
     }
+
+    /// Where the app drew the composition: the x of each of its UTF-16 units from the cursor
+    /// area's left, then of its end, in physical pixels, or none with no composition. Only
+    /// kept, so that the input method's question about a range of it is answered with the
+    /// place it is drawn, and the candidate window follows the segment being converted.
+    pub fn set_ime_preedit_offsets(&self, offsets: &[f32]) {
+        self.state.update_ime(|ime| ime.set_offsets(offsets));
+    }
 }
 
 /// A place in pixels, as a whole number.

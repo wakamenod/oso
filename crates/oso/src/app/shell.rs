@@ -188,6 +188,10 @@ impl Window {
             PhysicalSize::new(f64::from(area.width), f64::from(area.height)),
         );
     }
+
+    /// winit gives the input method one rectangle, the cursor area's, so where the parts of a
+    /// composition are drawn goes nowhere (ADR 0077).
+    pub(super) fn set_ime_preedit_offsets(&self, _offsets: &[f32]) {}
 }
 
 impl ApplicationHandler<UserEvent> for App {

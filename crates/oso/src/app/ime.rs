@@ -16,7 +16,7 @@
 
 use oso_core::buffer::Buffer;
 use oso_core::display_map::Preedit;
-use oso_core::frame::PixelRect;
+use oso_core::frame::{CellRect, PixelRect};
 use oso_platform::window::ImeEvent;
 
 use super::App;
@@ -50,6 +50,23 @@ pub(super) struct ImeState {
     /// The cursor area last given, with the scale factor it was given at, since the window
     /// system keeps it in logical units.
     area: Option<(PixelRect, f64)>,
+    /// Where the composition is drawn, as last given: the x of each of its UTF-16 units from
+    /// the cursor area's left, then of its end. Empty with no composition.
+    offsets: Vec<f32>,
+    /// The next offsets are worked out here, so that a key of a composition allocates nothing.
+    scratch: Vec<f32>,
+}
+
+/// Where `preedit` is drawn: into `out`, the x of each of its UTF-16 units from its start,
+/// then of its end, as `cells_wide` gives the width of so many cells. A unit takes its
+/// cluster's place, as the input method's ranges count units (ADR 0077).
+fn preedit_offsets(preedit: &Preedit, cells_wide: impl Fn(usize) -> f32, out: &mut Vec<f32>) {
+    out.clear();
+    for (byte, char) in preedit.text().char_indices() {
+        let x = cells_wide(preedit.column_of(byte));
+        out.extend(std::iter::repeat_n(x, char.len_utf16()));
+    }
+    out.push(cells_wide(preedit.cells()));
 }
 
 impl App {
@@ -92,6 +109,7 @@ impl App {
         self.sync_ime(event_loop);
         self.sync_secure_input();
         self.give_cursor_area();
+        self.give_preedit_offsets();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a
@@ -213,10 +231,42 @@ impl App {
     }
 }
 
+impl App {
+    /// Gives the window where the composition is drawn, so that the input method's question
+    /// about a range of it gets that place, and its candidate window follows the segment being
+    /// converted (ADR 0077). Only when that changed, and none once the composition ends.
+    fn give_preedit_offsets(&mut self) {
+        let Some(view) = &self.view else {
+            return;
+        };
+        let mut offsets = std::mem::take(&mut self.ime.scratch);
+        offsets.clear();
+        if let Some(preedit) = self.editor.preedit() {
+            let grid = view.render_state.pixel_grid();
+            let cells_wide = |columns| {
+                let cells = CellRect {
+                    row: 0,
+                    column: 0,
+                    rows: 0,
+                    columns,
+                };
+                grid.rect(cells).width
+            };
+            preedit_offsets(preedit, cells_wide, &mut offsets);
+        }
+        if offsets != self.ime.offsets {
+            view.window.set_ime_preedit_offsets(&offsets);
+            std::mem::swap(&mut self.ime.offsets, &mut offsets);
+        }
+        self.ime.scratch = offsets;
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{next_allowed, wants_ime};
+    use super::{next_allowed, preedit_offsets, wants_ime};
     use oso_core::buffer::Buffer;
+    use oso_core::display_map::Preedit;
 
     #[test]
     fn the_ime_is_wanted_only_where_a_letter_types() {
@@ -237,6 +287,17 @@ mod tests {
             !wants_ime(&file, false, true),
             "a prompt reads keys and digits"
         );
+    }
+
+    #[test]
+    fn each_unit_of_the_composition_is_where_its_cluster_is_drawn() {
+        let mut out = vec![99.0];
+        // A wide letter, a narrow one, and an emoji of two UTF-16 units and two cells.
+        let preedit = Preedit::new("かa😀".into(), None);
+        preedit_offsets(&preedit, |columns| columns as f32 * 8.0, &mut out);
+        assert_eq!(out, [0.0, 16.0, 24.0, 24.0, 40.0]);
+        preedit_offsets(&Preedit::new(String::new(), None), |_| 1.0, &mut out);
+        assert_eq!(out, [1.0], "only the end");
     }
 
     #[test]

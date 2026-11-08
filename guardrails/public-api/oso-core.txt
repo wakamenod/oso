@@ -706,6 +706,7 @@ pub struct oso_core::display_map::Preedit
 impl oso_core::display_map::Preedit
 pub fn oso_core::display_map::Preedit::caret(&self) -> core::option::Option<(usize, usize)>
 pub fn oso_core::display_map::Preedit::cells(&self) -> usize
+pub fn oso_core::display_map::Preedit::column_of(&self, usize) -> usize
 pub fn oso_core::display_map::Preedit::new(alloc::string::String, core::option::Option<core::ops::range::Range<usize>>) -> Self
 pub fn oso_core::display_map::Preedit::range(&self) -> core::option::Option<core::ops::range::Range<usize>>
 pub fn oso_core::display_map::Preedit::segment(&self) -> core::option::Option<core::ops::range::Range<usize>>

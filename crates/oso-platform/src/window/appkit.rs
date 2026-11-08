@@ -170,7 +170,7 @@ struct State {
     exited: Cell<bool>,
     deadline: Cell<Option<Instant>>,
     /// Whether oso has the IME on, and the cursor's cell the app last gave.
-    ime: Cell<gate::ImeGate>,
+    ime: RefCell<gate::ImeGate>,
     /// The loop ended while the handler ran: it hears so once it returns.
     exit_waiting: Cell<bool>,
     /// Whether secure input is wanted, oso is active, its window has the keyboard, and it is
@@ -198,7 +198,7 @@ impl State {
             exit: Cell::new(false),
             exited: Cell::new(false),
             deadline: Cell::new(None),
-            ime: Cell::new(gate::ImeGate::default()),
+            ime: RefCell::new(gate::ImeGate::default()),
             exit_waiting: Cell::new(false),
             secure: Cell::new(gate::SecureInput::default()),
             reported_size: Cell::new((0, 0)),
@@ -331,6 +331,9 @@ impl State {
                     // (ADR 0077), so whatever the input method still holds is dropped.
                     view.discard_marked();
                 }
+                // AppKit reads the view's input context again, which is none while off, now
+                // and not only after the next event.
+                NSApplication::sharedApplication(self.mtm).updateWindows();
             }
             Request::DiscardComposition => view.discard_marked(),
         }
@@ -385,7 +388,7 @@ impl State {
     }
 
     fn ime_allowed(&self) -> bool {
-        self.ime.get().allowed()
+        self.ime.borrow().allowed()
     }
 
     /// Changes what secure input depends on, then makes the calls that asks for. The state
@@ -424,9 +427,7 @@ impl State {
     }
 
     fn update_ime(&self, change: impl FnOnce(&mut gate::ImeGate)) {
-        let mut ime = self.ime.get();
-        change(&mut ime);
-        self.ime.set(ime);
+        change(&mut self.ime.borrow_mut());
     }
 
     /// Other threads sent something.

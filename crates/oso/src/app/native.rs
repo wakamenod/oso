@@ -169,6 +169,12 @@ impl Window {
             height: area.height,
         });
     }
+
+    /// Tells the input method where each part of the composition is drawn (ADR 0077). Only
+    /// kept, as the cursor area is.
+    pub(super) fn set_ime_preedit_offsets(&self, offsets: &[f32]) {
+        self.0.set_ime_preedit_offsets(offsets);
+    }
 }
 
 impl Handler<UserEvent> for App {

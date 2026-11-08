@@ -19,8 +19,11 @@ use std::panic::AssertUnwindSafe;
 use objc2::exception;
 use objc2::rc::{AutoreleasePool, Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, Sel};
-use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSView};
+use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send};
+use objc2_app_kit::{
+    NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSTextInputContext, NSView,
+    NSWritingToolsBehavior,
+};
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound,
     NSObjectProtocol, NSPoint, NSRange, NSRangePointer, NSRect, NSSize, NSString, NSUInteger,
@@ -31,7 +34,7 @@ use objc2_quartz_core::{CALayer, CAMetalLayer};
 use super::keys::{self, Route};
 use super::{Delivery, State};
 use crate::window::utf16;
-use crate::window::{Event, Held, ImeEvent, KeyInput, SystemKey, Wheel};
+use crate::window::{CursorArea, Event, Held, ImeEvent, KeyInput, SystemKey, Wheel};
 
 /// The key `keyDown:` is handling while the input method has it, and whether the input
 /// method gave it back to oso as a key.
@@ -72,6 +75,24 @@ define_class!(
         #[unsafe(method(acceptsFirstResponder))]
         fn accepts_first_responder(&self) -> bool {
             true
+        }
+
+        /// None while oso has the IME off, so that no input method or other text service
+        /// reads the view then (ADR 0070).
+        #[unsafe(method_id(inputContext))]
+        fn input_context(&self) -> Option<Retained<NSTextInputContext>> {
+            if self.ivars().state.ime_allowed() {
+                self.own_input_context()
+            } else {
+                None
+            }
+        }
+
+        /// Writing Tools are off for the view, as it gives no buffer text to rewrite
+        /// (ADR 0070).
+        #[unsafe(method(writingToolsBehavior))]
+        fn writing_tools_behavior(&self) -> NSWritingToolsBehavior {
+            NSWritingToolsBehavior::None
         }
 
         /// Places count from the top left, as the app's do.
@@ -256,13 +277,14 @@ define_class!(
         }
 
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
-        fn first_rect(&self, _range: NSRange, _actual: NSRangePointer) -> NSRect {
+        fn first_rect(&self, range: NSRange, _actual: NSRangePointer) -> NSRect {
             // While the input method is off, as in a buffer that may hold secrets, no place.
-            if self.ivars().state.ime_allowed() {
-                self.cursor_rect_on_screen()
-            } else {
-                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
-            }
+            let marked = utf16::utf16_len(&self.ivars().marked.borrow());
+            let units = range.location..range.location.saturating_add(range.length);
+            let rect = self.ivars().state.ime.borrow().rect(units, marked);
+            rect.map_or(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)), |area| {
+                self.on_screen(area)
+            })
         }
 
         #[unsafe(method(characterIndexForPoint:))]
@@ -421,27 +443,30 @@ impl OsoView {
 
     fn drop_input_context_text(&self) {
         self.ivars().muted.set(true);
-        if let Some(context) = self.inputContext()
+        // The view's own, also once the IME is off and it gives none.
+        if let Some(context) = self.own_input_context()
             && exception::catch(AssertUnwindSafe(|| context.discardMarkedText())).is_err()
         {
             log::error!("an Objective-C exception was raised by the input method");
         }
     }
 
-    /// The cursor's cell the app last gave, on the screen, in points.
-    fn cursor_rect_on_screen(&self) -> NSRect {
+    /// The input context NSView keeps for the view, whether or not the IME is on.
+    fn own_input_context(&self) -> Option<Retained<NSTextInputContext>> {
+        // SAFETY: NSView's `inputContext` takes no arguments and returns an input context or
+        // nil.
+        unsafe { msg_send![super(self, NSView::class()), inputContext] }
+    }
+
+    /// `area`, in physical pixels of the view, in points on the screen.
+    fn on_screen(&self, area: CursorArea) -> NSRect {
         let scale = self.scale();
-        let rect = self.ivars().state.ime.get().area().map_or(
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
-            |area| {
-                NSRect::new(
-                    NSPoint::new(f64::from(area.x) / scale, f64::from(area.y) / scale),
-                    NSSize::new(
-                        f64::from(area.width) / scale,
-                        f64::from(area.height) / scale,
-                    ),
-                )
-            },
+        let rect = NSRect::new(
+            NSPoint::new(f64::from(area.x) / scale, f64::from(area.y) / scale),
+            NSSize::new(
+                f64::from(area.width) / scale,
+                f64::from(area.height) / scale,
+            ),
         );
         let in_window = self.convertRect_toView(rect, None);
         self.window()
