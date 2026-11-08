@@ -54,6 +54,8 @@ enum Name {
     BgMode,
     BgRegion,
     BgEscape,
+    BgMatch,
+    BgCurrent,
     FgMain,
     FgPrompt,
     FgKey,
@@ -143,7 +145,7 @@ impl Theme {
 }
 
 /// Every face, in the order of its variant, so that a theme keeps a table of them.
-const FACES: [Face; 13] = [
+const FACES: [Face; 15] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -157,6 +159,8 @@ const FACES: [Face; 13] = [
     Face::Field,
     Face::Key,
     Face::Region,
+    Face::SearchMatch,
+    Face::SearchCurrent,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -176,6 +180,8 @@ const fn index(face: Face) -> usize {
         Face::Field => 10,
         Face::Key => 11,
         Face::Region => 12,
+        Face::SearchMatch => 13,
+        Face::SearchCurrent => 14,
     }
 }
 
@@ -197,6 +203,8 @@ fn faces(face: Face) -> (Name, Name) {
         Face::Field => (FieldOutline, BgMain),
         Face::Key => (FgKey, BgKey),
         Face::Region => (FgMain, BgRegion),
+        Face::SearchMatch => (FgMain, BgMatch),
+        Face::SearchCurrent => (FgMain, BgCurrent),
     }
 }
 
@@ -210,6 +218,8 @@ fn dusk(name: Name) -> Color {
         BgMode => rgb(0x6f6f7e),
         BgRegion => rgb(0x45597c),
         BgEscape => rgb(0x81593f),
+        BgMatch => rgb(0x613f10),
+        BgCurrent => rgb(0x99610d),
         FgMain => rgb(0xf3f3f6),
         FgPrompt => rgb(0xbfc7df),
         FgKey => rgb(0xdee3f1),
@@ -310,7 +320,12 @@ mod tests {
         const READ: f32 = 7.0;
         const LABEL: f32 = 4.5;
         match face {
-            Face::Text => &[(Face::Text, READ), (Face::Region, READ)],
+            Face::Text => &[
+                (Face::Text, READ),
+                (Face::Region, READ),
+                (Face::SearchMatch, READ),
+                (Face::SearchCurrent, READ),
+            ],
             Face::Cursor => &[(Face::Cursor, READ)],
             Face::Modeline => &[(Face::Modeline, READ)],
             Face::Float => &[(Face::Float, READ)],
@@ -320,7 +335,12 @@ mod tests {
             Face::Prompt => &[(Face::Float, LABEL)],
             Face::Key => &[(Face::Key, LABEL)],
             // Drawn as fills or lines, checked as such below.
-            Face::Preedit | Face::FloatBorder | Face::Field | Face::Region => &[],
+            Face::Preedit
+            | Face::FloatBorder
+            | Face::Field
+            | Face::Region
+            | Face::SearchMatch
+            | Face::SearchCurrent => &[],
         }
     }
 
@@ -378,6 +398,7 @@ mod tests {
             short_pairs(),
             [
                 "dusk: Text on Region (6.38 < 7)",
+                "dusk: Text on SearchCurrent (4.66 < 7)",
                 "dusk: Boxed on Boxed (3.30 < 4.5)",
                 "dusk: Modeline on Modeline (4.46 < 7)",
                 "dusk: Warning on Modeline (3.72 < 4.5)",
@@ -391,6 +412,8 @@ mod tests {
             let paper = theme.background(Face::Text);
             for face in [
                 Face::Region,
+                Face::SearchMatch,
+                Face::SearchCurrent,
                 Face::Modeline,
                 Face::Float,
                 Face::Key,
@@ -401,6 +424,22 @@ mod tests {
                 assert!(distance(theme.background(face), paper) >= 0.02);
             }
         }
+    }
+
+    /// Faces that must be told apart (ADR 0089), with what keeps them apart today.
+    #[test]
+    fn faces_that_must_be_told_apart_are_measured() {
+        let themes = themes();
+        let dusk = &themes[0];
+        let apart = |a: Face, b: Face| distance(dusk.background(a), dusk.background(b));
+        let report = [
+            apart(Face::SearchCurrent, Face::SearchMatch),
+            apart(Face::SearchMatch, Face::Region),
+        ]
+        .map(|d| format!("{d:.3}"));
+        // The author found the two search fills too close. Picking the colours sets the
+        // minimum distance from this.
+        assert_eq!(report, ["0.148", "0.153"]);
     }
 
     #[test]
