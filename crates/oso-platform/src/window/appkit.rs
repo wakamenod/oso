@@ -181,6 +181,8 @@ struct State {
     /// A frame skipped because the window was hidden, owed until it is visible.
     hidden_frame: Cell<gate::HiddenFrame>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
+    /// An event AppKit dispatched (a key, the modifiers, the wheel) is being handled.
+    in_event: Cell<bool>,
 }
 
 impl State {
@@ -204,7 +206,17 @@ impl State {
             reported_scale: Cell::new(0.0),
             hidden_frame: Cell::new(gate::HiddenFrame::default()),
             panic: RefCell::new(None),
+            in_event: Cell::new(false),
         }
+    }
+
+    /// Runs `handle` for an event AppKit dispatched, after which it reads the view's input
+    /// context again by itself.
+    fn during_event<R>(&self, handle: impl FnOnce() -> R) -> R {
+        let outer = self.in_event.replace(true);
+        let result = handle();
+        self.in_event.set(outer);
+        result
     }
 
     /// Gives the handler `delivery`, then does what it asked. Nothing reaches a handler that
@@ -330,9 +342,13 @@ impl State {
                     // (ADR 0077), so whatever the input method still holds is dropped.
                     view.discard_marked();
                 }
-                // AppKit reads the view's input context again, which is none while off, now
-                // and not only after the next event.
-                NSApplication::sharedApplication(self.mtm).updateWindows();
+                // AppKit reads the view's input context again after every event it handles,
+                // which gives none while the IME is off. A flip from elsewhere, a load ending or
+                // a socket request, has it read now, so that the input method does not stay
+                // active over a buffer that just turned secret or read-only until a key comes.
+                if !self.in_event.get() {
+                    NSApplication::sharedApplication(self.mtm).updateWindows();
+                }
             }
             Request::DiscardComposition => view.discard_marked(),
         }

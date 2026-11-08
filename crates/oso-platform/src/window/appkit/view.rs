@@ -127,7 +127,7 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            self.route_key(event);
+            self.ivars().state.during_event(|| self.route_key(event));
         }
 
         #[unsafe(method(keyUp:))]
@@ -135,28 +135,31 @@ define_class!(
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            self.note_modifiers(keys::held(event.modifierFlags()));
+            let held = keys::held(event.modifierFlags());
+            self.ivars().state.during_event(|| self.note_modifiers(held));
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            let (x, y) = (event.scrollingDeltaX(), event.scrollingDeltaY());
-            let wheel = if event.hasPreciseScrollingDeltas() {
-                let scale = self.scale();
-                Wheel::Pixels {
-                    x: x * scale,
-                    y: y * scale,
-                }
-            } else {
-                #[expect(clippy::cast_possible_truncation, reason = "a wheel's notches are few")]
-                Wheel::Lines {
-                    x: x as f32,
-                    y: y as f32,
-                }
-            };
-            self.ivars()
-                .state
-                .deliver(Delivery::Window(Event::Wheel(wheel)));
+            self.ivars().state.during_event(|| {
+                let (x, y) = (event.scrollingDeltaX(), event.scrollingDeltaY());
+                let wheel = if event.hasPreciseScrollingDeltas() {
+                    let scale = self.scale();
+                    Wheel::Pixels {
+                        x: x * scale,
+                        y: y * scale,
+                    }
+                } else {
+                    #[expect(clippy::cast_possible_truncation, reason = "a wheel's notches are few")]
+                    Wheel::Lines {
+                        x: x as f32,
+                        y: y as f32,
+                    }
+                };
+                self.ivars()
+                    .state
+                    .deliver(Delivery::Window(Event::Wheel(wheel)));
+            });
         }
     }
 
@@ -476,10 +479,15 @@ impl OsoView {
         unsafe { msg_send![super(self, NSView::class()), inputContext] }
     }
 
-    /// Whether the view gives an input context now, for the dev socket's check.
+    /// Whether the view gives an input context now, and whether AppKit's current one is it,
+    /// for the dev socket's check.
     #[cfg(feature = "dev")]
-    pub(super) fn gives_input_context(&self) -> bool {
-        self.inputContext().is_some()
+    pub(super) fn input_context_state(&self) -> (bool, bool) {
+        let given = self.inputContext();
+        let current = NSTextInputContext::currentInputContext(self.mtm());
+        let is_current =
+            matches!((&given, &current), (Some(given), Some(current)) if given == current);
+        (given.is_some(), is_current)
     }
 
     /// `area`, in physical pixels of the view, in points on the screen.

@@ -156,8 +156,8 @@ impl Window {
 
     /// Whether the view gives the input method a context, for the dev socket.
     #[cfg(feature = "dev")]
-    pub(super) fn gives_input_context(&self) -> Option<bool> {
-        Some(self.0.gives_input_context())
+    pub(super) fn input_context(&self) -> Option<(bool, bool)> {
+        Some(self.0.input_context())
     }
 
     /// Drops the composition the input method holds, with no commit.

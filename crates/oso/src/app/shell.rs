@@ -179,7 +179,7 @@ impl Window {
 
     /// winit keeps the input context to itself, so the dev socket reports none.
     #[cfg(feature = "dev")]
-    pub(super) fn gives_input_context(&self) -> Option<bool> {
+    pub(super) fn input_context(&self) -> Option<(bool, bool)> {
         None
     }
 
