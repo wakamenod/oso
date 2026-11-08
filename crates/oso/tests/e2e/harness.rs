@@ -370,6 +370,30 @@ impl App {
         (child.wait().expect("cannot wait for oso ctl"), output)
     }
 
+    /// Starts `oso mcp --pid PID`, reading its requests from `requests`, as a child's stdin
+    /// is closed (ADR 0085). Its standard output is piped.
+    pub fn mcp(&self, requests: &Path) -> std::process::Child {
+        let pid = self.pid().to_string();
+        let args: Vec<OsString> = vec![
+            "mcp".into(),
+            "--pid".into(),
+            pid.into(),
+            "--requests".into(),
+            requests.into(),
+        ];
+        spawn(&Spawn {
+            executable: &oso(),
+            args: &args,
+            cwd: None,
+            project: None,
+            inherit: &["XDG_RUNTIME_DIR"],
+            stdout: Sink::Piped,
+            stderr: Sink::Null,
+            own_process_group: false,
+        })
+        .expect("cannot start oso mcp")
+    }
+
     /// Sends `first` on this connection and at once `second` on a new one, so that
     /// both are likely to be queued together, and returns each response line. A
     /// line is empty if the instance hung up first.

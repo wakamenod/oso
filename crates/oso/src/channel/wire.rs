@@ -139,7 +139,7 @@ pub fn bounded(id: &Value, line: String) -> String {
 ///
 /// These never occur outside a JSON string, and an escape there means the same character,
 /// so the line parses to the same value.
-fn escape_unsafe(line: String) -> String {
+pub fn escape_unsafe(line: String) -> String {
     let is_unsafe = |c: char| matches!(c, '\u{7f}'..='\u{9f}') || is_invisible(c);
     if !line.contains(is_unsafe) {
         return line;

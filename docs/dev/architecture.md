@@ -531,8 +531,13 @@ Full details are in [`security.md`](security.md).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
     `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
     `commands`, `run`, `cancel`, `open` and `text`, over the JSON Lines framing in
-    `channel::wire`, which the dev socket shares, and no dev method. `oso mcp` comes next
-    (AC-2).
+    `channel::wire`, which the dev socket shares, and no dev method.
+  - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
+    JSON-RPC on stdin and stdout, with the tools `state`, `text`, `commands`, `look`,
+    `change` and `open`. It connects on the first tool call, asks the channel's `version`
+    first, and connects again after oso restarts. To use it with Claude Code:
+    `claude mcp add --scope user oso -- /absolute/path/to/oso mcp`, then `M-x
+    agent-channel-start` in oso, and `y` to the question when Claude Code first calls a tool.
   - `open` visits a file that exists, unshown, through `app/agent/open.rs`, and shows it at
     its line once the loader has judged it ordinary and read it; one judged otherwise is
     dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
