@@ -60,7 +60,9 @@ pub const COMMANDS: &[Command] = &[
 fn switch_to_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     super::not_in_prompt(ctx)?;
     let name = ctx.answer().unwrap_or_default().to_owned();
-    ctx.editor.switch_to_named(&name);
+    ctx.editor
+        .switch_to_named(&name)
+        .map_err(CommandError::new)?;
     ctx.request_redraw();
     Ok(())
 }

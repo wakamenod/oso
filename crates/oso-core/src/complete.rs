@@ -177,6 +177,8 @@ pub struct Candidates {
     on_input: bool,
     /// The float shows the selected candidate beside the list (ADR 0088).
     previews: bool,
+    /// The candidates keep the order given, not one from a history (ADR 0088).
+    given_order: bool,
 }
 
 impl Candidates {
@@ -214,7 +216,15 @@ impl Candidates {
     /// (ADR 0088).
     pub(crate) fn in_given_order(items: Arc<[Candidate]>) -> Self {
         let order: Box<[u32]> = (0..items.len()).map(offset_u32).collect();
-        Self::with_order(items, order)
+        let mut candidates = Self::with_order(items, order);
+        candidates.given_order = true;
+        candidates
+    }
+
+    /// Whether the candidates keep the order given, as buffers do, most recent first, so the
+    /// first is a choice of its own and not one a history made.
+    pub fn in_order_given(&self) -> bool {
+        self.given_order
     }
 
     fn with_order(items: Arc<[Candidate]>, order: Box<[u32]>) -> Self {
@@ -231,6 +241,7 @@ impl Candidates {
             takes_input: false,
             on_input: false,
             previews: false,
+            given_order: false,
         }
     }
 

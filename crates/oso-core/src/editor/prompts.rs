@@ -11,7 +11,6 @@
 
 use super::Editor;
 use crate::buffer::{Buffer, Replacement};
-use crate::complete::Candidates;
 use crate::minibuffer::{
     self, Kind, MAX_DEPTH, Outcome, Prompt, PromptError, PromptId, PromptLayout,
 };
@@ -176,9 +175,26 @@ impl Editor {
         self.match_completion();
         // Around a secret no history orders the list, so its first candidate is no choice: an
         // empty answer takes one only once the person moved to it (ADR 0076).
+        // A list in an order of its own, as buffers most recent first, needs no history to make
+        // its first a choice (ADR 0088).
         let unchosen = self.prompt().is_some_and(|prompt| {
-            prompt.around_secret && prompt.candidates().is_some_and(Candidates::defaulted)
+            prompt.around_secret
+                && prompt.candidates().is_some_and(|candidates| {
+                    candidates.defaulted() && !candidates.in_order_given()
+                })
         });
+        // What is typed goes as it is only in a prompt that takes any text, and only once
+        // something is typed: otherwise `M-RET` is `RET`.
+        let typed_given = typed
+            && self.prompt().is_some_and(|prompt| {
+                prompt
+                    .candidates()
+                    .is_some_and(crate::complete::Candidates::takes_input)
+                    && self
+                        .buffer(prompt.buffer)
+                        .is_some_and(|buffer| !buffer.text().is_empty())
+            });
+        let typed = typed_given;
         if completes && unchosen && !typed {
             self.prompt_says("Type a name, or move to one");
             return Err(PromptError::Invalid);
@@ -363,6 +379,7 @@ impl Editor {
             self.window_moves_on();
         }
         let prompt = self.prompts.pop()?;
+        self.forget_marks(prompt.id);
         self.windows.pop();
         self.selected = prompt.beneath;
         let id = prompt.buffer;

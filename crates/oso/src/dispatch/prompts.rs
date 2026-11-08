@@ -90,22 +90,7 @@ impl Dispatcher {
                 return self.read_buffer(editor, id, args.raw(), read);
             }
             Some(ArgSpec::Mark { prompt }) => {
-                let effects = Effects {
-                    redraw: true,
-                    ..Effects::default()
-                };
-                match editor.open_mark_list(prompt) {
-                    Ok(prompt) => self.reading.push(Reading {
-                        id,
-                        prefix: args.raw(),
-                        prompt,
-                        passphrase: false,
-                        runs_answer: false,
-                    }),
-                    Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
-                    Err(error) => editor.prompt_says(error.to_string()),
-                }
-                return (effects, Ok(()));
+                return self.read_mark(editor, id, args.raw(), prompt);
             }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
@@ -134,6 +119,37 @@ impl Dispatcher {
             redraw: true,
             ..Effects::default()
         };
+        (effects, Ok(()))
+    }
+
+    /// Opens the prompt that reads a mark for the command `id`, `C-.`, unless a prompt is
+    /// selected, whose own buffer is no list of marks and may be a passphrase's (ADR 0088).
+    fn read_mark(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        prompt: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let effects = Effects {
+            redraw: true,
+            ..Effects::default()
+        };
+        if editor.prompt().is_some() {
+            editor.prompt_says("Not in the minibuffer");
+            return (effects, Ok(()));
+        }
+        match editor.open_mark_list(prompt) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+            }),
+            Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
         (effects, Ok(()))
     }
 

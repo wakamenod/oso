@@ -529,11 +529,12 @@ fn selected_row(parts: &Parts<'_>) -> Option<CellRect> {
     let (candidates, _) = parts.list.as_ref()?;
     let rows = parts.layout.regions.candidates;
     if candidates.on_input() {
+        // Across the whole answer's row, also beside a preview.
         let inner = parts.layout.regions.inner;
         return Some(CellRect {
             row: (inner.row + inner.rows).checked_sub(1)?,
             rows: 1,
-            ..rows
+            ..inner
         });
     }
     let place = candidates.selected()?.checked_sub(candidates.top())?;

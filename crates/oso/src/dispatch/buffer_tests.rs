@@ -150,3 +150,54 @@ fn c_dot_lists_the_marks_and_ret_goes_to_one() {
     assert_eq!(editor.window().selections.primary().cursor, 0);
     assert_eq!(editor.window().selections.primary().mark, Some(3));
 }
+
+/// [`on_b`], with a buffer that may hold secrets shown, which it went to from `b.txt`.
+fn on_secret() -> (Dispatcher, Editor) {
+    let (d, mut editor) = on_b();
+    let path = std::path::PathBuf::from("/tmp/.env");
+    let mut secret = Buffer::visiting(path.clone());
+    secret.finish_empty();
+    secret.judge_secret(Some(&[path]));
+    let secret = editor.add_buffer(secret);
+    editor.show(secret);
+    (d, editor)
+}
+
+#[test]
+fn c_dot_refuses_inside_a_prompt() {
+    let (mut d, mut editor) = on_b();
+    send(&mut d, &mut editor, "C-SPC C-SPC M-g g 1 C-SPC C-a C-.");
+    let prompt = editor.prompt().unwrap();
+    assert_eq!(
+        prompt.label(),
+        "Go to line: ",
+        "no list of the prompt's text"
+    );
+    assert_eq!(prompt.message(), Some("Not in the minibuffer"));
+}
+
+#[test]
+fn c_dot_never_previews_a_buffer_that_may_hold_secrets_and_forgets_its_list_on_c_g() {
+    let (mut d, mut editor) = on_secret();
+    send(&mut d, &mut editor, "C-SPC C-SPC C-.");
+    assert!(editor.prompt().is_some());
+    assert_eq!(editor.preview(), Some(oso_core::editor::Preview::Withheld));
+    send(&mut d, &mut editor, "C-g");
+    assert_eq!(editor.preview(), None);
+}
+
+#[test]
+fn beside_a_secret_m_ret_on_nothing_typed_still_needs_a_choice() {
+    let (mut d, mut editor) = on_secret();
+    send(&mut d, &mut editor, "M-x M-RET");
+    let prompt = editor.prompt().unwrap();
+    assert_eq!(prompt.message(), Some("Type a name, or move to one"));
+}
+
+#[test]
+fn beside_a_secret_c_x_b_ret_goes_back_as_anywhere() {
+    let (mut d, mut editor) = on_secret();
+    send(&mut d, &mut editor, "C-x b RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(shown(&editor), "b.txt");
+}
