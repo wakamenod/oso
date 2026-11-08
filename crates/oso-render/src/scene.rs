@@ -310,9 +310,11 @@ fn draw_pane<G: GlyphSource>(
     }
     match &pane.content {
         PaneContent::Text(view) => {
-            // Behind the boxes and the glyphs, so the text keeps its face.
-            for cells in view.region_cells {
-                draws.fill(unscrolled.frame_cells(*cells), Face::Region);
+            // Behind the boxes and the glyphs, so the text keeps its face, back to front.
+            for &(face, cells) in view.fills {
+                for cells in cells {
+                    draws.fill(unscrolled.frame_cells(*cells), face);
+                }
             }
             let mut layout = Layout::new(metrics, pane.region, view.scroll).with_bands(pane.bands);
             if let Some(cells) = cursor.filter(|_| !hollow) {
@@ -596,7 +598,7 @@ mod tests {
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
+            fills: &[],
         })
     }
 
@@ -693,7 +695,7 @@ mod tests {
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     cursor_style: CursorStyle::Box,
                     preedit: None,
-                    region_cells: &[],
+                    fills: &[],
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -766,7 +768,7 @@ mod tests {
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
@@ -844,6 +846,8 @@ mod tests {
                 field: Some(rect(2, 4, 1, 6)),
                 field_room: rect(1, 3, 3, 8),
                 keys: &keys,
+                selected: None,
+                border: false,
             }),
             ..pane(0, rect(0, 0, 6, 12), 16, PaneContent::Lines(&[]))
         }];
@@ -889,6 +893,8 @@ mod tests {
                 field: Some(rect(1, 4, 1, 6)),
                 field_room: rect(1, 4, 1, 6),
                 keys: &keys,
+                selected: None,
+                border: false,
             }),
             ..pane(0, rect(0, 0, 2, 12), 16, PaneContent::Lines(&[]))
         }];
@@ -903,6 +909,65 @@ mod tests {
     }
 
     #[test]
+    fn the_selected_candidate_is_a_box_a_little_wider_than_its_row_inside_the_panel() {
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(0, 1, 6, 10),
+                field: None,
+                field_room: rect(0, 0, 0, 0),
+                keys: &[],
+                selected: Some(rect(4, 2, 1, 8)),
+                border: false,
+            }),
+            ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rounded = scene.rounded();
+        assert_eq!(rounded.len(), 2);
+        let [panel, row] = [rounded[0], rounded[1]];
+        assert_eq!(row.fill, Face::CompletionSelected.background());
+        // The row's cells are x 28..108; the box reaches past them, and stays in the panel.
+        let [x, y, width, height] = row.rect;
+        let [px, _, pwidth, _] = panel.rect;
+        assert!(x < 28.0 && x >= px && x + width > 108.0 && x + width <= px + pwidth);
+        assert_eq!((y, height), (8.0 + 4.0 * 20.0, 20.0));
+    }
+
+    #[test]
+    fn a_panel_with_a_border_has_it_in_place_of_the_hairline() {
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(2, 2, 4, 8),
+                field: None,
+                field_room: rect(0, 0, 0, 0),
+                keys: &[],
+                selected: Some(rect(4, 3, 1, 6)),
+                border: true,
+            }),
+            ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rounded = scene.rounded();
+        // The border is a square box behind the panel, 5 points of a 20 px cell: 6.25 px, in
+        // whole pixels, past it on every side.
+        let (frame, panel) = (rounded[0], rounded[1]);
+        assert_eq!((frame.fill, frame.radii), (PANEL.border, [0.0; 4]));
+        assert_eq!(frame.rect[0], panel.rect[0] - 6.0);
+        assert_eq!(frame.rect[2], panel.rect[2] + 12.0);
+        // Square, on the text's background, with no shadow and no outline of its own.
+        assert_eq!(panel.radii, [0.0; 4]);
+        assert_eq!(panel.fill, Face::Text.background());
+        assert_eq!((panel.shadow[3], panel.params[0]), (0.0, 0.0));
+        // The selected row is a bar across the whole panel.
+        let bar = rounded[2];
+        assert_eq!(bar.fill, Face::CompletionSelected.background());
+        assert_eq!((bar.rect[0], bar.rect[2]), (panel.rect[0], panel.rect[2]));
+        assert_eq!(bar.radii, [0.0; 4]);
+    }
+
+    #[test]
     fn a_shadow_with_little_room_below_shrinks_to_end_inside_its_pane() {
         let panes = [Pane {
             panel: Some(Panel {
@@ -910,6 +975,8 @@ mod tests {
                 field: None,
                 field_room: rect(0, 0, 0, 0),
                 keys: &[],
+                selected: None,
+                border: false,
             }),
             ..pane(0, rect(0, 0, 3, 12), 16, PaneContent::Lines(&[]))
         }];
@@ -946,7 +1013,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Hollow,
             preedit: None,
-            region_cells: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -1034,7 +1101,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 120), 0, content)];
         let limits = Limits {
@@ -1066,7 +1133,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -1092,7 +1159,7 @@ mod tests {
             cursor: DisplayPoint::new(1, 1),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &region,
+            fills: &[(Face::Region, &region)],
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
@@ -1130,7 +1197,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Box,
             preedit: Some(&preedit),
-            region_cells: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -1170,7 +1237,7 @@ mod tests {
                 cursor: DisplayPoint::new(1000, 0),
                 cursor_style: CursorStyle::Box,
                 preedit: None,
-                region_cells: &[],
+                fills: &[],
             })
         };
         let panes = |first, second_id| {
@@ -1330,7 +1397,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
+            fills: &[],
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);

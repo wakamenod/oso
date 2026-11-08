@@ -341,6 +341,27 @@ impl SelectionSet {
         }
     }
 
+    /// Sets the primary selection's mark at `offset`, and puts its old mark, if it had
+    /// one, first in the ring, as Emacs's `push-mark` does for one cursor. The others keep
+    /// theirs, and the region stays as it was.
+    pub fn push_primary_mark(&mut self, offset: usize) {
+        let primary = &mut self.selections[self.primary];
+        if let Some(mark) = primary.mark.replace(offset) {
+            self.ring.push(mark);
+        }
+    }
+
+    /// Moves the primary cursor to `offset` with no goal, and keeps its mark. The others
+    /// stay, and merge with it as [`SelectionSet::update`] merges, if it meets them.
+    pub fn move_primary(&mut self, offset: usize) {
+        let order = KeepOrder {
+            set: self,
+            changed: true,
+        };
+        let primary = order.set.primary;
+        order.set.selections[primary].move_to(offset);
+    }
+
     /// Keeps only the primary selection, and the ring.
     pub fn keep_primary(&mut self) {
         let primary = *self.primary();

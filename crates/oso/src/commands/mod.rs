@@ -8,9 +8,11 @@
 //! host-owned state and does not know its keys.
 
 mod buffers;
+mod complete;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+mod isearch;
 mod kill;
 mod mark;
 mod messages;
@@ -33,9 +35,11 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    complete::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
+    isearch::COMMANDS,
     kill::COMMANDS,
     mark::COMMANDS,
     buffers::COMMANDS,
@@ -138,10 +142,19 @@ mod tests {
             .collect();
         person.sort_unstable();
         let mut expected = vec![
-            // Answering a prompt.
+            // Answering a prompt, choosing what it answers, and running a command by name
+            // (ADR 0076).
             "answer-no",
             "answer-yes",
+            "execute-extended-command",
             "exit-minibuffer",
+            "first-completion",
+            "insert-completion",
+            "last-completion",
+            "next-completion",
+            "previous-completion",
+            "scroll-completions-down",
+            "scroll-completions-up",
             "next-history-element",
             "previous-history-element",
             // Emergency copies.
@@ -152,6 +165,7 @@ mod tests {
             "emergency-copy-recover",
             "emergency-copy-view",
             "recover-session",
+            "revert-buffer",
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
@@ -162,6 +176,19 @@ mod tests {
             "universal-argument",
             // The OS clipboard.
             "yank",
+            // isearch, which reads keys (ADR 0082).
+            "isearch-backward",
+            "isearch-delete-char",
+            "isearch-exit",
+            "isearch-forward",
+            "isearch-printing-char",
+            "isearch-repeat-backward",
+            "isearch-repeat-forward",
+            "isearch-ring-advance",
+            "isearch-ring-retreat",
+            "isearch-toggle-case-fold",
+            "isearch-yank-kill",
+            "isearch-yank-word-or-char",
         ];
         #[cfg(feature = "dev")]
         expected.extend(["dev-panic", "dev-read-passphrase"]);

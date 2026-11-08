@@ -446,6 +446,7 @@ fn written() -> FileStamp {
         modified: std::time::SystemTime::UNIX_EPOCH,
         len: 0,
         mode: 0o644,
+        identity: None,
     }
 }
 

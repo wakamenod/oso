@@ -169,6 +169,13 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   when the command before also killed. It keeps 120 entries and 64 MiB, and a yank
   inserts at most 16 MiB. An entry killed from a buffer that may hold secrets is secret,
   and yanking it makes the target buffer secret (`Verdict::Yanked`).
+- **isearch** (`Editor::isearch`, [ADR 0082](adr/0082-isearch.md)) is a mode of the selected
+  window, with its own keymap in place of the others. The matcher (`oso_core::search`, private to
+  the crate) runs Knuth–Morris–Pratt over the rope's chunks. Each key searches 256 KiB on the UI
+  thread, and one worker thread of the host's (`app/searches.rs`) goes on with a far match and counts
+  the matches over an O(1) snapshot, superseded by the next job through a generation. A frame
+  searches only the rows in view for the highlights. A search ends when its window shows another
+  buffer or a prompt opens.
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through
@@ -303,6 +310,10 @@ null text system: the cursor is drawn on the grid, and no text. See
 - **Clipping** is done on the CPU. A glyph's quad is cut to its cluster's cells, its
   row with the bands of [ADR 0052](adr/0052-glyphs-stay-in-their-cells.md), and its
   pane, moving the atlas position along with the corner.
+- **Colours** come from the current theme, which the app hands the renderer each frame
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)). Shaped rows and rasters
+  hold none, and the text shader corrects coverage by the foreground's luminance with the
+  theme's gamma terms, so a switch shapes and rasterizes nothing again.
 - **Text that is no buffer's,** such as a modeline row, comes as `Span`s with a `Face`
   and goes through `display_map::text_clusters`, so its control characters, tabs and
   line breaks are escapes.
@@ -392,7 +403,12 @@ inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). A command never
 waits for an answer: the dispatcher reads what its `ArgSpec` asks for in a prompt
 before running it, and a command that has to ask leaves a question whose `y` runs a
 command of its own, which checks again. `C-g` does one thing at a time, in
-`Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+`Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). A prompt that
+completes keeps its candidates in the editor (`oso_core::complete`): orderless matching in an
+order fixed as it opens, matched once each command ends, on the UI thread up to 5000 candidates,
+in a float at the center of the frame.
+`M-x` reads a command's name through `ArgSpec::Command`, and the dispatcher runs that command
+with `M-x`'s prefix argument ([ADR 0076](adr/0076-completion-and-m-x.md)).
 
 ### Background work
 
@@ -409,6 +425,14 @@ The UI thread never blocks on I/O or parsing:
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+- Open files are looked at once a second, and when the window gains the focus, by a
+  thread that only `stat`s them (`loader::Watcher`). A file that changed under a buffer
+  with no unsaved edits is read again on a loading thread, which compares the new text
+  with the old one there. The UI puts it in as one undo step and maps every window's
+  cursors through the one changed span. A buffer with edits keeps them and warns. A reload
+  waits while a prompt is open (`Editor::reload_waits`)
+  ([ADR 0029](adr/0029-file-changes-on-disk.md),
+  [ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
 - Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
@@ -416,8 +440,8 @@ The UI thread never blocks on I/O or parsing:
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
-- The event loop's user event is an enum: loader wake-ups, save reports and what threads
-  find of emergency copies in every build, and control socket requests in dev builds.
+- The event loop's user event is an enum: loader wake-ups, save reports, the watcher's
+  reports and what threads find of emergency copies in every build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in
@@ -453,7 +477,7 @@ with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
 after the command and runs it on a thread (`saver`): a temporary file in the file's
 own directory, the file's owner, access list and mode, fsync, a check that the file on disk is
 where and what the buffer last read or wrote (its real location, modification time and
-size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
+size, and its device and inode where the system has them, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button ask before exiting while a buffer is modified
 or a save runs, and on oso's own macOS layer so does a person's request to quit, from the Dock

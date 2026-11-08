@@ -44,6 +44,13 @@ pub struct Command {
     pub run: CommandFn,
 }
 
+impl Command {
+    /// The first line of its docstring: a one-sentence summary.
+    pub fn summary(&self) -> &'static str {
+        self.doc.lines().next().unwrap_or_default()
+    }
+}
+
 impl fmt::Debug for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Command")
@@ -91,6 +98,17 @@ pub enum ArgSpec {
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`], and must not keep it.
     Passphrase { prompt: &'static str },
+    /// A command's name, read in a prompt that says `prompt` and completes over the
+    /// registry, kept in the history named `history` (ADR 0076). The dispatcher runs that
+    /// command in its place, with its prefix argument, as `M-x` does.
+    Command {
+        prompt: &'static str,
+        history: &'static str,
+    },
+    /// The key that ran it, read with [`Ctx::input`] or [`Ctx::key_char`], and a numeric
+    /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
+    /// (ADR 0076).
+    Key,
     /// A numeric prefix argument, and with none or only `C-u`, what the OS clipboard
     /// holds, read with [`Ctx::clipboard`]. The dispatcher reads the clipboard first, off
     /// the UI thread, and runs the command once it has the answer, as `yank` needs
