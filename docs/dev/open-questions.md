@@ -228,6 +228,10 @@ item notes when it must be settled.
   `.env`, other apps in front, Spotlight and quitting
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
+- Reconversion: a replacement range outside the marked text is ignored for now, and the text
+  goes in at the cursor. Decide whether to apply one inside the excerpt last given, as ADR
+  0070 allows, once the cursor's line reaches the input method
+  ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
