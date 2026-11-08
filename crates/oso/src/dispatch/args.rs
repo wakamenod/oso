@@ -44,7 +44,7 @@ pub fn map(
     };
     match (spec, given) {
         (ArgSpec::Passphrase { .. }, _) => Err(format!(
-            "{name} reads a passphrase in a prompt, through send-keys"
+            "{name} reads a passphrase, which only its prompt takes, from keys"
         )),
         (ArgSpec::None, Given::Nothing) => plain(Args::with_prefix(prefix)),
         (ArgSpec::None, _) => Err(format!("{name} takes no argument")),
@@ -132,5 +132,9 @@ mod tests {
             prompt: "Passphrase: ",
         };
         assert!(refused(passphrase, Given::Nothing).contains("passphrase"));
+        assert!(
+            !refused(passphrase, Given::Nothing).contains("send-keys"),
+            "no dev method's name"
+        );
     }
 }

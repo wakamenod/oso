@@ -553,7 +553,10 @@ Full details are in [`security.md`](security.md).
     dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
     saving it. `ArgSpec::Text` and `insert` take text; `dispatch::args` maps a given argument
-    for the dev socket and the channel alike.
+    for the dev socket and the channel alike. A count, which repeats a command's work, is at
+    most 10,000 either way, as ADR 0044 has it; a number such as a line is a value, and goes
+    as given. A reload of a file the channel opened checks it as `open` does, and a reload
+    that finds the file elsewhere makes the agent's save of it ask.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.

@@ -63,6 +63,9 @@ pub(super) struct Agent {
     asking: Option<Asking>,
     /// The questions the channel's commands caused, with the connection that caused each.
     caused: Vec<(PromptId, Connection)>,
+    /// The connection whose question the person answered last, which a question that answer
+    /// opens is put down to.
+    last_answered: Option<Connection>,
     /// Questions the agent caused whose connection went, or whose channel stopped, which
     /// close as soon as they are innermost: no `y` answers them any more.
     orphaned: Vec<PromptId>,
@@ -372,10 +375,7 @@ impl App {
         self.ask_about_a_connection();
         self.close_orphaned_questions();
         self.progress_agent_opens();
-        let open = self.editor.prompts();
-        self.agent
-            .caused
-            .retain(|(id, _)| open.iter().any(|prompt| prompt.id() == *id));
+        self.track_follow_up_questions();
         let status = match (&self.agent.channel, self.agent.connected.is_empty()) {
             (None, _) => AgentChannel::Off,
             (Some(_), true) => AgentChannel::On,
@@ -438,6 +438,52 @@ impl App {
         {
             self.agent.quiet_since = Some(Instant::now());
         }
+    }
+
+    /// Forgets the questions the agent caused that have closed, and takes on those that the
+    /// person's `y` to one of them opened: they are the same connection's, so that its
+    /// `cancel` closes them and they close when it goes (ADR 0085).
+    fn track_follow_up_questions(&mut self) {
+        let open: Vec<(PromptId, bool)> = self
+            .editor
+            .prompts()
+            .iter()
+            .map(|prompt| (prompt.id(), prompt.from_agent()))
+            .collect();
+        let is_open = |id: PromptId| open.iter().any(|&(open, _)| open == id);
+        // The connection whose question closed last is the one a follow-up comes from.
+        if let Some(&(_, by)) = self
+            .agent
+            .caused
+            .iter()
+            .rev()
+            .find(|&&(id, _)| !is_open(id))
+        {
+            self.agent.last_answered = Some(by);
+        }
+        self.agent.caused.retain(|&(id, _)| is_open(id));
+        let asked = self
+            .agent
+            .asking
+            .as_ref()
+            .and_then(|asking| asking.question);
+        for &(id, from_agent) in &open {
+            let known = self.agent.caused.iter().any(|&(caused, _)| caused == id)
+                || self.agent.orphaned.contains(&id)
+                || asked == Some(id);
+            if !from_agent || known {
+                continue;
+            }
+            match self
+                .agent
+                .last_answered
+                .filter(|by| self.agent.connected.contains(by))
+            {
+                Some(by) => self.agent.caused.push((id, by)),
+                None => self.agent.orphaned.push(id),
+            }
+        }
+        self.close_orphaned_questions();
     }
 
     /// The questions `connection` caused, or every connection if `None`, take no answer any

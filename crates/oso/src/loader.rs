@@ -103,7 +103,13 @@ pub enum LoadError {
     Panicked,
     /// The file opened has more than one name, which a load for the agent channel refuses:
     /// its other names, which the secret patterns judge, are not seen (ADR 0085).
+    #[cfg_attr(
+        not(unix),
+        expect(dead_code, reason = "only Unix counts a file's names")
+    )]
     SeveralNames,
+    /// The file opened is larger than a load for the agent channel takes (ADR 0085).
+    TooLargeForTheAgent,
 }
 
 impl std::fmt::Display for LoadError {
@@ -114,6 +120,7 @@ impl std::fmt::Display for LoadError {
             Self::Io(e) => write!(f, "{e}"),
             Self::Panicked => f.write_str("loading failed"),
             Self::SeveralNames => f.write_str("the file has more than one name"),
+            Self::TooLargeForTheAgent => f.write_str("the file is larger than the agent may open"),
         }
     }
 }
@@ -234,6 +241,7 @@ pub fn spawn_reload<W>(
     buffer: BufferId,
     path: PathBuf,
     old: Rope,
+    for_agent: bool,
     wake: W,
 ) -> io::Result<LoadHandle>
 where
@@ -241,6 +249,10 @@ where
 {
     spawn_reading(buffer, wake, move |shared, post| {
         let (file, metadata) = open_and_record(&path, shared, || {})?;
+        // A buffer the agent opened is read again only as it may be opened (ADR 0085).
+        if for_agent {
+            for_the_agent(&metadata)?;
+        }
         let Some((builder, _)) = read_all(file, metadata.len(), shared, |_| true)? else {
             return Ok(());
         };
@@ -474,13 +486,24 @@ fn load_around(
     one_name: bool,
 ) -> Result<(), LoadError> {
     let (file, metadata) = open_and_record(path, shared, after_open)?;
+    if one_name {
+        for_the_agent(&metadata)?;
+    }
+    read_into(file, metadata.len(), shared, send)
+}
+
+/// What a load for the agent channel checks on the file it opened, so that no file swapped
+/// in after the channel looked gets past: one name only, and no more than the channel opens
+/// (ADR 0085).
+fn for_the_agent(metadata: &Metadata) -> Result<(), LoadError> {
     #[cfg(unix)]
-    if one_name && std::os::unix::fs::MetadataExt::nlink(&metadata) > 1 {
+    if std::os::unix::fs::MetadataExt::nlink(metadata) > 1 {
         return Err(LoadError::SeveralNames);
     }
-    #[cfg(not(unix))]
-    let _ = one_name;
-    read_into(file, metadata.len(), shared, send)
+    if metadata.len() > crate::channel::server::MAX_OPEN_BYTES {
+        return Err(LoadError::TooLargeForTheAgent);
+    }
+    Ok(())
 }
 
 /// Opens `path`, runs `after_open`, and records where the path leads, the verdict, the file's own
@@ -912,7 +935,8 @@ mod tests {
         let path = scratch_file("reload.txt", content.as_bytes());
         let old = Rope::from("head\nother\n");
         let (tx, rx) = mpsc::channel();
-        let handle = spawn_reload(id(), path.clone(), old, move |_| tx.send(()).is_ok()).unwrap();
+        let handle =
+            spawn_reload(id(), path.clone(), old, false, move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(handle.take_resolved().is_some());
         assert!(handle.take_baseline().unwrap().file.is_some());
@@ -927,6 +951,42 @@ mod tests {
         };
         assert!(reloaded.is_changed());
         assert!(handle.take().is_none(), "one update only");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_load_for_the_agent_refuses_a_file_grown_past_its_limit() {
+        let path = scratch_file("agent-large.txt", b"");
+        // Sparse: it takes no room, but says it is that large.
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(crate::channel::server::MAX_OPEN_BYTES + 1)
+            .unwrap();
+        let shared = Shared::default();
+        let refused = load(&path, &shared, &|_| true, true);
+        assert!(
+            matches!(refused, Err(LoadError::TooLargeForTheAgent)),
+            "{refused:?}"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reload_for_the_agent_refuses_a_file_given_a_second_name() {
+        let path = scratch_file("reload-agent.txt", b"plain\n");
+        let second = path.with_extension("key");
+        let _ = std::fs::remove_file(&second);
+        std::fs::hard_link(&path, &second).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let wake = move |_| tx.send(()).is_ok();
+        let handle = spawn_reload(id(), path.clone(), Rope::from(""), true, wake).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let update = handle.take().unwrap();
+        assert!(
+            matches!(update, LoadUpdate::Failed(LoadError::SeveralNames)),
+            "no text comes: {update:?}"
+        );
+        std::fs::remove_file(&second).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 }

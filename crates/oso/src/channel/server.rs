@@ -509,7 +509,6 @@ pub const MAX_OPEN_BYTES: u64 = 256 << 20;
 /// it is no regular file, it is too large, or it has more than one name, so that its other
 /// names, which the secret patterns judge, are not seen (ADR 0085).
 fn may_open(path: &std::path::Path) -> Result<(), &'static str> {
-    use std::os::unix::fs::MetadataExt;
     let meta = std::fs::metadata(path).map_err(|_| "no file is at that path")?;
     if !meta.is_file() {
         return Err("that is not a regular file");
@@ -517,7 +516,8 @@ fn may_open(path: &std::path::Path) -> Result<(), &'static str> {
     if meta.len() > MAX_OPEN_BYTES {
         return Err("the file is larger than the agent may open; ask the person");
     }
-    if meta.nlink() > 1 {
+    #[cfg(unix)]
+    if std::os::unix::fs::MetadataExt::nlink(&meta) > 1 {
         return Err("the file has more than one name; ask the person");
     }
     Ok(())

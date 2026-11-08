@@ -73,6 +73,11 @@ impl App {
         }
     }
 
+    /// Stops loading `buffer`: its thread ends at its next read, and nothing it read comes in.
+    pub(super) fn cancel_load(&mut self, buffer: BufferId) {
+        self.loads.retain(|load| load.handle.buffer() != buffer);
+    }
+
     /// A loading thread has an update for `buffer`: takes it in, and asks for a
     /// frame if it needs one.
     pub(super) fn load_updated(&mut self, buffer: BufferId) {
