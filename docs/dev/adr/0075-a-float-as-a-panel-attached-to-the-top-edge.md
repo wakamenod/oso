@@ -235,7 +235,7 @@ float adds no work there:
 - [ADR 0061](0061-panes-clipping-and-layers.md): a pane in front on the top row covers the margin above
   it where its panel is. Rounded boxes are drawn in a layer between its rectangles and its glyphs.
 - [ADR 0008](0008-floating-ui.md) stays as it is: the float is still a buffer in a floating window.
-- `ui.md` changes once this is accepted.
+- `ui.md` and `display-model.md` describe the new look.
 
 ## Consequences
 
