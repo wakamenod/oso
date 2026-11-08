@@ -12,7 +12,7 @@ need the author's explicit approval.
 - [ ] **[gate]** New `unsafe`: does it have a `// SAFETY:` comment, and is it
   outside `oso-core`?
 - [ ] **[gate]** Changes to process spawning, file writing, the trust model,
-  the control socket, `deny.toml` or the files that define the checks (see
+  the control socket, the agent channel, `deny.toml` or the files that define the checks (see
   `AGENTS.md`).
 - [ ] Nothing executes on file or project open. External tools run only in
   trusted projects.
@@ -23,6 +23,10 @@ need the author's explicit approval.
 - [ ] Untrusted input (file content, terminal output, git config) cannot
   trigger commands, clipboard reads or echo-back sequences.
 - [ ] Dev-only code stays behind dev features.
+- [ ] Each new command has the right reach (ADR 0085): `Person` if it needs a
+  person at the keyboard, exits, answers a prompt, reads the clipboard, spawns a
+  process, trusts a project, or shows what a secret buffer withholds. The
+  agent channel gains no dev method.
 - [ ] No secrets, personal paths, employer or client names, or unfixed
   vulnerabilities in code, docs or commit messages.
 
