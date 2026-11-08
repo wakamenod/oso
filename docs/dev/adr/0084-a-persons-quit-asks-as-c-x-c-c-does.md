@@ -1,6 +1,6 @@
 # 0084. A person's quit asks as `C-x C-c` does
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -16,7 +16,8 @@ would be the one way to exit past it.
 [ADR 0077](0077-choices-for-the-native-layers-stage-2.md) set how long the end of the
 session waits for saves (choice 2) and that a Dock quit with a save running waits as
 `C-x C-c` does (choice 3). How the end of the session is tested was left open. The author
-made both choices below on 2026-11-08, through the coordinator.
+made both choices below on 2026-11-08, through the coordinator. The author accepted this on 2026-11-08,
+through the coordinator.
 
 ## Decision
 
