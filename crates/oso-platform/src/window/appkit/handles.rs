@@ -177,6 +177,20 @@ impl Window {
             .push(Request::DiscardComposition);
     }
 
+    /// Whether the app wants secure input, as while a buffer that may hold secrets is
+    /// selected (ADR 0073). It is held only while oso is active and the window has the
+    /// keyboard as well.
+    pub fn set_secure_input(&self, wanted: bool) {
+        self.state.update_secure(|secure| secure.set_wanted(wanted));
+    }
+
+    /// Whether secure input is wanted, whether this layer holds it, and whether the system
+    /// has it on, for the dev socket's check.
+    pub fn secure_input(&self) -> (bool, bool, bool) {
+        let secure = self.state.secure.get();
+        (secure.wanted(), secure.held(), super::secure::is_enabled())
+    }
+
     /// Where the cursor's cell is, for the input method's candidate window. Only kept: the
     /// input method asks for it when it needs it.
     pub fn set_ime_cursor_area(&self, area: CursorArea) {

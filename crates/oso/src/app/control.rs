@@ -122,6 +122,16 @@ impl App {
             area: self.ime_area(),
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
+        // Whether secure input is wanted, held and on (ADR 0073). It says nothing the socket
+        // does not already: a buffer that may hold secrets is reported as withheld.
+        let secure = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.secure_input());
+        state["secure_input"] = secure.map_or(
+            serde_json::Value::Null,
+            |(wanted, held, system)| json!({ "wanted": wanted, "held": held, "system": system }),
+        );
         state
     }
 

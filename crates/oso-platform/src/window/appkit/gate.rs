@@ -1,5 +1,6 @@
-//! What the input method may learn of the cursor: the cell the app last gave, answered only
-//! while oso has the IME on (ADR 0069, ADR 0070). A plain value, tested without a window.
+//! What the input method may learn of the cursor, the cell the app last gave, answered only
+//! while oso has the IME on (ADR 0069, ADR 0070); and when secure input is held (ADR 0073).
+//! Plain values, tested without a window.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 
@@ -34,9 +35,78 @@ impl ImeGate {
     }
 }
 
+/// Secure input: held while the app wants it, oso is the active app and its window has the
+/// keyboard (ADR 0073). Each change says whether to enable or disable it, so that exactly one
+/// enable is held at a time and every one is released.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct SecureInput {
+    wanted: bool,
+    active: bool,
+    key: bool,
+    held: bool,
+}
+
+/// What a change asks of the system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SecureStep {
+    Enable,
+    Disable,
+}
+
+impl SecureInput {
+    pub(super) fn held(self) -> bool {
+        self.held
+    }
+
+    pub(super) fn wanted(self) -> bool {
+        self.wanted
+    }
+
+    pub(super) fn set_wanted(&mut self, wanted: bool) -> Option<SecureStep> {
+        self.wanted = wanted;
+        self.settle()
+    }
+
+    pub(super) fn set_active(&mut self, active: bool) -> Option<SecureStep> {
+        self.active = active;
+        self.settle()
+    }
+
+    pub(super) fn set_key(&mut self, key: bool) -> Option<SecureStep> {
+        self.key = key;
+        self.settle()
+    }
+
+    /// The loop is ending, or the handler panicked: released, and never held again.
+    pub(super) fn release(&mut self) -> Option<SecureStep> {
+        self.wanted = false;
+        self.active = false;
+        self.key = false;
+        self.settle()
+    }
+
+    /// The system refused to enable it: not held.
+    pub(super) fn refused(&mut self) {
+        self.held = false;
+    }
+
+    fn settle(&mut self) -> Option<SecureStep> {
+        let hold = self.wanted && self.active && self.key;
+        if hold == self.held {
+            return None;
+        }
+        self.held = hold;
+        Some(if hold {
+            SecureStep::Enable
+        } else {
+            SecureStep::Disable
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ImeGate;
+    use super::{ImeGate, SecureInput, SecureStep};
     use crate::window::CursorArea;
 
     const CELL: CursorArea = CursorArea {
@@ -69,5 +139,49 @@ mod tests {
             Some(CELL),
             "the app does not give an unmoved cell again"
         );
+    }
+
+    #[test]
+    fn secure_input_is_held_only_while_wanted_active_and_key() {
+        for wanted in [false, true] {
+            for active in [false, true] {
+                for key in [false, true] {
+                    let mut secure = SecureInput::default();
+                    secure.set_wanted(wanted);
+                    secure.set_active(active);
+                    secure.set_key(key);
+                    let should = wanted && active && key;
+                    assert_eq!(secure.held(), should, "{wanted} {active} {key}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn enables_and_disables_pair_up_whatever_the_order() {
+        let mut secure = SecureInput::default();
+        let count = |step: Option<SecureStep>| match step {
+            Some(SecureStep::Enable) => 1,
+            Some(SecureStep::Disable) => -1,
+            None => 0,
+        };
+        let mut held = count(secure.set_active(true));
+        held += count(secure.set_key(true));
+        held += count(secure.set_wanted(true));
+        assert_eq!(held, 1);
+        held += count(secure.set_wanted(true));
+        held += count(secure.set_key(true));
+        assert_eq!(held, 1, "no second enable");
+        held += count(secure.set_active(false));
+        assert_eq!(held, 0, "the app went behind");
+        held += count(secure.set_active(true));
+        assert_eq!(held, 1);
+        held += count(secure.set_wanted(false));
+        assert_eq!(held, 0, "another buffer selected");
+        held += count(secure.set_wanted(true));
+        held += count(secure.release());
+        assert_eq!(held, 0, "released at the end");
+        held += count(secure.set_wanted(true));
+        assert_eq!(held, 0, "not again once released, as the loop ended");
     }
 }

@@ -48,6 +48,8 @@ pub(super) struct ImeState {
     /// The cursor area last given, with the scale factor it was given at, since the window
     /// system keeps it in logical units.
     area: Option<(PixelRect, f64)>,
+    /// Whether secure input was last asked for (ADR 0073).
+    secure: bool,
 }
 
 impl App {
@@ -88,7 +90,23 @@ impl App {
             }
         }
         self.sync_ime();
+        self.sync_secure_input();
         self.give_cursor_area();
+    }
+
+    /// Asks the window for secure input while the selected buffer may hold secrets, as a
+    /// password field has it, if that changed (ADR 0073). Only the verdict crosses: no text,
+    /// name or place of the buffer. The window holds it only while oso is in front with the
+    /// keyboard.
+    pub(super) fn sync_secure_input(&mut self) {
+        let wanted = self.editor.current().1.is_secret();
+        let Some(view) = &self.view else {
+            return;
+        };
+        if wanted != self.ime.secure {
+            view.window.set_secure_input(wanted);
+            self.ime.secure = wanted;
+        }
     }
 
     /// Drops the preedit, if one is shown. Returns whether one was.

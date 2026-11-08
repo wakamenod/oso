@@ -16,6 +16,7 @@ mod gate;
 mod handles;
 mod keys;
 mod runloop;
+mod secure;
 mod view;
 
 use std::any::Any;
@@ -169,6 +170,9 @@ struct State {
     ime: Cell<gate::ImeGate>,
     /// The loop ended while the handler ran: it hears so once it returns.
     exit_waiting: Cell<bool>,
+    /// Whether secure input is wanted, oso is active, its window has the keyboard, and it is
+    /// held (ADR 0073).
+    secure: Cell<gate::SecureInput>,
     /// The size and the scale the handler was last told, so that it hears only changes.
     reported_size: Cell<(u32, u32)>,
     reported_scale: Cell<f64>,
@@ -191,6 +195,7 @@ impl State {
             deadline: Cell::new(None),
             ime: Cell::new(gate::ImeGate::default()),
             exit_waiting: Cell::new(false),
+            secure: Cell::new(gate::SecureInput::default()),
             reported_size: Cell::new((0, 0)),
             reported_scale: Cell::new(0.0),
             panic: RefCell::new(None),
@@ -226,6 +231,7 @@ impl State {
         });
         drop(dispatch);
         if let Err(payload) = result {
+            self.update_secure(gate::SecureInput::release);
             *self.panic.borrow_mut() = Some(payload);
             self.stop();
             return;
@@ -347,6 +353,8 @@ impl State {
 
     /// The loop is ending: the handler hears it once.
     fn exiting(&'static self) {
+        // Secure input goes first, whatever else happens, as the process may end next.
+        self.update_secure(gate::SecureInput::release);
         if self.panic.borrow().is_some() || self.exited.get() {
             return;
         }
@@ -362,6 +370,28 @@ impl State {
 
     fn ime_allowed(&self) -> bool {
         self.ime.get().allowed()
+    }
+
+    /// Changes what secure input depends on, and enables or disables it if that changes
+    /// whether it is held.
+    fn update_secure(
+        &self,
+        change: impl FnOnce(&mut gate::SecureInput) -> Option<gate::SecureStep>,
+    ) {
+        let mut secure = self.secure.get();
+        match change(&mut secure) {
+            Some(gate::SecureStep::Enable) => {
+                if !secure::enable() {
+                    log::warn!("the system refused secure input");
+                    secure.refused();
+                }
+            }
+            Some(gate::SecureStep::Disable) if !secure::disable() => {
+                log::warn!("the system refused to release secure input");
+            }
+            Some(gate::SecureStep::Disable) | None => {}
+        }
+        self.secure.set(secure);
     }
 
     fn update_ime(&self, change: impl FnOnce(&mut gate::ImeGate)) {
