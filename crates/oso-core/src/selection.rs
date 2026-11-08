@@ -69,7 +69,7 @@ impl Selection {
 /// Whether a window's regions show, for all its selections at once
 /// (`transient-mark-mode`, ADR 0071).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum Region {
+pub enum MarkActive {
     /// Hidden. The marks stay, for `C-x C-x` and `C-u C-SPC`.
     #[default]
     Inactive,
@@ -80,7 +80,7 @@ pub enum Region {
     Shifted,
 }
 
-impl Region {
+impl MarkActive {
     /// Whether the regions show.
     pub fn is_active(self) -> bool {
         self != Self::Inactive
@@ -106,7 +106,7 @@ impl MarkRing {
     }
 
     /// Puts `mark` first, dropping the oldest if the ring is full.
-    pub fn push(&mut self, mark: usize) {
+    pub(crate) fn push(&mut self, mark: usize) {
         self.len = (self.len + 1).min(MARK_RING_SIZE);
         self.marks[..self.len].rotate_right(1);
         self.marks[0] = mark;
@@ -115,7 +115,7 @@ impl MarkRing {
     /// Takes the newest mark and puts `current` last, as Emacs's `pop-mark` does,
     /// so that going on goes round the ring. `None`, and nothing changes, if the
     /// ring is empty.
-    pub fn rotate(&mut self, current: usize) -> Option<usize> {
+    pub(crate) fn rotate(&mut self, current: usize) -> Option<usize> {
         let newest = *self.marks[..self.len].first()?;
         self.marks[..self.len].rotate_left(1);
         self.marks[self.len - 1] = current;
@@ -123,10 +123,18 @@ impl MarkRing {
     }
 
     /// Moves every mark through `edits`, as [`SelectionSet::follow_edits`] moves
-    /// marks.
+    /// marks. They go through in ascending order, on the stack.
     pub(crate) fn follow_edits(&mut self, edits: &[OffsetEdit]) {
+        let mut order = [(0, 0); MARK_RING_SIZE];
+        let order = &mut order[..self.len];
+        for (index, slot) in order.iter_mut().enumerate() {
+            *slot = (self.marks[index], index);
+        }
+        order.sort_unstable();
         let mut marks = Follow::new(edits, Bias::Left);
-        self.update(|mark| marks.map(mark));
+        for &(mark, index) in order.iter() {
+            self.marks[index] = marks.map(mark);
+        }
     }
 
     fn update(&mut self, mut f: impl FnMut(usize) -> usize) {
@@ -143,7 +151,7 @@ impl MarkRing {
 pub struct SelectionSet {
     selections: Vec<Selection>,
     primary: usize,
-    region: Region,
+    mark_active: MarkActive,
     ring: MarkRing,
 }
 
@@ -173,9 +181,8 @@ pub(crate) fn new_text_ends(edits: &[OffsetEdit]) -> impl Iterator<Item = usize>
     })
 }
 
-/// Moves offsets through sorted edits, as [`SelectionSet::follow_edits`] says.
-/// Offsets in ascending order cost O(offsets + edits) together. One below the
-/// offset before it starts over from the first edit, so any order is right.
+/// Moves offsets through sorted edits, as [`SelectionSet::follow_edits`] says. The
+/// offsets must come in ascending order, and cost O(offsets + edits) together.
 struct Follow<'a> {
     edits: &'a [OffsetEdit],
     bias: Bias,
@@ -197,9 +204,6 @@ impl<'a> Follow<'a> {
     }
 
     fn map(&mut self, offset: usize) -> usize {
-        if offset < self.old_end {
-            *self = Self::new(self.edits, self.bias);
-        }
         loop {
             let Some(edit) = self.edits.get(self.next) else {
                 return self.new_end.saturating_add(offset - self.old_end);
@@ -255,7 +259,7 @@ impl SelectionSet {
         Self {
             selections: vec![Selection::at(offset)],
             primary: 0,
-            region: Region::Inactive,
+            mark_active: MarkActive::Inactive,
             ring: MarkRing::default(),
         }
     }
@@ -306,15 +310,15 @@ impl SelectionSet {
     }
 
     /// Whether the regions show.
-    pub fn region(&self) -> Region {
-        self.region
+    pub fn mark_active(&self) -> MarkActive {
+        self.mark_active
     }
 
     /// Shows or hides the regions. Shown, those that overlap merge. Returns
     /// whether it was shown or hidden before.
-    pub fn set_region(&mut self, region: Region) -> Region {
-        let before = std::mem::replace(&mut self.region, region);
-        if region.is_active() && !before.is_active() {
+    pub fn set_mark_active(&mut self, active: MarkActive) -> MarkActive {
+        let before = std::mem::replace(&mut self.mark_active, active);
+        if active.is_active() && !before.is_active() {
             self.normalize();
         }
         before
@@ -358,7 +362,7 @@ impl SelectionSet {
             mark: Some(previous),
             goal: None,
         };
-        self.region = Region::Inactive;
+        self.mark_active = MarkActive::Inactive;
         true
     }
 
@@ -392,8 +396,8 @@ impl SelectionSet {
 
     /// Moves every cursor, mark and mark in the ring through `edits`, which are
     /// sorted, do not overlap and are all in the offsets before them. An edit is
-    /// not a vertical move, so goals are cleared. O(cursors + edits) while the
-    /// marks are in order, as setting them at the cursors leaves them.
+    /// not a vertical move, so goals are cleared. O(cursors + edits), and the marks
+    /// O(marks log marks) more when they are out of order.
     ///
     /// An offset before an edit stays, and one after it shifts. For a cursor,
     /// the `bias` decides the rest:
@@ -408,11 +412,10 @@ impl SelectionSet {
     /// text that followed it. Marks always follow as Emacs markers do, with
     /// `Bias::Left`, so text typed at a mark goes after it.
     pub(crate) fn follow_edits(&mut self, edits: &[OffsetEdit], bias: Bias) {
+        follow_marks(&mut self.selections, edits);
         let mut cursors = Follow::new(edits, bias);
-        let mut marks = Follow::new(edits, Bias::Left);
         self.update(|selection| {
             selection.cursor = cursors.map(selection.cursor);
-            selection.mark = selection.mark.map(|mark| marks.map(mark));
             selection.goal = None;
             Ok::<(), ()>(())
         });
@@ -438,7 +441,7 @@ impl SelectionSet {
     /// shows, those whose regions overlap, keeping the primary one.
     fn normalize(&mut self) {
         let primary = self.selections[self.primary];
-        let active = self.region.is_active();
+        let active = self.mark_active.is_active();
         if active {
             self.selections
                 .sort_by_key(|selection| (selection.range().start, selection.cursor));
@@ -481,6 +484,27 @@ impl SelectionSet {
             self.selections
                 .is_sorted_by_key(|selection| selection.cursor)
         );
+    }
+}
+
+/// Moves the marks of `selections` through `edits` as markers, in ascending order.
+/// Marks set at the cursors are already in order and go through in place. Others,
+/// such as those of regions in both directions, are sorted first, which allocates.
+fn follow_marks(selections: &mut [Selection], edits: &[OffsetEdit]) {
+    let mut marks = Follow::new(edits, Bias::Left);
+    let in_order = selections.iter().filter_map(|selection| selection.mark);
+    if in_order.is_sorted() {
+        for selection in selections {
+            selection.mark = selection.mark.map(|mark| marks.map(mark));
+        }
+        return;
+    }
+    let mut order: Vec<_> = (selections.iter().enumerate())
+        .filter_map(|(index, selection)| Some((selection.mark?, index)))
+        .collect();
+    order.sort_unstable();
+    for (mark, index) in order {
+        selections[index].mark = Some(marks.map(mark));
     }
 }
 
@@ -701,7 +725,7 @@ mod tests {
 
     fn shown(selections: Vec<Selection>, primary: usize) -> SelectionSet {
         let mut set = SelectionSet::from_parts(selections, primary).unwrap();
-        set.set_region(Region::Active);
+        set.set_mark_active(MarkActive::Active);
         set
     }
 
@@ -742,7 +766,11 @@ mod tests {
         set.push_marks();
         assert_eq!(set.mark_ring().iter().collect::<Vec<_>>(), [2]);
         assert_eq!(set.primary().mark, Some(3));
-        assert_eq!(set.region(), Region::Inactive, "pushing shows nothing");
+        assert_eq!(
+            set.mark_active(),
+            MarkActive::Inactive,
+            "pushing shows nothing"
+        );
     }
 
     #[test]
@@ -755,7 +783,7 @@ mod tests {
             Ok::<(), ()>(())
         });
         set.push_marks();
-        set.set_region(Region::Active);
+        set.set_mark_active(MarkActive::Active);
         assert!(set.pop_mark());
         assert_eq!(set.len(), 1);
         assert_eq!(
@@ -763,7 +791,7 @@ mod tests {
             region(3, 1),
             "at the mark, with the older one"
         );
-        assert_eq!(set.region(), Region::Inactive);
+        assert_eq!(set.mark_active(), MarkActive::Inactive);
         assert_eq!(set.mark_ring().iter().collect::<Vec<_>>(), [3]);
     }
 
@@ -823,6 +851,30 @@ mod tests {
     }
 
     #[test]
+    fn a_mark_out_of_order_at_an_insertion_already_passed_stays_before_it() {
+        // Marks 10 then 8, and 2 bytes typed at 8: the 8 stays, the 10 shifts.
+        let mut set = SelectionSet::from_parts(vec![region(1, 10), region(2, 8)], 0).unwrap();
+        let typed = [OffsetEdit {
+            start: 8,
+            old_len: 0,
+            new_len: 2,
+        }];
+        set.follow_edits(&typed, Bias::Left);
+        let marks: Vec<_> = set.iter().map(|s| s.mark).collect();
+        assert_eq!(marks, [Some(12), Some(8)]);
+        // The ring holds marks in any order too.
+        let mut ring = MarkRing::default();
+        ring.push(4);
+        ring.push(7);
+        ring.follow_edits(&[OffsetEdit {
+            start: 4,
+            old_len: 0,
+            new_len: 2,
+        }]);
+        assert_eq!(ring.iter().collect::<Vec<_>>(), [9, 4]);
+    }
+
+    #[test]
     fn shown_regions_that_overlap_merge_and_keep_the_primarys_direction() {
         // 2..6 forward and 4..9 backward, the second primary.
         let set = shown(vec![region(6, 2), region(4, 9)], 1);
@@ -855,9 +907,15 @@ mod tests {
     #[test]
     fn showing_the_region_merges_and_hiding_it_does_nothing_more() {
         let mut set = SelectionSet::from_parts(vec![region(6, 2), region(4, 9)], 0).unwrap();
-        assert_eq!(set.set_region(Region::Shifted), Region::Inactive);
+        assert_eq!(
+            set.set_mark_active(MarkActive::Shifted),
+            MarkActive::Inactive
+        );
         assert_eq!(set.len(), 1);
-        assert_eq!(set.set_region(Region::Inactive), Region::Shifted);
+        assert_eq!(
+            set.set_mark_active(MarkActive::Inactive),
+            MarkActive::Shifted
+        );
         assert_eq!(set.len(), 1);
     }
 
@@ -870,7 +928,50 @@ mod tests {
 
     use proptest::prelude::*;
 
+    /// Sorted edits that do not overlap, as `(start, old_len, new_len)` in old offsets.
+    fn arb_edits() -> impl Strategy<Value = Vec<OffsetEdit>> {
+        proptest::collection::vec((0usize..6, 0usize..4, 0usize..4), 0..6).prop_map(|steps| {
+            let mut at = 0;
+            steps
+                .into_iter()
+                .map(|(gap, old_len, new_len)| {
+                    let edit = OffsetEdit {
+                        start: at + gap,
+                        old_len,
+                        new_len,
+                    };
+                    at = edit.start + old_len;
+                    edit
+                })
+                .collect()
+        })
+    }
+
     proptest! {
+        #[test]
+        fn prop_marks_in_any_order_follow_as_each_would_alone(
+            marks in proptest::collection::vec(0usize..40, 1..10),
+            edits in arb_edits(),
+        ) {
+            let alone = |mark| Follow::new(&edits, Bias::Left).map(mark);
+            let parts = (marks.iter().enumerate())
+                .map(|(cursor, &mark)| Selection { mark: Some(mark), ..Selection::at(cursor * 100) })
+                .collect();
+            let mut set = SelectionSet::from_parts(parts, 0).unwrap();
+            let mut ring = MarkRing::default();
+            for &mark in marks.iter().take(MARK_RING_SIZE) {
+                ring.push(mark);
+            }
+            let ring_before: Vec<_> = ring.iter().collect();
+            set.follow_edits(&edits, Bias::Left);
+            ring.follow_edits(&edits);
+            let followed: Vec<_> = set.iter().map(|s| s.mark.unwrap()).collect();
+            let expected: Vec<_> = marks.iter().map(|&mark| alone(mark)).collect();
+            prop_assert_eq!(followed, expected);
+            let ring_expected: Vec<_> = ring_before.into_iter().map(alone).collect();
+            prop_assert_eq!(ring.iter().collect::<Vec<_>>(), ring_expected);
+        }
+
         #[test]
         fn prop_shown_regions_end_sorted_apart_and_the_primary_kept(
             selections in proptest::collection::vec(arb_selection(), 1..12),

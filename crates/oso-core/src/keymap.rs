@@ -287,7 +287,7 @@ pub enum Resolution<'a> {
     /// The keys so far are bound to nothing, but with Shift taken off the last
     /// one they form a command, as Emacs's shift translation finds: run it as
     /// shifted, which a motion takes as selecting (ADR 0071). The prefix is
-    /// cleared.
+    /// cleared. A key that forms a prefix without Shift is [`Resolution::Pending`].
     Shifted(CommandId),
     /// The keys so far are a prefix: wait for the next key.
     Pending,
@@ -358,29 +358,32 @@ impl KeyResolver {
                 Resolution::Command(id)
             }
             Some(Binding::Prefix(_)) => Resolution::Pending,
-            None => {
-                if let Some(id) = self.unshifted_command(layers, key) {
+            None => match self.unshift_last(layers, key) {
+                Some(Binding::Command(id)) => {
                     self.keys.clear();
-                    return Resolution::Shifted(id);
+                    Resolution::Shifted(id)
                 }
-                self.reported = true;
-                Resolution::Unbound(&self.keys)
-            }
+                Some(Binding::Prefix(_)) => Resolution::Pending,
+                None => {
+                    self.reported = true;
+                    Resolution::Unbound(&self.keys)
+                }
+            },
         }
     }
 
-    /// The command the pending keys form with `key`, their last, taken without
-    /// Shift. The keys are left as they were.
-    fn unshifted_command(&mut self, layers: &Layers<'_>, key: KeyPress) -> Option<CommandId> {
+    /// What the pending keys form with `key`, their last, taken without Shift, as
+    /// Emacs's shift translation reads it. If they form something, `key` stays
+    /// unshifted among the pending keys, so a prefix goes on as the one bound.
+    fn unshift_last<'a>(&mut self, layers: &Layers<'a>, key: KeyPress) -> Option<Binding<'a>> {
         let unshifted = key.unshifted()?;
         let last = self.keys.len() - 1;
         self.keys[last] = unshifted;
         let found = layers.lookup(&self.keys);
-        self.keys[last] = key;
-        match found? {
-            Binding::Command(id) => Some(id),
-            Binding::Prefix(_) => None,
+        if found.is_none() {
+            self.keys[last] = key;
         }
+        found
     }
 }
 
@@ -551,12 +554,9 @@ mod tests {
                 "shifted quit",
             ]
         );
-        let fed = feed_all(&mut resolver, &layers, &registry, "C-X C-B");
-        assert_eq!(
-            fed,
-            ["unbound C-X", "shifted backward-char"],
-            "no prefix from it"
-        );
+        // A prefix too, as the one bound, and the next key reads after it.
+        let fed = feed_all(&mut resolver, &layers, &registry, "C-X C-B C-B");
+        assert_eq!(fed, ["pending", "unbound C-x C-B", "shifted backward-char"]);
         assert!(resolver.pending().is_empty());
     }
 
@@ -955,9 +955,16 @@ mod tests {
                 let mut unshifted = pending.clone();
                 if let Some(last) = unshifted.last_mut().and_then(|key| key.unshifted()) {
                     *unshifted.last_mut().unwrap() = last;
-                    if let Some(Ok(id)) = models.iter().find_map(|m| model_lookup(m, &unshifted)) {
-                        pending.clear();
-                        return Expected::Shifted(id);
+                    match models.iter().find_map(|m| model_lookup(m, &unshifted)) {
+                        Some(Ok(id)) => {
+                            pending.clear();
+                            return Expected::Shifted(id);
+                        }
+                        Some(Err(())) => {
+                            *pending = unshifted;
+                            return Expected::Pending;
+                        }
+                        None => {}
                     }
                 }
                 Expected::Unbound(std::mem::take(pending))

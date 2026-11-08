@@ -6,7 +6,6 @@
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
 use oso_core::editor::ExitAction;
-use oso_core::selection::Region;
 
 /// The session commands.
 pub const COMMANDS: &[Command] = &[
@@ -26,8 +25,7 @@ pub const COMMANDS: &[Command] = &[
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     // Removing extra cursors first comes with the multiple-cursor keys (ADR 0030).
-    let selections = &mut ctx.editor.current_mut().0.selections;
-    if selections.set_region(Region::Inactive).is_active() {
+    if ctx.editor.deactivate_mark() {
         ctx.request_redraw();
     }
     log::debug!("Quit");

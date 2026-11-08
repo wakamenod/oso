@@ -17,7 +17,7 @@
 //! laid out by `text_clusters`, as the renderer does. A preedit is read into its row
 //! through `row_clusters` and placed by `motion::cursor_box`, as the renderer does,
 //! and a line between `_` below its row marks its underline with `-` and the segment
-//! being converted with `=` (ADR 0069). A line between `~` below a row marks with `#`
+//! being converted with `=` (ADR 0069). A line between `+` below a row marks with `*`
 //! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
 //! (ADR 0071).
 
@@ -90,10 +90,10 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
         let mut marks = vec![' '; area.columns];
         for cells in in_row {
             let start = cells.column - area.column;
-            marks[start..start + cells.columns].fill('#');
+            marks[start..start + cells.columns].fill('*');
         }
-        if marks.contains(&'#') {
-            lines.push(format!("~{}~", marks.into_iter().collect::<String>()));
+        if marks.contains(&'*') {
+            lines.push(format!("+{}+", marks.into_iter().collect::<String>()));
         }
         if let Some((at, preedit)) = spliced {
             lines.push(underline(at, preedit, scroll.left, area.columns));

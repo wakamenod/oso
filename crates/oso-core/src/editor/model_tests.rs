@@ -11,7 +11,8 @@ use proptest::prelude::*;
 
 use super::edit_tests::{cursors, edit, set_at, text};
 use super::*;
-use crate::display_map::{DisplayMap, DisplayPoint, TabWidth};
+use crate::display_map::{DisplayMap, DisplayPoint, DisplaySnapshot, TabWidth};
+use crate::motion;
 use crate::rope::Rope;
 use crate::rope::tests::{floor_boundary, has_long_cluster, text_strategy};
 

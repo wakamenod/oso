@@ -186,7 +186,7 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
             .iter()
             .map(|selection| selection_state(selection, &display))
             .collect();
-        state["mark_active"] = json!(selections.region().is_active());
+        state["mark_active"] = json!(selections.mark_active().is_active());
         state["mark_ring"] = selections.mark_ring().iter().collect();
     }
     state
@@ -371,7 +371,7 @@ mod tests {
     use oso_core::buffer::{Buffer, BufferId, Replacement};
     use oso_core::editor::Editor;
     use oso_core::key::KeySequence;
-    use oso_core::selection::{Region, SelectionSet};
+    use oso_core::selection::{MarkActive, SelectionSet};
     use oso_core::window::{Scroll, ViewSize};
     use serde_json::json;
     use std::path::PathBuf;
@@ -662,7 +662,21 @@ mod tests {
     fn a_secret_buffer_shows_no_positions() {
         let (mut editor, _) = visiting("/p/.env", Some("/p/.env"), "ONE\nTWO THREE\n");
         editor.restore_positions(SelectionSet::new(6), Scroll { top: 1, left: 0 });
+        // A mark, one in the ring and a region shown, none of which may show either.
+        let selections = &mut editor.current_mut().0.selections;
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.move_to(9);
+            Ok::<(), ()>(())
+        });
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.move_to(11);
+            Ok::<(), ()>(())
+        });
+        selections.set_mark_active(MarkActive::Active);
         let state = state(&editor, &[]);
+        assert!(!state.to_string().contains("mark"), "no mark anywhere");
         let result = state.as_object().unwrap();
         assert!(!result.contains_key("cursor"));
         assert!(!result.contains_key("scroll"));
@@ -807,7 +821,7 @@ mod tests {
             selection.move_to(6);
             Ok::<(), ()>(())
         });
-        selections.set_region(Region::Active);
+        selections.set_mark_active(MarkActive::Active);
         let state = state(&editor, &[]);
         let mark = json!({ "offset": 5, "row": 1, "column": 1 });
         assert_eq!(state["cursor"]["mark"], mark);

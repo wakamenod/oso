@@ -17,10 +17,12 @@ use super::App;
 use super::shell::{Loop, Window};
 use crate::text;
 
-/// Calls `draw` with what the frame shows, for the renderer.
+/// Calls `draw` with what the frame shows, for the renderer. The cells of the regions
+/// go in `region_cells`, which a frame reuses.
 pub(super) fn with_panes<R>(
     editor: &Editor,
     status: &Status,
+    region_cells: &mut Vec<frame::CellRect>,
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
     let span = |text, face| Span { text, face };
@@ -35,17 +37,15 @@ pub(super) fn with_panes<R>(
         span(status.echo_warnings(), Face::Warning),
         span(&status.echo[..], Face::Text),
     ];
-    // This allocates only while a region shows, for a rectangle per row of it.
-    let mut region = Vec::new();
-    editor.region_cells(&mut region);
-    draw(&panes(editor, &region, &[&modeline], &[&echo]))
+    editor.region_cells(region_cells);
+    draw(&panes(editor, region_cells, &[&modeline], &[&echo]))
 }
 
 /// The selected window, then the rows reserved below it. The later panes come first if
 /// a frame runs out of room, so no amount of text can take their place (ADR 0061).
 fn panes<'a>(
     editor: &'a Editor,
-    region: &'a [frame::CellRect],
+    region_cells: &'a [frame::CellRect],
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -60,7 +60,7 @@ fn panes<'a>(
         scroll: window.scroll(),
         cursor,
         preedit: editor.preedit(),
-        region,
+        region_cells,
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),
@@ -90,6 +90,9 @@ pub(super) struct View {
     pub(super) render_state: RenderState,
     /// When the window was requested, until the first frame is presented.
     started: Option<Instant>,
+    /// The cells of the regions, kept from frame to frame so they are not allocated
+    /// again.
+    region_cells: Vec<frame::CellRect>,
 }
 
 impl View {
@@ -107,6 +110,7 @@ impl View {
             window,
             render_state,
             started: Some(started),
+            region_cells: Vec::new(),
         }
     }
 
@@ -190,7 +194,8 @@ impl App {
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
         let render_state = &mut view.render_state;
-        let result = with_panes(&self.editor, &self.status, |panes| {
+        let cells = &mut view.region_cells;
+        let result = with_panes(&self.editor, &self.status, cells, |panes| {
             render_state.render(panes, &window_size)
         });
         // Recovering from a surface error can configure it to a new size before
@@ -246,7 +251,7 @@ mod tests {
         editor.message("Saved");
         let mut status = Status::default();
         editor.status_into(&mut status);
-        with_panes(&editor, &status, |panes| {
+        with_panes(&editor, &status, &mut Vec::new(), |panes| {
             panes
                 .iter()
                 .map(|pane| {
@@ -273,7 +278,7 @@ mod tests {
         editor.set_frame_size(size);
         let layout = frame::layout(size);
         let status = Status::default();
-        with_panes(&editor, &status, |panes| {
+        with_panes(&editor, &status, &mut Vec::new(), |panes| {
             let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
             assert_eq!(
                 regions,

@@ -14,10 +14,10 @@
 //! it until the next key, as no text of it had arrived. What arrives behind keys in
 //! progress waits for them to end, since they show in its place.
 
-use super::{Editor, Selected};
+use super::Editor;
+use super::follow::{Selected, clip_selections};
 use crate::buffer::{BufferId, Replacement};
-use crate::motion;
-use crate::selection::SelectionSet;
+use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Scroll, Window};
 
 /// The messages the editor keeps, as Emacs's `message-log-max`.
@@ -264,16 +264,12 @@ impl Editor {
             }) => {
                 self.show(buffer);
                 // The buffer may have changed behind `*Messages*`. A cursor that stays where
-                // it was keeps its goal, as `C-n` then has it to go on.
+                // it was keeps its goal, as `C-n` then has it to go on. The marks go where a
+                // cursor can be too, and the region stays hidden, as it does for another
+                // buffer (ADR 0071).
                 let display = self.current().1.display();
-                selections.update(|selection| {
-                    let start = motion::cluster_start(&display, selection.cursor);
-                    if start != selection.cursor {
-                        selection.cursor = start;
-                        selection.goal = None;
-                    }
-                    Ok::<(), ()>(())
-                });
+                selections.set_mark_active(MarkActive::Inactive);
+                clip_selections(&mut selections, &display, &[], false);
                 self.restore_positions(selections, scroll);
             }
             None => {
@@ -310,7 +306,7 @@ impl Editor {
         let Some(staged) = buffer.stage_internal(&edits) else {
             return;
         };
-        let moved = self.moved_selections(id, &staged.display(), staged.steps(), Selected::Edited);
+        let moved = self.moved_selections(id, &staged.display(), staged.steps(), Selected::Logged);
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.commit_internal(staged);
@@ -719,6 +715,37 @@ mod tests {
         let cursors: Vec<_> = editor.window().selections.iter().copied().collect();
         // Offset 6 is the middle of the cluster that starts at 5, a letter with its mark.
         assert_eq!(cursors, [at(1), Selection::at(5)]);
+    }
+
+    #[test]
+    fn going_back_puts_marks_where_a_cursor_can_be_and_hides_the_region() {
+        let text = "ab\ncde\u{301}f\n";
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", text));
+        let set = SelectionSet::from_parts(vec![Selection::at(1)], 0).unwrap();
+        editor.current_mut().0.selections = set;
+        let selections = &mut editor.current_mut().0.selections;
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.mark = Some(6);
+            Ok::<(), ()>(())
+        });
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.mark = Some(6);
+            Ok::<(), ()>(())
+        });
+        selections.set_mark_active(crate::selection::MarkActive::Active);
+        editor.toggle_messages();
+        editor.toggle_messages();
+        let selections = &editor.window().selections;
+        // Offset 6 is the middle of the cluster that starts at 5.
+        assert_eq!(selections.primary().mark, Some(5));
+        assert_eq!(
+            selections.mark_ring().iter().collect::<Vec<_>>(),
+            [5],
+            "the 6 pushed"
+        );
+        assert!(!selections.mark_active().is_active());
     }
 
     #[test]

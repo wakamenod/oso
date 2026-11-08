@@ -5,7 +5,7 @@ description: "text: one two three\\nfour\\n"
 keys: S-<right> S-<right>
 │one two three   │
 :  ^             :
-~##              ~
++**              +
 │four            │
 │                │
 =-- test  1:2  Fu=
@@ -14,7 +14,7 @@ keys: S-<right> S-<right>
 keys: M-F
 │one two three   │
 :   ^            :
-~###             ~
++***             +
 │four            │
 │                │
 =-- test  1:3  Fu=
@@ -22,10 +22,10 @@ keys: M-F
 
 keys: C-N
 │one two three   │
-~################~
++****************+
 │four            │
 :   ^            :
-~###             ~
++***             +
 │                │
 =-- test  2:3  Fu=
 "                "
@@ -41,7 +41,7 @@ keys: C-f
 keys: C-SPC S-<right> C-f
 │one two three   │
 │four            │
-~    ############~
++    ************+
 │                │
 :^               :
 =-- test  3:0  Fu=

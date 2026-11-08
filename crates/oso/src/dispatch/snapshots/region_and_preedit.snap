@@ -5,7 +5,7 @@ description: "text: abcdef\\n"
 a region after the preedit
 │aかなbcdef    │
 : <><>^        :
-~     #####    ~
++     *****    +
 _ ----         _
 =-- test  1:1  =
 "              "
@@ -13,7 +13,7 @@ _ ----         _
 a region before the preedit
 │abcdefかな    │
 :      <><>^   :
-~ #####        ~
++ *****        +
 _      ----    _
 =-- test  1:6  =
 "              "

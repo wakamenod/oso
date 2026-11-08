@@ -100,11 +100,19 @@ pub const COMMANDS: &[Command] = &[
 /// go.
 fn move_cursors(
     ctx: &mut Ctx<'_>,
-    mut motion: impl FnMut(&DisplaySnapshot, &mut Selection) -> Result<(), Edge>,
+    motion: impl FnMut(&DisplaySnapshot, &mut Selection) -> Result<(), Edge>,
 ) -> Result<(), CommandError> {
     if shift_select(ctx) {
         ctx.request_redraw();
     }
+    move_selections(ctx, motion)
+}
+
+/// Moves every cursor as [`move_cursors`] does, with what Shift selects already done.
+fn move_selections(
+    ctx: &mut Ctx<'_>,
+    mut motion: impl FnMut(&DisplaySnapshot, &mut Selection) -> Result<(), Edge>,
+) -> Result<(), CommandError> {
     let (window, buffer) = ctx.editor.current_mut();
     let display = buffer.display();
     let update = window
@@ -204,42 +212,41 @@ fn tenths(n: isize) -> usize {
     n.clamp(0, 10) as usize
 }
 
-/// Sets the mark where the cursors are before a jump, as Emacs's `M-<` and `M->`
-/// do, so that `C-u C-SPC` comes back. Not with a plain `C-u`, nor while the region
-/// shows, which the jump then extends.
-fn push_mark_before_jump(ctx: &mut Ctx<'_>, args: Args) {
+/// Moves every cursor to the offset `target` gives, from the buffer's length, as
+/// Emacs's `M-<` and `M->` do. First, what Shift selects, then the mark where the
+/// cursors are, so that `C-u C-SPC` comes back: not with a plain `C-u`, nor while the
+/// region shows, which the jump then extends.
+fn jump(
+    ctx: &mut Ctx<'_>,
+    args: Args,
+    target: impl Fn(&DisplaySnapshot, usize) -> usize,
+) -> Result<(), CommandError> {
     if shift_select(ctx) {
         ctx.request_redraw();
     }
     let selections = &mut ctx.editor.current_mut().0.selections;
-    if matches!(args.raw(), Some(Prefix::Universal(_))) || selections.region().is_active() {
-        return;
+    let keep = matches!(args.raw(), Some(Prefix::Universal(_)));
+    if !keep && !selections.mark_active().is_active() {
+        selections.push_marks();
+        ctx.editor.message("Mark set");
     }
-    selections.push_marks();
-    ctx.editor.message("Mark set");
-}
-
-fn beginning_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    push_mark_before_jump(ctx, args);
-    move_cursors(ctx, |display, s| {
-        let len = motion::buffer_end(display);
-        s.move_to(match args.prefix() {
-            None => 0,
-            Some(n) => motion::line_after_fraction(display, len, tenths(n)),
-        });
+    move_selections(ctx, |display, s| {
+        s.move_to(target(display, motion::buffer_end(display)));
         Ok(())
     })
 }
 
+fn beginning_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    jump(ctx, args, |display, len| match args.prefix() {
+        None => 0,
+        Some(n) => motion::line_after_fraction(display, len, tenths(n)),
+    })
+}
+
 fn end_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    push_mark_before_jump(ctx, args);
-    move_cursors(ctx, |display, s| {
-        let len = motion::buffer_end(display);
-        s.move_to(match args.prefix() {
-            None => len,
-            Some(n) => motion::line_after_fraction(display, len, 10 - tenths(n)),
-        });
-        Ok(())
+    jump(ctx, args, |display, len| match args.prefix() {
+        None => len,
+        Some(n) => motion::line_after_fraction(display, len, 10 - tenths(n)),
     })
 }
 

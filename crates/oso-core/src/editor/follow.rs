@@ -1,0 +1,103 @@
+//! How the cursors and marks of every window follow a change to a buffer they show,
+//! and are put where a cursor can be afterwards (ADR 0053, ADR 0071).
+//!
+//! Must not depend on: `command` or `keymap`; it works out sets of selections from
+//! offsets and a display snapshot, and the editor swaps them in.
+
+use super::Editor;
+use crate::buffer::BufferId;
+use crate::display_map::DisplaySnapshot;
+use crate::motion;
+use crate::selection::{MarkActive, OffsetEdit, SelectionSet, new_text_ends};
+use crate::sum_tree::Bias;
+
+/// What the selected window's cursors do when a buffer it shows changes.
+#[derive(Clone, Copy)]
+pub(super) enum Selected<'a> {
+    /// It made the edit: a cursor after new text stays after it.
+    Edited,
+    /// An undo or a redo returns it to these cursors, if the group has them.
+    Restored(Option<&'a SelectionSet>),
+    /// A message went to `*Messages*`: as an edit, but what a person set there stays.
+    Logged,
+}
+
+/// Moves every cursor where a cursor can be: to the start of the display cluster
+/// around it, or to the end if it is at one of `ends` (ascending), just after new
+/// text. New text can join what follows it, and what was typed must stay before
+/// the cursor. Marks, and those in the ring, go to the start of theirs. A cursor
+/// loses its goal if it moved, or with `clear_goals` always, as after an edit.
+pub(super) fn clip_selections(
+    set: &mut SelectionSet,
+    display: &DisplaySnapshot,
+    ends: &[usize],
+    clear_goals: bool,
+) {
+    let mut ends = ends.iter().copied().peekable();
+    set.update(|selection| {
+        while ends.next_if(|end| *end < selection.cursor).is_some() {}
+        let cursor = if ends.peek() == Some(&selection.cursor) {
+            motion::cluster_end(display, selection.cursor)
+        } else {
+            motion::cluster_start(display, selection.cursor)
+        };
+        if clear_goals || cursor != selection.cursor {
+            selection.goal = None;
+        }
+        selection.cursor = cursor;
+        let clip = |mark| motion::cluster_start(display, mark);
+        selection.mark = selection.mark.map(clip);
+        Ok::<(), ()>(())
+    });
+    set.update_ring(|mark| motion::cluster_start(display, mark));
+}
+
+impl Editor {
+    /// The cursors of every window showing `id` once a change is in, by window
+    /// position. They follow `steps`, as markers except in the selected window,
+    /// which does as `selected` says, but for its ring of marks, which follows.
+    /// Each ends where a cursor can be. A change hides every region of the buffer
+    /// (ADR 0071), but a message logged to `*Messages*`.
+    pub(super) fn moved_selections(
+        &self,
+        id: BufferId,
+        display: &DisplaySnapshot,
+        steps: &[Vec<OffsetEdit>],
+        selected: Selected<'_>,
+    ) -> Vec<(usize, SelectionSet)> {
+        let mut moved = Vec::new();
+        for (index, window) in self.windows.iter().enumerate() {
+            if window.buffer() != id {
+                continue;
+            }
+            let mut set = match selected {
+                Selected::Restored(Some(restored)) if index == self.selected => {
+                    let mut ring = *window.selections.mark_ring();
+                    steps.iter().for_each(|edits| ring.follow_edits(edits));
+                    let mut set = restored.with_ring(ring);
+                    set.set_mark_active(MarkActive::Inactive);
+                    clip_selections(&mut set, display, &[], true);
+                    moved.push((index, set));
+                    continue;
+                }
+                _ => window.selections.clone(),
+            };
+            if !matches!(selected, Selected::Logged) {
+                set.set_mark_active(MarkActive::Inactive);
+            }
+            let edited =
+                index == self.selected && matches!(selected, Selected::Edited | Selected::Logged);
+            let bias = if edited { Bias::Right } else { Bias::Left };
+            let mut ends = Vec::new();
+            for edits in steps {
+                set.follow_edits(edits, bias);
+                if edited {
+                    ends.extend(new_text_ends(edits));
+                }
+            }
+            clip_selections(&mut set, display, &ends, true);
+            moved.push((index, set));
+        }
+        moved
+    }
+}

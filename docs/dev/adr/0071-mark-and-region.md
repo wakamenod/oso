@@ -60,8 +60,10 @@ tint from screenshots. The rest are defaults they accepted with them.
   `S-<right>` or `C-F`, resolves to what the key without Shift is bound to, as
   `Resolution::Shifted`, and the command sees `Ctx::shifted`. A key bound with Shift keeps its
   own binding. `KeyPress::unshifted` takes Shift off a named key, and lower-cases an upper-case
-  letter held with Control, Meta or Super. A plain capital still types itself. Only a command
-  is found this way, not a prefix key. No change to how winit's keys are read.
+  letter held with Control, Meta or Super. A plain capital still types itself. A prefix key
+  is found this way too, as in Emacs, so `C-X C-S` saves: the key goes on as the one bound,
+  and only a command found with its last key so is shifted. No change to how the window's
+  keys are read.
 - **Marks follow edits as Emacs markers,** with `Bias::Left` in every window: text typed at a
   mark goes after it, and a mark in deleted text goes to its start. They are then clipped to
   the start of a display cluster, as the cursors are.
@@ -98,23 +100,32 @@ tint from screenshots. The rest are defaults they accepted with them.
 
 - **`oso_core::selection`:** `Selection::mark`, `Selection::move_to` (moves the cursor and
   keeps the mark, which every motion now uses), and `Selection::range`. `SelectionSet` gains
-  `Region` (`Inactive`, `Active`, `Shifted`), the `MarkRing`, kept inline as an array of 16
-  so it costs no allocation when the set is cloned, and `push_marks`, `pop_mark`,
-  `keep_primary` and `set_region`. Sorting merges overlapping regions while they show. Marks
-  follow edits with the cursors, in O(cursors + edits) while they are in order, which setting
-  them at the cursors leaves them, and correctly in any order.
+  `MarkActive` (`Inactive`, `Active`, `Shifted`), named as Emacs's `mark-active` and
+  `get-state`'s field, since a region of the frame is another thing; the `MarkRing`, kept inline
+  as an array of 16 so it costs no allocation when the set is cloned; and `push_marks`,
+  `pop_mark`, `keep_primary` and `set_mark_active`. Sorting merges overlapping regions while they show. Marks
+  follow edits in ascending order, in O(cursors + edits) when they are in order, as setting them
+  at the cursors leaves them, and after a sort when they are not, as regions in both directions
+  leave them. The ring's 16 are sorted on the stack.
 - **`oso_core::frame::region_cells`** gives the frame's cells of a window's regions: one
-  rectangle per row of a region in view, found by a binary search on the selections, so a
-  frame converts two offsets for each region in view and nothing else. `Editor::region_cells`
-  calls it for the selected window, with the preedit. No new module or trait, and no change
+  rectangle per row of a region in view. Each row finds the regions in its columns in view by a
+  binary search on the selections, so a frame converts two offsets per row and two for each
+  region a row shows, however long the rows and however many regions are out of view. `Editor::region_cells`
+  calls it for the selected window, with the preedit. `Editor::deactivate_mark` is `C-g`'s
+  step for the region: it hides the regions, keeps the marks and says whether one was shown,
+  so a chain of what `C-g` cancels (M2-16) calls it first and stops there if it returns true. No new module or trait, and no change
   to `guardrails/layers.txt`.
-- **`oso-render`:** `TextView::region` holds those cells, and `scene` fills them in
+- **`oso-render`:** `TextView::region_cells` holds those cells, and `scene` fills them in
   `Face::Region` after the pane's background, before the boxes, the glyphs and the cursor.
+- **`oso-core`'s `editor/follow.rs`,** a private module, holds how cursors and marks follow a
+  change, moved out of `editor.rs` with one helper that clips cursors, marks and the ring, which
+  the way back from `*Messages*` shares. A message logged to `*Messages*` moves its cursors and
+  marks but leaves its region shown, as Emacs's message log does.
 - **`oso`:** a `mark` module in `commands` and in `bindings`, with `set-mark-command`,
   `exchange-point-and-mark`, `pop-to-mark-command` and `mark-whole-buffer`, `shift_select` for
   the motion and scroll commands, and `keyboard-quit` hiding the region. The dispatcher passes
-  `shifted` in `Invocation`. Text-grid snapshots mark a region's cells with `#` on a line
-  between `~`.
+  `shifted` in `Invocation`. Text-grid snapshots mark a region's cells with `*` on a line
+  between `+`.
 
 ### The control socket
 
@@ -140,6 +151,15 @@ These ADRs stay as they are; this one changes the following:
   alone": they move the marks too, as markers, and hide the region.
 - [ADR 0061](0061-panes-clipping-and-layers.md), "a list of rectangles on `TextView`": they are in
   the frame's cells, as the cursor box's are, from `frame::region_cells`.
+- [ADR 0034](0034-command-registry-and-keymaps.md), a key resolves to a command, a pending prefix,
+  an unbound sequence or a cancel: a fifth outcome, `Shifted`, is a command found by a second
+  lookup without Shift on the last key, and a prefix found so is pending.
+- [ADR 0030](0030-m2-editing-commands.md), "typing over an active region replaces the region":
+  until M2-14, typing inserts and ends the region.
+- [`display-model.md`](../display-model.md), selections as a layer of decorations: the region is
+  rectangles of cells on the text pane, not a decoration layer, which no producer needs yet.
+- [ADR 0045](0045-text-grid-snapshots.md), the text grid's notation: a line between `+` marks a
+  region's cells with `*`.
 
 ## Consequences
 
@@ -148,20 +168,28 @@ These ADRs stay as they are; this one changes the following:
 - `M-<` and `M->` now say "Mark set", which changes four text-grid snapshots by that line.
 - A frame with a region shown allocates a small list of rectangles, one per row of it in view.
   Without one it allocates nothing more.
-- The cost of a key with a region shown, and of a frame, is in "Costs" below.
 - Two cursors whose regions come to overlap become one, which a person may not expect from
   multiple-cursors.el, where they stay apart.
 - `oso dev` loses the marks and the ring at a restart until M2-15.
 - `C-SPC` reaches oso only if macOS's "Select the previous input source" shortcut, Control-Space by
   default, is off.
-- The `oso-core` public API gains `Region`, `MarkRing`, `MARK_RING_SIZE`, `Selection::mark`,
+- The `oso-core` public API gains `MarkActive`, `MarkRing`, `MARK_RING_SIZE`, `Selection::mark`,
   `move_to` and `range`, the set's mark methods and `as_slice`, `frame::region_cells`,
-  `Editor::region_cells`, `KeyPress::unshifted`, `Resolution::Shifted`, `Invocation::shifted`
-  and `Ctx::shifted`. `oso-render` gains `Face::Region` and `TextView::region`.
+  `Editor::region_cells`, `Editor::deactivate_mark`, `KeyPress::unshifted`, `Resolution::Shifted`, `Invocation::shifted`
+  and `Ctx::shifted`. `oso-render` gains `Face::Region` and `TextView::region_cells`.
 
 ### Costs
 
-To be measured with `just perf` before this is accepted.
+Measured in a release build, on a fast machine, through `oso-core` with no window:
+
+- **`frame::region_cells`** on a view of 60 rows by 200 columns: about 2 µs on a 10 MB single
+  line, with 1, 100 or 1000 regions along it and the view at its start or 5 MB in, and about
+  28 µs on 100 MB of source-like text, with 1 or 1000 regions spread over it.
+- **Typing with a mark at every cursor,** which clips each mark after the edit: on 100 MB,
+  100 cursors 1.34 to 1.46 ms at p50 and 1000 cursors 16.2 to 16.9 ms; on a 10 MB line,
+  100 cursors 1.72 to 2.04 ms and 1000 cursors 15.7 to 19.9 ms. Only marks near an edit can
+  need clipping, so this can be cut to those if many cursors with marks become common (M2-21).
+- The key and frame latencies of `just perf` are in the pull request.
 
 ## Alternatives considered
 

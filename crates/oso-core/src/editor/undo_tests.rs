@@ -7,7 +7,7 @@
 use super::edit_tests::{cursors, edit, editor_with, plain_edit, second_window, self_insert, text};
 use super::*;
 use crate::display_map::TabWidth;
-use crate::selection::Selection;
+use crate::selection::{MarkActive, Selection};
 
 #[test]
 fn undoing_to_the_saved_state_is_unmodified_and_redoing_is_modified() {
@@ -505,11 +505,11 @@ fn an_edit_hides_the_regions_of_every_window_showing_the_buffer() {
     let other = second_window(&mut editor, id, &[5]);
     for window in &mut editor.windows {
         window.selections.push_marks();
-        window.selections.set_region(Region::Active);
+        window.selections.set_mark_active(MarkActive::Active);
     }
     plain_edit(&mut editor, id, 0..0, "x");
     for window in &editor.windows {
-        assert_eq!(window.selections.region(), Region::Inactive);
+        assert_eq!(window.selections.mark_active(), MarkActive::Inactive);
     }
     // The marks stay, and follow.
     assert_eq!(editor.windows[other].selections.primary().mark, Some(6));
@@ -531,11 +531,13 @@ fn undo_puts_back_the_marks_hides_the_region_and_leaves_the_ring() {
     // A mark pushed after the edit stays in the ring through the undo.
     editor.windows[0].selections = set(1, 6);
     editor.windows[0].selections.push_marks();
-    editor.windows[0].selections.set_region(Region::Active);
+    editor.windows[0]
+        .selections
+        .set_mark_active(MarkActive::Active);
     editor.undo().unwrap();
     let selections = &editor.window().selections;
     assert_eq!(*selections.primary(), *set(2, 4).primary());
-    assert_eq!(selections.region(), Region::Inactive);
+    assert_eq!(selections.mark_active(), MarkActive::Inactive);
     assert_eq!(
         selections.mark_ring().iter().collect::<Vec<_>>(),
         [5],

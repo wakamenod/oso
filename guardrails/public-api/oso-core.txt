@@ -880,6 +880,7 @@ pub fn oso_core::editor::Editor::start_save(&mut self) -> core::result::Result<b
 pub fn oso_core::editor::Editor::take_save_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::SaveJob>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) -> core::option::Option<oso_core::frame::PixelRect>
+pub fn oso_core::editor::Editor::deactivate_mark(&mut self) -> bool
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
@@ -1484,30 +1485,28 @@ impl core::hash::Hash for oso_core::selection::Goal
 pub fn oso_core::selection::Goal::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::selection::Goal
 impl core::marker::StructuralPartialEq for oso_core::selection::Goal
-pub enum oso_core::selection::Region
-pub oso_core::selection::Region::Active
-pub oso_core::selection::Region::Inactive
-pub oso_core::selection::Region::Shifted
-impl oso_core::selection::Region
-pub fn oso_core::selection::Region::is_active(self) -> bool
-impl core::clone::Clone for oso_core::selection::Region
-pub fn oso_core::selection::Region::clone(&self) -> oso_core::selection::Region
-impl core::cmp::Eq for oso_core::selection::Region
-impl core::cmp::PartialEq for oso_core::selection::Region
-pub fn oso_core::selection::Region::eq(&self, &oso_core::selection::Region) -> bool
-impl core::default::Default for oso_core::selection::Region
-pub fn oso_core::selection::Region::default() -> oso_core::selection::Region
-impl core::fmt::Debug for oso_core::selection::Region
-pub fn oso_core::selection::Region::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for oso_core::selection::Region
-pub fn oso_core::selection::Region::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for oso_core::selection::Region
-impl core::marker::StructuralPartialEq for oso_core::selection::Region
+pub enum oso_core::selection::MarkActive
+pub oso_core::selection::MarkActive::Active
+pub oso_core::selection::MarkActive::Inactive
+pub oso_core::selection::MarkActive::Shifted
+impl oso_core::selection::MarkActive
+pub fn oso_core::selection::MarkActive::is_active(self) -> bool
+impl core::clone::Clone for oso_core::selection::MarkActive
+pub fn oso_core::selection::MarkActive::clone(&self) -> oso_core::selection::MarkActive
+impl core::cmp::Eq for oso_core::selection::MarkActive
+impl core::cmp::PartialEq for oso_core::selection::MarkActive
+pub fn oso_core::selection::MarkActive::eq(&self, &oso_core::selection::MarkActive) -> bool
+impl core::default::Default for oso_core::selection::MarkActive
+pub fn oso_core::selection::MarkActive::default() -> oso_core::selection::MarkActive
+impl core::fmt::Debug for oso_core::selection::MarkActive
+pub fn oso_core::selection::MarkActive::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::selection::MarkActive
+pub fn oso_core::selection::MarkActive::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::selection::MarkActive
+impl core::marker::StructuralPartialEq for oso_core::selection::MarkActive
 pub struct oso_core::selection::MarkRing
 impl oso_core::selection::MarkRing
 pub fn oso_core::selection::MarkRing::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = usize> + '_
-pub fn oso_core::selection::MarkRing::push(&mut self, usize)
-pub fn oso_core::selection::MarkRing::rotate(&mut self, usize) -> core::option::Option<usize>
 impl core::clone::Clone for oso_core::selection::MarkRing
 pub fn oso_core::selection::MarkRing::clone(&self) -> oso_core::selection::MarkRing
 impl core::cmp::Eq for oso_core::selection::MarkRing
@@ -1548,14 +1547,14 @@ pub fn oso_core::selection::SelectionSet::is_empty(&self) -> bool
 pub fn oso_core::selection::SelectionSet::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::selection::Selection>
 pub fn oso_core::selection::SelectionSet::keep_primary(&mut self)
 pub fn oso_core::selection::SelectionSet::len(&self) -> usize
+pub fn oso_core::selection::SelectionSet::mark_active(&self) -> oso_core::selection::MarkActive
 pub fn oso_core::selection::SelectionSet::mark_ring(&self) -> &oso_core::selection::MarkRing
 pub fn oso_core::selection::SelectionSet::new(usize) -> Self
 pub fn oso_core::selection::SelectionSet::pop_mark(&mut self) -> bool
 pub fn oso_core::selection::SelectionSet::primary(&self) -> &oso_core::selection::Selection
 pub fn oso_core::selection::SelectionSet::primary_index(&self) -> usize
 pub fn oso_core::selection::SelectionSet::push_marks(&mut self)
-pub fn oso_core::selection::SelectionSet::region(&self) -> oso_core::selection::Region
-pub fn oso_core::selection::SelectionSet::set_region(&mut self, oso_core::selection::Region) -> oso_core::selection::Region
+pub fn oso_core::selection::SelectionSet::set_mark_active(&mut self, oso_core::selection::MarkActive) -> oso_core::selection::MarkActive
 pub fn oso_core::selection::SelectionSet::update<E>(&mut self, impl core::ops::function::FnMut(&mut oso_core::selection::Selection) -> core::result::Result<(), E>) -> oso_core::selection::UpdateOutcome<E>
 impl core::clone::Clone for oso_core::selection::SelectionSet
 pub fn oso_core::selection::SelectionSet::clone(&self) -> oso_core::selection::SelectionSet

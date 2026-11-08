@@ -24,15 +24,15 @@
 //! whatever goes through a user's work leaves them out without having to know them.
 
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
-use crate::display_map::{DisplaySnapshot, Preedit};
+use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
-use crate::motion;
-use crate::selection::{OffsetEdit, Region, SelectionSet, new_text_ends};
-use crate::sum_tree::Bias;
+use crate::selection::SelectionSet;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
+use follow::Selected;
 
 mod copies;
+mod follow;
 mod messages;
 mod save;
 mod status;
@@ -48,38 +48,6 @@ pub const SCRATCH: &str = "*scratch*";
 
 /// The name of the internal buffer that keeps every message.
 pub(crate) const MESSAGES: &str = "*Messages*";
-
-/// What the selected window's cursors do when a buffer it shows changes.
-#[derive(Clone, Copy)]
-enum Selected<'a> {
-    /// It made the edit: a cursor after new text stays after it.
-    Edited,
-    /// An undo or a redo returns it to these cursors, if the group has them.
-    Restored(Option<&'a SelectionSet>),
-}
-
-/// Moves every cursor where a cursor can be: to the start of the display cluster
-/// around it, or to the end if it is at one of `ends` (ascending), just after new
-/// text. New text can join what follows it, and what was typed must stay before
-/// the cursor. Marks, and those in the ring, go to the start of theirs. Goals are
-/// cleared.
-fn clip_cursors(set: &mut SelectionSet, display: &DisplaySnapshot, ends: &[usize]) {
-    let mut ends = ends.iter().copied().peekable();
-    set.update(|selection| {
-        while ends.next_if(|end| *end < selection.cursor).is_some() {}
-        selection.cursor = if ends.peek() == Some(&selection.cursor) {
-            motion::cluster_end(display, selection.cursor)
-        } else {
-            motion::cluster_start(display, selection.cursor)
-        };
-        selection.mark = selection
-            .mark
-            .map(|mark| motion::cluster_start(display, mark));
-        selection.goal = None;
-        Ok::<(), ()>(())
-    });
-    set.update_ring(|mark| motion::cluster_start(display, mark));
-}
 
 /// The undo group of the command running.
 struct UndoScope {
@@ -382,55 +350,6 @@ impl Editor {
     fn selected_selections(&self, id: BufferId) -> Option<&SelectionSet> {
         let window = &self.windows[self.selected];
         (window.buffer() == id).then_some(&window.selections)
-    }
-
-    /// The cursors of every window showing `id` once a change is in, by window
-    /// position. They follow `steps`, as markers except in the selected window,
-    /// which does as `selected` says, but for its ring of marks, which follows.
-    /// Each ends where a cursor can be. A change hides every region of the buffer
-    /// (ADR 0071).
-    fn moved_selections(
-        &self,
-        id: BufferId,
-        display: &DisplaySnapshot,
-        steps: &[Vec<OffsetEdit>],
-        selected: Selected<'_>,
-    ) -> Vec<(usize, SelectionSet)> {
-        let mut moved = Vec::new();
-        for (index, window) in self.windows.iter().enumerate() {
-            if window.buffer() != id {
-                continue;
-            }
-            let selected = (index == self.selected).then_some(selected);
-            let mut set = match selected {
-                Some(Selected::Restored(Some(restored))) => {
-                    let mut ring = *window.selections.mark_ring();
-                    steps.iter().for_each(|edits| ring.follow_edits(edits));
-                    restored.with_ring(ring)
-                }
-                _ => window.selections.clone(),
-            };
-            set.set_region(Region::Inactive);
-            match selected {
-                Some(Selected::Restored(Some(_))) => clip_cursors(&mut set, display, &[]),
-                Some(Selected::Edited) => {
-                    let mut ends = Vec::new();
-                    for edits in steps {
-                        set.follow_edits(edits, Bias::Right);
-                        ends.extend(new_text_ends(edits));
-                    }
-                    clip_cursors(&mut set, display, &ends);
-                }
-                _ => {
-                    for edits in steps {
-                        set.follow_edits(edits, Bias::Left);
-                    }
-                    clip_cursors(&mut set, display, &[]);
-                }
-            }
-            moved.push((index, set));
-        }
-        moved
     }
 
     /// Opens the undo group of a command. The dispatcher calls it before it

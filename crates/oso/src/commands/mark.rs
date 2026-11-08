@@ -11,7 +11,7 @@
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
 use oso_core::motion;
-use oso_core::selection::Region;
+use oso_core::selection::MarkActive;
 
 /// The mark commands.
 pub const COMMANDS: &[Command] = &[
@@ -50,14 +50,14 @@ fn set_mark_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     }
     let repeated = ctx.repeats() > 0;
     let selections = &mut ctx.editor.current_mut().0.selections;
-    if repeated && selections.region().is_active() {
-        selections.set_region(Region::Inactive);
+    if repeated && selections.mark_active().is_active() {
+        selections.set_mark_active(MarkActive::Inactive);
         ctx.request_redraw();
         ctx.editor.message("Mark deactivated");
         return Ok(());
     }
     selections.push_marks();
-    selections.set_region(Region::Active);
+    selections.set_mark_active(MarkActive::Active);
     ctx.request_redraw();
     ctx.editor.message("Mark set");
     Ok(())
@@ -69,10 +69,10 @@ fn exchange_point_and_mark(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandE
         return Err(CommandError::new(NO_MARK));
     }
     let region = match args.raw() {
-        Some(_) => Region::Inactive,
-        None => Region::Active,
+        Some(_) => MarkActive::Inactive,
+        None => MarkActive::Active,
     };
-    let before = selections.set_region(region);
+    let before = selections.set_mark_active(region);
     let update = selections.update(|selection| {
         if let Some(mark) = selection.mark.replace(selection.cursor) {
             selection.move_to(mark);
@@ -90,7 +90,7 @@ fn pop_to_mark_command(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let before = (
         selections.primary().cursor,
         selections.len(),
-        selections.region(),
+        selections.mark_active(),
     );
     if !selections.pop_mark() {
         return Err(CommandError::new(NO_MARK));
@@ -98,7 +98,7 @@ fn pop_to_mark_command(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let after = (
         selections.primary().cursor,
         selections.len(),
-        selections.region(),
+        selections.mark_active(),
     );
     if after != before {
         ctx.request_redraw();
@@ -122,7 +122,7 @@ fn mark_whole_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         selection.move_to(0);
         Ok::<(), ()>(())
     });
-    selections.set_region(Region::Active);
+    selections.set_mark_active(MarkActive::Active);
     ctx.request_redraw();
     ctx.editor.message("Mark set");
     Ok(())
@@ -135,14 +135,14 @@ fn mark_whole_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 pub(super) fn shift_select(ctx: &mut Ctx<'_>) -> bool {
     let shifted = ctx.shifted();
     let selections = &mut ctx.editor.current_mut().0.selections;
-    match (shifted, selections.region()) {
-        (true, Region::Inactive) => {
+    match (shifted, selections.mark_active()) {
+        (true, MarkActive::Inactive) => {
             selections.push_marks();
-            selections.set_region(Region::Shifted);
+            selections.set_mark_active(MarkActive::Shifted);
             false
         }
-        (false, Region::Shifted) => {
-            selections.set_region(Region::Inactive);
+        (false, MarkActive::Shifted) => {
+            selections.set_mark_active(MarkActive::Inactive);
             true
         }
         _ => false,

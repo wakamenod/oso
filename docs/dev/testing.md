@@ -64,7 +64,7 @@ Below the row with an input method's preedit, a line between `_` marks its
 underline with `-`, and the segment being converted with `=`
 ([ADR 0069](adr/0069-macos-input-method.md)).
 
-Below a row with a region, a line between `~` marks the cells it fills with `#`,
+Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
 ([ADR 0071](adr/0071-mark-and-region.md)).
 

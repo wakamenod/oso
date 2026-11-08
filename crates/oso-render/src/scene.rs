@@ -285,7 +285,7 @@ fn draw_pane<G: GlyphSource>(
     match &pane.content {
         PaneContent::Text(view) => {
             // Behind the boxes and the glyphs, so the text keeps its face.
-            for cells in view.region {
+            for cells in view.region_cells {
                 draws.fill(unscrolled.frame_cells(*cells), Face::Region);
             }
             let mut layout = Layout::new(metrics, pane.region, view.scroll);
@@ -487,7 +487,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
             preedit: None,
-            region: &[],
+            region_cells: &[],
         })
     }
 
@@ -581,7 +581,7 @@ mod tests {
                     scroll: Scroll { top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     preedit: None,
-                    region: &[],
+                    region_cells: &[],
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -653,7 +653,7 @@ mod tests {
             scroll: Scroll { top: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
             preedit: None,
-            region: &[],
+            region_cells: &[],
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
@@ -732,7 +732,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             preedit: None,
-            region: &[],
+            region_cells: &[],
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -757,7 +757,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1, 1),
             preedit: None,
-            region: &region,
+            region_cells: &region,
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
@@ -794,7 +794,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
             preedit: Some(&preedit),
-            region: &[],
+            region_cells: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -833,7 +833,7 @@ mod tests {
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(1000, 0),
                 preedit: None,
-                region: &[],
+                region_cells: &[],
             })
         };
         let panes = |first, second_id| {
@@ -992,7 +992,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             preedit: None,
-            region: &[],
+            region_cells: &[],
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);

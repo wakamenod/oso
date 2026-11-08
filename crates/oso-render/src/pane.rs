@@ -111,9 +111,9 @@ pub struct TextView<'a> {
     /// What an input method is composing, spliced into the cursor's row at the
     /// cursor and pushing the rest of it (ADR 0069).
     pub preedit: Option<&'a Preedit>,
-    /// The frame's cells the regions take, behind the text and its boxes, as
-    /// `frame::region_cells` gives them (ADR 0071).
-    pub region: &'a [CellRect],
+    /// The frame's cells the regions between marks and cursors take, behind the text
+    /// and its boxes, as `frame::region_cells` gives them (ADR 0071).
+    pub region_cells: &'a [CellRect],
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its
