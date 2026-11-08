@@ -89,9 +89,9 @@ file format would also use:
 | `question` | `Question` | a question's label (new) |
 | `field`, `key` | `Field`, `Key` | an input field and its outline, a key's chip and its letter |
 | `completion.border` | `PanelStyle` | a completion float's border |
-| `completion.selected` | `Selected` | the selected candidate's bar |
+| `completion.selected` | `CompletionSelected` | the selected candidate's bar |
 | `completion.match` | `CompletionMatch` | what the input matched in a candidate |
-| `completion.annotation`, `completion.binding`, `completion.count` | `Annotation`, `Binding`, `ListPrompt` | what is said of a candidate, its key binding, and the count and label |
+| `completion.annotation`, `completion.binding`, `completion.prompt` | `CompletionAnnotation`, `CompletionBinding`, `CompletionPrompt` | what is said of a candidate, its key binding, and the count and label |
 
 - **A question's words never look like buffer text.** A question's label takes `question`, a
   foreground that, in that theme, no face of buffer text uses. ADR 0075 gave it the
@@ -112,7 +112,7 @@ WCAG's, from linear colours; a colour with alpha is first laid over what it sits
   `completion.match` on the list's fill and on the selected bar.
 - **4.5:1 for secondary labels:** `prompt` on a float's fill, a key's letter on its chip,
   `escape` and `boxed` labels on their backgrounds, `completion.annotation`, `.binding` and
-  `.count` on the fill and on the selected bar, and `agent.on` on the modeline.
+  `.prompt` on the fill and on the selected bar, and `agent.on` on the modeline.
 - **Fills stand apart from what they sit on:** `region`, the two search fills,
   `completion.selected`, the modeline, a float's fill, a key's chip, a field and a box differ
   from the background behind them by a minimum step in OKLab lightness.
@@ -214,9 +214,16 @@ last cell.
   every theme's, and `float.label` is `prompt`.
 - "A question's label keeps the text's color" becomes: a question's label takes `question`.
 
-ADR 0076 is still Proposed. If it is accepted before this one, its "ADR 0027's 7:1 is the aim,
-which M2-23 enforces" changes too: `completion.match` is checked at 7:1, and the annotation,
-binding and count at 4.5:1.
+**ADR 0076** (Completion and `M-x`):
+
+- Its tokens (`float.selection.background`, `float.match.foreground`,
+  `float.annotation.foreground`, `float.binding.foreground` and `float.list.prompt`) become one
+  token per face, as in the table above: `completion.selected`, `completion.match`,
+  `completion.annotation`, `completion.binding` and `completion.prompt`.
+- "ADR 0027's 7:1 is the aim, which M2-23 enforces" becomes: `completion.match` is checked at
+  7:1, and the annotation, binding and prompt at 4.5:1.
+- "Orderless's four faces, one per component, wait for M2-23's theme" becomes: one match face
+  stays until a face per component is needed.
 
 ## Consequences
 
