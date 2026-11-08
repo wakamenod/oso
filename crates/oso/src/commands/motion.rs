@@ -9,7 +9,7 @@
 //! cursors were (ADR 0071). After each command the dispatcher scrolls the window to
 //! keep its cursor in view (`Editor::follow_cursor`).
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Reach};
 use oso_core::display_map::DisplaySnapshot;
 use oso_core::motion::{self, Edge, WalkBudget};
 use oso_core::selection::Selection;
@@ -27,78 +27,91 @@ pub const COMMANDS: &[Command] = &[
             prompt: "Go to line: ",
             history: "goto-line",
         },
+        reach: Reach::Look,
         run: goto_line,
     },
     Command {
         name: "forward-char",
         doc: "Move point N characters forward (backward if N is negative).\n\nA character is what the screen shows as one: a grapheme cluster such as `が` or an emoji sequence, a tab, a line break or an escape. At the end of the buffer, signal \"End of buffer\". A count that would read too much goes as far as it may and signals \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: forward_char,
     },
     Command {
         name: "backward-char",
         doc: "Move point N characters backward (forward if N is negative).\n\nCharacters are counted as in `forward-char`. At the start of the buffer, signal \"Beginning of buffer\".",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: backward_char,
     },
     Command {
         name: "forward-word",
         doc: "Move point to the end of the next word, N times (backward if N is negative).\n\nPoint passes what is not part of a word first. Words break where the script changes, but kanji followed by kana stays one word, and at camelCase boundaries. A very long run with no boundary stops partway, and the next key goes on. At the end of the buffer, stay there. A count that would read too much goes as far as it may and signals \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: forward_word,
     },
     Command {
         name: "backward-word",
         doc: "Move point to the start of the previous word, N times (forward if N is negative).\n\nSee `forward-word`.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: backward_word,
     },
     Command {
         name: "next-line",
         doc: "Move point N lines down (up if N is negative), keeping the goal column.\n\nThe goal column, in display cells, is set by the first of consecutive line motions. Started at the end of a line, the motion stays at line ends. On the last line, move to the end of the buffer and signal \"End of buffer\".",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: next_line,
     },
     Command {
         name: "previous-line",
         doc: "Move point N lines up (down if N is negative), keeping the goal column.\n\nSee `next-line`. On the first line, move to the start of the buffer and signal \"Beginning of buffer\".",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: previous_line,
     },
     Command {
         name: "move-beginning-of-line",
         doc: "Move point to the beginning of the line.\n\nWith N other than 1, move N - 1 lines down first.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: move_beginning_of_line,
     },
     Command {
         name: "move-end-of-line",
         doc: "Move point to the end of the line, before its line break.\n\nWith N other than 1, move N - 1 lines down first.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: move_end_of_line,
     },
     Command {
         name: "mwim-beginning-of-code-or-line",
         doc: "Move point to the first non-blank character of the line, or from there to the line's start.\n\nWith N other than 1, move N - 1 lines down first, and to the first non-blank character.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: mwim_beginning,
     },
     Command {
         name: "mwim-end-of-code-or-line",
         doc: "Move point to the end of the line before trailing blanks, or from there to the line's end.\n\nWith N other than 1, move N - 1 lines down first, and to the end before the blanks.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: mwim_end,
     },
     Command {
         name: "beginning-of-buffer",
         doc: "Move point to the beginning of the buffer.\n\nWith a numeric argument N, move to the line after N/10 of the way from the beginning.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: beginning_of_buffer,
     },
     Command {
         name: "end-of-buffer",
         doc: "Move point to the end of the buffer.\n\nWith a numeric argument N, move to the line after N/10 of the way from the end.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: end_of_buffer,
     },
 ];

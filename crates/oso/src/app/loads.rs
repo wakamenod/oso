@@ -144,7 +144,10 @@ impl App {
                 let done = snapshot.done();
                 buffer.apply_load(*snapshot);
                 let load = &mut self.loads[index];
-                if first {
+                // How long a file that may hold secrets takes says something of its text, so
+                // its load is neither logged nor timed (ADR 0078). It is judged by now.
+                let timed = !buffer.is_secret();
+                if first && timed {
                     load.first_screen = Some(load.started);
                     #[cfg(feature = "dev")]
                     self.timings.load_first_content(load.started);
@@ -152,7 +155,13 @@ impl App {
                 if done {
                     no_baseline = buffer.baseline().is_none() && !buffer.is_internal();
                     self.scan_for_copies |= !buffer.is_internal();
-                    log::debug!("{:?} loaded in {:?}", buffer.name(), load.started.elapsed());
+                    if timed {
+                        let (name, bytes) = (buffer.name(), buffer.text().len());
+                        log::debug!(
+                            "{name:?} loaded, {bytes} bytes, in {:?}",
+                            load.started.elapsed()
+                        );
+                    }
                     #[cfg(feature = "dev")]
                     self.timings.load_done(load.started);
                 }

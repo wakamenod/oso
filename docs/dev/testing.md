@@ -119,8 +119,11 @@ Some tests check the repository rather than behavior:
 - `crates/oso/tests/workspace_lints.rs`: every crate uses the workspace
   lints.
 - `crates/oso/tests/architecture`: dependency direction, confined crates,
-  file sizes, `static` items, module headers and conflict markers
-  ([ADR 0038](adr/0038-architecture-guardrails.md),
+  file sizes, `static` items, module headers, conflict markers, and where the
+  control directory may be made, listened on, cleaned or written to: only the
+  dev tooling, until the agent channel's start command joins it
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md),
+  [ADR 0038](adr/0038-architecture-guardrails.md),
   [ADR 0039](adr/0039-architecture-guardrail-mechanics.md),
   [ADR 0041](adr/0041-module-responsibility-headers.md),
   [ADR 0042](adr/0042-statics-snapshots-and-render-errors.md)).
@@ -256,8 +259,8 @@ what you type goes into their buffers, which can fail a flow.
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
-| emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit, to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
-| exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. What makes it ask again is tested through the `Dispatcher` |
+| emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit (on oso's own layer a quit Apple event with a logout reason), to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
+| exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. On oso's own macOS layer a person's quit, as another app sends it, asks the same question, `n` stays and `y` goes with nothing written (ADR 0084). What makes it ask again is tested through the `Dispatcher` |
 | prompts | `M-g g` reads a line in a float and goes there, `C-g` runs nothing, the IME off in a prompt and on after it, the exit question on `n` and `y`, a passphrase withheld from `get-state`, screenshots and the log, and a restart held while a prompt is open (ADR 0072) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
@@ -348,9 +351,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   directory, never committed) can be driven this way.
 - `take-timings` reads key latency, startup and load times for benchmarks. It records no
   key if a secret-pattern buffer is shown just before or after it or when its frame is
-  presented, and no frames while one is shown, but the first frame and the first load's
-  times. A file counts as secret until it is judged
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  presented, and no frames while one is shown, but the first frame. A file counts as secret
+  until it is judged ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). The load
+  times are of the first file judged ordinary, and its first screen counts only if no such
+  buffer is shown then ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - `screenshot` writes a PNG of the current frame and returns its path.
 
 The transport and protocol themselves are tested without a window or GPU

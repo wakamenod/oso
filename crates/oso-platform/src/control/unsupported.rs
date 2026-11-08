@@ -1,4 +1,5 @@
-//! The control socket where it is not implemented yet (Windows, ADR 0032).
+//! The control sockets where they are not implemented yet (Windows, ADR 0032,
+//! ADR 0085).
 //! The API matches the Unix one, and every operation fails.
 //!
 //! Must not depend on: OS bindings or `text`.
@@ -8,10 +9,12 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use super::{Peer, Socket};
+
 fn unsupported() -> io::Error {
     io::Error::new(
         io::ErrorKind::Unsupported,
-        "the dev control socket is not supported on this system yet",
+        "control sockets are not supported on this system yet",
     )
 }
 
@@ -44,12 +47,12 @@ impl ControlDir {
     }
 
     /// Unreachable: no `ControlDir` exists.
-    pub fn bind(&self) -> io::Result<ControlListener> {
+    pub fn listen(&self, _socket: Socket) -> io::Result<ControlListener> {
         match self.never {}
     }
 
     /// Unreachable: no `ControlDir` exists.
-    pub fn connect(&self, _pid: Option<u32>) -> io::Result<(u32, ControlStream)> {
+    pub fn connect(&self, _socket: Socket, _pid: Option<u32>) -> io::Result<(u32, ControlStream)> {
         match self.never {}
     }
 
@@ -101,6 +104,11 @@ pub struct ControlStream {
 }
 
 impl ControlStream {
+    /// Unreachable: no `ControlStream` exists.
+    pub fn peer(&self) -> Peer {
+        match self.never {}
+    }
+
     /// Unreachable: no `ControlStream` exists.
     pub fn try_clone(&self) -> io::Result<Self> {
         match self.never {}

@@ -193,10 +193,11 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 
 ### Command registry
 
-Every command is registered with a name, a docstring, an argument spec and a
-function. The registry drives `M-x` completion, `describe-function`,
-`describe-key`, the control socket's `run-command` and the generated command
-reference. Commands never keep global state: the host owns all state and
+Every command is registered with a name, a docstring, an argument spec, a reach and a
+function. The reach says whether the agent channel may run it
+([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The registry drives `M-x` completion,
+`describe-function`, `describe-key`, the control socket's `run-command`, the agent channel and
+the generated command reference. Commands never keep global state: the host owns all state and
 passes it in. This keeps commands testable, restartable and hot-patchable.
 See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 
@@ -457,7 +458,9 @@ where and what the buffer last read or wrote (its real location, modification ti
 size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button ask before exiting while a buffer is modified
-or a save runs, and a save still running at exit gets to finish. A save that found its file
+or a save runs, and on oso's own macOS layer so does a person's request to quit, from the Dock
+or another app, while the end of the session is never refused
+([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and a save still running at exit gets to finish. A save that found its file
 changed asks before going over it, and replaces it only if it is still what that save found. See
 [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
 [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
@@ -526,11 +529,31 @@ Full details are in [`security.md`](security.md).
     timed apart from startup
     ([ADR 0046](adr/0046-performance-regression-checks.md)). Keys and frames around a
     buffer that may hold secrets stay out of them
-    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)), and so do its loads. While
+    one is shown, the log keeps warnings and errors only
+    ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
+- **Agent channel:** the one control entry point in release builds, off until the person
+  runs `agent-channel-start`, for agents such as Claude Code through `oso mcp`
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+  - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
+    `oso-platform::control`, with the dev socket's thread model. Its methods are `run`, `open`,
+    `state`, `text`, `commands`, `cancel` and `version`, over JSON Lines, and no dev method.
+  - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
+    commands. Arguments are checked against the spec, which gains `Text`.
+  - Each connection waits for the person's yes. The channel runs nothing while a buffer that may
+    hold secrets is shown, while the person is in a prompt, a key sequence or a composition or
+    typed in the last second, or while its own question is open. A question it opens is answered
+    from the window. Its kills stay in oso's kill ring. It opens only files that exist, and a
+    save of a buffer the person did not visit asks the person.
+  - `oso-platform::control` is built in every build, and names the peer's process and its
+    parent for the connection question.
+  - `oso mcp` is a subcommand: JSON-RPC over stdio, with the tools `state`, `text`, `commands`,
+    `look`, `change` and `open`.
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 
 Hot reload and the control socket are behind cargo features (`dev` in each
-crate, enabled through `oso/dev`) that release builds never enable. CI checks
+crate, enabled through `oso/dev`) that release builds never enable. The agent channel is not:
+it ships, off by default. CI checks
 this with `just release-safety`
 ([ADR 0032](adr/0032-control-socket-transport.md)).

@@ -33,6 +33,9 @@ one. Open topics are in `docs/dev/open-questions.md`.
   mode, do not ask before editing files; ask only about design changes and new
   dependencies (ADR 0043).
 - Dev-only code (control socket, hot reload) stays behind dev cargo features.
+- The agent channel ships in release builds, off by default (ADR 0085). Every
+  command declares its reach; anything that needs a person at the keyboard,
+  spawns a process or touches what secret buffers withhold is `Person`.
 - Respect the dependency direction and layer rules (ADR 0038,
   `guardrails/layers.txt`). A new crate, a new crate edge, a new public
   trait or module in a library crate, or a change to the layer rules needs

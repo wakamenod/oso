@@ -23,6 +23,7 @@ mod events;
 mod ime;
 mod input;
 mod loads;
+mod log_gate;
 mod saves;
 mod searches;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
@@ -41,6 +42,7 @@ use crate::emergency::{CopiesEvent, Emergency, Offer};
 use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
+pub use log_gate::LogGate;
 use oso_platform::window::Held;
 use shell::Loop;
 pub use shell::{Waker, run};
@@ -107,6 +109,9 @@ pub struct App {
     clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
+    /// What keeps the log to warnings and errors around a buffer that may hold secrets
+    /// (ADR 0078).
+    log_gate: LogGate,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -123,12 +128,14 @@ pub struct App {
 
 impl App {
     /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
-    /// Loading threads and the clipboard report through `waker`.
+    /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
+    /// installed logger's.
     pub fn new(
         waker: Waker,
         started: Instant,
         emergency: Emergency,
         source: oso_platform::clipboard::Source,
+        log_gate: LogGate,
     ) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
@@ -154,6 +161,7 @@ impl App {
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
+            log_gate,
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]
@@ -189,5 +197,17 @@ impl App {
         if let Some(view) = &self.view {
             view.window.request_redraw();
         }
+    }
+
+    /// Starts handling an event: the log keeps to warnings and errors if a buffer that may hold
+    /// secrets is shown, until the next event (ADR 0078).
+    fn begin_logging(&self) {
+        self.log_gate.begin(self.editor.shows_secret());
+    }
+
+    /// Keeps the log to warnings and errors until the next event if a buffer that may hold
+    /// secrets is shown now.
+    fn note_logging(&self) {
+        self.log_gate.note(self.editor.shows_secret());
     }
 }

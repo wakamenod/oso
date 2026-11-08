@@ -8,7 +8,7 @@
 //! dispatcher, and `C-g` is `keyboard-quit`, whose chain is the editor's. Nothing here
 //! logs the string: it can say something of a buffer that may hold secrets.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 
 /// The commands of isearch.
 pub const COMMANDS: &[Command] = &[
@@ -16,72 +16,84 @@ pub const COMMANDS: &[Command] = &[
         name: "isearch-forward",
         doc: "Search forward as you type.\n\nEach character typed adds to the search string, and the cursor goes to the end of the next match. Case does not matter unless the string has an uppercase letter. `C-s` goes to the next match, round to the start after a failure, `C-r` back, `DEL` back a step, `RET` ends the search there, and `C-g` takes a failing part away, then goes back where the search began. Any other key ends the search and runs. Only the primary cursor moves.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_forward,
     },
     Command {
         name: "isearch-backward",
         doc: "Search backward as you type.\n\nAs `isearch-forward`, but the cursor goes to the start of the match before.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_backward,
     },
     Command {
         name: "isearch-repeat-forward",
         doc: "Go to the next match of the search string.\n\nAfter a failing search, start again from the start of the buffer. With no string, search for the last one.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_repeat_forward,
     },
     Command {
         name: "isearch-repeat-backward",
         doc: "Go to the match of the search string before this one.\n\nAfter a failing search, start again from the end of the buffer. With no string, search for the last one.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_repeat_backward,
     },
     Command {
         name: "isearch-printing-char",
         doc: "Add the character typed to the search string, and search again from the match.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_printing_char,
     },
     Command {
         name: "isearch-delete-char",
         doc: "Undo the last step of the search: the string and the place go back together.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_delete_char,
     },
     Command {
         name: "isearch-exit",
         doc: "End the search at the match.\n\nThe place it began is pushed onto the mark ring, unless a region shows.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_exit,
     },
     Command {
         name: "isearch-yank-word-or-char",
         doc: "Add the word after the match to the search string, or the character there if no word starts there.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_yank_word_or_char,
     },
     Command {
         name: "isearch-yank-kill",
         doc: "Add the newest kill to the search string.\n\nIt takes what the kill ring holds and does not wait for the system clipboard.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_yank_kill,
     },
     Command {
         name: "isearch-ring-retreat",
         doc: "Put the string searched for before this one in the search, and search for it.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_ring_retreat,
     },
     Command {
         name: "isearch-ring-advance",
         doc: "Put the string searched for after this one in the search, and search for it.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_ring_advance,
     },
     Command {
         name: "isearch-toggle-case-fold",
         doc: "Turn around whether case matters, for the rest of this search.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: isearch_toggle_case_fold,
     },
 ];

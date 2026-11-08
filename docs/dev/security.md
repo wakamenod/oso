@@ -79,7 +79,11 @@ network features.
   `disallowed_methods` bans `std::process::Command::new` (and its async
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
-  Unix domain sockets outside the dev control socket. The one exception is the
+  Unix domain sockets outside `oso-platform::control`, which carries the dev control
+  socket and the agent channel. That transport is in every build, and an architecture
+  check lets only the dev tooling, and the agent channel once it starts, listen on it,
+  clean it or write to it ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The one
+  exception is the
   benchmark harness, which never ships
   ([ADR 0046](adr/0046-performance-regression-checks.md)).
 - Executables resolve from absolute paths in user config, or from `PATH` with
@@ -197,11 +201,36 @@ and below the row, and a label's glyphs keep their own cells
 
 ### Agent integration (T7, T9)
 
-- Claude Code runs as its official TUI in a terminal view
-  ([ADR 0031](adr/0031-claude-code-integration.md)).
-- Its MCP tools reach oso only through the `oso mcp` stdio bridge and a Unix
-  socket with a peer user check; no TCP port is opened. Tools follow the
-  trust model, and there is no code-execution tool.
+- Claude Code runs as its official TUI in a terminal view (M4,
+  [ADR 0031](adr/0031-claude-code-integration.md)).
+- Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
+  socket with a peer user check; no TCP port is opened. There is no code-execution tool, and
+  no way to write a file that could run code later without the person's yes: the channel opens
+  only files that exist, saves without asking only buffers the person visited, and never saves
+  oso's configuration or trust ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is
+  an agent steered by text it read, and other processes of the same user:
+  - The channel is off until the person runs `agent-channel-start`, and each new connection
+    asks the person, from the keyboard only, naming the process that connects. A refusal holds
+    off new connections for 60 s. The modeline shows `Agent` while it is on, and `*Agent*`
+    lists each request without its text.
+  - It runs registered commands only, by name, with arguments checked against their spec, and
+    no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
+    `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
+    copies, passphrases, and later trusting a project, spawning processes, secret buffers and
+    secure input. A channel action never starts a process by itself: what opening or saving
+    would start waits until the person acts in that buffer (M3 onward).
+  - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
+    prompt, a key sequence or a composition, within 1 s of the person's last key, or while a
+    question it opened is open. It does not open a path that matches the secret patterns, and
+    shows a file it opened only once it is judged ordinary. Its state withholds what
+    `get-state` withholds, and never has keys in progress, prompt input, the kill ring or the
+    clipboard.
+  - A question it opens starts with `Agent:`, is answered by the person, and takes no answer
+    until 500 ms pass with no key. Its kills never reach the OS clipboard, and its text enters
+    no prompt history.
+  - Screenshots, the restart handoff, timings and hot reload stay dev-only.
+  - An agent it lets in reads any file oso can read, except files that may hold secrets, and
+    edits the files oso has open. Any save of a buffer the person did not visit asks the person.
 - Hooks are installed only by an explicit command that shows the settings
   change first.
 
@@ -256,7 +285,8 @@ and below the row, and a label's glyphs keep their own cells
   generation that guards `exit` is not reported while a file holds edits
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - Dev builds trust the same user: any process running as the same user can
-  run any command through the socket. Release builds contain none of this.
+  run any command through the socket. Release builds contain none of this, only the agent
+  channel above, with its own socket and fewer methods.
   This is reviewed when commands that spawn processes arrive (M3 onward)
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). A sandboxed
   client of the same user is trusted too, so giving it the socket gives it what
@@ -290,8 +320,10 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)).
 - `take-timings` records no key if a secret-pattern buffer is shown just before or after
   it or when its frame is presented, and no frames while one is shown, but the first
-  frame and the first load's times
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  frame ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). It times no load of
+  such a buffer, and no first screen drawn while one is shown. While one is shown, the log
+  keeps warnings and errors only, from every crate
+  ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - Responses are safe to print: DEL, C1 controls, bidi controls and invisible
   characters from a file go out as `\uXXXX`
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
