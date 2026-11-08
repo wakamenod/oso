@@ -1,6 +1,6 @@
 # 0046. Performance regression checks
 
-- Status: Accepted
+- Status: Accepted, amended by 0081
 - Date: 2026-11-04
 
 ## Context

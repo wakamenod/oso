@@ -1,6 +1,6 @@
 # 0056. Typing
 
-- Status: Accepted
+- Status: Accepted, amended by 0063
 - Date: 2026-11-05
 
 ## Context
