@@ -85,6 +85,9 @@ pub enum LoadError {
     Io(io::Error),
     /// The loading thread panicked.
     Panicked,
+    /// The file opened has more than one name, which a load for the agent channel refuses:
+    /// its other names, which the secret patterns judge, are not seen (ADR 0085).
+    SeveralNames,
 }
 
 impl std::fmt::Display for LoadError {
@@ -94,6 +97,7 @@ impl std::fmt::Display for LoadError {
             Self::NotAFile => f.write_str("not a regular file"),
             Self::Io(e) => write!(f, "{e}"),
             Self::Panicked => f.write_str("loading failed"),
+            Self::SeveralNames => f.write_str("the file has more than one name"),
         }
     }
 }
@@ -189,7 +193,21 @@ pub fn spawn<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHand
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
-    spawn_reading(buffer, wake, move |shared, post| load(&path, shared, post))
+    spawn_reading(buffer, wake, move |shared, post| {
+        load(&path, shared, post, false)
+    })
+}
+
+/// [`spawn`], for the agent channel: the file opened must have one name, by the open file
+/// itself, so that no file swapped in after the channel looked can be a second name of a
+/// secret (ADR 0085). One with more fails with [`LoadError::SeveralNames`].
+pub fn spawn_one_name<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHandle>
+where
+    W: Fn(BufferId) -> bool + Send + 'static,
+{
+    spawn_reading(buffer, wake, move |shared, post| {
+        load(&path, shared, post, true)
+    })
 }
 
 /// Starts `read` on a background thread, with what the thread and the UI share.
@@ -387,8 +405,13 @@ fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
 ///
 /// Only the size seen at open is read, so a file another process keeps
 /// appending to (a log) cannot be read forever.
-fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> {
-    load_around(path, shared, send, || {})
+fn load(
+    path: &Path,
+    shared: &Shared,
+    send: &dyn Fn(LoadUpdate) -> bool,
+    one_name: bool,
+) -> Result<(), LoadError> {
+    load_around(path, shared, send, || {}, one_name)
 }
 
 /// [`load`], running `after_open` right after the open, for a test.
@@ -397,6 +420,7 @@ fn load_around(
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
     after_open: impl FnOnce(),
+    one_name: bool,
 ) -> Result<(), LoadError> {
     let opened = open(path);
     after_open();
@@ -412,6 +436,12 @@ fn load_around(
         .and_then(|baseline| own_spelling(&baseline.location));
     *shared.baseline() = baseline;
     let (file, metadata) = opened?;
+    #[cfg(unix)]
+    if one_name && std::os::unix::fs::MetadataExt::nlink(&metadata) > 1 {
+        return Err(LoadError::SeveralNames);
+    }
+    #[cfg(not(unix))]
+    let _ = one_name;
     read_into(file, metadata.len(), shared, send)
 }
 
@@ -629,7 +659,7 @@ mod tests {
         };
         let judged = |after_open: &dyn Fn()| {
             let shared = Shared::default();
-            load_around(&link, &shared, &|_| true, after_open).unwrap();
+            load_around(&link, &shared, &|_| true, after_open, false).unwrap();
             let resolved = shared.resolved().take().unwrap();
             secret_by(&link, &resolved)
         };
@@ -715,6 +745,30 @@ mod tests {
         assert_eq!(baseline_of_opened(other.clone(), &metadata), None);
         std::fs::remove_file(opened).unwrap();
         std::fs::remove_file(other).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_load_for_the_agent_refuses_a_file_with_another_name() {
+        let path = scratch_file("one-name.txt", b"abc");
+        let shared = Shared::default();
+        assert!(load(&path, &shared, &|_| true, true).is_ok(), "one name");
+        let second = path.with_extension("second");
+        let _ = std::fs::remove_file(&second);
+        std::fs::hard_link(&path, &second).unwrap();
+        let shared = Shared::default();
+        let refused = load(&second, &shared, &|_| true, true);
+        assert!(
+            matches!(refused, Err(LoadError::SeveralNames)),
+            "{refused:?}"
+        );
+        let shared = Shared::default();
+        assert!(
+            load(&second, &shared, &|_| true, false).is_ok(),
+            "a person's load reads it"
+        );
+        std::fs::remove_file(&second).unwrap();
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

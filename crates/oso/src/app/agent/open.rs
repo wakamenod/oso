@@ -65,7 +65,7 @@ impl App {
         }
         *opened += 1;
         let name = path.file_name().map(std::ffi::OsStr::to_owned);
-        let Some(buffer) = self.visit(path) else {
+        let Some(buffer) = self.visit_with(path, true) else {
             return refused("the file could not start loading");
         };
         if let Some(buffer) = self.editor.buffer_mut(buffer) {
