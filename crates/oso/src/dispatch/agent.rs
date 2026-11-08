@@ -83,14 +83,19 @@ impl Dispatcher {
         };
         // Whatever the person's keys left, the agent's command starts afresh.
         self.prefix = None;
+        // Its kill joins no kill of the person's, before or after it, so that what reaches the
+        // OS clipboard from a person's kill never holds the agent's text (ADR 0085).
+        editor.forget_kills();
         // The prompts it opens are the agent's, and say so (ADR 0085).
-        Ok(self.as_input(editor, |this, editor| {
+        let ran = self.as_input(editor, |this, editor| {
             editor.for_agent(|editor| {
                 let (effects, result) = this.execute(editor, id, args, invocation, Step::Apart);
                 let effects = effects.union(this.after_prompts(editor));
                 (effects, result.map_err(|e| e.to_string()))
             })
-        }))
+        });
+        editor.forget_kills();
+        Ok(ran)
     }
 }
 
@@ -176,6 +181,28 @@ mod tests {
             Reach::Look,
         );
         assert!(!why.contains("evil"), "{why}");
+    }
+
+    #[test]
+    fn an_agents_kill_joins_no_kill_of_the_persons() {
+        use oso_core::key::KeySequence;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("aaa bbb ccc ddd"));
+        let keys = |text: &str| text.parse::<KeySequence>().unwrap().0;
+        dispatcher.handle_keys(&mut editor, keys("M-d"));
+        let first = editor.take_clipboard_write().unwrap();
+        assert_eq!(first.text(), "aaa");
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "kill-word", None, Reach::Change)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        drop(editor.take_clipboard_write());
+        dispatcher.handle_keys(&mut editor, keys("M-d"));
+        let after = editor.take_clipboard_write().unwrap();
+        assert_eq!(
+            after.text(),
+            " ccc",
+            "the person's kill is an entry of its own"
+        );
     }
 
     #[test]

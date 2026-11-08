@@ -120,6 +120,7 @@ impl oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::peer(&self) -> oso_platform::control::Peer
 pub fn oso_platform::control::ControlStream::set_read_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::set_write_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
+pub fn oso_platform::control::ControlStream::shutdown(&self)
 pub fn oso_platform::control::ControlStream::try_clone(&self) -> std::io::error::Result<Self>
 impl core::fmt::Debug for oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result

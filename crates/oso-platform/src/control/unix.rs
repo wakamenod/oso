@@ -408,6 +408,12 @@ impl ControlStream {
         self.0.try_clone().map(Self)
     }
 
+    /// Ends the connection both ways, for every handle to it: a read waiting on another
+    /// handle returns at once.
+    pub fn shutdown(&self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
+    }
+
     /// Limits how long a read may block. `None` blocks indefinitely.
     pub fn set_read_timeout(&self, timeout: Option<Duration>) -> io::Result<()> {
         self.0.set_read_timeout(timeout)

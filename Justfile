@@ -139,7 +139,9 @@ release-safety:
     set -euo pipefail
     # serde_json ships for the agent channel (ADR 0085).
     dev_crates="miniz_oxide"
-    markers="oso-dev-control-socket oso-dev-process-spawn"
+    # Dev method names too: with serde_json shipping, they show that no dev method got into
+    # the agent channel (ADR 0085).
+    markers="oso-dev-control-socket oso-dev-process-spawn send-keys export-state"
     tree() {
         cargo tree --locked --workspace --target all -e normal,build --prefix none \
             --format '{p} [{f}]' "$@" | sort -u

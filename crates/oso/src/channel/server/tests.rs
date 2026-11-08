@@ -12,7 +12,7 @@ use std::time::Duration;
 use oso_platform::control::{ControlDir, ControlStream, Socket};
 use serde_json::{Value, json};
 
-use super::{Connection, Event, Request, Shared, spawn};
+use super::{Connection, Event, REFUSED_BY_THE_PERSON, Request, Shared, spawn};
 use crate::channel::protocol::Op;
 use crate::channel::wire::{request, response_result};
 
@@ -34,7 +34,7 @@ impl Running {
         let _ = std::fs::remove_dir_all(&path);
         let dir = ControlDir::at(&path).unwrap();
         let listener = dir.listen(Socket::Agent).unwrap();
-        let shared = Arc::new(Shared::default());
+        let shared = Arc::new(Shared::new(7));
         let (sent, events) = mpsc::channel();
         spawn(listener, Arc::clone(&shared), move |request| {
             sent.send(request).is_ok()
@@ -79,7 +79,7 @@ impl Running {
         let reply = if allow {
             Ok(Value::Null)
         } else {
-            Err("the person said no".to_owned())
+            Err(REFUSED_BY_THE_PERSON.to_owned())
         };
         request.reply.unwrap().send(reply).unwrap();
         request.connection
@@ -118,7 +118,7 @@ fn a_probe_asks_nothing_and_a_first_request_asks_the_person() {
     let mut client = running.connect();
     client.send("version", None);
     let connection = running.answer(true);
-    assert_eq!(connection, Connection(1), "the probe raised no event");
+    assert_eq!(connection.number, 1, "the probe raised no event");
     let version = client.reply().unwrap();
     assert_eq!(version["protocol"], 1);
     assert_eq!(version["pid"], std::process::id());
@@ -154,7 +154,7 @@ fn a_refusal_holds_off_the_next_connection() {
     let mut client = running.connect();
     client.send("version", None);
     running.answer(false);
-    assert_eq!(client.reply(), Err("the person said no".to_owned()));
+    assert_eq!(client.reply(), Err(REFUSED_BY_THE_PERSON.to_owned()));
     let mut next = running.connect();
     next.send("version", None);
     let refused = next.reply().unwrap_err();
@@ -214,4 +214,79 @@ fn a_flood_of_requests_is_slowed_down() {
         }
     }
     assert!(slowed > 0, "60 requests in a moment all went through");
+}
+
+#[test]
+fn connections_carry_their_run() {
+    let running = Running::new();
+    let mut client = running.connect();
+    client.send("version", None);
+    assert_eq!(running.answer(true).run, 7);
+}
+
+#[test]
+fn a_silent_client_is_closed_after_the_deadline() {
+    let running = Running::new();
+    let mut client = running.connect();
+    let started = std::time::Instant::now();
+    let mut line = String::new();
+    assert_eq!(
+        client.reader.read_line(&mut line).unwrap(),
+        0,
+        "closed: {line}"
+    );
+    assert!(started.elapsed() < super::FIRST_REQUEST + Duration::from_secs(2));
+    assert!(
+        running
+            .events
+            .recv_timeout(Duration::from_millis(100))
+            .is_err()
+    );
+}
+
+#[test]
+fn a_waiting_client_that_floods_is_closed() {
+    let running = Running::new();
+    let mut client = running.connect();
+    client.send("version", None);
+    let asking = running.next();
+    for _ in 0..20 {
+        client.send("state", None);
+    }
+    let gone = running.next();
+    assert_eq!(gone.connection, asking.connection);
+    assert!(matches!(gone.event, Event::Gone));
+}
+
+#[test]
+fn a_client_that_leaves_while_it_waits_locks_no_one_out() {
+    let running = Running::new();
+    let mut client = running.connect();
+    client.send("version", None);
+    let asking = running.next();
+    drop(client);
+    assert!(matches!(running.next().event, Event::Gone));
+    drop(asking);
+    let mut next = running.connect();
+    next.send("version", None);
+    running.answer(true);
+    assert_eq!(next.reply().unwrap()["protocol"], 1);
+}
+
+#[test]
+fn only_the_persons_refusal_holds_others_off() {
+    let running = Running::new();
+    let mut client = running.connect();
+    client.send("version", None);
+    let asking = running.next();
+    asking
+        .reply
+        .unwrap()
+        .send(Err("the person turned the agent channel off".to_owned()))
+        .unwrap();
+    assert!(client.reply().is_err());
+    let mut next = running.connect();
+    next.send("version", None);
+    running.answer(true);
+    assert!(next.reply().is_ok());
 }

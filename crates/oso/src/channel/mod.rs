@@ -18,7 +18,7 @@ use std::thread;
 
 use oso_platform::control::{CleanupGuard, ControlDir, Socket};
 
-pub use server::{Connection, Event, Reply, Request};
+pub use server::{Connection, Event, REFUSED_BY_THE_PERSON, Reply, Request};
 
 /// The running channel, owned by the app. Dropping it stops the channel: its threads end,
 /// its connections close and its socket goes.
@@ -35,18 +35,18 @@ impl std::fmt::Debug for Channel {
     }
 }
 
-/// Starts the channel on `<pid>-agent.sock`. `send` hands a request to the UI thread and
+/// Starts the channel's run `run` on `<pid>-agent.sock`. `send` hands a request to the UI thread and
 /// returns false once the UI is gone. Only the person's command calls this, once per
 /// channel: the app holds at most one. It checks and binds in the file system, so call it
 /// off the UI thread.
-pub fn start<S>(send: S) -> io::Result<Channel>
+pub fn start<S>(run: u64, send: S) -> io::Result<Channel>
 where
     S: Fn(Request) -> bool + Clone + Send + 'static,
 {
     let dir = ControlDir::open()?;
     let listener = dir.listen(Socket::Agent)?;
     let cleanup = listener.cleanup_guard();
-    let shared = Arc::new(server::Shared::default());
+    let shared = Arc::new(server::Shared::new(run));
     server::spawn(listener, Arc::clone(&shared), send)?;
     // Probing other instances' sockets may block, so it runs on its own thread.
     let stale = dir.clone();

@@ -57,9 +57,21 @@ const POLL: Duration = Duration::from_millis(200);
 /// How the accept loop pauses after an unexpected error, so that a persistent one cannot spin.
 const ACCEPT_BACKOFF: Duration = Duration::from_millis(100);
 
-/// One connection, for the UI thread to tell them apart.
+/// One connection, for the UI thread to tell them apart: its number in the channel's
+/// `run`, which the app counts up each time it starts the channel, so that nothing of a
+/// stopped run passes for a connection of the next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Connection(pub u64);
+pub struct Connection {
+    pub run: u64,
+    pub number: u64,
+}
+
+/// What the UI replies when the person says no to a connection, the one refusal that holds
+/// off new connections for [`REFUSED_FOR`].
+pub const REFUSED_BY_THE_PERSON: &str = "the person did not let this agent in";
+
+/// How many more lines a waiting connection may send before it is closed.
+const MAX_WAITING_LINES: usize = 3;
 
 /// The UI's answer: a JSON result or an error message.
 pub type Reply = Result<Value, String>;
@@ -89,9 +101,21 @@ pub struct Request {
 pub struct Shared {
     /// The channel stopped: every thread ends.
     pub stop: AtomicBool,
+    /// Which run of the channel this is.
+    run: u64,
     next: AtomicU64,
     open: AtomicUsize,
     gate: Mutex<Gate>,
+}
+
+impl Shared {
+    /// The threads' shared state for the channel's run `run`.
+    pub fn new(run: u64) -> Self {
+        Self {
+            run,
+            ..Self::default()
+        }
+    }
 }
 
 /// Who may ask the person, and when.
@@ -187,6 +211,8 @@ where
             let mut gate = gate(shared);
             gate.prune(now);
             if gate.accepts.len() >= MAX_ACCEPTS {
+                drop(gate);
+                refuse(stream, "too many connections this minute");
                 continue;
             }
             gate.accepts.push_back(now);
@@ -200,7 +226,10 @@ where
             refuse(stream, "too many agents are connected");
             continue;
         }
-        let connection = Connection(shared.next.fetch_add(1, Ordering::Relaxed));
+        let connection = Connection {
+            run: shared.run,
+            number: shared.next.fetch_add(1, Ordering::Relaxed),
+        };
         let (shared, send) = (Arc::clone(shared), send.clone());
         let spawned = thread::Builder::new()
             .name("oso-agent-client".into())
@@ -232,7 +261,8 @@ enum Line {
 /// Reads lines on a thread of its own, so that a connection waiting for the person still
 /// notices its client going.
 fn spawn_reader(stream: ControlStream, shared: Arc<Shared>) -> io::Result<mpsc::Receiver<Line>> {
-    let (lines, received) = mpsc::channel();
+    // One line ahead, and no more: a client that sends faster waits, and holds no memory.
+    let (lines, received) = mpsc::sync_channel(1);
     let mut reader = BufReader::new(stream);
     thread::Builder::new()
         .name("oso-agent-read".into())
@@ -295,6 +325,12 @@ where
     S: Fn(Request) -> bool,
 {
     stream.set_write_timeout(Some(WRITE_TIMEOUT))?;
+    let mut closing = Closing {
+        stream: stream.try_clone()?,
+        connection,
+        admitted: false,
+        send,
+    };
     let lines = spawn_reader(stream.try_clone()?, Arc::clone(shared))?;
     let mut writer = stream;
     let Ok(Line::Text(first)) = lines.recv_timeout(FIRST_REQUEST) else {
@@ -307,9 +343,12 @@ where
         return Ok(());
     }
     let asked = ask(&peer, connection, &lines, &mut writer, shared, send);
-    gate(shared).answered(asked.is_err(), Instant::now());
+    // Only the person's own `n` holds others off: a client that goes, or a channel that
+    // stops, is no refusal.
+    let refused = matches!(&asked, Err(Asked::Refused(why)) if why == REFUSED_BY_THE_PERSON);
+    gate(shared).answered(refused, Instant::now());
     match asked {
-        Ok(()) => {}
+        Ok(()) => closing.admitted = true,
         Err(Asked::Refused(why)) => {
             writeln!(writer, "{}", failure(&first_id, &why))?;
             return Ok(());
@@ -319,6 +358,9 @@ where
     let mut rate = Rate::new(Instant::now());
     let mut line = Some(first);
     while let Some(text) = line.take() {
+        if shared.stop.load(Ordering::Acquire) {
+            break;
+        }
         let response = if rate.take(Instant::now()) {
             respond(&text, connection, send)
         } else {
@@ -335,12 +377,29 @@ where
             Ok(Line::End) | Err(_) => None,
         };
     }
-    send(Request {
-        connection,
-        event: Event::Gone,
-        reply: None,
-    });
     Ok(())
+}
+
+/// Ends a connection however `serve` returns: the socket closes for every handle, so its
+/// reading thread ends too, and the UI hears that an admitted connection went.
+struct Closing<'a, S: Fn(Request) -> bool> {
+    stream: ControlStream,
+    connection: Connection,
+    admitted: bool,
+    send: &'a S,
+}
+
+impl<S: Fn(Request) -> bool> Drop for Closing<'_, S> {
+    fn drop(&mut self) {
+        self.stream.shutdown();
+        if self.admitted {
+            (self.send)(Request {
+                connection: self.connection,
+                event: Event::Gone,
+                reply: None,
+            });
+        }
+    }
 }
 
 /// How asking the person ended, when it did not let the connection in.
@@ -380,6 +439,7 @@ where
         });
         Err(Asked::Gone)
     };
+    let mut extra = 0;
     loop {
         match replied.recv_timeout(POLL) {
             Ok(Ok(_)) => return Ok(()),
@@ -393,7 +453,9 @@ where
             return gone();
         }
         match lines.try_recv() {
+            Ok(Line::Text(_)) if extra >= MAX_WAITING_LINES => return gone(),
             Ok(Line::Text(text)) => {
+                extra += 1;
                 let id = protocol::parse(&text).map_or_else(|bad| bad.id, |request| request.id);
                 let waiting = failure(&id, "wait: the person has not answered yet");
                 if writeln!(writer, "{waiting}").is_err() {
