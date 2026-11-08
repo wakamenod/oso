@@ -128,6 +128,39 @@ impl App {
         self.process.child.id()
     }
 
+    /// Asks this instance, and only it, to quit as the end of the session does: a quit Apple
+    /// event with a logout reason (`keyAEQuitReason`), which oso never refuses (ADR 0084).
+    /// The event goes to this instance's process ID, after osascript has checked that the
+    /// app there runs the binary this test launched, so that it can never reach the login
+    /// window or another app, where a logout reason could end the session. Returns whether
+    /// osascript sent it.
+    #[cfg(target_os = "macos")]
+    pub fn ask_to_quit_for_logout(&self) -> bool {
+        let pid = self.pid();
+        assert!(
+            pid > 0 && pid != std::process::id(),
+            "not a child's process ID: {pid}"
+        );
+        let binary = fs::canonicalize(env!("CARGO_BIN_EXE_oso")).expect("the binary is there");
+        let expected = serde_json::Value::from(binary.to_str().expect("a path in UTF-8"));
+        // 'aevt' 'quit' to `pid` alone, with the reason 'why?' = 'logo' and no reply awaited.
+        let script = format!(
+            "ObjC.import('AppKit');
+            const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid});
+            if (app.isNil() || app.executableURL.URLByResolvingSymlinksInPath.path.js !== {expected}) {{
+                throw new Error('not the instance this test launched');
+            }}
+            const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier({pid});
+            const quit = $.NSAppleEventDescriptor
+                .appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
+                    0x61657674, 0x71756974, target, -1, 0);
+            quit.setParamDescriptorForKeyword(
+                $.NSAppleEventDescriptor.descriptorWithEnumCode(0x6c6f676f), 0x7768793f);
+            quit.sendEventWithOptionsTimeoutError(1, 10, null);"
+        );
+        run_osascript(&script)
+    }
+
     /// Where the instance's socket is while it runs.
     pub fn socket(&self) -> PathBuf {
         self.dir.path().join(format!("{}.sock", self.pid()))
@@ -580,25 +613,6 @@ fn run_osascript(script: &str) -> bool {
     .and_then(|mut child| child.wait())
     .expect("cannot run osascript");
     status.success()
-}
-
-/// Asks the instance with `pid` to quit as the end of the session does: a quit Apple event
-/// with a logout reason (`keyAEQuitReason`), which oso never refuses (ADR 0084). Returns
-/// whether osascript sent it.
-#[cfg(target_os = "macos")]
-pub fn ask_to_quit_for_logout(pid: u32) -> bool {
-    // 'aevt' 'quit', and the reason 'why?' = 'logo', with no reply awaited.
-    let script = format!(
-        "ObjC.import('Foundation');
-        const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier({pid});
-        const quit = $.NSAppleEventDescriptor
-            .appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
-                0x61657674, 0x71756974, target, -1, 0);
-        quit.setParamDescriptorForKeyword(
-            $.NSAppleEventDescriptor.descriptorWithEnumCode(0x6c6f676f), 0x7768793f);
-        quit.sendEventWithOptionsTimeoutError(1, 10, null);"
-    );
-    run_osascript(&script)
 }
 
 /// Whether a process with this ID exists, as `ps` sees it.

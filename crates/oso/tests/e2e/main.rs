@@ -1053,7 +1053,7 @@ fn the_system_asking_the_app_to_quit_writes_the_copies() {
     // On oso's own layer only the end of the session goes past a modified buffer unasked; a
     // quit with no reason is a person's, and asks first (ADR 0084).
     let asked = if cfg!(feature = "native-window") {
-        harness::ask_to_quit_for_logout(app.pid())
+        app.ask_to_quit_for_logout()
     } else {
         harness::ask_to_quit(app.pid())
     };

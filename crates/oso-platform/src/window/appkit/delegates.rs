@@ -79,8 +79,11 @@ define_class!(
 fn quit_reason_now() -> QuitReason {
     let event = NSAppleEventManager::sharedAppleEventManager().currentAppleEvent();
     let code = event.and_then(|event| {
-        // SAFETY: `paramDescriptorForKeyword:` takes an `AEKeyword`, a four-character code
-        // that is a `u32`, and returns a descriptor or nil, on any thread.
+        // SAFETY: the receiver is an `NSAppleEventDescriptor`, retained for the call, which
+        // declares `- (nullable NSAppleEventDescriptor *)paramDescriptorForKeyword:
+        // (AEKeyword)keyword`: one argument, an `AEKeyword`, a four-character code that is a
+        // `u32`, as `QUIT_REASON_KEY` is, and a descriptor or nil returned at +0, which the
+        // `Option<Retained<_>>` retains or reads as `None`.
         let reason: Option<Retained<NSAppleEventDescriptor>> =
             unsafe { msg_send![&event, paramDescriptorForKeyword: gate::QUIT_REASON_KEY] };
         reason.map(|reason| reason.enumCodeValue())
