@@ -77,6 +77,13 @@ pub(super) fn takes_text(allowed: bool, muted: bool) -> bool {
     allowed && !muted
 }
 
+/// Whether text the input method inserts while handling a key is that key's own, which goes to
+/// oso as the key: one character, the same the key types. A full-width space or letter from a
+/// Japanese input mode is not, and is a commit.
+pub(super) fn is_keys_own(text: &str, characters: Option<&str>) -> bool {
+    characters == Some(text) && text.chars().nth(1).is_none()
+}
+
 /// The number of a function key, F1 to F20, by its virtual key code.
 fn function_number(code: u16) -> Option<u8> {
     const CODES: [u16; 20] = [
@@ -103,7 +110,7 @@ pub(super) fn held(flags: NSEventModifierFlags) -> Held {
 
 #[cfg(test)]
 mod tests {
-    use super::{Route, held, named, route, takes_text};
+    use super::{Route, held, is_keys_own, named, route, takes_text};
     use crate::window::{Held, SystemNamed};
     use objc2_app_kit::NSEventModifierFlags as F;
 
@@ -180,5 +187,24 @@ mod tests {
         );
         assert!(!takes_text(true, true), "a late reply to a drop");
         assert!(!takes_text(false, true));
+    }
+
+    #[test]
+    fn only_the_keys_own_character_goes_to_oso_as_the_key() {
+        assert!(is_keys_own("a", Some("a")));
+        assert!(is_keys_own(" ", Some(" ")));
+        assert!(
+            !is_keys_own("\u{3000}", Some(" ")),
+            "a full-width space is a commit"
+        );
+        assert!(
+            !is_keys_own("ａ", Some("a")),
+            "a full-width letter is a commit"
+        );
+        assert!(
+            !is_keys_own("ab", Some("ab")),
+            "several characters are text"
+        );
+        assert!(!is_keys_own("a", None));
     }
 }

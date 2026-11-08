@@ -82,9 +82,10 @@ impl Control {
             window.setContentView(Some(&view));
             window.makeFirstResponder(Some(&view));
             window.center();
-            window.makeKeyAndOrderFront(None);
+            // The delegate first, so that it hears the window come up, occluded or not.
             let delegate = WindowDelegate::new(mtm, state);
             window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            window.makeKeyAndOrderFront(None);
             (window, view, delegate)
         });
         // The app reads both when it opens the window, so only later changes are reported.
@@ -179,7 +180,7 @@ impl Window {
     /// Where the cursor's cell is, for the input method's candidate window. Only kept: the
     /// input method asks for it when it needs it.
     pub fn set_ime_cursor_area(&self, area: CursorArea) {
-        self.state.ime_area.set(Some(area));
+        self.state.update_ime(|ime| ime.set_area(area));
     }
 }
 

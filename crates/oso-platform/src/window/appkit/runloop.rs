@@ -39,6 +39,11 @@ impl Wake {
         self.source.signal();
         self.main.wake_up();
     }
+
+    /// Wakes the main run loop with nothing to deliver, so that it goes round once more.
+    pub(super) fn wake_up(&self) {
+        self.main.wake_up();
+    }
 }
 
 /// The hooks of the main run loop, all calling back into `state`.

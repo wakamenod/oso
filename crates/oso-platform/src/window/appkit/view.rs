@@ -24,6 +24,7 @@ use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClien
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound,
     NSObjectProtocol, NSPoint, NSRange, NSRangePointer, NSRect, NSSize, NSString, NSUInteger,
+    ns_string,
 };
 use objc2_quartz_core::{CALayer, CAMetalLayer};
 
@@ -36,6 +37,8 @@ use crate::window::{Event, Held, ImeEvent, KeyInput, SystemKey, Wheel};
 /// method gave it back to oso as a key.
 struct Handling {
     to_oso: bool,
+    /// What the key types, to tell its own character from the input method's.
+    characters: Option<String>,
 }
 
 pub(super) struct Ivars {
@@ -94,9 +97,10 @@ define_class!(
         /// rather than when the loop next waits, as winit draws from `drawRect:`.
         #[unsafe(method(updateLayer))]
         fn update_layer(&self) {
-            let state = self.ivars().state;
-            state.redraw.set(false);
-            state.deliver(Delivery::Window(Event::RedrawRequested));
+            // A request the app made stays, and is drawn when the loop next waits.
+            self.ivars()
+                .state
+                .deliver(Delivery::Window(Event::RedrawRequested));
         }
 
         #[unsafe(method(viewDidChangeBackingProperties))]
@@ -161,7 +165,7 @@ define_class!(
             }
             let mut handling = self.ivars().handling.borrow_mut();
             if let Some(handling) = handling.as_mut()
-                && text.chars().nth(1).is_none()
+                && keys::is_keys_own(&text, handling.characters.as_deref())
             {
                 // The key's own character: it goes to oso as the key it is.
                 handling.to_oso = true;
@@ -254,7 +258,7 @@ define_class!(
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
         fn first_rect(&self, _range: NSRange, _actual: NSRangePointer) -> NSRect {
             // While the input method is off, as in a buffer that may hold secrets, no place.
-            if self.ivars().state.ime_allowed.get() {
+            if self.ivars().state.ime_allowed() {
                 self.cursor_rect_on_screen()
             } else {
                 NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
@@ -319,7 +323,7 @@ impl OsoView {
         let held = keys::held(event.modifierFlags());
         self.note_modifiers(held);
         let marked = !self.ivars().marked.borrow().is_empty();
-        let allowed = self.ivars().state.ime_allowed.get();
+        let allowed = self.ivars().state.ime_allowed();
         let is_g = marked && held == Held::CONTROL && is_g(event);
         match keys::route(held, marked, allowed, is_g) {
             Route::Oso => self.deliver_key(event),
@@ -334,7 +338,10 @@ impl OsoView {
                 self.deliver_key(event);
             }
             Route::InputMethod => {
-                *self.ivars().handling.borrow_mut() = Some(Handling { to_oso: false });
+                *self.ivars().handling.borrow_mut() = Some(Handling {
+                    to_oso: false,
+                    characters: event.characters().map(|text| text.to_string()),
+                });
                 let events = NSArray::from_slice(&[event]);
                 // An exception from the input method must not leave a key in hand.
                 let thrown =
@@ -358,23 +365,25 @@ impl OsoView {
 
     /// Whether text the input method sends with no key in hand is taken now.
     fn takes_text(&self) -> bool {
-        keys::takes_text(
-            self.ivars().state.ime_allowed.get(),
-            self.ivars().muted.get(),
-        )
+        keys::takes_text(self.ivars().state.ime_allowed(), self.ivars().muted.get())
     }
 
     /// Gives the handler the key `event` is, by the names oso uses.
     fn deliver_key(&self, event: &NSEvent) {
         let named = keys::named(event.keyCode());
-        // A named key needs neither text, and a layout's translation is not free.
+        // A named key needs neither text. The key without modifiers, a layout's translation,
+        // matters only with Control or Option held (ADR 0033); otherwise it is the key's own.
         let (characters, base) = if named.is_some() {
             (None, None)
         } else {
-            (
-                event.characters(),
-                event.charactersByApplyingModifiers(NSEventModifierFlags::empty()),
-            )
+            let characters = event.characters();
+            let held = keys::held(event.modifierFlags());
+            let base = if held.contains(Held::CONTROL) || held.contains(Held::ALT) {
+                event.charactersByApplyingModifiers(NSEventModifierFlags::empty())
+            } else {
+                characters.clone()
+            };
+            (characters, base)
         };
         autoreleasepool(|pool| {
             let input = KeyInput {
@@ -422,7 +431,7 @@ impl OsoView {
     /// The cursor's cell the app last gave, on the screen, in points.
     fn cursor_rect_on_screen(&self) -> NSRect {
         let scale = self.scale();
-        let rect = self.ivars().state.ime_area.get().map_or(
+        let rect = self.ivars().state.ime.get().area().map_or(
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
             |area| {
                 NSRect::new(
@@ -474,7 +483,7 @@ fn text_of(string: &AnyObject) -> String {
 fn is_g(event: &NSEvent) -> bool {
     event
         .charactersByApplyingModifiers(NSEventModifierFlags::empty())
-        .is_some_and(|text| text.to_string() == "g")
+        .is_some_and(|text| text.isEqualToString(ns_string!("g")))
 }
 
 /// AppKit's `NSNotFound`, as an unsigned location.

@@ -12,6 +12,7 @@
 //!   resumes it. The panic hook has written what is at risk by then (ADR 0062).
 
 mod delegates;
+mod gate;
 mod handles;
 mod keys;
 mod runloop;
@@ -34,7 +35,7 @@ use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
 };
 
-use super::{CursorArea, Event, Handler};
+use super::{Event, Handler};
 use delegates::{AppDelegate, WindowDelegate};
 pub use handles::{Control, RenderTarget, Waker, Window};
 use runloop::Hooks;
@@ -164,12 +165,13 @@ struct State {
     exit: Cell<bool>,
     exited: Cell<bool>,
     deadline: Cell<Option<Instant>>,
-    ime_allowed: Cell<bool>,
+    /// Whether oso has the IME on, and the cursor's cell the app last gave.
+    ime: Cell<gate::ImeGate>,
+    /// The loop ended while the handler ran: it hears so once it returns.
+    exit_waiting: Cell<bool>,
     /// The size and the scale the handler was last told, so that it hears only changes.
     reported_size: Cell<(u32, u32)>,
     reported_scale: Cell<f64>,
-    /// The cursor's cell the app last gave, for the input method's candidate window.
-    ime_area: Cell<Option<CursorArea>>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
 }
 
@@ -187,10 +189,10 @@ impl State {
             exit: Cell::new(false),
             exited: Cell::new(false),
             deadline: Cell::new(None),
-            ime_allowed: Cell::new(false),
+            ime: Cell::new(gate::ImeGate::default()),
+            exit_waiting: Cell::new(false),
             reported_size: Cell::new((0, 0)),
             reported_scale: Cell::new(0.0),
-            ime_area: Cell::new(None),
             panic: RefCell::new(None),
         }
     }
@@ -282,6 +284,9 @@ impl State {
         {
             hooks.wake.signal();
         }
+        if self.exit_waiting.take() {
+            self.exiting();
+        }
         if self.exit.get() {
             self.stop();
         }
@@ -308,9 +313,8 @@ impl State {
             }
             Request::ImeAllowed(allowed) => {
                 // The state first, so that it holds whatever the input method does next.
-                self.ime_allowed.set(allowed);
+                self.update_ime(|ime| ime.set_allowed(allowed));
                 if !allowed {
-                    self.ime_area.set(None);
                     // As winit does: the composition is dropped. Committing it instead is
                     // the next step of ADR 0070, with the app's side of it.
                     view.discard_marked();
@@ -346,8 +350,24 @@ impl State {
         if self.panic.borrow().is_some() || self.exited.get() {
             return;
         }
+        // Not while the handler runs: it hears it once it returns. The quit guard answers a
+        // quit "later" meanwhile, so AppKit does not end the process before (ADR 0070).
+        if self.dispatch.try_borrow_mut().is_err() {
+            self.exit_waiting.set(true);
+            return;
+        }
         self.deliver(Delivery::Exiting);
         self.exited.set(true);
+    }
+
+    fn ime_allowed(&self) -> bool {
+        self.ime.get().allowed()
+    }
+
+    fn update_ime(&self, change: impl FnOnce(&mut gate::ImeGate)) {
+        let mut ime = self.ime.get();
+        change(&mut ime);
+        self.ime.set(ime);
     }
 
     /// Other threads sent something.
@@ -370,8 +390,9 @@ impl State {
             return;
         };
         if self.redraw.get() {
-            // The frame asked for another: go round once more instead of waiting.
-            hooks.wake.signal();
+            // The frame asked for another: go round once more instead of waiting. A wake-up
+            // alone, as no other thread sent anything.
+            hooks.wake.wake_up();
         }
         hooks.wake_at(self.deadline.get());
     }
