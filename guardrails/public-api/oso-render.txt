@@ -1,4 +1,30 @@
 pub mod oso_render
+pub mod oso_render::theme
+pub enum oso_render::theme::Kind
+pub oso_render::theme::Kind::Dark
+pub oso_render::theme::Kind::Light
+impl core::clone::Clone for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::clone(&self) -> oso_render::theme::Kind
+impl core::cmp::Eq for oso_render::theme::Kind
+impl core::cmp::PartialEq for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::eq(&self, &oso_render::theme::Kind) -> bool
+impl core::fmt::Debug for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::theme::Kind
+impl core::marker::StructuralPartialEq for oso_render::theme::Kind
+pub struct oso_render::theme::Theme
+impl oso_render::theme::Theme
+pub fn oso_render::theme::Theme::kind(&self) -> oso_render::theme::Kind
+pub fn oso_render::theme::Theme::name(&self) -> &'static str
+impl core::clone::Clone for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::clone(&self) -> oso_render::theme::Theme
+impl core::cmp::PartialEq for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::eq(&self, &oso_render::theme::Theme) -> bool
+impl core::fmt::Debug for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::theme::Theme
+impl core::marker::StructuralPartialEq for oso_render::theme::Theme
+pub fn oso_render::theme::themes() -> alloc::vec::Vec<oso_render::theme::Theme>
 pub enum oso_render::CaptureError
 pub oso_render::CaptureError::Gpu(alloc::string::String)
 pub oso_render::CaptureError::UnsupportedFormat(alloc::string::String)
@@ -52,18 +78,6 @@ impl core::fmt::Debug for oso_render::Face
 pub fn oso_render::Face::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_render::Face
 impl core::marker::StructuralPartialEq for oso_render::Face
-pub enum oso_render::Kind
-pub oso_render::Kind::Dark
-pub oso_render::Kind::Light
-impl core::clone::Clone for oso_render::Kind
-pub fn oso_render::Kind::clone(&self) -> oso_render::Kind
-impl core::cmp::Eq for oso_render::Kind
-impl core::cmp::PartialEq for oso_render::Kind
-pub fn oso_render::Kind::eq(&self, &oso_render::Kind) -> bool
-impl core::fmt::Debug for oso_render::Kind
-pub fn oso_render::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_render::Kind
-impl core::marker::StructuralPartialEq for oso_render::Kind
 pub enum oso_render::PaneContent<'a>
 pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
 pub oso_render::PaneContent::Masked(oso_render::Masked<'a>)
@@ -192,7 +206,6 @@ pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redra
 pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
 pub fn oso_render::RenderState::set_theme(&mut self, usize) -> oso_render::Redraw
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
-pub fn oso_render::RenderState::themes(&self) -> &[oso_render::Theme]
 impl oso_render::RenderState
 pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo
 pub struct oso_render::Span<'a>
@@ -207,16 +220,3 @@ pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::C
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64
 pub oso_render::TextView::scroll: oso_core::window::Scroll
-pub struct oso_render::Theme
-impl oso_render::Theme
-pub fn oso_render::Theme::kind(&self) -> oso_render::Kind
-pub fn oso_render::Theme::name(&self) -> &'static str
-impl core::clone::Clone for oso_render::Theme
-pub fn oso_render::Theme::clone(&self) -> oso_render::Theme
-impl core::cmp::PartialEq for oso_render::Theme
-pub fn oso_render::Theme::eq(&self, &oso_render::Theme) -> bool
-impl core::fmt::Debug for oso_render::Theme
-pub fn oso_render::Theme::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_render::Theme
-impl core::marker::StructuralPartialEq for oso_render::Theme
-pub fn oso_render::themes() -> alloc::vec::Vec<oso_render::Theme>

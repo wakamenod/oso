@@ -14,7 +14,7 @@ mod rows;
 mod scene;
 mod shape;
 mod text;
-mod theme;
+pub mod theme;
 use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
@@ -22,7 +22,7 @@ use paint::Painter;
 pub use pane::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
-pub use theme::{Kind, Theme, themes};
+use theme::{Theme, themes};
 
 use std::sync::Arc;
 
@@ -294,12 +294,7 @@ impl RenderState {
         Redraw::Needed
     }
 
-    /// The built-in themes, the default first.
-    pub fn themes(&self) -> &[Theme] {
-        &self.themes
-    }
-
-    /// Draws from the next frame on in the theme at `index` of [`Self::themes`]. Nothing is
+    /// Draws from the next frame on in the theme at `index` of [`theme::themes`]. Nothing is
     /// shaped or rasterized again, so a switch costs one frame (ADR 0089). An index past the
     /// list changes nothing.
     pub fn set_theme(&mut self, index: usize) -> Redraw {

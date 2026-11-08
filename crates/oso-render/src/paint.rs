@@ -142,6 +142,9 @@ impl Painter {
 }
 
 #[cfg(test)]
+mod samples;
+
+#[cfg(test)]
 mod tests {
     //! The same frames on a real GPU, in real pixels. Run with `just pixel-tests`:
     //! the rest of the crate's tests need no GPU. The glyphs come from a fake text
@@ -220,6 +223,18 @@ mod tests {
 
     /// Draws `panes` in `theme`, with glyphs of `coverage`.
     fn draw_in(panes: &[Pane<'_>], coverage: u8, theme: Theme) -> Vec<u8> {
+        let target = (WIDTH, HEIGHT, wgpu::TextureFormat::Rgba8Unorm);
+        render(panes, &mut Blocks(coverage), theme, target)
+    }
+
+    /// Draws `panes` in `theme` with the glyphs of `system`, on a real device, into a texture
+    /// of `width` by `height` in `format`, and gives back its RGBA pixels.
+    pub(super) fn render(
+        panes: &[Pane<'_>],
+        system: &mut dyn TextSystem,
+        theme: Theme,
+        (width, height, format): (u32, u32, wgpu::TextureFormat),
+    ) -> Vec<u8> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::default(),
@@ -231,14 +246,19 @@ mod tests {
             .expect("this test needs a GPU");
         let (device, queue) =
             block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-        let format = wgpu::TextureFormat::Rgba8Unorm;
-        let mut painter = Painter::new(&device, format, WIDTH as f32, HEIGHT as f32, theme);
-        let mut budget = RasterBudget::new(64);
-        painter.prepare(&device, &queue, &mut Blocks(coverage), panes, &mut budget);
+        let mut painter = Painter::new(&device, format, width as f32, height as f32, theme);
+        // Frames until every glyph is rasterized, as the app draws them.
+        for _ in 0..64 {
+            let mut budget = RasterBudget::new(64);
+            painter.prepare(&device, &queue, system, panes, &mut budget);
+            if !budget.exhausted {
+                break;
+            }
+        }
 
         let size = wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -251,10 +271,10 @@ mod tests {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let bytes_per_row = 4 * WIDTH.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT / 4);
+        let bytes_per_row = 4 * width.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT / 4);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: u64::from(bytes_per_row * HEIGHT),
+            size: u64::from(bytes_per_row * height),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -268,7 +288,7 @@ mod tests {
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: Some(HEIGHT),
+                    rows_per_image: Some(height),
                 },
             },
             size,
@@ -279,7 +299,7 @@ mod tests {
         let mapped = buffer.get_mapped_range(..);
         mapped
             .chunks_exact(bytes_per_row as usize)
-            .flat_map(|row| row[..WIDTH as usize * 4].iter().copied())
+            .flat_map(|row| row[..width as usize * 4].iter().copied())
             .collect()
     }
 

@@ -55,6 +55,8 @@ enum Name {
     FgMain,
     FgPrompt,
     FgKey,
+    /// A question's words, apart from every colour buffer text is drawn in.
+    FgQuestion,
     Escape,
     Warning,
     FieldOutline,
@@ -125,7 +127,7 @@ pub(crate) struct TextGamma {
 }
 
 /// What a theme is made of, before it is resolved into linear colours.
-struct Source {
+pub(crate) struct Source {
     name: &'static str,
     kind: Kind,
     palette: fn(Name) -> Color,
@@ -189,7 +191,7 @@ impl Theme {
         }
     }
 
-    fn resolve(source: &Source) -> Self {
+    pub(crate) fn resolve(source: &Source) -> Self {
         let colors = |pick: fn((Name, Name)) -> Name| {
             FACES.map(|face| (source.palette)(pick((source.faces)(face))).linear())
         };
@@ -277,9 +279,7 @@ fn faces(face: Face) -> (Name, Name) {
         Face::Float => (FgMain, BgFloat),
         Face::FloatBorder => (Hairline, Hairline),
         Face::Prompt => (FgPrompt, BgFloat),
-        // Until the colours are picked, a question's words take the prompt's colour, which no
-        // buffer text is drawn in.
-        Face::Question => (FgPrompt, BgFloat),
+        Face::Question => (FgQuestion, BgFloat),
         Face::Field => (FieldOutline, BgMain),
         Face::Key => (FgKey, BgKey),
         Face::Region => (FgMain, BgRegion),
@@ -310,6 +310,8 @@ fn dusk(name: Name) -> Color {
         FgMain => rgb(0xf3f3f6),
         FgPrompt => rgb(0xbfc7df),
         FgKey => rgb(0xdee3f1),
+        // The prompt's colour until it is picked: no buffer text is drawn in it.
+        FgQuestion => rgb(0xbfc7df),
         Escape => rgb(0xedb37c),
         Warning => rgb(0xffdd6f),
         FieldOutline => rgb(0x6f86bd),
@@ -331,6 +333,10 @@ const SOURCES: [Source; 1] = [Source {
     // Off until its strength is picked beside the OS's text.
     text: TextGamma { strength: 0.0 },
 }];
+
+/// Palettes the author picks among, drawn as samples (ADR 0089).
+#[cfg(test)]
+pub(crate) mod candidates;
 
 /// The built-in themes, the default first, in linear colours. The renderer makes them once and
 /// keeps them: there is no global state (ADR 0038).
@@ -376,7 +382,7 @@ pub(crate) fn corrected_coverage(coverage: f32, ink: f32, paper: f32, gamma: Tex
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     /// WCAG's contrast ratio of two linear colours.
@@ -446,6 +452,31 @@ mod tests {
             | Face::SearchMatch
             | Face::SearchCurrent => &[],
         }
+    }
+
+    /// Every pair's ratio and floor in `theme`, as a Markdown table, for the samples.
+    pub(crate) fn ratios(theme: &Theme) -> String {
+        let mut table = String::from("| Face | On | Ratio | Floor |\n|---|---|---|---|\n");
+        for face in FACES {
+            for &(behind, floor) in pairs(face) {
+                let ink = over(theme.foreground(face), theme.background(behind));
+                let ratio = contrast(ink, theme.background(behind));
+                let short = if ratio < floor { " **short**" } else { "" };
+                table += &format!("| {face:?} | {behind:?} | {ratio:.2}{short} | {floor} |\n");
+            }
+        }
+        let apart = |a: Face, b: Face| distance(theme.background(a), theme.background(b));
+        table += &format!(
+            "\nOKLab distance: SearchCurrent to SearchMatch {:.3}, SearchMatch to Region {:.3}; \
+             Question to Text {:.3}\n",
+            apart(Face::SearchCurrent, Face::SearchMatch),
+            apart(Face::SearchMatch, Face::Region),
+            distance(
+                theme.foreground(Face::Question),
+                theme.foreground(Face::Text)
+            ),
+        );
+        table
     }
 
     #[test]

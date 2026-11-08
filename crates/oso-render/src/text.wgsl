@@ -24,7 +24,8 @@ struct Instance {
     @location(3) color: vec4<f32>,
     // 0: coverage, 1: color.
     @location(4) kind: u32,
-    // The luminance of what the glyph is drawn on.
+    // The luminance of the glyph's face's background. A fill under the glyph, such as the
+    // region, may differ from it a little, and the correction with it.
     @location(5) paper: f32,
 }
 
@@ -33,7 +34,18 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
     @location(2) @interpolate(flat) kind: u32,
-    @location(3) @interpolate(flat) paper: f32,
+    // The ink's and the paper's luminance, and both in sRGB: the same for the whole glyph,
+    // so they are worked out once, here.
+    @location(3) @interpolate(flat) gamma: vec4<f32>,
+}
+
+// An sRGB value in linear light, and back.
+fn decode(v: f32) -> f32 {
+    return select(pow((v + 0.055) / 1.055, 2.4), v / 12.92, v <= 0.04045);
+}
+
+fn encode(v: f32) -> f32 {
+    return select(1.055 * pow(v, 1.0 / 2.4) - 0.055, v * 12.92, v <= 0.0031308);
 }
 
 @vertex
@@ -46,26 +58,22 @@ fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> VertexOutpu
     out.uv = instance.uv + offset;
     out.color = instance.color;
     out.kind = instance.kind;
-    out.paper = instance.paper;
+    let ink = dot(instance.color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
+    out.gamma = vec4<f32>(ink, instance.paper, encode(ink), encode(instance.paper));
     return out;
 }
 
-// An sRGB value in linear light, and back.
-fn decode(v: f32) -> f32 {
-    return select(pow((v + 0.055) / 1.055, 2.4), v / 12.92, v <= 0.04045);
-}
-
-fn encode(v: f32) -> f32 {
-    return select(1.055 * pow(v, 1.0 / 2.4) - 0.055, v * 12.92, v <= 0.0031308);
-}
-
 // The coverage that, blended in linear light, gives what `coverage` blended in sRGB gives,
-// for text of luminance `ink` on `paper`, at `strength`. As theme.rs's corrected_coverage.
-fn corrected(coverage: f32, ink: f32, paper: f32, strength: f32) -> f32 {
-    if abs(ink - paper) < 1e-3 {
+// for text on its paper as `gamma` holds them, at `strength`. As theme.rs's
+// corrected_coverage.
+fn corrected(coverage: f32, gamma: vec4<f32>, strength: f32) -> f32 {
+    let ink = gamma.x;
+    let paper = gamma.y;
+    // A uniform, so every fragment of the draw takes the same branch.
+    if strength == 0.0 || abs(ink - paper) < 1e-3 {
         return coverage;
     }
-    let native = decode(coverage * encode(ink) + (1.0 - coverage) * encode(paper));
+    let native = decode(coverage * gamma.z + (1.0 - coverage) * gamma.w);
     let wanted = clamp((native - paper) / (ink - paper), 0.0, 1.0);
     return mix(coverage, wanted, strength);
 }
@@ -78,9 +86,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if in.kind == 1u {
         return textureLoad(color_atlas, texel, 0);
     }
-    let ink = dot(in.color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
     let sample = textureLoad(coverage_atlas, texel, 0).r;
-    let coverage = corrected(sample, ink, in.paper, uniforms.gamma.x) * in.color.a;
+    let coverage = corrected(sample, in.gamma, uniforms.gamma.x) * in.color.a;
     // Premultiplied output.
     return vec4<f32>(in.color.rgb * coverage, coverage);
 }

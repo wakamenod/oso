@@ -53,7 +53,8 @@ pub(crate) struct GlyphInstance {
     uv: [f32; 2],
     color: [f32; 4],
     kind: u32,
-    /// The luminance of what the glyph is drawn on, which text gamma needs (ADR 0089).
+    /// The luminance of the glyph's face's background, which text gamma corrects against
+    /// (ADR 0089). A fill under the glyph, such as the region, may differ from it a little.
     paper: f32,
 }
 
