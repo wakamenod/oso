@@ -33,12 +33,15 @@ The author chose, from options put to them:
    key or a prefix argument waiting, a question open, or nothing active that takes text, the
    IME stays on until the composition ends, as on winit, and so it does once oso is leaving.
    A commit never takes a prefix argument, and never answers a question.
-6. **The input method learns where each character of the composition is drawn.** After
-   each event that changed the composition, the app gives the window the x of each of its
-   characters from the cursor's cell, as the next frame lays them out, so
+6. **The input method learns where each character of the composition is drawn.** During a
+   composition, the app works out after each event where the next frame draws it: its first
+   cell, as the window scrolls then, and the x of each of its characters from there, kept
+   inside the text area. It gives these, with the composition's text, when they changed, so
    `firstRectForCharacterRange` answers any range inside the marked text and the candidate
-   window follows the segment being converted. The window layer turns the input method's
-   UTF-16 ranges into characters. A composition of more than 4096 characters gets the cell.
+   window follows the segment being converted. The window layer answers only for the text
+   they were worked out for, and turns the input method's UTF-16 ranges into characters. A
+   composition of more than 4096 characters, or one whose row is out of view, gets the
+   cursor's cell.
 7. **A range outside the marked text is answered with the cursor area,** as now, and not
    laid out.
 8. **The cursor's line is given to the window layer after each event in which the cursor or
@@ -63,8 +66,9 @@ The author chose, from options put to them:
   reach the disk, and its buffer has an emergency copy either way.
 - A Dock quit behaves as the quit key does.
 - No call to the OS is made for a key that only moves the cursor.
-- The candidate window can follow the segment being converted, at the cost of a list of at
-  most 4096 positions after each event that changes a composition.
+- The candidate window can follow the segment being converted, at the cost of working out at
+  most 4096 positions after each event during a composition, and giving them when they
+  changed.
 - With the IME on, an event in which the cursor or its line changed copies at most 4000 bytes
   for the input method. Until reconversion lands, an input method that offers it inserts at
   the cursor instead of replacing the text it read.
