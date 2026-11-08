@@ -43,11 +43,12 @@ Commands live in the tip crate because it changes most often and rebuilds
 fastest. Stable foundations live in library crates. See
 [ADR 0004](adr/0004-crate-layout.md).
 
-Files are read today with portable `std::fs` calls in the tip crate's
-loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
-How file-system code splits between the loader and `oso-platform` is
-settled when the loader needs `libc` (opening with `O_NONBLOCK`); see
-`open-questions.md`. Saving uses `std`'s Unix file calls in the tip crate
+Files are read with portable `std::fs` calls in the tip crate's
+loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)),
+and opened through `oso_platform::file_meta::open_for_reading`, which does
+not wait on a special file
+([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+What needs `libc` stays in `oso-platform`. Saving uses `std`'s Unix file calls in the tip crate
 ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)), and for what a file
 holds beyond its mode, and for opening it without waiting,
 `oso_platform::file_meta`
@@ -408,6 +409,10 @@ The UI thread never blocks on I/O or parsing:
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+- Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
+  one per directory and at most 4, and their names come back as a snapshot with the
+  input's generation, which the prompt takes only if it is still the newest
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
