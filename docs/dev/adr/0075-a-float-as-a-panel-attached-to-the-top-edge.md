@@ -1,6 +1,6 @@
 # 0075. A float as a panel attached to the top edge
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -32,6 +32,9 @@ keys) always shows whole, nested prompts show `[2]`, nothing of a secret buffer 
 the text beneath keeps drawing, and a frame with no float costs nothing more.
 
 ## Decision
+
+The author accepted this ADR on 2026-11-08, through the coordinator, with the public API it changes
+in `oso-render` and `oso-core`.
 
 The author chose, through the coordinator, on 2026-11-08, the option described for each point marked
 **(chosen)**, from choices put to them with the others, which are under
