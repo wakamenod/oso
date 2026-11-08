@@ -455,7 +455,7 @@ with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
 after the command and runs it on a thread (`saver`): a temporary file in the file's
 own directory, the file's owner, access list and mode, fsync, a check that the file on disk is
 where and what the buffer last read or wrote (its real location, modification time and
-size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
+size, and its device and inode where the system has them, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button ask before exiting while a buffer is modified
 or a save runs, and a save still running at exit gets to finish. A save that found its file
