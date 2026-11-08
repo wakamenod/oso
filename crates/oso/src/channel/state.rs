@@ -25,6 +25,12 @@ pub const STATE_VERSION: u32 = 1;
 /// The most text of the selected window's rows the state holds, in bytes.
 pub const MAX_VISIBLE_TEXT: usize = 64 * 1024;
 
+/// The most selections of one window the state lists; the rest are counted.
+pub const MAX_SELECTIONS: usize = 256;
+
+/// The most buffers the state lists; the rest are counted.
+pub const MAX_BUFFERS: usize = 1000;
+
 /// The state: every buffer the person has, every tiled window, the selected window's rows,
 /// the echo area and the prompts open, the outermost first.
 pub fn state(editor: &Editor) -> Value {
@@ -33,7 +39,12 @@ pub fn state(editor: &Editor) -> Value {
     let tiled = editor.windows().len() - editor.prompts().len();
     let mut state = json!({
         "version": STATE_VERSION,
-        "buffers": editor.buffers().map(|(id, buffer)| buffer_state(id, buffer)).collect::<Vec<_>>(),
+        "buffers": editor
+            .buffers()
+            .take(MAX_BUFFERS)
+            .map(|(id, buffer)| buffer_state(id, buffer))
+            .collect::<Vec<_>>(),
+        "buffer_count": editor.buffers().count(),
         "windows": editor
             .windows()
             .take(tiled)
@@ -89,9 +100,11 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
             json!({ "row": point.row, "column": point.column })
         };
         state["first_row"] = json!(window.scroll().top);
+        state["selection_count"] = json!(window.selections.len());
         state["selections"] = window
             .selections
             .iter()
+            .take(MAX_SELECTIONS)
             .map(|selection| {
                 json!({
                     "cursor": point(selection.cursor),
@@ -104,8 +117,8 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
     state
 }
 
-/// What a prompt reads.
-const fn kind(kind: Kind) -> &'static str {
+/// What a prompt reads, as the dev socket's state and the channel's name it.
+pub const fn kind(kind: Kind) -> &'static str {
     match kind {
         Kind::Number { .. } => "number",
         Kind::Passphrase => "passphrase",
@@ -113,8 +126,21 @@ const fn kind(kind: Kind) -> &'static str {
     }
 }
 
-/// The rows the window shows in full, cut at its right edge, at most [`MAX_VISIBLE_TEXT`].
+/// The rows the window shows in full, at most [`MAX_VISIBLE_TEXT`].
 fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Value {
+    let (rows, truncated) = visible_rows(window, text, display, MAX_VISIBLE_TEXT);
+    json!({ "first_row": window.scroll().top, "rows": rows, "truncated": truncated })
+}
+
+/// The rows the window shows in full, from its top row and left column, cut at its right
+/// edge, and whether `budget` bytes cut them short. A wide character across either edge is
+/// included. The dev socket's state shares it (ADR 0044).
+pub fn visible_rows(
+    window: &Window,
+    text: &Rope,
+    display: &DisplaySnapshot,
+    budget: usize,
+) -> (Vec<String>, bool) {
     let size = window.size();
     let scroll = window.scroll();
     let end_row = scroll
@@ -122,25 +148,24 @@ fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Valu
         .saturating_add(size.rows)
         .min(display.row_count());
     let right = scroll.left.saturating_add(size.columns);
-    let mut budget = MAX_VISIBLE_TEXT;
-    let mut truncated = false;
+    let mut budget = budget;
     let mut rows = Vec::new();
     for row in scroll.top..end_row {
         let start =
             display.display_point_to_offset(DisplayPoint::new(row, scroll.left), Bias::Left);
         let end = display.display_point_to_offset(DisplayPoint::new(row, right), Bias::Right);
         if end - start > budget {
-            truncated = true;
             rows.push(slice(text, start..start + budget));
-            break;
+            return (rows, true);
         }
         budget -= end - start;
         rows.push(slice(text, start..end));
     }
-    json!({ "first_row": scroll.top, "rows": rows, "truncated": truncated })
+    (rows, false)
 }
 
-fn slice(text: &Rope, range: Range<usize>) -> String {
+/// The text of `range`, as one string.
+pub fn slice(text: &Rope, range: Range<usize>) -> String {
     text.chunks_in_range(range).collect()
 }
 
@@ -231,8 +256,7 @@ mod tests {
     fn a_persons_prompt_says_only_its_kind_and_an_agents_its_label() {
         let mut editor = editor("");
         editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
-        let id = editor.ask("Save over notes.md?", "save-buffer").unwrap();
-        editor.mark_from_agent(id);
+        editor.for_agent(|editor| editor.ask("Save over notes.md?", "save-buffer").unwrap());
         let prompts = state(&editor)["prompts"].clone();
         assert_eq!(prompts[0], json!({ "kind": "question", "by": "person" }));
         assert_eq!(prompts[1]["by"], "agent");

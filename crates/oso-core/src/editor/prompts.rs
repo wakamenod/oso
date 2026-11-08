@@ -43,9 +43,13 @@ impl Editor {
             return Err(PromptError::TooDeep);
         }
         let depth = self.prompts.len() + 1;
+        let from_agent = self.agent_opens_prompts();
         let mut label = label.into();
         if kind.is_question() {
             label.push_str(minibuffer::QUESTION_END);
+        }
+        if from_agent {
+            label.insert_str(0, super::agent::AGENT_LABEL);
         }
         if depth > 1 {
             label = format!("[{depth}] {label}");
@@ -69,7 +73,7 @@ impl Editor {
             around_secret,
             walk: None,
             typed: None,
-            from_agent: false,
+            from_agent,
         });
         self.relayout_prompt();
         Ok(id)

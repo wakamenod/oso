@@ -65,6 +65,8 @@ pub enum UserEvent {
     Control(dev::UiRequest),
     /// Something from a connection of the agent channel (ADR 0085).
     Agent(crate::channel::Request),
+    /// The agent channel started, or could not, off the UI thread.
+    AgentStarted(std::io::Result<crate::channel::Channel>),
 }
 
 /// Top-level application state.

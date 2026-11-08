@@ -7,18 +7,18 @@
 //! takes what was asked.
 
 use super::Editor;
-use crate::buffer::Buffer;
-use crate::minibuffer::PromptId;
+use crate::buffer::{Buffer, BufferId};
+use crate::minibuffer::{PromptError, PromptId};
 
 /// The name of the internal buffer that lists the channel's requests.
-pub const AGENT_LOG: &str = "*Agent*";
+pub(crate) const AGENT_LOG: &str = "*Agent*";
 
-/// What a label of a prompt the channel caused starts with, so that the person can tell it
-/// from oso's own.
-pub const AGENT_LABEL: &str = "Agent: ";
+/// What a label of a prompt the channel caused starts with, after its depth, so that the
+/// person can tell it from oso's own.
+pub(crate) const AGENT_LABEL: &str = "Agent: ";
 
 /// The most rows `*Agent*` keeps; the oldest goes first.
-pub const MAX_AGENT_LOG: usize = 1000;
+pub(crate) const MAX_AGENT_LOG: usize = 1000;
 
 /// Whether the agent channel is on, for the modeline.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -40,7 +40,9 @@ pub(super) struct Agent {
     request: Option<bool>,
     /// The person answered `y` to a connection's question, for the host.
     allowed: bool,
-    log: Option<crate::buffer::BufferId>,
+    /// A command runs for the channel now: the prompts it opens are the agent's.
+    running: bool,
+    log: Option<BufferId>,
 }
 
 impl Editor {
@@ -74,22 +76,34 @@ impl Editor {
         std::mem::take(&mut self.agent.allowed)
     }
 
-    /// Marks the prompt `id` as one the agent channel caused: its label starts with
-    /// [`AGENT_LABEL`], after its depth. Says whether it is open.
-    pub fn mark_from_agent(&mut self, id: PromptId) -> bool {
-        let Some(prompt) = self.prompts.iter_mut().find(|prompt| prompt.id == id) else {
-            return false;
-        };
-        if !prompt.from_agent {
-            prompt.from_agent = true;
-            let at = match prompt.label.strip_prefix('[') {
-                Some(rest) => rest.find("] ").map_or(0, |end| end + 3),
-                None => 0,
-            };
-            prompt.label.insert_str(at, AGENT_LABEL);
-            self.relayout_prompt();
-        }
-        true
+    /// Runs `work` as the agent channel's: each prompt it opens is the agent's, and its label
+    /// starts with `Agent: `, after its depth (ADR 0085).
+    pub fn for_agent<R>(&mut self, work: impl FnOnce(&mut Self) -> R) -> R {
+        let outer = std::mem::replace(&mut self.agent.running, true);
+        let out = work(self);
+        self.agent.running = outer;
+        out
+    }
+
+    /// Whether the prompts opened now are the agent channel's.
+    pub(super) fn agent_opens_prompts(&self) -> bool {
+        self.agent.running
+    }
+
+    /// Asks `question` for the agent channel, as [`Self::ask_with`] does, as a prompt that is
+    /// the agent's. Forgets an earlier `y` first, so that only this question's answer counts.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::ask_with`].
+    pub fn ask_for_agent(
+        &mut self,
+        question: impl Into<String>,
+        yes: &'static str,
+        verbs: [&'static str; 2],
+    ) -> Result<PromptId, PromptError> {
+        self.agent.allowed = false;
+        self.for_agent(|editor| editor.ask_with(question, yes, verbs))
     }
 
     /// Adds a row to `*Agent*`, which is made the first time. `row` is one line, which the
@@ -111,7 +125,8 @@ impl Editor {
     }
 
     /// The buffer `*Agent*`, once something was logged there.
-    pub fn agent_log_buffer(&self) -> Option<crate::buffer::BufferId> {
+    #[cfg(test)]
+    fn agent_log_buffer(&self) -> Option<BufferId> {
         self.agent.log
     }
 }
@@ -124,33 +139,30 @@ mod tests {
     #[test]
     fn a_prompt_the_agent_caused_says_so_after_its_depth() {
         let mut editor = Editor::default();
-        let first = editor.ask("Save over notes.md?", "save-buffer").unwrap();
-        assert!(editor.mark_from_agent(first));
+        editor.for_agent(|editor| editor.ask("Save over notes.md?", "save-buffer").unwrap());
         let prompt = editor.prompt().unwrap();
         assert!(prompt.from_agent());
         assert_eq!(prompt.label(), "Agent: Save over notes.md? (y or n)");
-        // Marking twice changes nothing.
-        assert!(editor.mark_from_agent(first));
-        assert_eq!(
-            editor.prompt().unwrap().label(),
-            "Agent: Save over notes.md? (y or n)"
-        );
 
-        let second = editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
-        assert!(!editor.prompt().unwrap().from_agent());
-        editor.mark_from_agent(second);
+        editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
+        assert!(!editor.prompt().unwrap().from_agent(), "a person's own");
+        editor
+            .ask_for_agent("Let it in?", "agent-channel-allow", ["allow", "refuse"])
+            .unwrap();
         assert_eq!(
             editor.prompt().unwrap().label(),
-            "[2] Agent: Exit? (y or n)"
+            "[3] Agent: Let it in? (y or n)"
         );
     }
 
     #[test]
-    fn a_closed_prompt_is_not_marked() {
+    fn asking_for_the_agent_forgets_an_earlier_yes() {
         let mut editor = Editor::default();
-        let id = editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
-        editor.quit();
-        assert!(!editor.mark_from_agent(id));
+        editor.allow_agent();
+        editor
+            .ask_for_agent("Let it in?", "agent-channel-allow", ["allow", "refuse"])
+            .unwrap();
+        assert!(!editor.take_agent_allowed());
     }
 
     #[test]

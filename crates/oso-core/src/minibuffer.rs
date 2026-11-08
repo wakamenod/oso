@@ -198,8 +198,8 @@ impl Prompt {
         self.around_secret
     }
 
-    /// Whether the agent channel caused it: its label starts with
-    /// [`crate::editor::AGENT_LABEL`], and only the person answers it (ADR 0085).
+    /// Whether the agent channel caused it: its label starts with `Agent: `, after its
+    /// depth, and only the person answers it (ADR 0085).
     pub fn from_agent(&self) -> bool {
         self.from_agent
     }

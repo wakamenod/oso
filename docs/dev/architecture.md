@@ -529,22 +529,21 @@ Full details are in [`security.md`](security.md).
   runs `agent-channel-start`, for agents such as Claude Code through `oso mcp`
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
-    `oso-platform::control`, with the dev socket's thread model. Its methods are `run`, `open`,
-    `state`, `text`, `commands`, `cancel` and `version`, over JSON Lines, and no dev method.
+    `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
+    `commands`, `run` and `cancel`, over the JSON Lines framing in `channel::wire`, which the
+    dev socket shares, and no dev method. `open`, `text` and `insert` come next (AC-1b-3),
+    and `oso mcp` after them (AC-2).
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
-    commands. Arguments are checked against the spec, which gains `Text`.
+    commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
+    command inside `Editor::for_agent`, so the prompts it opens are the agent's.
   - Each connection waits for the person's yes, asked on its first request: one that sends
-    nothing within 2 s is closed unasked, as probes do. Threads read and wait; the UI thread
-    asks, in `app/agent.rs`, and runs commands through `Dispatcher::run_for_agent`. The JSON
-    Lines framing in `channel::wire` is the dev socket's too. The channel runs nothing while a buffer that may
-    hold secrets is shown, while the person is in a prompt, a key sequence or a composition or
-    typed in the last second, or while its own question is open. A question it opens is answered
-    from the window. Its kills stay in oso's kill ring. It opens only files that exist, and a
-    save of a buffer the person did not visit asks the person.
-  - `oso-platform::control` is built in every build, and names the peer's process and its
-    parent for the connection question.
-  - `oso mcp` is a subcommand: JSON-RPC over stdio, with the tools `state`, `text`, `commands`,
-    `look`, `change` and `open`.
+    nothing within 2 s is closed unasked, as probes do. Threads read and wait, and
+    `app/agent.rs` asks and answers on the UI thread. The channel runs nothing while a buffer
+    that may hold secrets is shown, while the person is in a prompt, a key sequence or a
+    composition or typed in the last second, or while its own question is open. A question it
+    causes is answered from the window. Its kills stay in oso's kill ring.
+  - The connection question names the process as it reports itself, and its parent, from
+    `ControlStream::peer`.
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

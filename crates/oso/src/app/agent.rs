@@ -41,6 +41,10 @@ const CONNECTION_VERBS: [&str; 2] = ["allow", "refuse"];
 #[derive(Debug, Default)]
 pub(super) struct Agent {
     channel: Option<channel::Channel>,
+    /// The channel is starting on a thread of its own.
+    starting: bool,
+    /// The person turned it off while it was starting.
+    stop_when_started: bool,
     started: Option<Instant>,
     /// The connections the person let in.
     connected: Vec<Connection>,
@@ -61,36 +65,6 @@ struct Asking {
     peer: Peer,
     reply: std::sync::mpsc::Sender<Reply>,
     question: Option<PromptId>,
-}
-
-/// What the connection's question says: who reports itself as connecting, as the system
-/// names them. `oso mcp` is named so only when the process runs this program; its parent
-/// counts only then, and not when it is the system's first process, which adopts orphans.
-pub fn connection_question(peer: &Peer) -> String {
-    let named = |process: &PeerProcess| match process.name() {
-        Some(name) => format!("\"{name}\" (pid {})", process.pid()),
-        None => format!("an unnamed process (pid {})", process.pid()),
-    };
-    match (&peer.process, peer.runs_this_program) {
-        (Some(process), true) => {
-            let parent = peer
-                .parent
-                .as_ref()
-                .filter(|parent| parent.pid() > 1)
-                .map_or_else(|| "an unknown process".to_owned(), named);
-            format!(
-                "let a process that reports itself as {parent} control oso through oso mcp (pid {})?",
-                process.pid()
-            )
-        }
-        (Some(process), false) => {
-            format!(
-                "let a process that reports itself as {} control oso?",
-                named(process)
-            )
-        }
-        (None, _) => "let a process the system does not name control oso?".to_owned(),
-    }
 }
 
 impl App {
@@ -252,18 +226,17 @@ impl App {
         None
     }
 
-    /// Marks the prompts a channel command opened, those newer than `newest`, as caused by
-    /// the agent, and returns the innermost one's label if one is a question.
+    /// Notes the prompts a channel command opened, those newer than `newest`, which are the
+    /// agent's, and returns the innermost one's label if it opened any.
     fn note_caused(&mut self, newest: Option<PromptId>) -> Option<String> {
         let opened: Vec<PromptId> = self
             .editor
             .prompts()
             .iter()
+            .filter(|prompt| prompt.from_agent() && newest.is_none_or(|n| prompt.id() > n))
             .map(|prompt| prompt.id())
-            .filter(|&id| newest.is_none_or(|newest| id > newest))
             .collect();
         for &id in &opened {
-            self.editor.mark_from_agent(id);
             self.agent.caused.push(id);
             self.agent.quiet_since = Some(Instant::now());
         }
@@ -296,13 +269,36 @@ impl App {
         }
     }
 
+    /// Starts the channel on a thread of its own, as it checks and binds in the file system.
     fn start_agent_channel(&mut self) {
-        if self.agent.channel.is_some() {
+        self.agent.stop_when_started = false;
+        if self.agent.channel.is_some() || self.agent.starting {
             self.editor.message("The agent channel is on already");
             return;
         }
         let waker = self.waker.clone();
-        match channel::start(move |request| waker.send(UserEvent::Agent(request))) {
+        let spawned = std::thread::Builder::new()
+            .name("oso-agent-start".into())
+            .spawn(move || {
+                let send = waker.clone();
+                let started = channel::start(move |request| send.send(UserEvent::Agent(request)));
+                waker.send(UserEvent::AgentStarted(started));
+            });
+        match spawned {
+            Ok(_) => self.agent.starting = true,
+            Err(e) => self
+                .editor
+                .message(format!("The agent channel did not start: {e}")),
+        }
+    }
+
+    /// The channel's thread started it, or could not.
+    pub(super) fn agent_started(&mut self, started: std::io::Result<channel::Channel>) {
+        self.agent.starting = false;
+        if std::mem::take(&mut self.agent.stop_when_started) {
+            return;
+        }
+        match started {
             Ok(channel) => {
                 self.agent.channel = Some(channel);
                 self.agent.started = Some(Instant::now());
@@ -319,6 +315,11 @@ impl App {
     }
 
     fn stop_agent_channel(&mut self) {
+        if self.agent.starting {
+            self.agent.stop_when_started = true;
+            self.editor.message("Agent channel off");
+            return;
+        }
         let Some(channel) = self.agent.channel.take() else {
             self.editor.message("The agent channel is off already");
             return;
@@ -353,14 +354,13 @@ impl App {
                 if self.editor.prompt().is_some() || self.dispatcher.reads_keys() {
                     return;
                 }
-                let label = connection_question(&asking.peer);
-                let Ok(id) = self
-                    .editor
-                    .ask_with(label, "agent-channel-allow", CONNECTION_VERBS)
+                let label = channel::question::connection(&asking.peer);
+                let Ok(id) =
+                    self.editor
+                        .ask_for_agent(label, "agent-channel-allow", CONNECTION_VERBS)
                 else {
                     return;
                 };
-                self.editor.mark_from_agent(id);
                 self.agent.quiet_since = Some(Instant::now());
                 if let Some(asking) = &mut self.agent.asking {
                     asking.question = Some(id);
@@ -393,7 +393,7 @@ impl App {
     /// Whether `key` from the window must not reach a question the channel caused yet:
     /// it takes no answer until [`QUIET`] has passed with no key, and every key starts that
     /// wait again. `C-g` always goes through.
-    pub(super) fn agent_question_holds(&mut self, key: KeyPress) -> bool {
+    pub(super) fn note_key_for_agent(&mut self, key: KeyPress) -> bool {
         self.agent.person_typed = Some(Instant::now());
         if !self
             .editor
@@ -434,67 +434,5 @@ impl App {
         let seconds = since.as_secs();
         self.editor
             .agent_log(&format!("+{:02}:{:02}  {row}", seconds / 60, seconds % 60));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::connection_question;
-    use oso_platform::control::{Peer, PeerProcess};
-
-    fn process(pid: u32, name: &str) -> Option<PeerProcess> {
-        Some(PeerProcess::new(pid, Some(name)))
-    }
-
-    #[test]
-    fn names_the_bridge_and_who_started_it_only_when_it_is_this_program() {
-        let peer = Peer {
-            process: process(815, "oso"),
-            parent: process(812, "claude"),
-            runs_this_program: true,
-        };
-        assert_eq!(
-            connection_question(&peer),
-            "let a process that reports itself as \"claude\" (pid 812) control oso through oso mcp (pid 815)?"
-        );
-        let impostor = Peer {
-            runs_this_program: false,
-            ..peer.clone()
-        };
-        assert_eq!(
-            connection_question(&impostor),
-            "let a process that reports itself as \"oso\" (pid 815) control oso?"
-        );
-    }
-
-    #[test]
-    fn an_adopted_or_unknown_parent_is_unknown() {
-        for parent in [process(1, "launchd"), None] {
-            let peer = Peer {
-                process: process(815, "oso"),
-                parent,
-                runs_this_program: true,
-            };
-            assert!(connection_question(&peer).contains("an unknown process control oso"));
-        }
-        let unnamed = Peer {
-            process: Some(PeerProcess::new(9, None)),
-            parent: None,
-            runs_this_program: false,
-        };
-        assert!(connection_question(&unnamed).contains("an unnamed process (pid 9)"));
-        assert!(connection_question(&Peer::default()).contains("does not name"));
-    }
-
-    #[test]
-    fn a_name_cannot_rewrite_the_question() {
-        let peer = Peer {
-            process: process(815, "oso\u{202e}?n ro y"),
-            parent: None,
-            runs_this_program: false,
-        };
-        let question = connection_question(&peer);
-        assert!(question.is_ascii(), "{question}");
-        assert!(question.contains("\\u{202e}"), "{question}");
     }
 }

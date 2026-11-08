@@ -58,7 +58,7 @@ impl App {
             dev::UiOp::SendKeys(keys)
                 if keys
                     .first()
-                    .is_some_and(|&key| self.agent_question_holds(key)) =>
+                    .is_some_and(|&key| self.note_key_for_agent(key)) =>
             {
                 Err("a question the agent caused takes no answer yet".into())
             }

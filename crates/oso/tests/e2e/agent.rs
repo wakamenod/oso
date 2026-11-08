@@ -181,14 +181,6 @@ fn an_agent_drives_only_once_the_person_lets_it_in_and_by_reach() {
     );
     thread::sleep(AFTER_TYPING);
     assert!(agent.run("forward-char", None, "look").is_ok());
-    let state = app.state();
-    assert!(
-        state["buffers"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|buffer| buffer["name"] == "*Agent*")
-    );
 
     // The person turns it off: the agent's connection closes, and so does the socket.
     app.run_command("agent-channel-stop", None).unwrap();

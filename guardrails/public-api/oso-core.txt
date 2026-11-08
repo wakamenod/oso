@@ -805,6 +805,21 @@ pub fn oso_core::display_map::escape(char) -> core::option::Option<oso_core::dis
 pub fn oso_core::display_map::row_clusters<'a>(&'a oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint, core::option::Option<(usize, &'a oso_core::display_map::Preedit)>, impl core::ops::function::FnMut(oso_core::display_map::DisplayCluster<'a>, bool) -> core::ops::control_flow::ControlFlow<()>)
 pub fn oso_core::display_map::text_clusters(&str, usize) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::display_map::DisplayCluster<'_>>
 pub mod oso_core::editor
+pub enum oso_core::editor::AgentChannel
+pub oso_core::editor::AgentChannel::Connected
+pub oso_core::editor::AgentChannel::Off
+pub oso_core::editor::AgentChannel::On
+impl core::clone::Clone for oso_core::editor::AgentChannel
+pub fn oso_core::editor::AgentChannel::clone(&self) -> oso_core::editor::AgentChannel
+impl core::cmp::Eq for oso_core::editor::AgentChannel
+impl core::cmp::PartialEq for oso_core::editor::AgentChannel
+pub fn oso_core::editor::AgentChannel::eq(&self, &oso_core::editor::AgentChannel) -> bool
+impl core::default::Default for oso_core::editor::AgentChannel
+pub fn oso_core::editor::AgentChannel::default() -> oso_core::editor::AgentChannel
+impl core::fmt::Debug for oso_core::editor::AgentChannel
+pub fn oso_core::editor::AgentChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::AgentChannel
+impl core::marker::StructuralPartialEq for oso_core::editor::AgentChannel
 pub enum oso_core::editor::Quit
 pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
@@ -919,6 +934,16 @@ pub fn oso_core::editor::Editor::set_copies_text(&mut self, oso_core::load::Load
 pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec::Vec<oso_core::editor::RecoveryAction>
 pub fn oso_core::editor::Editor::toggle_copies(&mut self)
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::agent_channel(&self) -> oso_core::editor::AgentChannel
+pub fn oso_core::editor::Editor::agent_log(&mut self, &str)
+pub fn oso_core::editor::Editor::allow_agent(&mut self)
+pub fn oso_core::editor::Editor::ask_for_agent(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::for_agent<R>(&mut self, impl core::ops::function::FnOnce(&mut Self) -> R) -> R
+pub fn oso_core::editor::Editor::request_agent_channel(&mut self, bool)
+pub fn oso_core::editor::Editor::set_agent_channel(&mut self, oso_core::editor::AgentChannel)
+pub fn oso_core::editor::Editor::take_agent_allowed(&mut self) -> bool
+pub fn oso_core::editor::Editor::take_agent_channel_request(&mut self) -> core::option::Option<bool>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask(&mut self, impl core::convert::Into<alloc::string::String>, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask_with(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
@@ -1010,6 +1035,8 @@ pub oso_core::editor::SaveJob::only_if_gone: bool
 pub oso_core::editor::SaveJob::path: std::path::PathBuf
 pub oso_core::editor::SaveJob::text: oso_core::rope::Rope
 pub struct oso_core::editor::Status
+pub oso_core::editor::Status::agent: &'static str
+pub oso_core::editor::Status::agent_connected: bool
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::name: alloc::string::String
 pub oso_core::editor::Status::state: alloc::string::String
@@ -1564,6 +1591,7 @@ pub struct oso_core::minibuffer::Prompt
 impl oso_core::minibuffer::Prompt
 pub fn oso_core::minibuffer::Prompt::around_secret(&self) -> bool
 pub fn oso_core::minibuffer::Prompt::buffer(&self) -> oso_core::buffer::BufferId
+pub fn oso_core::minibuffer::Prompt::from_agent(&self) -> bool
 pub fn oso_core::minibuffer::Prompt::id(&self) -> oso_core::minibuffer::PromptId
 pub fn oso_core::minibuffer::Prompt::kind(&self) -> oso_core::minibuffer::Kind
 pub fn oso_core::minibuffer::Prompt::label(&self) -> &str

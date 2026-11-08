@@ -64,7 +64,7 @@ impl App {
             } else {
                 self.answering = answers_once(mode, question, key).then_some(key);
             }
-            if self.agent_question_holds(key) {
+            if self.note_key_for_agent(key) {
                 return;
             }
             #[cfg(feature = "dev")]

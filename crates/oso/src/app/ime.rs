@@ -76,12 +76,13 @@ impl App {
         }
     }
 
-    /// What follows every event, before the next is read, as the window system hands a key to the
-    /// input method before it reaches oso (ADR 0069): a composition ends if a buffer that
+    /// The input method's part of what follows every event, before the next is read, as the
+    /// window system hands a key to the input method before it reaches oso (ADR 0069): a
+    /// composition ends if a buffer that
     /// may hold secrets is selected, whatever selected it, then the IME is allowed as
     /// wanted, and the OS gets the cursor's cell if it changed, so that a composition
     /// started by the next key opens its candidate window there.
-    pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
+    pub(super) fn sync_ime_after_event(&mut self, event_loop: &Loop<'_>) {
         // What follows logs, and the event may have brought a secret buffer into view.
         self.note_logging();
         if self.composing() && self.editor.current().1.is_secret() {
@@ -94,7 +95,6 @@ impl App {
         self.sync_ime(event_loop);
         self.sync_secure_input();
         self.give_cursor_area();
-        self.sync_agent();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a

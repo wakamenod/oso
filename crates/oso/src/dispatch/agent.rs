@@ -83,10 +83,13 @@ impl Dispatcher {
         };
         // Whatever the person's keys left, the agent's command starts afresh.
         self.prefix = None;
+        // The prompts it opens are the agent's, and say so (ADR 0085).
         Ok(self.as_input(editor, |this, editor| {
-            let (effects, result) = this.execute(editor, id, args, invocation, Step::Apart);
-            let effects = effects.union(this.after_prompts(editor));
-            (effects, result.map_err(|e| e.to_string()))
+            editor.for_agent(|editor| {
+                let (effects, result) = this.execute(editor, id, args, invocation, Step::Apart);
+                let effects = effects.union(this.after_prompts(editor));
+                (effects, result.map_err(|e| e.to_string()))
+            })
         }))
     }
 }

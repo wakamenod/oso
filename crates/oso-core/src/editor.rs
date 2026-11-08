@@ -43,7 +43,7 @@ mod save;
 mod status;
 mod view;
 
-pub use agent::{AGENT_LABEL, AGENT_LOG, AgentChannel, MAX_AGENT_LOG};
+pub use agent::AgentChannel;
 pub use copies::RecoveryAction;
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
