@@ -40,6 +40,28 @@ pub struct SaveJob {
     /// The buffer is unmodified, so write only if the file has gone from where it was.
     /// Whether it has needs the disk, so the host finds out.
     pub only_if_gone: bool,
+    /// The text goes to `path`, a new place for the buffer, and not where its file was
+    /// (`C-x C-w`, ADR 0087). `baseline` is then `None`: the host works out where `path` leads.
+    pub elsewhere: Option<Elsewhere>,
+}
+
+/// What a write to a new place may find there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Elsewhere {
+    /// The regular file the person agreed to write over. With `None`, nothing may be there.
+    pub over: Option<Over>,
+    /// Where the other buffers' files are, which the new place must not be: one file is never
+    /// in two buffers (ADR 0087).
+    pub open: Vec<PathBuf>,
+}
+
+/// A file a write found at a new place, which the person agreed to write over.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Over {
+    /// What it was then.
+    pub found: FileStamp,
+    /// Where the path led then. A path that now leads elsewhere writes nothing.
+    pub location: PathBuf,
 }
 
 /// Why a save did not start. Nothing was written, and nothing changed.
@@ -56,6 +78,11 @@ pub enum SaveRefused {
     /// A save found the file changed on disk since it was read. A save over it needs the
     /// person to agree first (ADR 0072).
     ChangedOnDisk,
+    /// A write to a new place found a file there. Writing over it needs the person to agree
+    /// first (ADR 0087).
+    Exists,
+    /// The new place is another buffer's file.
+    OpenElsewhere,
 }
 
 impl fmt::Display for SaveRefused {
@@ -69,6 +96,8 @@ impl fmt::Display for SaveRefused {
             Self::Unmodified => "(No changes need to be saved)",
             Self::NoFile => "Buffer has no file name",
             Self::ChangedOnDisk => "The file changed on disk since it was read",
+            Self::Exists => "A file is there already",
+            Self::OpenElsewhere => "That file is open in another buffer",
         })
     }
 }
@@ -103,7 +132,7 @@ impl fmt::Display for ExitRefused {
 
 /// Why `buffer` cannot be saved now, if it cannot. Unmodified comes before no file,
 /// as in Emacs, where `C-x C-s` in an untouched `*scratch*` has nothing to do.
-fn refusal(buffer: &Buffer) -> Option<SaveRefused> {
+pub(super) fn refusal(buffer: &Buffer) -> Option<SaveRefused> {
     if let Some(reason) = buffer.read_only() {
         Some(SaveRefused::ReadOnly(reason))
     } else if buffer.is_saving() {
@@ -128,7 +157,7 @@ fn may_have_lost_its_file(buffer: &Buffer) -> bool {
 
 /// The line break `buffer` needs at its end, if any: a text with something in it that
 /// does not end in one (ADR 0030). O(log n).
-fn missing_final_newline(buffer: &Buffer) -> Option<&'static str> {
+pub(super) fn missing_final_newline(buffer: &Buffer) -> Option<&'static str> {
     let text = buffer.text();
     let last = text.chunks_in_range(text.len().saturating_sub(1)..text.len());
     let needed = !text.is_empty() && !last.last().is_some_and(|last| last.ends_with('\n'));
@@ -159,7 +188,7 @@ impl Editor {
         self.queue_save(true)
     }
 
-    fn queue_save(&mut self, over: bool) -> Result<bool, SaveRefused> {
+    pub(super) fn queue_save(&mut self, over: bool) -> Result<bool, SaveRefused> {
         let id = self.window().buffer();
         let buffer = self.current().1;
         if let Some(refused) = refusal(buffer) {
@@ -200,6 +229,7 @@ impl Editor {
                     baseline
                 }),
                 only_if_gone,
+                elsewhere: None,
             };
             buffer.set_saving(true);
             self.save_jobs.push(job);
@@ -209,7 +239,7 @@ impl Editor {
 
     /// Adds `line_break` at the end of `id`, the selected window's buffer, and
     /// keeps the cursors that were at the end where they were.
-    fn insert_final_newline(&mut self, id: BufferId, line_break: &str) {
+    pub(super) fn insert_final_newline(&mut self, id: BufferId, line_break: &str) {
         let old_end = self.current().1.text().len();
         let edit = Replacement {
             range: old_end..old_end,
@@ -254,6 +284,7 @@ impl Editor {
         buffer.mark_saved(content);
         buffer.set_written(stamp);
         buffer.set_changed_on_disk(false);
+        buffer.set_gone_from_disk(false);
         if buffer.is_modified() {
             self.reset_exit_guard();
         }

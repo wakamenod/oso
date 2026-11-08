@@ -9,13 +9,17 @@
 // The control socket supports only Unix for now (ADR 0032).
 #![cfg(unix)]
 
+mod buffers;
+mod complete;
 mod harness;
 mod ime;
+mod isearch;
 mod kill;
 mod mark;
 mod png;
 mod prompts;
 mod recovery;
+mod reload;
 #[cfg(all(target_os = "macos", feature = "native-window"))]
 mod secure;
 
@@ -72,15 +76,27 @@ fn assert_no_secret(line: &str, what: &str) {
     assert!(!line.contains(FAKE_SECRET), "{what} quotes the secret");
 }
 
-/// The top-level fields that differ between two states, by name, so that a
-/// message can say which without quoting their values.
-fn changed_fields<'a>(before: &'a Value, after: &Value) -> Vec<&'a str> {
+/// The fields that differ between two states, by name, an object's own fields by
+/// `name.field`, so that a message can say which without quoting their values.
+fn changed_fields(before: &Value, after: &Value) -> Vec<String> {
     let fields = before.as_object().expect("a state is an object");
-    fields
-        .iter()
-        .filter(|(name, value)| after.get(name.as_str()) != Some(*value))
-        .map(|(name, _)| name.as_str())
-        .collect()
+    let mut changed = Vec::new();
+    for (name, value) in fields {
+        let now = after.get(name.as_str());
+        if now == Some(value) {
+            continue;
+        }
+        // An object's own fields, one level down, so that a failure says which one moved.
+        match (value.as_object(), now.and_then(Value::as_object)) {
+            (Some(was), Some(is)) => changed.extend(
+                was.iter()
+                    .filter(|(field, inner)| is.get(field.as_str()) != Some(*inner))
+                    .map(|(field, _)| format!("{name}.{field}")),
+            ),
+            _ => changed.push(name.clone()),
+        }
+    }
+    changed
 }
 
 /// Whether this runs on CI, where no real input reaches the windows.
@@ -1106,7 +1122,13 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     let mut bystander = App::start(Some(&file), scratch.path());
     bystander.wait_until_ready();
     bystander.send_keys("C-n C-n");
-    let before = bystander.state();
+    // The input method is told the cursor's cell only once a frame has been presented, which
+    // a slow runner's first instance may not have reached yet. The next event would give it,
+    // as the inner instance's window takes and gives back the focus, so the state compared
+    // is the one that has it.
+    let before = bystander.wait_for("the cursor's cell for the input method", |state| {
+        !state["ime"]["area"].is_null()
+    });
     let shot = bystander.call("screenshot", None);
     let shot = shot["path"].as_str().unwrap().to_owned();
 
@@ -1137,8 +1159,12 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     // Real input can move its positions and size, since its window is on the
     // screen for anyone to scroll. CI has no such input, so there nothing may
     // change. `App::start` checks that sockets lead to the right instance.
+    // AppKit's current input context belongs to the key window, which the inner instance's
+    // window takes when it opens, so on the native layer whether it is the bystander's follows
+    // focus, not anything the bystander did.
     let mut changed = changed_fields(&before, &bystander.state());
-    changed.retain(|field| on_ci() || *field == "buffers");
+    changed.retain(|field| field != "ime.current_input_context");
+    changed.retain(|field| on_ci() || field == "buffers");
     assert!(
         changed.is_empty(),
         "the other instance's {changed:?} changed",

@@ -130,13 +130,17 @@ impl App {
         Some((reply, result))
     }
 
-    /// Remembers the questions a request opened, those newer than `newest` was before it, so
-    /// that keys from the window cannot answer them: a person typing does not see a question
-    /// an agent asked appear under their fingers (ADR 0072). The window's `C-g` still closes
-    /// one.
+    /// Remembers the questions a request opened, and the prompts that complete, those newer
+    /// than `newest` was before it, so that keys from the window cannot answer them: a person
+    /// typing does not see a question an agent asked appear under their fingers, nor run a
+    /// command an agent chose (ADR 0072, ADR 0076). The window's `C-g` still closes one.
     fn note_remote_questions(&mut self, newest: Option<PromptId>) {
-        self.remote_questions
-            .extend(opened_questions(&self.editor, newest));
+        let opened = opened_questions(&self.editor, newest);
+        // What an agent typed into `M-x` is not the person's history.
+        for &id in &opened {
+            self.editor.keep_out_of_history(id);
+        }
+        self.remote_questions.extend(opened);
         let prompts = self.editor.prompts();
         self.remote_questions
             .retain(|id| prompts.iter().any(|prompt| prompt.id() == *id));
@@ -173,6 +177,16 @@ impl App {
             serde_json::Value::Null,
             |(steps, frames)| json!({ "steps": steps, "frames": frames }),
         );
+        // Whether the view gives the input method a context, which it does only while the IME
+        // is on (ADR 0070), and whether AppKit's current context is it; null on winit.
+        let context = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.input_context());
+        state["ime"]["input_context"] =
+            context.map_or(serde_json::Value::Null, |(given, _)| given.into());
+        state["ime"]["current_input_context"] =
+            context.map_or(serde_json::Value::Null, |(_, current)| current.into());
         // Whether secure input is wanted, held by oso, and on for any process in the system
         // (ADR 0073): nothing a process of the same user cannot read already (ADR 0044).
         let secure = self
@@ -283,7 +297,7 @@ impl App {
         let mut status = oso_core::editor::Status::default();
         self.editor.status_into(&mut status);
         let render_state = &mut view.render_state;
-        let cells = &mut Vec::new();
+        let cells = &mut super::draw::Cells::default();
         let capture = with_panes(&self.editor, &status, cells, |panes| {
             render_state.capture(panes)
         });
@@ -371,13 +385,18 @@ impl App {
     }
 }
 
-/// The open questions newer than `newest`, which every prompt open before a request was at
-/// most. Ids only grow, so a request that closes one prompt and opens another is told apart.
+/// The open questions, and prompts that complete, newer than `newest`, which every prompt open
+/// before a request was at most. A completion's answer runs a command, so one a request opened
+/// is answered over the socket too (ADR 0076). Ids only grow, so a request that closes one
+/// prompt and opens another is told apart.
 fn opened_questions(editor: &Editor, newest: Option<PromptId>) -> Vec<PromptId> {
     editor
         .prompts()
         .iter()
-        .filter(|prompt| prompt.kind().is_question() && newest.is_none_or(|id| prompt.id() > id))
+        .filter(|prompt| {
+            let held = prompt.kind().is_question() || prompt.candidates().is_some();
+            held && newest.is_none_or(|id| prompt.id() > id)
+        })
         .map(|prompt| prompt.id())
         .collect()
 }
@@ -385,6 +404,7 @@ fn opened_questions(editor: &Editor, newest: Option<PromptId>) -> Vec<PromptId> 
 #[cfg(test)]
 mod tests {
     use super::opened_questions;
+    use oso_core::complete::Candidate;
     use oso_core::editor::Editor;
     use oso_core::minibuffer::Kind;
 
@@ -399,5 +419,17 @@ mod tests {
         let asked = editor.ask("Exit?", "keyboard-quit").unwrap();
         assert_eq!(opened_questions(&editor, Some(prompt)), [asked]);
         assert_eq!(opened_questions(&editor, None), [before, asked]);
+    }
+
+    #[test]
+    fn a_prompt_that_completes_counts_as_opened_and_one_that_reads_a_number_does_not() {
+        let mut editor = Editor::default();
+        let number = Kind::Number { history: None };
+        let before = editor.open_prompt("Go to line: ", number).unwrap();
+        let items: std::sync::Arc<[Candidate]> = [Candidate::new("yank", "C-y", "")].into();
+        let completing = editor.open_completion("M-x", "command", items).unwrap();
+        assert_eq!(opened_questions(&editor, None), [completing]);
+        assert_eq!(opened_questions(&editor, Some(before)), [completing]);
+        assert_eq!(opened_questions(&editor, Some(completing)), []);
     }
 }

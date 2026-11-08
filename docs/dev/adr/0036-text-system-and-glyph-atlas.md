@@ -1,6 +1,6 @@
 # 0036. Text system, glyph atlas and the default font
 
-- Status: Accepted
+- Status: Accepted, amended by 0089
 - Date: 2026-11-03
 
 ## Context

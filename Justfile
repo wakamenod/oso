@@ -540,6 +540,17 @@ audit:
 secrets:
     gitleaks git --redact
 
+# Fail on a conflict marker in a tracked file, as the architecture test does, without a
+# build: for CI's docs-only path (ADR 0038)
+markers:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if git grep -nE '^(<{7}|\|{7}|>{7})( |$)|^={7}$'; then
+        echo "error: conflict markers above; finish resolving the merge, or write a heading with '#'."
+        exit 1
+    fi
+    echo "conflict markers: none"
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Docs
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

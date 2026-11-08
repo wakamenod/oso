@@ -80,7 +80,10 @@ network features.
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
   Unix domain sockets outside `oso-platform::control`, which carries the dev control
-  socket and the agent channel. The one exception is the
+  socket and the agent channel. That transport is in every build, and an architecture
+  check lets only the dev tooling, and the agent channel once it starts, listen on it,
+  clean it or write to it ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The one
+  exception is the
   benchmark harness, which never ships
   ([ADR 0046](adr/0046-performance-regression-checks.md)).
 - Executables resolve from absolute paths in user config, or from `PATH` with
@@ -186,6 +189,11 @@ and below the row, and a label's glyphs keep their own cells
   quote the text. A kill or a power cut during a save, or leaving past the 10 minutes it
   may hold an exit, can leave the temporary file behind, `0600` or by then the file's own
   mode, with the text in it, also a secret buffer's.
+- A file changed on disk is read again as it was first read: opened, followed through its
+  links and judged from the file that was opened. A reload never makes a buffer's verdict less
+  strict, as undo can bring back what was read under the old one. Neither a load nor a
+  reload logs a file's size. The watcher only looks at visited paths and never opens a file
+  ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
 - Dev state handoff for hot reload goes process-to-process in memory, never
   through files. Dev screenshots are the only dev-only files; see
   [Development](#development-t9).
@@ -228,6 +236,10 @@ and below the row, and a label's glyphs keep their own cells
   - Screenshots, the restart handoff, timings and hot reload stay dev-only.
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits the files oso has open. Any save of a buffer the person did not visit asks the person.
+    `C-x C-f`, `C-x C-w` and `kill-buffer` are the person's only. The channel switches buffers by
+    name, but never to one that may hold secrets
+    ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
+    [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - Hooks are installed only by an explicit command that shows the settings
   change first.
 
@@ -235,7 +247,12 @@ and below the row, and a label's glyphs keep their own cells
 
 - Files load in the background, and the UI stays responsive on huge files and
   long lines. Only regular files are opened, so a pipe or a device cannot
-  block or feed the loader forever. Rendering shapes only the visible
+  block or feed the loader forever. Opening never blocks on a special file: the
+  loader opens without waiting and checks the open file
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+  Directories for `C-x C-f` are listed on worker threads, at most 4, bounded to
+  100,000 names each, and no listed file is opened. A file of 2 GiB or more asks
+  before it is read, as running out of memory aborts with no emergency save. Rendering shapes only the visible
   columns of a row, and rasterizes a bounded number of new glyphs per frame
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Parsing runs in the background with cancellation and timeouts.
