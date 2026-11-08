@@ -240,7 +240,8 @@ fn the_input_method_gets_a_bounded_excerpt_of_an_ordinary_line_only() {
     // oso's own layer gives at most 2000 bytes each side of the cursor of an ordinary buffer
     // while the IME is on, and the socket says how much, never what (ADR 0077); winit none.
     let native = cfg!(all(target_os = "macos", feature = "native-window"));
-    app.run_command("forward-char", Some(500_000)).unwrap();
+    // Far enough in that the reach cuts the line on both sides; the socket counts to 10 000.
+    app.run_command("forward-char", Some(10_000)).unwrap();
     let given = app.wait_for("the excerpt", |state| {
         !native
             || state["ime"]["excerpt"]["cursor"]
