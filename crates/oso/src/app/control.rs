@@ -92,6 +92,7 @@ impl App {
             }
             dev::UiOp::RunCommand { name, arg } => {
                 let (effects, result) = self.dispatcher.run_command(&mut self.editor, &name, arg);
+                self.note_logging();
                 self.apply(event_loop, effects);
                 result.map(|()| json!({ "command": name }))
             }

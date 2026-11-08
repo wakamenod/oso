@@ -80,6 +80,8 @@ impl App {
     /// wanted, and the OS gets the cursor's cell if it changed, so that a composition
     /// started by the next key opens its candidate window there.
     pub(super) fn after_event(&mut self) {
+        // What follows logs, and the event may have brought a secret buffer into view.
+        self.note_logging();
         if self.composing() && self.editor.current().1.is_secret() {
             self.end_composition();
             // The window's input method too, so that nothing of it is committed later.
