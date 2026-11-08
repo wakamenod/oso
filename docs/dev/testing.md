@@ -430,15 +430,16 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
-  the dev features too (`--all-features`).
+  the dev features too (`--all-features`). The macOS job also runs
+  `just public-api-macos-check`, below, so that a push starts one macOS job.
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
 - `just public-api-check` on Linux: the public API matches
   `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
-  `just public-api-macos-check` on macOS for `oso-platform`'s macOS API, with the native
-  window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
+  `just public-api-macos-check` in the macOS `just ci` job for `oso-platform`'s macOS API,
+  with the native window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue
