@@ -144,6 +144,7 @@ fn the_new_path_is_judged_and_a_secret_stays_withheld() {
     );
 }
 
+#[cfg(unix)]
 #[test]
 fn a_link_to_nothing_creates_its_target() {
     let scratch = Scratch::new("elsewhere-link");
