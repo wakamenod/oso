@@ -142,35 +142,35 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
         span("M-x ", Face::CompletionPrompt),
         span("the", Face::Text),
     ]];
+    // As main's float lays a candidate out: its binding in parentheses at one column, and what
+    // is said of it at the next.
     let candidates: [&[Span<'_>]; 4] = [
         &[
             span("load-", Face::Text),
             span("the", Face::CompletionMatch),
-            span("me", Face::Text),
-            span("           ", Face::Text),
+            span("me                  ", Face::Text),
             span("Pick a theme by its name", Face::CompletionAnnotation),
         ],
         &[
             span("toggle-", Face::Text),
             span("the", Face::CompletionMatch),
-            span("me ", Face::Text),
-            span("<f5>", Face::CompletionBinding),
+            span("me      ", Face::Text),
+            span("(<f5>)", Face::CompletionBinding),
             span("    ", Face::Text),
             span("Switch between the pair", Face::CompletionAnnotation),
         ],
         &[
             span("describe-", Face::Text),
             span("the", Face::CompletionMatch),
-            span("me", Face::Text),
-            span("       ", Face::Text),
+            span("me              ", Face::Text),
             span("Show a theme's faces", Face::CompletionAnnotation),
         ],
         &[
             span("customize-", Face::Text),
             span("the", Face::CompletionMatch),
-            span("mes ", Face::Text),
-            span("C-c t", Face::CompletionBinding),
-            span(" ", Face::Text),
+            span("mes  ", Face::Text),
+            span("(C-c t)", Face::CompletionBinding),
+            span("   ", Face::Text),
             span("Not a command yet", Face::CompletionAnnotation),
         ],
     ];
