@@ -130,21 +130,20 @@ fn mark_whole_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 /// What a motion does with the region first, as Emacs's `handle-shift-selection`.
 /// A motion with Shift shows the regions from every cursor, unless they already
-/// show; one without it hides those that a Shift showed. Returns whether that
-/// changed what shows. A command calls it before it moves the cursors.
-pub(super) fn shift_select(ctx: &mut Ctx<'_>) -> bool {
+/// show; one without it hides those that a Shift showed, and asks for a frame. A
+/// command calls it before it moves the cursors.
+pub(super) fn shift_select(ctx: &mut Ctx<'_>) {
     let shifted = ctx.shifted();
     let selections = &mut ctx.editor.current_mut().0.selections;
     match (shifted, selections.mark_active()) {
         (true, MarkActive::Inactive) => {
             selections.push_marks();
             selections.set_mark_active(MarkActive::Shifted);
-            false
         }
         (false, MarkActive::Shifted) => {
             selections.set_mark_active(MarkActive::Inactive);
-            true
+            ctx.request_redraw();
         }
-        _ => false,
+        _ => {}
     }
 }

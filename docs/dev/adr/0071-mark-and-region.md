@@ -120,7 +120,10 @@ tint from screenshots. The rest are defaults they accepted with them.
 - **`oso-core`'s `editor/follow.rs`,** a private module, holds how cursors and marks follow a
   change, moved out of `editor.rs` with one helper that clips cursors, marks and the ring, which
   the way back from `*Messages*` shares. A message logged to `*Messages*` moves its cursors and
-  marks but leaves its region shown, as Emacs's message log does.
+  marks but leaves its region shown, as Emacs's message log does, and a mark at its cursor moves
+  with it, so `C-SPC` at the end says "Mark set" with no region over it. Sorting merges only
+  while regions show; with them hidden it is the plain sort and merge of cursors that met, as
+  before marks.
 - **`oso`:** a `mark` module in `commands` and in `bindings`, with `set-mark-command`,
   `exchange-point-and-mark`, `pop-to-mark-command` and `mark-whole-buffer`, `shift_select` for
   the motion and scroll commands, and `keyboard-quit` hiding the region. The dispatcher passes
@@ -189,6 +192,9 @@ Measured in a release build, on a fast machine, through `oso-core` with no windo
   100 cursors 1.34 to 1.46 ms at p50 and 1000 cursors 16.2 to 16.9 ms; on a 10 MB line,
   100 cursors 1.72 to 2.04 ms and 1000 cursors 15.7 to 19.9 ms. Only marks near an edit can
   need clipping, so this can be cut to those if many cursors with marks become common (M2-21).
+- **The ring is copied with every saved set of cursors,** 136 bytes, into each undo group too,
+  where an undo does not use it. A group already holds the cursors' `Vec`, so this adds no
+  allocation, and the history is bounded in bytes, which counts it.
 - The key and frame latencies of `just perf` are in the pull request.
 
 ## Alternatives considered

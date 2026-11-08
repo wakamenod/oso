@@ -70,19 +70,20 @@ impl Editor {
             if window.buffer() != id {
                 continue;
             }
-            let mut set = match selected {
-                Selected::Restored(Some(restored)) if index == self.selected => {
-                    let mut ring = *window.selections.mark_ring();
-                    steps.iter().for_each(|edits| ring.follow_edits(edits));
-                    let mut set = restored.with_ring(ring);
-                    set.set_mark_active(MarkActive::Inactive);
-                    clip_selections(&mut set, display, &[], true);
-                    moved.push((index, set));
-                    continue;
-                }
-                _ => window.selections.clone(),
-            };
-            if !matches!(selected, Selected::Logged) {
+            if let Selected::Restored(Some(restored)) = selected
+                && index == self.selected
+            {
+                let mut ring = *window.selections.mark_ring();
+                steps.iter().for_each(|edits| ring.follow_edits(edits));
+                let mut set = restored.with_ring(ring);
+                set.set_mark_active(MarkActive::Inactive);
+                clip_selections(&mut set, display, &[], true);
+                moved.push((index, set));
+                continue;
+            }
+            let mut set = window.selections.clone();
+            let logged = matches!(selected, Selected::Logged);
+            if !logged {
                 set.set_mark_active(MarkActive::Inactive);
             }
             let edited =
@@ -90,7 +91,12 @@ impl Editor {
             let bias = if edited { Bias::Right } else { Bias::Left };
             let mut ends = Vec::new();
             for edits in steps {
-                set.follow_edits(edits, bias);
+                if logged {
+                    // What a person set there stays as it was: an empty region too.
+                    set.follow_logged(edits, bias);
+                } else {
+                    set.follow_edits(edits, bias);
+                }
                 if edited {
                     ends.extend(new_text_ends(edits));
                 }

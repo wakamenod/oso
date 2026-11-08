@@ -216,3 +216,17 @@ fn a_region_in_messages_stays_through_the_messages_logged_there() {
     editor.message("another");
     assert_eq!(mark_active(&editor), MarkActive::Active);
 }
+
+#[test]
+fn c_spc_at_the_end_of_messages_shows_no_region_over_what_it_logs() {
+    let (mut d, mut editor) = at("ab\n", &[0]);
+    send(&mut d, &mut editor, "C-h e C-SPC");
+    let selections = &editor.window().selections;
+    assert_eq!(selections.mark_active(), MarkActive::Active);
+    assert!(
+        selections.primary().range().is_empty(),
+        "the mark went along"
+    );
+    send(&mut d, &mut editor, "M->");
+    assert!(editor.window().selections.primary().range().is_empty());
+}

@@ -412,7 +412,18 @@ impl SelectionSet {
     /// text that followed it. Marks always follow as Emacs markers do, with
     /// `Bias::Left`, so text typed at a mark goes after it.
     pub(crate) fn follow_edits(&mut self, edits: &[OffsetEdit], bias: Bias) {
-        follow_marks(&mut self.selections, edits);
+        self.follow(edits, bias, Bias::Left);
+    }
+
+    /// Moves everything through `edits` as [`SelectionSet::follow_edits`] does, but a
+    /// mark at its cursor moves as the cursor does, so an empty region stays empty. For
+    /// a message logged where the cursors are, which is no edit of theirs.
+    pub(crate) fn follow_logged(&mut self, edits: &[OffsetEdit], bias: Bias) {
+        self.follow(edits, bias, bias);
+    }
+
+    fn follow(&mut self, edits: &[OffsetEdit], bias: Bias, at_cursor: Bias) {
+        follow_marks(&mut self.selections, edits, at_cursor);
         let mut cursors = Follow::new(edits, bias);
         self.update(|selection| {
             selection.cursor = cursors.map(selection.cursor);
@@ -441,13 +452,28 @@ impl SelectionSet {
     /// shows, those whose regions overlap, keeping the primary one.
     fn normalize(&mut self) {
         let primary = self.selections[self.primary];
-        let active = self.mark_active.is_active();
-        if active {
-            self.selections
-                .sort_by_key(|selection| (selection.range().start, selection.cursor));
-        } else {
+        if !self.mark_active.is_active() {
+            // As before marks: cursors that met merge, and the primary keeps its own.
             self.selections.sort_by_key(|selection| selection.cursor);
+            self.selections.dedup_by(|next, kept| {
+                let met = next.cursor == kept.cursor;
+                if met && *next == primary {
+                    *kept = *next;
+                }
+                met
+            });
+            self.primary = self
+                .selections
+                .partition_point(|selection| selection.cursor < primary.cursor);
+            return;
         }
+        self.normalize_regions(primary);
+    }
+
+    /// [`SelectionSet::normalize`] while the regions show: those that overlap merge.
+    fn normalize_regions(&mut self, primary: Selection) {
+        self.selections
+            .sort_by_key(|selection| (selection.range().start, selection.cursor));
         let mut primary_at = self
             .selections
             .iter()
@@ -456,10 +482,10 @@ impl SelectionSet {
         let mut kept = 0;
         for index in 1..self.selections.len() {
             let (last, next) = (self.selections[kept], self.selections[index]);
-            let overlap = active && next.range().start < last.range().end;
+            let overlap = next.range().start < last.range().end;
             if next.cursor == last.cursor || overlap {
                 let keep_next = index == primary_at;
-                self.selections[kept] = merge(last, next, keep_next, active);
+                self.selections[kept] = merge(last, next, keep_next);
             } else {
                 kept += 1;
                 self.selections[kept] = next;
@@ -471,7 +497,7 @@ impl SelectionSet {
             // selection kept just before it.
             while kept > 0 && self.selections[kept - 1].cursor == self.selections[kept].cursor {
                 let (last, next) = (self.selections[kept - 1], self.selections[kept]);
-                self.selections[kept - 1] = merge(last, next, primary_at == kept, active);
+                self.selections[kept - 1] = merge(last, next, primary_at == kept);
                 if primary_at == kept {
                     primary_at -= 1;
                 }
@@ -490,12 +516,22 @@ impl SelectionSet {
 /// Moves the marks of `selections` through `edits` as markers, in ascending order.
 /// Marks set at the cursors are already in order and go through in place. Others,
 /// such as those of regions in both directions, are sorted first, which allocates.
-fn follow_marks(selections: &mut [Selection], edits: &[OffsetEdit]) {
-    let mut marks = Follow::new(edits, Bias::Left);
+/// A mark at its cursor moves with `at_cursor` instead. Each bias maps its own marks,
+/// still in ascending order.
+fn follow_marks(selections: &mut [Selection], edits: &[OffsetEdit], at_cursor: Bias) {
+    let mut others = Follow::new(edits, Bias::Left);
+    let mut along = Follow::new(edits, at_cursor);
+    let mut map = |selection: &Selection, mark: usize| {
+        if mark == selection.cursor {
+            along.map(mark)
+        } else {
+            others.map(mark)
+        }
+    };
     let in_order = selections.iter().filter_map(|selection| selection.mark);
     if in_order.is_sorted() {
         for selection in selections {
-            selection.mark = selection.mark.map(|mark| marks.map(mark));
+            selection.mark = selection.mark.map(|mark| map(selection, mark));
         }
         return;
     }
@@ -504,18 +540,15 @@ fn follow_marks(selections: &mut [Selection], edits: &[OffsetEdit]) {
         .collect();
     order.sort_unstable();
     for (mark, index) in order {
-        selections[index].mark = Some(marks.map(mark));
+        selections[index].mark = Some(map(&selections[index], mark));
     }
 }
 
-/// One selection for two that met: the cursor of one, or while the region shows,
-/// the union of their regions. It keeps the direction, mark and goal of `next` if
-/// `keep_next`, and of `last` otherwise.
-fn merge(last: Selection, next: Selection, keep_next: bool, active: bool) -> Selection {
+/// One selection for two whose regions overlap or whose cursors met, while the
+/// regions show: the union of their regions. It keeps the direction, mark and goal
+/// of `next` if `keep_next`, and of `last` otherwise.
+fn merge(last: Selection, next: Selection, keep_next: bool) -> Selection {
     let kept = if keep_next { next } else { last };
-    if !active {
-        return kept;
-    }
     let (a, b) = (last.range(), next.range());
     let union = a.start.min(b.start)..a.end.max(b.end);
     if union.is_empty() {

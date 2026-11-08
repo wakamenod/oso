@@ -34,9 +34,7 @@ pub const COMMANDS: &[Command] = &[
 /// window move to the start of its nearest row. With Shift, that selects, as a
 /// motion does (ADR 0071).
 fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
-    if super::mark::shift_select(ctx) {
-        ctx.request_redraw();
-    }
+    super::mark::shift_select(ctx);
     let (window, buffer) = ctx.editor.current_mut();
     let display = buffer.display();
     let row_count = display.row_count();

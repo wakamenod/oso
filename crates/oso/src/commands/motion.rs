@@ -102,9 +102,7 @@ fn move_cursors(
     ctx: &mut Ctx<'_>,
     motion: impl FnMut(&DisplaySnapshot, &mut Selection) -> Result<(), Edge>,
 ) -> Result<(), CommandError> {
-    if shift_select(ctx) {
-        ctx.request_redraw();
-    }
+    shift_select(ctx);
     move_selections(ctx, motion)
 }
 
@@ -221,9 +219,7 @@ fn jump(
     args: Args,
     target: impl Fn(&DisplaySnapshot, usize) -> usize,
 ) -> Result<(), CommandError> {
-    if shift_select(ctx) {
-        ctx.request_redraw();
-    }
+    shift_select(ctx);
     let selections = &mut ctx.editor.current_mut().0.selections;
     let keep = matches!(args.raw(), Some(Prefix::Universal(_)));
     if !keep && !selections.mark_active().is_active() {
