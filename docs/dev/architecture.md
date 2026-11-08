@@ -217,14 +217,15 @@ A panicking command is caught at the command boundary
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
   emergency copies and a prompt. Turning off during a composition commits it first, where
-  typing goes then, on oso's own layer, and waits for it to end on winit, which cannot
-  commit one ([ADR 0069](adr/0069-macos-input-method.md),
+  typing goes then, on oso's own layer if it would go in as typed there
+  (`Dispatcher::types_text`), and otherwise waits for it to end, as always on winit, which
+  cannot commit one ([ADR 0069](adr/0069-macos-input-method.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)). The app gives the window
-  the cursor's cell when it moves and, after each event that changes a composition, where
-  each of its characters is drawn (`Editor::preedit_positions`). On oso's own layer the view
-  only keeps them, and answers the input method's question about a range with that place, so the candidate window follows the
-  segment being converted. While the IME is off it gives no input context, so no text
-  service reads it, and Writing Tools are off for it.
+  the cursor's cell when it moves and, during a composition, where it is drawn: its first
+  cell, and where each of its characters is (`Editor::preedit_layout`). On oso's own layer
+  the view only keeps them, and answers the input method's question about a range with that
+  place, so the candidate window follows the segment being converted. While the IME is off
+  it gives no input context, so no text service reads it, and Writing Tools are off for it.
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of
