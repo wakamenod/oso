@@ -189,6 +189,11 @@ and below the row, and a label's glyphs keep their own cells
   quote the text. A kill or a power cut during a save, or leaving past the 10 minutes it
   may hold an exit, can leave the temporary file behind, `0600` or by then the file's own
   mode, with the text in it, also a secret buffer's.
+- A file changed on disk is read again as it was first read: opened, followed through its
+  links and judged from the file that was opened. A reload never makes a buffer's verdict less
+  strict, as undo can bring back what was read under the old one. Neither a load nor a
+  reload logs a file's size. The watcher only looks at visited paths and never opens a file
+  ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
 - Dev state handoff for hot reload goes process-to-process in memory, never
   through files. Dev screenshots are the only dev-only files; see
   [Development](#development-t9).
@@ -224,7 +229,8 @@ and below the row, and a label's glyphs keep their own cells
     secure input. A channel action never starts a process by itself: what opening or saving
     would start waits until the person acts in that buffer (M3 onward).
   - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
-    prompt, a key sequence or a composition, within 1 s of the person's last key, or while a
+    prompt, a key sequence, a composition or an isearch (ADR 0082), within 1 s of the person's
+    last key, or while a
     question it opened is open. It does not open a path that matches the secret patterns, and
     shows a file it opened only once it is judged ordinary. Its state withholds what
     `get-state` withholds, and never has keys in progress, prompt input, the kill ring or the

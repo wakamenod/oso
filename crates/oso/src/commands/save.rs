@@ -1,4 +1,4 @@
-//! Saving the buffer (ADR 0013, ADR 0059).
+//! Saving the buffer (ADR 0013, ADR 0059), and reading it again from its file (ADR 0083).
 //!
 //! Must not depend on: winit, the GPU, `bindings` or files; the command decides and
 //! queues, and the host writes on a thread of its own.
@@ -11,13 +11,42 @@ use oso_core::minibuffer;
 const NAME_CELLS: usize = 40;
 
 /// The save commands.
-pub const COMMANDS: &[Command] = &[Command {
-    name: "save-buffer",
-    doc: "Save the buffer to its file, if it is modified.\n\nEnsures a final newline first, as an edit of its own. The file is written in the background, and replaced at once and whole. If it has changed on disk since it was read, it is kept and the buffer stays modified, and the next save asks whether to save over it. `y` replaces it only if it is still the file that save found. A second save while one runs is refused.",
-    args: ArgSpec::None,
-    reach: Reach::Change,
-    run: save_buffer,
-}];
+pub const COMMANDS: &[Command] = &[
+    Command {
+        name: "save-buffer",
+        doc: "Save the buffer to its file, if it is modified.\n\nEnsures a final newline first, as an edit of its own. The file is written in the background, and replaced at once and whole. If it has changed on disk since it was read, it is kept and the buffer stays modified, and the next save asks whether to save over it. `y` replaces it only if it is still the file that save found. A second save while one runs is refused.",
+        args: ArgSpec::None,
+        reach: Reach::Change,
+        run: save_buffer,
+    },
+    Command {
+        name: "revert-buffer",
+        doc: "Read the buffer again from its file.\n\nA buffer with unsaved edits asks first, and `y` discards them. The text read goes in as one undo step, so undo brings the edits back. Cursors keep their place around what changed. The file is read in the background.",
+        args: ArgSpec::None,
+        // It discards edits after a question, which stays the person's.
+        reach: Reach::Person,
+        run: revert_buffer,
+    },
+];
+
+fn revert_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let buffer = ctx.editor.current().1;
+    if buffer.path().is_none() || buffer.is_internal() {
+        return Err(CommandError::new(
+            "Buffer does not seem to be associated with any file",
+        ));
+    }
+    if buffer.loading().is_some() {
+        return Err(CommandError::new("The file is still loading"));
+    }
+    if buffer.is_modified() && !ctx.confirmed() {
+        let (name, cut) = minibuffer::cut_to(buffer.name(), NAME_CELLS);
+        let question = format!("Discard your edits and reload {name}{cut}?");
+        return super::session::ask(ctx, question, "revert-buffer", ["reload", "keep"]);
+    }
+    ctx.editor.request_revert();
+    Ok(())
+}
 
 fn save_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let started = if ctx.confirmed() {

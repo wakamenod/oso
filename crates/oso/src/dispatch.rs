@@ -10,7 +10,6 @@
 
 use std::fmt::Write;
 
-use oso_core::buffer::Mode;
 #[cfg(any(test, feature = "dev"))]
 use oso_core::command::ArgSpec;
 use oso_core::command::{
@@ -19,13 +18,17 @@ use oso_core::command::{
 use oso_core::editor::Editor;
 use oso_core::key::Key;
 use oso_core::key::KeyPress;
-use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
+#[cfg(any(test, feature = "dev"))]
+use oso_core::keymap::Layers;
+use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
+use keymaps::Keymaps;
 
 mod agent;
 mod clipboard;
+mod keymaps;
 mod prompts;
 
 /// Whether a command's edits may join the undo step before, if it asks.
@@ -42,6 +45,9 @@ pub struct Dispatcher {
     /// Every keymap, held apart from the resolver, so that working out which are active
     /// borrows only them.
     keymaps: Keymaps,
+    /// The commands that run in a search rather than end it, for `run-command` (ADR 0082).
+    #[cfg(any(test, feature = "dev"))]
+    isearch_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -74,13 +80,19 @@ impl Dispatcher {
         let (digits, minus) = bindings::prefix_keymaps(&registry);
         let (list, copy) = bindings::recovery_keymaps(&registry);
         let (minibuffer, question) = bindings::prompt_keymaps(&registry);
+        let isearch = bindings::isearch_keymap(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let isearch_commands = bindings::isearch_commands(&registry);
         Self {
             keymaps: Keymaps {
                 global,
                 prefix: [digits, minus],
                 copy: [list, copy],
                 prompt: [minibuffer, question],
+                isearch,
             },
+            #[cfg(any(test, feature = "dev"))]
+            isearch_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -306,13 +318,17 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
+        // A command isearch's keys do not run ends a search first, as a key would
+        // (ADR 0082).
+        let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();
         // A yank waits for the clipboard as it does from a key, and replies at once.
         let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
             self.run_or_read(editor, id, args, invocation)
         } else {
             self.execute(editor, id, args, invocation, Step::MayJoin)
         };
-        let effects = effects.union(self.after_prompts(editor));
+        let mut effects = effects.union(self.after_prompts(editor));
+        effects.redraw |= ended_search;
         (effects, result.map_err(|e| e.to_string()))
     }
 
@@ -491,6 +507,16 @@ impl Dispatcher {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
                 return Effects::default();
             }
+            Resolution::Unbound(keys) if editor.isearch().is_some() && keys.len() == 1 => {
+                // It ends the search where it is, and then does what it would have
+                // (ADR 0082). isearch binds no prefix, so this is the key alone.
+                editor.isearch_exit();
+                let ran = self.resolve_key(editor, key);
+                return ran.union(Effects {
+                    redraw: true,
+                    ..Effects::default()
+                });
+            }
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
                 // which stays out of the log (ADR 0028).
@@ -538,62 +564,6 @@ impl Dispatcher {
     }
 }
 
-/// Every keymap a dispatcher holds.
-struct Keymaps {
-    global: Keymap,
-    /// Active while the prefix argument reads digits, and a minus sign. They come
-    /// first among the minor modes, as what is being typed is for them.
-    prefix: [Keymap; 2],
-    /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
-    copy: [Keymap; 2],
-    /// The keys of a prompt that reads an answer, above the global ones, and of a
-    /// question, in place of them (ADR 0072).
-    prompt: [Keymap; 2],
-}
-
-impl Keymaps {
-    /// The prefix argument's keymaps, as [`Keymaps::active`] takes them.
-    fn reading(&self) -> [&Keymap; 2] {
-        [&self.prefix[0], &self.prefix[1]]
-    }
-
-    /// The keymaps active now. A question's keys take the global keymap's place, so that
-    /// no other key reaches a command, and a prompt's go above it (ADR 0072). `reading`
-    /// holds the keymaps of a prefix argument.
-    fn active<'a>(
-        &'a self,
-        reading: &'a [&'a Keymap; 2],
-        prefix: Option<Prefix>,
-        editor: &Editor,
-    ) -> Layers<'a> {
-        if editor
-            .prompt()
-            .is_some_and(|prompt| prompt.kind().is_question())
-        {
-            return Layers::global(&self.prompt[1]);
-        }
-        let minor: &[&Keymap] = match prefix {
-            Some(prefix) if prefix.reads_minus() => reading,
-            Some(prefix) if prefix.reads_digits() => &reading[..1],
-            _ => &[],
-        };
-        let major = if editor.prompt().is_some() {
-            Some(&self.prompt[0])
-        } else {
-            match editor.current().1.mode() {
-                Mode::Fundamental => None,
-                Mode::CopyList => Some(&self.copy[0]),
-                Mode::CopyView => Some(&self.copy[1]),
-            }
-        };
-        Layers {
-            minor,
-            major,
-            ..Layers::global(&self.global)
-        }
-    }
-}
-
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
@@ -602,6 +572,8 @@ mod emergency_tests;
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
+#[cfg(test)]
+mod isearch_tests;
 #[cfg(test)]
 mod kill_tests;
 #[cfg(test)]

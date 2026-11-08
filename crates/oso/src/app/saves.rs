@@ -40,6 +40,7 @@ impl App {
         let failed = report.failed();
         let (buffer, confirmed) = (report.buffer(), report.reached_the_disk());
         saver::apply(&mut self.editor, report);
+        self.look_again_after_save(buffer);
         self.dispatcher.publish_for_emergency(&self.editor);
         self.copies_after_a_save(buffer, confirmed);
         self.answer_session_end(event_loop);

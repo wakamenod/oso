@@ -23,6 +23,11 @@ pub enum Quit {
     Region,
     /// It closed the innermost prompt, and ran nothing.
     Prompt,
+    /// It took a failing part or a running search off isearch, back to the last string
+    /// that matched, and the search goes on (ADR 0082).
+    SearchStep,
+    /// It ended isearch, and put the cursors and the view back as they were.
+    Search,
     /// Nothing was in progress.
     Nothing,
 }
@@ -42,6 +47,8 @@ impl Editor {
         if self.prompts.len() >= MAX_DEPTH {
             return Err(PromptError::TooDeep);
         }
+        // A prompt over a search ends it, as a key it does not bind does (ADR 0082).
+        self.isearch_abandon();
         let depth = self.prompts.len() + 1;
         let from_agent = self.agent_opens_prompts();
         let mut label = label.into();
@@ -309,8 +316,8 @@ impl Editor {
     }
 
     /// Does what one `C-g` does once a pending prefix is dealt with: the first that applies of
-    /// the steps of ADR 0072: the region, then the innermost prompt. M2-20 (isearch) and M2-21
-    /// (extra cursors) add their part after them, in that order. Closing a question runs nothing and forgets
+    /// the steps of ADR 0072: the region, then the innermost prompt, then isearch's two
+    /// steps (ADR 0082). M2-21 (extra cursors) adds its part after them. Closing a question runs nothing and forgets
     /// a refused exit.
     pub fn quit(&mut self) -> Quit {
         // A region in a prompt goes before the prompt, as with Emacs's
@@ -324,6 +331,9 @@ impl Editor {
             }
             self.close_innermost();
             return Quit::Prompt;
+        }
+        if let Some(quit) = self.isearch_quit() {
+            return quit;
         }
         Quit::Nothing
     }
