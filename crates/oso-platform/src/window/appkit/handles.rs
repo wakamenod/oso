@@ -123,6 +123,14 @@ impl Window {
         self.state.redraw.set(true);
     }
 
+    /// The renderer skipped a frame because the window was hidden by others: it is drawn once
+    /// the window is visible, which is looked at again soon, notice or not.
+    pub fn redraw_when_visible(&self) {
+        let mut frame = self.state.hidden_frame.get();
+        frame.skipped();
+        self.state.hidden_frame.set(frame);
+    }
+
     pub fn set_visible(&self, visible: bool) {
         self.state
             .requests

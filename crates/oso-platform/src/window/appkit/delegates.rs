@@ -6,7 +6,8 @@
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSWindow, NSWindowDelegate,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSWindow,
+    NSWindowDelegate, NSWindowOcclusionState,
 };
 use objc2_foundation::{MainThreadMarker, NSNotification, NSObject, NSObjectProtocol};
 
@@ -93,7 +94,20 @@ define_class!(
 
         #[unsafe(method(windowDidChangeOcclusionState:))]
         fn did_change_occlusion(&self, _notification: &NSNotification) {
-            self.ivars().state.report_occlusion();
+            let state = self.ivars().state;
+            let Some((window, _, _)) = state.window.get() else {
+                return;
+            };
+            let visible = window
+                .occlusionState()
+                .contains(NSWindowOcclusionState::Visible);
+            if !visible {
+                // Its notice of being visible again brings the frame, as the app asks then.
+                let mut frame = state.hidden_frame.get();
+                frame.told_hidden();
+                state.hidden_frame.set(frame);
+            }
+            state.deliver(Delivery::Window(Event::Occluded(!visible)));
         }
 
         /// Keys released elsewhere never reach the window, so no modifier counts as held.

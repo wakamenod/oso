@@ -91,7 +91,7 @@ pub(crate) fn surface_action(status: Option<&wgpu::CurrentSurfaceTexture>) -> Su
         S::Outdated => SurfaceAction::Reconfigure,
         S::Lost => SurfaceAction::Recreate,
         S::Timeout => SurfaceAction::Retry,
-        // Occluded windows get `WindowEvent::Occluded(false)` when visible again.
+        // The caller is told the frame is owed once the window is visible again.
         S::Occluded => SurfaceAction::Skip,
         S::Validation => SurfaceAction::Fail,
     }
@@ -134,6 +134,9 @@ pub enum Redraw {
     Needed,
     /// Draw nothing until the next event.
     NotNeeded,
+    /// The window is hidden by others, so the frame was skipped: it is owed once the window
+    /// is visible again.
+    WhenVisible,
 }
 
 /// Manages the wgpu device, queue, and surface; issues frame draws.
@@ -351,7 +354,8 @@ impl RenderState {
             }
             SurfaceAction::Retry => {}
             SurfaceAction::Fail => return Err(RenderError::SurfaceValidation),
-            SurfaceAction::Skip | SurfaceAction::Draw | SurfaceAction::DrawThenReconfigure => {
+            SurfaceAction::Skip => return Ok(Redraw::WhenVisible),
+            SurfaceAction::Draw | SurfaceAction::DrawThenReconfigure => {
                 return Ok(Redraw::NotNeeded);
             }
         }

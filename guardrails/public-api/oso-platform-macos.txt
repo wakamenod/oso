@@ -428,6 +428,7 @@ impl oso_platform::window::Window
 pub fn oso_platform::window::Window::discard_composition(&self)
 pub fn oso_platform::window::Window::inner_size(&self) -> (u32, u32)
 pub fn oso_platform::window::Window::outer_position(&self) -> core::option::Option<(i32, i32)>
+pub fn oso_platform::window::Window::redraw_when_visible(&self)
 pub fn oso_platform::window::Window::render_target(&self) -> oso_platform::window::RenderTarget
 pub fn oso_platform::window::Window::request_attention(&self)
 pub fn oso_platform::window::Window::request_inner_size(&self, u32, u32)

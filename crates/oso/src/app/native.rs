@@ -102,6 +102,11 @@ impl Window {
         self.0.request_redraw();
     }
 
+    /// A frame skipped because the window was hidden: drawn once it is visible again.
+    pub(super) fn redraw_when_visible(&self) {
+        self.0.redraw_when_visible();
+    }
+
     pub(super) fn set_visible(&self, visible: bool) {
         self.0.set_visible(visible);
     }
