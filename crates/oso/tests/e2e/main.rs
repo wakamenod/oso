@@ -9,6 +9,7 @@
 // The control socket supports only Unix for now (ADR 0032).
 #![cfg(unix)]
 
+mod complete;
 mod harness;
 mod ime;
 mod mark;
