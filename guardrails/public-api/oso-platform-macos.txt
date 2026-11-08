@@ -78,8 +78,6 @@ pub mod oso_platform::control
 pub enum oso_platform::control::Socket
 pub oso_platform::control::Socket::Agent
 pub oso_platform::control::Socket::Dev
-impl oso_platform::control::Socket
-pub fn oso_platform::control::Socket::file_name(self, u32) -> alloc::string::String
 impl core::clone::Clone for oso_platform::control::Socket
 pub fn oso_platform::control::Socket::clone(&self) -> oso_platform::control::Socket
 impl core::cmp::Eq for oso_platform::control::Socket
@@ -131,8 +129,9 @@ impl std::io::Write for oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::flush(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io::error::Result<usize>
 pub struct oso_platform::control::Peer
-pub oso_platform::control::Peer::parent: core::option::Option<oso_platform::control::Process>
-pub oso_platform::control::Peer::process: core::option::Option<oso_platform::control::Process>
+pub oso_platform::control::Peer::parent: core::option::Option<oso_platform::control::PeerProcess>
+pub oso_platform::control::Peer::process: core::option::Option<oso_platform::control::PeerProcess>
+pub oso_platform::control::Peer::runs_this_program: bool
 impl core::clone::Clone for oso_platform::control::Peer
 pub fn oso_platform::control::Peer::clone(&self) -> oso_platform::control::Peer
 impl core::cmp::Eq for oso_platform::control::Peer
@@ -143,18 +142,19 @@ pub fn oso_platform::control::Peer::default() -> oso_platform::control::Peer
 impl core::fmt::Debug for oso_platform::control::Peer
 pub fn oso_platform::control::Peer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::control::Peer
-pub struct oso_platform::control::Process
-pub oso_platform::control::Process::name: core::option::Option<alloc::string::String>
-pub oso_platform::control::Process::pid: u32
-impl core::clone::Clone for oso_platform::control::Process
-pub fn oso_platform::control::Process::clone(&self) -> oso_platform::control::Process
-impl core::cmp::Eq for oso_platform::control::Process
-impl core::cmp::PartialEq for oso_platform::control::Process
-pub fn oso_platform::control::Process::eq(&self, &oso_platform::control::Process) -> bool
-impl core::fmt::Debug for oso_platform::control::Process
-pub fn oso_platform::control::Process::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_platform::control::Process
-pub const oso_platform::control::MAX_PROCESS_NAME: usize
+pub struct oso_platform::control::PeerProcess
+impl oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::name(&self) -> core::option::Option<&str>
+pub fn oso_platform::control::PeerProcess::new(u32, core::option::Option<&str>) -> Self
+pub const fn oso_platform::control::PeerProcess::pid(&self) -> u32
+impl core::clone::Clone for oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::clone(&self) -> oso_platform::control::PeerProcess
+impl core::cmp::Eq for oso_platform::control::PeerProcess
+impl core::cmp::PartialEq for oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::eq(&self, &oso_platform::control::PeerProcess) -> bool
+impl core::fmt::Debug for oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::control::PeerProcess
 pub mod oso_platform::file_meta
 pub struct oso_platform::file_meta::AccessList
 impl oso_platform::file_meta::AccessList

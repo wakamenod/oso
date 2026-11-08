@@ -13,7 +13,6 @@ mod peer;
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};
 use std::io::{self, Read, Write};
-use std::os::fd::AsRawFd;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -216,15 +215,17 @@ impl ControlDir {
 
     /// Removes the files of other instances that are gone: each of their
     /// sockets refuses connections, or they have no socket at all. This
-    /// process's files are kept. A probe connects and sends nothing, which the
-    /// agent channel takes as no request (ADR 0085). Errors are ignored; a file that cannot be removed does
+    /// process's files are kept. A probe connects and sends nothing; the agent
+    /// channel asks the person about a connection only once it sends a request. Errors are ignored; a file that cannot be removed does
     /// no harm.
     ///
     /// Probing a socket may block (on Linux, while a stopped instance's
     /// backlog is full), so call this away from the UI thread. On macOS a
     /// full backlog refuses connections instead, so such a live instance
-    /// would be treated as stale; this is rare enough to accept for a dev
-    /// tool.
+    /// would be treated as stale and lose its socket file: it goes on serving
+    /// the clients it has, and cannot be found again until it listens anew. A
+    /// process that can fill the backlog runs as the same user, and could
+    /// remove the file itself.
     pub fn remove_stale(&self) {
         let own_pid = std::process::id();
         let Ok(names) = self.file_names() else {
@@ -317,7 +318,8 @@ impl ControlListener {
 }
 
 /// Removes this process's socket and files from the control directory when
-/// dropped: all of them, or only the one file it names.
+/// dropped: all of them but its agent socket, which has its own guard, or only
+/// the one file it names.
 #[derive(Debug, Clone)]
 pub struct CleanupGuard {
     dir: PathBuf,
@@ -334,9 +336,11 @@ impl Drop for CleanupGuard {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return;
         };
+        let agent = Socket::Agent.file_name(self.pid);
         for entry in entries.flatten() {
             if let Some(name) = entry.file_name().to_str()
                 && owner_pid(name) == Some(self.pid)
+                && name != agent
             {
                 let _ = fs::remove_file(entry.path());
             }
@@ -350,7 +354,7 @@ pub struct ControlStream(UnixStream);
 
 impl ControlStream {
     fn verified(stream: UnixStream) -> io::Result<Self> {
-        check_peer(peer_owner(&stream)?, euid())?;
+        check_peer(peer::owner(&stream)?, euid())?;
         Ok(Self(stream))
     }
 
@@ -412,88 +416,10 @@ fn check_peer(peer: u32, own: u32) -> io::Result<()> {
     }
 }
 
-/// The user that owns the process at the other end of `stream`.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn peer_owner(stream: &UnixStream) -> io::Result<u32> {
-    peer_cred(stream).map(|cred| cred.uid)
-}
-
-/// The credentials of the process at the other end of `stream`.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn peer_cred(stream: &UnixStream) -> io::Result<libc::ucred> {
-    let fd = stream.as_raw_fd();
-    let mut cred = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
-    };
-    let size = std::mem::size_of::<libc::ucred>();
-    let mut len = libc::socklen_t::try_from(size).expect("ucred fits in socklen_t");
-    // SAFETY: `fd` belongs to `stream`, which is borrowed for the call.
-    // `cred` and `len` are initialized locals that outlive the call, and
-    // `len` holds the size of `cred`, so the kernel writes within it.
-    let ret = unsafe {
-        libc::getsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&raw mut cred).cast(),
-            &raw mut len,
-        )
-    };
-    if ret != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    if usize::try_from(len).ok() != Some(size) {
-        return Err(io::Error::other("SO_PEERCRED returned a short ucred"));
-    }
-    Ok(cred)
-}
-
-/// The user that owns the process at the other end of `stream`.
-#[cfg(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "dragonfly"
-))]
-fn peer_owner(stream: &UnixStream) -> io::Result<u32> {
-    let fd = stream.as_raw_fd();
-    let mut uid: libc::uid_t = 0;
-    let mut gid: libc::gid_t = 0;
-    // SAFETY: `fd` belongs to `stream`, which is borrowed for the call, and
-    // `uid` and `gid` are initialized locals that outlive the call.
-    let ret = unsafe { libc::getpeereid(fd, &raw mut uid, &raw mut gid) };
-    if ret != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(uid)
-}
-
-/// Other Unix systems: no peer check is implemented, so every peer is
-/// refused.
-#[cfg(not(any(
-    target_os = "linux",
-    target_os = "android",
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "freebsd",
-    target_os = "openbsd",
-    target_os = "netbsd",
-    target_os = "dragonfly"
-)))]
-fn peer_owner(_stream: &UnixStream) -> io::Result<u32> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "the control socket cannot check peers on this system",
-    ))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{ControlDir, ControlStream, Socket, check_peer, default_path, euid, peer_owner};
+    use super::peer::owner as peer_owner;
+    use super::{ControlDir, ControlStream, Socket, check_peer, default_path, euid};
     use std::ffi::OsString;
     use std::fs::{self, Permissions};
     use std::io::{BufRead, BufReader, ErrorKind, Write};
@@ -839,6 +765,20 @@ mod tests {
     }
 
     #[test]
+    fn the_dev_sockets_guard_leaves_the_agent_socket() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        let agent = dir.listen(Socket::Agent).unwrap();
+        let dev = dir.listen(Socket::Dev).unwrap();
+        assert!(agent.socket_path().exists());
+        drop(dev.cleanup_guard());
+        assert!(!dev.socket_path().exists());
+        assert!(agent.socket_path().exists());
+        let (pid, _client) = dir.connect(Socket::Agent, None).unwrap();
+        assert_eq!(pid, std::process::id());
+    }
+
+    #[test]
     fn an_agent_socket_alone_keeps_an_instance_alive() {
         let scratch = Scratch::new();
         let dir = ControlDir::at(scratch.join("c")).unwrap();
@@ -858,7 +798,7 @@ mod tests {
         let (a, _b) = ControlStream::pair().unwrap();
         let peer = a.peer();
         if cfg!(any(target_os = "macos", target_os = "linux")) {
-            assert_eq!(peer.process.unwrap().pid, std::process::id());
+            assert_eq!(peer.process.unwrap().pid(), std::process::id());
         }
     }
 

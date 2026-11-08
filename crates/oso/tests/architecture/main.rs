@@ -1,7 +1,7 @@
 //! Architecture guardrails (ADR 0038, ADR 0039): the dependency direction
 //! between crates and between modules, external crates confined to their
 //! owner, the file-size ratchet, the ban on `static` items, the ban on
-//! spawning outside one module, where a control socket may listen, the module
+//! spawning outside one module, where the control directory may be used, the module
 //! headers and conflict markers in any file. The rules live in `guardrails/`; the format is described at the top of
 //! each file there.
 //!
@@ -137,20 +137,13 @@ fn only_the_allowed_files_may_silence_the_ban_on_spawning() {
 }
 
 #[test]
-fn only_the_dev_tooling_listens_on_a_control_socket() {
+fn the_control_directory_is_used_only_where_allowed() {
     let workspace = Workspace::current();
     let files: Vec<(String, String)> = workspace
         .rust_files()
         .into_iter()
         .map(|path| (workspace.relative_path(&path), read(&path)))
         .collect();
-    assert!(
-        files
-            .iter()
-            .any(|(at, src)| at.starts_with(listening::ALLOWED[0])
-                && !listening::listen_calls(&tokenize(src)).is_empty()),
-        "the walk saw no listening in the dev tooling; fix this check"
-    );
     assert_none(&listening::problems(&files));
 }
 

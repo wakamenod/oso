@@ -80,7 +80,10 @@ network features.
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
   Unix domain sockets outside `oso-platform::control`, which carries the dev control
-  socket and the agent channel. The one exception is the
+  socket and the agent channel. That transport is in every build, and an architecture
+  check lets only the dev tooling, and the agent channel once it starts, listen on it,
+  clean it or write to it ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The one
+  exception is the
   benchmark harness, which never ships
   ([ADR 0046](adr/0046-performance-regression-checks.md)).
 - Executables resolve from absolute paths in user config, or from `PATH` with
