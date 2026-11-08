@@ -220,6 +220,7 @@ mod tests {
             modified,
             len: 1200,
             mode: 0o644,
+            identity: None,
         };
         let text = meta_text(
             &identity(Some("/home/me/a b.txt")),

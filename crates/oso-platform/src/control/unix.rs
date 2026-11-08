@@ -144,7 +144,7 @@ impl ControlDir {
                 let meta = fs::symlink_metadata(&path)?;
                 Some(Only {
                     name,
-                    file: (meta.dev(), meta.ino()),
+                    file: identity(&meta),
                 })
             }
         };
@@ -355,20 +355,26 @@ pub struct CleanupGuard {
     only: Option<Only>,
 }
 
+/// What tells one socket file from another made in its place.
+fn identity(meta: &fs::Metadata) -> (u64, u64, i64, i64) {
+    (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec())
+}
+
 /// The one socket a guard removes: by name, and only while that name is still the file its
 /// listener bound, so that an old guard never removes a newer listener's socket.
 #[derive(Debug, Clone)]
 struct Only {
     name: String,
-    /// Device and inode.
-    file: (u64, u64),
+    /// Device, inode and when the inode last changed: an inode number freed by one socket
+    /// can be given at once to the next (Linux does), so the number alone tells nothing.
+    file: (u64, u64, i64, i64),
 }
 
 impl Drop for CleanupGuard {
     fn drop(&mut self) {
         if let Some(only) = &self.only {
             let path = self.dir.join(&only.name);
-            if fs::symlink_metadata(&path).is_ok_and(|meta| (meta.dev(), meta.ino()) == only.file) {
+            if fs::symlink_metadata(&path).is_ok_and(|meta| identity(&meta) == only.file) {
                 let _ = fs::remove_file(path);
             }
             return;

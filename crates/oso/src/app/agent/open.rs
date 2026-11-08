@@ -79,6 +79,17 @@ impl App {
             reply,
             asked: std::time::Instant::now(),
         });
+        // Something must wake the loop when the deadline passes, as nothing else may.
+        let waker = self.waker.clone();
+        let spawned = std::thread::Builder::new()
+            .name("oso-agent-deadline".into())
+            .spawn(move || {
+                std::thread::sleep(OPEN_WITHIN);
+                waker.send(super::super::UserEvent::AgentDeadline);
+            });
+        if let Err(e) = spawned {
+            log::warn!("agent channel: cannot start the deadline thread: {e}");
+        }
     }
 
     /// Shows each file the channel opened that is judged ordinary and read, and drops each
@@ -97,11 +108,13 @@ impl App {
             };
             let waiting = buffer.verdict() == Verdict::Unjudged
                 || (!buffer.is_secret() && buffer.loading().is_some());
-            if waiting && opening.asked.elapsed() < OPEN_WITHIN {
+            let late = opening.asked.elapsed() >= OPEN_WITHIN;
+            if waiting && !late {
                 index += 1;
                 continue;
             }
-            let refused = if waiting {
+            // Past the deadline it goes, whatever it has come to: the agent was told so.
+            let refused = if late {
                 Some("the file took too long to load")
             } else if buffer.is_secret() {
                 Some("the file may hold secrets, so it stays closed; ask the person")
@@ -110,7 +123,7 @@ impl App {
             };
             let opening = self.agent.opening.swap_remove(index);
             if let Some(why) = refused {
-                self.editor.kill_buffer(opening.buffer);
+                self.drop_agents_file(opening.buffer);
                 let _ = opening.reply.send(Err(why.into()));
                 self.agent_log("open: refused");
                 continue;
@@ -124,7 +137,7 @@ impl App {
     /// line, unless the person is in the middle of something: then it is dropped.
     fn show_agents_file(&mut self, opening: &Opening) -> Reply {
         if let Some(why) = self.agent_waits() {
-            self.editor.kill_buffer(opening.buffer);
+            self.drop_agents_file(opening.buffer);
             self.agent_log("open: dropped, the person was busy");
             return Err(why.into());
         }
@@ -155,8 +168,17 @@ impl App {
             .partition(|opening| connection.is_none_or(|c| c == opening.connection));
         self.agent.opening = kept;
         for opening in gone {
-            self.editor.kill_buffer(opening.buffer);
+            self.drop_agents_file(opening.buffer);
         }
+    }
+}
+
+impl App {
+    /// Drops a file the channel opened, before it shows: its buffer, and its load, whose
+    /// thread then stops reading, so that a read that hangs holds nothing.
+    fn drop_agents_file(&mut self, buffer: BufferId) {
+        self.cancel_load(buffer);
+        self.editor.kill_buffer(buffer);
     }
 }
 

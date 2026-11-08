@@ -1,4 +1,5 @@
-//! Loading files on a background thread (ADR 0022, ADR 0040).
+//! Loading files on a background thread (ADR 0022, ADR 0040), and reading them again when
+//! they change on disk (ADR 0083).
 //!
 //! Must not depend on: `app`, winit or the GPU; the caller supplies the
 //! wake-up.
@@ -25,8 +26,12 @@
 //! from the open file, which a save checks before it replaces the file (ADR 0029,
 //! ADR 0059).
 //!
+//! A file that changed on disk is read again the same way, opened, followed, judged and given
+//! a baseline, but its text comes whole, compared with the buffer's on this thread
+//! ([`spawn_reload`]). [`Watcher`] notices the change (ADR 0083).
+//!
 //! Loading only reads the file. Nothing in it is run or interpreted
-//! (security.md, T1).
+//! (security.md, T1). Nothing logged says how large a file is, as it may hold secrets.
 
 use std::fs::{File, Metadata};
 use std::io::{self, Read};
@@ -38,12 +43,15 @@ use std::time::{Duration, Instant};
 
 use oso_core::buffer::{Baseline, BufferId, FileStamp};
 use oso_core::display_map::TabWidth;
-use oso_core::load::{Builder, LoadSnapshot};
+use oso_core::load::{Builder, LoadSnapshot, Reloaded};
+use oso_core::rope::Rope;
 
 mod resolve;
+mod watch;
 
 pub use resolve::{Resolved, location, parent};
 use resolve::{own_spelling, resolve};
+pub use watch::Watcher;
 
 /// Bytes read at a time.
 const READ_SIZE: usize = 64 * 1024;
@@ -57,6 +65,9 @@ const SEND_INTERVAL: Duration = Duration::from_millis(50);
 pub enum LoadUpdate {
     /// The content so far; `done` once the whole file is in.
     Snapshot(Box<LoadSnapshot>),
+    /// The whole file read again, compared with the text the buffer had (ADR 0083). Nothing
+    /// more follows.
+    Reloaded(Box<Reloaded>),
     /// The file could not be read. Nothing more follows.
     Failed(LoadError),
 }
@@ -68,6 +79,11 @@ impl std::fmt::Debug for LoadUpdate {
                 .debug_struct("Snapshot")
                 .field("progress", &snapshot.progress())
                 .field("done", &snapshot.done())
+                .finish_non_exhaustive(),
+            // Whether it changed, and nothing of its size or where.
+            Self::Reloaded(reloaded) => f
+                .debug_struct("Reloaded")
+                .field("changed", &reloaded.is_changed())
                 .finish_non_exhaustive(),
             Self::Failed(e) => f.debug_tuple("Failed").field(e).finish(),
         }
@@ -87,7 +103,13 @@ pub enum LoadError {
     Panicked,
     /// The file opened has more than one name, which a load for the agent channel refuses:
     /// its other names, which the secret patterns judge, are not seen (ADR 0085).
+    #[cfg_attr(
+        not(unix),
+        expect(dead_code, reason = "only Unix counts a file's names")
+    )]
     SeveralNames,
+    /// The file opened is larger than a load for the agent channel takes (ADR 0085).
+    TooLargeForTheAgent,
 }
 
 impl std::fmt::Display for LoadError {
@@ -98,6 +120,7 @@ impl std::fmt::Display for LoadError {
             Self::Io(e) => write!(f, "{e}"),
             Self::Panicked => f.write_str("loading failed"),
             Self::SeveralNames => f.write_str("the file has more than one name"),
+            Self::TooLargeForTheAgent => f.write_str("the file is larger than the agent may open"),
         }
     }
 }
@@ -210,6 +233,37 @@ where
     })
 }
 
+/// Starts reading `path` again into `buffer`, whose text is `old`, on a background thread, as
+/// its file changed on disk (ADR 0083). The path is followed and judged, and the baseline taken,
+/// as for [`spawn`], and the whole text comes in one [`LoadUpdate::Reloaded`], compared with
+/// `old` there. `wake` is as for [`spawn`].
+pub fn spawn_reload<W>(
+    buffer: BufferId,
+    path: PathBuf,
+    old: Rope,
+    for_agent: bool,
+    wake: W,
+) -> io::Result<LoadHandle>
+where
+    W: Fn(BufferId) -> bool + Send + 'static,
+{
+    spawn_reading(buffer, wake, move |shared, post| {
+        let (file, metadata) = open_and_record(&path, shared, || {})?;
+        // A buffer the agent opened is read again only as it may be opened (ADR 0085).
+        if for_agent {
+            for_the_agent(&metadata)?;
+        }
+        let Some((builder, _)) = read_all(file, metadata.len(), shared, |_| true)? else {
+            return Ok(());
+        };
+        let reloaded = builder.snapshot().compared_with(&old);
+        // Freed here, not on the UI thread, if the buffer has moved on from it.
+        drop(old);
+        post(LoadUpdate::Reloaded(Box::new(reloaded)));
+        Ok(())
+    })
+}
+
 /// Starts `read` on a background thread, with what the thread and the UI share.
 fn spawn_reading<W, R>(buffer: BufferId, wake: W, read: R) -> io::Result<LoadHandle>
 where
@@ -262,7 +316,7 @@ where
     })
 }
 
-/// What a save records of a file, from its metadata. Loading and saving must agree on
+/// What a save records of a file, from its metadata, with its device and inode. Loading and saving must agree on
 /// it, or every save would report a conflict.
 ///
 /// # Errors
@@ -273,10 +327,19 @@ pub fn stamp_of(metadata: &Metadata) -> io::Result<FileStamp> {
     let mode = std::os::unix::fs::PermissionsExt::mode(&metadata.permissions());
     #[cfg(not(unix))]
     let mode = 0;
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        Some((metadata.dev(), metadata.ino()))
+    };
+    // `std` keeps a file's identity unstable here.
+    #[cfg(not(unix))]
+    let identity = None;
     Ok(FileStamp {
         modified: metadata.modified()?,
         len: metadata.len(),
         mode,
+        identity,
     })
 }
 
@@ -422,6 +485,34 @@ fn load_around(
     after_open: impl FnOnce(),
     one_name: bool,
 ) -> Result<(), LoadError> {
+    let (file, metadata) = open_and_record(path, shared, after_open)?;
+    if one_name {
+        for_the_agent(&metadata)?;
+    }
+    read_into(file, metadata.len(), shared, send)
+}
+
+/// What a load for the agent channel checks on the file it opened, so that no file swapped
+/// in after the channel looked gets past: one name only, and no more than the channel opens
+/// (ADR 0085).
+fn for_the_agent(metadata: &Metadata) -> Result<(), LoadError> {
+    #[cfg(unix)]
+    if std::os::unix::fs::MetadataExt::nlink(metadata) > 1 {
+        return Err(LoadError::SeveralNames);
+    }
+    if metadata.len() > crate::channel::server::MAX_OPEN_BYTES {
+        return Err(LoadError::TooLargeForTheAgent);
+    }
+    Ok(())
+}
+
+/// Opens `path`, runs `after_open`, and records where the path leads, the verdict, the file's own
+/// spelling and its baseline for the UI, before anything is read.
+fn open_and_record(
+    path: &Path,
+    shared: &Shared,
+    after_open: impl FnOnce(),
+) -> Result<(File, Metadata), LoadError> {
     let opened = open(path);
     after_open();
     let resolved = resolve(path);
@@ -435,14 +526,7 @@ fn load_around(
         .as_ref()
         .and_then(|baseline| own_spelling(&baseline.location));
     *shared.baseline() = baseline;
-    let (file, metadata) = opened?;
-    #[cfg(unix)]
-    if one_name && std::os::unix::fs::MetadataExt::nlink(&metadata) > 1 {
-        return Err(LoadError::SeveralNames);
-    }
-    #[cfg(not(unix))]
-    let _ = one_name;
-    read_into(file, metadata.len(), shared, send)
+    opened
 }
 
 /// Reads `total` bytes of `file`, decodes them and sends them.
@@ -452,13 +536,41 @@ fn read_into(
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
 ) -> Result<(), LoadError> {
+    let mut sent: Option<Instant> = None;
+    let read = read_all(file, total, shared, |builder| {
+        if sent.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL) {
+            if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
+                return false;
+            }
+            sent = Some(Instant::now());
+        }
+        true
+    })?;
+    let Some((builder, grew)) = read else {
+        return Ok(());
+    };
+    if grew {
+        log::info!("the file grew while loading; the rest is not shown");
+    }
+    send(LoadUpdate::Snapshot(Box::new(builder.snapshot())));
+    Ok(())
+}
+
+/// Reads `total` bytes of `file` and decodes them, showing `each` the builder after each read.
+/// Returns the finished builder and whether the file had more, or `None` if cancelled or once
+/// `each` returns false.
+fn read_all(
+    file: File,
+    total: u64,
+    shared: &Shared,
+    mut each: impl FnMut(&Builder) -> bool,
+) -> Result<Option<(Builder, bool)>, LoadError> {
     let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];
-    let mut sent: Option<Instant> = None;
     loop {
         if shared.cancel.load(Ordering::Relaxed) {
-            return Ok(());
+            return Ok(None);
         }
         let read = match file.read(&mut piece) {
             Ok(0) => break,
@@ -467,23 +579,16 @@ fn read_into(
             Err(e) => return Err(LoadError::Io(e)),
         };
         builder.push(&piece[..read]);
-        if sent.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL) {
-            if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
-                return Ok(());
-            }
-            sent = Some(Instant::now());
+        if !each(&builder) {
+            return Ok(None);
         }
     }
     builder.finish();
-    if file
+    let grew = file
         .into_inner()
         .read(&mut piece[..1])
-        .is_ok_and(|read| read > 0)
-    {
-        log::info!("the file grew while loading; the rest is not shown");
-    }
-    send(LoadUpdate::Snapshot(Box::new(builder.snapshot())));
-    Ok(())
+        .is_ok_and(|read| read > 0);
+    Ok(Some((builder, grew)))
 }
 
 #[cfg(test)]
@@ -821,6 +926,67 @@ mod tests {
             panic!("no update");
         };
         assert!(!snapshot.done());
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_reload_sends_the_whole_text_compared_with_the_old_one() {
+        let content = "head\n".to_owned() + &"日本語 🍣\n".repeat(30_000);
+        let path = scratch_file("reload.txt", content.as_bytes());
+        let old = Rope::from("head\nother\n");
+        let (tx, rx) = mpsc::channel();
+        let handle =
+            spawn_reload(id(), path.clone(), old, false, move |_| tx.send(()).is_ok()).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert!(handle.take_resolved().is_some());
+        assert!(handle.take_baseline().unwrap().file.is_some());
+        let update = handle.take().unwrap();
+        let printed = format!("{update:?}");
+        assert_eq!(
+            printed, "Reloaded { changed: true, .. }",
+            "nothing of its size"
+        );
+        let LoadUpdate::Reloaded(reloaded) = update else {
+            panic!("{update:?}");
+        };
+        assert!(reloaded.is_changed());
+        assert!(handle.take().is_none(), "one update only");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_load_for_the_agent_refuses_a_file_grown_past_its_limit() {
+        let path = scratch_file("agent-large.txt", b"");
+        // Sparse: it takes no room, but says it is that large.
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(crate::channel::server::MAX_OPEN_BYTES + 1)
+            .unwrap();
+        let shared = Shared::default();
+        let refused = load(&path, &shared, &|_| true, true);
+        assert!(
+            matches!(refused, Err(LoadError::TooLargeForTheAgent)),
+            "{refused:?}"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reload_for_the_agent_refuses_a_file_given_a_second_name() {
+        let path = scratch_file("reload-agent.txt", b"plain\n");
+        let second = path.with_extension("key");
+        let _ = std::fs::remove_file(&second);
+        std::fs::hard_link(&path, &second).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let wake = move |_| tx.send(()).is_ok();
+        let handle = spawn_reload(id(), path.clone(), Rope::from(""), true, wake).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let update = handle.take().unwrap();
+        assert!(
+            matches!(update, LoadUpdate::Failed(LoadError::SeveralNames)),
+            "no text comes: {update:?}"
+        );
+        std::fs::remove_file(&second).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 }

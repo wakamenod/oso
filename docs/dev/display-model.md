@@ -140,7 +140,7 @@ one layer:
 | Layer owner | Examples | Notes |
 |---|---|---|
 | Syntax | tree-sitter highlights | computed in the background, swapped atomically |
-| Search | isearch matches | |
+| Search | isearch matches | built in M2-20 as rectangles of the view's cells, worked out each frame ([ADR 0082](adr/0082-isearch.md)) |
 | Diagnostics | LSP errors and warnings | underline styles and gutter signs |
 | Modes | dired file lines, git sections and hunks | carry typed data |
 | Selections | regions of every cursor | built in M2-13 as rectangles of the frame's cells, not as a layer ([ADR 0071](adr/0071-mark-and-region.md)) |

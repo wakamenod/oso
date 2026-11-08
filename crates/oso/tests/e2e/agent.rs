@@ -384,6 +384,42 @@ fn mcp_requests() -> String {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
+fn a_file_the_person_visited_that_reloads_from_elsewhere_saves_for_the_agent_only_with_a_yes() {
+    let scratch = Scratch::new("agent-relinked");
+    let first = scratch.write("first.txt", b"first\n");
+    let elsewhere = scratch.write("elsewhere.txt", b"elsewhere\n");
+    let link = scratch.symlink("notes.txt", &first);
+    let mut app = App::start(Some(&link), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+
+    // The link now leads elsewhere, and the watcher reads the file again.
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+    app.wait_for("the reload", |state| {
+        state["text"]["rows"][0] == "elsewhere"
+    });
+
+    let inserted = agent.call(
+        "run",
+        Some(json!({ "name": "insert", "arg": "new ", "reach": "change" })),
+    );
+    assert!(inserted.is_ok(), "{inserted:?}");
+    let waiting = agent.run("save-buffer", None, "change").unwrap();
+    let waiting = waiting["waiting"].as_str().unwrap().to_owned();
+    assert!(
+        waiting.contains("elsewhere.txt, which the agent opened?"),
+        "{waiting}"
+    );
+    assert_eq!(
+        std::fs::read(&elsewhere).unwrap(),
+        b"elsewhere\n",
+        "nothing written yet"
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
 fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
     use std::io::Read;
     let scratch = Scratch::new("agent-mcp");
@@ -449,4 +485,66 @@ fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
     let state: Value = serde_json::from_str(&text(&responses[4])).unwrap();
     assert_eq!(state["buffers"][0]["name"], "notes.txt");
     assert_eq!(app.state()["prompts"], json!([]), "the editor runs on");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_question_that_follows_the_persons_yes_closes_when_the_agent_goes() {
+    let scratch = Scratch::new("agent-follow-up");
+    let notes = scratch.write("notes.txt", b"one\n");
+    let other = scratch.write("other.txt", b"first\n");
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+    agent.call("open", Some(json!({ "path": other }))).unwrap();
+    agent
+        .call(
+            "run",
+            Some(json!({ "name": "insert", "arg": "x", "reach": "change" })),
+        )
+        .unwrap();
+    // The file changes under the agent's edit.
+    let new = other.with_extension("new");
+    std::fs::write(&new, b"changed on disk\n").unwrap();
+    std::fs::rename(&new, &other).unwrap();
+    app.wait_for("the warning", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("changed on disk"))
+    });
+
+    // Each save asks the person first, as the agent opened the file; the person's yes then
+    // finds the file changed, and asks again, for the agent.
+    let mut follow_up = None;
+    for _ in 0..3 {
+        thread::sleep(AFTER_TYPING);
+        let asked = agent.run("save-buffer", None, "change").unwrap();
+        assert!(
+            asked["waiting"]
+                .as_str()
+                .is_some_and(|w| w.contains("which the agent opened?")),
+            "{asked}"
+        );
+        thread::sleep(QUIET);
+        app.send_keys("y");
+        let state = app.state();
+        if let Some(label) = state["prompts"][0]["prompt"].as_str() {
+            follow_up = Some(label.to_owned());
+            break;
+        }
+    }
+    let follow_up = follow_up.expect("the person's yes asked again");
+    assert!(
+        follow_up.starts_with("Agent: "),
+        "the follow-up is the agent's: {follow_up}"
+    );
+
+    drop(agent);
+    let state = app.wait_for("the question closed", |state| state["prompts"] == json!([]));
+    assert_eq!(state["prompts"], json!([]));
+    assert_eq!(
+        std::fs::read(&other).unwrap(),
+        b"changed on disk\n",
+        "nothing saved over it"
+    );
 }

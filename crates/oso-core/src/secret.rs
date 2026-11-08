@@ -146,6 +146,17 @@ pub(crate) fn judge_unresolved(opened: Option<&Path>, seen: &[PathBuf]) -> Verdi
     }
 }
 
+/// The verdict that withholds more, as a name that matches says more than not knowing, and
+/// a secret kill yanked in is never copied either (ADR 0074).
+pub(crate) fn stricter(one: Verdict, other: Verdict) -> Verdict {
+    match (one, other) {
+        (Verdict::SecretName, _) | (_, Verdict::SecretName) => Verdict::SecretName,
+        (Verdict::Yanked, _) | (_, Verdict::Yanked) => Verdict::Yanked,
+        (Verdict::Ordinary, other) => other,
+        (one, _) => one,
+    }
+}
+
 /// The verdict on a copy of a file, from the paths its metadata names and the least the
 /// caller knows of it: what the copy says of itself, and the verdict of the buffer it matched.
 pub(crate) fn judge_copy(paths: &[PathBuf], at_least: Verdict) -> Verdict {
