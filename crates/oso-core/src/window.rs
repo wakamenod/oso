@@ -17,7 +17,7 @@
 use crate::buffer::BufferId;
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, Edge};
-use crate::selection::{Selection, SelectionSet};
+use crate::selection::SelectionSet;
 
 /// Rows that `C-v` and `M-v` keep from the previous screen, as Emacs's
 /// `next-screen-context-lines`.
@@ -151,7 +151,7 @@ impl Window {
         self.selections.update(|selection| {
             let row = display.offset_to_display_point(selection.cursor).row;
             if let Some(row) = row_in_view(row, top, size, row_count) {
-                *selection = Selection::at(motion::line_start(display, row));
+                selection.move_to(motion::line_start(display, row));
             }
             Ok::<(), ()>(())
         });

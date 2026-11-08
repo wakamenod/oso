@@ -1,0 +1,19 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx|end\\nnext\\n"
+---
+keys: C-SPC C-e
+│xxxxx|end │
+:         ^:
+~######### ~
+│          │
+=-- test  1=
+"          "
+
+keys: C-n
+│xxxxxxxxxx│
+~##########~
+│          │
+:^         :
+=-- test  2=
+"          "

@@ -284,6 +284,11 @@ impl<'a> Layers<'a> {
 pub enum Resolution<'a> {
     /// The keys so far form a command: run it. The prefix is cleared.
     Command(CommandId),
+    /// The keys so far are bound to nothing, but with Shift taken off the last
+    /// one they form a command, as Emacs's shift translation finds: run it as
+    /// shifted, which a motion takes as selecting (ADR 0071). The prefix is
+    /// cleared.
+    Shifted(CommandId),
     /// The keys so far are a prefix: wait for the next key.
     Pending,
     /// The keys so far are bound to nothing. The prefix is cleared; the
@@ -354,9 +359,27 @@ impl KeyResolver {
             }
             Some(Binding::Prefix(_)) => Resolution::Pending,
             None => {
+                if let Some(id) = self.unshifted_command(layers, key) {
+                    self.keys.clear();
+                    return Resolution::Shifted(id);
+                }
                 self.reported = true;
                 Resolution::Unbound(&self.keys)
             }
+        }
+    }
+
+    /// The command the pending keys form with `key`, their last, taken without
+    /// Shift. The keys are left as they were.
+    fn unshifted_command(&mut self, layers: &Layers<'_>, key: KeyPress) -> Option<CommandId> {
+        let unshifted = key.unshifted()?;
+        let last = self.keys.len() - 1;
+        self.keys[last] = unshifted;
+        let found = layers.lookup(&self.keys);
+        self.keys[last] = key;
+        match found? {
+            Binding::Command(id) => Some(id),
+            Binding::Prefix(_) => None,
         }
     }
 }
@@ -473,6 +496,7 @@ mod tests {
             .into_iter()
             .map(|key| match resolver.feed(layers, key) {
                 Resolution::Command(id) => registry.get(id).unwrap().name.to_owned(),
+                Resolution::Shifted(id) => format!("shifted {}", registry.get(id).unwrap().name),
                 Resolution::Pending => "pending".to_owned(),
                 Resolution::Unbound(keys) => format!("unbound {}", display_keys(keys)),
                 Resolution::Cancelled => "cancelled".to_owned(),
@@ -502,6 +526,38 @@ mod tests {
         assert_eq!(map.lookup(&keys("C-x C-z")), None);
         assert_eq!(map.lookup(&keys("C-f C-f")), None, "too long");
         assert_eq!(map.lookup(&[]), None);
+    }
+
+    #[test]
+    fn a_shifted_key_bound_to_nothing_runs_its_unshifted_command_as_shifted() {
+        let registry = registry(NAMES);
+        let mut map = global(&registry);
+        map.bind(&keys("S-<left>"), id(&registry, "other")).unwrap();
+        let layers = Layers::global(&map);
+        let mut resolver = KeyResolver::new();
+        let fed = feed_all(
+            &mut resolver,
+            &layers,
+            &registry,
+            "S-<right> C-F S-<left> C-x C-C",
+        );
+        assert_eq!(
+            fed,
+            [
+                "shifted forward-char",
+                "shifted forward-char",
+                "other",
+                "pending",
+                "shifted quit",
+            ]
+        );
+        let fed = feed_all(&mut resolver, &layers, &registry, "C-X C-B");
+        assert_eq!(
+            fed,
+            ["unbound C-X", "shifted backward-char"],
+            "no prefix from it"
+        );
+        assert!(resolver.pending().is_empty());
     }
 
     #[test]
@@ -821,8 +877,9 @@ mod tests {
     // --- Property-based tests (proptest) ---
 
     /// A small alphabet, so that random sequences collide and nest often.
-    /// `C-g` is in it to exercise cancelling.
-    const ALPHABET: [&str; 5] = ["a", "C-x", "C-c", "<right>", "C-g"];
+    /// `C-g` is in it to exercise cancelling, and the last two are shifted forms of
+    /// others, to exercise shift translation.
+    const ALPHABET: [&str; 7] = ["a", "C-x", "C-c", "<right>", "C-g", "S-<right>", "C-X"];
 
     fn key() -> impl Strategy<Value = KeyPress> {
         prop::sample::select(ALPHABET.to_vec()).prop_map(|s| s.parse().unwrap())
@@ -876,6 +933,7 @@ mod tests {
     #[derive(Debug, PartialEq, Eq)]
     enum Expected {
         Command(CommandId),
+        Shifted(CommandId),
         Pending,
         Unbound(Vec<KeyPress>),
         Cancelled,
@@ -893,13 +951,24 @@ mod tests {
                 Expected::Command(id)
             }
             Some(Err(())) => Expected::Pending,
-            None => Expected::Unbound(std::mem::take(pending)),
+            None => {
+                let mut unshifted = pending.clone();
+                if let Some(last) = unshifted.last_mut().and_then(|key| key.unshifted()) {
+                    *unshifted.last_mut().unwrap() = last;
+                    if let Some(Ok(id)) = models.iter().find_map(|m| model_lookup(m, &unshifted)) {
+                        pending.clear();
+                        return Expected::Shifted(id);
+                    }
+                }
+                Expected::Unbound(std::mem::take(pending))
+            }
         }
     }
 
     fn observed(resolution: Resolution<'_>) -> Expected {
         match resolution {
             Resolution::Command(id) => Expected::Command(id),
+            Resolution::Shifted(id) => Expected::Shifted(id),
             Resolution::Pending => Expected::Pending,
             Resolution::Unbound(keys) => Expected::Unbound(keys.to_vec()),
             Resolution::Cancelled => Expected::Cancelled,

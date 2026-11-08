@@ -89,7 +89,12 @@ item notes when it must be settled.
 - By M2-15: the generation that guards `exit` does not change on a save between the
   export and the exit, and does not cover marks, the kill ring or file information
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
-  once the state carries them.
+  once the state carries them. Marks and the mark ring now exist and a restart drops them
+  ([ADR 0071](adr/0071-mark-and-region.md)): M2-15 decides whether a region shown at the
+  restart comes back shown.
+- By M2-19: a window that shows another buffer loses its marks and its mark ring, as it
+  loses its cursors. Decide where a window keeps a buffer's places when `C-x b` comes back
+  to it ([ADR 0071](adr/0071-mark-and-region.md)).
 - Motion functions take display rows (`motion::line_start(display, row)`),
   which are buffer lines while there is no soft wrap. When the WrapMap
   lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines

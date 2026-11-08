@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b17523d6b39443d3e91d53c27fc7afc4e000a30e01e99cba20cac2ce1f7fdddd # shrinks to selections = [Selection { cursor: 0, mark: Some(32), goal: None }, Selection { cursor: 32, mark: Some(0), goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 0, mark: Some(1), goal: None }], primary = 3, moves = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+cc 556d94dc37f4430e08cb6c979917cd4ebb2c31073dc92b0c8d64e515b9fd1293 # shrinks to selections = [Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 3, mark: Some(0), goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 0, mark: None, goal: None }, Selection { cursor: 1, mark: Some(2), goal: None }], primary = 9, moves = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]

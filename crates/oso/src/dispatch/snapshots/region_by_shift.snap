@@ -1,0 +1,48 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: one two three\\nfour\\n"
+---
+keys: S-<right> S-<right>
+│one two three   │
+:  ^             :
+~##              ~
+│four            │
+│                │
+=-- test  1:2  Fu=
+"                "
+
+keys: M-F
+│one two three   │
+:   ^            :
+~###             ~
+│four            │
+│                │
+=-- test  1:3  Fu=
+"                "
+
+keys: C-N
+│one two three   │
+~################~
+│four            │
+:   ^            :
+~###             ~
+│                │
+=-- test  2:3  Fu=
+"                "
+
+keys: C-f
+│one two three   │
+│four            │
+:    ^           :
+│                │
+=-- test  2:4  Fu=
+"                "
+
+keys: C-SPC S-<right> C-f
+│one two three   │
+│four            │
+~    ############~
+│                │
+:^               :
+=-- test  3:0  Fu=
+"End of buffer   "

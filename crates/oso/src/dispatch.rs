@@ -231,7 +231,8 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
-        let (effects, result) = self.execute(editor, id, args, "", None, Step::MayJoin);
+        let invocation = Invocation::default();
+        let (effects, result) = self.execute(editor, id, args, invocation, Step::MayJoin);
         (effects, result.map_err(|e| e.to_string()))
     }
 
@@ -275,7 +276,11 @@ impl Dispatcher {
         match Layers::global(&self.global).text_command() {
             Some(id) if !text.is_empty() => {
                 let args = Args::with_prefix(self.prefix.take());
-                self.execute(editor, id, args, text, None, step).0
+                let invocation = Invocation {
+                    input: text,
+                    ..Invocation::default()
+                };
+                self.execute(editor, id, args, invocation, step).0
             }
             _ => Effects::default(),
         }
@@ -288,8 +293,8 @@ impl Dispatcher {
         self.last = None;
     }
 
-    /// Runs one command with `input` as the text that invoked it and `key_char` the
-    /// character on its key, in an undo group of its own, so that it undoes as one
+    /// Runs one command, invoked as `invocation` says but for its repeats, which are
+    /// counted here, in an undo group of its own, so that it undoes as one
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
     /// failure is not fatal (ADR 0014), and leaves a message, which stays out of the log
@@ -303,8 +308,7 @@ impl Dispatcher {
         editor: &mut Editor,
         id: CommandId,
         args: Args,
-        input: &str,
-        key_char: Option<char>,
+        invocation: Invocation<'_>,
         step: Step,
     ) -> (Effects, Result<(), ExecuteError>) {
         let repeats = match self.last {
@@ -319,9 +323,8 @@ impl Dispatcher {
             editor.keep_undo_step_apart();
         }
         let invocation = Invocation {
-            input,
-            key_char,
             repeats,
+            ..invocation
         };
         let mut ctx = Ctx::invoked(editor, invocation);
         let boundary = self.publisher.as_ref().map(Publisher::enter_command);
@@ -388,24 +391,13 @@ impl Dispatcher {
             major,
             ..Layers::global(&self.global)
         };
-        match self.resolver.feed(&layers, key) {
-            Resolution::Command(id) => {
-                // The text comes from the key, so keys from the window and from
-                // the socket type the same. `KeyEvent.text` would type `q` for an
-                // unbound `C-q` (ADR 0051).
-                let mut utf8 = [0; 4];
-                let input = key.text().map_or("", |c| c.encode_utf8(&mut utf8));
-                let key_char = match key.key {
-                    Key::Char(c) => Some(c),
-                    Key::Named(_) => None,
-                };
-                let args = Args::with_prefix(self.prefix.take());
-                self.execute(editor, id, args, input, key_char, Step::MayJoin)
-                    .0
-            }
+        let (id, shifted) = match self.resolver.feed(&layers, key) {
+            Resolution::Command(id) => (id, false),
+            // A shifted key that only its unshifted form binds (ADR 0071).
+            Resolution::Shifted(id) => (id, true),
             Resolution::Pending => {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
-                Effects::default()
+                return Effects::default();
             }
             Resolution::Unbound(keys) => {
                 editor.reset_exit_guard();
@@ -419,16 +411,32 @@ impl Dispatcher {
                 }
                 editor.echo(format!("{} is undefined", display_keys(keys)));
                 self.forget_keys();
-                Effects::default()
+                return Effects::default();
             }
             Resolution::Cancelled => {
                 editor.reset_exit_guard();
                 log::debug!("Quit");
                 editor.echo("Quit");
                 self.forget_keys();
-                Effects::default()
+                return Effects::default();
             }
-        }
+        };
+        // The text comes from the key, so keys from the window and from the socket
+        // type the same. `KeyEvent.text` would type `q` for an unbound `C-q` (ADR 0051).
+        let mut utf8 = [0; 4];
+        let input = key.text().map_or("", |c| c.encode_utf8(&mut utf8));
+        let key_char = match key.key {
+            Key::Char(c) => Some(c),
+            Key::Named(_) => None,
+        };
+        let args = Args::with_prefix(self.prefix.take());
+        let invocation = Invocation {
+            input,
+            key_char,
+            shifted,
+            ..Invocation::default()
+        };
+        self.execute(editor, id, args, invocation, Step::MayJoin).0
     }
 }
 
@@ -440,6 +448,8 @@ mod emergency_tests;
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
+#[cfg(test)]
+mod mark_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]

@@ -314,6 +314,7 @@ pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
 pub fn oso_core::command::Ctx<'a>::repeats(&self) -> usize
 pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
 pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
+pub fn oso_core::command::Ctx<'a>::shifted(&self) -> bool
 pub struct oso_core::command::Effects
 pub oso_core::command::Effects::exit: bool
 pub oso_core::command::Effects::prefix: core::option::Option<oso_core::command::Prefix>
@@ -335,6 +336,7 @@ pub struct oso_core::command::Invocation<'a>
 pub oso_core::command::Invocation::input: &'a str
 pub oso_core::command::Invocation::key_char: core::option::Option<char>
 pub oso_core::command::Invocation::repeats: usize
+pub oso_core::command::Invocation::shifted: bool
 impl<'a> core::clone::Clone for oso_core::command::Invocation<'a>
 pub fn oso_core::command::Invocation<'a>::clone(&self) -> oso_core::command::Invocation<'a>
 impl<'a> core::cmp::Eq for oso_core::command::Invocation<'a>
@@ -881,6 +883,7 @@ pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) 
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
+pub fn oso_core::editor::Editor::region_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
@@ -1025,6 +1028,7 @@ impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
+pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub mod oso_core::key
 pub enum oso_core::key::Key
 pub oso_core::key::Key::Char(char)
@@ -1083,6 +1087,7 @@ impl oso_core::key::KeyPress
 pub fn oso_core::key::KeyPress::new(oso_core::key::Modifiers, oso_core::key::Key) -> core::option::Option<Self>
 pub const fn oso_core::key::KeyPress::plain(oso_core::key::Key) -> Self
 pub const fn oso_core::key::KeyPress::text(self) -> core::option::Option<char>
+pub fn oso_core::key::KeyPress::unshifted(self) -> core::option::Option<Self>
 impl core::clone::Clone for oso_core::key::KeyPress
 pub fn oso_core::key::KeyPress::clone(&self) -> oso_core::key::KeyPress
 impl core::cmp::Eq for oso_core::key::KeyPress
@@ -1190,6 +1195,7 @@ pub enum oso_core::keymap::Resolution<'a>
 pub oso_core::keymap::Resolution::Cancelled
 pub oso_core::keymap::Resolution::Command(oso_core::command::CommandId)
 pub oso_core::keymap::Resolution::Pending
+pub oso_core::keymap::Resolution::Shifted(oso_core::command::CommandId)
 pub oso_core::keymap::Resolution::Unbound(&'a [oso_core::key::KeyPress])
 impl<'a> core::clone::Clone for oso_core::keymap::Resolution<'a>
 pub fn oso_core::keymap::Resolution<'a>::clone(&self) -> oso_core::keymap::Resolution<'a>
@@ -1478,11 +1484,51 @@ impl core::hash::Hash for oso_core::selection::Goal
 pub fn oso_core::selection::Goal::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::selection::Goal
 impl core::marker::StructuralPartialEq for oso_core::selection::Goal
+pub enum oso_core::selection::Region
+pub oso_core::selection::Region::Active
+pub oso_core::selection::Region::Inactive
+pub oso_core::selection::Region::Shifted
+impl oso_core::selection::Region
+pub fn oso_core::selection::Region::is_active(self) -> bool
+impl core::clone::Clone for oso_core::selection::Region
+pub fn oso_core::selection::Region::clone(&self) -> oso_core::selection::Region
+impl core::cmp::Eq for oso_core::selection::Region
+impl core::cmp::PartialEq for oso_core::selection::Region
+pub fn oso_core::selection::Region::eq(&self, &oso_core::selection::Region) -> bool
+impl core::default::Default for oso_core::selection::Region
+pub fn oso_core::selection::Region::default() -> oso_core::selection::Region
+impl core::fmt::Debug for oso_core::selection::Region
+pub fn oso_core::selection::Region::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::selection::Region
+pub fn oso_core::selection::Region::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::selection::Region
+impl core::marker::StructuralPartialEq for oso_core::selection::Region
+pub struct oso_core::selection::MarkRing
+impl oso_core::selection::MarkRing
+pub fn oso_core::selection::MarkRing::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = usize> + '_
+pub fn oso_core::selection::MarkRing::push(&mut self, usize)
+pub fn oso_core::selection::MarkRing::rotate(&mut self, usize) -> core::option::Option<usize>
+impl core::clone::Clone for oso_core::selection::MarkRing
+pub fn oso_core::selection::MarkRing::clone(&self) -> oso_core::selection::MarkRing
+impl core::cmp::Eq for oso_core::selection::MarkRing
+impl core::cmp::PartialEq for oso_core::selection::MarkRing
+pub fn oso_core::selection::MarkRing::eq(&self, &oso_core::selection::MarkRing) -> bool
+impl core::default::Default for oso_core::selection::MarkRing
+pub fn oso_core::selection::MarkRing::default() -> oso_core::selection::MarkRing
+impl core::fmt::Debug for oso_core::selection::MarkRing
+pub fn oso_core::selection::MarkRing::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::selection::MarkRing
+pub fn oso_core::selection::MarkRing::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::selection::MarkRing
+impl core::marker::StructuralPartialEq for oso_core::selection::MarkRing
 pub struct oso_core::selection::Selection
 pub oso_core::selection::Selection::cursor: usize
 pub oso_core::selection::Selection::goal: core::option::Option<oso_core::selection::Goal>
+pub oso_core::selection::Selection::mark: core::option::Option<usize>
 impl oso_core::selection::Selection
 pub const fn oso_core::selection::Selection::at(usize) -> Self
+pub fn oso_core::selection::Selection::move_to(&mut self, usize)
+pub fn oso_core::selection::Selection::range(&self) -> core::ops::range::Range<usize>
 impl core::clone::Clone for oso_core::selection::Selection
 pub fn oso_core::selection::Selection::clone(&self) -> oso_core::selection::Selection
 impl core::cmp::Eq for oso_core::selection::Selection
@@ -1496,13 +1542,20 @@ impl core::marker::Copy for oso_core::selection::Selection
 impl core::marker::StructuralPartialEq for oso_core::selection::Selection
 pub struct oso_core::selection::SelectionSet
 impl oso_core::selection::SelectionSet
+pub fn oso_core::selection::SelectionSet::as_slice(&self) -> &[oso_core::selection::Selection]
 pub fn oso_core::selection::SelectionSet::from_parts(alloc::vec::Vec<oso_core::selection::Selection>, usize) -> core::option::Option<Self>
 pub fn oso_core::selection::SelectionSet::is_empty(&self) -> bool
 pub fn oso_core::selection::SelectionSet::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::selection::Selection>
+pub fn oso_core::selection::SelectionSet::keep_primary(&mut self)
 pub fn oso_core::selection::SelectionSet::len(&self) -> usize
+pub fn oso_core::selection::SelectionSet::mark_ring(&self) -> &oso_core::selection::MarkRing
 pub fn oso_core::selection::SelectionSet::new(usize) -> Self
+pub fn oso_core::selection::SelectionSet::pop_mark(&mut self) -> bool
 pub fn oso_core::selection::SelectionSet::primary(&self) -> &oso_core::selection::Selection
 pub fn oso_core::selection::SelectionSet::primary_index(&self) -> usize
+pub fn oso_core::selection::SelectionSet::push_marks(&mut self)
+pub fn oso_core::selection::SelectionSet::region(&self) -> oso_core::selection::Region
+pub fn oso_core::selection::SelectionSet::set_region(&mut self, oso_core::selection::Region) -> oso_core::selection::Region
 pub fn oso_core::selection::SelectionSet::update<E>(&mut self, impl core::ops::function::FnMut(&mut oso_core::selection::Selection) -> core::result::Result<(), E>) -> oso_core::selection::UpdateOutcome<E>
 impl core::clone::Clone for oso_core::selection::SelectionSet
 pub fn oso_core::selection::SelectionSet::clone(&self) -> oso_core::selection::SelectionSet
@@ -1523,6 +1576,7 @@ pub fn oso_core::selection::UpdateOutcome<E>::eq(&self, &oso_core::selection::Up
 impl<E: core::fmt::Debug> core::fmt::Debug for oso_core::selection::UpdateOutcome<E>
 pub fn oso_core::selection::UpdateOutcome<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::marker::StructuralPartialEq for oso_core::selection::UpdateOutcome<E>
+pub const oso_core::selection::MARK_RING_SIZE: usize
 pub mod oso_core::sum_tree
 pub enum oso_core::sum_tree::Bias
 pub oso_core::sum_tree::Bias::Left

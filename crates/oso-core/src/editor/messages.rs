@@ -707,23 +707,18 @@ mod tests {
         let text = "ab\ncde\u{301}f\n";
         let mut editor = Editor::with_buffer(Buffer::from_text("t", text));
         let goal = Some(Goal::Column(9));
-        let at = |cursor| Selection { cursor, goal };
+        let at = |cursor| Selection {
+            cursor,
+            mark: None,
+            goal,
+        };
         let set = SelectionSet::from_parts(vec![at(1), at(6)], 0).unwrap();
         editor.current_mut().0.selections = set;
         editor.toggle_messages();
         editor.toggle_messages();
         let cursors: Vec<_> = editor.window().selections.iter().copied().collect();
         // Offset 6 is the middle of the cluster that starts at 5, a letter with its mark.
-        assert_eq!(
-            cursors,
-            [
-                at(1),
-                Selection {
-                    cursor: 5,
-                    goal: None
-                }
-            ]
-        );
+        assert_eq!(cursors, [at(1), Selection::at(5)]);
     }
 
     #[test]

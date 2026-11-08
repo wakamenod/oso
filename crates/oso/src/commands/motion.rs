@@ -4,17 +4,19 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 //!
-//! Motion commands move every cursor of the selected window (ADR 0007).
-//! After each command the dispatcher scrolls the window to keep its cursor
-//! in view (`Editor::follow_cursor`).
+//! Motion commands move every cursor of the selected window (ADR 0007), and keep
+//! their marks. With Shift they select, and `M-<` and `M->` set the mark where the
+//! cursors were (ADR 0071). After each command the dispatcher scrolls the window to
+//! keep its cursor in view (`Editor::follow_cursor`).
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
 use oso_core::display_map::DisplaySnapshot;
 use oso_core::motion::{self, Edge, WalkBudget};
 use oso_core::selection::Selection;
 use oso_core::word;
 
 use super::budget_left;
+use super::mark::shift_select;
 
 /// The motion commands.
 pub const COMMANDS: &[Command] = &[
@@ -92,13 +94,17 @@ pub const COMMANDS: &[Command] = &[
     },
 ];
 
-/// Moves every cursor of the selected window with `motion`. Asks for a
-/// redraw if a cursor moved, and fails with the first buffer edge a cursor
-/// hit, after moving them all as far as they go.
+/// Moves every cursor of the selected window with `motion`, selecting with Shift
+/// (ADR 0071). Asks for a redraw if a cursor moved or the region hid, and fails
+/// with the first buffer edge a cursor hit, after moving them all as far as they
+/// go.
 fn move_cursors(
     ctx: &mut Ctx<'_>,
     mut motion: impl FnMut(&DisplaySnapshot, &mut Selection) -> Result<(), Edge>,
 ) -> Result<(), CommandError> {
+    if shift_select(ctx) {
+        ctx.request_redraw();
+    }
     let (window, buffer) = ctx.editor.current_mut();
     let display = buffer.display();
     let update = window
@@ -136,7 +142,7 @@ fn backward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 fn move_words(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     let mut budget = WalkBudget::new();
     move_cursors(ctx, |display, s| {
-        *s = Selection::at(word::move_words(display, s.cursor, n, &mut budget));
+        s.move_to(word::move_words(display, s.cursor, n, &mut budget));
         Ok(())
     })?;
     budget_left(budget)
@@ -198,11 +204,26 @@ fn tenths(n: isize) -> usize {
     n.clamp(0, 10) as usize
 }
 
+/// Sets the mark where the cursors are before a jump, as Emacs's `M-<` and `M->`
+/// do, so that `C-u C-SPC` comes back. Not with a plain `C-u`, nor while the region
+/// shows, which the jump then extends.
+fn push_mark_before_jump(ctx: &mut Ctx<'_>, args: Args) {
+    if shift_select(ctx) {
+        ctx.request_redraw();
+    }
+    let selections = &mut ctx.editor.current_mut().0.selections;
+    if matches!(args.raw(), Some(Prefix::Universal(_))) || selections.region().is_active() {
+        return;
+    }
+    selections.push_marks();
+    ctx.editor.message("Mark set");
+}
+
 fn beginning_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    // Pushing the mark comes with marks (M2).
+    push_mark_before_jump(ctx, args);
     move_cursors(ctx, |display, s| {
         let len = motion::buffer_end(display);
-        *s = Selection::at(match args.prefix() {
+        s.move_to(match args.prefix() {
             None => 0,
             Some(n) => motion::line_after_fraction(display, len, tenths(n)),
         });
@@ -211,9 +232,10 @@ fn beginning_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
 }
 
 fn end_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    push_mark_before_jump(ctx, args);
     move_cursors(ctx, |display, s| {
         let len = motion::buffer_end(display);
-        *s = Selection::at(match args.prefix() {
+        s.move_to(match args.prefix() {
             None => len,
             Some(n) => motion::line_after_fraction(display, len, 10 - tenths(n)),
         });

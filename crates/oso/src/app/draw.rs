@@ -37,13 +37,17 @@ pub(super) fn with_panes<R>(
         span(status.echo_warnings(), Face::Warning),
         span(&status.echo[..], Face::Text),
     ];
-    draw(&panes(editor, &[&modeline], &[&echo]))
+    // This allocates only while a region shows, for a rectangle per row of it.
+    let mut region = Vec::new();
+    editor.region_cells(&mut region);
+    draw(&panes(editor, &region, &[&modeline], &[&echo]))
 }
 
 /// The selected window, then the rows reserved below it. The later panes come first if
 /// a frame runs out of room, so no amount of text can take their place (ADR 0061).
 fn panes<'a>(
     editor: &'a Editor,
+    region: &'a [frame::CellRect],
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -58,6 +62,7 @@ fn panes<'a>(
         scroll: window.scroll(),
         cursor,
         preedit: editor.preedit(),
+        region,
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),

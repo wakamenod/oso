@@ -27,7 +27,7 @@ use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::{DisplaySnapshot, Preedit};
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::motion;
-use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
+use crate::selection::{OffsetEdit, Region, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
@@ -61,7 +61,8 @@ enum Selected<'a> {
 /// Moves every cursor where a cursor can be: to the start of the display cluster
 /// around it, or to the end if it is at one of `ends` (ascending), just after new
 /// text. New text can join what follows it, and what was typed must stay before
-/// the cursor. Goals are cleared.
+/// the cursor. Marks, and those in the ring, go to the start of theirs. Goals are
+/// cleared.
 fn clip_cursors(set: &mut SelectionSet, display: &DisplaySnapshot, ends: &[usize]) {
     let mut ends = ends.iter().copied().peekable();
     set.update(|selection| {
@@ -71,9 +72,13 @@ fn clip_cursors(set: &mut SelectionSet, display: &DisplaySnapshot, ends: &[usize
         } else {
             motion::cluster_start(display, selection.cursor)
         };
+        selection.mark = selection
+            .mark
+            .map(|mark| motion::cluster_start(display, mark));
         selection.goal = None;
         Ok::<(), ()>(())
     });
+    set.update_ring(|mark| motion::cluster_start(display, mark));
 }
 
 /// The undo group of the command running.
@@ -381,7 +386,9 @@ impl Editor {
 
     /// The cursors of every window showing `id` once a change is in, by window
     /// position. They follow `steps`, as markers except in the selected window,
-    /// which does as `selected` says. Each ends where a cursor can be.
+    /// which does as `selected` says, but for its ring of marks, which follows.
+    /// Each ends where a cursor can be. A change hides every region of the buffer
+    /// (ADR 0071).
     fn moved_selections(
         &self,
         id: BufferId,
@@ -396,9 +403,14 @@ impl Editor {
             }
             let selected = (index == self.selected).then_some(selected);
             let mut set = match selected {
-                Some(Selected::Restored(Some(restored))) => restored.clone(),
+                Some(Selected::Restored(Some(restored))) => {
+                    let mut ring = *window.selections.mark_ring();
+                    steps.iter().for_each(|edits| ring.follow_edits(edits));
+                    restored.with_ring(ring)
+                }
                 _ => window.selections.clone(),
             };
+            set.set_region(Region::Inactive);
             match selected {
                 Some(Selected::Restored(Some(_))) => clip_cursors(&mut set, display, &[]),
                 Some(Selected::Edited) => {

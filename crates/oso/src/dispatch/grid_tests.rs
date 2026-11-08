@@ -17,7 +17,9 @@
 //! laid out by `text_clusters`, as the renderer does. A preedit is read into its row
 //! through `row_clusters` and placed by `motion::cursor_box`, as the renderer does,
 //! and a line between `_` below its row marks its underline with `-` and the segment
-//! being converted with `=` (ADR 0069).
+//! being converted with `=` (ADR 0069). A line between `~` below a row marks with `#`
+//! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
+//! (ADR 0071).
 
 use oso_core::buffer::Buffer;
 use std::ops::Range;
@@ -65,6 +67,8 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     // The cursor box as the renderer draws it.
     let (place, cells) = motion::cursor_box(&display, point, preedit);
     let cursor = frame::cursor_rect(area, scroll, place, cells);
+    let mut region = Vec::new();
+    editor.region_cells(&mut region);
     for index in 0..area.rows {
         let row = scroll.top + index;
         let cursor = cursor
@@ -81,6 +85,15 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
             lines.push(format!(":{marks}:"));
+        }
+        let in_row = region.iter().filter(|cells| cells.row == area.row + index);
+        let mut marks = vec![' '; area.columns];
+        for cells in in_row {
+            let start = cells.column - area.column;
+            marks[start..start + cells.columns].fill('#');
+        }
+        if marks.contains(&'#') {
+            lines.push(format!("~{}~", marks.into_iter().collect::<String>()));
         }
         if let Some((at, preedit)) = spliced {
             lines.push(underline(at, preedit, scroll.left, area.columns));
@@ -728,6 +741,69 @@ mod scenarios {
         editor.set_preedit(None);
         frames.push(format!("cleared\n{}", text_grid(&editor)));
         assert_frames("preedit_in_its_row", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn a_region_takes_its_cells_and_its_line_breaks_to_the_edge() {
+        check_frame(
+            "region_across_rows",
+            "ab日本c\n\nline three\n",
+            (6, 12),
+            &[
+                "C-f C-SPC",
+                "C-n C-n C-f",
+                "C-x C-x",
+                "C-SPC C-SPC",
+                "C-x h",
+                "C-g",
+            ],
+        );
+    }
+
+    #[test]
+    fn shift_selects_until_a_motion_without_it() {
+        check(
+            "region_by_shift",
+            "one two three\nfour\n",
+            (3, 16),
+            &[
+                "S-<right> S-<right>",
+                "M-F",
+                "C-N",
+                "C-f",
+                "C-SPC S-<right> C-f",
+            ],
+        );
+    }
+
+    #[test]
+    fn a_region_is_cut_at_the_window_and_scrolls_with_it() {
+        let long = format!("{}|end\nnext\n", "x".repeat(30));
+        check(
+            "region_scrolled_sideways",
+            &long,
+            (2, 10),
+            &["C-SPC C-e", "C-n"],
+        );
+    }
+
+    #[test]
+    fn a_preedit_pushes_a_region_after_it() {
+        let text = "abcdef\n";
+        let mut editor = open(text.as_bytes(), (1, 14));
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        for (keys, step) in [("C-e C-SPC C-a C-f", "after"), ("C-SPC C-e", "before")] {
+            let keys: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(&mut editor, keys.0);
+            editor.set_preedit(Some(Preedit::new("かな".into(), None)));
+            frames.push(format!(
+                "a region {step} the preedit\n{}",
+                text_grid(&editor)
+            ));
+            editor.set_preedit(None);
+        }
+        assert_frames("region_and_preedit", text.as_bytes(), &frames);
     }
 
     #[test]

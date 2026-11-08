@@ -6,7 +6,7 @@
 
 use super::Editor;
 use crate::display_map::{DisplayPoint, Preedit};
-use crate::frame::{self, FrameLayout, FrameSize, PixelGrid, PixelRect};
+use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect};
 use crate::motion;
 use crate::selection::SelectionSet;
 use crate::window::{self, Scroll, ViewSize};
@@ -70,6 +70,18 @@ impl Editor {
         let cells = motion::cursor_cells(&display, point);
         let cell = frame::cursor_rect(self.frame.window.text, window.scroll(), point, cells)?;
         Some(grid.rect(cell))
+    }
+
+    /// The cells of the selected window's text area that its regions take, into
+    /// `out`, which is emptied first, and none while they are hidden (ADR 0071). A
+    /// preedit pushes them as it pushes the text.
+    pub fn region_cells(&self, out: &mut Vec<CellRect>) {
+        let (window, buffer) = self.current();
+        let display = buffer.display();
+        let preedit =
+            (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
+        let (text, scroll) = (self.frame.window.text, window.scroll());
+        frame::region_cells(text, scroll, &display, &window.selections, preedit, out);
     }
 
     /// What an input method is composing, if anything (ADR 0069).
