@@ -154,6 +154,7 @@ enum Pending {
     Resized,
     ScaleFactorChanged,
     Occluded(bool),
+    Focused,
     ModifiersChanged(super::Held),
     CloseRequested,
 }
@@ -269,6 +270,7 @@ impl State {
             Delivery::Window(Event::Resized { .. }) => Pending::Resized,
             Delivery::Window(Event::ScaleFactorChanged(_)) => Pending::ScaleFactorChanged,
             Delivery::Window(Event::Occluded(occluded)) => Pending::Occluded(occluded),
+            Delivery::Window(Event::Focused) => Pending::Focused,
             Delivery::Window(Event::ModifiersChanged(held)) => Pending::ModifiersChanged(held),
             Delivery::Window(Event::CloseRequested) => Pending::CloseRequested,
             Delivery::Window(Event::RedrawRequested) => {
@@ -304,6 +306,7 @@ impl State {
                 Pending::Resized => self.resized_event(),
                 Pending::ScaleFactorChanged => Event::ScaleFactorChanged(self.scale_factor()),
                 Pending::Occluded(occluded) => Event::Occluded(occluded),
+                Pending::Focused => Event::Focused,
                 Pending::ModifiersChanged(held) => Event::ModifiersChanged(held),
                 Pending::CloseRequested => Event::CloseRequested,
             };

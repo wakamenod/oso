@@ -80,8 +80,42 @@ are rounded.
 - **A passphrase** shows one `*` per character, keeps no undo and enters no history.
 - `C-g` does one thing at a time: a pending prefix, then the region, then the innermost
   prompt.
-- It shows **18 candidate rows** by default (configurable), with fuzzy
-  matching (orderless-style) and annotations on the right (marginalia-style).
+- **Completion** ([ADR 0076](adr/0076-completion-and-m-x.md)) floats at the **center** of the
+  frame, unlike the other prompts: 62% of its width, and always as tall as **18 candidate rows**
+  and the answer's row (configurable once configuration exists), however many match. The label,
+  the answer in its field and a count such as `3/57` share one row. A 5-point border a little
+  darker than the fill frames it, with all four corners rounded.
+
+```
+│Agenda         ╭────────────────────────────────────────────────────╮        │
+│- budget for Q3│                                                    │        │
+│- hiring: two e│  M-x ╭ forw█ ───────────────────────────────╮  2/2 │        │
+│- office move  │                                                    │        │
+│               │   forward-char C-f  Move point N characters (…     │        │
+│Decisions      │  ▌forward-word M-f  Move point to the end of t…▐   │        │
+│- keep the Frid│                                                    │        │
+│               ╰────────────────────────────────────────────────────╯        │
+```
+
+- **Matching is orderless's:** words separated by spaces match in any order, each as
+  literal text or a regular expression. An affix at a word's start or end picks one style:
+  `!` must not match, `,` initials (`,sbk` for `save-buffers-kill-terminal`), `=` literal
+  only, `^` at the start, `~` the letters in order, `&` the annotation. Case counts once the
+  input has an upper-case letter. What matched is highlighted.
+- **The order is vertico's:** the prompt's history first, then shorter, then alphabetical,
+  with an exact match of the input on top. Typing never moves a candidate.
+- **Each row** has the candidate, its shortest key after it, and a summary at the right end:
+  for commands, the docstring's first line (marginalia-style). A narrow row cuts the summary
+  first, then drops it, then the key, then cuts the name.
+- **Keys:** `C-n`/`C-p` and the arrows move (stopping at the ends), `M-<`/`M->` go to the
+  first and last, `C-v`/`M-v` by a page, `TAB` puts the selected candidate in the answer,
+  and `RET` gives the selected candidate, or says `No match`.
+- **`M-x`** lists every command but those that read their key or belong to a keymap not active
+  beneath it, runs the one taken with the prefix argument typed before `M-x` (its label says
+  it, `C-u M-x`), and puts the one run last first, so `M-x RET` runs it again.
+- A short frame gives up candidate rows first, down to one, then the padding.
+- Beside a buffer that may hold secrets, a prompt neither reads nor records history, so its
+  order says nothing of earlier answers.
 - **Preview inside the popup.** For commands with a preview, such as buffer
   switching, ripgrep search and line search, the popup splits: candidates on
   the left, a preview of the selected candidate on the right. Commands
@@ -181,7 +215,8 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - M2 contents:
   - a warning when the file contains bidirectional control characters
   - a warning when the file changed on disk while the buffer has unsaved
-    changes
+    changes, or when the file is gone from disk
+    ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md))
   - a warning when an emergency copy of the file waits for an answer
   - buffer name and modified marker
   - loading progress, while a file is loading
@@ -224,9 +259,18 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 
 ## isearch
 
-- All matches in view are highlighted, and the current match is emphasized.
-- The match count ("3/17") is shown, anzu-style.
-- The search string is shown in the echo area.
+- `C-s` and `C-r` search for the literal string as it is typed, with smart case: case matters
+  once the string has an uppercase letter, and `M-c` turns that around for the search
+  ([ADR 0082](adr/0082-isearch.md)).
+- All matches in view are highlighted in a muted amber, and the current match in a strong one.
+- The search string is shown in the echo area, with the count anzu-style: `I-search: foo [3/17]`,
+  `[?/…]` while a worker counts, and `[searching…]` while it looks for a far match.
+- `C-s`/`C-r` go on to the next match, and round the end after `Failing I-search`. `DEL` goes back
+  a step, `C-w` adds the word after the match, `C-y` the newest kill, `M-p`/`M-n` go through the
+  search history, and `RET` ends the search there and pushes where it began onto the mark ring.
+- `C-g` first takes away a failing part, then goes back where the search began. Any other key
+  ends the search and runs.
+- Only the primary cursor searches; the others stay.
 
 ## Input method (IME)
 
