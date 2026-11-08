@@ -148,6 +148,17 @@ coordinator.
 - **A dev restart waits for isearch to end (chosen):** `check-handover`, `export-state` and a
   generation's `exit` refuse while it is on, as for a prompt.
 
+## Changes to accepted ADRs
+
+One passage of [ADR 0085](0085-agent-channel-and-oso-mcp.md) changes; the rest of its "Where the
+channel waits for the person" holds:
+
+- "The person is in the middle of something: a prompt the person opened is innermost, keys are in
+  progress, a composition is open, or a key came from the window less than 1 s ago" becomes: also
+  while an isearch is on (`Editor::isearch`). A channel command would end the search, as a key
+  isearch does not bind does, or move the cursor from under it. The isearch commands are `Person`,
+  as they read keys.
+
 ## Consequences
 
 - isearch costs a key at most a bounded search and a frame a bounded scan of the view, whatever the
