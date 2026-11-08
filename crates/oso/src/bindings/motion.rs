@@ -20,4 +20,6 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("<end>", "move-end-of-line"),
     ("M-<", "beginning-of-buffer"),
     ("M->", "end-of-buffer"),
+    ("M-g g", "goto-line"),
+    ("M-g M-g", "goto-line"),
 ];

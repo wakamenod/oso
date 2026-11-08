@@ -1,0 +1,88 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: # Notes\\n\\nAgenda\\n- budget\\n- hiring\\n- office\\n"
+---
+keys: M-g g
+│# Notes                                                         │
+:o                                                               :
+│                                                                │
+│Agenda                                                          │
+│- budget                                                        │
+│- hiring                                                        │
+│- office                                                        │
+│                                                                │
+│                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                             =
+"                                                                "
+float at row 1, column 12: 3 x 40
+┌──────────────────────────────────────┐
+│Go to line:                           │
+:            ^                         :
+└──────────────────────────────────────┘
+
+keys: 4 2
+│# Notes                                                         │
+:o                                                               :
+│                                                                │
+│Agenda                                                          │
+│- budget                                                        │
+│- hiring                                                        │
+│- office                                                        │
+│                                                                │
+│                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                             =
+"                                                                "
+float at row 1, column 12: 3 x 40
+┌──────────────────────────────────────┐
+│Go to line: 42                        │
+:              ^                       :
+└──────────────────────────────────────┘
+
+keys: C-a C-b
+│# Notes                                                         │
+:o                                                               :
+│                                                                │
+│Agenda                                                          │
+│- budget                                                        │
+│- hiring                                                        │
+│- office                                                        │
+│                                                                │
+│                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                             =
+"                                                                "
+float at row 1, column 12: 3 x 40
+┌──────────────────────────────────────┐
+│Go to line: 42       [Beginning of b…]│
+:            ^                         :
+└──────────────────────────────────────┘
+
+keys: C-e 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2
+│# Notes                                                         │
+:o                                                               :
+│                                                                │
+│Agenda                                                          │
+│- budget                                                        │
+│- hiring                                                        │
+│- office                                                        │
+│                                                                │
+│                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                             =
+"                                                                "
+float at row 1, column 12: 3 x 40
+┌──────────────────────────────────────┐
+│Go to line: 4201234567890123456789012 │
+:                                     ^:
+└──────────────────────────────────────┘
+
+keys: C-g
+│# Notes                                                         │
+:^                                                               :
+│                                                                │
+│Agenda                                                          │
+│- budget                                                        │
+│- hiring                                                        │
+│- office                                                        │
+│                                                                │
+│                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                             =
+"Quit                                                            "

@@ -121,7 +121,8 @@ impl App {
     /// that changed, or the buffer was replaced.
     fn apply_load(&mut self, index: usize, update: LoadUpdate) -> bool {
         let id = self.loads[index].handle.buffer();
-        let shown = self.editor.window().buffer() == id;
+        // The tiled window, also beneath a prompt.
+        let shown = self.editor.tiled().0.buffer() == id;
         let Some(buffer) = self.editor.buffer_mut(id) else {
             self.loads.swap_remove(index);
             return false;
@@ -155,7 +156,7 @@ impl App {
                     #[cfg(feature = "dev")]
                     self.timings.load_done(load.started);
                 }
-                let window = self.editor.window();
+                let window = self.editor.tiled().0;
                 shown && window::reaches(window.scroll().top, window.size(), old_rows - 1)
             }
             LoadUpdate::Failed(LoadError::NotFound) => {

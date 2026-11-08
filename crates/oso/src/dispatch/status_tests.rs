@@ -276,13 +276,18 @@ fn going_to_the_messages_and_back_keeps_the_goal_of_c_n() {
 }
 
 #[test]
-fn a_refused_exit_around_a_secret_replaces_a_message_waiting_behind_its_keys() {
+fn a_refused_exit_around_a_secret_asks_and_a_message_waiting_behind_its_keys_stays() {
     let mut dispatcher = Dispatcher::new();
     let mut editor = on_a_secret("KEY=value\n");
     send(&mut dispatcher, &mut editor, "a C-x");
     editor.message("Wrote /tmp/.env");
     send(&mut dispatcher, &mut editor, "C-c");
-    assert_eq!(echo(&editor), "1 modified buffer; repeat to exit anyway");
-    send(&mut dispatcher, &mut editor, "C-f");
+    assert!(
+        editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question())
+    );
+    assert_eq!(echo(&editor), "Wrote /tmp/.env", "not seen yet");
+    send(&mut dispatcher, &mut editor, "n");
     assert_eq!(echo(&editor), "");
 }

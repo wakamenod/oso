@@ -122,7 +122,7 @@ fn assert_written(report: &SaveReport) {
 #[track_caller]
 fn assert_conflict(report: &SaveReport) {
     assert!(
-        matches!(report.outcome, Err(SaveError::Conflict)),
+        matches!(report.outcome, Err(SaveError::Conflict(_))),
         "{:?}",
         report.outcome
     );
@@ -267,7 +267,7 @@ fn a_change_during_the_write_is_kept_and_the_temporary_file_goes() {
     let prepared = prepare(&job).unwrap();
     assert_eq!(scratch.names().len(), 2, "the temporary file is beside it");
     fs::write(&path, b"other program\n").unwrap();
-    assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict)));
+    assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict(_))));
     assert_eq!(fs::read(&path).unwrap(), b"other program\n");
     assert_eq!(scratch.names(), ["notes.txt"]);
 }
@@ -281,7 +281,10 @@ fn a_file_that_appeared_is_kept() {
     let prepared = prepare(&late).unwrap();
     fs::write(&path, b"theirs\n").unwrap();
     assert_conflict(&run(early));
-    assert!(matches!(prepared.commit(&late), Err(SaveError::Conflict)));
+    assert!(matches!(
+        prepared.commit(&late),
+        Err(SaveError::Conflict(_))
+    ));
     assert_eq!(fs::read(&path).unwrap(), b"theirs\n");
     assert_eq!(scratch.names(), ["new.txt"]);
 }

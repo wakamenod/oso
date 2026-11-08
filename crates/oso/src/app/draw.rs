@@ -11,11 +11,15 @@ use std::time::Instant;
 
 use oso_core::editor::{Editor, Status};
 use oso_core::frame;
-use oso_render::{Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView};
+use oso_render::{
+    Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView,
+};
 
 use super::App;
 use super::shell::{Loop, Window};
 use crate::text;
+
+mod float;
 
 /// Calls `draw` with what the frame shows, for the renderer. The cells of the regions
 /// go in `region_cells`, which a frame reuses.
@@ -38,18 +42,32 @@ pub(super) fn with_panes<R>(
         span(&status.echo[..], Face::Text),
     ];
     editor.region_cells(region_cells);
-    draw(&panes(editor, region_cells, &[&modeline], &[&echo]))
+    let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
+    let tiled = panes(editor, region_cells, &modeline, &echo);
+    let Some(parts) = float::Parts::of(editor) else {
+        return draw(&tiled);
+    };
+    // A prompt's float goes over the tiled panes.
+    let spans = parts.spans();
+    let lines = spans.lines();
+    let mut list = Vec::with_capacity(tiled.len() + float::MAX_PANES);
+    list.extend(tiled);
+    float::panes(editor, &parts, &lines, &mut list);
+    draw(&list)
 }
 
-/// The selected window, then the rows reserved below it. The later panes come first if
+/// The tiled window, then the rows reserved below it. The later panes come first if
 /// a frame runs out of room, so no amount of text can take their place (ADR 0061).
+/// Beneath a prompt, the window's cursor is hollow and it shows no preedit, as it is
+/// not selected (ADR 0072).
 fn panes<'a>(
     editor: &'a Editor,
     region_cells: &'a [frame::CellRect],
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
-    let (window, buffer) = editor.current();
+    let (window, buffer) = editor.tiled();
+    let beneath = editor.prompt().is_some();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
     let frame = editor.frame();
@@ -59,7 +77,12 @@ fn panes<'a>(
         revision: buffer.revision(),
         scroll: window.scroll(),
         cursor,
-        preedit: editor.preedit(),
+        cursor_style: if beneath {
+            CursorStyle::Hollow
+        } else {
+            CursorStyle::Box
+        },
+        preedit: editor.preedit().filter(|_| !beneath),
         region_cells,
     });
     let pane = |id, region, background, content| Pane {
@@ -67,6 +90,8 @@ fn panes<'a>(
         region,
         layer: Layer::TILED,
         background,
+        border: None,
+        bands: Bands::NONE,
         content,
     };
     [
@@ -258,7 +283,7 @@ mod tests {
                 .iter()
                 .map(|pane| {
                     let spans = match &pane.content {
-                        PaneContent::Text(_) => Vec::new(),
+                        PaneContent::Text(_) | PaneContent::Masked(_) => Vec::new(),
                         PaneContent::Lines(lines) => lines[0]
                             .iter()
                             .map(|span| (span.text.to_owned(), span.face))
@@ -320,5 +345,77 @@ mod tests {
         let panes = panes_of(1);
         assert_eq!(panes[0].0.rows, 1);
         assert_eq!((panes[1].0.rows, panes[2].0.rows), (0, 0));
+    }
+
+    #[test]
+    fn a_float_too_short_for_its_label_keeps_the_answers_row_and_nothing_overlaps() {
+        let mut editor = Editor::default();
+        editor.set_frame_size(FrameSize {
+            rows: 4,
+            columns: 40,
+        });
+        let long = "a question long enough to take three rows of a narrow float";
+        editor.ask(long, "keyboard-quit").unwrap();
+        let status = Status::default();
+        with_panes(&editor, &status, &mut Vec::new(), |panes| {
+            let inside: Vec<_> = panes
+                .iter()
+                .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
+                .collect();
+            for (i, a) in inside.iter().enumerate() {
+                for b in &inside[..i] {
+                    let rows = |p: &Pane<'_>| p.region.row..p.region.row + p.region.rows;
+                    let columns =
+                        |p: &Pane<'_>| p.region.column..p.region.column + p.region.columns;
+                    let meet = |x: std::ops::Range<usize>, y: std::ops::Range<usize>| {
+                        x.start < y.end && y.start < x.end
+                    };
+                    assert!(
+                        !(meet(rows(a), rows(b)) && meet(columns(a), columns(b))),
+                        "{:?} and {:?} overlap",
+                        a.region,
+                        b.region
+                    );
+                }
+            }
+            let shown: String = inside
+                .iter()
+                .filter_map(|pane| match &pane.content {
+                    PaneContent::Lines(lines) => lines.first().copied(),
+                    _ => None,
+                })
+                .flat_map(|row| row.iter().map(|span| span.text))
+                .collect();
+            assert!(shown.contains("(y or n)"), "{shown}");
+        });
+    }
+
+    #[test]
+    fn panes_in_a_float_keep_bands_only_into_its_padding() {
+        for rows in [4, 24] {
+            let mut editor = Editor::default();
+            editor.set_frame_size(FrameSize { rows, columns: 60 });
+            let long = "a question long enough to take two rows of the float, at least";
+            editor.ask(long, "keyboard-quit").unwrap();
+            let inner = editor.prompt_layout().unwrap().regions.inner;
+            let framed = editor.prompt_layout().unwrap().regions.framed();
+            let status = Status::default();
+            with_panes(&editor, &status, &mut Vec::new(), |panes| {
+                for pane in panes
+                    .iter()
+                    .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
+                {
+                    let region = pane.region;
+                    let top = region.row == inner.row;
+                    let bottom = region.row + region.rows == inner.row + inner.rows;
+                    assert_eq!(pane.bands.above, framed && top, "{rows} rows: {region:?}");
+                    assert_eq!(
+                        pane.bands.below,
+                        framed && bottom,
+                        "{rows} rows: {region:?}"
+                    );
+                }
+            });
+        }
     }
 }

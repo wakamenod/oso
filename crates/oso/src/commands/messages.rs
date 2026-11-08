@@ -16,6 +16,7 @@ pub const COMMANDS: &[Command] = &[Command {
 }];
 
 fn view_echo_area_messages(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
     ctx.editor.toggle_messages();
     ctx.request_redraw();
     Ok(())
