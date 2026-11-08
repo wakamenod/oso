@@ -13,15 +13,15 @@ impl App {
     /// Finds out soon after startup whether copies could be written, and what waits.
     pub fn check_emergency_directory(&mut self) {
         self.offer.startup_scan_begins();
-        let (report, found) = (self.proxy.clone(), self.proxy.clone());
+        let (report, found) = (self.waker.clone(), self.waker.clone());
         self.emergency.check_directory(
             &self.editor,
             move |problem| {
                 // It fails only once the event loop is gone, when there is nobody to tell.
-                let _ = report.send_event(UserEvent::NoEmergencyCopies(problem));
+                let _ = report.send(UserEvent::NoEmergencyCopies(problem));
             },
             move |event| {
-                let _ = found.send_event(UserEvent::Copies(event));
+                let _ = found.send(UserEvent::Copies(event));
             },
         );
     }
@@ -79,10 +79,10 @@ impl App {
 
     fn start_copy_work(&mut self, work: Vec<CopyWork>) {
         for work in work {
-            let proxy = self.proxy.clone();
+            let waker = self.waker.clone();
             emergency::spawn_work(work, move |event| {
                 // It fails only once the event loop is gone, when there is nobody to tell.
-                let _ = proxy.send_event(UserEvent::Copies(event));
+                let _ = waker.send(UserEvent::Copies(event));
             });
         }
     }

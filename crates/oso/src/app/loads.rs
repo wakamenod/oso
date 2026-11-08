@@ -39,10 +39,10 @@ impl App {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
-        let proxy = self.proxy.clone();
+        let waker = self.waker.clone();
         let started = Instant::now();
         let spawned = loader::spawn(buffer, path, move |buffer| {
-            proxy.send_event(UserEvent::Load(buffer)).is_ok()
+            waker.send(UserEvent::Load(buffer))
         });
         match spawned {
             Ok(handle) => {
@@ -97,11 +97,11 @@ impl App {
             path,
             limit,
         } = load;
-        let proxy = self.proxy.clone();
+        let waker = self.waker.clone();
         let started = Instant::now();
         let open = move || emergency::open_copy(&path);
         let spawned = loader::spawn_copy(buffer, open, limit, move |buffer| {
-            proxy.send_event(UserEvent::Load(buffer)).is_ok()
+            waker.send(UserEvent::Load(buffer))
         });
         match spawned {
             Ok(handle) => self.loads.push(Load {

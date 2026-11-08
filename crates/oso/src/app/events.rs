@@ -1,35 +1,62 @@
 //! The event loop's handler: sends each event from the window and from other
-//! threads to the part of the app that deals with it.
+//! threads to the part of the app that deals with it. Events come in oso's own
+//! types, defined here, which `shell` builds from winit's (ADR 0070). Each callback of the
+//! loop goes to one method of the app, here or in the concern it belongs to (`open_window`,
+//! `ending`), so a window layer only translates.
 //!
 //! Must not depend on: what a key does or how a frame is drawn. A new event adds
 //! an arm here, and its handling goes in a module beside this one.
 
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::ActiveEventLoop;
-use winit::window::WindowId;
-
+use super::ime::ImeEvent;
+use super::shell::Loop;
 use super::{App, UserEvent};
+use crate::keys::{Held, KeyInput};
+
+/// What the window reports, as the app sees it. No `Debug`, as a key or a preedit holds
+/// what the person types (ADR 0028).
+pub(super) enum Event<'a> {
+    CloseRequested,
+    /// The drawable area's new size, in physical pixels.
+    Resized {
+        width: u32,
+        height: u32,
+    },
+    /// The window moved to a display with another scale.
+    ScaleFactorChanged(f64),
+    /// Whether the window is hidden by others.
+    Occluded(bool),
+    RedrawRequested,
+    Wheel(Wheel),
+    ModifiersChanged(Held),
+    Key(KeyInput<'a>),
+    Ime(ImeEvent),
+    /// Anything the app does not handle.
+    Other,
+}
+
+/// How far the mouse wheel or the trackpad scrolled. Positive moves the content down and
+/// right.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Wheel {
+    /// Notches of a wheel.
+    Lines { x: f32, y: f32 },
+    /// Physical pixels, from a trackpad.
+    Pixels { x: f64, y: f64 },
+}
 
 /// Whether `event` keeps what the app knows of the window true, rather than being input or a
 /// frame. Missing a change of modifiers would leave Control held after a leave is taken back,
 /// and every letter would then run a command.
-fn keeps_state_true(event: &WindowEvent) -> bool {
+fn keeps_state_true(event: &Event<'_>) -> bool {
     matches!(
         event,
-        WindowEvent::ModifiersChanged(_)
-            | WindowEvent::Resized(_)
-            | WindowEvent::ScaleFactorChanged { .. }
+        Event::ModifiersChanged(_) | Event::Resized { .. } | Event::ScaleFactorChanged(_)
     )
 }
 
-impl ApplicationHandler<UserEvent> for App {
-    /// Called when the OS signals that the window is ready to be created (or resumed).
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.open_window(event_loop);
-    }
-
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+impl App {
+    /// A thread sent the event loop something.
+    pub(super) fn handle_user_event(&mut self, event_loop: &Loop<'_>, event: UserEvent) {
         match event {
             UserEvent::Load(buffer) => {
                 self.load_updated(buffer);
@@ -47,25 +74,16 @@ impl ApplicationHandler<UserEvent> for App {
         self.after_event();
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    /// The event loop is about to wait for the next events.
+    pub(super) fn before_waiting(&mut self, event_loop: &Loop<'_>) {
         self.check_leaving(event_loop);
         self.scan_if_a_file_has_loaded();
         self.ask_for_a_frame_if_status_changed();
     }
 
-    /// The event loop is ending, on every exit. On macOS `applicationWillTerminate` leads
-    /// here for a Dock quit or a logout.
-    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        self.ending();
-    }
-
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _window_id: WindowId,
-        event: WindowEvent,
-    ) {
-        // An exit only sets a flag, and winit still delivers what is queued. Input
+    /// An event from the window.
+    pub(super) fn handle_window_event(&mut self, event_loop: &Loop<'_>, event: Event<'_>) {
+        // An exit only sets a flag, and the loop still delivers what is queued. Input
         // handled now, by any path, would be lost with the process. But a leave can be
         // taken back, so what the window's state depends on still counts.
         if self.view.is_none() || (self.is_leaving(event_loop) && !keeps_state_true(&event)) {
@@ -74,35 +92,33 @@ impl ApplicationHandler<UserEvent> for App {
 
         match event {
             // ---- Close window ----
-            WindowEvent::CloseRequested => self.close_requested(event_loop),
+            Event::CloseRequested => self.close_requested(event_loop),
 
             // ---- Resize ----
-            WindowEvent::Resized(size) => self.resize(size.width, size.height),
+            Event::Resized { width, height } => self.resize(width, height),
 
             // ---- Moved to a display with another scale: reload the font ----
-            WindowEvent::ScaleFactorChanged { scale_factor, .. } => self.set_scale(scale_factor),
+            Event::ScaleFactorChanged(scale_factor) => self.set_scale(scale_factor),
 
             // ---- Visible again: frames skipped while occluded need a redraw ----
-            WindowEvent::Occluded(false) => self.request_redraw(),
+            Event::Occluded(false) => self.request_redraw(),
 
             // ---- Redraw ----
-            WindowEvent::RedrawRequested => self.draw_frame(),
+            Event::RedrawRequested => self.draw_frame(),
 
             // ---- Mouse wheel and trackpad ----
-            WindowEvent::MouseWheel { delta, .. } => self.handle_wheel(delta),
+            Event::Wheel(wheel) => self.handle_wheel(wheel),
 
             // ---- Keyboard input ----
-            WindowEvent::ModifiersChanged(modifiers) => self.set_modifiers(modifiers.state()),
-            WindowEvent::KeyboardInput {
-                event,
-                is_synthetic,
-                ..
-            } => self.handle_key_event(event_loop, &event, is_synthetic),
+            Event::ModifiersChanged(held) => self.set_modifiers(held),
+            Event::Key(input) => self.handle_key_event(event_loop, &input),
 
             // ---- Input method ----
-            WindowEvent::Ime(ime) => self.handle_ime(event_loop, ime),
+            Event::Ime(ime) => {
+                self.ime_event(event_loop, ime);
+            }
 
-            _ => {}
+            Event::Occluded(true) | Event::Other => {}
         }
         self.after_event();
     }
@@ -110,21 +126,19 @@ impl ApplicationHandler<UserEvent> for App {
 
 #[cfg(test)]
 mod tests {
-    use winit::dpi::PhysicalSize;
-    use winit::event::{Modifiers, WindowEvent};
-
-    use super::keeps_state_true;
+    use super::{Event, keeps_state_true};
+    use crate::keys::Held;
 
     #[test]
     fn only_what_keeps_the_windows_state_true_passes_while_leaving() {
-        assert!(keeps_state_true(&WindowEvent::ModifiersChanged(
-            Modifiers::default()
-        )));
-        assert!(keeps_state_true(&WindowEvent::Resized(PhysicalSize::new(
-            1, 1
-        ))));
-        assert!(!keeps_state_true(&WindowEvent::RedrawRequested));
-        assert!(!keeps_state_true(&WindowEvent::CloseRequested));
-        assert!(!keeps_state_true(&WindowEvent::Focused(true)));
+        assert!(keeps_state_true(&Event::ModifiersChanged(Held::NONE)));
+        assert!(keeps_state_true(&Event::Resized {
+            width: 1,
+            height: 1
+        }));
+        assert!(keeps_state_true(&Event::ScaleFactorChanged(2.0)));
+        assert!(!keeps_state_true(&Event::RedrawRequested));
+        assert!(!keeps_state_true(&Event::CloseRequested));
+        assert!(!keeps_state_true(&Event::Other), "focus, among others");
     }
 }

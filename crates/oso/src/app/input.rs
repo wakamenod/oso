@@ -8,14 +8,13 @@ use std::time::Instant;
 
 use oso_core::buffer::Mode;
 use oso_core::key::KeyPress;
-use winit::event::{KeyEvent, MouseScrollDelta};
-use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::ModifiersState;
 
 use super::App;
+use super::events::Wheel;
+use super::shell::Loop;
 #[cfg(feature = "dev")]
 use crate::dev;
-use crate::keys;
+use crate::keys::{self, Held, KeyInput};
 
 /// Rows one notch of a mouse wheel scrolls.
 const WHEEL_ROWS: f64 = 3.0;
@@ -33,24 +32,16 @@ fn answers_once(mode: Mode, key: KeyPress) -> bool {
 }
 
 impl App {
-    /// Remembers the modifier keys held, as winit reports them.
-    pub(super) fn set_modifiers(&mut self, modifiers: ModifiersState) {
+    /// Remembers the modifier keys held, as the window system reports them.
+    pub(super) fn set_modifiers(&mut self, modifiers: Held) {
         self.modifiers = modifiers;
     }
 
     /// Turns a key event from the window into a key press, and handles it.
-    pub(super) fn handle_key_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        event: &KeyEvent,
-        is_synthetic: bool,
-    ) {
-        if !keys::is_real_press(event.state, is_synthetic) {
-            return;
-        }
-        if let Some(key) = keys::from_event(event, self.modifiers) {
+    pub(super) fn handle_key_event(&mut self, event_loop: &Loop<'_>, input: &KeyInput<'_>) {
+        if let Some(key) = keys::from_event(input, self.modifiers) {
             let mode = self.editor.current().1.mode();
-            if event.repeat {
+            if input.repeat {
                 if self.answering == Some(key) || answers_once(mode, key) {
                     return;
                 }
@@ -58,7 +49,7 @@ impl App {
                 self.answering = answers_once(mode, key).then_some(key);
             }
             self.handle_key(event_loop, key);
-        } else if let Some(text) = keys::typed_text(event, self.modifiers) {
+        } else if let Some(text) = keys::typed_text(input, self.modifiers) {
             self.handle_text(event_loop, text);
         }
     }
@@ -66,7 +57,7 @@ impl App {
     /// Handles one key press from the window, through the keymaps and the
     /// command registry. Keys from the dev control socket take the same
     /// path, through [`crate::dispatch::Dispatcher::handle_keys_with`].
-    fn handle_key(&mut self, event_loop: &ActiveEventLoop, key: KeyPress) {
+    fn handle_key(&mut self, event_loop: &Loop<'_>, key: KeyPress) {
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
@@ -84,7 +75,7 @@ impl App {
     }
 
     /// Handles text from one key press that types several characters.
-    fn handle_text(&mut self, event_loop: &ActiveEventLoop, text: &str) {
+    fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
@@ -102,21 +93,19 @@ impl App {
     }
 
     /// Scrolls the view for the mouse wheel or the trackpad.
-    pub(super) fn handle_wheel(&mut self, delta: MouseScrollDelta) {
+    pub(super) fn handle_wheel(&mut self, delta: Wheel) {
         // Positive deltas move the content down and right: the view moves the other
         // way.
         let (rows, columns) = match delta {
-            MouseScrollDelta::LineDelta(x, y) => {
-                (-f64::from(y) * WHEEL_ROWS, -f64::from(x) * WHEEL_COLUMNS)
-            }
-            MouseScrollDelta::PixelDelta(position) => {
+            Wheel::Lines { x, y } => (-f64::from(y) * WHEEL_ROWS, -f64::from(x) * WHEEL_COLUMNS),
+            Wheel::Pixels { x, y } => {
                 let Some(view) = &self.view else {
                     return;
                 };
                 let metrics = view.render_state.cell_metrics();
                 (
-                    -position.y / f64::from(metrics.height).max(1.0),
-                    -position.x / f64::from(metrics.width).max(1.0),
+                    -y / f64::from(metrics.height).max(1.0),
+                    -x / f64::from(metrics.width).max(1.0),
                 )
             }
         };
