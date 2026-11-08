@@ -48,7 +48,7 @@ pub use copies::RecoveryAction;
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
-pub use save::{Elsewhere, ExitRefused, SaveJob, SaveRefused};
+pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::KillRefused;
 

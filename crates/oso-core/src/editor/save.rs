@@ -46,10 +46,22 @@ pub struct SaveJob {
 }
 
 /// What a write to a new place may find there.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Elsewhere {
     /// The regular file the person agreed to write over. With `None`, nothing may be there.
-    pub over: Option<FileStamp>,
+    pub over: Option<Over>,
+    /// Where the other buffers' files are, which the new place must not be: one file is never
+    /// in two buffers (ADR 0087).
+    pub open: Vec<PathBuf>,
+}
+
+/// A file a write found at a new place, which the person agreed to write over.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Over {
+    /// What it was then.
+    pub found: FileStamp,
+    /// Where the path led then. A path that now leads elsewhere writes nothing.
+    pub location: PathBuf,
 }
 
 /// Why a save did not start. Nothing was written, and nothing changed.
@@ -69,6 +81,8 @@ pub enum SaveRefused {
     /// A write to a new place found a file there. Writing over it needs the person to agree
     /// first (ADR 0087).
     Exists,
+    /// The new place is another buffer's file.
+    OpenElsewhere,
 }
 
 impl fmt::Display for SaveRefused {
@@ -83,6 +97,7 @@ impl fmt::Display for SaveRefused {
             Self::NoFile => "Buffer has no file name",
             Self::ChangedOnDisk => "The file changed on disk since it was read",
             Self::Exists => "A file is there already",
+            Self::OpenElsewhere => "That file is open in another buffer",
         })
     }
 }

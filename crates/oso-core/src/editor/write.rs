@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use super::Editor;
-use super::save::{Elsewhere, SaveJob, SaveRefused, missing_final_newline};
-use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp};
+use super::save::{Elsewhere, Over, SaveJob, SaveRefused, missing_final_newline};
+use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp, ReadOnly};
 
 /// A file a write to a new place found, which `y` may write over, and only for that buffer
 /// and that path.
@@ -15,7 +15,7 @@ use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp};
 pub(super) struct WriteOver {
     buffer: BufferId,
     path: PathBuf,
-    found: FileStamp,
+    over: Over,
 }
 
 impl Editor {
@@ -34,8 +34,24 @@ impl Editor {
         if buffer.path() == Some(path.as_path()) {
             return self.queue_save(over);
         }
+        // A prompt's text, a passphrase's among them, never goes to a file.
+        if buffer.is_internal() {
+            return Err(SaveRefused::ReadOnly(ReadOnly::Internal));
+        }
         if let Some(reason) = buffer.read_only() {
             return Err(SaveRefused::ReadOnly(reason));
+        }
+        let open: Vec<PathBuf> = self
+            .buffers()
+            .filter(|(other, _)| *other != id)
+            .filter_map(|(_, other)| {
+                let place = other.baseline().map(|baseline| baseline.location.clone());
+                Some((other.path()?.to_path_buf(), place))
+            })
+            .flat_map(|(path, place)| std::iter::once(path).chain(place))
+            .collect();
+        if open.contains(&path) {
+            return Err(SaveRefused::OpenElsewhere);
         }
         if buffer.is_saving() {
             return Err(SaveRefused::AlreadySaving);
@@ -45,7 +61,7 @@ impl Editor {
             .take()
             .filter(|asked| asked.buffer == id && asked.path == path);
         let found = match asked {
-            Some(asked) if over => Some(asked.found),
+            Some(asked) if over => Some(asked.over),
             Some(asked) => {
                 self.write_over_asked = Some(asked);
                 return Err(SaveRefused::Exists);
@@ -65,7 +81,7 @@ impl Editor {
                 content: buffer.content_id(),
                 baseline: None,
                 only_if_gone: false,
-                elsewhere: Some(Elsewhere { over: found }),
+                elsewhere: Some(Elsewhere { over: found, open }),
             };
             buffer.set_saving(true);
             self.save_jobs.push(job);
@@ -73,13 +89,20 @@ impl Editor {
         Ok(line_break.is_some())
     }
 
-    /// A write of `id` to `path` found the regular file `found` there and wrote nothing. The
-    /// next `C-x C-w` of that path asks, and `y` writes over that file only.
-    pub fn may_write_over(&mut self, id: BufferId, path: PathBuf, found: FileStamp) {
+    /// A write of `id` to `path` found the regular file `found` there, at `location`, and wrote
+    /// nothing. The next `C-x C-w` of that path asks, and `y` writes over that file only, where
+    /// the path led then.
+    pub fn may_write_over(
+        &mut self,
+        id: BufferId,
+        path: PathBuf,
+        found: FileStamp,
+        location: PathBuf,
+    ) {
         self.write_over_asked = Some(WriteOver {
             buffer: id,
             path,
-            found,
+            over: Over { found, location },
         });
     }
 

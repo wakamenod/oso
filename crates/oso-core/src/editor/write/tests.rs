@@ -40,7 +40,13 @@ fn a_buffer_with_no_file_is_written_with_its_final_newline_and_then_visits_it() 
         job.baseline.is_none(),
         "the host finds where the path leads"
     );
-    assert_eq!(job.elsewhere, Some(Elsewhere { over: None }));
+    assert_eq!(
+        job.elsewhere,
+        Some(Elsewhere {
+            over: None,
+            open: Vec::new()
+        })
+    );
     assert!(editor.current().1.is_saving());
     let location = PathBuf::from("/real/new.md");
     let judge = |buffer: &mut Buffer| buffer.judge_secret(Some(std::slice::from_ref(&location)));
@@ -94,7 +100,7 @@ fn the_buffers_own_path_is_a_save() {
 fn a_file_found_there_is_asked_about_and_written_over_only_for_that_path() {
     let mut editor = Editor::with_buffer(Buffer::from_text("a", "kept\n"));
     let id = editor.window().buffer();
-    editor.may_write_over(id, path("there.md"), stamp(9));
+    editor.may_write_over(id, path("there.md"), stamp(9), path("there.md"));
     assert_eq!(editor.write_over_asked(), Some(path("there.md").as_path()));
     assert_eq!(
         editor.start_write(path("there.md"), false),
@@ -103,9 +109,12 @@ fn a_file_found_there_is_asked_about_and_written_over_only_for_that_path() {
     );
     assert_eq!(editor.start_write(path("there.md"), true), Ok(false));
     assert_eq!(
-        job(&mut editor).elsewhere,
-        Some(Elsewhere {
-            over: Some(stamp(9))
+        job(&mut editor)
+            .elsewhere
+            .and_then(|elsewhere| elsewhere.over),
+        Some(Over {
+            found: stamp(9),
+            location: path("there.md")
         })
     );
     assert_eq!(editor.write_over_asked(), None, "the answer is spent");
@@ -115,9 +124,14 @@ fn a_file_found_there_is_asked_about_and_written_over_only_for_that_path() {
 fn agreeing_about_another_path_writes_over_nothing() {
     let mut editor = Editor::with_buffer(Buffer::from_text("a", "kept\n"));
     let id = editor.window().buffer();
-    editor.may_write_over(id, path("there.md"), stamp(9));
+    editor.may_write_over(id, path("there.md"), stamp(9), path("there.md"));
     assert_eq!(editor.start_write(path("elsewhere.md"), true), Ok(false));
-    assert_eq!(job(&mut editor).elsewhere, Some(Elsewhere { over: None }));
+    assert_eq!(
+        job(&mut editor)
+            .elsewhere
+            .and_then(|elsewhere| elsewhere.over),
+        None
+    );
 }
 
 #[test]
@@ -177,4 +191,42 @@ fn moving_to_a_new_name_changes_the_naming_and_tells_files_apart() {
     assert_ne!(editor.current().1.naming(), naming);
     assert_eq!(editor.current().1.name(), "notes.md<notes>");
     assert_eq!(editor.buffer(other).unwrap().name(), "notes.md<home>");
+}
+
+#[test]
+fn a_prompts_text_is_never_written() {
+    let mut editor = Editor::default();
+    editor
+        .open_prompt("Name:", crate::minibuffer::Kind::Passphrase)
+        .unwrap();
+    assert_eq!(
+        editor.start_write(path("leak.md"), false),
+        Err(SaveRefused::ReadOnly(ReadOnly::Internal))
+    );
+    assert!(editor.take_save_jobs().is_empty());
+}
+
+#[test]
+fn another_buffers_file_is_refused_and_its_place_goes_to_the_host() {
+    let mut editor = Editor::default();
+    let mut other = Buffer::visiting(path("other.md"));
+    other.set_baseline(Baseline {
+        location: PathBuf::from("/real/other.md"),
+        file: None,
+    });
+    editor.add_buffer(other);
+    assert_eq!(
+        editor.start_write(path("other.md"), false),
+        Err(SaveRefused::OpenElsewhere)
+    );
+    assert_eq!(
+        editor.start_write(PathBuf::from("/real/other.md"), false),
+        Err(SaveRefused::OpenElsewhere)
+    );
+    editor.start_write(path("new.md"), false).unwrap();
+    let open = job(&mut editor).elsewhere.map(|elsewhere| elsewhere.open);
+    assert_eq!(
+        open,
+        Some(vec![path("other.md"), PathBuf::from("/real/other.md")])
+    );
 }

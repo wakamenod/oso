@@ -8,13 +8,13 @@
 //! comes from where its text now is (ADR 0044).
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use oso_core::buffer::Baseline;
 use oso_core::editor::{Elsewhere, SaveJob};
 
 use super::{SaveError, Written, prepare};
-use crate::loader::{Resolved, location, own_spelling, resolve};
+use crate::loader::{Resolved, location, own_spelling, resolve, surely_same_file};
 
 /// Where the text of a write to a new place went, for the buffer to visit.
 #[derive(Debug)]
@@ -28,11 +28,20 @@ pub struct Moved {
 }
 
 /// Writes `job`'s text to its path, as `elsewhere` says what may be there.
-pub(super) fn write(job: &SaveJob, elsewhere: Elsewhere) -> Result<Option<Written>, SaveError> {
+pub(super) fn write(job: &SaveJob, elsewhere: &Elsewhere) -> Result<Option<Written>, SaveError> {
     if fs::metadata(&job.path).is_ok_and(|metadata| metadata.is_dir()) {
         return Err(SaveError::Io(std::io::Error::other("it is a directory")));
     }
     let location = location(&job.path)?;
+    if is_open_elsewhere(&location, &elsewhere.open) {
+        return Err(SaveError::OpenElsewhere);
+    }
+    // The file agreed to is written over only where the path led when it was found.
+    if let Some(over) = &elsewhere.over
+        && over.location != location
+    {
+        return Err(SaveError::Elsewhere);
+    }
     let located = SaveJob {
         buffer: job.buffer,
         path: job.path.clone(),
@@ -41,18 +50,37 @@ pub(super) fn write(job: &SaveJob, elsewhere: Elsewhere) -> Result<Option<Writte
         content: job.content,
         baseline: Some(Baseline {
             location: location.clone(),
-            file: elsewhere.over,
+            file: elsewhere.over.as_ref().map(|over| over.found),
         }),
         only_if_gone: false,
         elsewhere: None,
     };
-    let mut written = prepare(&located)?.commit(&located)?;
+    let written = prepare(&located).and_then(|prepared| prepared.commit(&located));
+    let mut written = match written {
+        Err(SaveError::Conflict(Some(found))) => {
+            return Err(SaveError::Exists { found, location });
+        }
+        other => other?,
+    };
     written.moved = Some(Moved {
         resolved: resolve(&job.path),
         spelling: own_spelling(&location),
         location,
     });
     Ok(Some(written))
+}
+
+/// Whether `location` is the file of one of `open`, another buffer's files, by what the
+/// system says of its identity, so that another spelling, a link or a second name of it counts.
+fn is_open_elsewhere(location: &Path, open: &[PathBuf]) -> bool {
+    if open.iter().any(|other| other == location) {
+        return true;
+    }
+    let Ok(there) = fs::metadata(location) else {
+        return false;
+    };
+    open.iter()
+        .any(|other| fs::metadata(other).is_ok_and(|other| surely_same_file(&there, &other)))
 }
 
 #[cfg(test)]

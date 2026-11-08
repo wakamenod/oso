@@ -203,6 +203,16 @@ ADR 0076's keys hold, with these for a path:
 - **The same path as the buffer's file** is a `C-x C-s`, with ADR 0059's and ADR 0072's rules.
 - **It refuses as `save-buffer` does:** read-only buffers (binary, invalid UTF-8, loading) and a
   running save. An unmodified buffer is still written, as the new file does not have its text.
+  An internal buffer is never written, so a prompt's text, a passphrase's among them, never
+  reaches a file.
+- **A file another buffer has open is refused,** `That file is open in another buffer`: by its
+  path at once, and on the save thread by where it leads and by device and inode, so another
+  spelling, a link or a second name of it counts. One file is never in two buffers.
+- **`y` writes over the file only where the path led when it was found:** a path that leads
+  elsewhere since writes nothing.
+- **A new file is put in place without replacing anything:** under a second name, which fails if
+  something has come there since the look, and then without its own. A file system with no
+  second names gets a rename, with the moment between the look and the rename a save has.
 - **The write is ADR 0059's,** with the new path resolved on the save thread, links followed, the
   new place's baseline checked as for a file that did not exist or as the question saw it, and no
   directory created. The mode of a new file is what the umask gives, as ADR 0059 says.

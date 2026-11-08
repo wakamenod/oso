@@ -163,3 +163,67 @@ fn a_link_to_nothing_creates_its_target() {
         "a link stays a link"
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn another_buffers_file_is_refused_through_a_link_or_a_second_name() {
+    let scratch = Scratch::new("elsewhere-open");
+    let old = scratch.file("old.md", b"old\n");
+    let open = scratch.file("open.md", b"open\n");
+    let link = scratch.path().join("link.md");
+    std::os::unix::fs::symlink(&open, &link).unwrap();
+    let second = scratch.path().join("second.md");
+    fs::hard_link(&open, &second).unwrap();
+    let mut editor = visit(&old);
+    editor.add_buffer(super::super::tests::visited(&open));
+    for path in [&link, &second] {
+        write_to(&mut editor, path, false).unwrap();
+        assert!(
+            last_message(&editor).contains("open in another buffer"),
+            "{}",
+            last_message(&editor)
+        );
+    }
+    assert_eq!(fs::read_to_string(&open).unwrap(), "open\n");
+    assert_eq!(editor.current().1.path(), Some(old.as_path()));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_path_that_leads_elsewhere_after_the_question_writes_nothing() {
+    let scratch = Scratch::new("elsewhere-moved");
+    let old = scratch.file("old.md", b"old\n");
+    let there = scratch.file("there.md", b"theirs\n");
+    let away = scratch.file("away.md", b"theirs\n");
+    let mut editor = visit(&old);
+    type_in(&mut editor, "mine");
+    write_to(&mut editor, &there, false).unwrap();
+    // The same time and size, through a link to another file.
+    fs::remove_file(&there).unwrap();
+    std::os::unix::fs::symlink(&away, &there).unwrap();
+    write_to(&mut editor, &there, true).unwrap();
+    assert_eq!(fs::read_to_string(&away).unwrap(), "theirs\n");
+    assert!(last_message(&editor).starts_with("Not saved"));
+}
+
+#[test]
+fn a_file_that_comes_before_the_rename_is_not_replaced() {
+    let scratch = Scratch::new("elsewhere-race");
+    let (temporary, file) = super::super::Temporary::create(scratch.path(), 0o600).unwrap();
+    drop(file);
+    let target = scratch.file("target.md", b"came meanwhile\n");
+    let put = temporary.put_where_nothing_is(&target);
+    assert_eq!(put.unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+    assert_eq!(fs::read_to_string(&target).unwrap(), "came meanwhile\n");
+    assert_eq!(scratch.names(), ["target.md"], "the temporary file went");
+}
+
+#[test]
+fn a_new_file_is_put_in_place_under_its_name_only() {
+    let scratch = Scratch::new("elsewhere-put");
+    let (temporary, file) = super::super::Temporary::create(scratch.path(), 0o600).unwrap();
+    drop(file);
+    let target = scratch.path().join("new.md");
+    temporary.put_where_nothing_is(&target).unwrap();
+    assert_eq!(scratch.names(), ["new.md"]);
+}

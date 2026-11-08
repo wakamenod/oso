@@ -96,9 +96,12 @@ fn elsewhere_failed(
 ) -> String {
     let path = path_buf.display();
     match error {
-        SaveError::Conflict(Some(found)) => {
-            editor.may_write_over(buffer, path_buf.to_path_buf(), found);
+        SaveError::Exists { found, location } => {
+            editor.may_write_over(buffer, path_buf.to_path_buf(), found, location);
             format!("Not saved: a file is there. C-x C-w asks to write over it: {path}")
+        }
+        SaveError::OpenElsewhere => {
+            format!("Not saved: that file is open in another buffer: {path}")
         }
         SaveError::Conflict(None) => format!(
             "Not saved: what is there is no regular file, or it changed during the write: {path}"
@@ -121,9 +124,11 @@ fn not_saved(error: SaveError, path: &std::path::Display<'_>) -> String {
         ),
         SaveError::Io(e) => format!("Not saved: {e}: {path}"),
         SaveError::Panicked => format!("Not saved: the save failed: {path}"),
-        SaveError::Conflict(_) | SaveError::Elsewhere | SaveError::UnknownLocation => {
-            format!("Not saved: {path}")
-        }
+        SaveError::Conflict(_)
+        | SaveError::Elsewhere
+        | SaveError::UnknownLocation
+        | SaveError::Exists { .. }
+        | SaveError::OpenElsewhere => format!("Not saved: {path}"),
     }
 }
 
