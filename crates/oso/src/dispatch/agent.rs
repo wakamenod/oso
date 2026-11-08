@@ -11,6 +11,9 @@ use oso_core::editor::Editor;
 use super::args::{self, Given};
 use super::{Dispatcher, Effects, Step};
 
+/// The most bytes a text argument may come to, times the cursors it goes in at (ADR 0085).
+pub const MAX_INSERTED: usize = 1 << 20;
+
 /// Why the channel did not run a command. Its message names only a registered command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refused(pub String);
@@ -65,6 +68,15 @@ impl Dispatcher {
             && n.unsigned_abs() > MAX_REMOTE_COUNT.unsigned_abs()
         {
             return refused(format!("{name}'s argument is beyond ±{MAX_REMOTE_COUNT}"));
+        }
+        // Text goes in at every cursor, so its size times theirs is what it costs.
+        let cursors = editor.window().selections.len();
+        if let Given::Text(text) = given
+            && text.len().saturating_mul(cursors) > MAX_INSERTED
+        {
+            return refused(format!(
+                "the text times the cursors is more than {MAX_INSERTED} bytes"
+            ));
         }
         // Whatever the person's keys left stays theirs: the agent's command never takes it.
         let mapped = args::map(name, command.args, given, None).map_err(Refused)?;
@@ -284,6 +296,34 @@ mod tests {
         editor.answer_question(true).unwrap();
         dispatcher.after_prompts(&mut editor);
         assert!(!editor.prompt().unwrap().from_agent());
+    }
+
+    #[test]
+    fn text_times_the_cursors_is_bounded() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("a\nb\nc"));
+        let text = "x".repeat(super::MAX_INSERTED / 2 + 1);
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "insert", Given::Text(&text), Reach::Change)
+            .unwrap();
+        assert_eq!(result, Ok(()), "one cursor");
+        editor.undo().unwrap();
+        let two = oso_core::selection::SelectionSet::from_parts(
+            vec![
+                oso_core::selection::Selection::at(0),
+                oso_core::selection::Selection::at(2),
+            ],
+            0,
+        )
+        .unwrap();
+        editor.current_mut().0.selections = two;
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "insert",
+            Given::Text(&text),
+            Reach::Change,
+        );
+        assert!(why.contains("times the cursors"), "{why}");
     }
 
     #[test]

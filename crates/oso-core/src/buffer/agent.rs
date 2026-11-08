@@ -13,7 +13,7 @@ impl Buffer {
     /// every buffer is judged by (ADR 0044). Only a name: where a link leads is the loader's
     /// to find.
     pub fn name_may_hold_secrets(path: &Path) -> bool {
-        crate::secret::judge(Some(path), Some(&[])) == Verdict::SecretName
+        crate::secret::judge_name(path) == Verdict::SecretName
     }
 
     /// Notes that the agent channel opened it.

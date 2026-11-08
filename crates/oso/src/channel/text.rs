@@ -71,7 +71,12 @@ pub fn start(editor: &Editor, of: TextOf) -> Result<TextJob, String> {
             (id, What::Rows { start_row, rows })
         }
         TextOf::Region => {
-            let (window, _) = editor.tiled();
+            let (window, shown) = editor.tiled();
+            // Nothing of the region of a buffer that may hold secrets, not even whether
+            // there is one.
+            if shown.is_secret() {
+                return Err(WITHHELD.into());
+            }
             let primary = window.selections.primary();
             let mark = primary
                 .mark
@@ -228,6 +233,22 @@ mod tests {
     }
 
     #[test]
+    fn a_prompt_buffer_is_no_buffer_to_read() {
+        let mut editor = editor("");
+        editor.ask("Exit?", "save-buffers-kill-terminal").unwrap();
+        let prompt = editor.prompt().unwrap().buffer().get();
+        let refused = start(
+            &editor,
+            TextOf::Rows {
+                buffer: prompt,
+                start_row: 0,
+                rows: 1,
+            },
+        );
+        assert!(refused.unwrap_err().contains("no buffer"));
+    }
+
+    #[test]
     fn refuses_a_buffer_that_may_hold_secrets() {
         let mut editor = Editor::with_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
         editor.set_view_size(ViewSize::new(10, 40));
@@ -241,5 +262,8 @@ mod tests {
             },
         );
         assert!(refused.unwrap_err().contains("may hold secrets"));
+        // The region gets the same answer, whether there is one or not.
+        let region = start(&editor, TextOf::Region).unwrap_err();
+        assert!(region.contains("may hold secrets"), "{region}");
     }
 }

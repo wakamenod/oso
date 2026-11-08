@@ -88,11 +88,6 @@ impl Editor {
         out
     }
 
-    /// Whether the prompts opened now are the agent channel's.
-    pub(super) fn agent_opens_prompts(&self) -> bool {
-        self.agent.running
-    }
-
     /// Whether what runs now runs for the agent channel: a command it ran, or the command
     /// the person's `y` to its question runs.
     pub fn runs_for_agent(&self) -> bool {

@@ -42,8 +42,14 @@ fn save_buffer_the_agent_opened(ctx: &mut Ctx<'_>, _: Args) -> Result<(), Comman
 fn save_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let buffer = ctx.editor.current().1;
     if ctx.editor.runs_for_agent() && buffer.opened_by_agent() && !ctx.confirmed() {
-        let (name, cut) = minibuffer::cut_to(buffer.name(), NAME_CELLS);
-        let question = format!("Save {name}{cut}, which the agent opened?");
+        // Where the save writes, which a link may have put far from the name: the end of it
+        // shows, home as `~`.
+        let place = buffer
+            .baseline()
+            .map(|baseline| baseline.location.clone())
+            .or_else(|| buffer.path().map(std::path::Path::to_path_buf))
+            .unwrap_or_default();
+        let question = format!("Save {}, which the agent opened?", shown_place(&place));
         return super::session::ask(
             ctx,
             question,
@@ -53,6 +59,28 @@ fn save_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     }
     let confirmed = ctx.confirmed();
     start_save(ctx, confirmed)
+}
+
+/// The cells of a place the agent's save question shows: its end, which names the file.
+const PLACE_CELLS: usize = 48;
+
+/// `place` as the person reads it: home as `~`, and only its last [`PLACE_CELLS`] cells,
+/// after `…`, when it is longer.
+fn shown_place(place: &std::path::Path) -> String {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let shown = match home
+        .as_deref()
+        .and_then(|home| place.strip_prefix(home).ok())
+    {
+        Some(rest) => format!("~/{}", rest.display()),
+        None => place.display().to_string(),
+    };
+    let chars: Vec<char> = shown.chars().collect();
+    if chars.len() <= PLACE_CELLS {
+        return shown;
+    }
+    let tail: String = chars[chars.len() - PLACE_CELLS..].iter().collect();
+    format!("…{tail}")
 }
 
 /// Starts saving the selected buffer, over a file changed on disk if `over`.
@@ -115,6 +143,20 @@ mod tests {
         let mut visited = super::super::tests::editor("text");
         let _ = visited.for_agent(|editor| run(editor, "save-buffer", Args::NONE));
         assert!(visited.prompt().is_none());
+    }
+
+    #[test]
+    fn the_place_shows_its_end_and_home_as_a_tilde() {
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap();
+        assert_eq!(super::shown_place(&home.join("notes.md")), "~/notes.md");
+        let long = std::path::PathBuf::from(format!("/{}/settings.json", "d".repeat(80)));
+        let shown = super::shown_place(&long);
+        assert!(
+            shown.starts_with('…') && shown.ends_with("settings.json"),
+            "{shown}"
+        );
     }
 
     #[test]

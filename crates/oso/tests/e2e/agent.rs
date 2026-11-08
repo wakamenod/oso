@@ -287,6 +287,7 @@ fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
     let other = scratch.write("other.txt", b"first\nsecond\nthird\n");
     let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
     let link = scratch.symlink("plain.txt", &env);
+    let alias = scratch.symlink("alias.txt", &other);
     let mut app = App::start(Some(&notes), scratch.path());
     app.wait_until_ready();
     let mut agent = let_in(&mut app);
@@ -307,6 +308,8 @@ fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
     );
     let linked = open(&mut agent, &link, None).unwrap_err();
     assert!(linked.contains("stays closed"), "{linked}");
+    let aliased = open(&mut agent, &alias, None).unwrap_err();
+    assert!(aliased.contains("another name"), "{aliased}");
     assert!(!missing.exists(), "the channel starts no new file");
 
     let opened = open(&mut agent, &other, Some(2)).unwrap();
@@ -338,7 +341,7 @@ fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
     let waiting = agent.run("save-buffer", None, "change").unwrap();
     let waiting = waiting["waiting"].as_str().unwrap();
     assert!(
-        waiting.contains("Agent: Save other.txt, which the agent opened?"),
+        waiting.contains("Agent: Save ") && waiting.contains("other.txt, which the agent opened?"),
         "{waiting}"
     );
     assert_eq!(

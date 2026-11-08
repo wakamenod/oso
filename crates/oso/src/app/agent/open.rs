@@ -28,9 +28,17 @@ pub const MAX_OPENED: usize = 100;
 pub(in crate::app) struct Opening {
     buffer: BufferId,
     connection: Connection,
+    /// The file name asked for, which the file found must have.
+    name: Option<std::ffi::OsString>,
     line: Option<usize>,
     reply: mpsc::Sender<Reply>,
+    /// When it was asked for: a load that takes longer than the reply may wait is dropped,
+    /// so that nothing shows after the agent was told it failed.
+    asked: std::time::Instant,
 }
+
+/// How long a file the channel opens may take to show, under the server's wait for a reply.
+const OPEN_WITHIN: std::time::Duration = std::time::Duration::from_secs(8);
 
 impl App {
     /// Starts visiting `path` for `connection`, unshown; the reply goes once it is shown or
@@ -56,6 +64,7 @@ impl App {
             return refused("this agent has opened as many files as it may");
         }
         *opened += 1;
+        let name = path.file_name().map(std::ffi::OsStr::to_owned);
         let Some(buffer) = self.visit(path) else {
             return refused("the file could not start loading");
         };
@@ -65,8 +74,10 @@ impl App {
         self.agent.opening.push(Opening {
             buffer,
             connection,
+            name,
             line,
             reply,
+            asked: std::time::Instant::now(),
         });
     }
 
@@ -84,19 +95,24 @@ impl App {
                 self.agent_log("open: failed");
                 continue;
             };
-            if buffer.verdict() == Verdict::Unjudged
-                || (!buffer.is_secret() && buffer.loading().is_some())
-            {
+            let waiting = buffer.verdict() == Verdict::Unjudged
+                || (!buffer.is_secret() && buffer.loading().is_some());
+            if waiting && opening.asked.elapsed() < OPEN_WITHIN {
                 index += 1;
                 continue;
             }
+            let refused = if waiting {
+                Some("the file took too long to load")
+            } else if buffer.is_secret() {
+                Some("the file may hold secrets, so it stays closed; ask the person")
+            } else {
+                found_elsewhere(buffer, opening.name.as_deref())
+            };
             let opening = self.agent.opening.swap_remove(index);
-            if buffer.is_secret() {
+            if let Some(why) = refused {
                 self.editor.kill_buffer(opening.buffer);
-                let _ = opening.reply.send(Err(
-                    "the file may hold secrets, so it stays closed; ask the person".into(),
-                ));
-                self.agent_log("open: refused, the file may hold secrets");
+                let _ = opening.reply.send(Err(why.into()));
+                self.agent_log("open: refused");
                 continue;
             }
             let reply = self.show_agents_file(&opening);
@@ -141,5 +157,34 @@ impl App {
         for opening in gone {
             self.editor.kill_buffer(opening.buffer);
         }
+    }
+}
+
+/// Why a file the channel opened and read is not the one it asked for, if it is not: the
+/// load found no file there any more, so it would be a new one, which the channel never
+/// starts, or the path led, through a link, to a file of another name.
+fn found_elsewhere(
+    buffer: &oso_core::buffer::Buffer,
+    asked: Option<&std::ffi::OsStr>,
+) -> Option<&'static str> {
+    let Some(baseline) = buffer.baseline() else {
+        return Some("where the path leads could not be told");
+    };
+    if baseline.file.is_none() {
+        return Some("no file is at that path now");
+    }
+    (baseline.location.file_name() != asked).then_some("the path leads to a file of another name")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::found_elsewhere;
+    use oso_core::buffer::Buffer;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn a_buffer_with_no_file_found_is_not_the_one_asked_for() {
+        let buffer = Buffer::from_text("notes.md", "");
+        assert!(found_elsewhere(&buffer, Some(OsStr::new("notes.md"))).is_some());
     }
 }

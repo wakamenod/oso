@@ -39,8 +39,8 @@ pub const QUIET: Duration = Duration::from_millis(500);
 /// How often a row that can come many times a second is logged, at most.
 const OFTEN: Duration = Duration::from_secs(5);
 
-/// The most bytes a text argument may come to, times the cursors it goes in at (ADR 0085).
-pub const MAX_INSERTED: usize = 1 << 20;
+/// The most bytes of text one connection gives its commands in a minute.
+pub const MAX_TEXT_A_MINUTE: usize = 4 << 20;
 
 /// How long after the person's last key the channel runs nothing.
 pub const PERSON_TYPING: Duration = Duration::from_secs(1);
@@ -81,6 +81,8 @@ pub(super) struct Agent {
     opening: Vec<open::Opening>,
     /// How many files each connection has opened.
     opened: HashMap<Connection, usize>,
+    /// The text each connection has given this minute: since when, and how many bytes.
+    inserted: HashMap<Connection, (Instant, usize)>,
 }
 
 #[derive(Debug)]
@@ -271,16 +273,17 @@ impl App {
             Some(Arg::Count(n)) => Given::Count(*n),
             Some(Arg::Text(text)) => Given::Text(text),
         };
-        // Text goes in at every cursor, so its size times theirs is what it costs.
-        if let Given::Text(text) = given
-            && text
-                .len()
-                .saturating_mul(self.editor.window().selections.len())
-                > MAX_INSERTED
-        {
-            return Err(format!(
-                "the text times the cursors is more than {MAX_INSERTED} bytes"
-            ));
+        // What one connection puts in a minute is bounded, as well as what one request does.
+        if let Given::Text(text) = given {
+            let now = Instant::now();
+            let (since, bytes) = self.agent.inserted.entry(connection).or_insert((now, 0));
+            if now.duration_since(*since) >= Duration::from_secs(60) {
+                (*since, *bytes) = (now, 0);
+            }
+            if bytes.saturating_add(text.len()) > MAX_TEXT_A_MINUTE {
+                return Err("this agent has put in as much text as it may this minute".into());
+            }
+            *bytes += text.len();
         }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
         let ran = self

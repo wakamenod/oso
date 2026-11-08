@@ -126,6 +126,16 @@ pub(crate) fn judge(opened: Option<&Path>, resolved: Option<&[PathBuf]>) -> Verd
     }
 }
 
+/// The verdict on a path by its name alone, before anything resolves it: where a link
+/// leads is the loader's to find.
+pub(crate) fn judge_name(path: &Path) -> Verdict {
+    if matches_pattern(path) {
+        Verdict::SecretName
+    } else {
+        Verdict::Ordinary
+    }
+}
+
 /// The verdict on the file opened as `opened`, whose path could not be resolved. `seen`
 /// holds what the walk passed before it failed, as those names count too.
 pub(crate) fn judge_unresolved(opened: Option<&Path>, seen: &[PathBuf]) -> Verdict {
