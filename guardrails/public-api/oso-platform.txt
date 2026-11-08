@@ -18,6 +18,7 @@ impl core::fmt::Debug for oso_platform::clipboard::Contents
 pub fn oso_platform::clipboard::Contents::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_platform::clipboard::Contents
 pub enum oso_platform::clipboard::Event
+pub oso_platform::clipboard::Event::NotAnswering
 pub oso_platform::clipboard::Event::Read(oso_platform::clipboard::Contents)
 pub oso_platform::clipboard::Event::Written
 pub oso_platform::clipboard::Event::Written::fingerprint: oso_platform::clipboard::Fingerprint
@@ -70,6 +71,7 @@ impl core::default::Default for oso_platform::clipboard::MemoryClipboard
 pub fn oso_platform::clipboard::MemoryClipboard::default() -> oso_platform::clipboard::MemoryClipboard
 impl core::fmt::Debug for oso_platform::clipboard::MemoryClipboard
 pub fn oso_platform::clipboard::MemoryClipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_platform::clipboard::GIVE_UP: core::time::Duration
 pub const oso_platform::clipboard::READ_TIMEOUT: core::time::Duration
 pub type oso_platform::clipboard::MakeText = alloc::boxed::Box<(dyn core::ops::function::FnOnce() -> alloc::string::String + core::marker::Send)>
 pub mod oso_platform::control

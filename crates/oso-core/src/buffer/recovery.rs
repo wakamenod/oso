@@ -204,10 +204,7 @@ impl Buffer {
         };
         self.info = side.info;
         self.baseline = side.baseline;
-        // A secret kill yanked in stays withheld through undo and redo (ADR 0074).
-        if self.verdict != Verdict::Yanked {
-            self.verdict = side.verdict;
-        }
+        self.verdict = side.verdict;
     }
 
     /// Whether a copy's text was put in this buffer, and no undo has taken that back.

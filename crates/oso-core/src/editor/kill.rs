@@ -144,17 +144,14 @@ impl Editor {
     /// Puts `pieces` in the ring, appended to the newest entry if this follows a kill.
     fn add_kill(&mut self, pieces: Vec<Piece>, direction: Direction, secret: bool) {
         let kills = &mut self.kills;
-        let fits = kills
-            .ring
-            .get(0)
-            .is_some_and(|entry| entry.pieces().len() == pieces.len());
-        let entry = if kills.follows_kill && fits {
+        let appended = if kills.follows_kill {
             kills.ring.append(pieces, direction, secret)
         } else {
-            Some(kills.ring.push(pieces, secret))
+            Err(pieces)
         };
+        let entry = appended.unwrap_or_else(|pieces| kills.ring.push(pieces, secret));
         kills.killed = true;
-        kills.to_write = entry;
+        kills.to_write = Some(entry);
     }
 
     /// Puts text another app put on the clipboard in the ring as an entry of one piece, as
@@ -171,7 +168,7 @@ impl Editor {
             return;
         }
         let secret = concealed || ring.holds_secret(fingerprint);
-        let id = ring.push(vec![Piece::from(text)], secret);
+        let id = ring.push_from_clipboard(text, secret);
         ring.note_written(id, fingerprint);
     }
 

@@ -35,9 +35,9 @@ impl App {
             return;
         }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
-        self.socket_input = true;
+        self.dispatcher.set_input_from_socket(true);
         let result = self.answer_control(event_loop, op, received, reply);
-        self.socket_input = false;
+        self.dispatcher.set_input_from_socket(false);
         if let Some((reply, result)) = result {
             self.note_remote_questions(newest);
             let _ = reply.send(result);

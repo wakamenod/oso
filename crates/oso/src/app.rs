@@ -110,10 +110,6 @@ pub struct App {
     /// Questions a control socket request opened, which keys from the window do not answer.
     #[cfg(feature = "dev")]
     remote_questions: Vec<oso_core::minibuffer::PromptId>,
-    /// The input being handled came through the control socket, so a yank must not read
-    /// the system clipboard (ADR 0074).
-    #[cfg(feature = "dev")]
-    socket_input: bool,
     /// Positions handed over from the previous instance, until their file has
     /// loaded.
     #[cfg(feature = "dev")]
@@ -158,8 +154,6 @@ impl App {
             timings: dev::Timings::new(started),
             #[cfg(feature = "dev")]
             remote_questions: Vec::new(),
-            #[cfg(feature = "dev")]
-            socket_input: false,
             #[cfg(feature = "dev")]
             restore: None,
         }

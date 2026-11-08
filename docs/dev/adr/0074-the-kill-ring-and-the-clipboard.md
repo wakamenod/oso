@@ -184,8 +184,9 @@ the commands' details below as written with them. The ADR stays Proposed until t
     yank inserts the ring's newest entry, and the echo area says "Clipboard not read" if there
     was no answer. Two threads keep this bound: one owns the clipboard and may wait on another
     process, and one answers the host in time and drops a late answer. On macOS a stuck read
-    ends when the pasteboard server gives up; the Wayland backend (stage 4) reads its pipe with
-    `poll` and a timeout of 5 s, as Emacs's `x-selection-timeout`.
+    ends when the pasteboard server gives up, and after 5 s, as Emacs's `x-selection-timeout`,
+    oso leaves that worker behind; the Wayland backend (stage 4) reads its pipe with `poll` and
+    the same timeout.
 - **Tests and dev runs:** `--clipboard memory` (dev builds only) gives the worker an in-memory
   clipboard, so tests and `just e2e` never touch the author's clipboard, and CI needs none;
   `just perf` sends no kill. The socket's new `clipboard` method reads and sets it, standing in
@@ -193,7 +194,14 @@ the commands' details below as written with them. The ADR stays Proposed until t
   uses the system's, and has no other.
 - **Input from the socket never reads the system clipboard.** A yank that `send-keys`,
   `run-command` or `ime` causes reads only a clipboard in memory; with the system's it takes
-  the ring's newest entry, so no client reads the author's clipboard through oso.
+  the ring's newest entry, so no client reads the author's clipboard through oso. Where input
+  came from travels with it: the waiting yank and each input held behind it keep it.
+- **A yank lands where it was asked for, or not at all.** If the selected window, its buffer or
+  the open prompts change before the clipboard answers (a close request, a dev request), the
+  yank is dropped with a message, and the held input goes on.
+- **A read that never returns is left behind.** After 5 s the worker on it is abandoned and a
+  new one takes over, and the echo area says once "The clipboard is not answering". Writes wait
+  in the front while a read is out, never behind it.
 
 ### Secret buffers (chosen)
 
@@ -217,16 +225,17 @@ the commands' details below as written with them. The ADR stays Proposed until t
     through another app and back does not wash it, or if the clipboard marks it concealed, as
     a password manager does;
   - anything else is ordinary.
-- **Yanking a secret entry makes the target buffer secret,** as ADR 0051 says: a new verdict,
-  `Yanked`, which is withheld from the socket and from the emergency save as `SecretName` is,
-  until the file is opened again in a new buffer. Judging its path again, undoing past a
-  recovered copy and judging a copy keep it, and `oso dev` refuses to hand such a buffer over by
-  its path, so the old instance stays until it is closed. The echo area says "Buffer now
-  treated as secret".
-- **A secret entry keeps what it was before it grew:** the fingerprints of its last eight
-  writes, so a key copied out and back after more was appended still counts as secret. Text
-  from another app equal to the newest entry adds no entry, but makes it secret if it comes
-  back marked concealed.
+- **Yanking a secret entry makes the target buffer secret,** as ADR 0051 says: a flag on the
+  buffer, beside its verdict, which nothing that judges the text clears, read as a verdict,
+  `Yanked`, withheld from the socket and from the emergency save as `SecretName` is, until the
+  file is opened again in a new buffer. A name that matches and a passphrase keep their own
+  verdicts, so a passphrase stays one. `oso dev` refuses to hand such a buffer over by its path,
+  so the old instance stays until it is closed. The echo area says "Buffer now treated as
+  secret".
+- **The ring remembers what secret entries went out as:** the fingerprints of the last 64, apart
+  from the entries, so a key copied out and back still counts as secret after more was appended
+  to its entry, or after the ring dropped it. Text from another app equal to the newest entry
+  adds no entry, but makes it secret if it comes back marked concealed.
 - **A secret entry is never shown over the socket and never handed over by `oso dev`**
   (ADR 0051), and nothing logs an entry's text.
 
@@ -234,9 +243,10 @@ the commands' details below as written with them. The ADR stays Proposed until t
 
 This is a human gate ([`REVIEW.md`](../../../REVIEW.md)).
 
-- **`get-state`** gains `kill_ring`: how many ordinary entries there are, and the newest
-  ordinary entry's pieces, at most 16 pieces of at most 1 KiB each, with `truncated`. **Secret
-  entries are left out entirely,** as if absent: no count, no length. While a buffer that may
+- **`get-state`** gains `kill_ring`: how many entries oso killed from ordinary buffers, and the
+  newest one's pieces, at most 16 pieces of at most 1 KiB each, with `truncated`. **Secret
+  entries and text taken from the clipboard are left out entirely,** as if absent: no count, no
+  length, so no client reads another app's copy through oso, even after its yank is undone. While a buffer that may
   hold secrets is shown, `kill_ring` is null, as its positions are.
 - **`clipboard`** (dev, with `--clipboard memory` only) reads or sets the in-memory clipboard,
   with or without the concealed flag. Text marked concealed reads as null, as it may be a

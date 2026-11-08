@@ -69,7 +69,7 @@ impl Dispatcher {
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
-                self.wait_for_clipboard(id, args, &invocation);
+                self.wait_for_clipboard(editor, id, args, &invocation);
                 return (Effects::default(), Ok(()));
             }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),

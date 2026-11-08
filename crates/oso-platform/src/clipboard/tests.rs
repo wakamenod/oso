@@ -5,7 +5,9 @@
 
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
+use std::time::Instant;
 
+use super::threads::{Factory, Timing};
 use super::*;
 
 const MAX: usize = 16;
@@ -104,6 +106,35 @@ fn a_concealed_write_reaches_the_clipboard_marked() {
     );
 }
 
+/// A clipboard over `backend` for its first worker, and one that holds nothing for any
+/// worker after it.
+fn over(
+    backend: impl Backend + Send + 'static,
+    timing: Timing,
+    report: impl Fn(Event) + Send + 'static,
+) -> Clipboard {
+    let mut first: Option<Box<dyn Backend + Send>> = Some(Box::new(backend));
+    let make: Factory = Box::new(move || first.take().unwrap_or_else(|| Box::new(Empty)));
+    Clipboard::spawn(make, MAX, timing, report).unwrap()
+}
+
+/// A clipboard that holds nothing.
+struct Empty;
+
+impl Backend for Empty {
+    fn change_count(&mut self) -> Option<i64> {
+        None
+    }
+
+    fn write(&mut self, _: &str, _: bool) -> Option<i64> {
+        None
+    }
+
+    fn read(&mut self, _: usize) -> Found {
+        Found::Nothing
+    }
+}
+
 /// A backend whose reads take as long as a test says.
 struct Slow(Receiver<()>);
 
@@ -126,10 +157,9 @@ impl Backend for Slow {
 fn a_read_that_takes_too_long_is_answered_in_time() {
     let (release, wait) = mpsc::channel();
     let (tx, events) = mpsc::channel();
-    let clipboard = Clipboard::spawn(Box::new(Slow(wait)), MAX, move |event| {
+    let clipboard = over(Slow(wait), TIMING, move |event| {
         let _ = tx.send(event);
-    })
-    .unwrap();
+    });
     let started = Instant::now();
     assert_eq!(read(&clipboard, &events), Contents::NoAnswer);
     let waited = started.elapsed();
@@ -206,10 +236,9 @@ fn a_newer_write_replaces_one_not_yet_started_and_a_read_stays_after_it() {
         open: gate,
         written: written_tx,
     };
-    let clipboard = Clipboard::spawn(Box::new(backend), MAX, move |event| {
+    let clipboard = over(backend, TIMING, move |event| {
         let _ = tx.send(event);
-    })
-    .unwrap();
+    });
     clipboard.write(1, false, Box::new(|| "one".to_owned()));
     // Once the backend waits in the first write, these queue behind it.
     thread::sleep(Duration::from_millis(50));
@@ -228,4 +257,28 @@ fn a_newer_write_replaces_one_not_yet_started_and_a_read_stays_after_it() {
     assert_eq!(ids, [1, 3], "the second never started");
     assert!(matches!(next(&events), Event::Read(Contents::Nothing)));
     assert_eq!(written.try_iter().collect::<Vec<_>>(), ["one", "three"]);
+}
+
+#[test]
+fn a_read_that_never_returns_is_left_behind_and_a_new_worker_takes_over() {
+    let (_never, wait) = mpsc::channel();
+    let (tx, events) = mpsc::channel();
+    let timing = Timing {
+        answer: Duration::from_millis(50),
+        give_up: Duration::from_millis(200),
+    };
+    let clipboard = over(Slow(wait), timing, move |event| {
+        let _ = tx.send(event);
+    });
+    clipboard.read();
+    assert!(matches!(next(&events), Event::Read(Contents::NoAnswer)));
+    // A write while the read is out waits in the front, not behind the read.
+    clipboard.write(7, false, Box::new(|| "after".to_owned()));
+    assert!(matches!(next(&events), Event::NotAnswering));
+    assert!(matches!(next(&events), Event::Written { id: 7, .. }));
+    assert_eq!(
+        read(&clipboard, &events),
+        Contents::Nothing,
+        "the new worker answers"
+    );
 }

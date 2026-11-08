@@ -117,13 +117,17 @@ const SHOWN_PIECES: usize = 16;
 const SHOWN_PIECE_BYTES: usize = 1024;
 
 /// The `kill_ring` field of `get-state`: how many entries there are, and the newest one's
-/// pieces, cut short. Secret entries are left out as if absent, and the whole field is
-/// null while a buffer that may hold secrets is shown (ADR 0074).
+/// pieces, cut short. Secret entries and text from other apps' copies are left out as if
+/// absent, and the whole field is null while a buffer that may hold secrets is shown
+/// (ADR 0074).
 fn kill_ring_state(editor: &Editor) -> Value {
     if editor.shows_secret() {
         return Value::Null;
     }
-    let mut ordinary = editor.kill_ring().iter().filter(|entry| !entry.is_secret());
+    let mut ordinary = editor
+        .kill_ring()
+        .iter()
+        .filter(|entry| !entry.is_secret() && !entry.came_from_clipboard());
     let newest = ordinary.next().map(|entry| {
         let pieces = entry.pieces();
         let mut truncated = pieces.len() > SHOWN_PIECES;
@@ -845,31 +849,37 @@ mod tests {
     }
 
     #[test]
-    fn the_kill_ring_shows_its_newest_ordinary_entry_cut_short_and_nothing_of_a_secret_one() {
+    fn the_kill_ring_shows_its_newest_own_entry_cut_short_and_nothing_secret_or_copied() {
         use super::{SHOWN_PIECE_BYTES, kill_ring_state};
         use oso_core::kill::{Direction, Fingerprint};
         let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
+        let scratch = editor.buffers().next().unwrap().0;
+        show_buffer(&mut editor, scratch.get()).unwrap();
         let long = "é".repeat(SHOWN_PIECE_BYTES);
-        let fingerprint = Fingerprint { len: 0, hash: 1 };
-        editor.take_from_clipboard(
-            oso_core::rope::Rope::from(long.as_str()),
-            false,
-            fingerprint,
-        );
+        let typed = Replacement {
+            range: 0..0,
+            text: &long,
+        };
+        editor.apply_edits(scratch, &[typed]).unwrap();
+        let all = 0..long.len();
+        editor
+            .kill(std::iter::once(all), Direction::Forward, true)
+            .unwrap();
+        let copied = oso_core::rope::Rope::from("another app's copy");
+        editor.take_from_clipboard(copied, false, Fingerprint { len: 18, hash: 1 });
+        show_buffer(&mut editor, secret.get()).unwrap();
         editor
             .kill(std::iter::once(0..3), Direction::Forward, true)
             .unwrap();
         assert!(editor.kill_ring().get(0).unwrap().is_secret());
         assert_eq!(kill_ring_state(&editor), json!(null), "while it is shown");
 
-        let scratch = editor.buffers().next().unwrap().0;
         show_buffer(&mut editor, scratch.get()).unwrap();
         let state = kill_ring_state(&editor);
-        assert_eq!(state["entries"], 1, "the secret one left out");
+        assert_eq!(state["entries"], 1, "the secret one and the copy left out");
         let piece = state["newest"]["pieces"][0].as_str().unwrap();
         assert_eq!(piece.len(), SHOWN_PIECE_BYTES, "cut at a character's start");
         assert_eq!(state["newest"]["truncated"], true);
-        show_buffer(&mut editor, secret.get()).unwrap();
     }
 
     #[test]

@@ -48,7 +48,8 @@ fn kills_reach_the_clipboard_yanks_read_it_and_secrets_stay_concealed() {
     app.call("clipboard", Some(json!({ "text": "pasted" })));
     app.send_keys("C-e C-y !");
     let state = app.wait_for("the yank", |state| first_row(state) == " twopasted!");
-    assert_eq!(state["kill_ring"]["newest"]["pieces"], json!(["pasted"]));
+    // Another app's copy is never shown over the socket; oso's own kill is.
+    assert_eq!(state["kill_ring"]["newest"]["pieces"], json!(["one"]));
     assert_eq!(state["clipboard"]["waiting"], false);
 
     app.open_file(&env);
@@ -78,7 +79,7 @@ fn kills_reach_the_clipboard_yanks_read_it_and_secrets_stay_concealed() {
     let state = app.state();
     assert_eq!(
         state["kill_ring"]["newest"]["pieces"],
-        json!(["pasted"]),
+        json!(["one"]),
         "the secret one left out"
     );
     assert_eq!(state["buffer"]["secret"], false);

@@ -19,6 +19,8 @@ pub enum ClipboardEvent {
     Written { id: u64, fingerprint: Fingerprint },
     /// The answer to a read.
     Read(FromClipboard),
+    /// A read did not return, and the clipboard was started anew.
+    NotAnswering,
 }
 
 /// Starts the clipboard's threads over `source`, reporting through `waker`. Text from
@@ -35,6 +37,7 @@ pub(super) fn start(source: Source, waker: Waker) -> Option<Clipboard> {
                 fingerprint: fingerprint(of),
             },
             Event::Read(contents) => ClipboardEvent::Read(answer(contents)),
+            Event::NotAnswering => ClipboardEvent::NotAnswering,
         };
         waker.send(UserEvent::Clipboard(event));
     };
@@ -98,9 +101,9 @@ impl App {
     pub(super) fn sync_clipboard(&mut self) -> Effects {
         self.write_clipboard();
         let mut effects = Effects::default();
-        while self.dispatcher.take_clipboard_request() {
+        while let Some(from_socket) = self.dispatcher.take_clipboard_request() {
             match &self.clipboard {
-                Some(clipboard) if may_read(self.input_from_socket(), is_memory(clipboard)) => {
+                Some(clipboard) if may_read(from_socket, is_memory(clipboard)) => {
                     clipboard.read();
                     break;
                 }
@@ -125,17 +128,6 @@ impl App {
         }
     }
 
-    /// Whether the input being handled came through the dev socket.
-    #[cfg(feature = "dev")]
-    fn input_from_socket(&self) -> bool {
-        self.socket_input
-    }
-
-    #[cfg(not(feature = "dev"))]
-    fn input_from_socket(&self) -> bool {
-        false
-    }
-
     /// Takes in what the clipboard's threads report.
     pub(super) fn clipboard_event(&mut self, event_loop: &Loop<'_>, event: ClipboardEvent) {
         match event {
@@ -147,6 +139,10 @@ impl App {
                     .dispatcher
                     .clipboard_answered(&mut self.editor, &answer);
                 self.apply(event_loop, effects);
+            }
+            ClipboardEvent::NotAnswering => {
+                self.editor.message("The clipboard is not answering");
+                self.request_redraw();
             }
         }
     }

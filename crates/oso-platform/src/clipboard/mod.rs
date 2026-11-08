@@ -3,13 +3,14 @@
 //! Must not depend on: `window` or any other module of this crate; the clipboard is a
 //! thing of its own, beside the window layer.
 //!
-//! [`Clipboard::start`] starts two threads. The backend's owns the system's clipboard
-//! and does what is asked of it in order; reading can wait on another process, as the
-//! app that copied the text may be slow to hand it over. The other answers the host:
-//! it hands work to the backend and gives each read an answer within
-//! [`READ_TIMEOUT`], [`Contents::NoAnswer`] if the backend has none by then, so the host
-//! never waits longer. A read that comes while the backend is still on an earlier one
-//! is answered at once with [`Contents::NoAnswer`].
+//! [`Clipboard::start`] starts two threads (`threads`). A worker owns the system's
+//! clipboard and does what is asked of it in order; reading can wait on another process,
+//! as the app that copied the text may be slow to hand it over. The front answers the
+//! host: it gives each read an answer within [`READ_TIMEOUT`], [`Contents::NoAnswer`] if
+//! the worker has none by then, so the host never waits longer, and holds writes while a
+//! read is out. A read that comes while the worker is still on an earlier one is
+//! answered at once with [`Contents::NoAnswer`], and a worker stuck past [`GIVE_UP`] is
+//! left behind for a new one.
 //!
 //! The backend remembers the change count after its own last write, so a read first asks
 //! only whether anything newer is there, and reads text only if so. Each write and each
@@ -19,13 +20,10 @@
 //!
 //! Nothing here logs or prints text, and the types that carry it print only its length.
 
-use std::collections::hash_map::RandomState;
 use std::fmt;
-use std::hash::BuildHasher;
 use std::io;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::sync::mpsc::Sender;
+use std::time::Duration;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -33,12 +31,19 @@ mod macos;
 mod memory;
 #[cfg(not(target_os = "macos"))]
 mod none;
+mod threads;
+
+use threads::{Factory, Message, Timing, WriteJob};
 
 #[cfg(any(test, feature = "dev"))]
 pub use memory::MemoryClipboard;
 
 /// How long a read may take before the host is told [`Contents::NoAnswer`].
 pub const READ_TIMEOUT: Duration = Duration::from_millis(500);
+
+/// How long a read may take before its worker is left behind and a new one takes over,
+/// as Emacs's `x-selection-timeout`.
+pub const GIVE_UP: Duration = Duration::from_secs(5);
 
 /// Which clipboard to use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,6 +119,8 @@ pub enum Event {
     },
     /// The answer to a read.
     Read(Contents),
+    /// A read did not return within [`GIVE_UP`]; a new worker has taken over.
+    NotAnswering,
 }
 
 /// What a backend found on reading.
@@ -140,32 +147,7 @@ trait Backend {
 /// nothing.
 pub type MakeText = Box<dyn FnOnce() -> String + Send>;
 
-enum Job {
-    Write {
-        id: u64,
-        concealed: bool,
-        text: MakeText,
-    },
-    Read,
-}
-
-enum Message {
-    Write {
-        id: u64,
-        concealed: bool,
-        text: MakeText,
-    },
-    Read,
-    Written {
-        id: u64,
-        fingerprint: Fingerprint,
-    },
-    Found(Contents),
-    /// The host's handle went: end once the backend has done its work.
-    Close,
-}
-
-/// The host's handle on the clipboard. Dropping it ends the threads once the backend has
+/// The host's handle on the clipboard. Dropping it ends the threads once the worker has
 /// done what it was asked.
 pub struct Clipboard {
     messages: Sender<Message>,
@@ -178,6 +160,12 @@ impl fmt::Debug for Clipboard {
         f.debug_struct("Clipboard").finish_non_exhaustive()
     }
 }
+
+/// How long the front waits on a worker, as the host sees it.
+const TIMING: Timing = Timing {
+    answer: READ_TIMEOUT,
+    give_up: GIVE_UP,
+};
 
 impl Clipboard {
     /// Starts the clipboard's threads over `source`, reading at most `max_read` bytes of
@@ -195,31 +183,24 @@ impl Clipboard {
             #[cfg(any(test, feature = "dev"))]
             Source::Memory => {
                 let memory = MemoryClipboard::default();
-                let mut clipboard = Self::spawn(Box::new(memory.clone()), max_read, report)?;
+                let shared = memory.clone();
+                let make: Factory = Box::new(move || Box::new(shared.clone()));
+                let mut clipboard = Self::spawn(make, max_read, TIMING, report)?;
                 clipboard.memory = Some(memory);
                 Ok(clipboard)
             }
-            Source::System => Self::spawn(system(), max_read, report),
+            Source::System => Self::spawn(Box::new(system), max_read, TIMING, report),
         }
     }
 
     fn spawn(
-        backend: Box<dyn Backend + Send>,
+        make: Factory,
         max_read: usize,
+        timing: Timing,
         report: impl Fn(Event) + Send + 'static,
     ) -> io::Result<Self> {
-        let (messages, inbox) = mpsc::channel();
-        let (jobs, work) = mpsc::channel();
-        let keys = RandomState::new();
-        let answers = messages.clone();
-        thread::Builder::new()
-            .name("clipboard".into())
-            .spawn(move || run_backend(backend, max_read, &keys, &work, &answers))?;
-        thread::Builder::new()
-            .name("clipboard answers".into())
-            .spawn(move || run_front(&inbox, &jobs, &report))?;
         Ok(Self {
-            messages,
+            messages: threads::start(make, max_read, timing, report)?,
             #[cfg(any(test, feature = "dev"))]
             memory: None,
         })
@@ -230,11 +211,11 @@ impl Clipboard {
     /// started when a newer one comes is dropped, with no report.
     pub fn write(&self, id: u64, concealed: bool, text: MakeText) {
         // A send fails only once the threads have ended, with the process.
-        let _ = self.messages.send(Message::Write {
+        let _ = self.messages.send(Message::Write(WriteJob {
             id,
             concealed,
             text,
-        });
+        }));
     }
 
     /// Reads the clipboard, and reports [`Event::Read`] within [`READ_TIMEOUT`].
@@ -263,134 +244,6 @@ fn system() -> Box<dyn Backend + Send> {
 #[cfg(not(target_os = "macos"))]
 fn system() -> Box<dyn Backend + Send> {
     Box::new(none::NoClipboard)
-}
-
-/// The backend's thread: does each job in order, and sends what came of it.
-fn run_backend(
-    mut backend: Box<dyn Backend + Send>,
-    max_read: usize,
-    keys: &RandomState,
-    work: &Receiver<Job>,
-    answers: &Sender<Message>,
-) {
-    let fingerprint = |text: &str| Fingerprint {
-        len: text.len(),
-        hash: keys.hash_one(text),
-    };
-    let mut own = None;
-    // A job taken from the queue while looking for a newer write.
-    let mut next = None;
-    loop {
-        let Some(job) = next.take().or_else(|| work.recv().ok()) else {
-            return;
-        };
-        let message = match job {
-            Job::Write {
-                mut id,
-                mut concealed,
-                mut text,
-            } => {
-                // A newer write replaces one not yet done, so kills in a row cost one
-                // write, and a read waits behind one at most.
-                while let Ok(later) = work.try_recv() {
-                    match later {
-                        Job::Write {
-                            id: newer,
-                            concealed: marked,
-                            text: newer_text,
-                        } => (id, concealed, text) = (newer, marked, newer_text),
-                        read @ Job::Read => {
-                            next = Some(read);
-                            break;
-                        }
-                    }
-                }
-                let text = text();
-                own = backend.write(&text, concealed);
-                Message::Written {
-                    id,
-                    fingerprint: fingerprint(&text),
-                }
-            }
-            Job::Read => Message::Found(match backend.change_count() {
-                Some(count) if Some(count) == own => Contents::Own,
-                _ => match backend.read(max_read) {
-                    Found::Text { text, concealed } => Contents::Text {
-                        fingerprint: fingerprint(&text),
-                        text,
-                        concealed,
-                    },
-                    Found::Nothing => Contents::Nothing,
-                    Found::TooLarge => Contents::TooLarge,
-                },
-            }),
-        };
-        if answers.send(message).is_err() {
-            return;
-        }
-    }
-}
-
-/// The thread that answers the host: hands work to the backend, and answers each read in
-/// time.
-fn run_front(inbox: &Receiver<Message>, jobs: &Sender<Job>, report: &impl Fn(Event)) {
-    // The deadline of the read the backend is on, until it is answered or too late.
-    let mut deadline: Option<Instant> = None;
-    // The backend is on a read, answered or not.
-    let mut reading = false;
-    loop {
-        let message = match deadline {
-            Some(at) => match inbox.recv_timeout(at.saturating_duration_since(Instant::now())) {
-                Ok(message) => message,
-                Err(RecvTimeoutError::Timeout) => {
-                    deadline = None;
-                    report(Event::Read(Contents::NoAnswer));
-                    continue;
-                }
-                Err(RecvTimeoutError::Disconnected) => return,
-            },
-            None => match inbox.recv() {
-                Ok(message) => message,
-                Err(_) => return,
-            },
-        };
-        match message {
-            Message::Write {
-                id,
-                concealed,
-                text,
-            } => {
-                if jobs
-                    .send(Job::Write {
-                        id,
-                        concealed,
-                        text,
-                    })
-                    .is_err()
-                {
-                    return;
-                }
-            }
-            Message::Read if reading => report(Event::Read(Contents::NoAnswer)),
-            Message::Read => {
-                if jobs.send(Job::Read).is_err() {
-                    return;
-                }
-                reading = true;
-                deadline = Some(Instant::now() + READ_TIMEOUT);
-            }
-            Message::Written { id, fingerprint } => report(Event::Written { id, fingerprint }),
-            // Dropping `jobs` ends the backend's thread once it has done its work.
-            Message::Close => return,
-            Message::Found(contents) => {
-                reading = false;
-                // Answered already, if its time ran out.
-                if deadline.take().is_some() {
-                    report(Event::Read(contents));
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]

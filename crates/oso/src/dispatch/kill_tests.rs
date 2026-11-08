@@ -28,7 +28,10 @@ fn newest(editor: &Editor) -> Vec<String> {
 /// `C-y`, and the clipboard's answer.
 fn yank(d: &mut Dispatcher, editor: &mut Editor, answer: &FromClipboard) {
     send(d, editor, "C-y");
-    assert!(d.take_clipboard_request(), "a yank reads the clipboard");
+    assert!(
+        d.take_clipboard_request().is_some(),
+        "a yank reads the clipboard"
+    );
     d.clipboard_answered(editor, answer);
 }
 
@@ -274,8 +277,8 @@ fn keys_after_a_yank_wait_for_it() {
     send(&mut d, &mut editor, "C-y a C-f");
     assert_eq!(text(&editor), "\n", "nothing yet");
     assert!(d.waits_for_clipboard());
-    assert!(d.take_clipboard_request());
-    assert!(!d.take_clipboard_request(), "asked once");
+    assert!(d.take_clipboard_request().is_some());
+    assert!(d.take_clipboard_request().is_none(), "asked once");
     d.clipboard_answered(&mut editor, &from_app("y", false, 1));
     assert_eq!(text(&editor), "ya\n");
     assert!(!d.waits_for_clipboard());
@@ -305,7 +308,10 @@ fn a_numeric_prefix_yanks_from_the_ring_without_the_clipboard() {
 
     let (mut d, mut editor) = at("ab\n", &[0]);
     send(&mut d, &mut editor, "M-d C-u C-y");
-    assert!(d.take_clipboard_request(), "a plain C-u still reads");
+    assert!(
+        d.take_clipboard_request().is_some(),
+        "a plain C-u still reads"
+    );
     d.clipboard_answered(&mut editor, &FromClipboard::Own);
     assert_eq!(
         editor.window().selections.primary().cursor,
@@ -396,4 +402,45 @@ fn a_yank_over_its_bound_inserts_nothing() {
         Some("Too much text to yank")
     );
     assert_eq!(text(&editor), before);
+}
+
+#[cfg(feature = "dev")]
+#[test]
+fn where_input_came_from_travels_with_what_is_held_behind_a_yank() {
+    let (mut d, mut editor) = at("\n", &[0]);
+    send(&mut d, &mut editor, "C-y");
+    assert_eq!(
+        d.take_clipboard_request(),
+        Some(false),
+        "the person's own key"
+    );
+    d.set_input_from_socket(true);
+    send(&mut d, &mut editor, "C-y");
+    d.set_input_from_socket(false);
+    assert_eq!(d.take_clipboard_request(), None, "held, not asked yet");
+    d.clipboard_answered(&mut editor, &FromClipboard::Nothing);
+    assert_eq!(
+        d.take_clipboard_request(),
+        Some(true),
+        "the held yank came through the socket, and says so"
+    );
+}
+
+#[test]
+fn a_yank_whose_window_changed_while_it_waited_is_dropped() {
+    let (mut d, mut editor) = at("one\n", &[0]);
+    send(&mut d, &mut editor, "M-d C-y");
+    assert!(d.take_clipboard_request().is_some());
+    let other = editor.add_buffer(Buffer::from_text("other", "x\n"));
+    editor.show(other);
+    d.clipboard_answered(&mut editor, &FromClipboard::Own);
+    assert_eq!(
+        text(&editor),
+        "x\n",
+        "nothing landed in the buffer shown now"
+    );
+    assert_eq!(
+        last_message(&editor).as_deref(),
+        Some("Yank dropped: the window changed while the clipboard was read")
+    );
 }

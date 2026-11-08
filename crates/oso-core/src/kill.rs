@@ -35,8 +35,9 @@ pub const MAX_YANK: usize = 16 * 1024 * 1024;
 /// in the ring only.
 pub const MAX_CLIPBOARD: usize = 16 * 1024 * 1024;
 
-/// The most fingerprints an entry keeps of what it was before it grew.
-const MAX_EARLIER: usize = 8;
+/// The most fingerprints of secret entries the ring keeps, also of entries it no longer
+/// holds, so that a secret copied out and back still counts as secret.
+const MAX_SECRET_FINGERPRINTS: usize = 64;
 
 /// The most text an appended kill copies into the piece it joins, rather than adding a
 /// part.
@@ -221,9 +222,8 @@ pub struct KillEntry {
     secret: bool,
     /// What the clipboard got of its text as it is now, or gave it.
     written: Option<Fingerprint>,
-    /// What the clipboard got of it before it grew, the newest last, so that a secret
-    /// copied out and back after more was appended still counts as secret.
-    earlier: Vec<Fingerprint>,
+    /// It holds text another app put on the clipboard.
+    from_clipboard: bool,
 }
 
 impl KillEntry {
@@ -235,6 +235,12 @@ impl KillEntry {
     /// Its pieces, one per cursor that killed, in buffer order.
     pub fn pieces(&self) -> &[Piece] {
         &self.pieces
+    }
+
+    /// Whether it holds text another app put on the clipboard, which no client of the dev
+    /// socket may read through oso (ADR 0074).
+    pub fn came_from_clipboard(&self) -> bool {
+        self.from_clipboard
     }
 
     /// Whether it came from a buffer that may hold secrets, or from the clipboard with
@@ -281,6 +287,9 @@ pub struct KillRing {
     entries: VecDeque<KillEntry>,
     bytes: usize,
     next_id: u64,
+    /// The fingerprints secret entries went to the clipboard with, or came from it with,
+    /// the newest last.
+    secrets_written: VecDeque<Fingerprint>,
 }
 
 impl KillRing {
@@ -312,6 +321,16 @@ impl KillRing {
     /// Puts `pieces` first as a new entry and returns its id. The oldest go past the
     /// bounds.
     pub fn push(&mut self, pieces: Vec<Piece>, secret: bool) -> u64 {
+        self.push_entry(pieces, secret, false)
+    }
+
+    /// Puts text another app put on the clipboard first, as an entry of one piece, and
+    /// returns its id.
+    pub fn push_from_clipboard(&mut self, text: Rope, secret: bool) -> u64 {
+        self.push_entry(vec![Piece::from(text)], secret, true)
+    }
+
+    fn push_entry(&mut self, pieces: Vec<Piece>, secret: bool, from_clipboard: bool) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         let entry = KillEntry {
@@ -319,7 +338,7 @@ impl KillRing {
             pieces,
             secret,
             written: None,
-            earlier: Vec::new(),
+            from_clipboard,
         };
         self.bytes += entry.len();
         self.entries.push_front(entry);
@@ -328,37 +347,39 @@ impl KillRing {
     }
 
     /// Adds `pieces` to the newest entry, each to its own piece, after them or before
-    /// them as `direction` says, and returns the entry's new id. `None`, and nothing
-    /// changes, if there is no entry or its number of pieces differs.
+    /// them as `direction` says, and returns the entry's new id. If there is no entry or
+    /// its number of pieces differs, nothing changes, and the pieces come back.
+    ///
+    /// # Errors
+    ///
+    /// `pieces`, when they cannot be appended.
     pub fn append(
         &mut self,
         pieces: Vec<Piece>,
         direction: Direction,
         secret: bool,
-    ) -> Option<u64> {
+    ) -> Result<u64, Vec<Piece>> {
         let id = self.next_id;
-        let entry = self.entries.front_mut()?;
-        if entry.pieces.len() != pieces.len() {
-            return None;
-        }
+        let Some(entry) = self
+            .entries
+            .front_mut()
+            .filter(|entry| entry.pieces.len() == pieces.len())
+        else {
+            return Err(pieces);
+        };
         let before = entry.len();
         for (piece, more) in entry.pieces.iter_mut().zip(pieces) {
             piece.add(more, direction);
         }
         entry.secret |= secret;
         // It is new text for the clipboard, and its old fingerprint no longer says what
-        // the clipboard holds, but other apps may still hold that.
-        if let Some(old) = entry.written.take() {
-            if entry.earlier.len() == MAX_EARLIER {
-                entry.earlier.remove(0);
-            }
-            entry.earlier.push(old);
-        }
+        // the clipboard holds. If it was secret, the ring keeps that one.
+        entry.written = None;
         entry.id = id;
         self.next_id += 1;
         self.bytes = self.bytes - before + entry.len();
         self.trim();
-        Some(id)
+        Ok(id)
     }
 
     /// Records what the clipboard got for the entry `id`, if it is still in the ring and
@@ -366,7 +387,17 @@ impl KillRing {
     pub fn note_written(&mut self, id: u64, fingerprint: Fingerprint) {
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
             entry.written = Some(fingerprint);
+            if entry.secret {
+                self.remember_secret(fingerprint);
+            }
         }
+    }
+
+    fn remember_secret(&mut self, fingerprint: Fingerprint) {
+        if self.secrets_written.len() == MAX_SECRET_FINGERPRINTS {
+            self.secrets_written.pop_front();
+        }
+        self.secrets_written.push_back(fingerprint);
     }
 
     /// What the clipboard last held of the newest entry: what it got from the ring, or
@@ -375,13 +406,11 @@ impl KillRing {
         self.entries.front().and_then(|entry| entry.written)
     }
 
-    /// Whether a secret entry still in the ring went to the clipboard as text with this
-    /// fingerprint, or came from it so.
+    /// Whether a secret entry went to the clipboard as text with this fingerprint, or came
+    /// from it so: of the last [`MAX_SECRET_FINGERPRINTS`], also of entries the ring has
+    /// dropped or that have grown since.
     pub fn holds_secret(&self, fingerprint: Fingerprint) -> bool {
-        self.entries.iter().any(|entry| {
-            entry.secret
-                && (entry.written == Some(fingerprint) || entry.earlier.contains(&fingerprint))
-        })
+        self.secrets_written.contains(&fingerprint)
     }
 
     /// Makes the newest entry secret, as the same text came back from the clipboard marked
@@ -389,6 +418,9 @@ impl KillRing {
     pub fn make_newest_secret(&mut self) {
         if let Some(entry) = self.entries.front_mut() {
             entry.secret = true;
+            if let Some(written) = entry.written {
+                self.remember_secret(written);
+            }
         }
     }
 
@@ -484,8 +516,10 @@ mod tests {
         let mut ring = KillRing::new();
         ring.push(pieces(&["b"]), false);
         for _ in 0..100 {
-            ring.append(pieces(&["c"]), Direction::Forward, false);
-            ring.append(pieces(&["a"]), Direction::Backward, false);
+            ring.append(pieces(&["c"]), Direction::Forward, false)
+                .unwrap();
+            ring.append(pieces(&["a"]), Direction::Backward, false)
+                .unwrap();
         }
         let piece = &ring.get(0).unwrap().pieces()[0];
         assert_eq!(piece.parts.len(), 1, "a run of small kills stays one part");
@@ -495,7 +529,8 @@ mod tests {
         );
 
         let large = "x".repeat(MERGED_PART + 1);
-        ring.append(pieces(&[&large]), Direction::Forward, false);
+        ring.append(pieces(&[&large]), Direction::Forward, false)
+            .unwrap();
         let piece = &ring.get(0).unwrap().pieces()[0];
         assert_eq!(piece.parts.len(), 2, "a large kill is not copied");
         assert_eq!(piece.len(), 201 + large.len());
@@ -504,9 +539,15 @@ mod tests {
     #[test]
     fn appending_needs_as_many_pieces() {
         let mut ring = KillRing::new();
-        assert_eq!(ring.append(pieces(&["a"]), Direction::Forward, false), None);
+        assert!(
+            ring.append(pieces(&["a"]), Direction::Forward, false)
+                .is_err()
+        );
         ring.push(pieces(&["a", "b"]), false);
-        assert_eq!(ring.append(pieces(&["c"]), Direction::Forward, false), None);
+        assert!(
+            ring.append(pieces(&["c"]), Direction::Forward, false)
+                .is_err()
+        );
         assert_eq!(texts(ring.get(0).unwrap()), ["a", "b"], "unchanged");
     }
 
@@ -557,11 +598,13 @@ mod tests {
             "what went out before it grew still counts"
         );
         ring.note_written(grown, fingerprint(4));
-        assert!(ring.holds_secret(fingerprint(4)) && ring.holds_secret(fingerprint(2)));
-        ring.note_written(secret, fingerprint(5));
+        assert!(ring.holds_secret(fingerprint(4)));
+        for _ in 0..MAX_ENTRIES {
+            ring.push(pieces(&["x"]), false);
+        }
         assert!(
-            !ring.holds_secret(fingerprint(5)),
-            "an old id is no longer its"
+            ring.holds_secret(fingerprint(4)),
+            "a secret the ring dropped still counts"
         );
     }
 

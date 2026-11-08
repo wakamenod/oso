@@ -55,6 +55,9 @@ pub struct Dispatcher {
     publisher: Option<Publisher>,
     /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
     waiting: Option<clipboard::Waiting>,
+    /// The input being handled came through the dev socket, which never reads the system
+    /// clipboard. It travels with what waits or is held.
+    from_socket: bool,
 }
 
 impl Dispatcher {
@@ -85,6 +88,7 @@ impl Dispatcher {
             last: None,
             publisher: None,
             waiting: None,
+            from_socket: false,
         }
     }
 

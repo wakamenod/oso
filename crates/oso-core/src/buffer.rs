@@ -194,6 +194,9 @@ pub struct Buffer {
     /// Whether the text may hold secrets (ADR 0044, ADR 0051). Withheld from the moment
     /// a file is visited until the host knows better.
     verdict: Verdict,
+    /// A kill that counts as secret was yanked into it (ADR 0074). Nothing that judges the
+    /// text clears this: [`Buffer::verdict`] combines the two.
+    yanked_secret: bool,
     /// The state of the content now.
     content: ContentId,
     /// The state the file on disk has.
@@ -233,6 +236,7 @@ impl Buffer {
             loading: None,
             revision: 0,
             verdict: Verdict::Ordinary,
+            yanked_secret: false,
             content: ContentId(0),
             saved: ContentId(0),
             next_content: 1,
@@ -289,40 +293,40 @@ impl Buffer {
     /// if the path could not be resolved, which dev tooling counts as secret. The
     /// host resolves the path off the UI thread, before any content arrives.
     pub fn judge_secret(&mut self, resolved: Option<&[PathBuf]>) {
-        if self.verdict != Verdict::Yanked {
-            self.verdict = secret::judge(self.path.as_deref(), resolved);
-        }
+        self.verdict = secret::judge(self.path.as_deref(), resolved);
     }
 
     /// Decides whether the file may hold secrets when its path could not be resolved.
     /// `seen` holds what the walk passed before it failed, whose names count too.
     pub fn judge_unresolved(&mut self, seen: &[PathBuf]) {
-        if self.verdict != Verdict::Yanked {
-            self.verdict = secret::judge_unresolved(self.path.as_deref(), seen);
-        }
+        self.verdict = secret::judge_unresolved(self.path.as_deref(), seen);
     }
 
-    /// Counts the text as secret from now on, as text from a secret kill was yanked into
-    /// it, for dev tooling and the emergency save alike. A file still loading keeps it
-    /// once judged. Returns whether a buffer that was not withheld now is.
+    /// Counts the text as secret from now on, as a kill that counts as secret was yanked
+    /// into it, for dev tooling and the emergency save alike. Whatever judges the text later
+    /// keeps it so, and a passphrase stays a passphrase. Returns whether a buffer that was
+    /// not withheld now is.
     pub(crate) fn treat_as_secret(&mut self) -> bool {
-        let was_withheld = self.verdict.is_withheld();
-        if !matches!(self.verdict, Verdict::SecretName | Verdict::Yanked) {
-            self.verdict = Verdict::Yanked;
-        }
+        let was_withheld = self.verdict().is_withheld();
+        self.yanked_secret = true;
         !was_withheld
     }
 
     /// Whether the text may hold secrets, and why.
     pub fn verdict(&self) -> Verdict {
-        self.verdict
+        match self.verdict {
+            // These say more than a yank does, and a passphrase's rules are its own.
+            Verdict::SecretName | Verdict::Passphrase => self.verdict,
+            _ if self.yanked_secret => Verdict::Yanked,
+            verdict => verdict,
+        }
     }
 
     /// Whether the file may hold secrets (ADR 0028, ADR 0044). A file's text
     /// must not leave the editor through dev tooling while this is true. An
     /// emergency save asks [`Verdict::may_be_copied`] instead (ADR 0051).
     pub fn is_secret(&self) -> bool {
-        self.verdict.is_withheld()
+        self.verdict().is_withheld()
     }
 
     /// A number that changes whenever the content does, so that caches of
