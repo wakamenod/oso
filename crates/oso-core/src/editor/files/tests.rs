@@ -138,11 +138,7 @@ fn a_directory_that_cannot_be_read_says_so_and_lists_nothing() {
     editor
         .open_file_prompt("Find file:", "file", "/locked/", PathBuf::from("/work"))
         .unwrap();
-    assert_eq!(editor.take_file_requests(), [PathBuf::from("/")]);
-    editor.file_listed(
-        PathBuf::from("/"),
-        names(&[("locked", NameKind::Directory)]),
-    );
+    // The directory it starts in is known, so the one above it needs no listing.
     assert_eq!(editor.take_file_requests(), [PathBuf::from("/locked")]);
     editor.file_listed(PathBuf::from("/locked"), None);
     assert!(rows(&editor).is_empty());
@@ -156,4 +152,99 @@ fn a_listing_after_the_prompt_closed_changes_nothing() {
     editor.file_listed(PathBuf::from("/home/me/notes"), names(&[]));
     assert!(editor.prompt().is_none());
     assert_eq!(editor.take_file_requests(), Vec::<PathBuf>::new());
+}
+
+fn looked(annotation: &str, bytes: u64, directory: bool) -> crate::editor::Looked {
+    crate::editor::Looked {
+        annotation: annotation.to_owned(),
+        bytes,
+        directory,
+    }
+}
+
+#[test]
+fn the_rows_shown_are_looked_at_once_and_their_annotations_fill_in() {
+    let mut editor = prompt();
+    let asked = editor.take_file_looks();
+    assert_eq!(
+        asked,
+        [(
+            PathBuf::from("/home/me"),
+            vec!["notes".to_owned(), "todo.md".to_owned()]
+        )]
+    );
+    assert!(editor.take_file_looks().is_empty(), "once");
+    editor.move_completion(1).unwrap();
+    let home = Path::new("/home/me");
+    editor.file_looked(
+        home,
+        vec![("todo.md".to_owned(), looked("-rw-r--r--  12", 12, false))],
+    );
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    let todo = candidates.get(1).unwrap();
+    assert_eq!(todo.annotation(), "-rw-r--r--  12");
+    assert_eq!(
+        candidates.selected_candidate().map(|c| c.text()),
+        Some("todo.md"),
+        "the selection stays"
+    );
+}
+
+#[test]
+fn a_link_looked_at_as_a_directory_is_gone_into() {
+    let mut editor = Editor::default();
+    editor
+        .open_file_prompt("Find file:", "file", "/r/", PathBuf::from("/"))
+        .unwrap();
+    editor.take_file_requests();
+    editor.file_listed(PathBuf::from("/r"), names(&[("to-dir", NameKind::Link)]));
+    editor.file_looked(
+        Path::new("/r"),
+        vec![("to-dir".to_owned(), looked("l", 0, true))],
+    );
+    editor.submit_prompt().unwrap();
+    assert!(editor.prompt().is_some(), "went into it");
+    assert_eq!(answer(&editor), "/r/to-dir/");
+}
+
+#[test]
+fn a_file_a_look_found_large_is_remembered_so_opening_it_asks() {
+    let mut editor = prompt();
+    editor.move_completion(1).unwrap();
+    let home = Path::new("/home/me");
+    editor.file_looked(
+        home,
+        vec![("todo.md".to_owned(), looked("", 3 << 30, false))],
+    );
+    editor.submit_prompt().unwrap();
+    assert_eq!(
+        editor.large_file(Path::new("/home/me/todo.md")),
+        Some(3 << 30)
+    );
+}
+
+#[test]
+fn a_buffer_that_loaded_the_file_another_has_is_found_by_its_identity() {
+    use crate::buffer::{Baseline, Buffer, FileStamp};
+    let stamp = FileStamp {
+        modified: std::time::SystemTime::UNIX_EPOCH,
+        len: 1,
+        mode: 0o644,
+        identity: Some((1, 42)),
+    };
+    let visiting = |path: &str| {
+        let mut buffer = Buffer::visiting(PathBuf::from(path));
+        buffer.finish_empty();
+        buffer.set_baseline(Baseline {
+            location: PathBuf::from(path),
+            file: Some(stamp),
+        });
+        buffer
+    };
+    let mut editor = Editor::default();
+    let first = editor.add_buffer(visiting("/a/notes.md"));
+    let second = editor.add_buffer(visiting("/b/link.md"));
+    assert_eq!(editor.visiting_same_file(second), Some(first));
+    let third = editor.add_buffer(Buffer::from_text("other", ""));
+    assert_eq!(editor.visiting_same_file(third), None, "no file");
 }

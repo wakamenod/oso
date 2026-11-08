@@ -506,7 +506,7 @@ pub fn oso_core::complete::path::Plan::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::marker::StructuralPartialEq for oso_core::complete::path::Plan
 pub const oso_core::complete::path::MAX_EXPANDED: usize
 pub fn oso_core::complete::path::as_typed(&oso_core::complete::path::Plan) -> std::path::PathBuf
-pub fn oso_core::complete::path::expand<'a>(&oso_core::complete::path::Plan, impl core::ops::function::Fn(&std::path::Path) -> core::option::Option<&'a [oso_core::complete::path::Name]>) -> oso_core::complete::path::Expanded
+pub fn oso_core::complete::path::expand<'a>(&oso_core::complete::path::Plan, impl core::ops::function::Fn(&std::path::Path) -> core::option::Option<&'a [oso_core::complete::path::Name]>, impl core::ops::function::Fn(&std::path::Path) -> bool) -> oso_core::complete::path::Expanded
 pub fn oso_core::complete::path::plan(&str, core::option::Option<&std::path::Path>, &std::path::Path) -> oso_core::complete::path::Plan
 pub fn oso_core::complete::path::start(&str) -> usize
 pub fn oso_core::complete::path::typed_form(&std::path::Path, bool, core::option::Option<&std::path::Path>) -> alloc::string::String
@@ -1218,6 +1218,7 @@ pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::View
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::path::Name]>>)
+pub fn oso_core::editor::Editor::file_looked(&mut self, &std::path::Path, alloc::vec::Vec<(alloc::string::String, oso_core::editor::Looked)>)
 pub fn oso_core::editor::Editor::files_pending(&self) -> bool
 pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::option::Option<u64>
 pub fn oso_core::editor::Editor::open_file_prompt(&mut self, &str, &'static str, &str, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
@@ -1225,9 +1226,11 @@ pub fn oso_core::editor::Editor::remember_large(&mut self, std::path::PathBuf, u
 pub fn oso_core::editor::Editor::request_visit(&mut self, std::path::PathBuf, u64)
 pub fn oso_core::editor::Editor::set_start_directory(&mut self, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_directory(&self) -> &std::path::Path
+pub fn oso_core::editor::Editor::take_file_looks(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, alloc::vec::Vec<alloc::string::String>)>
 pub fn oso_core::editor::Editor::take_file_requests(&mut self) -> alloc::vec::Vec<std::path::PathBuf>
 pub fn oso_core::editor::Editor::take_large(&mut self) -> core::option::Option<(std::path::PathBuf, u64)>
 pub fn oso_core::editor::Editor::take_visits(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, u64)>
+pub fn oso_core::editor::Editor::visiting_same_file(&self, oso_core::buffer::BufferId) -> core::option::Option<oso_core::buffer::BufferId>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::files_seen(&mut self, &[(oso_core::buffer::BufferId, oso_core::buffer::DiskState)], bool, impl core::ops::function::Fn(oso_core::buffer::BufferId) -> bool) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::judge_reload(&mut self, oso_core::buffer::BufferId, core::result::Result<&[std::path::PathBuf], &[std::path::PathBuf]>)
@@ -1313,6 +1316,18 @@ pub fn oso_core::editor::Isearch::wrapped(&self) -> bool
 impl core::fmt::Debug for oso_core::editor::Isearch
 pub fn oso_core::editor::Isearch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Leftover
+pub struct oso_core::editor::Looked
+pub oso_core::editor::Looked::annotation: alloc::string::String
+pub oso_core::editor::Looked::bytes: u64
+pub oso_core::editor::Looked::directory: bool
+impl core::clone::Clone for oso_core::editor::Looked
+pub fn oso_core::editor::Looked::clone(&self) -> oso_core::editor::Looked
+impl core::cmp::Eq for oso_core::editor::Looked
+impl core::cmp::PartialEq for oso_core::editor::Looked
+pub fn oso_core::editor::Looked::eq(&self, &oso_core::editor::Looked) -> bool
+impl core::fmt::Debug for oso_core::editor::Looked
+pub fn oso_core::editor::Looked::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::Looked
 pub struct oso_core::editor::MatchCells
 pub oso_core::editor::MatchCells::current: alloc::vec::Vec<oso_core::frame::CellRect>
 pub oso_core::editor::MatchCells::others: alloc::vec::Vec<oso_core::frame::CellRect>

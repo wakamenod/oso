@@ -26,6 +26,7 @@ use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
 mod buffers;
+pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
 mod keymaps;

@@ -126,13 +126,18 @@ fn may_be_directory(kind: NameKind) -> bool {
 type Reached = (PathBuf, String);
 
 /// The candidates of `plan`, given what is listed of each directory, or the directories that
-/// must be listed first. Names starting with `.` are left out unless the last segment starts
-/// with `.`.
-pub fn expand<'a>(plan: &Plan, listing: impl Fn(&Path) -> Option<&'a [Name]>) -> Expanded {
+/// must be listed first. A directory `known` to exist, such as one the prompt started in, is
+/// gone into by a segment that names it whole without listing the one it is in. Names starting
+/// with `.` are left out unless the last segment starts with `.`.
+pub fn expand<'a>(
+    plan: &Plan,
+    listing: impl Fn(&Path) -> Option<&'a [Name]>,
+    known: impl Fn(&Path) -> bool,
+) -> Expanded {
     let mut reached: Vec<Reached> = vec![(plan.root.clone(), String::new())];
     let mut cut = false;
     for segment in &plan.segments {
-        match step(&reached, segment, &listing) {
+        match step(&reached, segment, &listing, &known) {
             Ok((next, more)) => {
                 reached = next;
                 cut |= more;
@@ -174,6 +179,7 @@ fn step<'a>(
     reached: &[Reached],
     segment: &str,
     listing: &impl Fn(&Path) -> Option<&'a [Name]>,
+    known: &impl Fn(&Path) -> bool,
 ) -> Result<(Vec<Reached>, bool), Vec<PathBuf>> {
     if segment == "." {
         return Ok((reached.to_vec(), false));
@@ -195,6 +201,11 @@ fn step<'a>(
     let mut next: Vec<(PathBuf, String, String)> = Vec::new();
     let mut need = Vec::new();
     for (directory, shown) in reached {
+        let whole = directory.join(segment);
+        if known(&whole) {
+            next.push((whole, shown.clone(), segment.to_owned()));
+            continue;
+        }
         let Some(names) = listing(directory) else {
             need.push(directory.clone());
             continue;
