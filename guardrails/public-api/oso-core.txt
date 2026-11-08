@@ -914,7 +914,7 @@ pub fn oso_core::editor::Editor::deactivate_mark(&mut self) -> bool
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
-pub fn oso_core::editor::Editor::preedit_positions(&self, oso_core::frame::PixelGrid, &mut alloc::vec::Vec<f32>)
+pub fn oso_core::editor::Editor::preedit_layout(&self, oso_core::frame::PixelGrid, &mut alloc::vec::Vec<f32>) -> core::option::Option<oso_core::frame::PixelRect>
 pub fn oso_core::editor::Editor::region_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool

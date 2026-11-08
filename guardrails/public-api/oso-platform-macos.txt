@@ -438,7 +438,7 @@ pub fn oso_platform::window::Window::scale_factor(&self) -> f64
 pub fn oso_platform::window::Window::secure_input(&self) -> (bool, bool, bool)
 pub fn oso_platform::window::Window::set_ime_allowed(&self, bool)
 pub fn oso_platform::window::Window::set_ime_cursor_area(&self, oso_platform::window::CursorArea)
-pub fn oso_platform::window::Window::set_ime_preedit_positions(&self, &[f32])
+pub fn oso_platform::window::Window::set_ime_preedit(&self, core::option::Option<(&str, oso_platform::window::CursorArea, &[f32])>)
 pub fn oso_platform::window::Window::set_outer_position(&self, i32, i32)
 pub fn oso_platform::window::Window::set_secure_input(&self, bool)
 pub fn oso_platform::window::Window::set_visible(&self, bool)

@@ -283,18 +283,16 @@ define_class!(
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
         fn first_rect(&self, range: NSRange, actual: NSRangePointer) -> NSRect {
             let units = range.location..range.location.saturating_add(range.length);
-            let marked = self.ivars().marked.borrow();
-            let inside = utf16::char_range(&marked, units);
-            let marked_len = marked.chars().count();
-            drop(marked);
-            let chars = inside.as_ref().map(|(chars, _)| chars.clone());
-            let answer = self.ivars().state.ime.borrow().rect(chars, marked_len);
+            let answer = {
+                let marked = self.ivars().marked.borrow();
+                self.ivars().state.ime.borrow().rect(&marked, units)
+            };
             // While the input method is off, as in a buffer that may hold secrets, no place.
-            let Some((area, placed)) = answer else {
+            let Some((area, covered)) = answer else {
                 return NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
             };
             // The range cut to the composition, as the answer covers no more.
-            if let (true, Some((_, units))) = (placed, inside)
+            if let Some(units) = covered
                 && !actual.is_null()
             {
                 // SAFETY: AppKit passes null or a pointer to an `NSRange` it owns for the length

@@ -1,5 +1,5 @@
-//! What the input method may learn of the cursor, the cell the app last gave and where each
-//! character of a composition is drawn, answered only while oso has the IME on (ADR 0069,
+//! What the input method may learn of the cursor, the cell the app last gave and where the
+//! composition is laid out, answered only while oso has the IME on (ADR 0069,
 //! ADR 0070, ADR 0077); when secure input is held (ADR 0073); and a frame owed to a window
 //! that was hidden. Plain values, tested without a window or a clock.
 //!
@@ -8,16 +8,19 @@
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use crate::window::CursorArea;
+use crate::window::{CursorArea, utf16};
 
-/// Whether oso has the IME on, the cursor's cell the app last gave, and where it lays out
-/// each character of the composition from that cell's left.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// Whether oso has the IME on, the cursor's cell the app last gave, and where it lays out the
+/// composition. No `Debug`: it holds text being typed (ADR 0028).
+#[derive(Default)]
 pub(super) struct ImeGate {
     allowed: bool,
     area: Option<CursorArea>,
-    /// The x of each character of the composition, then of its end, in physical pixels
-    /// (ADR 0077). Empty with no composition.
+    /// The composition as the app laid it out (ADR 0077): its text, empty with none, its first
+    /// cell, and the x of each of its characters from that cell's left, then of its end, in
+    /// physical pixels.
+    laid_out: String,
+    first: Option<CursorArea>,
     positions: Vec<f32>,
 }
 
@@ -37,9 +40,15 @@ impl ImeGate {
         self.area = Some(area);
     }
 
-    pub(super) fn set_positions(&mut self, positions: &[f32]) {
+    /// Where the composition `text` is laid out, or none with `None`.
+    pub(super) fn set_preedit(&mut self, laid_out: Option<(&str, CursorArea, &[f32])>) {
+        self.laid_out.clear();
         self.positions.clear();
-        self.positions.extend_from_slice(positions);
+        self.first = laid_out.map(|(text, first, positions)| {
+            self.laid_out.push_str(text);
+            self.positions.extend_from_slice(positions);
+            first
+        });
     }
 
     /// The cell to answer the input method with: none while the IME is off.
@@ -47,29 +56,34 @@ impl ImeGate {
         if self.allowed { self.area } else { None }
     }
 
-    /// Where `chars` of a composition `marked_len` characters long are, and whether that is
-    /// their own place: none while the IME is off. No range, as one outside the composition,
-    /// or one of a composition the app has not laid out yet, gets the cell (ADR 0077).
+    /// Where `units` of the `marked` text are, with the units that answer covers: none while
+    /// the IME is off. A range outside the composition, or a composition other than the one
+    /// the app laid out, gets the cell, which covers no units (ADR 0077).
     pub(super) fn rect(
         &self,
-        chars: Option<Range<usize>>,
-        marked_len: usize,
-    ) -> Option<(CursorArea, bool)> {
+        marked: &str,
+        units: Range<usize>,
+    ) -> Option<(CursorArea, Option<Range<usize>>)> {
         let area = self.area()?;
-        let Some(chars) = chars.filter(|chars| {
-            self.positions.len() == marked_len + 1
-                && chars.start <= chars.end
-                && chars.end <= marked_len
-        }) else {
-            return Some((area, false));
+        let Some(first) = self.first.filter(|_| self.laid_out == marked) else {
+            return Some((area, None));
         };
-        let (start, end) = (self.positions[chars.start], self.positions[chars.end]);
+        let at = utf16::locate(marked, units);
+        let (Some(&start), Some(&end)) = (
+            self.positions.get(at.chars.start),
+            self.positions.get(at.chars.end),
+        ) else {
+            return Some((area, None));
+        };
+        if at.past_end {
+            return Some((area, None));
+        }
         let placed = CursorArea {
-            x: area.x + start,
+            x: first.x + start,
             width: end - start,
-            ..area
+            ..first
         };
-        Some((placed, true))
+        Some((placed, Some(at.units)))
     }
 }
 
@@ -258,63 +272,70 @@ mod tests {
     }
 
     #[test]
-    fn a_range_of_the_composition_is_where_the_app_lays_it_out() {
+    fn a_range_of_the_composition_is_where_the_app_laid_it_out() {
         let mut gate = ImeGate::default();
         gate.set_allowed(true);
         gate.set_area(CELL);
-        // "かa😀": a wide letter, a narrow one, and an emoji of two cells.
-        gate.set_positions(&[0.0, 16.0, 24.0, 40.0]);
-        let at = |x: f32, width: f32| Some((CursorArea { x, width, ..CELL }, true));
-        assert_eq!(gate.rect(Some(0..1), 3), at(8.0, 16.0), "the first letter");
+        // Scrolled since the cell was given: the composition starts two rows lower.
+        let first = CursorArea { y: 56.0, ..CELL };
+        // "かa😀": a wide letter, a narrow one, and an emoji of two cells and two units.
+        let text = "かa😀";
+        gate.set_preedit(Some((text, first, &[0.0, 16.0, 24.0, 40.0])));
+        let at = |x: f32, width: f32, units| Some((CursorArea { x, width, ..first }, Some(units)));
         assert_eq!(
-            gate.rect(Some(1..3), 3),
-            at(24.0, 24.0),
+            gate.rect(text, 0..1),
+            at(8.0, 16.0, 0..1),
+            "the first letter"
+        );
+        assert_eq!(
+            gate.rect(text, 1..4),
+            at(24.0, 24.0, 1..4),
             "the segment after it"
         );
         assert_eq!(
-            gate.rect(Some(3..3), 3),
-            at(48.0, 0.0),
+            gate.rect(text, 4..4),
+            at(48.0, 0.0, 4..4),
             "the caret at the end"
         );
         assert_eq!(
-            gate.rect(None, 3),
-            Some((CELL, false)),
-            "outside the composition"
+            gate.rect(text, 3..4),
+            at(48.0, 0.0, 4..4),
+            "inside the emoji"
+        );
+        assert_eq!(gate.rect(text, 1..99), at(24.0, 24.0, 1..4), "cut to it");
+        assert_eq!(
+            gate.rect(text, 5..6),
+            Some((CELL, None)),
+            "past the composition"
         );
         assert_eq!(
-            gate.rect(Some(0..1), 2),
-            Some((CELL, false)),
-            "one not laid out yet"
+            gate.rect("かb😀", 0..1),
+            Some((CELL, None)),
+            "another composition"
         );
-        gate.set_positions(&[]);
-        assert_eq!(
-            gate.rect(Some(0..1), 3),
-            Some((CELL, false)),
-            "none laid out"
-        );
-        gate.set_positions(&[0.0, 16.0, 24.0, 40.0]);
+        assert_eq!(gate.rect("", 0..0), Some((CELL, None)), "none marked");
         gate.set_allowed(false);
-        assert_eq!(gate.rect(Some(0..1), 3), None, "off");
+        assert_eq!(gate.rect(text, 0..1), None, "off");
+        gate.set_allowed(true);
+        gate.set_preedit(None);
+        assert_eq!(gate.rect(text, 0..1), Some((CELL, None)), "none laid out");
     }
 
     #[test]
-    fn no_range_or_length_reaches_past_the_positions() {
+    fn no_range_reaches_past_the_positions() {
         let mut gate = ImeGate::default();
         gate.set_allowed(true);
         gate.set_area(CELL);
-        let ends = [0, 1, 2, 3, 4, usize::MAX];
-        for given in 0..5 {
-            gate.set_positions(&[0.0, 8.0, 16.0, 24.0][..given]);
-            for (start, end, marked_len) in ends.iter().flat_map(|&s| {
-                ends.iter()
-                    .flat_map(move |&e| [0, 1, 3, 4].map(|m| (s, e, m)))
-            }) {
-                let (area, placed) = gate.rect(Some(start..end), marked_len).unwrap();
-                assert_eq!(
-                    placed,
-                    given == marked_len + 1 && start <= end && end <= marked_len
-                );
-                assert!(area.x >= CELL.x && area.width >= 0.0);
+        let text = "a😀か";
+        // Fewer positions than characters, as no app gives, must still answer in bounds.
+        for given in 0..=4 {
+            gate.set_preedit(Some((text, CELL, &[0.0, 8.0, 24.0, 40.0][..given])));
+            for start in (0..=6).chain([usize::MAX]) {
+                for end in (0..=6).chain([usize::MAX]) {
+                    let (area, units) = gate.rect(text, start..end).unwrap();
+                    assert!(area.width >= 0.0 && area.x >= CELL.x, "{start}..{end}");
+                    assert!(units.is_none_or(|units| units.end <= 4), "{start}..{end}");
+                }
             }
         }
     }

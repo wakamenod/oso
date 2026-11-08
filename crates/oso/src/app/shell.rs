@@ -195,9 +195,9 @@ impl Window {
         );
     }
 
-    /// winit gives the input method one rectangle, the cursor area's, so where the characters
-    /// of a composition are drawn goes nowhere (ADR 0077).
-    pub(super) fn set_ime_preedit_positions(&self, _positions: &[f32]) {}
+    /// winit gives the input method one rectangle, the cursor area's, so where a composition
+    /// is drawn goes nowhere (ADR 0077).
+    pub(super) fn set_ime_preedit(&self, _laid_out: Option<(&str, PixelRect, &[f32])>) {}
 }
 
 impl ApplicationHandler<UserEvent> for App {

@@ -168,18 +168,16 @@ impl Window {
     /// Tells the input method where the cursor's cell is, for its candidate window. The
     /// native layer only keeps it, and answers the input method with it when asked.
     pub(super) fn set_ime_cursor_area(&self, area: PixelRect) {
-        self.0.set_ime_cursor_area(CursorArea {
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: area.height,
-        });
+        self.0.set_ime_cursor_area(cursor_area(area));
     }
 
-    /// Tells the input method where each character of the composition is drawn (ADR 0077).
-    /// Only kept, as the cursor area is.
-    pub(super) fn set_ime_preedit_positions(&self, positions: &[f32]) {
-        self.0.set_ime_preedit_positions(positions);
+    /// Tells the input method where the composition `text` is drawn: its first cell, and
+    /// where each of its characters is from that cell's left (ADR 0077). Only kept, as the
+    /// cursor area is.
+    pub(super) fn set_ime_preedit(&self, laid_out: Option<(&str, PixelRect, &[f32])>) {
+        let laid_out =
+            laid_out.map(|(text, first, positions)| (text, cursor_area(first), positions));
+        self.0.set_ime_preedit(laid_out);
     }
 }
 
@@ -204,5 +202,15 @@ impl Handler<UserEvent> for App {
     /// here for a Dock quit or a logout.
     fn exiting(&mut self) {
         self.ending();
+    }
+}
+
+/// `rect` as the window layer takes a place for the input method.
+fn cursor_area(rect: PixelRect) -> CursorArea {
+    CursorArea {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
     }
 }

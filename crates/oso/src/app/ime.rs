@@ -17,7 +17,7 @@
 
 use oso_core::buffer::Buffer;
 use oso_core::display_map::Preedit;
-use oso_core::frame::{PixelGrid, PixelRect};
+use oso_core::frame::PixelRect;
 use oso_platform::window::ImeEvent;
 
 use super::App;
@@ -51,14 +51,13 @@ pub(super) struct ImeState {
     /// The cursor area last given, with the scale factor it was given at, since the window
     /// system keeps it in logical units.
     area: Option<(PixelRect, f64)>,
-    /// Where each character of the composition is drawn, as last given (ADR 0077).
+    /// The composition as last laid out for the window (ADR 0077): its text, empty with none,
+    /// its first cell, and where each of its characters is from that cell's left.
+    laid_out: String,
+    first: Option<PixelRect>,
     positions: Vec<f32>,
-    /// The next positions are worked out here, so that a key of a composition allocates
-    /// nothing.
+    /// The next layout is worked out here, so that a key of a composition allocates nothing.
     scratch: Vec<f32>,
-    /// The grid the positions were worked out for, and whether the composition changed since.
-    positions_for: Option<PixelGrid>,
-    positions_stale: bool,
 }
 
 impl App {
@@ -71,7 +70,6 @@ impl App {
                     self.dispatcher.begin_composition(&mut self.editor);
                 }
                 self.editor.set_preedit(Some(Preedit::new(text, range)));
-                self.ime.positions_stale = true;
                 self.request_redraw();
                 true
             }
@@ -101,7 +99,7 @@ impl App {
         self.sync_ime(event_loop);
         self.sync_secure_input();
         self.give_cursor_area();
-        self.give_preedit_positions();
+        self.give_preedit_layout();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a
@@ -120,7 +118,6 @@ impl App {
         let shown = self.editor.preedit().is_some();
         if shown {
             self.editor.set_preedit(None);
-            self.ime.positions_stale = true;
             self.request_redraw();
         }
         shown
@@ -234,27 +231,32 @@ impl App {
         self.ime.area = Some((area, scale));
     }
 
-    /// Gives the window where each character of the composition is drawn, so that the input
-    /// method's question about a range of it gets that place, and its candidate window
-    /// follows the segment being converted (ADR 0077). Only when the composition or the grid
-    /// changed, and none once the composition ends.
-    fn give_preedit_positions(&mut self) {
+    /// Gives the window where the composition is drawn, so that the input method's question
+    /// about a range of it gets that place, and its candidate window follows the segment being
+    /// converted (ADR 0077). It is worked out after each event during a composition, as the
+    /// view may scroll or the grid change, and given only when it changed. None once the
+    /// composition ends.
+    fn give_preedit_layout(&mut self) {
         let Some(view) = &self.view else {
             return;
         };
-        let grid = view.render_state.pixel_grid();
-        if !self.ime.positions_stale && self.ime.positions_for == Some(grid) {
-            return;
-        }
         let mut positions = std::mem::take(&mut self.ime.scratch);
-        self.editor.preedit_positions(grid, &mut positions);
-        if positions != self.ime.positions {
-            view.window.set_ime_preedit_positions(&positions);
-            std::mem::swap(&mut self.ime.positions, &mut positions);
+        let first = self
+            .editor
+            .preedit_layout(view.render_state.pixel_grid(), &mut positions);
+        let text = first
+            .and(self.editor.preedit())
+            .map_or("", |preedit| preedit.text());
+        let ime = &mut self.ime;
+        if first != ime.first || positions != ime.positions || text != ime.laid_out {
+            let laid_out = first.map(|first| (text, first, positions.as_slice()));
+            view.window.set_ime_preedit(laid_out);
+            ime.first = first;
+            ime.laid_out.clear();
+            ime.laid_out.push_str(text);
+            std::mem::swap(&mut ime.positions, &mut positions);
         }
-        self.ime.scratch = positions;
-        self.ime.positions_for = Some(grid);
-        self.ime.positions_stale = false;
+        ime.scratch = positions;
     }
 }
 

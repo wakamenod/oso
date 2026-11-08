@@ -198,6 +198,12 @@ item notes when it must be settled.
 - The candidate window stays where a composition started, as winit gives the OS one
   rectangle. Check whether a new area during a conversion moves it at the next key, so
   that it can follow the segment ([ADR 0069](adr/0069-macos-input-method.md)).
+- The app still gives the window the cursor's cell on every key that moves the cursor (about
+  0.1 ms a key at p99 in `just perf` at M2-12), though oso's own layer only keeps it until
+  the input method asks. Measure whether giving it only when a composition may start, or
+  when the input method asks, is worth it
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
+  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - `oso_platform::window::Held` names the modifiers as the window system does, beside
   `oso_core::key::Modifiers`, and `keys.rs` maps one to the other, as `oso-platform` cannot
   name `oso-core`'s. That only `app/shell.rs` names winit is said in the tip crate's

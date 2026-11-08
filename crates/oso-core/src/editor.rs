@@ -799,6 +799,56 @@ mod tests {
     }
 
     #[test]
+    fn the_composition_is_placed_where_it_is_drawn_after_a_sideways_scroll() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &"a".repeat(18)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        editor.current_mut().0.selections = SelectionSet::new(18);
+        editor.follow_cursor();
+        let grid = PixelGrid::new(10.0, 20.0);
+        let before = editor.cursor_area(grid).unwrap();
+        let mut positions = vec![1.0];
+        assert_eq!(
+            editor.preedit_layout(grid, &mut positions),
+            None,
+            "none composed"
+        );
+        assert!(positions.is_empty());
+        // Too wide to show beside the cursor box: the window scrolls sideways (ADR 0069).
+        editor.set_preedit(Some(Preedit::new("かかかかか".into(), None)));
+        let first = editor.preedit_layout(grid, &mut positions).unwrap();
+        let left = editor.window().scroll().left;
+        assert!(left > 0, "scrolled sideways");
+        assert_eq!(
+            first.x,
+            before.x - left as f32 * 10.0,
+            "moved with the text"
+        );
+        assert_eq!((first.y, first.height), (before.y, before.height));
+        let text = grid.rect(editor.frame.window.text);
+        assert_eq!(positions.len(), 6, "each character and the end");
+        for position in &positions {
+            let x = first.x + position;
+            assert!(
+                text.x <= x && x <= text.x + text.width,
+                "inside the text area"
+            );
+        }
+        assert!(positions.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+
+    #[test]
+    fn a_composition_whose_row_is_out_of_view_gets_no_place() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        editor.set_preedit(Some(Preedit::new("か".into(), None)));
+        assert!(editor.scroll_view(30));
+        let mut positions = vec![1.0];
+        let grid = PixelGrid::new(10.0, 20.0);
+        assert_eq!(editor.preedit_layout(grid, &mut positions), None);
+        assert!(positions.is_empty());
+    }
+
+    #[test]
     fn the_wheel_leaves_the_cursor_where_a_composition_is() {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
         editor.set_view_size(ViewSize::new(10, 20));
