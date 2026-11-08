@@ -439,7 +439,10 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 - the performance workflow (`perf.yml`), on every pull request and every push
   to `main` that changes more than `docs/`: results in the job summary and in
   JSON artifacts, compared with the last result on `main`
-  ([ADR 0046](adr/0046-performance-regression-checks.md))
+  ([ADR 0046](adr/0046-performance-regression-checks.md)). Pull requests run the
+  benchmarks on Linux only; a change to the input, render or load paths is
+  measured with `just perf-remote`, or with the workflow started by hand, which
+  includes macOS ([ADR 0081](adr/0081-macos-benchmarks-off-pull-requests.md))
 - the end-to-end workflow (`e2e.yml`), on pull requests and pushes to `main` that
   change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe, and on
   macOS, the one runner that checks text pixels

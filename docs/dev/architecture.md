@@ -355,7 +355,10 @@ integrated GPU.
 
 Surface errors are mapped to typed recovery actions: an outdated surface is
 reconfigured, a lost one is recreated, a timeout retries the frame, and an
-occluded window skips it until it is visible again. At most three failed frames
+occluded window skips it until it is visible again: the renderer says the frame is owed, and
+oso's own macOS window layer looks at the window again every 150 ms until it shows, so the
+frame does not wait for a notice that may never come
+([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). At most three failed frames
 in a row are retried, so a surface that does not recover cannot spin the event
 loop. Render errors are logged and are never fatal.
 
