@@ -1662,6 +1662,8 @@ pub fn oso_core::minibuffer::PromptLayout::eq(&self, &oso_core::minibuffer::Prom
 impl core::fmt::Debug for oso_core::minibuffer::PromptLayout
 pub fn oso_core::minibuffer::PromptLayout::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptLayout
+pub const oso_core::minibuffer::BINDING_CLOSE: &str
+pub const oso_core::minibuffer::BINDING_OPEN: &str
 pub const oso_core::minibuffer::CUT: &str
 pub const oso_core::minibuffer::HISTORY_LENGTH: usize
 pub const oso_core::minibuffer::KEYS: [&str; 2]
@@ -1671,7 +1673,8 @@ pub const oso_core::minibuffer::MAX_ENTRY_BYTES: usize
 pub const oso_core::minibuffer::MAX_LABEL_ROWS: usize
 pub const oso_core::minibuffer::QUESTION_END: &str
 pub const oso_core::minibuffer::VERBS: [&str; 2]
-pub fn oso_core::minibuffer::candidate_row(&str, &str, &str, usize) -> oso_core::minibuffer::CandidateRow
+pub fn oso_core::minibuffer::annotation_column<'a>(impl core::iter::traits::collect::IntoIterator<Item = (&'a str, &'a str)>, usize) -> usize
+pub fn oso_core::minibuffer::candidate_row(&str, &str, &str, usize, usize) -> oso_core::minibuffer::CandidateRow
 pub fn oso_core::minibuffer::cells_of(&str) -> usize
 pub fn oso_core::minibuffer::cut_to(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::fit_message(&str, usize) -> (&str, &'static str)
