@@ -167,6 +167,16 @@ impl App {
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
+        // The steps of the last live resize and the frames drawn for them (ADR 0077): numbers
+        // only, null on winit.
+        let resize = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.live_resize());
+        state["live_resize"] = resize.map_or(
+            serde_json::Value::Null,
+            |(steps, frames)| json!({ "steps": steps, "frames": frames }),
+        );
         // Whether the view gives the input method a context, which it does only while the IME
         // is on (ADR 0070), and whether AppKit's current context is it; null on winit.
         let context = self

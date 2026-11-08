@@ -228,19 +228,17 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
   the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the cursor's line for the input method;
-  whether frames keep up during a live resize, now that the
-  view also draws when AppKit displays its layer; `open_window` and `request_attention`
-  queued as the other requests are;
-  startup and `open_from_launch_ms` measured again with more runs, where the native layer's
-  medians sat a few milliseconds above winit's within overlapping ranges; and the author's
-  checks at the keyboard of what remains: a window covered by another app and uncovered
-  drawing again with no key, a composition committed when the IME turns off, the candidate
-  window following the segment being converted, no text service reading the view while the
-  IME is off, no Writing Tools for it, a Dock quit asking the exit question, and a real Log
-  Out, cancelled from the system's dialog, going past it, which shows oso reads a real
-  logout's reason ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each
-  item above as it lands. The author checked at the keyboard on 2026-11-08
+  the cursor's line for the input method; and the author's checks at the keyboard of what
+  remains: a window covered by another app and uncovered drawing again with no key, a
+  composition committed when the IME turns off, the candidate window following the segment
+  being converted, no text service reading the view while the IME is off, no Writing Tools
+  for it, a Dock quit asking the exit question, and a real Log Out, cancelled from the
+  system's dialog, going past it, which shows oso reads a real logout's reason
+  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), a live resize, the
+  window's corner dragged slowly and fast, with no text stretched or smeared and no blank
+  frame, `get-state`'s `live_resize` showing a frame for each step
+  ([ADR 0086](adr/0086-frames-during-a-live-resize.md)), and each item above as it lands.
+  The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting
