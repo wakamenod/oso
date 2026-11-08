@@ -1,6 +1,6 @@
 # 0073. Secure input in secret buffers
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -24,7 +24,8 @@ never left on.
 
 The author chose on 2026-11-08, from options put to them: an ADR of its own, secure input on
 oso's own window layer only, the person's input sources left alone, and a pull request of its
-own after the native layer's first one.
+own after the native layer's first one. The author accepted this ADR with those four choices on
+2026-11-08, through the coordinator.
 
 ### When it is on
 

@@ -79,7 +79,7 @@ old one's status.
 | 0070 | [Windowing and input without winit](0070-windowing-and-input-without-winit.md) | Accepted |
 | 0071 | [The mark and the region](0071-mark-and-region.md) | Accepted |
 | 0072 | [Floating windows, the minibuffer and questions](0072-floating-windows-the-minibuffer-and-questions.md) | Accepted |
-| 0073 | [Secure input in secret buffers](0073-secure-input-in-secret-buffers.md) | Proposed |
+| 0073 | [Secure input in secret buffers](0073-secure-input-in-secret-buffers.md) | Accepted |
 
 ## Template
 
