@@ -45,15 +45,18 @@ and a buffer can be 1 GB, so returning "the text" needs a rule too.
   - `.ssh`, `.gnupg` and `.aws` count anywhere in a path, not only under the
     home directory. This needs no `$HOME`, which can be wrong or unset, and
     also covers other users' homes and backups.
-- **Every path on the way counts:** the path as opened, each symlink's target
-  and the canonical path. So a symlink to `~/.ssh/id_rsa` is caught, and so is
+- **Every path on the way counts:** the path as opened, each symlink's target,
+  the canonical path and the path of the file that was opened. So a symlink to `~/.ssh/id_rsa` is caught, and so is
   a chain through `~/.aws/credentials` to `~/dotfiles/aws-creds`, which a
   dotfile manager may set up and the canonical path alone would miss. A path
   that cannot be resolved counts as secret: a link to nothing, a loop of links,
-  a new file whose directory does not exist, or any error on the way.
+  a new file whose directory does not exist, any error on the way, or, where the
+  system cannot name an open file, a resolved path that does not lead to the opened
+  file itself.
 - **The verdict is a flag on `Buffer`.** `Buffer::visiting` starts as secret.
-  The loading thread opens the file, then resolves the path, then reads, so a
-  file swapped in before the open is what gets judged. The UI thread applies
+  The loading thread opens the file, then resolves the path, then reads. The
+  verdict is taken from the path of the file that was opened, as the system names
+  the open file on macOS and on Linux with `/proc`. The UI thread applies
   the verdict before it applies any content. So the UI thread never touches
   the file system, and a file is withheld from the moment it is visited until
   it is known to be ordinary.
@@ -99,9 +102,9 @@ and a buffer can be 1 GB, so returning "the text" needs a rule too.
 - The check is by name only. A hard link to a key under an ordinary name, or a
   key in a file called `notes.txt`, is not caught.
 - The path is resolved once per load, so a symlink changed later keeps the old
-  verdict until the file is loaded again. A file swapped twice around the open,
-  on purpose, can also get past it; a process that can do that can read the file
-  itself. Saving under a new name (M2) must resolve the new path.
+  verdict until the file is loaded again. Where the system cannot name an open
+  file, a file swapped twice around the open, on purpose, can also get past it; a
+  process that can do that can read the file itself. Saving under a new name (M2) must resolve the new path.
 - Some ordinary files are withheld, such as `.aws/README.md` in a project. They
   still open and edit normally, and only dev tooling and the emergency save
   treat them differently. For the emergency save the same caution costs unsaved

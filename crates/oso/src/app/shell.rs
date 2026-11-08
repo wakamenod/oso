@@ -24,6 +24,10 @@ use oso_platform::window::{Event, Held, ImeEvent, KeyInput, SystemKey, SystemNam
 
 use super::{App, UserEvent};
 
+/// winit cannot commit a composition, so turning the IME off waits for one to end
+/// (ADR 0069, ADR 0077).
+pub(super) const COMMITS_WHEN_TURNED_OFF: bool = false;
+
 /// Runs the event loop until it ends. `start` makes the app, given the waker other threads
 /// reach it through, before the window opens. `started` is when the process started.
 pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {

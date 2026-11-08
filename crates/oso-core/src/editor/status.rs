@@ -380,10 +380,7 @@ mod tests {
 
     #[test]
     fn a_buffer_that_may_hold_secrets_says_no_position_and_no_cursors() {
-        let path = PathBuf::from("/tmp/.env");
-        let mut buffer = Buffer::visiting(path.clone());
-        buffer.judge_secret(Some(&[path]));
-        let mut editor = Editor::with_buffer(buffer);
+        let mut editor = Editor::with_buffer(super::super::test_buffers::secret_buffer());
         editor.set_view_size(ViewSize::new(10, 80));
         let id = editor.window().buffer();
         let mut builder = Builder::new(None, crate::display_map::TabWidth::default());

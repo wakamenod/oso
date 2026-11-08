@@ -117,7 +117,17 @@ impl Editor {
     /// it. A preedit with no text is none. Returns whether the view moved.
     pub fn set_preedit(&mut self, preedit: Option<Preedit>) -> bool {
         self.preedit = preedit.filter(|preedit| !preedit.text().is_empty());
+        if self.preedit.is_none() {
+            self.preedit_withheld = false;
+        }
+        self.note_secret_shown();
         self.follow_cursor()
+    }
+
+    /// Whether the composition was open while a buffer that may hold secrets was shown, so the
+    /// control socket leaves it out until it ends.
+    pub fn preedit_withheld(&self) -> bool {
+        self.preedit_withheld
     }
 
     /// Scrolls the selected window by the fewest rows and columns that show

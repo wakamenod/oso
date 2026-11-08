@@ -8,7 +8,7 @@
 use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 use std::time::Instant;
 
 use objc2_core_foundation::{
@@ -23,6 +23,9 @@ use super::State;
 pub(super) struct Wake {
     source: CFRetained<CFRunLoopSource>,
     main: CFRetained<CFRunLoop>,
+    /// The loop has stopped, or its handler panicked: nothing sent reaches it any more. A
+    /// sender holds it shared while it queues, so that a close waits for the queueing.
+    closed: RwLock<bool>,
 }
 
 // SAFETY: Core Foundation's run loop functions are thread-safe; `CFRunLoopSourceSignal` and
@@ -38,6 +41,18 @@ impl Wake {
     pub(super) fn signal(&self) {
         self.source.signal();
         self.main.wake_up();
+    }
+
+    /// Nothing sent from now on reaches the handler. Waits for a send under way.
+    pub(super) fn close(&self) {
+        *self.closed.write().unwrap_or_else(PoisonError::into_inner) = true;
+    }
+
+    /// Runs `queue` unless the loop has stopped, and the loop does not stop meanwhile. Returns
+    /// whether it ran and queued.
+    pub(super) fn while_open(&self, queue: impl FnOnce() -> bool) -> bool {
+        let closed = self.closed.read().unwrap_or_else(PoisonError::into_inner);
+        !*closed && queue()
     }
 
     /// Wakes the main run loop with nothing to deliver, so that it goes round once more.
@@ -129,7 +144,11 @@ impl Hooks {
         main.add_timer(Some(&timer), common);
 
         Self {
-            wake: Arc::new(Wake { source, main }),
+            wake: Arc::new(Wake {
+                source,
+                main,
+                closed: RwLock::new(false),
+            }),
             timer,
             deadline: Cell::new(None),
             _observer: observer,
