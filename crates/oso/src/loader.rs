@@ -542,10 +542,14 @@ mod tests {
         let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let resolved = handle.take_resolved().unwrap();
+        // Where the system cannot name an open file, nobody can tell.
+        #[cfg(unix)]
         assert_eq!(
             resolved.paths().unwrap().last(),
             Some(&std::fs::canonicalize(&path).unwrap())
         );
+        #[cfg(not(unix))]
+        assert!(matches!(resolved, Resolved::Unknown(_)), "{resolved:?}");
         assert_eq!(handle.take_resolved(), None, "taken once");
         std::fs::remove_file(path).unwrap();
     }

@@ -151,6 +151,20 @@ pub(super) fn give_quarantine(_flag: &Quarantine, _file: &File) -> io::Result<()
     Ok(())
 }
 
+/// The link `/proc` keeps for the open `file`. Without `/proc`, or for a file no longer in any
+/// directory, which the link then marks after its name, there is none.
+pub(super) fn path_of_opened(file: &File) -> io::Result<Option<PathBuf>> {
+    let link = Path::new("/proc/self/fd").join(file.as_raw_fd().to_string());
+    match std::fs::read_link(link) {
+        Ok(path) if path.is_absolute() && !path.as_os_str().as_bytes().ends_with(b" (deleted)") => {
+            Ok(Some(path))
+        }
+        Ok(_) => Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File, OpenOptions, Permissions};
@@ -298,19 +312,5 @@ mod tests {
         file.set_permissions(Permissions::from_mode(0o640)).unwrap();
         assert_eq!(mode(&path), 0o640, "the mode opens it, as far as it says");
         assert!(!list_of(&file).unwrap().is_empty());
-    }
-}
-
-/// The link `/proc` keeps for the open `file`. Without `/proc`, or for a file no longer in any
-/// directory, which the link then marks after its name, there is none.
-pub(super) fn path_of_opened(file: &File) -> io::Result<Option<PathBuf>> {
-    let link = Path::new("/proc/self/fd").join(file.as_raw_fd().to_string());
-    match std::fs::read_link(link) {
-        Ok(path) if path.is_absolute() && !path.as_os_str().as_bytes().ends_with(b" (deleted)") => {
-            Ok(Some(path))
-        }
-        Ok(_) => Ok(None),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
     }
 }
