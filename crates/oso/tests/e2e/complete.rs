@@ -1,6 +1,7 @@
 //! Completion in the running app (ADR 0076): `M-x` lists the commands, narrows as a name is
 //! typed, moves with `C-n` and `C-p`, and runs what `RET` takes with the prefix argument
-//! given before it; a command that reads opens its prompt after.
+//! given before it; a command that reads opens its prompt after. An `M-x` the socket opened
+//! records no history.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. How candidates
 //! match and are ordered, and how the float lays them out, have their own tests.
@@ -36,11 +37,13 @@ fn m_x_lists_the_commands_narrows_and_runs_the_one_taken() {
     assert_eq!(state["prompts"], json!([]));
     assert_eq!(cursor(&state), (0, 1));
 
-    // The prefix argument goes to the command, and the one run last comes first.
+    // The prefix argument goes to the command. What the socket ran is not the person's, so
+    // it entered no history and does not come first.
     app.send_keys("C-u 3 M-x");
     let prompt = app.state()["prompts"][0].clone();
     assert_eq!(prompt["prompt"], "3 M-x");
-    assert_eq!(prompt["completion"]["rows"][0], "forward-char");
+    assert_ne!(prompt["completion"]["rows"][0], "forward-char");
+    app.send_keys(&typing("forward-char"));
     app.send_keys("RET");
     assert_eq!(cursor(&app.state()), (0, 4));
 }
