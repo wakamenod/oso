@@ -9,7 +9,7 @@ use crate::buffer::{Buffer, Replacement};
 use crate::complete::Candidate;
 use crate::frame::CellRect;
 use crate::frame::{FrameSize, PixelGrid};
-use crate::minibuffer::{Kind, MAX_DEPTH, PromptError};
+use crate::minibuffer::{Kind, MAX_DEPTH, Outcome, PromptError};
 use crate::secret::Verdict;
 use crate::selection::{MarkActive, Selection, SelectionSet};
 
@@ -207,6 +207,38 @@ fn a_region_in_the_answer_takes_its_cells_and_not_the_window_beneath() {
     );
     editor.region_cells(&mut cells);
     assert!(cells.is_empty(), "the window beneath has none");
+}
+
+#[test]
+fn a_completion_a_socket_request_opened_records_no_history() {
+    let items: std::sync::Arc<[Candidate]> = [Candidate::new("undo", "", "")].into();
+    let mut editor = editor(3);
+    let id = editor.open_completion("M-x", "command", items).unwrap();
+    editor.keep_out_of_history(id);
+    editor.submit_prompt().unwrap();
+    assert_eq!(editor.histories.entries("command").count(), 0);
+}
+
+#[test]
+fn beside_a_secret_an_empty_answer_takes_a_candidate_only_once_moved_to() {
+    let items: std::sync::Arc<[Candidate]> = ["undo", "yank"]
+        .map(|text| Candidate::new(text, "", ""))
+        .into();
+    let mut editor = editor(3);
+    let secret = editor.add_buffer(secret_buffer());
+    editor.show(secret);
+    editor.open_completion("M-x", "command", items).unwrap();
+    assert_eq!(editor.submit_prompt(), Err(PromptError::Invalid));
+    assert_eq!(
+        editor.prompt().unwrap().message(),
+        Some("Type a name, or move to one")
+    );
+    editor.move_completion(1).unwrap();
+    editor.submit_prompt().unwrap();
+    let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
+        panic!("no answer");
+    };
+    assert_eq!(text, "yank");
 }
 
 #[test]

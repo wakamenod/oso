@@ -10,8 +10,9 @@ use regex::{Regex, RegexBuilder};
 use super::{AFFIXES, Candidate};
 
 /// The most memory a component's expression may take once compiled, so that one pasted in
-/// cannot take long to compile. A larger one matches as a literal.
-const REGEX_SIZE_LIMIT: usize = 64 * 1024;
+/// cannot take long to compile. A larger one matches as a literal. It admits ordinary Perl
+/// classes, such as `\w{10}`, whose Unicode tables are large.
+const REGEX_SIZE_LIMIT: usize = 1 << 20;
 
 /// The deepest an expression may nest.
 const REGEX_NEST_LIMIT: u32 = 32;
@@ -42,6 +43,14 @@ struct Component {
     /// where either does, as orderless's default styles, `orderless-literal` and
     /// `orderless-regexp`, do.
     regex: Option<Regex>,
+    /// An expression was tried for it, whether or not it compiled, so that it is tried once
+    /// per input (ADR 0076).
+    tried: bool,
+    /// For a literal one, a searcher for it compiled once, which a candidate's text is
+    /// searched with: `None` where it did not compile, when the text is searched as is.
+    finder: Option<Regex>,
+    /// How many characters it has: a candidate with fewer bytes cannot hold it.
+    chars: usize,
     /// The candidate must not match it.
     not: bool,
     /// It matches the annotation, not the candidate.
@@ -51,10 +60,22 @@ struct Component {
 }
 
 impl PartialEq for Component {
-    /// The expression follows from the rest.
+    /// The expression and the searcher follow from the rest: whether it is tried as an
+    /// expression too, as `=` says it is not.
     fn eq(&self, other: &Self) -> bool {
-        (self.style, self.not, self.annotation, &self.pattern)
-            == (other.style, other.not, other.annotation, &other.pattern)
+        (
+            self.style,
+            self.not,
+            self.annotation,
+            self.tried,
+            &self.pattern,
+        ) == (
+            other.style,
+            other.not,
+            other.annotation,
+            other.tried,
+            &other.pattern,
+        )
     }
 }
 
@@ -98,21 +119,31 @@ impl Component {
         } else {
             rest.into()
         };
-        // `=` and the other affixes but `!` and `&` take one style only. An expression the
-        // query before compiled is reused: its text and case decide it.
-        let regex = (matches!(affix, None | Some('!' | '&')) && rest.contains(REGEX_META))
-            .then(|| {
-                let same = |old: &&Component| old.pattern == pattern && old.regex.is_some();
-                let compiled = (before.ignore_case == ignore_case)
-                    .then(|| before.components.iter().find(same))
-                    .flatten()
-                    .and_then(|old| old.regex.clone());
-                compiled.or_else(|| compile(rest, ignore_case))
-            })
-            .flatten();
+        // `=` and the other affixes but `!` and `&` take one style only.
+        let wants_regex = matches!(affix, None | Some('!' | '&')) && rest.contains(REGEX_META);
+        // What the query before compiled for the same component is reused, a failure too:
+        // its text, style, case and whether it is an expression decide it.
+        let same = before
+            .components
+            .iter()
+            .filter(|_| before.ignore_case == ignore_case)
+            .find(|old| old.pattern == pattern && old.style == style && old.tried == wants_regex);
+        let (regex, tried) = match same {
+            Some(old) if old.tried => (old.regex.clone(), true),
+            _ if wants_regex => (compile(rest, ignore_case), true),
+            _ => (None, false),
+        };
+        let finder = match same {
+            Some(old) => old.finder.clone(),
+            None if style == Style::Literal => compile(&regex::escape(rest), ignore_case),
+            None => None,
+        };
         Some(Self {
             style,
             regex,
+            tried,
+            finder,
+            chars: rest.chars().count(),
             not: affix == Some('!'),
             annotation: affix == Some('&'),
             pattern,
@@ -148,10 +179,21 @@ impl Component {
         // An expression matches the original text, ignoring case itself, so where it matched
         // needs no mapping back.
         let mut original = false;
+        // A text of fewer bytes than the component has characters cannot hold it.
+        let literal = if self.chars > text.len() {
+            None
+        } else if let Some(finder) = &self.finder {
+            finder.find(text).map(|hit| {
+                original = true;
+                hit.range()
+            })
+        } else {
+            haystack.find(pattern).map(|at| at..at + pattern.len())
+        };
         let hit = match self.style {
-            Style::Literal => match haystack.find(pattern) {
-                Some(at) => {
-                    push(at..at + pattern.len());
+            Style::Literal => match literal {
+                Some(range) => {
+                    push(range);
                     true
                 }
                 None => match self.regex.as_ref().and_then(|regex| regex.find(text)) {
@@ -246,12 +288,9 @@ impl Query {
             return Self::too_long();
         }
         let ignore_case = !input.chars().any(char::is_uppercase);
-        let mut components = Vec::new();
+        // Split first, so that an input of too many components compiles none of them.
+        let mut raw = Vec::new();
         let mut current = String::new();
-        let mut push = |current: &mut String| {
-            components.extend(Component::parse(current, ignore_case, before));
-            current.clear();
-        };
         let mut chars = input.chars().peekable();
         while let Some(c) = chars.next() {
             match c {
@@ -259,14 +298,19 @@ impl Query {
                     current.push(' ');
                     chars.next();
                 }
-                ' ' => push(&mut current),
+                ' ' => raw.push(std::mem::take(&mut current)),
                 _ => current.push(c),
             }
         }
-        push(&mut current);
-        if components.len() > MAX_COMPONENTS {
+        raw.push(current);
+        raw.retain(|component| !component.is_empty());
+        if raw.len() > MAX_COMPONENTS {
             return Self::too_long();
         }
+        let components = raw
+            .iter()
+            .filter_map(|raw| Component::parse(raw, ignore_case, before))
+            .collect();
         Self {
             components,
             ignore_case,
@@ -280,6 +324,20 @@ impl Query {
             too_long: true,
             ..Self::default()
         }
+    }
+
+    /// Whether `candidate`, which `before` matched, matches the components that are not as
+    /// they were in `before`: where this query [`narrows`](Query::narrows) `before`, the others
+    /// still match.
+    pub(crate) fn matches_after(&self, candidate: &Candidate, before: &Query) -> bool {
+        if self.too_long || self.ignore_case != before.ignore_case {
+            return self.matches(candidate);
+        }
+        self.components
+            .iter()
+            .enumerate()
+            .filter(|&(index, component)| before.components.get(index) != Some(component))
+            .all(|(_, component)| component.matches(candidate, self.ignore_case, None))
     }
 
     /// Whether `candidate` matches every component.
@@ -346,7 +404,7 @@ impl Query {
                 }
                 // A negation that matches less, or with case, keeps more candidates, and a
                 // longer expression may match more.
-                if new.not || new.regex.is_some() || old.regex.is_some() {
+                if new.not || new.tried || old.tried {
                     return new.pattern == old.pattern && self.ignore_case == before.ignore_case;
                 }
                 if self.ignore_case == before.ignore_case {

@@ -11,6 +11,7 @@
 
 use super::Editor;
 use crate::buffer::{Buffer, Replacement};
+use crate::complete::Candidates;
 use crate::minibuffer::{
     self, Kind, MAX_DEPTH, Outcome, Prompt, PromptError, PromptId, PromptLayout,
 };
@@ -74,6 +75,7 @@ impl Editor {
             message: None,
             message_withheld: false,
             around_secret,
+            from_socket: false,
             walk: None,
             typed: None,
             completion: None,
@@ -155,6 +157,17 @@ impl Editor {
     /// completes gives its selected candidate (ADR 0076).
     pub fn submit_prompt(&mut self) -> Result<(), PromptError> {
         let completes = matches!(self.prompt().map(Prompt::kind), Some(Kind::Complete { .. }));
+        // What was typed last is matched first.
+        self.match_completion();
+        // Around a secret no history orders the list, so its first candidate is no choice: an
+        // empty answer takes one only once the person moved to it (ADR 0076).
+        let unchosen = self.prompt().is_some_and(|prompt| {
+            prompt.around_secret && prompt.candidates().is_some_and(Candidates::defaulted)
+        });
+        if completes && unchosen {
+            self.prompt_says("Type a name, or move to one");
+            return Err(PromptError::Invalid);
+        }
         let selected = if completes {
             match self.selected_completion() {
                 Ok(text) => Some(text),
@@ -181,7 +194,7 @@ impl Editor {
         }
         let id = prompt.id;
         // Also not if a buffer that may hold secrets came beneath it since it opened.
-        let records = !prompt.around_secret && !self.shows_secret();
+        let records = !prompt.around_secret && !prompt.from_socket && !self.shows_secret();
         if let Some(prompt) = self.close_innermost()
             && records
             && let Some(name) = prompt.kind.history()

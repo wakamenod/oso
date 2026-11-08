@@ -206,3 +206,36 @@ mod socket {
         );
     }
 }
+
+/// The app's own features match Perl classes and general categories: tests elsewhere in the
+/// workspace pull in more of `regex-syntax`'s tables than the app has (ADR 0076).
+#[test]
+fn perl_classes_and_general_categories_match_with_the_apps_features() {
+    let items: std::sync::Arc<[Candidate]> = ["forward-char", "goto-line", "日本語", "line42"]
+        .map(|text| Candidate::new(text, "", ""))
+        .into();
+    let mut editor = Editor::with_buffer(Buffer::from_text("notes.txt", LINES));
+    for (input, first) in [
+        (r"\w+-ch", "forward-char"),
+        (r"\d+", "line42"),
+        (r"\bline\b", "goto-line"),
+        (r"\pL{3}$", "日本語"),
+    ] {
+        editor
+            .open_completion("M-x", "command", items.clone())
+            .unwrap();
+        let id = editor.prompt().unwrap().buffer();
+        editor
+            .apply_edits(
+                id,
+                &[oso_core::buffer::Replacement {
+                    range: 0..0,
+                    text: input,
+                }],
+            )
+            .unwrap();
+        editor.match_completion();
+        assert_eq!(selected(&editor), Some(first), "{input}");
+        editor.quit();
+    }
+}

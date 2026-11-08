@@ -81,10 +81,13 @@ on nothing of the editor, so M2-18's worker can run it on a snapshot.
   `%` (char folding) is left out until migemo (M3) decides how Japanese is matched.
 - **Case is smart over the whole input** (`orderless-smart-case`, and isearch in M2-20): an input
   with no upper-case letter ignores case, and one with any matches it exactly.
-- **Regular expressions are compiled once per input,** with `regex::RegexBuilder`'s size limit set to
-  64 KiB and its nest limit to 32, so that a component pasted in cannot take long to compile; the
-  `regex` crate matches in linear time. Literals are matched with a lowercase copy of each candidate
-  made once, when the list is given, so a key typed costs no allocation per candidate.
+- **Expressions and searchers are compiled once per input,** a failure to compile too, and kept while
+  a component's text, style and case stay the same. `regex::RegexBuilder`'s size limit is 1 MiB, which
+  admits ordinary Perl classes such as `\w{10}`, and its nest limit 32, so that a component pasted in
+  cannot take long to compile; the `regex` crate matches in linear time. A literal is searched with a
+  searcher of its own, built once, and skipped for a candidate shorter than it.
+- **Perl classes and general categories** (`\w`, `\d`, `\s`, `\b`, `\pL`) compile in the app: `regex`
+  is built with `unicode-perl` and `unicode-gencat`, which a test in the app's own crate checks.
 - **What matched is highlighted only in the rows shown,** so highlighting costs 18 rows, never the
   list.
 
@@ -98,7 +101,9 @@ on nothing of the editor, so M2-18's worker can run it on a snapshot.
   selects it.
 - **The history is the prompt's own** (ADR 0072): `M-x`'s is `command`. A prompt opened while a buffer
   that may hold secrets is shown neither reads nor records it, so its order is length and then
-  alphabetical.
+  alphabetical, and there an empty answer takes a candidate only once the person moved to one, as
+  the first of that order is no choice. A prompt a control socket request opened records nothing,
+  as its answer is not the person's.
 
 ### Where matching runs
 
@@ -106,10 +111,12 @@ on nothing of the editor, so M2-18's worker can run it on a snapshot.
   60 commands now and a few hundred later. The budget is 1 ms of matching per key at 5000 candidates,
   which an ignored test in `complete` checks when run by hand in a release build; `just perf`'s
   `mx_type_p99_ms` measures typing into `M-x` in the app.
-- **What is matched is bounded:** an answer over 1024 bytes, or of more than 32 components, matches
+- **What is matched is bounded:** an answer over 1024 bytes, or of more than 32 components, counted
+  before any is compiled, matches
   nothing, and is not copied out of its buffer, so a whole file yanked into the answer costs no key
   more than that. A component's compiled expression is reused while its text and case stay the same.
-- **Narrowing reuses the last result:** an input that only adds characters to the last one filters the
+- **Narrowing reuses the last result, and checks only what changed:** an input that only adds
+  characters to the last one, or adds components, filters the
   candidates that matched before, not the whole list.
 - **Past 5000, on a worker thread, built with M2-18,** whose directories are the first list that can be
   that long. What is fixed now: each input has a generation, the worker gets the list as an
@@ -204,6 +211,9 @@ layer in the minibuffer keymap's place:
   prompt, as `where-is` finds it, found once when the prompt opens by walking the keymaps
   (`Keymap::bindings`, new). A command with none shows none.
 - **The annotation** is the first line of the docstring.
+- **Every completion command needs a person** (`Reach::Person`, ADR 0085): `execute-extended-command`,
+  the moves through the list, which choose what `RET` runs, and `insert-completion`, as answering a
+  prompt does.
 - **`run-command execute-extended-command`** is refused, "run the command itself": the socket names a
   command directly. A command marked `ArgSpec::Key` takes a count from `run-command` as one marked
   `Count` does.
@@ -270,7 +280,8 @@ layer in the minibuffer keymap's place:
   `app/draw/float.rs`, and the socket's field in `dev`.
 - **One new direct dependency, a gate:** `regex` in `oso-core`, the only regular-expression crate
   the rules allow (ADR 0010). It is in `Cargo.lock` already, 1.12.4 through `env_logger`, so no crate
-  is added to the build; `oso-core` takes it with `std`, `unicode-case` and `perf`, for smart case
+  is added to the build; `oso-core` takes it with `std`, `unicode-case`, `unicode-perl`, `unicode-gencat`
+  and `perf`, for smart case, Perl classes and general categories
   on any script. No new crate, crate edge, `unsafe` or public trait.
 
 ### Tests and measures

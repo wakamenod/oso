@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc df6d9b951ea5ae5edbb52d904f4c0800db51db6b9fcabd1ff7fe2e57facf56a2 # shrinks to text = "İ", input = "a İ"
 cc 252c7be6c53cb13b1e53051358ab95fd1e97c1d5947a508aacbfabe1ebd16cb5 # shrinks to text = "", input = "a*"
+cc 25b862fd8e052e2767a10137c60264c548cc84c35e65c663ba81723e68e36d67 # shrinks to texts = ["A"], inputs = [".", "="]

@@ -119,6 +119,21 @@ fn a_component_with_an_expression_matches_as_one_or_as_a_literal() {
 }
 
 #[test]
+fn the_dependency_keeps_the_unicode_tables_perl_classes_need() {
+    // Tests here pull in `regex-syntax`'s every table through `proptest`, the app does not:
+    // this is what keeps `\w`, `\d`, `\b` and `\pL` compiling there.
+    let manifest = include_str!("../../Cargo.toml");
+    assert!(manifest.contains("\"unicode-perl\"") && manifest.contains("\"unicode-gencat\""));
+}
+
+#[test]
+fn a_component_longer_than_a_candidate_skips_it_and_a_long_one_stays_cheap() {
+    let long = "a".repeat(1000);
+    assert!(!matches(&long, "save-buffer"));
+    assert!(matches(&long, &format!("x{long}y")));
+}
+
+#[test]
 fn an_expression_too_large_to_compile_is_a_literal() {
     let big = format!("(a{{1000}}){{1000}}{}", "b");
     assert!(!matches(&big, "ab"));
@@ -238,6 +253,20 @@ fn an_input_too_long_or_of_too_many_components_matches_nothing_until_it_is_short
     assert!(!Query::parse(&many).matches(&candidate("a")));
 }
 
+/// A literal as long as an answer may be.
+const LONG: &str = concat!(
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+);
+
 /// Matching at 5000 candidates stays within ADR 0076's budget of 1 ms a key. Run it by hand
 /// in release: `cargo test --release -p oso-core matching_5000 -- --ignored`.
 #[test]
@@ -263,6 +292,7 @@ fn matching_5000_candidates_takes_under_a_millisecond_a_key() {
             Candidate::new(text, "C-x C-s", note)
         })
         .collect();
+    let long_more = format!("{LONG} z");
     let steps: &[&[&str]] = &[
         &["e", "ea", "eab"],
         &["e", "", "e"],
@@ -271,6 +301,8 @@ fn matching_5000_candidates_takes_under_a_millisecond_a_key() {
         &[",sbk"],
         &["a.b", "a.bc"],
         &["!x", "!x e"],
+        // A long literal, narrowing as typed, and one more component after it.
+        &[&LONG[..999], LONG, &long_more],
     ];
     let mut highlights = Vec::new();
     for inputs in steps {

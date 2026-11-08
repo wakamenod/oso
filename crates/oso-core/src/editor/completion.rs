@@ -47,6 +47,14 @@ impl Editor {
         Ok(id)
     }
 
+    /// Keeps the answer of the prompt `id` out of its history: a control socket request opened
+    /// it, so it is not the person's (ADR 0076).
+    pub fn keep_out_of_history(&mut self, id: PromptId) {
+        if let Some(prompt) = self.prompts.iter_mut().find(|prompt| prompt.id == id) {
+            prompt.from_socket = true;
+        }
+    }
+
     /// The revision of the innermost prompt's buffer.
     fn prompt_revision(&self) -> Option<u64> {
         let prompt = self.prompts.last()?;

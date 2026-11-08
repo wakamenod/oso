@@ -168,6 +168,17 @@ mod tests {
     }
 
     #[test]
+    fn control_and_bidi_characters_are_measured_as_the_escapes_drawn() {
+        // A name or a summary with a line break or a bidi control is drawn as escapes, as the
+        // echo area's text is, and laid out in their cells, so nothing else moves under it.
+        let text = "evil\n\u{202E}name";
+        assert!(cells_of(text) > text.chars().count());
+        let row = candidate_row(text, "", "note\u{202E}", 40, 0);
+        let (at, _, _) = row.annotation.unwrap();
+        assert!(at >= cells_of(text) + 2);
+    }
+
+    #[test]
     fn wide_clusters_are_cut_whole() {
         let row = candidate_row("日本語のコマンド", "", "", 7, 0);
         assert_eq!((row.text, row.text_cut), ("日本語".len(), true));

@@ -1027,6 +1027,7 @@ pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::candidate_rows(&self) -> usize
 pub fn oso_core::editor::Editor::insert_completion(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::keep_out_of_history(&mut self, oso_core::minibuffer::PromptId)
 pub fn oso_core::editor::Editor::match_completion(&mut self)
 pub fn oso_core::editor::Editor::move_completion(&mut self, isize) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_completion(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, alloc::sync::Arc<[oso_core::complete::Candidate]>) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>

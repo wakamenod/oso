@@ -164,6 +164,9 @@ pub struct Prompt {
     /// It opened while a buffer that may hold secrets was shown, or one was shown beneath it
     /// since, so its answer enters no history.
     pub(crate) around_secret: bool,
+    /// What a control socket request opened: its answer is not the person's, so it enters no
+    /// history (ADR 0076).
+    pub(crate) from_socket: bool,
     /// Where `M-p` and `M-n` have got to: the entry shown, 0 the newest.
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.

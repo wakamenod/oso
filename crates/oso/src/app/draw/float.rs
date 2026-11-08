@@ -189,6 +189,19 @@ fn spaces(n: usize) -> &'static str {
     &SPACES[..n.min(SPACES.len())]
 }
 
+/// Pushes `n` spaces onto `spans`, in pieces of [`SPACES`], so that no gap is cut short however
+/// wide the row.
+fn push_spaces(spans: &mut Vec<Span<'_>>, mut n: usize) {
+    while n > 0 {
+        let text = spaces(n);
+        spans.push(Span {
+            text,
+            face: Face::Float,
+        });
+        n -= text.len();
+    }
+}
+
 fn blank<'a>() -> Span<'a> {
     Span {
         text: "",
@@ -239,10 +252,7 @@ fn candidate_spans<'a>(
         used += 1;
     }
     if let Some(column) = row.binding {
-        spans.push(Span {
-            text: spaces(column.saturating_sub(used)),
-            face: Face::Float,
-        });
+        push_spaces(&mut spans, column.saturating_sub(used));
         for text in [minibuffer::BINDING_OPEN, binding, minibuffer::BINDING_CLOSE] {
             spans.push(Span {
                 text,
@@ -252,10 +262,7 @@ fn candidate_spans<'a>(
         used = column + cells_of(binding) + 2;
     }
     if let Some((column, bytes, cut)) = row.annotation {
-        spans.push(Span {
-            text: spaces(column.saturating_sub(used)),
-            face: Face::Float,
-        });
+        push_spaces(&mut spans, column.saturating_sub(used));
         spans.push(Span {
             text: &candidate.annotation()[..bytes],
             face: Face::CompletionAnnotation,

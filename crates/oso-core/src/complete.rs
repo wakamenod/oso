@@ -168,6 +168,8 @@ pub struct Candidates {
     selected: usize,
     /// The first row shown.
     top: usize,
+    /// A candidate was moved to since the input last changed.
+    chosen: bool,
 }
 
 impl Candidates {
@@ -207,6 +209,7 @@ impl Candidates {
             input: Some(String::new()),
             selected: 0,
             top: 0,
+            chosen: false,
         }
     }
 
@@ -223,8 +226,10 @@ impl Candidates {
         let query = Query::parse_after(input, &self.query);
         let items = &self.items;
         if query.narrows(&self.query) {
+            // Only what changed is checked again: the rest matched before.
+            let before = &self.query;
             self.matches
-                .retain(|&index| query.matches(&items[index as usize]));
+                .retain(|&index| query.matches_after(&items[index as usize], before));
         } else {
             self.matches.clear();
             self.matches.extend(
@@ -245,6 +250,7 @@ impl Candidates {
         }
         self.selected = 0;
         self.top = 0;
+        self.chosen = false;
     }
 
     /// Matches an input longer than [`MAX_INPUT_BYTES`], which nothing matches, without
@@ -256,6 +262,13 @@ impl Candidates {
         self.input = None;
         self.selected = 0;
         self.top = 0;
+        self.chosen = false;
+    }
+
+    /// Whether the selected candidate is only the first of an empty input's list: nothing was
+    /// typed, and no candidate moved to.
+    pub(crate) fn defaulted(&self) -> bool {
+        self.input.as_deref() == Some("") && !self.chosen
     }
 
     /// The query matched last, for highlighting what matched.
@@ -302,6 +315,7 @@ impl Candidates {
 
     /// Selects the match at `place`, or the last if there are fewer.
     pub(crate) fn select(&mut self, place: usize) {
+        self.chosen = true;
         self.selected = place.min(self.matches.len().saturating_sub(1));
     }
 

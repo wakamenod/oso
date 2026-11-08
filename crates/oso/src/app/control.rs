@@ -135,8 +135,12 @@ impl App {
     /// typing does not see a question an agent asked appear under their fingers, nor run a
     /// command an agent chose (ADR 0072, ADR 0076). The window's `C-g` still closes one.
     fn note_remote_questions(&mut self, newest: Option<PromptId>) {
-        self.remote_questions
-            .extend(opened_questions(&self.editor, newest));
+        let opened = opened_questions(&self.editor, newest);
+        // What an agent typed into `M-x` is not the person's history.
+        for &id in &opened {
+            self.editor.keep_out_of_history(id);
+        }
+        self.remote_questions.extend(opened);
         let prompts = self.editor.prompts();
         self.remote_questions
             .retain(|id| prompts.iter().any(|prompt| prompt.id() == *id));

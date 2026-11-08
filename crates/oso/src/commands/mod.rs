@@ -140,12 +140,19 @@ mod tests {
             .collect();
         person.sort_unstable();
         let mut expected = vec![
-            // Answering a prompt, and running a command by name (ADR 0076).
+            // Answering a prompt, choosing what it answers, and running a command by name
+            // (ADR 0076).
             "answer-no",
             "answer-yes",
             "execute-extended-command",
             "exit-minibuffer",
+            "first-completion",
             "insert-completion",
+            "last-completion",
+            "next-completion",
+            "previous-completion",
+            "scroll-completions-down",
+            "scroll-completions-up",
             "next-history-element",
             "previous-history-element",
             // Emergency copies.
