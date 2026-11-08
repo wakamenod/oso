@@ -3,7 +3,7 @@
 //! Must not depend on: winit, the GPU, `bindings` or files; the command decides and
 //! queues, and the host writes on a thread of its own.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::SaveRefused;
 use oso_core::minibuffer;
 
@@ -15,6 +15,7 @@ pub const COMMANDS: &[Command] = &[Command {
     name: "save-buffer",
     doc: "Save the buffer to its file, if it is modified.\n\nEnsures a final newline first, as an edit of its own. The file is written in the background, and replaced at once and whole. If it has changed on disk since it was read, it is kept and the buffer stays modified, and the next save asks whether to save over it. `y` replaces it only if it is still the file that save found. A second save while one runs is refused.",
     args: ArgSpec::None,
+    reach: Reach::Change,
     run: save_buffer,
 }];
 

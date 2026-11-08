@@ -8,7 +8,7 @@
 //! question's command once it is answered, so these only end a prompt. `C-g` is
 //! `keyboard-quit`, whose chain is the editor's.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::minibuffer::PromptError;
 
 /// The commands of prompts.
@@ -17,30 +17,35 @@ pub const COMMANDS: &[Command] = &[
         name: "exit-minibuffer",
         doc: "Give the answer typed in the prompt to what asked for it.\n\nA number that is not one keeps the prompt open, and it says so.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: exit_minibuffer,
     },
     Command {
         name: "previous-history-element",
         doc: "Put the answer given before the one shown in the prompt.\n\nEach prompt keeps its own history, in memory only. A prompt opened while a buffer that may hold secrets is shown keeps none, and neither does a passphrase.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: previous_history_element,
     },
     Command {
         name: "next-history-element",
         doc: "Put the answer given after the one shown in the prompt.\n\nPast the newest, what was typed comes back.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: next_history_element,
     },
     Command {
         name: "answer-yes",
         doc: "Answer yes to the question asked.\n\nWhat it asked about runs, and checks again what is at stake: if more is at risk than the question said, it asks again.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: answer_yes,
     },
     Command {
         name: "answer-no",
         doc: "Answer no to the question asked.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: answer_no,
     },
 ];

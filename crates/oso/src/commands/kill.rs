@@ -11,7 +11,7 @@
 
 use std::ops::Range;
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Reach};
 use oso_core::kill::{Direction, FromClipboard};
 use oso_core::motion::WalkBudget;
 use oso_core::rope::Rope;
@@ -31,36 +31,42 @@ pub const COMMANDS: &[Command] = &[
         name: "kill-region-or-backward-word",
         doc: "Kill the region at every cursor if it shows, or else the previous word.\n\nWithout a region it is `backward-kill-word`, with its count. A kill right after a kill appends to it. In a read-only buffer the text is copied and the command signals.",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: kill_region_or_backward_word,
     },
     Command {
         name: "kill-ring-save",
         doc: "Copy the region at every cursor to the kill ring and the clipboard, and hide it.\n\nWith the region hidden, it copies from each cursor to its mark. With no mark, signal \"The mark is not set now, so there is no region\". Right after a kill it appends to it, as in Emacs.",
         args: ArgSpec::None,
+        reach: Reach::Look,
         run: kill_ring_save,
     },
     Command {
         name: "kill-line",
         doc: "Kill the rest of the line at every cursor, or N lines (backward if N is negative).\n\nAt a line's start, or with only spaces and tabs after the cursor, it takes the line break too (`kill-whole-line`). With N, it takes N lines with their breaks; with 0, back to the line's start. Lines are logical lines. At the buffer's end it signals \"End of buffer\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: kill_line,
     },
     Command {
         name: "kill-word",
         doc: "Kill from every cursor to the end of the next word, N times (backward if N is negative).\n\nWords are as in `forward-word`. What a command can kill stops at the buffer's edge, with no signal. A kill right after a kill appends to it.",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: kill_word,
     },
     Command {
         name: "backward-kill-word",
         doc: "Kill from every cursor to the start of the previous word, N times (forward if N is negative).\n\nSee `kill-word`. Appended to a kill before it, the text goes first.",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: backward_kill_word,
     },
     Command {
         name: "yank",
         doc: "Insert the newest kill at every cursor, or what another app put on the clipboard.\n\nEach cursor gets its own piece of a kill made with as many cursors, and otherwise all the pieces joined with line breaks. The mark goes to the start of the text, and with a plain `C-u` the cursor does. With N, insert the Nth newest kill, and read only the ring. A shown region is replaced. Yanking a kill from a buffer that may hold secrets makes this buffer one too.",
         args: ArgSpec::CountAndClipboard,
+        reach: Reach::Person,
         run: yank,
     },
 ];

@@ -3,7 +3,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 
 /// The dev commands.
 pub const COMMANDS: &[Command] = &[
@@ -11,6 +11,7 @@ pub const COMMANDS: &[Command] = &[
         name: "dev-panic",
         doc: "Panic under the command boundary, quoting the buffer's text in the message.\n\nFor testing that the panic is caught, that nothing is saved, and that the text reaches no output.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: dev_panic,
     },
     Command {
@@ -19,6 +20,7 @@ pub const COMMANDS: &[Command] = &[
         args: ArgSpec::Passphrase {
             prompt: "Passphrase (dev): ",
         },
+        reach: Reach::Person,
         run: dev_read_passphrase,
     },
 ];
