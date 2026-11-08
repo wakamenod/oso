@@ -31,6 +31,7 @@ use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
     NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSScreen, NSWindow,
+    NSWindowOcclusionState,
 };
 use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
@@ -176,6 +177,8 @@ struct State {
     /// The size and the scale the handler was last told, so that it hears only changes.
     reported_size: Cell<(u32, u32)>,
     reported_scale: Cell<f64>,
+    /// A frame skipped because the window was hidden, owed until it is visible.
+    hidden_frame: Cell<gate::HiddenFrame>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
 }
 
@@ -198,6 +201,7 @@ impl State {
             secure: Cell::new(gate::SecureInput::default()),
             reported_size: Cell::new((0, 0)),
             reported_scale: Cell::new(0.0),
+            hidden_frame: Cell::new(gate::HiddenFrame::default()),
             panic: RefCell::new(None),
         }
     }
@@ -429,6 +433,7 @@ impl State {
         // A refused enable or release is asked for again at each turn, and costs nothing when
         // there is none.
         self.update_secure(|_| {});
+        let look_again = self.check_hidden_frame();
         if self.redraw.take() && self.window.get().is_some() {
             self.deliver(Delivery::Window(Event::RedrawRequested));
         }
@@ -440,7 +445,35 @@ impl State {
             // alone, as no other thread sent anything.
             hooks.wake.wake_up();
         }
-        hooks.wake_at(self.deadline.get());
+        let wake = match (self.deadline.get(), look_again) {
+            (Some(deadline), Some(again)) => Some(deadline.min(again)),
+            (deadline, again) => deadline.or(again),
+        };
+        hooks.wake_at(wake);
+    }
+
+    /// A frame owed to a hidden window: drawn now if the window is visible, and otherwise
+    /// looked at again soon. The window is read only while one is owed.
+    fn check_hidden_frame(&self) -> Option<Instant> {
+        let mut frame = self.hidden_frame.get();
+        if !frame.owed() {
+            return None;
+        }
+        let visible = self.window.get().is_some_and(|(window, _, _)| {
+            window
+                .occlusionState()
+                .contains(NSWindowOcclusionState::Visible)
+        });
+        let check = frame.check(visible, Instant::now());
+        self.hidden_frame.set(frame);
+        match check {
+            gate::HiddenCheck::Draw => {
+                self.redraw.set(true);
+                None
+            }
+            gate::HiddenCheck::LookAgain(at) => Some(at),
+            gate::HiddenCheck::Nothing => None,
+        }
     }
 
     fn resized_event(&self) -> Event<'static> {

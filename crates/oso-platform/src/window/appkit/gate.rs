@@ -1,8 +1,10 @@
 //! What the input method may learn of the cursor, the cell the app last gave, answered only
-//! while oso has the IME on (ADR 0069, ADR 0070); and when secure input is held (ADR 0073).
-//! Plain values, tested without a window.
+//! while oso has the IME on (ADR 0069, ADR 0070); when secure input is held (ADR 0073); and a
+//! frame owed to a window that was hidden. Plain values, tested without a window or a clock.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
+
+use std::time::{Duration, Instant};
 
 use crate::window::CursorArea;
 
@@ -129,10 +131,63 @@ impl SecureInput {
     }
 }
 
+/// How long a frame owed to a hidden window waits before the window is looked at again.
+pub(super) const HIDDEN_RETRY: Duration = Duration::from_millis(150);
+
+/// A frame the renderer skipped because the window was hidden by others. It is owed until the
+/// window is visible: looked at again on a short deadline, as the notice that it is visible
+/// may never come, and dropped once a notice says it is hidden, which a later notice of it
+/// being visible ends with a frame of its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct HiddenFrame {
+    owed: bool,
+}
+
+/// What to do about an owed frame before the loop waits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HiddenCheck {
+    /// Nothing is owed.
+    Nothing,
+    /// The window is visible: draw the frame now.
+    Draw,
+    /// Still hidden: look again at this time.
+    LookAgain(Instant),
+}
+
+impl HiddenFrame {
+    /// The renderer skipped a frame as hidden.
+    pub(super) fn skipped(&mut self) {
+        self.owed = true;
+    }
+
+    /// Whether the window should be looked at before the loop waits.
+    pub(super) fn owed(self) -> bool {
+        self.owed
+    }
+
+    /// A notice says the window is hidden: its notice of being visible will bring the frame.
+    pub(super) fn told_hidden(&mut self) {
+        self.owed = false;
+    }
+
+    /// Before the loop waits, with the window `visible` or not at `now`.
+    pub(super) fn check(&mut self, visible: bool, now: Instant) -> HiddenCheck {
+        if !self.owed {
+            HiddenCheck::Nothing
+        } else if visible {
+            self.owed = false;
+            HiddenCheck::Draw
+        } else {
+            HiddenCheck::LookAgain(now + HIDDEN_RETRY)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ImeGate, SecureInput, SecureStep};
+    use super::{HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, SecureInput, SecureStep};
     use crate::window::CursorArea;
+    use std::time::Instant;
 
     const CELL: CursorArea = CursorArea {
         x: 8.0,
@@ -288,5 +343,43 @@ mod tests {
         // Nothing changed, as at the next turn of the loop: asked again, and now accepted.
         settle(&mut secure, &mut system, true);
         assert_eq!((system, secure.held()), (1, true));
+    }
+
+    #[test]
+    fn a_frame_skipped_as_hidden_is_drawn_once_the_window_shows_with_no_notice() {
+        let start = Instant::now();
+        let mut frame = HiddenFrame::default();
+        assert_eq!(
+            frame.check(true, start),
+            HiddenCheck::Nothing,
+            "nothing owed"
+        );
+        frame.skipped();
+        // Still hidden: looked at again on the deadline, which wakes the idle loop.
+        assert_eq!(
+            frame.check(false, start),
+            HiddenCheck::LookAgain(start + HIDDEN_RETRY)
+        );
+        let later = start + HIDDEN_RETRY;
+        assert_eq!(
+            frame.check(false, later),
+            HiddenCheck::LookAgain(later + HIDDEN_RETRY)
+        );
+        // Visible at the next look, with no notice and no input: drawn, then nothing owed.
+        assert_eq!(frame.check(true, later + HIDDEN_RETRY), HiddenCheck::Draw);
+        assert_eq!(
+            frame.check(true, later + HIDDEN_RETRY),
+            HiddenCheck::Nothing
+        );
+    }
+
+    #[test]
+    fn a_notice_that_the_window_is_hidden_stops_the_looking() {
+        let start = Instant::now();
+        let mut frame = HiddenFrame::default();
+        frame.skipped();
+        frame.told_hidden();
+        assert!(!frame.owed());
+        assert_eq!(frame.check(false, start), HiddenCheck::Nothing);
     }
 }

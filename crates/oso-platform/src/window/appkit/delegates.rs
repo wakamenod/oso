@@ -111,6 +111,12 @@ define_class!(
             let visible = window
                 .occlusionState()
                 .contains(NSWindowOcclusionState::Visible);
+            if !visible {
+                // Its notice of being visible again brings the frame, as the app asks then.
+                let mut frame = state.hidden_frame.get();
+                frame.told_hidden();
+                state.hidden_frame.set(frame);
+            }
             state.deliver(Delivery::Window(Event::Occluded(!visible)));
         }
 

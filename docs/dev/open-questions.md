@@ -217,13 +217,19 @@ item notes when it must be settled.
   segment; no input context while the IME is off; the cursor's line for the input method;
   the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
   runs must still reach `exiting`; whether frames keep up during a live resize, now that the
-  view also draws when AppKit displays its layer; `open_window` and `request_attention` queued as the other requests are;
+  view also draws when AppKit displays its layer; `open_window` and `request_attention`
+  queued as the other requests are;
   startup and `open_from_launch_ms` measured again with more runs, where the native layer's
   medians sat a few milliseconds above winit's within overlapping ranges; `stop()` while
   AppKit runs a live resize or a modal session, as the quit guard may; a `Waker` that keeps
   saying it sent after a panic, as the channel's end is kept; and the author's checks at the
-  keyboard
-  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
+  keyboard of what remains: a window covered by another app and uncovered drawing again with
+  no key, and each item above as it lands. The author checked at the keyboard on 2026-11-08
+  what has landed: the candidate window's place, also after a prefix key and back from
+  `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
+  `.env`, other apps in front, Spotlight and quitting
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
+  [ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
