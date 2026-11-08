@@ -59,8 +59,7 @@ item notes when it must be settled.
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - Later, before anyone uses oso on Windows: decide what a private directory and a save do about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
-- A file changed on disk can be saved over once asked, but nothing yet reloads it (M2-22). A
-  buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
+- A buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
   (M2-18), and a file owned by another user, or with hard links, cannot be saved at all; decide
   whether a question should offer writing in place
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md), [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
@@ -121,8 +120,6 @@ item notes when it must be settled.
   guarded `exit` or the wait when leaving
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
 
-- isearch must not match the U+FFFD of an invalid byte
-  (`InvalidBytes`, ADR 0040).
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread.
@@ -240,8 +237,8 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-20 and M3: isearch and menus add their condition to `wants_ime` in `app/ime.rs`, as
-  prompts have ([ADR 0069](adr/0069-macos-input-method.md)).
+- By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
+  have ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M2-17: a region in a prompt's answer is not drawn, as `Editor::region_cells` gives the tiled
   window's ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - By M2-17: the selected candidate needs a background per row in `PaneContent::Lines`

@@ -1,5 +1,19 @@
 pub mod oso_core
 pub mod oso_core::buffer
+pub enum oso_core::buffer::DiskState
+pub oso_core::buffer::DiskState::File(oso_core::buffer::FileStamp)
+pub oso_core::buffer::DiskState::Gone
+pub oso_core::buffer::DiskState::NotAFile
+pub oso_core::buffer::DiskState::Unknown
+impl core::clone::Clone for oso_core::buffer::DiskState
+pub fn oso_core::buffer::DiskState::clone(&self) -> oso_core::buffer::DiskState
+impl core::cmp::Eq for oso_core::buffer::DiskState
+impl core::cmp::PartialEq for oso_core::buffer::DiskState
+pub fn oso_core::buffer::DiskState::eq(&self, &oso_core::buffer::DiskState) -> bool
+impl core::fmt::Debug for oso_core::buffer::DiskState
+pub fn oso_core::buffer::DiskState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::buffer::DiskState
+impl core::marker::StructuralPartialEq for oso_core::buffer::DiskState
 pub enum oso_core::buffer::EditError
 pub oso_core::buffer::EditError::NoRedo
 pub oso_core::buffer::EditError::NoSuchBuffer
@@ -163,11 +177,13 @@ pub fn oso_core::buffer::ContentId::hash<__H: core::hash::Hasher>(&self, &mut __
 impl core::marker::Copy for oso_core::buffer::ContentId
 impl core::marker::StructuralPartialEq for oso_core::buffer::ContentId
 pub struct oso_core::buffer::FileStamp
+pub oso_core::buffer::FileStamp::identity: core::option::Option<(u64, u64)>
 pub oso_core::buffer::FileStamp::len: u64
 pub oso_core::buffer::FileStamp::mode: u32
 pub oso_core::buffer::FileStamp::modified: std::time::SystemTime
 impl oso_core::buffer::FileStamp
 pub fn oso_core::buffer::FileStamp::same_content(self, Self) -> bool
+pub fn oso_core::buffer::FileStamp::same_file(self, Self) -> bool
 impl core::clone::Clone for oso_core::buffer::FileStamp
 pub fn oso_core::buffer::FileStamp::clone(&self) -> oso_core::buffer::FileStamp
 impl core::cmp::Eq for oso_core::buffer::FileStamp
@@ -809,6 +825,8 @@ pub enum oso_core::editor::Quit
 pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
 pub oso_core::editor::Quit::Region
+pub oso_core::editor::Quit::Search
+pub oso_core::editor::Quit::SearchStep
 impl core::clone::Clone for oso_core::editor::Quit
 pub fn oso_core::editor::Quit::clone(&self) -> oso_core::editor::Quit
 impl core::cmp::Eq for oso_core::editor::Quit
@@ -837,6 +855,22 @@ impl core::fmt::Debug for oso_core::editor::RecoveryAction
 pub fn oso_core::editor::RecoveryAction::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::RecoveryAction
 impl core::marker::StructuralPartialEq for oso_core::editor::RecoveryAction
+pub enum oso_core::editor::ReloadOutcome
+pub oso_core::editor::ReloadOutcome::Edited
+pub oso_core::editor::ReloadOutcome::Later
+pub oso_core::editor::ReloadOutcome::NoSuchBuffer
+pub oso_core::editor::ReloadOutcome::NotEditable
+pub oso_core::editor::ReloadOutcome::Reloaded
+pub oso_core::editor::ReloadOutcome::Same
+impl core::clone::Clone for oso_core::editor::ReloadOutcome
+pub fn oso_core::editor::ReloadOutcome::clone(&self) -> oso_core::editor::ReloadOutcome
+impl core::cmp::Eq for oso_core::editor::ReloadOutcome
+impl core::cmp::PartialEq for oso_core::editor::ReloadOutcome
+pub fn oso_core::editor::ReloadOutcome::eq(&self, &oso_core::editor::ReloadOutcome) -> bool
+impl core::fmt::Debug for oso_core::editor::ReloadOutcome
+pub fn oso_core::editor::ReloadOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ReloadOutcome
+impl core::marker::StructuralPartialEq for oso_core::editor::ReloadOutcome
 pub enum oso_core::editor::SaveRefused
 pub oso_core::editor::SaveRefused::AlreadySaving
 pub oso_core::editor::SaveRefused::ChangedOnDisk
@@ -975,6 +1009,15 @@ pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::Fram
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::files_seen(&mut self, &[(oso_core::buffer::BufferId, oso_core::buffer::DiskState)], bool, impl core::ops::function::Fn(oso_core::buffer::BufferId) -> bool) -> alloc::vec::Vec<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::judge_reload(&mut self, oso_core::buffer::BufferId, core::result::Result<&[std::path::PathBuf], &[std::path::PathBuf]>)
+pub fn oso_core::editor::Editor::reload(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
+pub fn oso_core::editor::Editor::reload_failed(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::reload_waits(&self) -> bool
+pub fn oso_core::editor::Editor::request_revert(&mut self)
+pub fn oso_core::editor::Editor::revert(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
+pub fn oso_core::editor::Editor::take_revert_requests(&mut self) -> alloc::vec::Vec<(oso_core::buffer::BufferId, oso_core::buffer::ContentId)>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::forget_kills(&mut self)
 pub fn oso_core::editor::Editor::kill(&mut self, impl core::iter::traits::collect::IntoIterator<Item = core::ops::range::Range<usize>>, oso_core::kill::Direction, bool) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::kill_ring(&self) -> &oso_core::kill::KillRing
@@ -983,6 +1026,23 @@ pub fn oso_core::editor::Editor::note_command_ended(&mut self, bool)
 pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option::Option<oso_core::editor::ClipboardWrite>
 pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
 pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::isearch(&self) -> core::option::Option<&oso_core::editor::Isearch>
+pub fn oso_core::editor::Editor::isearch_add(&mut self, &str)
+pub fn oso_core::editor::Editor::isearch_begin(&mut self, bool) -> bool
+pub fn oso_core::editor::Editor::isearch_delete(&mut self) -> bool
+pub fn oso_core::editor::Editor::isearch_exit(&mut self) -> bool
+pub fn oso_core::editor::Editor::isearch_history(&mut self, bool)
+pub fn oso_core::editor::Editor::isearch_repeat(&mut self, bool)
+pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
+pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
+pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::isearch_cells(&self, &mut oso_core::editor::MatchCells)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
+pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
+pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor
@@ -1001,6 +1061,26 @@ impl core::fmt::Display for oso_core::editor::ExitRefused
 pub fn oso_core::editor::ExitRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::ExitRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::ExitRefused
+pub struct oso_core::editor::Isearch
+impl oso_core::editor::Isearch
+pub fn oso_core::editor::Isearch::around_secret(&self) -> bool
+pub fn oso_core::editor::Isearch::backward(&self) -> bool
+pub fn oso_core::editor::Isearch::case_sensitive(&self) -> bool
+pub fn oso_core::editor::Isearch::count(&self) -> core::option::Option<(usize, usize)>
+pub fn oso_core::editor::Isearch::failing(&self) -> bool
+pub fn oso_core::editor::Isearch::searching(&self) -> bool
+pub fn oso_core::editor::Isearch::string(&self) -> &str
+pub fn oso_core::editor::Isearch::wrapped(&self) -> bool
+impl core::fmt::Debug for oso_core::editor::Isearch
+pub fn oso_core::editor::Isearch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::Leftover
+pub struct oso_core::editor::MatchCells
+pub oso_core::editor::MatchCells::current: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::MatchCells::others: alloc::vec::Vec<oso_core::frame::CellRect>
+impl core::default::Default for oso_core::editor::MatchCells
+pub fn oso_core::editor::MatchCells::default() -> oso_core::editor::MatchCells
+impl core::fmt::Debug for oso_core::editor::MatchCells
+pub fn oso_core::editor::MatchCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::SaveJob
 pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::Baseline>
 pub oso_core::editor::SaveJob::bom: bool
@@ -1009,6 +1089,20 @@ pub oso_core::editor::SaveJob::content: oso_core::buffer::ContentId
 pub oso_core::editor::SaveJob::only_if_gone: bool
 pub oso_core::editor::SaveJob::path: std::path::PathBuf
 pub oso_core::editor::SaveJob::text: oso_core::rope::Rope
+pub struct oso_core::editor::SearchJob
+impl oso_core::editor::SearchJob
+pub fn oso_core::editor::SearchJob::run(self, impl core::ops::function::FnMut(oso_core::editor::SearchReport))
+impl core::fmt::Debug for oso_core::editor::SearchJob
+pub fn oso_core::editor::SearchJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::SearchReport(_)
+impl core::clone::Clone for oso_core::editor::SearchReport
+pub fn oso_core::editor::SearchReport::clone(&self) -> oso_core::editor::SearchReport
+impl core::cmp::Eq for oso_core::editor::SearchReport
+impl core::cmp::PartialEq for oso_core::editor::SearchReport
+pub fn oso_core::editor::SearchReport::eq(&self, &oso_core::editor::SearchReport) -> bool
+impl core::fmt::Debug for oso_core::editor::SearchReport
+pub fn oso_core::editor::SearchReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SearchReport
 pub struct oso_core::editor::Status
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::name: alloc::string::String
@@ -1139,6 +1233,7 @@ impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
+pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub mod oso_core::key
 pub enum oso_core::key::Key
@@ -1496,6 +1591,8 @@ pub fn oso_core::load::Builder::push(&mut self, &[u8])
 pub fn oso_core::load::Builder::snapshot(&self) -> oso_core::load::LoadSnapshot
 pub struct oso_core::load::LoadSnapshot
 impl oso_core::load::LoadSnapshot
+pub fn oso_core::load::LoadSnapshot::compared_with(self, &oso_core::rope::Rope) -> oso_core::load::Reloaded
+impl oso_core::load::LoadSnapshot
 pub fn oso_core::load::LoadSnapshot::done(&self) -> bool
 pub fn oso_core::load::LoadSnapshot::progress(&self) -> oso_core::load::Progress
 pub fn oso_core::load::LoadSnapshot::text(&self) -> &oso_core::rope::Rope
@@ -1515,6 +1612,11 @@ impl core::fmt::Debug for oso_core::load::Progress
 pub fn oso_core::load::Progress::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::load::Progress
 impl core::marker::StructuralPartialEq for oso_core::load::Progress
+pub struct oso_core::load::Reloaded
+impl oso_core::load::Reloaded
+pub fn oso_core::load::Reloaded::is_changed(&self) -> bool
+impl core::clone::Clone for oso_core::load::Reloaded
+pub fn oso_core::load::Reloaded::clone(&self) -> oso_core::load::Reloaded
 pub fn oso_core::load::decode_all(&[u8], oso_core::display_map::cell::TabWidth) -> oso_core::load::LoadSnapshot
 pub mod oso_core::minibuffer
 pub enum oso_core::minibuffer::Kind
@@ -1857,11 +1959,13 @@ pub fn oso_core::selection::SelectionSet::keep_primary(&mut self)
 pub fn oso_core::selection::SelectionSet::len(&self) -> usize
 pub fn oso_core::selection::SelectionSet::mark_active(&self) -> oso_core::selection::MarkActive
 pub fn oso_core::selection::SelectionSet::mark_ring(&self) -> &oso_core::selection::MarkRing
+pub fn oso_core::selection::SelectionSet::move_primary(&mut self, usize)
 pub fn oso_core::selection::SelectionSet::new(usize) -> Self
 pub fn oso_core::selection::SelectionSet::pop_mark(&mut self) -> bool
 pub fn oso_core::selection::SelectionSet::primary(&self) -> &oso_core::selection::Selection
 pub fn oso_core::selection::SelectionSet::primary_index(&self) -> usize
 pub fn oso_core::selection::SelectionSet::push_marks(&mut self)
+pub fn oso_core::selection::SelectionSet::push_primary_mark(&mut self, usize)
 pub fn oso_core::selection::SelectionSet::set_mark_active(&mut self, oso_core::selection::MarkActive) -> oso_core::selection::MarkActive
 pub fn oso_core::selection::SelectionSet::update<E>(&mut self, impl core::ops::function::FnMut(&mut oso_core::selection::Selection) -> core::result::Result<(), E>) -> oso_core::selection::UpdateOutcome<E>
 impl core::clone::Clone for oso_core::selection::SelectionSet

@@ -138,7 +138,8 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - M2 contents:
   - a warning when the file contains bidirectional control characters
   - a warning when the file changed on disk while the buffer has unsaved
-    changes
+    changes, or when the file is gone from disk
+    ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md))
   - a warning when an emergency copy of the file waits for an answer
   - buffer name and modified marker
   - loading progress, while a file is loading
@@ -192,9 +193,18 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 
 ## isearch
 
-- All matches in view are highlighted, and the current match is emphasized.
-- The match count ("3/17") is shown, anzu-style.
-- The search string is shown in the echo area.
+- `C-s` and `C-r` search for the literal string as it is typed, with smart case: case matters
+  once the string has an uppercase letter, and `M-c` turns that around for the search
+  ([ADR 0082](adr/0082-isearch.md)).
+- All matches in view are highlighted in a muted amber, and the current match in a strong one.
+- The search string is shown in the echo area, with the count anzu-style: `I-search: foo [3/17]`,
+  `[?/…]` while a worker counts, and `[searching…]` while it looks for a far match.
+- `C-s`/`C-r` go on to the next match, and round the end after `Failing I-search`. `DEL` goes back
+  a step, `C-w` adds the word after the match, `C-y` the newest kill, `M-p`/`M-n` go through the
+  search history, and `RET` ends the search there and pushes where it began onto the mark ring.
+- `C-g` first takes away a failing part, then goes back where the search began. Any other key
+  ends the search and runs.
+- Only the primary cursor searches; the others stay.
 
 ## Input method (IME)
 

@@ -39,6 +39,7 @@ impl App {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
+        self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
         let spawned = loader::spawn(buffer, path, move |buffer| {
@@ -67,6 +68,11 @@ impl App {
     /// frame if it needs one.
     pub(super) fn load_updated(&mut self, buffer: BufferId) {
         let load = self.loads.iter().position(|l| l.handle.buffer() == buffer);
+        if load.is_none() {
+            // A file read again, which `reloads` runs.
+            self.reload_updated(buffer);
+            return;
+        }
         if let Some(index) = load
             && let Some(update) = self.loads[index].handle.take()
         {
@@ -177,6 +183,8 @@ impl App {
                 self.loads.swap_remove(index);
                 shown
             }
+            // Only a reload sends one, and `reloads` takes it.
+            LoadUpdate::Reloaded(_) => false,
             LoadUpdate::Failed(e) => {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);

@@ -69,7 +69,9 @@ underline with `-`, and the segment being converted with `=`
 
 Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
-([ADR 0071](adr/0071-mark-and-region.md)).
+([ADR 0071](adr/0071-mark-and-region.md)). The same line marks the current isearch match
+with `#` and the other matches in view with `~`, from `Editor::search_cells`
+([ADR 0082](adr/0082-isearch.md)).
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `#`
@@ -117,8 +119,11 @@ Some tests check the repository rather than behavior:
 - `crates/oso/tests/workspace_lints.rs`: every crate uses the workspace
   lints.
 - `crates/oso/tests/architecture`: dependency direction, confined crates,
-  file sizes, `static` items, module headers and conflict markers
-  ([ADR 0038](adr/0038-architecture-guardrails.md),
+  file sizes, `static` items, module headers, conflict markers, and where the
+  control directory may be made, listened on, cleaned or written to: only the
+  dev tooling, until the agent channel's start command joins it
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md),
+  [ADR 0038](adr/0038-architecture-guardrails.md),
   [ADR 0039](adr/0039-architecture-guardrail-mechanics.md),
   [ADR 0041](adr/0041-module-responsibility-headers.md),
   [ADR 0042](adr/0042-statics-snapshots-and-render-errors.md)).
@@ -430,15 +435,16 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
-  the dev features too (`--all-features`).
+  the dev features too (`--all-features`). The macOS job also runs
+  `just public-api-macos-check`, below, so that a push starts one macOS job.
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
 - `just public-api-check` on Linux: the public API matches
   `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
-  `just public-api-macos-check` on macOS for `oso-platform`'s macOS API, with the native
-  window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
+  `just public-api-macos-check` in the macOS `just ci` job for `oso-platform`'s macOS API,
+  with the native window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue
