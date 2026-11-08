@@ -176,7 +176,10 @@ ADR 0076's keys hold, with these for a path:
   waiting on the file and without taking a terminal as the controlling one (`O_NONBLOCK` and
   `O_NOCTTY` on Unix), checks from the open file that it is a regular file, clears the flag, and
   gives the file with its metadata. Anything else is refused as not a file. So a path swapped for
-  a pipe or a device between the look and the open cannot hold the loading thread.
+  a pipe between the look and the open cannot hold the loading thread. Opening a device can still
+  do something of its own, which `O_NONBLOCK` does not stop: the look before the open is what keeps
+  an ordinary path off devices. A file under a lease on Linux makes the open
+  fail with a message, rather than wait. The emergency copies' readers open the same way.
 - `oso-platform` already depends on `libc`, and `file_meta` already opens files with what `std`
   cannot do (`open_for_writing`, ADR 0067). No dependency or crate edge is added, and the `unsafe`
   calls stay in `oso-platform`, each with its `// SAFETY:` comment. Other systems open as `std`
