@@ -17,6 +17,10 @@
 //! A generation names the text an instance holds, so that it can refuse to exit
 //! if that has changed since a caller last looked. See [`generation`].
 //!
+//! While a buffer that may hold secrets is shown, an instance does not hand over, for one
+//! reason whatever its buffers are, so that the answer says nothing of that buffer. Keys in
+//! progress typed around one are not handed over.
+//!
 //! Parsing changes nothing, so a state with another version or a bad field
 //! leaves the new instance clean, and the old one is kept.
 
@@ -73,6 +77,9 @@ pub fn export(
     frame: Option<Frame>,
     restore: Option<&Restore>,
 ) -> Reply {
+    if shows_judged_secret(editor) {
+        return Err(SECRET_SHOWN.into());
+    }
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
@@ -120,7 +127,11 @@ pub fn export(
         "buffers": buffers,
         "windows": windows,
         "selected": editor.selected_window(),
-        "pending_keys": display_keys(pending).to_string(),
+        "pending_keys": if editor.keys_withheld() {
+            String::new()
+        } else {
+            display_keys(pending).to_string()
+        },
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -137,16 +148,24 @@ pub fn export(
     Ok(state)
 }
 
-/// Where `window` goes back to, if it is on an internal buffer and has somewhere to go.
+/// Where `window` goes back to, if it is on an internal buffer and has somewhere to go that
+/// cannot hold secrets.
 fn behind_internal<'a>(
     editor: &'a Editor,
     window: &Window,
 ) -> Option<(BufferId, &'a SelectionSet, Scroll)> {
+    // One that may hold secrets is not shown again by a restart: the window comes back on
+    // `*scratch*`, and the buffer is handed over unshown.
     editor
         .shown(window)
         .is_internal()
         .then(|| editor.place_behind_internal())
         .flatten()
+        .filter(|(buffer, ..)| {
+            editor
+                .buffer(*buffer)
+                .is_some_and(|buffer| !buffer.is_secret())
+        })
 }
 
 /// What `window` hands over: what it shows, or from an internal buffer, where it goes back
@@ -201,6 +220,9 @@ fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
 /// without building a state, so that the supervisor can ask before it opens a new
 /// window.
 pub fn check(editor: &Editor) -> Reply {
+    if shows_judged_secret(editor) {
+        return Err(SECRET_SHOWN.into());
+    }
     for (_, buffer) in editor.buffers() {
         file_to_read_again(buffer)?;
     }
@@ -220,6 +242,19 @@ const COMPOSING: &str = "cannot hand over: a composition is open";
 /// Why a restart waits for every prompt to close: it is no unsaved work, but a new
 /// instance would take it away from the person mid-answer (ADR 0072).
 const PROMPTING: &str = "cannot hand over: a prompt is open";
+
+/// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
+/// whatever that buffer holds.
+const SECRET_SHOWN: &str = "cannot hand over while a buffer that may hold secrets is shown";
+
+/// Whether a window shows a buffer judged to may hold secrets. A file not judged yet does not
+/// count: it is loading, and its positions are the ones it came in with.
+fn shows_judged_secret(editor: &Editor) -> bool {
+    editor.windows().any(|window| {
+        let verdict = editor.shown(window).verdict();
+        verdict.is_withheld() && verdict != Verdict::Unjudged
+    })
+}
 
 /// Names what an instance holds that a file does not: which buffers exist, and
 /// the content of each modified one. It is not a counter, as undoing an edit
@@ -242,9 +277,11 @@ pub fn generation(editor: &Editor) -> u64 {
 
 /// Whether `exit` may go ahead. Without a generation it always may: that is a
 /// person or an agent saying so. With one, only if nothing has changed since and
-/// no save is running, as a new instance may already have read the old file.
+/// no save is running, as a new instance may already have read the old file, and not
+/// while a buffer that may hold secrets is shown.
 pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String> {
     match expected {
+        Some(_) if shows_judged_secret(editor) => Err(format!("{EXIT_REFUSED}: {SECRET_SHOWN}")),
         Some(_) if editor.buffers().any(|(_, buffer)| buffer.is_saving()) => {
             Err(format!("{EXIT_REFUSED}: a save is running"))
         }

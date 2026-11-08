@@ -97,7 +97,7 @@ fn an_instance_with_its_window_on_messages_refuses_to_take_over() {
 }
 
 #[test]
-fn a_secret_behind_messages_is_handed_over_with_no_position() {
+fn a_secret_behind_messages_is_handed_over_unshown_with_no_position() {
     let path = PathBuf::from(absolute("/p/.env"));
     let mut buffer = Buffer::visiting(path.clone());
     buffer.apply_load(decode_all(b"KEY=value\n", TabWidth::default()));
@@ -108,8 +108,11 @@ fn a_secret_behind_messages_is_handed_over_with_no_position() {
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert_eq!(
-        parsed.buffers[parsed.shown],
-        Some(path),
+        parsed.buffers[parsed.shown], None,
+        "the window comes back on *scratch*"
+    );
+    assert!(
+        parsed.buffers.contains(&Some(path)),
         "it can still be reached"
     );
     assert_eq!(parsed.selections, SelectionSet::default());
@@ -137,7 +140,7 @@ fn a_modified_file_behind_messages_still_holds_the_handover() {
 
 #[test]
 fn positions_still_waiting_behind_messages_are_the_imported_ones() {
-    let path = PathBuf::from(absolute("/p/.env"));
+    let path = PathBuf::from(absolute("/p/a.txt"));
     let mut buffer = Buffer::visiting(path.clone());
     buffer.apply_load(decode_all(b"KEY=value\n", TabWidth::default()));
     buffer.judge_secret(Some(std::slice::from_ref(&path)));

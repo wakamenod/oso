@@ -117,51 +117,15 @@ fn a_state_round_trips() {
 #[test]
 fn positions_still_waiting_for_their_file_are_the_ones_exported() {
     let mut editor = Editor::default();
-    let id = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
+    let path = PathBuf::from(absolute("/p/a.txt"));
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let id = editor.add_buffer(buffer);
     editor.show(id);
     let restore = restore(600, 40, &editor);
     let state = parse(&export(&editor, &[], None, Some(&restore)).unwrap()).unwrap();
     assert_eq!(state.selections.primary().cursor, 600);
     assert_eq!(state.scroll.top, 40);
-}
-
-#[test]
-fn a_state_never_holds_text_secret_or_not() {
-    for path in ["/p/.env", "/p/notes.txt"] {
-        let state = export(&visiting(path, "SECRET-VALUE\n"), &[], None, None).unwrap();
-        let line = state.to_string();
-        assert!(!line.contains("SECRET-VALUE"), "{line}");
-        assert!(line.contains(path), "{line}");
-    }
-}
-
-#[test]
-fn a_secret_files_positions_stay_out_of_the_state_and_it_starts_from_the_top() {
-    let path = absolute("/p/.env");
-    let mut editor = visiting(&path, &"line\n".repeat(50));
-    let selections = SelectionSet::new(25);
-    editor.restore_positions(selections, Scroll { top: 2, left: 1 });
-    assert_ne!(editor.window().selections.primary().cursor, 0);
-    let exported = export(&editor, &[], None, None).unwrap();
-    let state = parse(&exported).unwrap();
-    assert_eq!(state.buffers[state.shown], Some(PathBuf::from(&path)));
-    assert_eq!(state.selections, SelectionSet::default());
-    assert_eq!(state.scroll, Scroll::default());
-}
-
-#[test]
-fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
-    let mut editor = visiting(&absolute("/p/.env"), &"line\n".repeat(50));
-    editor.restore_positions(SelectionSet::new(25), Scroll { top: 2, left: 1 });
-    let other = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
-    let waiting = Restore {
-        buffer: other,
-        selections: SelectionSet::new(600),
-        scroll: Scroll { top: 40, left: 0 },
-    };
-    let state = parse(&export(&editor, &[], None, Some(&waiting)).unwrap()).unwrap();
-    assert_eq!(state.selections, SelectionSet::default());
-    assert_eq!(state.scroll, Scroll::default());
 }
 
 #[test]
@@ -184,40 +148,6 @@ fn a_modified_file_is_refused_by_name_without_its_text() {
         assert!(message.contains("unsaved"), "{message}");
         assert!(!message.contains(TYPED), "{message}");
         assert!(!message.contains("on disk"), "{message}");
-    }
-}
-
-#[test]
-fn a_saved_file_a_secret_kill_was_yanked_into_is_refused() {
-    let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
-    let fingerprint = oso_core::kill::Fingerprint { len: 3, hash: 1 };
-    editor.take_from_clipboard(oso_core::rope::Rope::from("KEY"), true, fingerprint);
-    editor.yank(0, false).unwrap();
-    let id = editor.window().buffer();
-    let saved = editor.current().1.content_id();
-    editor.buffer_mut(id).unwrap().mark_saved(saved);
-    assert!(editor.current().1.is_secret() && !editor.current().1.is_modified());
-    for message in [
-        export(&editor, &[], None, None).unwrap_err(),
-        check(&editor).unwrap_err(),
-    ] {
-        assert!(message.contains("notes.txt"), "{message}");
-        assert!(!message.contains("KEY"), "{message}");
-    }
-}
-
-#[test]
-fn a_modified_secret_file_is_refused_the_same_way() {
-    let mut editor = visiting(&absolute("/p/.env"), "SECRET-VALUE\n");
-    assert!(editor.current().1.is_secret());
-    type_text(&mut editor);
-    for message in [
-        export(&editor, &[], None, None).unwrap_err(),
-        check(&editor).unwrap_err(),
-    ] {
-        assert!(message.contains(".env"), "{message}");
-        assert!(!message.contains("SECRET-VALUE"), "{message}");
-        assert!(!message.contains(TYPED), "{message}");
     }
 }
 
@@ -362,7 +292,9 @@ fn a_path_that_is_not_utf8_is_refused() {
     use std::os::unix::ffi::OsStrExt;
     let mut editor = Editor::default();
     let path = PathBuf::from(OsStr::from_bytes(b"/p/\xff"));
-    let id = editor.add_buffer(Buffer::visiting(path));
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let id = editor.add_buffer(buffer);
     editor.show(id);
     assert!(
         export(&editor, &[], None, None)
@@ -557,3 +489,5 @@ fn a_finished_save_lets_the_handover_through() {
     assert!(check(&editor).is_ok());
     assert!(export(&editor, &[], None, None).is_ok());
 }
+
+mod secret;

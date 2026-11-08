@@ -275,6 +275,8 @@ impl Editor {
                 .buffer_mut(id)
                 .is_some_and(|buffer| buffer.treat_as_secret())
         {
+            // The verdict of a buffer on the screen changed, as a window's buffer can.
+            self.note_secret_shown();
             self.message("Buffer now treated as secret");
         }
         Ok(())
