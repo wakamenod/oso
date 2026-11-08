@@ -272,6 +272,11 @@ impl App {
         arg: Option<Arg>,
         reach: Reach,
     ) -> Reply {
+        // What the channel may never run is said at once, before anything waits.
+        if let Err(refused) = self.dispatcher.by_reach(name, reach) {
+            self.agent_log(&format!("run: refused: {}", refused.0));
+            return Err(refused.0);
+        }
         if let Some(why) = self.agent_waits() {
             self.agent_log_often(why);
             return Err(why.into());
