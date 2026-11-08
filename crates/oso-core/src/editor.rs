@@ -46,7 +46,9 @@ mod prompts;
 mod reload;
 mod save;
 mod status;
+mod switch;
 mod view;
+mod write;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use copies::RecoveryAction;
@@ -55,8 +57,9 @@ pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
-pub use save::{ExitRefused, SaveJob, SaveRefused};
+pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
+pub use switch::KillRefused;
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -96,9 +99,16 @@ pub struct Editor {
     /// While a command runs, whether it has taken a buffer that may hold secrets off the
     /// screen. This holds whatever then becomes of that buffer.
     command_left_secret: Option<bool>,
-    /// Where the selected window was before each internal buffer it has gone to, the first
-    /// place first.
-    way_back: Vec<messages::Place>,
+    /// The buffers the selected window was on before each internal buffer it has gone to, the
+    /// first first. Where it was in each is in the window's places (ADR 0088).
+    way_back: Vec<BufferId>,
+    /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
+    /// (ADR 0087).
+    write_over_asked: Option<write::WriteOver>,
+    /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
+    kill_asked: Option<BufferId>,
+    /// What killed buffers held, for the host to free off the UI thread.
+    freed: Vec<Buffer>,
     /// The internal buffer that lists the emergency copies, once it has been asked for.
     copies_buffer: Option<BufferId>,
     /// What a person asked of the emergency copies, for the host.
@@ -171,6 +181,9 @@ impl Editor {
             messages_buffer: BufferId(0),
             command_left_secret: None,
             way_back: Vec::new(),
+            write_over_asked: None,
+            kill_asked: None,
+            freed: Vec::new(),
             copies_buffer: None,
             copy_actions: Vec::new(),
             echo: None,
@@ -203,7 +216,11 @@ impl Editor {
     pub fn add_buffer(&mut self, buffer: Buffer) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
+        let name = buffer
+            .path()
+            .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
         self.buffers.push((id, buffer));
+        self.name_files_like(&name);
         id
     }
 
@@ -230,67 +247,14 @@ impl Editor {
             .map(|(id, buffer)| (*id, buffer))
     }
 
-    /// Shows `buffer` in the selected window, from its start, or in the window beneath an
-    /// open prompt, whose own window always shows its own buffer (ADR 0072). Does nothing
-    /// for an id that does not exist.
+    /// Shows `buffer` in the selected window, where the window was in it the last time, or from
+    /// its start, or in the window beneath an open prompt, whose own window always shows its own
+    /// buffer (ADR 0072). Does nothing for an id that does not exist.
     pub fn show(&mut self, buffer: BufferId) {
-        if let Some(shown) = self.buffer(buffer) {
-            // Off the internal buffers, so that where it came from no longer says anything.
-            if !shown.is_internal() {
-                self.way_back.clear();
-            }
+        if self.buffer(buffer).is_some() {
             self.window_moves_on();
             let index = self.tiled_index();
             self.window_shows(index, buffer);
-        }
-    }
-
-    /// Makes the window at `index` show `buffer`. Every change of what a window shows comes
-    /// through here, but a killed buffer's, so that what was around a buffer that may hold
-    /// secrets, before or after it, is marked so.
-    pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
-        // A search keeps to the buffer it began in (ADR 0082).
-        self.isearch_abandon();
-        self.note_secret_shown();
-        self.windows[index].show(buffer);
-        self.note_secret_shown();
-    }
-
-    /// Removes a buffer. Windows that showed it show `*scratch*` instead,
-    /// which is created again if needed. An internal buffer stays.
-    pub fn kill_buffer(&mut self, id: BufferId) {
-        if self.buffer(id).is_some_and(Buffer::is_internal) {
-            return;
-        }
-        let shown = self.windows.iter().any(|window| window.buffer() == id);
-        if shown {
-            self.isearch_abandon();
-            self.window_moves_on();
-            // Before it goes, as what it was cannot be asked after.
-            self.note_secret_shown();
-        }
-        self.buffers.retain(|(other, _)| *other != id);
-        if !shown {
-            return;
-        }
-        let scratch = self.scratch();
-        for window in &mut self.windows {
-            if window.buffer() == id {
-                window.show(scratch);
-            }
-        }
-        self.note_secret_shown();
-    }
-
-    /// The `*scratch*` buffer, created again if needed.
-    fn scratch(&mut self) -> BufferId {
-        let scratch = self
-            .buffers
-            .iter()
-            .find(|(_, buffer)| buffer.name() == SCRATCH && buffer.path().is_none());
-        match scratch {
-            Some((scratch, _)) => *scratch,
-            None => self.add_buffer(Buffer::new(SCRATCH)),
         }
     }
 

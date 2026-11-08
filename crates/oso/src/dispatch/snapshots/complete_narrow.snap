@@ -17,20 +17,22 @@ keys: M-x b u f
 =-- test  1:0  Fundamental  UTF-8 LF         =
 "                                            "
 float at row 0, column 2: 10 x 40
-│ 1/6   M-x buf                          │
+│ 1/8   M-x buf                          │
 :              ^                         :
-│>save-buffer (C-x C-s)  Save the buffe… │
+│>next-buffer (M-/)  Go the other way f… │
+:      ***                               :
+│ save-buffer (C-x C-s)  Save the buffe… │
 :      ***                               :
 │ end-of-buffer (M->)  Move point to th… │
 :        ***                             :
 │ revert-buffer (C-x x g)  Read the buf… │
 :        ***                             :
+│ previous-buffer (M-,)  Show the buffe… │
+:          ***                           :
 │ mark-whole-buffer (C-x h)  Put one cu… │
 :            ***                         :
 │ beginning-of-buffer (M-<)  Move point… │
 :              ***                       :
 │ save-buffers-kill-terminal (C-x C-c)   │
 :      ***                               :
-│                                        │
-│                                        │
 │                                        │

@@ -75,6 +75,10 @@ item notes when it must be settled.
   it turns the IME on for that prompt, for Japanese file names; if not, the author decides again
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
   [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `C-x C-f`'s look at a row follows a symbolic link to say what it leads to, which can reach an
+  automounted or slow file system and hold that listing thread until it answers. Decide whether a
+  look stops at links that leave the listed tree
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - `C-x C-f` matches file names code point by code point, so a name stored decomposed (NFD), as older
   macOS volumes and zip archives keep them, does not match the composed form an input method types.
   Normalizing needs `unicode-normalization`, a dependency; decide once it is seen to matter
