@@ -32,6 +32,7 @@ use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 use follow::Selected;
 
+mod completion;
 mod copies;
 mod follow;
 mod messages;

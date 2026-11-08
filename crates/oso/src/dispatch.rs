@@ -20,10 +20,12 @@ use oso_core::editor::Editor;
 use oso_core::key::Key;
 use oso_core::key::KeyPress;
 use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
+use oso_core::minibuffer::Kind;
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod extended;
 mod prompts;
 
 /// Whether a command's edits may join the undo step before, if it asks.
@@ -66,13 +68,13 @@ impl Dispatcher {
     pub fn with(registry: Registry, global: Keymap) -> Self {
         let (digits, minus) = bindings::prefix_keymaps(&registry);
         let (list, copy) = bindings::recovery_keymaps(&registry);
-        let (minibuffer, question) = bindings::prompt_keymaps(&registry);
+        let prompt = bindings::prompt_keymaps(&registry);
         Self {
             keymaps: Keymaps {
                 global,
                 prefix: [digits, minus],
                 copy: [list, copy],
-                prompt: [minibuffer, question],
+                prompt,
             },
             reading: Vec::new(),
             passphrase_next: false,
@@ -260,8 +262,12 @@ impl Dispatcher {
                 let refused = format!("{name} reads a passphrase in a prompt, through send-keys");
                 return (Effects::default(), Err(refused));
             }
+            (ArgSpec::Command { .. }, _) => {
+                let refused = format!("{name} reads a command's name; run the command itself");
+                return (Effects::default(), Err(refused));
+            }
             (_, None) => Args::with_prefix(self.prefix.take()),
-            (ArgSpec::Count, Some(n)) => {
+            (ArgSpec::Count | ArgSpec::Key, Some(n)) => {
                 self.prefix = None;
                 Args::numeric(n)
             }
@@ -490,9 +496,9 @@ struct Keymaps {
     prefix: [Keymap; 2],
     /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
     copy: [Keymap; 2],
-    /// The keys of a prompt that reads an answer, above the global ones, and of a
-    /// question, in place of them (ADR 0072).
-    prompt: [Keymap; 2],
+    /// The keys of a prompt that reads an answer, above the global ones, of a question, in
+    /// place of them (ADR 0072), and of a prompt that completes (ADR 0076).
+    prompt: [Keymap; 3],
 }
 
 impl Keymaps {
@@ -521,8 +527,11 @@ impl Keymaps {
             Some(prefix) if prefix.reads_digits() => &reading[..1],
             _ => &[],
         };
-        let major = if editor.prompt().is_some() {
-            Some(&self.prompt[0])
+        let major = if let Some(prompt) = editor.prompt() {
+            match prompt.kind() {
+                Kind::Complete { .. } => Some(&self.prompt[2]),
+                _ => Some(&self.prompt[0]),
+            }
         } else {
             match editor.current().1.mode() {
                 Mode::Fundamental => None,
@@ -538,6 +547,8 @@ impl Keymaps {
     }
 }
 
+#[cfg(test)]
+mod complete_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]

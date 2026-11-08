@@ -146,6 +146,25 @@ impl Keymap {
         Some(binding)
     }
 
+    /// Calls `f` with every key sequence bound to a command here, through prefix keymaps,
+    /// in no particular order, as `where-is` reads them (ADR 0076). A text command has no
+    /// sequence of its own and is left out.
+    pub fn bindings(&self, mut f: impl FnMut(&[KeyPress], CommandId)) {
+        let mut keys = Vec::new();
+        self.visit(&mut keys, &mut f);
+    }
+
+    fn visit(&self, keys: &mut Vec<KeyPress>, f: &mut impl FnMut(&[KeyPress], CommandId)) {
+        for (key, entry) in &self.bindings {
+            keys.push(*key);
+            match entry {
+                Entry::Command(command) => f(keys, *command),
+                Entry::Prefix(sub) => sub.visit(keys, f),
+            }
+            keys.pop();
+        }
+    }
+
     /// The number of keys bound at this level, prefixes included.
     pub fn len(&self) -> usize {
         self.bindings.len()
@@ -438,6 +457,32 @@ mod tests {
                 .unwrap();
         }
         registry
+    }
+
+    #[test]
+    fn bindings_lists_every_sequence_bound_to_a_command() {
+        let registry = registry(&["forward-char", "save-buffer", "self-insert-command"]);
+        let table = [
+            ("C-f", "forward-char"),
+            ("<right>", "forward-char"),
+            ("C-x C-s", "save-buffer"),
+        ];
+        let mut keymap = Keymap::from_table(&registry, &table).unwrap();
+        keymap.set_text_command(registry.lookup("self-insert-command").unwrap());
+        let mut found = Vec::new();
+        keymap.bindings(|keys, id| {
+            let name = registry.get(id).unwrap().name;
+            found.push((display_keys(keys).to_string(), name));
+        });
+        found.sort_unstable();
+        assert_eq!(
+            found,
+            [
+                ("<right>".to_owned(), "forward-char"),
+                ("C-f".to_owned(), "forward-char"),
+                ("C-x C-s".to_owned(), "save-buffer"),
+            ]
+        );
     }
 
     #[test]

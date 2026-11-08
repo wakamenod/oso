@@ -69,6 +69,17 @@ pub enum ArgSpec {
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`], and must not keep it.
     Passphrase { prompt: &'static str },
+    /// A command's name, read in a prompt that says `prompt` and completes over the
+    /// registry, kept in the history named `history` (ADR 0076). The dispatcher runs that
+    /// command in its place, with its prefix argument, as `M-x` does.
+    Command {
+        prompt: &'static str,
+        history: &'static str,
+    },
+    /// The key that ran it, read with [`Ctx::input`] or [`Ctx::key_char`], and a numeric
+    /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
+    /// (ADR 0076).
+    Key,
 }
 
 /// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher

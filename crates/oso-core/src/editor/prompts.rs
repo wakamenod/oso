@@ -69,6 +69,7 @@ impl Editor {
             records,
             walk: None,
             typed: None,
+            completion: None,
         });
         self.relayout_prompt();
         Ok(id)
@@ -127,16 +128,31 @@ impl Editor {
     /// # Errors
     ///
     /// [`PromptError::NoPrompt`] if the innermost prompt is a question or there is none,
-    /// and [`PromptError::Invalid`] for a number that is not one, which the prompt then
-    /// says, staying open.
+    /// and [`PromptError::Invalid`] for a number that is not one, or a prompt that completes
+    /// with nothing matching, which the prompt then says, staying open. A prompt that
+    /// completes gives its selected candidate (ADR 0076).
     pub fn submit_prompt(&mut self) -> Result<(), PromptError> {
+        let completes = matches!(self.prompt().map(Prompt::kind), Some(Kind::Complete { .. }));
+        let selected = if completes {
+            match self.selected_completion() {
+                Ok(text) => Some(text),
+                Err(PromptError::Invalid) => {
+                    self.prompt_says("No match");
+                    return Err(PromptError::Invalid);
+                }
+                Err(error) => return Err(error),
+            }
+        } else {
+            None
+        };
         let Some(prompt) = self.prompts.last().filter(|p| !p.kind.is_question()) else {
             return Err(PromptError::NoPrompt);
         };
-        let text = self
-            .buffer(prompt.buffer)
-            .map(|buffer| buffer.text().to_string())
-            .unwrap_or_default();
+        let text = selected.unwrap_or_else(|| {
+            self.buffer(prompt.buffer)
+                .map(|buffer| buffer.text().to_string())
+                .unwrap_or_default()
+        });
         if matches!(prompt.kind, Kind::Number { .. }) && minibuffer::parse_number(&text).is_none() {
             self.prompt_says("Not a number");
             return Err(PromptError::Invalid);

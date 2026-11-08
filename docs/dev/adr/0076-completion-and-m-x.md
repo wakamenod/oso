@@ -178,7 +178,7 @@ In a prompt that completes, a keymap above ADR 0072's minibuffer keymap:
   goes to line 42 with no prompt. A command that reads an answer opens its prompt after `M-x`'s
   closes. The label shows the prefix, `C-u M-x` or `3 M-x`, as Emacs's does.
 - **Listed:** every registered command, except those that read the key that ran them
-  (`self-insert-command`, `digit-argument`, `negative-argument`), which `ArgSpec::Key` marks, and those
+  (`self-insert-command` and `digit-argument`), which `ArgSpec::Key` marks, and those
   bound only in a keymap that is not active beneath the prompt, such as a question's `answer-yes` or the
   copies list's keys outside it: Emacs 28's `command-completion-default-include-p`. Dev commands are
   only in a dev build's registry, so only a dev build lists them.
@@ -187,7 +187,8 @@ In a prompt that completes, a keymap above ADR 0072's minibuffer keymap:
   (`Keymap::bindings`, new). A command with none shows none.
 - **The annotation** is the first line of the docstring.
 - **`run-command execute-extended-command`** is refused, "run the command itself": the socket names a
-  command directly.
+  command directly. A command marked `ArgSpec::Key` takes a count from `run-command` as one marked
+  `Count` does.
 
 ### Secrets
 
@@ -196,7 +197,7 @@ In a prompt that completes, a keymap above ADR 0072's minibuffer keymap:
 - **A passphrase prompt never completes.**
 - **Annotations come from the registry,** which holds no text of a buffer. M2-19's buffer names and
   M2-18's paths decide what they show of a secret buffer when they come.
-- **`get-state`** gives, for a prompt that completes, `completion`: `count`, `total`, `selected` and
+- **`get-state`** gives a prompt that completes the kind `complete`, and `completion`: `count`, `total`, `selected` and
   `rows`, the names of the candidate rows shown, at most 18. While a buffer that may hold secrets is
   shown it is left out with the label and the answer, as the set of matches tells the answer.
 

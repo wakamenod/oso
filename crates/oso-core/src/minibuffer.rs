@@ -18,6 +18,7 @@ use std::fmt;
 use std::ops::Range;
 
 use crate::buffer::BufferId;
+use crate::complete::Candidates;
 use crate::display_map::text_clusters;
 use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions};
 use crate::rope::Rope;
@@ -52,6 +53,9 @@ pub enum Kind {
     /// A passphrase. It shows as one `*` per character, keeps no undo record and enters no
     /// history. Its buffer may hold secrets, so every rule for such a buffer applies.
     Passphrase,
+    /// One of a list of candidates, matched as typed and kept in the history named
+    /// (ADR 0076). `RET` gives the selected candidate.
+    Complete { history: &'static str },
     /// A question answered by `y` or `n`. `yes` names the command `y` runs, confirmed,
     /// which checks again what was true when it was asked. `n` runs nothing.
     Question { yes: &'static str },
@@ -62,6 +66,7 @@ impl Kind {
     pub fn history(self) -> Option<&'static str> {
         match self {
             Self::Number { history } => history,
+            Self::Complete { history } => Some(history),
             Self::Passphrase | Self::Question { .. } => None,
         }
     }
@@ -142,6 +147,9 @@ pub struct Prompt {
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.
     pub(crate) typed: Option<String>,
+    /// Its candidates, for a prompt that completes, and the revision of its buffer they
+    /// were last matched against.
+    pub(crate) completion: Option<(Candidates, u64)>,
 }
 
 impl Prompt {
@@ -174,6 +182,11 @@ impl Prompt {
     /// socket leaves out (ADR 0072).
     pub fn message_withheld(&self) -> bool {
         self.message_withheld
+    }
+
+    /// Its candidates, for a prompt that completes (ADR 0076).
+    pub fn candidates(&self) -> Option<&Candidates> {
+        self.completion.as_ref().map(|(candidates, _)| candidates)
     }
 }
 

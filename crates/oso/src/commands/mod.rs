@@ -6,6 +6,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+mod complete;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
@@ -30,6 +31,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    complete::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,

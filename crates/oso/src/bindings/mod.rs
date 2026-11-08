@@ -4,6 +4,7 @@
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
+mod complete;
 mod edit;
 mod mark;
 mod messages;
@@ -24,6 +25,7 @@ use oso_core::keymap::Keymap;
 /// key does: a key bound twice fails to build the keymap, whichever comes first.
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
+    complete::BINDINGS,
     edit::BINDINGS,
     mark::BINDINGS,
     messages::BINDINGS,
@@ -61,12 +63,18 @@ pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
     (keymap(prefix::DIGITS), keymap(prefix::MINUS))
 }
 
-/// The keymaps of a prompt that reads an answer, above the global one, and of a question, in
-/// place of it (ADR 0072). Empty for a registry without their commands, as in tests that bring
-/// their own.
-pub fn prompt_keymaps(registry: &Registry) -> (Keymap, Keymap) {
-    let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
-    (keymap(minibuffer::MINIBUFFER), keymap(minibuffer::QUESTION))
+/// The keymaps of a prompt that reads an answer, above the global one, of a question, in
+/// place of it (ADR 0072), and of a prompt that completes, with the first one's keys
+/// (ADR 0076). Empty for a registry without their commands, as in tests that bring their
+/// own.
+pub fn prompt_keymaps(registry: &Registry) -> [Keymap; 3] {
+    let keymap = |table: &[(&str, &str)]| Keymap::from_table(registry, table).unwrap_or_default();
+    let completing = [minibuffer::MINIBUFFER, complete::COMPLETION].concat();
+    [
+        keymap(minibuffer::MINIBUFFER),
+        keymap(minibuffer::QUESTION),
+        keymap(&completing),
+    ]
 }
 
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global

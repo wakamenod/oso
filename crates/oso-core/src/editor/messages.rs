@@ -151,6 +151,8 @@ impl Editor {
     pub fn end_command(&mut self) {
         self.command_left_secret = None;
         self.passphrase_command = false;
+        // What the command typed in a prompt that completes is matched once, now.
+        self.refresh_completion();
     }
 
     /// Shows `text` in the echo area alone, for what must stay out of the log and
