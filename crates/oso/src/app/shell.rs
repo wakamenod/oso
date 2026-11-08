@@ -180,6 +180,12 @@ impl Window {
         None
     }
 
+    /// winit draws a live resize its own way, and counts nothing.
+    #[cfg(feature = "dev")]
+    pub(super) fn live_resize(&self) -> Option<(u32, u32)> {
+        None
+    }
+
     /// Drops the composition the input method holds, with no commit. winit has no call for
     /// it; it drops the composition when the IME goes off, which follows (ADR 0069).
     pub(super) fn discard_composition(&self) {}

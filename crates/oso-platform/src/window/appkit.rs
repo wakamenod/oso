@@ -18,6 +18,7 @@ mod keys;
 mod quit;
 mod runloop;
 mod secure;
+mod size;
 mod view;
 
 use std::any::Any;
@@ -31,8 +32,8 @@ use objc2::exception;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
-    NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSScreen, NSWindow,
-    NSWindowOcclusionState,
+    NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSRequestUserAttentionType,
+    NSScreen, NSWindow, NSWindowOcclusionState,
 };
 use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
@@ -140,6 +141,8 @@ impl<T, H: Handler<T>> Dispatch for Adapter<T, H> {
 /// from inside most of these.
 enum Request {
     Visible(bool),
+    /// Ask for the person's attention, without taking the keyboard from another app.
+    Attention,
     OuterPosition(i32, i32),
     InnerSize(u32, u32),
     ImeAllowed(bool),
@@ -189,6 +192,8 @@ struct State {
     /// A frame skipped because the window was hidden, owed until it is visible.
     hidden_frame: Cell<gate::HiddenFrame>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
+    /// A live resize, whose steps are drawn at once (ADR 0077).
+    live_resize: Cell<gate::LiveResize>,
     /// The handler's answer to the last request to end, while it is being asked.
     quit_answer: Cell<Option<QuitAnswer>>,
     /// AppKit holds an end for the app's answer (`NSTerminateLater`).
@@ -216,6 +221,7 @@ impl State {
             reported_scale: Cell::new(0.0),
             hidden_frame: Cell::new(gate::HiddenFrame::default()),
             panic: RefCell::new(None),
+            live_resize: Cell::new(gate::LiveResize::default()),
             quit_answer: Cell::new(None),
             quit_held: Cell::new(false),
         }
@@ -332,6 +338,12 @@ impl State {
         };
         match request {
             Request::Visible(true) => window.makeKeyAndOrderFront(None),
+            Request::Attention => {
+                // The request's number cancels it, which nothing does: it ends by itself once
+                // the app is in front.
+                let _ = NSApplication::sharedApplication(self.mtm)
+                    .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+            }
             Request::Visible(false) => window.orderOut(None),
             Request::OuterPosition(x, y) => {
                 let scale = window.backingScaleFactor();
@@ -504,51 +516,6 @@ impl State {
             gate::HiddenCheck::LookAgain(at) => Some(at),
             gate::HiddenCheck::Nothing => None,
         }
-    }
-
-    fn resized_event(&self) -> Event<'static> {
-        let (width, height) = self.inner_size();
-        Event::Resized { width, height }
-    }
-
-    /// Tells the handler the drawable area's size, if it differs from the last it was told.
-    fn report_size(&'static self) {
-        // Nothing to report while the window is being made: the handler reads it once made.
-        if self.window.get().is_none() {
-            return;
-        }
-        let size = self.inner_size();
-        if self.reported_size.replace(size) != size {
-            self.deliver(Delivery::Window(self.resized_event()));
-        }
-    }
-
-    /// Tells the handler the scale, and the size it gives, if the scale differs from the last
-    /// it was told. AppKit says the backing changed also when a window is set up.
-    fn report_scale(&'static self) {
-        if self.window.get().is_none() {
-            return;
-        }
-        let scale = self.scale_factor();
-        if self.reported_scale.replace(scale) != scale {
-            self.deliver(Delivery::Window(Event::ScaleFactorChanged(scale)));
-        }
-        self.report_size();
-    }
-
-    fn inner_size(&self) -> (u32, u32) {
-        let Some((window, view, _)) = self.window.get() else {
-            return (0, 0);
-        };
-        let scale = window.backingScaleFactor();
-        let size = view.bounds().size;
-        (pixels(size.width * scale), pixels(size.height * scale))
-    }
-
-    fn scale_factor(&self) -> f64 {
-        self.window
-            .get()
-            .map_or(1.0, |(window, _, _)| window.backingScaleFactor())
     }
 }
 

@@ -161,6 +161,12 @@ impl Window {
         Some(self.0.secure_input())
     }
 
+    /// The steps of the last live resize and the frames drawn for them, for the dev socket.
+    #[cfg(feature = "dev")]
+    pub(super) fn live_resize(&self) -> Option<(u32, u32)> {
+        Some(self.0.live_resize_counts())
+    }
+
     /// Drops the composition the input method holds, with no commit.
     pub(super) fn discard_composition(&self) {
         self.0.discard_composition();

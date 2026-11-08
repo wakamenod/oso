@@ -1,6 +1,7 @@
 //! What the input method may learn of the cursor, the cell the app last gave, answered only
-//! while oso has the IME on (ADR 0069, ADR 0070); when secure input is held (ADR 0073); and a
-//! frame owed to a window that was hidden. Plain values, tested without a window or a clock.
+//! while oso has the IME on (ADR 0069, ADR 0070); when secure input is held (ADR 0073); a
+//! frame owed to a window that was hidden; and a live resize, whose frames are drawn at each
+//! step (ADR 0086). Plain values, tested without a window or a clock.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 
@@ -134,6 +135,59 @@ impl SecureInput {
 /// How long a frame owed to a hidden window waits before the window is looked at again.
 pub(super) const HIDDEN_RETRY: Duration = Duration::from_millis(150);
 
+/// A live resize, as the person drags the window's edge: while one runs, each step of it is
+/// drawn at once, with its new size in the same Core Animation transaction, so that no frame
+/// is stretched to a size it was not drawn at. It counts the steps and the frames drawn for
+/// them, for the dev socket's check.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct LiveResize {
+    live: bool,
+    steps: u32,
+    frames: u32,
+}
+
+impl LiveResize {
+    /// A live resize starts: its counts start again.
+    pub(super) fn start(&mut self) {
+        *self = Self {
+            live: true,
+            ..Self::default()
+        };
+    }
+
+    /// The live resize ends; its counts stay until the next.
+    pub(super) fn end(&mut self) {
+        self.live = false;
+    }
+
+    /// Whether a step's frame is drawn at once.
+    #[cfg(test)]
+    fn live(self) -> bool {
+        self.live
+    }
+
+    /// A step of the live resize: the window took a new size. Returns whether its frame is
+    /// drawn at once.
+    pub(super) fn step(&mut self) -> bool {
+        if self.live {
+            self.steps = self.steps.saturating_add(1);
+        }
+        self.live
+    }
+
+    /// A frame was drawn for a step.
+    pub(super) fn drew(&mut self) {
+        if self.live {
+            self.frames = self.frames.saturating_add(1);
+        }
+    }
+
+    /// The steps and the frames drawn for them, of this live resize or the last.
+    pub(super) fn counts(self) -> (u32, u32) {
+        (self.steps, self.frames)
+    }
+}
+
 /// A frame the renderer skipped because the window was hidden by others. It is owed until the
 /// window is visible: looked at again on a short deadline, as the notice that it is visible
 /// may never come, and dropped once a notice says it is hidden, which a later notice of it
@@ -185,7 +239,9 @@ impl HiddenFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::{HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, SecureInput, SecureStep};
+    use super::{
+        HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, LiveResize, SecureInput, SecureStep,
+    };
     use crate::window::CursorArea;
     use std::time::Instant;
 
@@ -219,6 +275,27 @@ mod tests {
             Some(CELL),
             "the app does not give an unmoved cell again"
         );
+    }
+
+    #[test]
+    fn only_a_live_resize_draws_its_steps_at_once_and_counts_them() {
+        let mut resize = LiveResize::default();
+        assert!(
+            !resize.step(),
+            "a size the app asked for waits for the loop"
+        );
+        resize.drew();
+        assert_eq!(resize.counts(), (0, 0));
+        resize.start();
+        assert!(resize.live());
+        assert!(resize.step() && resize.step());
+        resize.drew();
+        assert_eq!(resize.counts(), (2, 1), "a step drawn, one not");
+        resize.end();
+        assert!(!resize.live() && !resize.step());
+        assert_eq!(resize.counts(), (2, 1), "kept until the next");
+        resize.start();
+        assert_eq!(resize.counts(), (0, 0));
     }
 
     /// The system's own count of enables, behind a `settle` that accepts as told.

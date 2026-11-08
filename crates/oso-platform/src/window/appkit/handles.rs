@@ -12,9 +12,7 @@ use std::time::Instant;
 
 use objc2::MainThreadOnly;
 use objc2::runtime::ProtocolObject;
-use objc2_app_kit::{
-    NSApplication, NSBackingStoreType, NSRequestUserAttentionType, NSWindow, NSWindowStyleMask,
-};
+use objc2_app_kit::{NSBackingStoreType, NSWindow, NSWindowStyleMask};
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSString};
 use raw_window_handle::{
     AppKitDisplayHandle, AppKitWindowHandle, DisplayHandle, HandleError, HasDisplayHandle,
@@ -94,7 +92,8 @@ impl Control {
             // The delegate first, so that it hears the window come up, occluded or not.
             let delegate = WindowDelegate::new(mtm, state);
             window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-            window.makeKeyAndOrderFront(None);
+            // Shown once the handler returns, as AppKit calls back from inside.
+            state.requests.borrow_mut().push(Request::Visible(true));
             (window, view, delegate)
         });
         // As AppKit has them now, whatever notices came before.
@@ -151,8 +150,14 @@ impl Window {
 
     /// Asks for the person's attention, without taking the keyboard from another app.
     pub fn request_attention(&self) {
-        NSApplication::sharedApplication(self.state.mtm)
-            .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+        self.state.requests.borrow_mut().push(Request::Attention);
+    }
+
+    /// The steps of the last live resize and the frames drawn for them, for the dev socket's
+    /// check.
+    #[cfg(feature = "dev")]
+    pub fn live_resize_counts(&self) -> (u32, u32) {
+        self.state.live_resize.get().counts()
     }
 
     /// Where the window's frame is, from the top left of the screen with the menu bar.
