@@ -132,6 +132,8 @@ pub(super) struct View {
     started: Option<Instant>,
     /// The cells behind the text, kept from frame to frame.
     cells: Cells,
+    /// The theme the renderer draws in, as the editor counts them (ADR 0089).
+    theme: usize,
 }
 
 impl View {
@@ -150,6 +152,7 @@ impl View {
             render_state,
             started: Some(started),
             cells: Cells::default(),
+            theme: 0,
         }
     }
 
@@ -230,6 +233,12 @@ impl App {
         let Some(view) = self.view.as_mut() else {
             return;
         };
+        // A switch of theme costs this frame only: nothing is shaped again (ADR 0089).
+        if view.theme != self.editor.theme() {
+            view.theme = self.editor.theme();
+            // This frame is drawn already, so the redraw it asks for is this one.
+            let _ = view.render_state.set_theme(view.theme);
+        }
         let window = &view.window;
         let window_size = || window.inner_size();
         self.editor.status_into(&mut self.status);

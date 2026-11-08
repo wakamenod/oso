@@ -27,6 +27,7 @@ mod log_gate;
 mod reloads;
 mod saves;
 mod searches;
+mod theme_file;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
 // Both give the same loop, window and waker, under the one name.
 #[cfg(all(target_os = "macos", feature = "native-window"))]
@@ -115,6 +116,9 @@ pub struct App {
     clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
+    /// What writes the theme chosen last, and which one it was given (ADR 0089).
+    theme_writer: theme_file::Writer,
+    remembered_theme: usize,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -135,13 +139,15 @@ pub struct App {
 impl App {
     /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
     /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
-    /// installed logger's.
+    /// installed logger's. It draws in the theme remembered in `theme_directory`, read here,
+    /// before the window exists (ADR 0089).
     pub fn new(
         waker: Waker,
         started: Instant,
         emergency: Emergency,
         source: oso_platform::clipboard::Source,
         log_gate: LogGate,
+        theme_directory: Option<std::path::PathBuf>,
     ) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
@@ -149,9 +155,16 @@ impl App {
         let offer = emergency.offer();
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
+        let mut editor = Editor::default();
+        let remembered = theme_directory.as_deref().and_then(theme_file::read);
+        let themes = theme_names();
+        let theme = remembered
+            .and_then(|name| themes.iter().position(|&(theme, _)| theme == name))
+            .unwrap_or(0);
+        editor.set_themes(themes, theme);
         Self {
             view: None,
-            editor: Editor::default(),
+            editor,
             dispatcher,
             modifiers: Held::NONE,
             waker,
@@ -169,6 +182,8 @@ impl App {
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
+            theme_writer: theme_file::Writer::start(theme_directory),
+            remembered_theme: theme,
             log_gate,
             #[cfg(feature = "dev")]
             dev: None,
@@ -178,6 +193,17 @@ impl App {
             remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
             restore: None,
+        }
+    }
+
+    /// Hands the theme chosen now to the writer, if it is not the one last remembered.
+    fn remember_theme(&mut self) {
+        let theme = self.editor.theme();
+        if theme != self.remembered_theme {
+            self.remembered_theme = theme;
+            if let Some(name) = self.editor.theme_name() {
+                self.theme_writer.remember(name);
+            }
         }
     }
 
@@ -194,6 +220,7 @@ impl App {
         self.start_searches();
         self.start_reverts();
         self.answer_about_copies();
+        self.remember_theme();
         if effects.redraw {
             self.request_redraw();
         }
@@ -219,4 +246,18 @@ impl App {
     fn note_logging(&self) {
         self.log_gate.note(self.editor.shows_secret());
     }
+}
+
+/// The renderer's themes, each a name and what it is, the default first (ADR 0089).
+fn theme_names() -> Vec<(&'static str, &'static str)> {
+    oso_render::theme::themes()
+        .iter()
+        .map(|theme| {
+            let kind = match theme.kind() {
+                oso_render::theme::Kind::Dark => "dark",
+                oso_render::theme::Kind::Light => "light",
+            };
+            (theme.name(), kind)
+        })
+        .collect()
 }

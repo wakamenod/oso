@@ -217,8 +217,11 @@ mod tests {
         draw_in(panes, 255, theme())
     }
 
+    /// `dusk`: on its grey, a shadow and a hairline show in 8-bit linear pixels, where on
+    /// a near-black they round to nothing.
     fn theme() -> Theme {
-        crate::theme::themes()[0]
+        let themes = crate::theme::themes();
+        *themes.iter().find(|theme| theme.name() == "dusk").unwrap()
     }
 
     /// Draws `panes` in `theme`, with glyphs of `coverage`.

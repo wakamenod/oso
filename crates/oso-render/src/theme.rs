@@ -372,8 +372,8 @@ fn dusk(name: Name) -> Color {
         FgMain => rgb(0xf3f3f6),
         FgPrompt => rgb(0xbfc7df),
         FgKey => rgb(0xdee3f1),
-        // Until the author picks among the samples.
-        FgQuestion => rgb(0xdce4fd),
+        // A pale green: no buffer text is drawn in it.
+        FgQuestion => rgb(0xc8f7c0),
         Escape => rgb(0xedb37c),
         Warning => rgb(0xffdd6f),
         FieldOutline => rgb(0x6f86bd),
@@ -404,10 +404,6 @@ const SOURCES: [Source; 3] = [
     source("light", Kind::Light, light),
     source("dusk", Kind::Dark, dusk),
 ];
-
-/// Palettes the author picks among, drawn as samples (ADR 0089).
-#[cfg(test)]
-pub(crate) mod candidates;
 
 /// The built-in themes, the default first, in linear colours. The renderer makes them once and
 /// keeps them: there is no global state (ADR 0038).

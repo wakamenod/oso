@@ -322,6 +322,10 @@ impl Dispatcher {
                 let refused = format!("{name} reads a command's name; run the command itself");
                 return (Effects::default(), Err(refused));
             }
+            (ArgSpec::Theme { .. }, _) => {
+                let refused = format!("{name} reads a theme's name in a prompt, through send-keys");
+                return (Effects::default(), Err(refused));
+            }
             (_, None) => Args::with_prefix(self.prefix.take()),
             (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Some(n)) => {
                 self.prefix = None;

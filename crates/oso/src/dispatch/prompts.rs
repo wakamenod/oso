@@ -74,7 +74,9 @@ impl Dispatcher {
                 self.wait_for_clipboard(editor, id, args, &invocation);
                 return (Effects::default(), Ok(()));
             }
-            Some(ArgSpec::Command { prompt, history }) => (prompt, Kind::Complete { history }),
+            Some(ArgSpec::Command { prompt, history } | ArgSpec::Theme { prompt, history }) => {
+                (prompt, Kind::Complete { history })
+            }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;
@@ -84,6 +86,11 @@ impl Dispatcher {
             Kind::Complete { history } if runs_answer => {
                 let items = self.command_candidates(editor);
                 editor.open_completion(extended::with_prefix(prompt, args.raw()), history, items)
+            }
+            // `load-theme` completes over the themes the host draws with (ADR 0089).
+            Kind::Complete { history } => {
+                let items = editor.theme_candidates();
+                editor.open_completion(prompt, history, items)
             }
             _ => editor.open_prompt(prompt, kind),
         };

@@ -135,6 +135,9 @@ pub fn export(
         } else {
             display_keys(pending).to_string()
         },
+        // The theme drawn in, so a restart right after a switch does not wait for the
+        // remembered one to be written (ADR 0089).
+        "theme": editor.theme_name(),
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -341,6 +344,8 @@ pub struct State {
     pub scroll: Scroll,
     pub pending_keys: Vec<KeyPress>,
     pub frame: Option<Frame>,
+    /// The theme the previous instance drew in, if it said.
+    pub theme: Option<String>,
 }
 
 /// Reads a state, checking everything before anything changes. There is one
@@ -389,6 +394,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         },
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
+        theme: parse_theme(state)?,
     })
 }
 
@@ -446,6 +452,23 @@ fn parse_keys(state: &Map<String, Value>) -> Result<Vec<KeyPress>, String> {
         .ok_or("the state has no pending keys")?;
     let KeySequence(keys) = keys.parse().map_err(|e| format!("{e}"))?;
     Ok(keys)
+}
+
+/// The theme's name, if the state has one: a short name of lower-case letters, digits and
+/// `-`, as the built-in themes are named. A state from before themes has none.
+fn parse_theme(state: &Map<String, Value>) -> Result<Option<String>, String> {
+    match state.get("theme") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(name))
+            if (1..=32).contains(&name.len())
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') =>
+        {
+            Ok(Some(name.clone()))
+        }
+        Some(_) => Err("the theme is not a theme's name".into()),
+    }
 }
 
 fn parse_frame(state: &Map<String, Value>) -> Result<Option<Frame>, String> {

@@ -66,7 +66,13 @@ fn main() {
         // Only this level reaches a terminal with no `RUST_LOG`.
         log::error!("cannot turn core dumps off: {e}");
     }
-    let emergency = Emergency::new(emergency_directory.or_else(emergency::default_directory));
+    let emergency_directory = emergency_directory.or_else(emergency::default_directory);
+    // The theme chosen last is remembered beside the emergency copies (ADR 0089).
+    let theme_directory = emergency_directory
+        .as_deref()
+        .and_then(std::path::Path::parent)
+        .map(std::path::Path::to_path_buf);
+    let emergency = Emergency::new(emergency_directory);
     emergency.install_hook();
     app::run(started, |waker| {
         #[cfg(feature = "dev")]
@@ -74,7 +80,14 @@ fn main() {
             let waker = waker.clone();
             dev::start(move |request| waker.send(UserEvent::Control(request)))
         };
-        let mut app = App::new(waker, started, emergency, clipboard, log_gate);
+        let mut app = App::new(
+            waker,
+            started,
+            emergency,
+            clipboard,
+            log_gate,
+            theme_directory,
+        );
         #[cfg(feature = "dev")]
         app.set_dev(dev);
         app.check_emergency_directory();

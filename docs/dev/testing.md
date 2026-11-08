@@ -301,9 +301,10 @@ failure on Linux is real. There are no stored images to compare. Once M2-16 draw
 a flow can take over.
 
 **Themes** ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)): a unit test checks
-the contrast of every face's pairs in every theme, with no GPU. A pixel test keeps each theme's
-text gamma curve, and a sample frame for each theme is drawn off screen as PNGs for the author
-to choose colours from.
+the contrast of every face's pairs in every theme, with no GPU. A pixel test keeps the text
+gamma curve. `OSO_THEME_SAMPLES=<dir> cargo test -p oso-render -- --ignored theme_samples` draws
+two sample frames of every face in each theme off screen, with the OS's font, and writes their
+RGBA pixels and a table of each pair's contrast, for choosing colours.
 
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),

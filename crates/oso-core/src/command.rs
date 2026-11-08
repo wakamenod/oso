@@ -105,6 +105,13 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// A theme's name, read in a prompt that says `prompt` and completes over the themes the
+    /// host draws with, kept in the history named `history` (ADR 0089). The command reads it
+    /// with [`Ctx::answer`].
+    Theme {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// The key that ran it, read with [`Ctx::input`] or [`Ctx::key_char`], and a numeric
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).
