@@ -50,25 +50,14 @@ impl App {
         }
     }
 
-    /// The window's close button, guarded as `C-x C-c` is: it asks the same question, and
-    /// pressed again while a question is open, it does nothing more (ADR 0059, ADR 0072).
+    /// The window's close button, guarded as `C-x C-c` is, through the same command
+    /// (ADR 0059, ADR 0072).
     pub(super) fn close_requested(&mut self, event_loop: &Loop<'_>) {
-        if self
-            .editor
-            .prompt()
-            .is_some_and(|prompt| prompt.kind().is_question())
-        {
-            return;
-        }
-        match self.editor.confirm_exit(false) {
-            Ok(()) => self.leave(event_loop, false),
-            Err(refused) => {
-                let question = format!("{refused}; exit without saving?");
-                if let Err(error) = self.editor.ask(question, "save-buffers-kill-terminal") {
-                    self.editor.message(error.to_string());
-                }
-                self.request_redraw();
-            }
+        let effects = self.dispatcher.close_requested(&mut self.editor);
+        if effects.exit {
+            self.leave(event_loop, false);
+        } else {
+            self.request_redraw();
         }
     }
 

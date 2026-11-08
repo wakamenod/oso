@@ -94,8 +94,12 @@ impl Editor {
     }
 
     /// Shows the list of copies in the selected window. From any buffer showing copies, goes
-    /// back to where the window was.
+    /// back to where the window was. Does nothing while a prompt is open, as a prompt's
+    /// window always shows its own buffer (ADR 0072).
     pub fn toggle_copies(&mut self) {
+        if !self.prompts.is_empty() {
+            return;
+        }
         if self.current().1.mode().shows_copies() {
             self.leave_internal();
             return;

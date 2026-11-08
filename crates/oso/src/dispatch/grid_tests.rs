@@ -91,7 +91,11 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
             .get(index)
             .map_or("", |range| &prompt.label()[range.clone()]);
         let last = index + 1 == layout.label.len();
-        let cut = if last && layout.label_cut { "…" } else { "" };
+        let cut = if last && layout.label_cut {
+            minibuffer::CUT
+        } else {
+            ""
+        };
         let (mut text, mut marks) = spans_row(&[label, cut], label_end - inner.column);
         if on_input {
             let (input, input_marks) = draw_input(editor, layout.input);
@@ -127,9 +131,10 @@ fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
         .prompt()
         .is_some_and(|prompt| prompt.kind() == Kind::Passphrase)
     {
-        let stars = buffer.text().to_string().chars().count().min(area.columns);
+        let cursor = window.selections.primary().cursor;
+        let (stars, column) = minibuffer::mask(buffer.text(), cursor, area.columns);
         let mut marks = vec![' '; area.columns];
-        if let Some(mark) = marks.get_mut(stars) {
+        if let Some(mark) = marks.get_mut(column) {
             *mark = '^';
         }
         let text = "*".repeat(stars) + &" ".repeat(area.columns - stars);

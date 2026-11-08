@@ -19,7 +19,8 @@ use std::ops::Range;
 
 use crate::buffer::BufferId;
 use crate::display_map::text_clusters;
-use crate::frame::{CellRect, FloatRegions};
+use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions};
+use crate::rope::Rope;
 
 /// The most prompts open at once. One more is refused.
 pub const MAX_DEPTH: usize = 8;
@@ -41,7 +42,7 @@ const INPUT_COLUMNS: usize = 20;
 const MIN_INPUT_COLUMNS: usize = 8;
 
 /// What ends a message cut to fit.
-const CUT: &str = "…";
+pub const CUT: &str = "…";
 
 /// What a prompt reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -51,12 +52,9 @@ pub enum Kind {
     /// A passphrase. It shows as one `*` per character, keeps no undo record and enters no
     /// history. Its buffer may hold secrets, so every rule for such a buffer applies.
     Passphrase,
-    /// A question answered by `y` or `n`. `yes` names the command `y` runs, and `no` the
-    /// one `n` runs, if any. Each checks again what was true when it was asked.
-    Question {
-        yes: &'static str,
-        no: Option<&'static str>,
-    },
+    /// A question answered by `y` or `n`. `yes` names the command `y` runs, confirmed,
+    /// which checks again what was true when it was asked. `n` runs nothing.
+    Question { yes: &'static str },
 }
 
 impl Kind {
@@ -81,7 +79,10 @@ pub enum PromptError {
     TooDeep,
     /// No prompt of this kind is open.
     NoPrompt,
-    /// The answer is not what the prompt reads. The prompt stays open and says so.
+    /// The prompt keeps no history to walk.
+    NoHistory,
+    /// The answer is not what the prompt reads, or a history walk is at its end. The prompt
+    /// stays open.
     Invalid,
 }
 
@@ -89,7 +90,8 @@ impl fmt::Display for PromptError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::TooDeep => "Too many prompts open",
-            Self::NoPrompt => "Not in the minibuffer",
+            Self::NoPrompt => "No prompt is open",
+            Self::NoHistory => "No history here",
             Self::Invalid => "Not a valid answer",
         })
     }
@@ -97,8 +99,30 @@ impl fmt::Display for PromptError {
 
 impl std::error::Error for PromptError {}
 
+/// Names one prompt, so that what waits for its answer finds it whatever opens and closes
+/// meanwhile. No two prompts of one editor share one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PromptId(pub(crate) u64);
+
+/// The whole number `text` holds, as a prompt for a number reads it, with spaces around it.
+pub fn parse_number(text: &str) -> Option<i64> {
+    text.trim().parse().ok()
+}
+
+/// How many `*` a passphrase of `text` shows in `columns` cells with its cursor at `cursor`,
+/// and the cursor's column among them: one per character, with the cursor in view, at the
+/// last column at most. O(log n), from the rope's summaries.
+pub fn mask(text: &Rope, cursor: usize, columns: usize) -> (usize, usize) {
+    let shown = columns.max(1);
+    let typed = text.char_count();
+    let before = text.slice(0..cursor).char_count();
+    let start = before.saturating_sub(shown - 1);
+    (typed.saturating_sub(start).min(shown), before - start)
+}
+
 /// One open prompt.
 pub struct Prompt {
+    pub(crate) id: PromptId,
     /// What it says before the answer, with its depth first when it is not the outermost.
     pub(crate) label: String,
     pub(crate) kind: Kind,
@@ -128,6 +152,11 @@ impl Prompt {
         self.kind
     }
 
+    /// Its name, which its [`Outcome`] carries.
+    pub fn id(&self) -> PromptId {
+        self.id
+    }
+
     /// The buffer that holds the answer.
     pub fn buffer(&self) -> BufferId {
         self.buffer
@@ -151,8 +180,8 @@ impl fmt::Debug for Prompt {
 
 /// How a prompt ended, for the dispatcher.
 pub enum Outcome {
-    /// The prompt at `depth`, 1 for the outermost, was answered with `text`.
-    Answered { depth: usize, text: String },
+    /// The prompt `prompt` was answered with `text`.
+    Answered { prompt: PromptId, text: String },
     /// A question was answered: run the command named.
     Run(&'static str),
 }
@@ -161,7 +190,7 @@ impl fmt::Debug for Outcome {
     /// Never the text, which may be a passphrase.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Answered { depth, .. } => write!(f, "Answered {{ depth: {depth}, .. }}"),
+            Self::Answered { prompt, .. } => write!(f, "Answered {{ prompt: {prompt:?}, .. }}"),
             Self::Run(command) => write!(f, "Run({command:?})"),
         }
     }
@@ -274,13 +303,6 @@ fn cut_last(text: &str, mut rows: Vec<Range<usize>>, width: usize) -> Vec<Range<
     rows
 }
 
-/// How many rows a prompt with `label` takes in a float `inner_columns` wide.
-pub fn label_rows(label: &str, kind: Kind, inner_columns: usize) -> usize {
-    rows_of(label, label_width(kind, inner_columns), MAX_LABEL_ROWS)
-        .0
-        .len()
-}
-
 /// The cells of a row the label may take: all of it for a question, and what leaves
 /// room for an answer otherwise.
 fn label_width(kind: Kind, inner_columns: usize) -> usize {
@@ -293,17 +315,16 @@ fn label_width(kind: Kind, inner_columns: usize) -> usize {
     }
 }
 
-/// Where the label, the answer and a message go in `regions`, the float of a prompt with
-/// `label`. A message takes the end of the last row, leaving the answer at least 8 columns,
-/// and the answer what is between. A question has no answer to leave room for.
-pub fn layout(
-    regions: FloatRegions,
-    label: &str,
-    kind: Kind,
-    message: Option<&str>,
-) -> PromptLayout {
+/// Where a prompt with `label` floats in a frame laid out as `frame`, and where its label,
+/// its answer and a message go in it. The label is cut into rows once, and the float is as
+/// tall as they are. A message takes the end of the last row, leaving the answer at least 8
+/// columns, and the answer what is between. A question has no answer to leave room for.
+pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str>) -> PromptLayout {
+    // The width does not depend on the rows.
+    let columns = float_regions(frame, 1).inner.columns;
+    let (rows, label_cut) = rows_of(label, label_width(kind, columns), MAX_LABEL_ROWS);
+    let regions = float_regions(frame, rows.len());
     let inner = regions.inner;
-    let (rows, label_cut) = rows_of(label, label_width(kind, inner.columns), MAX_LABEL_ROWS);
     let last = rows.last().map_or(0, |row| cells_of(&label[row.clone()]));
     let after = last + usize::from(label_cut);
     let row = inner.row
@@ -351,38 +372,41 @@ pub fn layout(
 /// `message` cut at a whole cluster to fit, with the brackets around it, in `columns` cells,
 /// and `…` if it was cut: what a prompt's message row shows.
 pub fn fit_message(message: &str, columns: usize) -> (&str, &'static str) {
-    let room = columns.saturating_sub(3);
-    if cells_of(message) <= room {
-        return (message, "");
+    cut_to(message, columns.saturating_sub(3))
+}
+
+/// `text` cut at a whole cluster to fit in `cells` cells with a `…` after it, and the `…`,
+/// or `text` whole and nothing if it fits. A name an untrusted file gives is cut this way
+/// before a question says it, so that it cannot push the question's own words out of view.
+pub fn cut_to(text: &str, cells: usize) -> (&str, &'static str) {
+    if cells_of(text) <= cells {
+        return (text, "");
     }
     let mut used = 0;
     let mut end = 0;
-    for cluster in text_clusters(message, 0) {
+    for cluster in text_clusters(text, 0) {
         used += cluster.cells;
-        if used >= room {
+        if used >= cells {
             break;
         }
         end = cluster.offset + cluster.text.len();
     }
-    (&message[..end], CUT)
+    (&text[..end], CUT)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frame::{FrameSize, float_regions, layout as frame_layout};
+    use crate::frame::{FrameSize, layout as frame_layout};
 
-    /// A float of `columns` columns, which 60% of a frame gives.
-    fn regions(columns: usize) -> FloatRegions {
-        let regions = float_regions(
-            &frame_layout(FrameSize {
-                rows: 30,
-                columns: columns * 10 / 6,
-            }),
-            1,
-        );
-        assert_eq!(regions.outer.columns, columns);
-        regions
+    /// A frame whose floats are `columns` wide, as 60% of it gives.
+    fn frame(columns: usize) -> FrameLayout {
+        let frame = frame_layout(FrameSize {
+            rows: 30,
+            columns: columns * 10 / 6,
+        });
+        assert_eq!(float_regions(&frame, 1).outer.columns, columns);
+        frame
     }
 
     #[test]
@@ -414,14 +438,9 @@ mod tests {
 
     #[test]
     fn a_short_prompt_takes_one_row_and_the_answer_the_rest() {
-        let regions = regions(60);
-        let layout = layout(
-            regions,
-            "Go to line: ",
-            Kind::Number { history: None },
-            None,
-        );
-        let inner = regions.inner;
+        let kind = Kind::Number { history: None };
+        let layout = layout(&frame(60), "Go to line: ", kind, None);
+        let inner = layout.regions.inner;
         assert_eq!(
             (layout.label.len(), layout.label.first()),
             (1, Some(&(0..12)))
@@ -434,10 +453,9 @@ mod tests {
 
     #[test]
     fn a_message_takes_the_end_of_the_row() {
-        let regions = regions(60);
         let kind = Kind::Number { history: None };
-        let layout = layout(regions, "Go to line: ", kind, Some("Not a number"));
-        let inner = regions.inner;
+        let layout = layout(&frame(60), "Go to line: ", kind, Some("Not a number"));
+        let inner = layout.regions.inner;
         assert_eq!(layout.message.columns, 15);
         assert_eq!(layout.message.column + 15, inner.column + inner.columns);
         assert_eq!(
@@ -448,11 +466,15 @@ mod tests {
 
     #[test]
     fn a_long_question_breaks_at_clusters_and_is_cut_after_three_rows() {
-        let regions = regions(40);
-        let width = regions.inner.columns;
+        let frame = frame(40);
+        let width = float_regions(&frame, 1).inner.columns;
         let text = "あ".repeat(width * 2);
-        let kind = Kind::Question { yes: "x", no: None };
-        let layout = layout(regions, &text, kind, None);
+        let kind = Kind::Question { yes: "x" };
+        let layout = layout(&frame, &text, kind, None);
+        assert_eq!(
+            layout.regions.inner.rows, 3,
+            "the float is as tall as the label"
+        );
         assert_eq!(layout.label.len(), 3);
         assert!(layout.label_cut);
         for row in &layout.label {
@@ -462,12 +484,8 @@ mod tests {
         // The last row leaves a cell for the `…`.
         assert!(cells_of(&text[layout.label[2].clone()]) < width);
         assert_eq!(layout.input.columns, 0, "nothing is typed in a question");
-        let short = layout_rows("Exit? (y or n)", kind, width);
-        assert_eq!(short, 1);
-    }
-
-    fn layout_rows(text: &str, kind: Kind, width: usize) -> usize {
-        label_rows(text, kind, width)
+        let short = super::layout(&frame, "Exit? (y or n)", kind, None);
+        assert_eq!(short.label.len(), 1);
     }
 
     #[test]
@@ -479,9 +497,34 @@ mod tests {
     }
 
     #[test]
+    fn a_mask_keeps_the_cursor_in_view_and_counts_characters_not_bytes() {
+        let text = Rope::from("日本語abc");
+        assert_eq!(mask(&text, text.len(), 10), (6, 6));
+        assert_eq!(mask(&text, "日本".len(), 10), (6, 2));
+        // Four columns: the cursor at the end shows in the last one.
+        assert_eq!(mask(&text, text.len(), 4), (3, 3));
+        assert_eq!(mask(&text, 0, 4), (4, 0));
+    }
+
+    #[test]
+    fn a_long_name_is_cut_to_its_cells() {
+        let name = "x".repeat(255);
+        let (shown, cut) = cut_to(&name, 40);
+        assert_eq!((cells_of(shown), cut), (39, CUT));
+        assert_eq!(cut_to("notes.md", 40), ("notes.md", ""));
+    }
+
+    #[test]
+    fn a_number_reads_with_spaces_around_it() {
+        assert_eq!(parse_number(" 42 "), Some(42));
+        assert_eq!(parse_number("-3"), Some(-3));
+        assert_eq!(parse_number("4 2"), None);
+    }
+
+    #[test]
     fn nothing_prints_what_was_typed() {
         let outcome = Outcome::Answered {
-            depth: 1,
+            prompt: PromptId(1),
             text: "hunter2".into(),
         };
         assert!(!format!("{outcome:?}").contains("hunter2"));

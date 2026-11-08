@@ -69,7 +69,7 @@ fn walk(ctx: &mut Ctx<'_>, older: bool, at_end: &'static str) -> Result<(), Comm
             Ok(())
         }
         Err(PromptError::Invalid) => Err(CommandError::new(at_end)),
-        Err(_) => Err(CommandError::new("No history here")),
+        Err(error) => Err(CommandError::new(error.to_string())),
     }
 }
 
@@ -115,10 +115,12 @@ mod tests {
             .unwrap();
         assert_eq!(run(&mut editor, "exit-minibuffer", Args::NONE).0, Ok(()));
         assert!(editor.prompt().is_none());
-        let Some(Outcome::Answered { depth, text }) = editor.take_prompt_outcome() else {
+        let id = editor.prompt().map(|prompt| prompt.id());
+        assert!(id.is_none(), "closed");
+        let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
             panic!("no answer");
         };
-        assert_eq!((depth, text.as_str()), (1, "42"));
+        assert_eq!(text, "42");
     }
 
     #[test]

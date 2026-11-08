@@ -11,8 +11,9 @@
 
 use super::Editor;
 use crate::buffer::{Buffer, Replacement};
-use crate::frame;
-use crate::minibuffer::{self, Kind, MAX_DEPTH, Outcome, Prompt, PromptError, PromptLayout};
+use crate::minibuffer::{
+    self, Kind, MAX_DEPTH, Outcome, Prompt, PromptError, PromptId, PromptLayout,
+};
 use crate::window::{ViewSize, Window};
 
 /// What one `C-g` did.
@@ -31,7 +32,11 @@ impl Editor {
     /// # Errors
     ///
     /// [`PromptError::TooDeep`] with [`MAX_DEPTH`] open already. Nothing changes.
-    pub fn open_prompt(&mut self, label: impl Into<String>, kind: Kind) -> Result<(), PromptError> {
+    pub fn open_prompt(
+        &mut self,
+        label: impl Into<String>,
+        kind: Kind,
+    ) -> Result<PromptId, PromptError> {
         if self.prompts.len() >= MAX_DEPTH {
             return Err(PromptError::TooDeep);
         }
@@ -49,7 +54,10 @@ impl Editor {
         let beneath = self.selected;
         self.windows.push(Window::new(buffer));
         self.selected = self.windows.len() - 1;
+        let id = PromptId(self.next_prompt);
+        self.next_prompt += 1;
         self.prompts.push(Prompt {
+            id,
             label,
             kind,
             buffer,
@@ -59,8 +67,8 @@ impl Editor {
             walk: None,
             typed: None,
         });
-        self.fit_prompt_window();
-        Ok(())
+        self.relayout_prompt();
+        Ok(id)
     }
 
     /// Asks `question`, answered by `y` or `n`: `y` runs the command `yes`, and `n` runs
@@ -73,8 +81,8 @@ impl Editor {
         &mut self,
         question: impl Into<String>,
         yes: &'static str,
-    ) -> Result<(), PromptError> {
-        self.open_prompt(question, Kind::Question { yes, no: None })
+    ) -> Result<PromptId, PromptError> {
+        self.open_prompt(question, Kind::Question { yes })
     }
 
     /// The open prompts, the outermost first.
@@ -85,6 +93,11 @@ impl Editor {
     /// The innermost prompt, which shows and takes the keys.
     pub fn prompt(&self) -> Option<&Prompt> {
         self.prompts.last()
+    }
+
+    /// The open prompts' windows, the outermost first, as [`Editor::prompts`] lists them.
+    pub fn prompt_windows(&self) -> impl Iterator<Item = &Window> {
+        self.windows[self.tiled_count()..].iter()
     }
 
     /// The tiled window beneath every prompt, which is the selected window with none
@@ -121,37 +134,39 @@ impl Editor {
             .buffer(prompt.buffer)
             .map(|buffer| buffer.text().to_string())
             .unwrap_or_default();
-        if matches!(prompt.kind, Kind::Number { .. }) && text.trim().parse::<i64>().is_err() {
+        if matches!(prompt.kind, Kind::Number { .. }) && minibuffer::parse_number(&text).is_none() {
             self.prompt_says("Not a number");
             return Err(PromptError::Invalid);
         }
-        let depth = self.prompts.len();
+        let id = prompt.id;
+        // Also not if a buffer that may hold secrets came beneath it since it opened.
+        let records = prompt.records && !self.shows_secret();
         if let Some(prompt) = self.close_innermost()
-            && prompt.records
+            && records
             && let Some(name) = prompt.kind.history()
         {
             self.histories.record(name, text.trim());
         }
-        self.outcome = Some(Outcome::Answered { depth, text });
+        self.outcome = Some(Outcome::Answered { prompt: id, text });
         Ok(())
     }
 
     /// Answers the innermost prompt's question and closes it. `y` leaves its command for
-    /// [`Editor::take_prompt_outcome`]; `n` leaves its other one, if any, and forgets a
-    /// refused exit.
+    /// [`Editor::take_prompt_outcome`]; `n` leaves nothing, and forgets a refused exit.
     ///
     /// # Errors
     ///
     /// [`PromptError::NoPrompt`] unless the innermost prompt is a question.
     pub fn answer_question(&mut self, yes: bool) -> Result<(), PromptError> {
-        let Some(Kind::Question { yes: on_yes, no }) = self.prompt().map(Prompt::kind) else {
+        let Some(Kind::Question { yes: command }) = self.prompt().map(Prompt::kind) else {
             return Err(PromptError::NoPrompt);
         };
         self.close_innermost();
-        if !yes {
+        if yes {
+            self.outcome = Some(Outcome::Run(command));
+        } else {
             self.reset_exit_guard();
         }
-        self.outcome = if yes { Some(on_yes) } else { no }.map(Outcome::Run);
         Ok(())
     }
 
@@ -165,7 +180,7 @@ impl Editor {
     ///
     /// # Errors
     ///
-    /// [`PromptError::NoPrompt`] with no history to walk, and [`PromptError::Invalid`] at
+    /// [`PromptError::NoHistory`] with no history to walk, and [`PromptError::Invalid`] at
     /// its end. Nothing changes.
     pub fn walk_history(&mut self, older: bool) -> Result<(), PromptError> {
         let Some(prompt) = self.prompts.last() else {
@@ -175,7 +190,7 @@ impl Editor {
             .kind
             .history()
             .filter(|_| prompt.records)
-            .ok_or(PromptError::NoPrompt)?;
+            .ok_or(PromptError::NoHistory)?;
         let next = match (prompt.walk, older) {
             (None, true) => Some(0),
             (Some(at), true) => Some(at + 1),
@@ -189,9 +204,10 @@ impl Editor {
         }
         .ok_or(PromptError::Invalid)?;
         let id = prompt.buffer;
+        // What was typed is kept once, as the walk begins, and given back as it ends.
         let typed = match prompt.walk {
             None => self.buffer(id).map(|buffer| buffer.text().to_string()),
-            Some(_) => prompt.typed.clone(),
+            Some(_) => None,
         };
         let end = self.buffer(id).map_or(0, |buffer| buffer.text().len());
         self.apply_edits(
@@ -204,7 +220,11 @@ impl Editor {
         .map_err(|_| PromptError::NoPrompt)?;
         if let Some(prompt) = self.prompts.last_mut() {
             prompt.walk = next;
-            prompt.typed = typed;
+            if typed.is_some() {
+                prompt.typed = typed;
+            } else if next.is_none() {
+                prompt.typed = None;
+            }
         }
         Ok(())
     }
@@ -215,41 +235,47 @@ impl Editor {
         if let Some(prompt) = self.prompts.last_mut() {
             prompt.message = Some(text.into());
         }
-        self.fit_prompt_window();
+        self.relayout_prompt();
     }
 
-    /// Where the innermost prompt's parts go, if one is open.
-    pub fn prompt_layout(&self) -> Option<PromptLayout> {
-        let prompt = self.prompts.last()?;
-        let inner = frame::float_regions(&self.frame, 1).inner.columns;
-        let rows = minibuffer::label_rows(&prompt.label, prompt.kind, inner);
-        let regions = frame::float_regions(&self.frame, rows);
-        Some(minibuffer::layout(
-            regions,
-            &prompt.label,
-            prompt.kind,
-            prompt.message.as_deref(),
-        ))
+    /// Where the innermost prompt's parts go, if one is open. It is worked out when what it
+    /// depends on changes, so a frame or an event only reads it.
+    pub fn prompt_layout(&self) -> Option<&PromptLayout> {
+        self.prompt_layout.as_ref()
     }
 
-    /// Gives the innermost prompt's window the size of where its answer is typed.
-    pub(super) fn fit_prompt_window(&mut self) {
-        let Some(layout) = self.prompt_layout() else {
-            return;
-        };
-        let size = ViewSize::new(1, layout.input.columns);
-        self.windows[self.selected].set_size(size);
+    /// Works out where the innermost prompt's parts go, and gives its window the size of
+    /// where its answer is typed. Called whenever the frame, the innermost prompt or its
+    /// message changes.
+    pub(super) fn relayout_prompt(&mut self) {
+        self.prompt_layout = self.prompts.last().map(|prompt| {
+            minibuffer::layout(
+                &self.frame,
+                &prompt.label,
+                prompt.kind,
+                prompt.message.as_deref(),
+            )
+        });
+        if let Some(layout) = &self.prompt_layout {
+            let size = ViewSize::new(1, layout.input.columns);
+            self.windows[self.selected].set_size(size);
+        }
     }
 
     /// Closes the innermost prompt, with its window and its buffer, and selects the window it
     /// came from again.
     fn close_innermost(&mut self) -> Option<Prompt> {
+        // A passphrase's prompt is a buffer that may hold secrets going off the screen, so a
+        // command running now says nothing more (ADR 0063).
+        if self.prompts.last()?.kind == Kind::Passphrase {
+            self.window_moves_on();
+        }
         let prompt = self.prompts.pop()?;
         self.windows.pop();
         self.selected = prompt.beneath;
         let id = prompt.buffer;
         self.buffers.retain(|(other, _)| *other != id);
-        self.fit_prompt_window();
+        self.relayout_prompt();
         Some(prompt)
     }
 
@@ -273,13 +299,21 @@ impl Editor {
         if let Some(prompt) = self.prompts.last_mut()
             && prompt.message.take().is_some()
         {
-            self.fit_prompt_window();
+            self.relayout_prompt();
         }
+    }
+
+    /// Marks that the command about to run gets a passphrase: what it says stays out of the
+    /// log and `*Messages*`, as around a buffer that may hold secrets, and its echo out of
+    /// the control socket, until the next key (ADR 0072). The dispatcher calls this after
+    /// [`Editor::begin_command`].
+    pub fn command_reads_passphrase(&mut self) {
+        self.passphrase_command = self.in_command();
     }
 
     /// Whether a message said now goes in the innermost prompt: one from a command run while
     /// it is selected.
     pub(super) fn message_goes_in_prompt(&self) -> bool {
-        self.command_left_secret.is_some() && !self.prompts.is_empty()
+        self.in_command() && !self.prompts.is_empty()
     }
 }

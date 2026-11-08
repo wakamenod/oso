@@ -163,3 +163,32 @@ fn an_answer_given_around_a_secret_enters_no_history() {
     editor.submit_prompt().unwrap();
     assert_eq!(editor.histories.entries("line").count(), 0);
 }
+
+#[test]
+fn an_answer_given_once_a_secret_came_beneath_enters_no_history() {
+    let mut editor = editor(3);
+    editor.open_prompt("Go to line: ", NUMBER).unwrap();
+    let path = std::path::PathBuf::from("/tmp/.env");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let secret = editor.add_buffer(buffer);
+    editor.show(secret);
+    assert_eq!(editor.tiled().0.buffer(), secret, "shown beneath");
+    type_in_prompt(&mut editor, "2");
+    editor.submit_prompt().unwrap();
+    assert_eq!(editor.histories.entries("line").count(), 0);
+}
+
+#[test]
+fn a_command_that_gets_a_passphrase_says_nothing_to_the_log() {
+    let mut editor = editor(3);
+    editor.begin_command();
+    editor.command_reads_passphrase();
+    editor.message("Wrong passphrase");
+    editor.end_command();
+    assert_eq!(editor.echo_text(), "Wrong passphrase");
+    assert!(editor.echo_withheld());
+    let id = editor.messages_buffer();
+    let kept = editor.buffer(id).unwrap().text().to_string();
+    assert!(!kept.contains("Wrong passphrase"));
+}

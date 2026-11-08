@@ -207,14 +207,10 @@ fn tenths(n: isize) -> usize {
     n.clamp(0, 10) as usize
 }
 
-fn goto_line(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    let line = match (ctx.answer(), args.prefix()) {
-        (Some(answer), _) => answer
-            .trim()
-            .parse::<i64>()
-            .map_err(|_| CommandError::new("Not a number"))?,
-        (None, Some(n)) => n as i64,
-        (None, None) => return Err(CommandError::new("goto-line needs a line number")),
+fn goto_line(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // A numeric prefix argument comes as the answer too: the dispatcher reads none then.
+    let Some(line) = ctx.number() else {
+        return Err(CommandError::new("goto-line needs a line number"));
     };
     let text = ctx.editor.current().1.text();
     let last = text.line_count() - 1;

@@ -98,7 +98,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         });
         state["scroll"] = scroll_state(window);
     }
-    if !editor.shows_secret() {
+    if !editor.shows_secret() && !editor.echo_withheld() {
         let mut status = Status::default();
         editor.status_into(&mut status);
         state["modeline"] = json!(status.modeline());
@@ -118,20 +118,17 @@ fn prompts_state(editor: &Editor) -> Value {
     editor
         .prompts()
         .iter()
+        .zip(editor.prompt_windows())
         .enumerate()
-        .map(|(index, prompt)| {
+        .map(|(index, (prompt, window))| {
             let kind = match prompt.kind() {
                 Kind::Number { .. } => "number",
                 Kind::Passphrase => "passphrase",
                 Kind::Question { .. } => "question",
             };
             let buffer = editor.buffer(prompt.buffer()).filter(|_| shown);
-            let window = editor.windows().nth(editor.windows().len() - count + index);
-            let cursor = window
-                .filter(|_| shown)
-                .map(|window| window.selections.primary().cursor);
+            let cursor = shown.then(|| window.selections.primary().cursor);
             let region = layout
-                .as_ref()
                 .filter(|_| index + 1 == count)
                 .map(|layout| region_state(layout.regions.outer));
             json!({

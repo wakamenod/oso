@@ -103,8 +103,7 @@ mod tests {
         assert_eq!(
             prompt.kind(),
             Kind::Question {
-                yes: "save-buffers-kill-terminal",
-                no: None
+                yes: "save-buffers-kill-terminal"
             }
         );
     }

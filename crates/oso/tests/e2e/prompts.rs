@@ -92,7 +92,10 @@ fn a_passphrase_reaches_neither_the_socket_nor_the_log() {
     app.send_keys("RET");
     let state = app.state();
     assert_eq!(state["prompts"], json!([]));
-    assert_eq!(state["echo"], "Read a passphrase");
+    assert!(
+        state.get("echo").is_none(),
+        "what its command said is withheld"
+    );
     app.send_keys("<f34> M-p");
     assert_no_secret(&app.call("get-state", None).to_string(), "get-state");
     let log = app.stop_and_read_log();

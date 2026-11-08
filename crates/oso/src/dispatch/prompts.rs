@@ -5,22 +5,24 @@
 //!
 //! A command never waits for an answer. When its [`ArgSpec`] reads one and no prefix
 //! argument stands for it, the dispatcher opens a prompt and keeps the command, with its
-//! prefix argument and the prompt's depth. When that prompt is answered, the command runs
+//! prefix argument and the prompt's id. When that prompt is answered, the command runs
 //! with the answer, through the same `execute` as a key. A prompt that closes otherwise
 //! drops what waited for it. A question's `y` runs the command it names, confirmed, which
 //! checks again what is true by then.
 
 use oso_core::command::{ArgSpec, Args, CommandId, Effects, ExecuteError, Invocation, Prefix};
 use oso_core::editor::Editor;
-use oso_core::minibuffer::{Kind, Outcome};
+use oso_core::minibuffer::{Kind, Outcome, PromptId};
 
 use super::{Dispatcher, Step};
 
-/// A command waiting for the answer of the prompt at `depth`.
+/// A command waiting for the answer of the prompt `prompt`.
 pub(super) struct Reading {
     id: CommandId,
     prefix: Option<Prefix>,
-    depth: usize,
+    prompt: PromptId,
+    /// The answer is a passphrase.
+    passphrase: bool,
 }
 
 /// The most commands one key runs through prompts that end: a question's answer runs
@@ -68,20 +70,16 @@ impl Dispatcher {
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;
-        if let Err(error) = editor.open_prompt(prompt, kind) {
+        match editor.open_prompt(prompt, kind) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix: args.raw(),
+                prompt,
+                passphrase: kind == Kind::Passphrase,
+            }),
             // The innermost prompt is where the person looks.
-            editor.prompt_says(error.to_string());
-            let effects = Effects {
-                redraw: true,
-                ..Effects::default()
-            };
-            return (effects, Ok(()));
+            Err(error) => editor.prompt_says(error.to_string()),
         }
-        self.reading.push(Reading {
-            id,
-            prefix: args.raw(),
-            depth: editor.prompts().len(),
-        });
         let effects = Effects {
             redraw: true,
             ..Effects::default()
@@ -95,16 +93,19 @@ impl Dispatcher {
     pub(super) fn after_prompts(&mut self, editor: &mut Editor) -> Effects {
         let mut effects = Effects::default();
         for _ in 0..MOST_FOLLOW_UPS {
-            let outcome = editor.take_prompt_outcome();
-            let open = editor.prompts().len();
-            let ran = match outcome {
-                Some(Outcome::Answered { depth, text }) => {
+            let ran = match editor.take_prompt_outcome() {
+                Some(Outcome::Answered { prompt, text }) => {
+                    // What a command does with a passphrase stays out of the log (ADR 0072).
+                    self.passphrase_next = self
+                        .reading
+                        .iter()
+                        .any(|reading| reading.prompt == prompt && reading.passphrase);
                     let waiting = self
                         .reading
                         .iter()
-                        .rposition(|reading| reading.depth == depth)
+                        .position(|reading| reading.prompt == prompt)
                         .map(|index| self.reading.remove(index));
-                    self.reading.retain(|reading| reading.depth <= open);
+                    self.forget_closed(editor);
                     waiting.map(|reading| {
                         let invocation = Invocation {
                             answer: Some(&text),
@@ -116,18 +117,24 @@ impl Dispatcher {
                     })
                 }
                 Some(Outcome::Run(name)) => {
-                    self.reading.retain(|reading| reading.depth <= open);
-                    self.registry.lookup(name).map(|id| {
-                        let invocation = Invocation {
-                            confirmed: true,
-                            ..Invocation::default()
-                        };
+                    self.forget_closed(editor);
+                    let Some(id) = self.registry.lookup(name) else {
+                        // A bug: a question named a command that does not exist.
+                        log::error!("a question's answer names no command: {name}");
+                        editor.message(format!("No command named {name}"));
+                        break;
+                    };
+                    let invocation = Invocation {
+                        confirmed: true,
+                        ..Invocation::default()
+                    };
+                    Some(
                         self.execute(editor, id, Args::NONE, invocation, Step::MayJoin)
-                            .0
-                    })
+                            .0,
+                    )
                 }
                 None => {
-                    self.reading.retain(|reading| reading.depth <= open);
+                    self.forget_closed(editor);
                     None
                 }
             };
@@ -140,5 +147,34 @@ impl Dispatcher {
             }
         }
         effects
+    }
+
+    /// Runs `save-buffers-kill-terminal` for the window's close button, as `C-x C-c` does,
+    /// so that both ask the same question (ADR 0059, ADR 0072). Pressed while a question is
+    /// open, it does nothing more.
+    pub fn close_requested(&mut self, editor: &mut Editor) -> Effects {
+        if editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question())
+        {
+            return Effects::default();
+        }
+        let Some(id) = self.registry.lookup("save-buffers-kill-terminal") else {
+            return Effects::default();
+        };
+        let effects = self
+            .execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)
+            .0;
+        effects.union(self.after_prompts(editor))
+    }
+
+    /// Drops the commands that waited for a prompt now closed with no answer.
+    fn forget_closed(&mut self, editor: &Editor) {
+        self.reading.retain(|reading| {
+            editor
+                .prompts()
+                .iter()
+                .any(|prompt| prompt.id() == reading.prompt)
+        });
     }
 }

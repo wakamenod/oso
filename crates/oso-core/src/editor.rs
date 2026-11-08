@@ -26,7 +26,7 @@
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::{DisplaySnapshot, Preedit};
 use crate::frame::{self, FrameLayout, FrameSize};
-use crate::minibuffer::{Histories, Outcome, Prompt};
+use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
 use crate::motion;
 use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
@@ -138,6 +138,15 @@ pub struct Editor {
     histories: Histories,
     /// How the last prompt to end ended, until the dispatcher takes it.
     outcome: Option<Outcome>,
+    /// Where the innermost prompt's parts go, worked out when it changes.
+    prompt_layout: Option<PromptLayout>,
+    /// The number of the next prompt's id.
+    next_prompt: u64,
+    /// The command running got a passphrase, so what it says stays out of the log.
+    passphrase_command: bool,
+    /// The buffer a question about saving over its changed file was asked of, so that `y`
+    /// saves that buffer and no other.
+    save_over_asked: Option<BufferId>,
 }
 
 impl Default for Editor {
@@ -171,6 +180,10 @@ impl Editor {
             prompts: Vec::new(),
             histories: Histories::default(),
             outcome: None,
+            prompt_layout: None,
+            next_prompt: 0,
+            passphrase_command: false,
+            save_over_asked: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));

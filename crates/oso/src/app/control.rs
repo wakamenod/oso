@@ -31,6 +31,7 @@ impl App {
             let _ = reply.send(Err("the editor is shutting down".into()));
             return;
         }
+        let asked_before = self.editor.prompts().len();
         let result = match op {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
@@ -99,7 +100,21 @@ impl App {
                 })
             }
         };
+        self.note_remote_questions(asked_before);
         let _ = reply.send(result);
+    }
+
+    /// Remembers the questions a request opened, past the first `open` prompts, so that keys
+    /// from the window cannot answer them: a person typing does not see a question an agent
+    /// asked appear under their fingers (ADR 0072). The window's `C-g` still closes one.
+    fn note_remote_questions(&mut self, open: usize) {
+        let opened = self.editor.prompts().iter().skip(open);
+        let questions = opened.filter(|prompt| prompt.kind().is_question());
+        self.remote_questions
+            .extend(questions.map(|prompt| prompt.id()));
+        let prompts = self.editor.prompts();
+        self.remote_questions
+            .retain(|id| prompts.iter().any(|prompt| prompt.id() == *id));
     }
 
     /// Ends the process as the emergency save's flows need (ADR 0062): by a panic outside the

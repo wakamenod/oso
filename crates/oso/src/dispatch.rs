@@ -48,6 +48,8 @@ pub struct Dispatcher {
     prompt_keys: [Keymap; 2],
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
+    /// The next command run gets a passphrase.
+    passphrase_next: bool,
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
@@ -76,6 +78,7 @@ impl Dispatcher {
             copy_keys: [list, copy],
             prompt_keys: [minibuffer, question],
             reading: Vec::new(),
+            passphrase_next: false,
             registry,
             global,
             resolver: KeyResolver::new(),
@@ -232,6 +235,16 @@ impl Dispatcher {
                 Err(format!("no command named {name:?}")),
             );
         };
+        // A reply could say something of what is typed there.
+        let passphrase = editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind() == oso_core::minibuffer::Kind::Passphrase);
+        if passphrase && name != "keyboard-quit" {
+            return (
+                Effects::default(),
+                Err("a passphrase prompt is open; only keyboard-quit runs".into()),
+            );
+        }
         // The socket never opens a prompt that waits for a person: it gives the answer.
         let answer;
         let mut invocation = Invocation::default();
@@ -344,6 +357,9 @@ impl Dispatcher {
         };
         self.last = Some((id, repeats));
         editor.begin_command();
+        if std::mem::take(&mut self.passphrase_next) {
+            editor.command_reads_passphrase();
+        }
         editor.begin_undo_group();
         if step == Step::Apart {
             editor.keep_undo_step_apart();

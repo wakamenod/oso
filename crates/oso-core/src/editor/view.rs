@@ -27,7 +27,7 @@ impl Editor {
         }
         // A prompt's window takes where its answer goes, and the window beneath it
         // follows its own cursor too, as the frame changed under both.
-        self.fit_prompt_window();
+        self.relayout_prompt();
         let beneath = tiled != self.selected && self.follow_window(tiled);
         let followed = self.follow_cursor();
         let filled = self.fill_below_last_row(tiled, added);
@@ -149,13 +149,13 @@ impl Editor {
     /// While a prompt is open, this scrolls the window beneath it, and its cursors stay, so
     /// that what the prompt's command acts on does not move (ADR 0072).
     pub fn scroll_view(&mut self, rows: isize) -> bool {
-        let composing = self.preedit.is_some() || !self.prompts.is_empty();
+        let cursors_stay = self.preedit.is_some() || !self.prompts.is_empty();
         let (window, buffer) = self.window_mut(self.tiled_index());
         let display = buffer.display();
         let row_count = display.row_count();
         let scroll = window.scroll();
         let top = window::wheel(scroll.top, window.size(), row_count, rows);
-        if composing {
+        if cursors_stay {
             window.set_scroll(Scroll { top, ..scroll });
             return top != scroll.top;
         }

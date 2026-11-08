@@ -57,11 +57,15 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   modeline, the wheel and `get-state` speak of it.
 - **Its place is a pure function,** `frame::float_regions(layout, rows)`: from the frame's layout and
   the rows of content, the outer cells with the ring and the inner cells. `FrameLayout` keeps its `Copy`
-  and holds no floats, as ADR 0057 wanted. It is worked out again where it is needed, for a few
-  comparisons. `Editor::cursor_area` and `set_frame_size` know the prompt's window.
+  and holds no floats, as ADR 0057 wanted. `minibuffer::layout` places the label, the answer and a
+  message in it, wrapping the label once. `Editor` keeps the result for the innermost prompt, worked
+  out again whenever the frame, the prompt or its message changes (`relayout_prompt`), so a frame or an
+  event only reads it. `Editor::cursor_area` and `set_frame_size` know the prompt's window, and
+  `Editor::prompt_windows` lists the prompts' windows.
 - **One row below the top of the frame (chosen),** so row 0 of the window beneath stays in view above
-  it. A float never sits on the frame's top row then, so the margin question of ADR 0061 does not arise
-  and the renderer needed no change for it.
+  it. A float off the frame's top row leaves the margin question of ADR 0061 alone, so the renderer
+  needed no change for it. A frame too short for the row above puts the float on row 0, where ADR
+  0061's rule holds as it is: the band of the hidden row 0 may show in the margin above the border.
 - **60% of the frame's columns, at least 40, and never closer than 2 columns to an edge (chosen).** It
   does not change while typing or with the length of the prompt.
 - **A border and one cell of padding on every side (chosen).** The ring is one cell, and the border is
@@ -71,8 +75,12 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   area, so the modeline and the echo row stay in view, and a frame of one row has the float over it.
 - **Two layers.** `Layer::FLOAT` (16) holds the float's background and border, one pane over all of it.
   `Layer::FLOAT_CONTENT` (17) holds what is inside, in panes that never overlap one another: up to two of
-  the label, the answer and a message. Glyphs there keep the bands above and below their rows, into the
-  padding, which nothing else draws on (`Layout::with_bands`). M3's menus take numbers above these.
+  the label, the answer and a message, with fixed ids 3 to 7 after the tiled 0 to 2. Glyphs there keep
+  the bands above and below their rows, into the padding, which nothing else draws on
+  (`Layout::with_bands`). The renderer tells them by their layer. In a frame too small for the ring
+  there is no padding, and the bands can reach the row above or below the float; and the bands of a
+  label's rows reach each other's, as rows of one pane do. M3's menus take numbers above these, and
+  give their panes the bands as they decide.
 - **Faces:** `Face::Float` (the float's background and its text), `Face::FloatBorder` and
   `Face::Prompt` (the label), with constants until the theme (M2-23), which checks their contrast.
 
@@ -89,7 +97,9 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   cut with `…` after that. A question takes the whole width, as nothing is typed.
 - **The answer is one row and scrolls sideways (chosen),** as any window does.
 - **Commands work in it unchanged** (ADR 0008), with one rule: a command that changes which buffer a
-  window shows (`C-h e`, `C-h r`, later `C-x b`) refuses there, "Not in the minibuffer". A command that
+  window shows (`C-h e`, `C-h r`, later `C-x b`) refuses there, "Not in the minibuffer", and the
+  editor's `toggle_messages` and `toggle_copies` do nothing while a prompt is open, so the rule holds
+  in `oso-core` whatever calls them. A command that
   needs a file fails there as on any buffer with none. What shows a buffer from outside a command, such as the
   socket's `open-file` and `show-buffer`, shows it in the window beneath, and a load there asks for
   its frames as before.
@@ -115,18 +125,21 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 - **At most 100 answers, and an answer given again moves to the front (chosen).** An answer over 4096
   bytes, or an empty one, is not recorded.
 - **A prompt opened while a buffer that may hold secrets is shown records nothing (chosen),** and walks
-  no history. A passphrase never enters one.
+  no history, and neither does one answered while such a buffer is shown beneath it. A passphrase never
+  enters one.
 
 ### Reading a command's arguments
 
 - **A command declares what it reads, and the dispatcher reads it before running it,** as Emacs's
   `interactive` does. `ArgSpec` gains `Number { prompt, history }` and `Passphrase { prompt }`. M2-17 to
   M2-19 add what they read. The command stays a plain function and never waits.
-- **The dispatcher keeps the waiting command** with its prefix argument and the prompt's depth. When
+- **The dispatcher keeps the waiting command** with its prefix argument and the prompt's id
+  (`PromptId`, which `Editor::open_prompt` returns and `Outcome::Answered` carries). When
   that prompt is answered, the command runs with the answer through the same `execute` as a key, so
   undo, the messages around a secret buffer and the emergency save see one command. A prompt that closes
   with no answer drops what waited for it.
-- **`Args` stays `Copy`:** a command reads its answer through `ctx.answer()`, as typing reads its text
+- **`Args` stays `Copy`:** a command reads its answer through `ctx.answer()`, or `ctx.number()` for a
+  number, parsed as the prompt checked it (`minibuffer::parse_number`), as typing reads its text
   through `ctx.input()` (ADR 0051), so no command's signature changes.
 - **A number typed as a prefix argument stands for the answer:** `C-u 42 M-g g` and `M-4 M-2 M-g g` go
   to line 42 with no prompt. `C-u` alone says nothing of a number and opens the prompt.
@@ -138,7 +151,8 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 ### Questions
 
 - **A command that has to ask ends, and leaves a question** through `Editor::ask`: its text, and the
-  name of the command `y` runs, confirmed. `n` runs nothing. No closure is kept, so commands keep no
+  name of the command `y` runs, confirmed. `n` runs nothing. A name that is no command is a bug, which
+  the log and the echo area say. No closure is kept, so commands keep no
   state, and the answer runs a command like any other, which reads `ctx.confirmed()`.
 - **The command `y` runs checks again,** and asks again if more is at risk than the question said.
 - **Only `y` and `n` answer (chosen);** `C-g` closes the question and runs nothing. `SPC`, `DEL` and
@@ -149,17 +163,23 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 - **A question shows in the same float at the top center (chosen),** ending in `(y or n)`.
 - **A question opens only from a command,** run by a key or by the socket, never from a background
   result such as a finished save, so a `y` typed in prose cannot answer a question that appeared under
-  the person's fingers. A background result says what it found and which key asks.
+  the person's fingers. A background result says what it found and which key asks. **A question a
+  control socket request opened is answered over the socket:** keys from the window say so and leave
+  it open, but `C-g`, so an agent's question cannot take a person's typing as its answer.
 - **The exit guard asks (chosen):** `C-x C-c` and the close button, with a buffer modified or a save
   running, ask `2 modified buffers and 1 save running; exit without saving? (y or n)`. `y` exits as the
   repeat of ADR 0059 did, unless a save has since failed or left its buffer modified, or more buffers are
-  at risk, when it asks again. The close button pressed while the question is open does nothing more.
-  `ExitAction` goes, as the keys and the button now ask the same question.
+  at risk, when it asks again. The close button runs the same command through the dispatcher
+  (`Dispatcher::close_requested`), and pressed while the question is open does nothing more.
+  `ExitAction` goes.
 - **Saving over a file changed on disk asks (chosen).** A save that finds the regular file changed
   keeps it, as before, and remembers what it found there. Its message ends "C-x C-s asks to save over
   it". The next `C-x C-s` asks `notes.md changed on disk since it was read; save over it? (y or n)`, and
   `y` saves with what that save found as the baseline, so the file is replaced only if it is still that
-  file. A change made after the question is kept, and asked about again. A path that now leads elsewhere,
+  file, and only for the buffer the question was asked of. A change made after the question is kept,
+  and asked about again. A file gone meanwhile comes back with the mode it had when read, not the one
+  found. The name in the question is cut to 40 cells first, so that the question's own words and its
+  `(y or n)` always show. A path that now leads elsewhere,
   or a file that is no regular file, is refused as before. A new baseline forgets what was found.
 
 ### Nested prompts
@@ -219,10 +239,15 @@ nowhere else.
   echo area, screenshots are refused, keys typed there leave no timings (ADR 0060), messages around it
   stay out of the log and `*Messages*`, and the IME is off.
 - **On top of that,** it keeps no undo record, so no copy of the text stays in one, enters no history,
-  and is dropped as it closes. M2-14's kills from it must reach neither the kill ring nor the OS
+  and is dropped as it closes, as a buffer that may hold secrets going off the screen. The command that
+  gets it runs with its messages kept out of the log and `*Messages*`, and its echo out of `get-state`
+  (`Editor::command_reads_passphrase`), so an error that quotes the answer goes no further than the
+  screen. While a passphrase prompt is open, `run-command` runs only `keyboard-quit`, as a reply could
+  say something of what is typed there. M2-14's kills from it must reach neither the kill ring nor the OS
   clipboard, while a yank into it works. M3's keyboard macros must not record what is typed there.
   `Debug` of what carries an answer (`Invocation`, `Outcome`, `Prompt`) prints none of it.
-- **It shows one `*` per character (chosen),** in view at the cursor (`PaneContent::Masked`).
+- **It shows one `*` per character (chosen),** in view at the cursor (`PaneContent::Masked`), counted
+  by `minibuffer::mask` from the rope's summaries, which the renderer and the text-grid snapshots share.
 - **The rope's chunks are freed without being overwritten.** `oso-core` has no `unsafe`, and a write
   of zeros before a free can be optimized away without a volatile write. Core dumps are already off
   (ADR 0028). Overwriting needs `zeroize` or a small `unsafe` elsewhere, which the first caller (M4's
@@ -325,7 +350,8 @@ These ADRs stay as they are; this one changes the following:
 - `get-state` keeps describing the tiled window while a prompt is open, and lists only tiled windows.
 - `oso-core`'s public API gains the `minibuffer` module, `frame::float_regions` and `FloatRegions`,
   `Editor`'s prompt methods, `Editor::quit` and `Quit`, `Editor::tiled`, `Editor::start_save_over`,
-  `Editor::may_save_over`, `SaveRefused::ChangedOnDisk`, `ArgSpec`'s two variants, `Ctx::answer`,
+  `Editor::may_save_over`, `Editor::command_reads_passphrase`, `Editor::echo_withheld`,
+  `SaveRefused::ChangedOnDisk`, `ArgSpec`'s two variants, `Ctx::answer`, `Ctx::number`,
   `Ctx::confirmed`, `Invocation`'s two fields and `Verdict::Passphrase`, and loses `ExitAction` and
   `Editor::exit_attempt`. `oso-render`'s gains `Pane::border`, `CursorStyle`, `Masked`, `Layer`'s two
   constants and three `Face` variants.

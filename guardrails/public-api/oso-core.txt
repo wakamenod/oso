@@ -319,6 +319,7 @@ pub fn oso_core::command::Ctx<'a>::invoked(&'a mut oso_core::editor::Editor, oso
 pub fn oso_core::command::Ctx<'a>::key_char(&self) -> core::option::Option<char>
 pub fn oso_core::command::Ctx<'a>::leave_prefix(&mut self, core::option::Option<oso_core::command::Prefix>)
 pub fn oso_core::command::Ctx<'a>::new(&'a mut oso_core::editor::Editor) -> Self
+pub fn oso_core::command::Ctx<'a>::number(&self) -> core::option::Option<i64>
 pub fn oso_core::command::Ctx<'a>::repeats(&self) -> usize
 pub fn oso_core::command::Ctx<'a>::request_exit(&mut self)
 pub fn oso_core::command::Ctx<'a>::request_redraw(&mut self)
@@ -867,11 +868,13 @@ pub fn oso_core::editor::Editor::take_recovery_actions(&mut self) -> alloc::vec:
 pub fn oso_core::editor::Editor::toggle_copies(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::ask(&mut self, impl core::convert::Into<alloc::string::String>, &'static str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
-pub fn oso_core::editor::Editor::open_prompt(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::minibuffer::Kind) -> core::result::Result<(), oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::ask(&mut self, impl core::convert::Into<alloc::string::String>, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::command_reads_passphrase(&mut self)
+pub fn oso_core::editor::Editor::open_prompt(&mut self, impl core::convert::Into<alloc::string::String>, oso_core::minibuffer::Kind) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::prompt(&self) -> core::option::Option<&oso_core::minibuffer::Prompt>
-pub fn oso_core::editor::Editor::prompt_layout(&self) -> core::option::Option<oso_core::minibuffer::PromptLayout>
+pub fn oso_core::editor::Editor::prompt_layout(&self) -> core::option::Option<&oso_core::minibuffer::PromptLayout>
 pub fn oso_core::editor::Editor::prompt_says(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::prompt_windows(&self) -> impl core::iter::traits::iterator::Iterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::prompts(&self) -> &[oso_core::minibuffer::Prompt]
 pub fn oso_core::editor::Editor::quit(&mut self) -> oso_core::editor::Quit
 pub fn oso_core::editor::Editor::submit_prompt(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
@@ -883,6 +886,7 @@ pub fn oso_core::editor::Editor::begin_command(&mut self)
 pub fn oso_core::editor::Editor::clear_echo(&mut self)
 pub fn oso_core::editor::Editor::clear_echo_saying(&mut self, &str)
 pub fn oso_core::editor::Editor::echo(&mut self, impl core::convert::Into<alloc::string::String>)
+pub fn oso_core::editor::Editor::echo_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::end_command(&mut self)
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
@@ -1354,7 +1358,6 @@ pub oso_core::minibuffer::Kind::Number
 pub oso_core::minibuffer::Kind::Number::history: core::option::Option<&'static str>
 pub oso_core::minibuffer::Kind::Passphrase
 pub oso_core::minibuffer::Kind::Question
-pub oso_core::minibuffer::Kind::Question::no: core::option::Option<&'static str>
 pub oso_core::minibuffer::Kind::Question::yes: &'static str
 impl oso_core::minibuffer::Kind
 pub fn oso_core::minibuffer::Kind::history(self) -> core::option::Option<&'static str>
@@ -1370,13 +1373,14 @@ impl core::marker::Copy for oso_core::minibuffer::Kind
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::Kind
 pub enum oso_core::minibuffer::Outcome
 pub oso_core::minibuffer::Outcome::Answered
-pub oso_core::minibuffer::Outcome::Answered::depth: usize
+pub oso_core::minibuffer::Outcome::Answered::prompt: oso_core::minibuffer::PromptId
 pub oso_core::minibuffer::Outcome::Answered::text: alloc::string::String
 pub oso_core::minibuffer::Outcome::Run(&'static str)
 impl core::fmt::Debug for oso_core::minibuffer::Outcome
 pub fn oso_core::minibuffer::Outcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub enum oso_core::minibuffer::PromptError
 pub oso_core::minibuffer::PromptError::Invalid
+pub oso_core::minibuffer::PromptError::NoHistory
 pub oso_core::minibuffer::PromptError::NoPrompt
 pub oso_core::minibuffer::PromptError::TooDeep
 impl core::clone::Clone for oso_core::minibuffer::PromptError
@@ -1394,11 +1398,22 @@ impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptError
 pub struct oso_core::minibuffer::Prompt
 impl oso_core::minibuffer::Prompt
 pub fn oso_core::minibuffer::Prompt::buffer(&self) -> oso_core::buffer::BufferId
+pub fn oso_core::minibuffer::Prompt::id(&self) -> oso_core::minibuffer::PromptId
 pub fn oso_core::minibuffer::Prompt::kind(&self) -> oso_core::minibuffer::Kind
 pub fn oso_core::minibuffer::Prompt::label(&self) -> &str
 pub fn oso_core::minibuffer::Prompt::message(&self) -> core::option::Option<&str>
 impl core::fmt::Debug for oso_core::minibuffer::Prompt
 pub fn oso_core::minibuffer::Prompt::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::minibuffer::PromptId(_)
+impl core::clone::Clone for oso_core::minibuffer::PromptId
+pub fn oso_core::minibuffer::PromptId::clone(&self) -> oso_core::minibuffer::PromptId
+impl core::cmp::Eq for oso_core::minibuffer::PromptId
+impl core::cmp::PartialEq for oso_core::minibuffer::PromptId
+pub fn oso_core::minibuffer::PromptId::eq(&self, &oso_core::minibuffer::PromptId) -> bool
+impl core::fmt::Debug for oso_core::minibuffer::PromptId
+pub fn oso_core::minibuffer::PromptId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::minibuffer::PromptId
+impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptId
 pub struct oso_core::minibuffer::PromptLayout
 pub oso_core::minibuffer::PromptLayout::input: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::label: alloc::vec::Vec<core::ops::range::Range<usize>>
@@ -1413,14 +1428,17 @@ pub fn oso_core::minibuffer::PromptLayout::eq(&self, &oso_core::minibuffer::Prom
 impl core::fmt::Debug for oso_core::minibuffer::PromptLayout
 pub fn oso_core::minibuffer::PromptLayout::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptLayout
+pub const oso_core::minibuffer::CUT: &str
 pub const oso_core::minibuffer::HISTORY_LENGTH: usize
 pub const oso_core::minibuffer::MAX_DEPTH: usize
 pub const oso_core::minibuffer::MAX_ENTRY_BYTES: usize
 pub const oso_core::minibuffer::MAX_LABEL_ROWS: usize
 pub fn oso_core::minibuffer::cells_of(&str) -> usize
+pub fn oso_core::minibuffer::cut_to(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::fit_message(&str, usize) -> (&str, &'static str)
-pub fn oso_core::minibuffer::label_rows(&str, oso_core::minibuffer::Kind, usize) -> usize
-pub fn oso_core::minibuffer::layout(oso_core::frame::FloatRegions, &str, oso_core::minibuffer::Kind, core::option::Option<&str>) -> oso_core::minibuffer::PromptLayout
+pub fn oso_core::minibuffer::layout(&oso_core::frame::FrameLayout, &str, oso_core::minibuffer::Kind, core::option::Option<&str>) -> oso_core::minibuffer::PromptLayout
+pub fn oso_core::minibuffer::mask(&oso_core::rope::Rope, usize, usize) -> (usize, usize)
+pub fn oso_core::minibuffer::parse_number(&str) -> core::option::Option<i64>
 pub mod oso_core::motion
 pub enum oso_core::motion::Edge
 pub oso_core::motion::Edge::End

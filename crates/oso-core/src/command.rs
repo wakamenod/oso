@@ -296,6 +296,12 @@ impl<'a> Ctx<'a> {
         self.invocation.answer
     }
 
+    /// The whole number a prompt read for a command whose [`ArgSpec`] is `Number`, parsed as
+    /// the prompt checked it. `None` for a command that reads none.
+    pub fn number(&self) -> Option<i64> {
+        self.answer().and_then(crate::minibuffer::parse_number)
+    }
+
     /// Whether the command runs because the person answered `y` to a question it asked
     /// (ADR 0072). It checks again what is true now: the answer agrees only to what the
     /// question said.

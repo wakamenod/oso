@@ -16,12 +16,9 @@ use oso_render::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Sp
 /// The most panes a float takes.
 pub(super) const MAX_PANES: usize = 5;
 
-/// What ends a label that was cut.
-const CUT: &str = "…";
-
 /// What the innermost prompt shows, worked out for one frame.
 pub(super) struct Parts<'a> {
-    layout: PromptLayout,
+    layout: &'a PromptLayout,
     label: &'a str,
     kind: Kind,
     message: Option<&'a str>,
@@ -36,20 +33,9 @@ impl<'a> Parts<'a> {
         let layout = editor.prompt_layout()?;
         let mask = (prompt.kind() == Kind::Passphrase).then(|| {
             let (window, buffer) = editor.current();
-            let text = buffer.text();
             let cursor = window.selections.primary().cursor;
-            let count = |range| {
-                text.chunks_in_range(range)
-                    .map(|chunk| chunk.chars().count())
-                    .sum::<usize>()
-            };
-            let typed = count(0..text.len());
-            let before = count(0..cursor);
-            // The cursor stays in view, at the last column at most.
-            let shown = layout.input.columns.max(1);
-            let start = before.saturating_sub(shown - 1);
-            let stars = typed.saturating_sub(start).min(shown);
-            ("*".repeat(stars), before - start)
+            let (stars, column) = minibuffer::mask(buffer.text(), cursor, layout.input.columns);
+            ("*".repeat(stars), column)
         });
         Some(Self {
             layout,
@@ -69,7 +55,7 @@ impl<'a> Parts<'a> {
             .map(|(index, range)| {
                 let last = index + 1 == rows.len();
                 let cut = if last && self.layout.label_cut {
-                    CUT
+                    minibuffer::CUT
                 } else {
                     ""
                 };

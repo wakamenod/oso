@@ -95,6 +95,9 @@ pub struct App {
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
     #[cfg(feature = "dev")]
     timings: dev::Timings,
+    /// Questions a control socket request opened, which keys from the window do not answer.
+    #[cfg(feature = "dev")]
+    remote_questions: Vec<oso_core::minibuffer::PromptId>,
     /// Positions handed over from the previous instance, until their file has
     /// loaded.
     #[cfg(feature = "dev")]
@@ -130,6 +133,8 @@ impl App {
             dev: None,
             #[cfg(feature = "dev")]
             timings: dev::Timings::new(started),
+            #[cfg(feature = "dev")]
+            remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
             restore: None,
         }

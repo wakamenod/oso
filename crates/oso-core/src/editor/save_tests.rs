@@ -449,19 +449,51 @@ fn a_save_over_a_changed_file_needs_agreeing_and_goes_over_the_file_found() {
     let _ = job(&mut editor);
     editor.save_failed(id);
     editor.file_changed_on_disk(id);
-    editor.may_save_over(id, stamp(9));
+    let found = FileStamp {
+        mode: 0o666,
+        ..stamp(9)
+    };
+    editor.may_save_over(id, found);
+    assert_eq!(
+        editor.start_save_over(),
+        Err(SaveRefused::ChangedOnDisk),
+        "nothing was asked yet"
+    );
     assert_eq!(editor.start_save(), Err(SaveRefused::ChangedOnDisk));
     assert_eq!(editor.start_save_over(), Ok(false));
     let job = job(&mut editor);
     assert_eq!(
         job.baseline.and_then(|baseline| baseline.file),
         Some(stamp(9)),
-        "it replaces only the file that save found"
+        "it replaces only the file that save found, and keeps the mode as read"
     );
     editor.save_finished(id, job.content, stamp(10));
     assert_eq!(
         editor.start_save(),
         Ok(false),
         "an ordinary save again, with nothing to go over"
+    );
+}
+
+#[test]
+fn y_saves_over_only_the_buffer_it_was_asked_about() {
+    let mut editor = visiting(b"abc\n");
+    let first = editor.window().buffer();
+    let mut other = Buffer::visiting("/nowhere/other.txt".into());
+    other.finish_empty();
+    let second = editor.add_buffer(other);
+    for id in [first, second] {
+        editor.show(id);
+        insert(&mut editor, 0, "x");
+        editor.file_changed_on_disk(id);
+        editor.may_save_over(id, stamp(9));
+    }
+    editor.show(first);
+    assert_eq!(editor.start_save(), Err(SaveRefused::ChangedOnDisk));
+    editor.show(second);
+    assert_eq!(
+        editor.start_save_over(),
+        Err(SaveRefused::ChangedOnDisk),
+        "asked about the first, so the second asks again"
     );
 }

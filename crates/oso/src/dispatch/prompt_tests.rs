@@ -220,6 +220,31 @@ fn run_command_gives_the_answer_and_never_waits_for_a_person() {
     assert!(editor.prompt().is_none());
 }
 
+#[test]
+fn the_close_button_asks_the_exit_question_once() {
+    let (mut d, mut editor) = on(LINES);
+    send(&mut d, &mut editor, "x");
+    assert!(!d.close_requested(&mut editor).exit);
+    assert!(
+        editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question())
+    );
+    assert!(!d.close_requested(&mut editor).exit, "pressed again");
+    assert_eq!(editor.prompts().len(), 1);
+    assert!(send(&mut d, &mut editor, "y").exit);
+}
+
+#[test]
+fn the_close_button_exits_at_once_with_nothing_at_risk_and_asks_from_a_prompt() {
+    let (mut d, mut editor) = on(LINES);
+    assert!(d.close_requested(&mut editor).exit);
+    let (mut d, mut editor) = on(LINES);
+    send(&mut d, &mut editor, "x M-g g");
+    assert!(!d.close_requested(&mut editor).exit);
+    assert_eq!(editor.prompts().len(), 2, "a question over the prompt");
+}
+
 #[cfg(feature = "dev")]
 mod passphrase {
     use super::*;
@@ -245,18 +270,31 @@ mod passphrase {
         assert!(!editor.shows_secret());
         let messages = kept_messages(&editor);
         assert!(messages.iter().all(|message| !message.contains("hunter")));
-        assert_eq!(
-            messages.last().map(String::as_str),
-            Some("Read a passphrase")
+        assert!(
+            messages
+                .iter()
+                .all(|message| message != "Read a passphrase"),
+            "what its command says stays out of *Messages*"
         );
+        let mut status = oso_core::editor::Status::default();
+        editor.status_into(&mut status);
+        assert_eq!(status.echo, "Read a passphrase", "but shows");
+        let state = crate::dev::get_state(&editor, &[], None);
+        assert!(state.get("echo").is_none(), "and not over the socket");
         send(&mut d, &mut editor, "<f34> M-p");
         assert_eq!(answer(&editor), "", "it entered no history");
     }
 
     #[test]
-    fn run_command_refuses_a_passphrase() {
+    fn run_command_refuses_a_passphrase_and_runs_only_c_g_while_one_is_open() {
         let (mut d, mut editor) = on(LINES);
         let (_, result) = d.run_command(&mut editor, "dev-read-passphrase", None);
         assert!(result.unwrap_err().contains("through send-keys"));
+        send(&mut d, &mut editor, "<f34> a b");
+        let (_, result) = d.run_command(&mut editor, "backward-char", None);
+        assert!(result.unwrap_err().contains("passphrase prompt is open"));
+        let (_, result) = d.run_command(&mut editor, "keyboard-quit", None);
+        assert_eq!(result, Ok(()));
+        assert!(editor.prompt().is_none());
     }
 }

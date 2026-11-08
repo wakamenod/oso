@@ -5,6 +5,10 @@
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
 use oso_core::editor::SaveRefused;
+use oso_core::minibuffer;
+
+/// The most cells of a file's name a question says.
+const NAME_CELLS: usize = 40;
 
 /// The save commands.
 pub const COMMANDS: &[Command] = &[Command {
@@ -33,8 +37,10 @@ fn save_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             Ok(())
         }
         Err(SaveRefused::ChangedOnDisk) => {
-            let name = ctx.editor.current().1.name();
-            let question = format!("{name} changed on disk since it was read; save over it?");
+            // The name comes from a file, so it is cut first: the question's own words and
+            // its `(y or n)` always show.
+            let (name, cut) = minibuffer::cut_to(ctx.editor.current().1.name(), NAME_CELLS);
+            let question = format!("{name}{cut} changed on disk since it was read; save over it?");
             super::session::ask(ctx, question, "save-buffer")
         }
         Err(refused) => Err(CommandError::new(refused.to_string())),
