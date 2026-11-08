@@ -30,6 +30,7 @@ use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
     NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSScreen, NSWindow,
+    NSWindowOcclusionState,
 };
 use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
@@ -172,6 +173,8 @@ struct State {
     /// The size and the scale the handler was last told, so that it hears only changes.
     reported_size: Cell<(u32, u32)>,
     reported_scale: Cell<f64>,
+    /// Whether the handler was last told the window is occluded, once it has been told.
+    reported_occluded: Cell<Option<bool>>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
 }
 
@@ -193,6 +196,7 @@ impl State {
             exit_waiting: Cell::new(false),
             reported_size: Cell::new((0, 0)),
             reported_scale: Cell::new(0.0),
+            reported_occluded: Cell::new(None),
             panic: RefCell::new(None),
         }
     }
@@ -382,6 +386,9 @@ impl State {
         if self.dispatch.try_borrow().is_err() {
             return;
         }
+        // A window that came back into view with no notice of it: a frame skipped while it was
+        // hidden waits for this, and would otherwise wait for good.
+        self.report_occlusion();
         self.deliver(Delivery::BeforeWaiting);
         if self.redraw.take() && self.window.get().is_some() {
             self.deliver(Delivery::Window(Event::RedrawRequested));
@@ -395,6 +402,21 @@ impl State {
             hooks.wake.wake_up();
         }
         hooks.wake_at(self.deadline.get());
+    }
+
+    /// Tells the handler whether the window is hidden by others, as AppKit has it now, if that
+    /// differs from what it was last told. The notice of a change calls this, and so does every
+    /// turn of the loop before it waits, in case a notice never comes.
+    fn report_occlusion(&'static self) {
+        let Some((window, _, _)) = self.window.get() else {
+            return;
+        };
+        let occluded = !window
+            .occlusionState()
+            .contains(NSWindowOcclusionState::Visible);
+        if let Some(occluded) = news(self.reported_occluded.replace(Some(occluded)), occluded) {
+            self.deliver(Delivery::Window(Event::Occluded(occluded)));
+        }
     }
 
     fn resized_event(&self) -> Event<'static> {
@@ -458,4 +480,32 @@ pub(super) fn primary_screen_height(mtm: MainThreadMarker) -> f64 {
     NSScreen::screens(mtm)
         .firstObject()
         .map_or(0.0, |screen| screen.frame().size.height)
+}
+
+/// What to tell of a value that was `last` and is `now`: the new one, if it changed or was
+/// never told.
+fn news(last: Option<bool>, now: bool) -> Option<bool> {
+    (last != Some(now)).then_some(now)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::news;
+
+    #[test]
+    fn occlusion_is_told_once_per_change() {
+        assert_eq!(news(None, false), Some(false), "the first time");
+        assert_eq!(news(Some(false), false), None);
+        assert_eq!(news(Some(false), true), Some(true), "hidden");
+        assert_eq!(
+            news(Some(true), true),
+            None,
+            "still hidden: no second notice"
+        );
+        assert_eq!(
+            news(Some(true), false),
+            Some(false),
+            "back in view, notice or not"
+        );
+    }
 }
