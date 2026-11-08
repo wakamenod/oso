@@ -31,6 +31,23 @@ impl App {
             let _ = reply.send(Err("the editor is shutting down".into()));
             return;
         }
+        self.socket_input = true;
+        let result = self.answer_control(event_loop, op, received, reply);
+        self.socket_input = false;
+        if let Some((reply, result)) = result {
+            let _ = reply.send(result);
+        }
+    }
+
+    /// Does what a request asks, and returns its reply unless one has gone or will go
+    /// from elsewhere.
+    fn answer_control(
+        &mut self,
+        event_loop: &Loop<'_>,
+        op: dev::UiOp,
+        received: Instant,
+        reply: std::sync::mpsc::Sender<dev::Reply>,
+    ) -> Option<(std::sync::mpsc::Sender<dev::Reply>, dev::Reply)> {
         let result = match op {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
@@ -59,7 +76,7 @@ impl App {
                 match dev::get_text(&self.editor, start_row, rows) {
                     Ok(job) => {
                         job.spawn(reply);
-                        return;
+                        return None;
                     }
                     Err(message) => Err(message),
                 }
@@ -78,7 +95,7 @@ impl App {
             }
             dev::UiOp::Screenshot => {
                 self.take_screenshot(reply);
-                return;
+                return None;
             }
             dev::UiOp::ExportState => handoff::export(
                 &self.editor,
@@ -100,7 +117,7 @@ impl App {
                 })
             }
         };
-        let _ = reply.send(result);
+        Some((reply, result))
     }
 
     /// Ends the process as the emergency save's flows need (ADR 0062): by a panic outside the

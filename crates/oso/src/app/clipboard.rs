@@ -6,15 +6,36 @@
 
 use oso_core::command::Effects;
 use oso_core::kill::{self, Fingerprint, FromClipboard};
+use oso_core::rope::Rope;
 use oso_platform::clipboard::{self, Clipboard, Contents, Event, Source};
 
 use super::shell::{Loop, Waker};
 use super::{App, UserEvent};
 
-/// Starts the clipboard's threads over `source`, reporting through `waker`. With no
-/// threads, kills stay in the ring, and a yank finds nothing on the clipboard.
+/// What the clipboard's threads report, in the editor's terms.
+#[derive(Debug)]
+pub enum ClipboardEvent {
+    /// The entry `id` reached the clipboard as text with this fingerprint.
+    Written { id: u64, fingerprint: Fingerprint },
+    /// The answer to a read.
+    Read(FromClipboard),
+}
+
+/// Starts the clipboard's threads over `source`, reporting through `waker`. Text from
+/// another app is built into a rope there, off the UI thread. With no threads, kills
+/// stay in the ring, and a yank finds nothing on the clipboard.
 pub(super) fn start(source: Source, waker: Waker) -> Option<Clipboard> {
     let report = move |event| {
+        let event = match event {
+            Event::Written {
+                id,
+                fingerprint: of,
+            } => ClipboardEvent::Written {
+                id,
+                fingerprint: fingerprint(of),
+            },
+            Event::Read(contents) => ClipboardEvent::Read(answer(contents)),
+        };
         waker.send(UserEvent::Clipboard(event));
     };
     match Clipboard::start(source, kill::MAX_CLIPBOARD, report) {
@@ -43,7 +64,7 @@ fn answer(contents: Contents) -> FromClipboard {
             concealed,
             fingerprint: of,
         } => FromClipboard::Text {
-            text,
+            text: Rope::from(text.as_str()),
             concealed,
             fingerprint: fingerprint(of),
         },
@@ -53,49 +74,93 @@ fn answer(contents: Contents) -> FromClipboard {
     }
 }
 
+/// Whether a yank may read `clipboard`: always for the person's own keys, and for input
+/// from the dev socket only from a clipboard in memory, so that no client reads the
+/// person's clipboard through oso (ADR 0074).
+fn may_read(from_socket: bool, in_memory: bool) -> bool {
+    !from_socket || in_memory
+}
+
+#[cfg(feature = "dev")]
+fn is_memory(clipboard: &Clipboard) -> bool {
+    clipboard.memory().is_some()
+}
+
+#[cfg(not(feature = "dev"))]
+fn is_memory(_: &Clipboard) -> bool {
+    false
+}
+
 impl App {
     /// Hands the clipboard what a command killed, and starts a read a yank waits for.
-    /// Returns what a yank asked for when there is no clipboard to wait for.
+    /// Returns what a yank did that was answered at once: with no clipboard, or for input
+    /// from the dev socket, which never reads the system's.
     pub(super) fn sync_clipboard(&mut self) -> Effects {
-        let write = self.editor.take_clipboard_write();
-        let Some(clipboard) = &self.clipboard else {
-            let mut effects = Effects::default();
-            while self.dispatcher.take_clipboard_request() {
-                let more = self
-                    .dispatcher
-                    .clipboard_answered(&mut self.editor, &FromClipboard::Nothing);
-                effects = effects.union(more);
-                // What it did may have killed, which has nowhere to go either.
-                drop(self.editor.take_clipboard_write());
+        self.write_clipboard();
+        let mut effects = Effects::default();
+        while self.dispatcher.take_clipboard_request() {
+            match &self.clipboard {
+                Some(clipboard) if may_read(self.input_from_socket(), is_memory(clipboard)) => {
+                    clipboard.read();
+                    break;
+                }
+                _ => {
+                    let more = self
+                        .dispatcher
+                        .clipboard_answered(&mut self.editor, &FromClipboard::Nothing);
+                    effects = effects.union(more);
+                    self.write_clipboard();
+                }
             }
-            return effects;
-        };
-        if let Some(write) = write {
+        }
+        effects
+    }
+
+    /// Hands the clipboard the newest kill, if a command has killed since.
+    fn write_clipboard(&mut self) {
+        let write = self.editor.take_clipboard_write();
+        if let (Some(write), Some(clipboard)) = (write, &self.clipboard) {
             let (id, concealed) = (write.id, write.secret);
             clipboard.write(id, concealed, Box::new(move || write.text()));
         }
-        if self.dispatcher.take_clipboard_request() {
-            clipboard.read();
-        }
-        Effects::default()
+    }
+
+    /// Whether the input being handled came through the dev socket.
+    #[cfg(feature = "dev")]
+    fn input_from_socket(&self) -> bool {
+        self.socket_input
+    }
+
+    #[cfg(not(feature = "dev"))]
+    fn input_from_socket(&self) -> bool {
+        false
     }
 
     /// Takes in what the clipboard's threads report.
-    pub(super) fn clipboard_event(&mut self, event_loop: &Loop<'_>, event: Event) {
+    pub(super) fn clipboard_event(&mut self, event_loop: &Loop<'_>, event: ClipboardEvent) {
         match event {
-            Event::Written {
-                id,
-                fingerprint: of,
-            } => {
-                self.editor.note_clipboard_written(id, fingerprint(of));
+            ClipboardEvent::Written { id, fingerprint } => {
+                self.editor.note_clipboard_written(id, fingerprint);
             }
-            Event::Read(contents) => {
-                let answer = answer(contents);
+            ClipboardEvent::Read(answer) => {
                 let effects = self
                     .dispatcher
                     .clipboard_answered(&mut self.editor, &answer);
                 self.apply(event_loop, effects);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::may_read;
+
+    #[test]
+    fn the_socket_never_reads_the_system_clipboard() {
+        assert!(may_read(false, false), "the person's own keys");
+        assert!(may_read(false, true));
+        assert!(may_read(true, true), "a clipboard in memory, for the flows");
+        assert!(!may_read(true, false));
     }
 }

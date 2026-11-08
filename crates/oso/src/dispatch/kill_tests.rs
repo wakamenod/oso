@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use oso_core::buffer::{Buffer, Verdict};
 use oso_core::editor::Editor;
 use oso_core::kill::{Fingerprint, FromClipboard, Piece};
+use oso_core::rope::Rope;
 use oso_core::selection::MarkActive;
 
 use super::Dispatcher;
@@ -37,7 +38,7 @@ fn last_message(editor: &Editor) -> Option<String> {
 
 fn from_app(text: &str, concealed: bool, hash: u64) -> FromClipboard {
     FromClipboard::Text {
-        text: text.into(),
+        text: Rope::from(text),
         concealed,
         fingerprint: Fingerprint {
             len: text.len(),

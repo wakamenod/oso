@@ -63,7 +63,8 @@ impl Backend for Pasteboard {
             let concealed = pasteboard
                 .types()
                 .is_some_and(|types| types.containsObject(&marker));
-            // This can wait on the app that copied the text, if it hands it over lazily.
+            // This can wait on the app that copied the text, if it hands it over lazily, and
+            // copies it whole: the pasteboard has no cheap way to ask its size first.
             let Some(text) = pasteboard.stringForType(&NSString::from_str(PLAIN_TEXT)) else {
                 return Found::Nothing;
             };

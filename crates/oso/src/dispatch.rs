@@ -290,8 +290,7 @@ impl Dispatcher {
             // The text stays out of it, as it does from a log.
             editor.echo(format!("{keys} is undefined"));
             self.resolver.reset();
-            self.forget_keys();
-            editor.forget_kills();
+            self.forget_keys(editor);
             return Effects::default();
         }
         match Layers::global(&self.global).text_command() {
@@ -309,9 +308,10 @@ impl Dispatcher {
 
     /// An undefined or cancelled key sequence drops the prefix argument and ends a
     /// run of one command.
-    fn forget_keys(&mut self) {
+    fn forget_keys(&mut self, editor: &mut Editor) {
         self.prefix = None;
         self.last = None;
+        editor.forget_kills();
     }
 
     /// Runs one command, invoked as `invocation` says but for its repeats, which are
@@ -357,7 +357,7 @@ impl Dispatcher {
         let result = self.registry.execute(id, &mut ctx, args);
         drop(boundary);
         let mut effects = ctx.effects();
-        editor.end_kill_command(effects.prefix.is_some());
+        editor.note_command_ended(effects.prefix.is_some());
         self.prefix = effects.prefix.take();
         match &result {
             Ok(()) => editor.end_undo_group(),
@@ -440,16 +440,14 @@ impl Dispatcher {
                     _ => log::debug!("{} is undefined", display_keys(keys)),
                 }
                 editor.echo(format!("{} is undefined", display_keys(keys)));
-                self.forget_keys();
-                editor.forget_kills();
+                self.forget_keys(editor);
                 return Effects::default();
             }
             Resolution::Cancelled => {
                 editor.reset_exit_guard();
                 log::debug!("Quit");
                 editor.echo("Quit");
-                self.forget_keys();
-                editor.forget_kills();
+                self.forget_keys(editor);
                 return Effects::default();
             }
         };

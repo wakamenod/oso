@@ -29,10 +29,12 @@ use std::time::{Duration, Instant};
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(any(test, feature = "dev"))]
 mod memory;
 #[cfg(not(target_os = "macos"))]
 mod none;
 
+#[cfg(any(test, feature = "dev"))]
 pub use memory::MemoryClipboard;
 
 /// How long a read may take before the host is told [`Contents::NoAnswer`].
@@ -44,7 +46,9 @@ pub enum Source {
     /// The system's. On a system with no backend yet, there is none: a write does
     /// nothing, and a read finds nothing.
     System,
-    /// One in memory, for tests and benchmarks, so that they never touch the person's.
+    /// One in memory, for tests and the end-to-end flows, so that they never touch the
+    /// person's. Only dev builds have it.
+    #[cfg(any(test, feature = "dev"))]
     Memory,
 }
 
@@ -134,13 +138,13 @@ trait Backend {
 
 /// Text a write computes on the backend's thread, so that joining it costs the UI thread
 /// nothing.
-pub type Text = Box<dyn FnOnce() -> String + Send>;
+pub type MakeText = Box<dyn FnOnce() -> String + Send>;
 
 enum Job {
     Write {
         id: u64,
         concealed: bool,
-        text: Text,
+        text: MakeText,
     },
     Read,
 }
@@ -149,7 +153,7 @@ enum Message {
     Write {
         id: u64,
         concealed: bool,
-        text: Text,
+        text: MakeText,
     },
     Read,
     Written {
@@ -165,14 +169,13 @@ enum Message {
 /// done what it was asked.
 pub struct Clipboard {
     messages: Sender<Message>,
+    #[cfg(any(test, feature = "dev"))]
     memory: Option<MemoryClipboard>,
 }
 
 impl fmt::Debug for Clipboard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Clipboard")
-            .field("memory", &self.memory.is_some())
-            .finish_non_exhaustive()
+        f.debug_struct("Clipboard").finish_non_exhaustive()
     }
 }
 
@@ -188,19 +191,20 @@ impl Clipboard {
         max_read: usize,
         report: impl Fn(Event) + Send + 'static,
     ) -> io::Result<Self> {
-        let (memory, backend): (Option<MemoryClipboard>, Box<dyn Backend + Send>) = match source {
+        match source {
+            #[cfg(any(test, feature = "dev"))]
             Source::Memory => {
                 let memory = MemoryClipboard::default();
-                (Some(memory.clone()), Box::new(memory))
+                let mut clipboard = Self::spawn(Box::new(memory.clone()), max_read, report)?;
+                clipboard.memory = Some(memory);
+                Ok(clipboard)
             }
-            Source::System => (None, system()),
-        };
-        Self::spawn(backend, memory, max_read, report)
+            Source::System => Self::spawn(system(), max_read, report),
+        }
     }
 
     fn spawn(
         backend: Box<dyn Backend + Send>,
-        memory: Option<MemoryClipboard>,
         max_read: usize,
         report: impl Fn(Event) + Send + 'static,
     ) -> io::Result<Self> {
@@ -214,12 +218,17 @@ impl Clipboard {
         thread::Builder::new()
             .name("clipboard answers".into())
             .spawn(move || run_front(&inbox, &jobs, &report))?;
-        Ok(Self { messages, memory })
+        Ok(Self {
+            messages,
+            #[cfg(any(test, feature = "dev"))]
+            memory: None,
+        })
     }
 
     /// Puts the text `text` makes on the clipboard, marked concealed if `concealed`, and
-    /// reports [`Event::Written`] with `id`. Writes happen in order.
-    pub fn write(&self, id: u64, concealed: bool, text: Text) {
+    /// reports [`Event::Written`] with `id`. Writes happen in order, and one not yet
+    /// started when a newer one comes is dropped, with no report.
+    pub fn write(&self, id: u64, concealed: bool, text: MakeText) {
         // A send fails only once the threads have ended, with the process.
         let _ = self.messages.send(Message::Write {
             id,
@@ -234,6 +243,7 @@ impl Clipboard {
     }
 
     /// The clipboard in memory, if it was started over one.
+    #[cfg(any(test, feature = "dev"))]
     pub fn memory(&self) -> Option<&MemoryClipboard> {
         self.memory.as_ref()
     }
@@ -268,13 +278,33 @@ fn run_backend(
         hash: keys.hash_one(text),
     };
     let mut own = None;
-    for job in work {
+    // A job taken from the queue while looking for a newer write.
+    let mut next = None;
+    loop {
+        let Some(job) = next.take().or_else(|| work.recv().ok()) else {
+            return;
+        };
         let message = match job {
             Job::Write {
-                id,
-                concealed,
-                text,
+                mut id,
+                mut concealed,
+                mut text,
             } => {
+                // A newer write replaces one not yet done, so kills in a row cost one
+                // write, and a read waits behind one at most.
+                while let Ok(later) = work.try_recv() {
+                    match later {
+                        Job::Write {
+                            id: newer,
+                            concealed: marked,
+                            text: newer_text,
+                        } => (id, concealed, text) = (newer, marked, newer_text),
+                        read @ Job::Read => {
+                            next = Some(read);
+                            break;
+                        }
+                    }
+                }
                 let text = text();
                 own = backend.write(&text, concealed);
                 Message::Written {

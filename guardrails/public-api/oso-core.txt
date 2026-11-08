@@ -70,6 +70,7 @@ pub oso_core::buffer::Verdict::Yanked
 impl oso_core::buffer::Verdict
 pub const fn oso_core::buffer::Verdict::is_withheld(self) -> bool
 pub const fn oso_core::buffer::Verdict::may_be_copied(self) -> bool
+pub const fn oso_core::buffer::Verdict::may_be_killed(self) -> bool
 impl core::clone::Clone for oso_core::buffer::Verdict
 pub fn oso_core::buffer::Verdict::clone(&self) -> oso_core::buffer::Verdict
 impl core::cmp::Eq for oso_core::buffer::Verdict
@@ -902,16 +903,6 @@ pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::O
 pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::clipboard_holds_secret(&self, oso_core::kill::Fingerprint) -> bool
-pub fn oso_core::editor::Editor::end_kill_command(&mut self, bool)
-pub fn oso_core::editor::Editor::forget_kills(&mut self)
-pub fn oso_core::editor::Editor::kill(&mut self, impl core::iter::traits::collect::IntoIterator<Item = core::ops::range::Range<usize>>, oso_core::kill::Direction, bool) -> core::result::Result<(), oso_core::buffer::EditError>
-pub fn oso_core::editor::Editor::kill_ring(&self) -> &oso_core::kill::KillRing
-pub fn oso_core::editor::Editor::note_clipboard_written(&mut self, u64, oso_core::kill::Fingerprint)
-pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option::Option<oso_core::editor::ClipboardWrite>
-pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, &str, bool, oso_core::kill::Fingerprint)
-pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
-impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::confirm_exit(&mut self, oso_core::editor::ExitAction) -> core::result::Result<(), oso_core::editor::ExitRefused>
 pub fn oso_core::editor::Editor::exit_attempt(&self) -> core::option::Option<oso_core::editor::ExitAction>
 pub fn oso_core::editor::Editor::file_changed_on_disk(&mut self, oso_core::buffer::BufferId)
@@ -935,6 +926,15 @@ pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::forget_kills(&mut self)
+pub fn oso_core::editor::Editor::kill(&mut self, impl core::iter::traits::collect::IntoIterator<Item = core::ops::range::Range<usize>>, oso_core::kill::Direction, bool) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::kill_ring(&self) -> &oso_core::kill::KillRing
+pub fn oso_core::editor::Editor::note_clipboard_written(&mut self, u64, oso_core::kill::Fingerprint)
+pub fn oso_core::editor::Editor::note_command_ended(&mut self, bool)
+pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option::Option<oso_core::editor::ClipboardWrite>
+pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
+pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor
@@ -1346,16 +1346,15 @@ pub oso_core::kill::FromClipboard::Own
 pub oso_core::kill::FromClipboard::Text
 pub oso_core::kill::FromClipboard::Text::concealed: bool
 pub oso_core::kill::FromClipboard::Text::fingerprint: oso_core::kill::Fingerprint
-pub oso_core::kill::FromClipboard::Text::text: alloc::string::String
+pub oso_core::kill::FromClipboard::Text::text: oso_core::rope::Rope
 pub oso_core::kill::FromClipboard::TooLarge
 impl core::clone::Clone for oso_core::kill::FromClipboard
 pub fn oso_core::kill::FromClipboard::clone(&self) -> oso_core::kill::FromClipboard
 impl core::cmp::Eq for oso_core::kill::FromClipboard
 impl core::cmp::PartialEq for oso_core::kill::FromClipboard
-pub fn oso_core::kill::FromClipboard::eq(&self, &oso_core::kill::FromClipboard) -> bool
+pub fn oso_core::kill::FromClipboard::eq(&self, &Self) -> bool
 impl core::fmt::Debug for oso_core::kill::FromClipboard
 pub fn oso_core::kill::FromClipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::kill::FromClipboard
 pub struct oso_core::kill::Fingerprint
 pub oso_core::kill::Fingerprint::hash: u64
 pub oso_core::kill::Fingerprint::len: usize
@@ -1388,6 +1387,7 @@ pub fn oso_core::kill::KillRing::holds_secret(&self, oso_core::kill::Fingerprint
 pub fn oso_core::kill::KillRing::is_empty(&self) -> bool
 pub fn oso_core::kill::KillRing::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::kill::KillEntry>
 pub fn oso_core::kill::KillRing::len(&self) -> usize
+pub fn oso_core::kill::KillRing::make_newest_secret(&mut self)
 pub fn oso_core::kill::KillRing::new() -> Self
 pub fn oso_core::kill::KillRing::newest_written(&self) -> core::option::Option<oso_core::kill::Fingerprint>
 pub fn oso_core::kill::KillRing::note_written(&mut self, u64, oso_core::kill::Fingerprint)

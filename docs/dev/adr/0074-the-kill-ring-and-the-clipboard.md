@@ -142,20 +142,21 @@ the commands' details below as written with them. The ADR stays Proposed until t
 - **Backends (chosen): oso's own code, no new crate.**
   - **macOS:** `NSPasteboard` through `objc2-app-kit` 0.3, which ADR 0070 approved for the window
     layer. It becomes a macOS dependency of `oso-platform` with or without `native-window`, with the
-    `NSPasteboard` and `NSPasteboardItem` features added, and `objc2-foundation`'s `NSData` and
-    `NSArray`. One pasteboard item carries the text and, for a secret entry, the markers below. Every
+    `NSPasteboard` and `NSPasteboardItem` features, beside `objc2` (`std`) and `objc2-foundation`
+    (`NSString`, `NSArray`) as direct dependencies at the versions stage 2 uses. One pasteboard item carries the text and, for a secret entry, the markers below. Every
     `unsafe` call has a `// SAFETY:` comment.
   - **Linux:** the core `wl_data_device` on the native window's own Wayland connection, at ADR 0070's
     stage 4, as the Wayland docs ask of an app with a window. A selection is set with the serial of the
     key that killed, and read through a pipe with `poll` and a timeout.
   - **Windows:** Win32 through `windows-sys`, at stage 4 with the window layer that adds it.
   - **Until stage 4, Linux and Windows keep the ring in oso only:** a kill and a yank work there as in
-    macOS, with no clipboard, and the in-memory backend stands in. Both are Tier 2
+    macOS, with no clipboard: a backend that holds nothing stands in. Both are Tier 2
     ([ADR 0003](0003-platform-tiers.md)), and CI builds and tests them as now.
 - **Writing:** after a command that killed, the host takes the new or grown entry from the
   editor (`Editor::take_clipboard_write`, as `take_save_jobs`), and hands the rope slices to
-  the worker, which joins them into one string and writes it. Each write supersedes one not
-  yet done. An entry over 16 MiB is not written, and the echo area says "Not copied to the
+  the worker, which joins them into one string and writes it. A write not yet started when a
+  newer one comes is dropped, so a run of kills costs one write, and a read waits behind one
+  at most. An entry over 16 MiB is not written, and the echo area says "Not copied to the
   clipboard: too large"; it stays in the ring.
 - **Reading only on a yank** (chosen): never on focus, never in the background, never on a
   timer. `C-y` with no prefix asks the worker for the clipboard; `C-u N C-y` reads only the
@@ -186,16 +187,21 @@ the commands' details below as written with them. The ADR stays Proposed until t
     ends when the pasteboard server gives up; the Wayland backend (stage 4) reads its pipe with
     `poll` and a timeout of 5 s, as Emacs's `x-selection-timeout`.
 - **Tests and dev runs:** `--clipboard memory` (dev builds only) gives the worker an in-memory
-  clipboard, so tests, `just e2e` and `just perf` never touch the author's clipboard, and CI
-  needs none. The socket's new `clipboard` method reads and sets it, standing in for another
-  app, as the `ime` method stands in for the input method. A release build always uses the
-  system's.
+  clipboard, so tests and `just e2e` never touch the author's clipboard, and CI needs none;
+  `just perf` sends no kill. The socket's new `clipboard` method reads and sets it, standing in
+  for another app, as the `ime` method stands in for the input method. A release build always
+  uses the system's, and has no other.
+- **Input from the socket never reads the system clipboard.** A yank that `send-keys`,
+  `run-command` or `ime` causes reads only a clipboard in memory; with the system's it takes
+  the ring's newest entry, so no client reads the author's clipboard through oso.
 
 ### Secret buffers (chosen)
 
 - **A kill from a buffer that may hold secrets** (any verdict but `Ordinary`) is a secret entry.
 - **A kill from a passphrase prompt** (`Verdict::Passphrase`, ADR 0072) reaches neither the ring
   nor the clipboard, as ADR 0072 asks; it deletes, and a yank into the prompt works.
+  `Verdict::may_be_killed` names every verdict, so the passphrase's decides this where M2-16
+  adds it.
 - **What the clipboard gets for it: the text, marked concealed** (chosen). On macOS the item also
   carries `org.nspasteboard.ConcealedType` (and `TransientType`), which clipboard managers that
   follow nspasteboard.org skip; on Windows `ExcludeClipboardContentFromMonitorProcessing` and
@@ -213,7 +219,14 @@ the commands' details below as written with them. The ADR stays Proposed until t
   - anything else is ordinary.
 - **Yanking a secret entry makes the target buffer secret,** as ADR 0051 says: a new verdict,
   `Yanked`, which is withheld from the socket and from the emergency save as `SecretName` is,
-  until the file is opened again. The echo area says "Buffer now treated as secret".
+  until the file is opened again in a new buffer. Judging its path again, undoing past a
+  recovered copy and judging a copy keep it, and `oso dev` refuses to hand such a buffer over by
+  its path, so the old instance stays until it is closed. The echo area says "Buffer now
+  treated as secret".
+- **A secret entry keeps what it was before it grew:** the fingerprints of its last eight
+  writes, so a key copied out and back after more was appended still counts as secret. Text
+  from another app equal to the newest entry adds no entry, but makes it secret if it comes
+  back marked concealed.
 - **A secret entry is never shown over the socket and never handed over by `oso dev`**
   (ADR 0051), and nothing logs an entry's text.
 
@@ -234,9 +247,12 @@ This is a human gate ([`REVIEW.md`](../../../REVIEW.md)).
 
 ### What it is made of
 
-- `oso_core::kill`: `KillRing`, `KillEntry` (pieces, provenance, secret, a hash), and pure
-  functions for the pieces of a kill, appending and the yank's text per cursor.
-- `Editor`: the ring, the append flag, `take_clipboard_write`, and a verdict `Yanked`.
+- `oso_core::kill`: `KillRing`, `KillEntry` (pieces, whether secret, fingerprints), `Piece`,
+  `Fingerprint`, `FromClipboard` and `kill_ranges`, the pure function that merges the ranges of
+  several cursors. The yank's text per cursor is worked out in the editor (`editor/kill.rs`).
+- `Editor`: the ring, the append flag, `kill`, `yank`, `take_clipboard_write` and
+  `take_from_clipboard`, which decides whether text from another app is secret; and a verdict
+  `Yanked`.
 - `ArgSpec::CountAndClipboard` and `Ctx::clipboard`: the clipboard's answer for the command that
   waited for it, only `yank` so far.
 - `oso_platform::clipboard`: the worker, with a backend per system, `cfg`-gated in files of its
@@ -245,7 +261,9 @@ This is a human gate ([`REVIEW.md`](../../../REVIEW.md)).
   there from `edit`; `app/clipboard.rs`; the dispatcher's pending yank.
 - `guardrails/layers.txt`: `kill` in `[oso-core]` beside `undo`, below `editor`; `clipboard` in
   `[oso-platform]` on the top line, beside `window` from stage 2.
-- `oso::dispatch::clipboard`, a private module, holds the waiting command and the held input,
+- `oso::dispatch::clipboard`, a private module, holds the waiting command and the held input.
+  ADR 0072 keeps a command waiting for a prompt the same way; when both are on `main`, they share
+  one waiting state, with what it waits for, rather than two,
   and `--clipboard memory` is a dev build's option, after `--emergency-dir` if both are given.
 
 ### Where this differs from accepted ADRs
@@ -285,6 +303,8 @@ These ADRs stay as they are; this one changes the following:
   copied. Reading only on `C-y` keeps that to a yank.
 - `objc2-app-kit` becomes a macOS dependency of every build, not only with `native-window`; it is in
   the tree from stage 2 either way.
+- `NSPasteboard` has no cheap way to ask a text's size, so text from another app is read whole on
+  the clipboard's thread before the 16 MiB bound applies.
 - The public API gains `oso_core::kill`, `oso_platform::clipboard`, a verdict and `Ctx`'s
   answer, as the API snapshots show.
 

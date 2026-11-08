@@ -126,7 +126,7 @@ impl Backend for Slow {
 fn a_read_that_takes_too_long_is_answered_in_time() {
     let (release, wait) = mpsc::channel();
     let (tx, events) = mpsc::channel();
-    let clipboard = Clipboard::spawn(Box::new(Slow(wait)), None, MAX, move |event| {
+    let clipboard = Clipboard::spawn(Box::new(Slow(wait)), MAX, move |event| {
         let _ = tx.send(event);
     })
     .unwrap();
@@ -173,4 +173,59 @@ fn debug_never_shows_the_text() {
         fingerprint: Fingerprint { len: 7, hash: 0 },
     };
     assert!(!format!("{contents:?}").contains("hunter2"));
+}
+
+/// A backend whose writes wait until a test lets them through, and which records them.
+struct Gate {
+    open: Receiver<()>,
+    written: mpsc::Sender<String>,
+}
+
+impl Backend for Gate {
+    fn change_count(&mut self) -> Option<i64> {
+        None
+    }
+
+    fn write(&mut self, text: &str, _: bool) -> Option<i64> {
+        let _ = self.open.recv();
+        let _ = self.written.send(text.to_owned());
+        None
+    }
+
+    fn read(&mut self, _: usize) -> Found {
+        Found::Nothing
+    }
+}
+
+#[test]
+fn a_newer_write_replaces_one_not_yet_started_and_a_read_stays_after_it() {
+    let (open, gate) = mpsc::channel();
+    let (written_tx, written) = mpsc::channel();
+    let (tx, events) = mpsc::channel();
+    let backend = Gate {
+        open: gate,
+        written: written_tx,
+    };
+    let clipboard = Clipboard::spawn(Box::new(backend), MAX, move |event| {
+        let _ = tx.send(event);
+    })
+    .unwrap();
+    clipboard.write(1, false, Box::new(|| "one".to_owned()));
+    // Once the backend waits in the first write, these queue behind it.
+    thread::sleep(Duration::from_millis(50));
+    clipboard.write(2, false, Box::new(|| "two".to_owned()));
+    clipboard.write(3, false, Box::new(|| "three".to_owned()));
+    clipboard.read();
+    thread::sleep(Duration::from_millis(50));
+    open.send(()).unwrap();
+    open.send(()).unwrap();
+    let ids: Vec<u64> = (0..2)
+        .map(|_| match next(&events) {
+            Event::Written { id, .. } => id,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(ids, [1, 3], "the second never started");
+    assert!(matches!(next(&events), Event::Read(Contents::Nothing)));
+    assert_eq!(written.try_iter().collect::<Vec<_>>(), ["one", "three"]);
 }

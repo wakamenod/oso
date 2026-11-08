@@ -783,7 +783,11 @@ mod tests {
         let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
         let long = "é".repeat(SHOWN_PIECE_BYTES);
         let fingerprint = Fingerprint { len: 0, hash: 1 };
-        editor.take_from_clipboard(&long, false, fingerprint);
+        editor.take_from_clipboard(
+            oso_core::rope::Rope::from(long.as_str()),
+            false,
+            fingerprint,
+        );
         editor
             .kill(std::iter::once(0..3), Direction::Forward, true)
             .unwrap();

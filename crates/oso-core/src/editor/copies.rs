@@ -340,6 +340,30 @@ mod tests {
     }
 
     #[test]
+    fn undo_and_redo_keep_a_secret_kill_yanked_into_a_recovery_withheld() {
+        let (mut editor, file, view) = with_copy("on disk\n", "the copy\n");
+        editor.begin_undo_group();
+        editor.replace_text_from(file, view).unwrap();
+        editor.end_undo_group();
+        editor.show(file);
+        let piece = crate::kill::Piece::from(crate::rope::Rope::from("KEY"));
+        editor.kills.ring.push(vec![piece], true);
+        editor.begin_undo_group();
+        editor.yank(0, false).unwrap();
+        editor.end_undo_group();
+        assert_eq!(editor.buffer(file).unwrap().verdict(), Verdict::Yanked);
+        editor.undo().unwrap();
+        assert!(editor.buffer(file).unwrap().recovery_stands());
+        assert_eq!(
+            editor.buffer(file).unwrap().verdict(),
+            Verdict::Yanked,
+            "back where the recovery left it"
+        );
+        editor.redo().unwrap();
+        assert_eq!(editor.buffer(file).unwrap().verdict(), Verdict::Yanked);
+    }
+
+    #[test]
     fn redo_brings_a_recovery_back() {
         let (mut editor, file, view) = with_copy("on disk\n", "the copy\n");
         editor.begin_undo_group();

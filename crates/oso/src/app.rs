@@ -49,7 +49,7 @@ pub enum UserEvent {
     /// A thread working on the emergency copies on offer has something to say (ADR 0064).
     Copies(CopiesEvent),
     /// The clipboard's threads wrote or read (ADR 0074).
-    Clipboard(oso_platform::clipboard::Event),
+    Clipboard(clipboard::ClipboardEvent),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -100,6 +100,10 @@ pub struct App {
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
     #[cfg(feature = "dev")]
     timings: dev::Timings,
+    /// The input being handled came through the control socket, so a yank must not read
+    /// the system clipboard (ADR 0074).
+    #[cfg(feature = "dev")]
+    socket_input: bool,
     /// Positions handed over from the previous instance, until their file has
     /// loaded.
     #[cfg(feature = "dev")]
@@ -142,6 +146,8 @@ impl App {
             dev: None,
             #[cfg(feature = "dev")]
             timings: dev::Timings::new(started),
+            #[cfg(feature = "dev")]
+            socket_input: false,
             #[cfg(feature = "dev")]
             restore: None,
         }

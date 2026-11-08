@@ -41,7 +41,7 @@ impl oso_platform::clipboard::Clipboard
 pub fn oso_platform::clipboard::Clipboard::memory(&self) -> core::option::Option<&oso_platform::clipboard::MemoryClipboard>
 pub fn oso_platform::clipboard::Clipboard::read(&self)
 pub fn oso_platform::clipboard::Clipboard::start(oso_platform::clipboard::Source, usize, impl core::ops::function::Fn(oso_platform::clipboard::Event) + core::marker::Send + 'static) -> std::io::error::Result<Self>
-pub fn oso_platform::clipboard::Clipboard::write(&self, u64, bool, oso_platform::clipboard::Text)
+pub fn oso_platform::clipboard::Clipboard::write(&self, u64, bool, oso_platform::clipboard::MakeText)
 impl core::fmt::Debug for oso_platform::clipboard::Clipboard
 pub fn oso_platform::clipboard::Clipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::ops::drop::Drop for oso_platform::clipboard::Clipboard
@@ -71,7 +71,7 @@ pub fn oso_platform::clipboard::MemoryClipboard::default() -> oso_platform::clip
 impl core::fmt::Debug for oso_platform::clipboard::MemoryClipboard
 pub fn oso_platform::clipboard::MemoryClipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_platform::clipboard::READ_TIMEOUT: core::time::Duration
-pub type oso_platform::clipboard::Text = alloc::boxed::Box<(dyn core::ops::function::FnOnce() -> alloc::string::String + core::marker::Send)>
+pub type oso_platform::clipboard::MakeText = alloc::boxed::Box<(dyn core::ops::function::FnOnce() -> alloc::string::String + core::marker::Send)>
 pub mod oso_platform::control
 pub struct oso_platform::control::CleanupGuard
 impl core::clone::Clone for oso_platform::control::CleanupGuard

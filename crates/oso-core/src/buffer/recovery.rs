@@ -40,10 +40,12 @@ struct Side {
 /// The modification time of a file that has gone, by which no file can pass for it.
 const NO_TIME: SystemTime = SystemTime::UNIX_EPOCH;
 
-/// The verdict that withholds more, as a name that matches says more than not knowing.
+/// The verdict that withholds more, as a name that matches says more than not knowing, and
+/// a secret kill yanked in is never copied either (ADR 0074).
 fn stricter(one: Verdict, other: Verdict) -> Verdict {
     match (one, other) {
         (Verdict::SecretName, _) | (_, Verdict::SecretName) => Verdict::SecretName,
+        (Verdict::Yanked, _) | (_, Verdict::Yanked) => Verdict::Yanked,
         (Verdict::Ordinary, other) => other,
         (one, _) => one,
     }
@@ -202,7 +204,10 @@ impl Buffer {
         };
         self.info = side.info;
         self.baseline = side.baseline;
-        self.verdict = side.verdict;
+        // A secret kill yanked in stays withheld through undo and redo (ADR 0074).
+        if self.verdict != Verdict::Yanked {
+            self.verdict = side.verdict;
+        }
     }
 
     /// Whether a copy's text was put in this buffer, and no undo has taken that back.

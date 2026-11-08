@@ -20,8 +20,9 @@ use oso_core::word;
 
 use super::budget_left;
 
-/// The most text `kill-line` reads to see whether only blanks follow the cursor, as one
-/// stop of a motion may read (ADR 0058). A longer rest of the line counts as not blank.
+/// The most text `kill-line` reads to see whether only blanks follow the cursor, across
+/// all its cursors, as one stop of a motion may read (ADR 0058). A rest of the line past
+/// what is left counts as not blank.
 const MAX_BLANKS: usize = 128 * 1024;
 
 /// The kill and yank commands.
@@ -130,13 +131,14 @@ fn kill_line(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     let text = ctx.editor.current().1.text();
     let n = args.prefix();
     let mut edge = None;
+    let mut blanks = MAX_BLANKS;
     let ranges: Vec<Range<usize>> = ctx
         .editor
         .window()
         .selections
         .iter()
         .map(|selection| {
-            line_range(text, selection.cursor, n).unwrap_or_else(|hit| {
+            line_range(text, selection.cursor, n, &mut blanks).unwrap_or_else(|hit| {
                 edge.get_or_insert(hit);
                 selection.cursor..selection.cursor
             })
@@ -147,8 +149,14 @@ fn kill_line(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     edge.map_or(Ok(()), |hit| Err(CommandError::new(hit)))
 }
 
-/// What `kill-line` takes at `cursor` with the prefix `n`, or the edge it hit.
-fn line_range(text: &Rope, cursor: usize, n: Option<isize>) -> Result<Range<usize>, &'static str> {
+/// What `kill-line` takes at `cursor` with the prefix `n`, or the edge it hit. `blanks` is
+/// what the command may still read to look for blanks, across its cursors.
+fn line_range(
+    text: &Rope,
+    cursor: usize,
+    n: Option<isize>,
+    blanks: &mut usize,
+) -> Result<Range<usize>, &'static str> {
     let row = text.offset_to_point(cursor).row;
     match n {
         None => {
@@ -156,7 +164,7 @@ fn line_range(text: &Rope, cursor: usize, n: Option<isize>) -> Result<Range<usiz
                 return Err("End of buffer");
             }
             let end = text.line_end(row);
-            let whole = cursor == text.line_start(row) || only_blanks(text, cursor..end);
+            let whole = cursor == text.line_start(row) || only_blanks(text, cursor..end, blanks);
             Ok(cursor..if whole { text.line_start(row + 1) } else { end })
         }
         Some(n) if n > 0 => {
@@ -176,12 +184,15 @@ fn line_range(text: &Rope, cursor: usize, n: Option<isize>) -> Result<Range<usiz
 }
 
 /// Whether `range` of `text` holds only spaces and tabs, as Emacs's `kill-line` checks,
-/// reading at most [`MAX_BLANKS`].
-fn only_blanks(text: &Rope, range: Range<usize>) -> bool {
-    range.len() <= MAX_BLANKS
-        && text
-            .chunks_in_range(range)
-            .all(|chunk| chunk.bytes().all(|byte| byte == b' ' || byte == b'\t'))
+/// reading no more than `left`, which it spends. A range longer than that counts as not
+/// blank.
+fn only_blanks(text: &Rope, range: Range<usize>, left: &mut usize) -> bool {
+    let Some(rest) = left.checked_sub(range.len()) else {
+        return false;
+    };
+    *left = rest;
+    text.chunks_in_range(range)
+        .all(|chunk| chunk.bytes().all(|byte| byte == b' ' || byte == b'\t'))
 }
 
 /// Which way a kill goes for a count of `n`.
@@ -215,8 +226,8 @@ fn yank(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
             concealed,
             fingerprint,
         }) => {
-            let secret = *concealed || ctx.editor.clipboard_holds_secret(*fingerprint);
-            ctx.editor.take_from_clipboard(text, secret, *fingerprint);
+            ctx.editor
+                .take_from_clipboard(text.clone(), *concealed, *fingerprint);
             None
         }
         Some(FromClipboard::TooLarge) => Some("Clipboard text too large; yanked the newest kill"),

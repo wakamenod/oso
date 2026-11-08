@@ -91,7 +91,8 @@ impl Editor {
     ///
     /// It appends to the newest entry if the command before also killed and the pieces
     /// match in number. Nothing is taken if every range is empty. Text from a buffer that
-    /// may hold secrets makes a secret entry.
+    /// may hold secrets makes a secret entry, and text whose verdict may not be killed, a
+    /// passphrase's, is deleted and goes nowhere (ADR 0072).
     ///
     /// # Errors
     ///
@@ -111,6 +112,7 @@ impl Editor {
             .iter()
             .map(|range| Piece::from(text.slice(range.clone())))
             .collect();
+        let kept = buffer.verdict().may_be_killed();
         if pieces.iter().all(Piece::is_empty) {
             return if copy_only {
                 Ok(())
@@ -122,7 +124,9 @@ impl Editor {
         }
         let secret = buffer.is_secret();
         let read_only = buffer.read_only();
-        self.add_kill(pieces, direction, secret);
+        if kept {
+            self.add_kill(pieces, direction, secret);
+        }
         if copy_only {
             return Ok(());
         }
@@ -140,33 +144,35 @@ impl Editor {
     /// Puts `pieces` in the ring, appended to the newest entry if this follows a kill.
     fn add_kill(&mut self, pieces: Vec<Piece>, direction: Direction, secret: bool) {
         let kills = &mut self.kills;
-        let appended = if kills.follows_kill {
-            kills.ring.append(pieces.clone(), direction, secret)
+        let fits = kills
+            .ring
+            .get(0)
+            .is_some_and(|entry| entry.pieces().len() == pieces.len());
+        let entry = if kills.follows_kill && fits {
+            kills.ring.append(pieces, direction, secret)
         } else {
-            None
+            Some(kills.ring.push(pieces, secret))
         };
-        let entry = appended.unwrap_or_else(|| kills.ring.push(pieces, secret));
         kills.killed = true;
-        kills.to_write = Some(entry);
+        kills.to_write = entry;
     }
 
     /// Puts text another app put on the clipboard in the ring as an entry of one piece, as
     /// Emacs's `interprogram-paste-function` does, for a yank to insert, unless the newest
-    /// entry is that text already. `secret` if it counts as secret: marked concealed, or
-    /// the same as a secret entry oso wrote.
-    pub fn take_from_clipboard(&mut self, text: &str, secret: bool, fingerprint: Fingerprint) {
+    /// entry is that text already. It counts as secret if the clipboard marks it concealed,
+    /// as a password manager does, or if a secret entry went to the clipboard as the same
+    /// text, so a round trip through another app does not wash it (ADR 0074).
+    pub fn take_from_clipboard(&mut self, text: Rope, concealed: bool, fingerprint: Fingerprint) {
         let ring = &mut self.kills.ring;
         if ring.newest_written() == Some(fingerprint) {
+            if concealed {
+                ring.make_newest_secret();
+            }
             return;
         }
-        let id = ring.push(vec![Piece::from(Rope::from(text))], secret);
+        let secret = concealed || ring.holds_secret(fingerprint);
+        let id = ring.push(vec![Piece::from(text)], secret);
         ring.note_written(id, fingerprint);
-    }
-
-    /// Whether text the clipboard holds, with this fingerprint, is a secret entry's that
-    /// went there from the ring.
-    pub fn clipboard_holds_secret(&self, fingerprint: Fingerprint) -> bool {
-        self.kills.ring.holds_secret(fingerprint)
     }
 
     /// The newest entry, if a command has killed since the host last asked and it is
@@ -176,7 +182,13 @@ impl Editor {
         let id = self.kills.to_write.take()?;
         let entry = self.kills.ring.get(0).filter(|entry| entry.id() == id)?;
         if entry.len() > kill::MAX_CLIPBOARD {
-            self.message("Not copied to the clipboard: too large");
+            // A secret entry's size stays out of the log and `*Messages*`.
+            let said = "Not copied to the clipboard: too large";
+            if entry.is_secret() {
+                self.echo(said);
+            } else {
+                self.message(said);
+            }
             return None;
         }
         Some(ClipboardWrite {
@@ -191,10 +203,10 @@ impl Editor {
         self.kills.ring.note_written(id, fingerprint);
     }
 
-    /// Tells the editor that a command has ended. A kill after it appends to its entry
-    /// only if it killed. One that left a prefix argument (`C-u`, digits) changes
-    /// nothing, as it is part of the next command.
-    pub fn end_kill_command(&mut self, left_prefix: bool) {
+    /// Tells the kill ring that a command, any command, has ended. A kill after it
+    /// appends to its entry only if it killed. One that left a prefix argument (`C-u`,
+    /// digits) changes nothing, as it is part of the next command.
+    pub fn note_command_ended(&mut self, left_prefix: bool) {
         let kills = &mut self.kills;
         if !left_prefix {
             kills.follows_kill = kills.killed;
