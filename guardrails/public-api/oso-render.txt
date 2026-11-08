@@ -67,6 +67,22 @@ impl core::fmt::Debug for oso_render::RenderError
 pub fn oso_render::RenderError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for oso_render::RenderError
 pub fn oso_render::RenderError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_render::Bands
+pub oso_render::Bands::above: bool
+pub oso_render::Bands::below: bool
+impl oso_render::Bands
+pub const oso_render::Bands::NONE: Self
+impl core::clone::Clone for oso_render::Bands
+pub fn oso_render::Bands::clone(&self) -> oso_render::Bands
+impl core::cmp::Eq for oso_render::Bands
+impl core::cmp::PartialEq for oso_render::Bands
+pub fn oso_render::Bands::eq(&self, &oso_render::Bands) -> bool
+impl core::default::Default for oso_render::Bands
+pub fn oso_render::Bands::default() -> oso_render::Bands
+impl core::fmt::Debug for oso_render::Bands
+pub fn oso_render::Bands::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::Bands
+impl core::marker::StructuralPartialEq for oso_render::Bands
 pub struct oso_render::Capture
 impl oso_render::Capture
 pub fn oso_render::Capture::wait(self) -> core::result::Result<oso_render::Image, oso_render::CaptureError>
@@ -116,6 +132,7 @@ pub oso_render::Masked::cursor: usize
 pub oso_render::Masked::text: &'a str
 pub struct oso_render::Pane<'a>
 pub oso_render::Pane::background: core::option::Option<oso_render::Face>
+pub oso_render::Pane::bands: oso_render::Bands
 pub oso_render::Pane::border: core::option::Option<oso_render::Face>
 pub oso_render::Pane::content: oso_render::PaneContent<'a>
 pub oso_render::Pane::id: oso_render::PaneId

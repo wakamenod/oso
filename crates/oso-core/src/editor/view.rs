@@ -131,7 +131,7 @@ impl Editor {
 
     /// Scrolls the window at `index` as [`Editor::follow_cursor`] does the selected one.
     /// A preedit counts only in the selected window, where it shows.
-    fn follow_window(&mut self, index: usize) -> bool {
+    pub(super) fn follow_window(&mut self, index: usize) -> bool {
         // The window is borrowed from the whole editor, so the preedit steps out.
         let preedit = if index == self.selected {
             self.preedit.take()
@@ -160,10 +160,12 @@ impl Editor {
     /// Puts back the selected window's cursors and view, saved together as a
     /// state handoff does, then scrolls as little as shows its primary cursor.
     pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
-        let (window, buffer) = self.current_mut();
+        // The tiled window, also beneath a prompt, whose own window shows only its buffer.
+        let index = self.tiled_index();
+        let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         window.restore_positions(selections, scroll, &display);
-        self.follow_cursor();
+        self.follow_window(index);
     }
 
     /// Scrolls the selected window's view by `rows` (down toward the end

@@ -95,16 +95,14 @@ impl Dispatcher {
         for _ in 0..MOST_FOLLOW_UPS {
             let ran = match editor.take_prompt_outcome() {
                 Some(Outcome::Answered { prompt, text }) => {
-                    // What a command does with a passphrase stays out of the log (ADR 0072).
-                    self.passphrase_next = self
-                        .reading
-                        .iter()
-                        .any(|reading| reading.prompt == prompt && reading.passphrase);
                     let waiting = self
                         .reading
                         .iter()
                         .position(|reading| reading.prompt == prompt)
                         .map(|index| self.reading.remove(index));
+                    // What a command does with a passphrase stays out of the log (ADR 0072).
+                    self.passphrase_next =
+                        waiting.as_ref().is_some_and(|reading| reading.passphrase);
                     self.forget_closed(editor);
                     waiting.map(|reading| {
                         let invocation = Invocation {
@@ -166,6 +164,11 @@ impl Dispatcher {
         let Some(id) = self.registry.lookup("save-buffers-kill-terminal") else {
             return Effects::default();
         };
+        // As a key would: a prefix key or argument in progress is dropped, not carried under
+        // the question.
+        self.resolver.reset();
+        self.forget_keys();
+        self.show_keys_in_progress(editor);
         let effects = self
             .execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)
             .0;

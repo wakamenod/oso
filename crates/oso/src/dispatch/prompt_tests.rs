@@ -245,6 +245,30 @@ fn the_close_button_exits_at_once_with_nothing_at_risk_and_asks_from_a_prompt() 
     assert_eq!(editor.prompts().len(), 2, "a question over the prompt");
 }
 
+#[test]
+fn the_close_button_drops_a_prefix_in_progress() {
+    let (mut d, mut editor) = on(LINES);
+    send(&mut d, &mut editor, "x C-u C-x");
+    assert!(!d.close_requested(&mut editor).exit);
+    assert!(
+        d.pending().is_empty(),
+        "no prefix key waits under the question"
+    );
+    assert!(
+        send(&mut d, &mut editor, "y").exit,
+        "y answers, and is no count's digit"
+    );
+}
+
+#[test]
+fn text_in_a_question_says_how_to_answer() {
+    let (mut d, mut editor) = on(LINES);
+    send(&mut d, &mut editor, "x C-x C-c");
+    d.insert_text(&mut editor, "yes");
+    let prompt = editor.prompt().expect("still asking");
+    assert_eq!(prompt.message(), Some("Answer y or n"));
+}
+
 /// Asks a question and answers it at once, so that each answer runs it again.
 fn ask_and_answer(
     ctx: &mut oso_core::command::Ctx<'_>,

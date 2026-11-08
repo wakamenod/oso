@@ -23,7 +23,7 @@ use wgpu::util::DeviceExt;
 
 use crate::atlas::{AtlasGlyph, GlyphAtlas};
 use crate::grid::PlacedGlyph;
-use crate::pane::Face;
+use crate::pane::{Bands, Face};
 use crate::shape::Uniforms;
 
 /// Columns shaped beyond the visible ones on each side, and the step the
@@ -145,12 +145,13 @@ impl Layout {
         }
     }
 
-    /// The same with the band below too, for what a float shows inside its padding, which
-    /// nothing else draws on (ADR 0072).
-    pub(crate) fn with_bands(self) -> Self {
+    /// The same with the bands `bands` says, for a pane whose region borders on cells nothing
+    /// else draws on, such as a float's padding (ADR 0072).
+    pub(crate) fn with_bands(self, bands: Bands) -> Self {
         Self {
-            keeps_band_below: true,
-            ..self.with_band_above()
+            keeps_band_above: self.keeps_band_above || bands.above,
+            keeps_band_below: self.keeps_band_below || bands.below,
+            ..self
         }
     }
 

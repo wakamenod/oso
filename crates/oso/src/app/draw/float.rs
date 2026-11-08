@@ -11,7 +11,9 @@
 use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
 use oso_core::minibuffer::{self, Kind, PromptLayout};
-use oso_render::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
+use oso_render::{
+    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView,
+};
 
 /// The most panes a float takes.
 pub(super) const MAX_PANES: usize = 5;
@@ -118,12 +120,19 @@ pub(super) fn panes<'a>(
     let layout = &parts.layout;
     let regions = layout.regions;
     let inner = regions.inner;
-    let content = |id, region, content| Pane {
+    // A pane's glyphs keep a band only into the float's padding, where its region borders on
+    // it, so that none draws over another pane of the float or outside it (ADR 0072).
+    let framed = regions.framed();
+    let content = |id, region: CellRect, content| Pane {
         id: PaneId(id),
         region,
         layer: Layer::FLOAT_CONTENT,
         background: None,
         border: None,
+        bands: Bands {
+            above: framed && region.row == inner.row,
+            below: framed && region.row + region.rows == inner.row + inner.rows,
+        },
         content,
     };
     list.push(Pane {
@@ -131,7 +140,8 @@ pub(super) fn panes<'a>(
         region: regions.outer,
         layer: Layer::FLOAT,
         background: Some(Face::Float),
-        border: regions.framed().then_some(Face::FloatBorder),
+        border: framed.then_some(Face::FloatBorder),
+        bands: Bands::NONE,
         content: PaneContent::Lines(&[]),
     });
     // The label's rows above the answer's row, as many as the float holds there. In a frame
@@ -162,29 +172,7 @@ pub(super) fn panes<'a>(
     };
     list.push(content(5, last, PaneContent::Lines(&lines.last)));
     if layout.input.columns > 0 {
-        let input = match &parts.mask {
-            Some((text, cursor)) => PaneContent::Masked(Masked {
-                text,
-                cursor: *cursor,
-            }),
-            None => {
-                let (window, buffer) = editor.current();
-                let display = buffer.display();
-                let cursor = window.cursor_point(&display);
-                PaneContent::Text(TextView {
-                    display,
-                    buffer: window.buffer(),
-                    revision: buffer.revision(),
-                    scroll: window.scroll(),
-                    cursor,
-                    cursor_style: CursorStyle::Box,
-                    preedit: editor.preedit(),
-                    // A region in a prompt is not drawn yet (open-questions.md).
-                    region_cells: &[],
-                })
-            }
-        };
-        list.push(content(6, layout.input, input));
+        list.push(content(6, layout.input, answer(editor, parts)));
     }
     if parts.message.is_some() && layout.message.columns > 0 {
         list.push(content(
@@ -193,4 +181,29 @@ pub(super) fn panes<'a>(
             PaneContent::Lines(&lines.message),
         ));
     }
+}
+
+/// What the answer's pane shows: the prompt's window, or one `*` per character of a
+/// passphrase.
+fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>) -> PaneContent<'a> {
+    if let Some((text, cursor)) = &parts.mask {
+        return PaneContent::Masked(Masked {
+            text,
+            cursor: *cursor,
+        });
+    }
+    let (window, buffer) = editor.current();
+    let display = buffer.display();
+    let cursor = window.cursor_point(&display);
+    PaneContent::Text(TextView {
+        display,
+        buffer: window.buffer(),
+        revision: buffer.revision(),
+        scroll: window.scroll(),
+        cursor,
+        cursor_style: CursorStyle::Box,
+        preedit: editor.preedit(),
+        // A region in a prompt is not drawn yet (open-questions.md).
+        region_cells: &[],
+    })
 }

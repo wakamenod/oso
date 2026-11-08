@@ -172,14 +172,16 @@ impl Editor {
             return;
         };
         let start = buffer.text().line_start(line);
-        let shows_it = self.window().buffer() == list;
+        // The tiled window shows the list, also beneath a prompt.
+        let tiled = self.tiled_index();
+        let shows_it = self.windows[tiled].buffer() == list;
         for window in &mut self.windows {
             if window.buffer() == list {
                 window.selections = SelectionSet::new(start);
             }
         }
         if shows_it {
-            self.follow_cursor();
+            self.follow_window(tiled);
         }
     }
 

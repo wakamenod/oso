@@ -76,8 +76,8 @@ pub(crate) const PRIVATE_MODE: u32 = 0o600;
 /// Why a save wrote nothing. The file on disk is as it was.
 #[derive(Debug)]
 pub enum SaveError {
-    /// The file on disk is not what the buffer last read or wrote (ADR 0029). With the
-    /// regular file found there, which a save the person agrees to may go over (ADR 0072).
+    /// The file on disk is not what the buffer last read or wrote (ADR 0029). With the regular
+    /// file found, which an agreed save may go over (ADR 0072), if its stamp could be read.
     Conflict(Option<FileStamp>),
     /// The path no longer leads to where the buffer's file was: a link or a directory on
     /// it has changed. Nothing is written at the new place.
@@ -479,7 +479,7 @@ fn unchanged_file(path: &Path, baseline: &Baseline) -> Result<Option<Metadata>, 
     match fs::symlink_metadata(&baseline.location) {
         Ok(metadata) if metadata.is_file() => match baseline.file {
             Some(file) if file.same_content(stamp_of(&metadata)?) => Ok(Some(metadata)),
-            _ => Err(SaveError::Conflict(Some(stamp_of(&metadata)?))),
+            _ => Err(SaveError::Conflict(stamp_of(&metadata).ok())),
         },
         Ok(_) => Err(SaveError::Conflict(None)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),

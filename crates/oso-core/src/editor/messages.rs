@@ -302,7 +302,8 @@ impl Editor {
                 // it was keeps its goal, as `C-n` then has it to go on. The marks go where a
                 // cursor can be too, and the region stays hidden, as it does for another
                 // buffer (ADR 0071).
-                let display = self.current().1.display();
+                // The window `show` went to: the tiled one, also beneath a prompt (ADR 0072).
+                let display = self.tiled().1.display();
                 selections.set_mark_active(MarkActive::Inactive);
                 clip_selections(&mut selections, &display, &[], false);
                 self.restore_positions(selections, scroll);

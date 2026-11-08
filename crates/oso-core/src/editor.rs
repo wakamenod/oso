@@ -98,9 +98,9 @@ pub struct Editor {
     keys_in_progress: String,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
-    /// What the last refused exit put at risk, until a question about it is answered or a
-    /// save changes what is at risk.
-    exit_attempt: Option<ExitRefused>,
+    /// The buffers the last refused exit put at risk, until a question about it is answered
+    /// or a save changes what is at risk.
+    exit_attempt: Option<Vec<BufferId>>,
     /// What an input method is composing, shown at the selected window's primary
     /// cursor and in no buffer (ADR 0069).
     preedit: Option<Preedit>,

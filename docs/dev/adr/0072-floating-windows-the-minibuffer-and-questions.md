@@ -76,12 +76,12 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   A label taller than the float keeps its last row, with the answer or `(y or n)`.
 - **Two layers.** `Layer::FLOAT` (16) holds the float's background and border, one pane over all of it.
   `Layer::FLOAT_CONTENT` (17) holds what is inside, in panes that never overlap one another: up to two of
-  the label, the answer and a message, with fixed ids 3 to 7 after the tiled 0 to 2. Glyphs there keep
-  the bands above and below their rows, into the padding, which nothing else draws on
-  (`Layout::with_bands`). The renderer tells them by their layer. In a frame too small for the ring
-  there is no padding, and the bands can reach the row above or below the float; and the bands of a
-  label's rows reach each other's, as rows of one pane do. M3's menus take numbers above these, and
-  give their panes the bands as they decide.
+  the label, the answer and a message, with fixed ids 3 to 7 after the tiled 0 to 2. **Panes in a float
+  draw only inside it:** each pane says which bands of ADR 0052 its glyphs keep past its region
+  (`Pane::bands`), and a pane in a float keeps one only where its region borders on the padding, so
+  that no glyph draws over another pane of the float or outside it. A float with no ring, in a small
+  frame, keeps none. Rows of one pane keep their bands between them, as any pane's do. M3's menus
+  take layers above these, and give their panes bands as they decide.
 - **Faces:** `Face::Float` (the float's background and its text), `Face::FloatBorder` and
   `Face::Prompt` (the label), with constants until the theme (M2-23), which checks their contrast.
 
@@ -160,8 +160,9 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 - **Only `y` and `n` answer (chosen);** `C-g` closes the question and runs nothing. `SPC`, `DEL` and
   `RET` do not answer, unlike Emacs's `y-or-n-p`, as prose types them most. Any other key says
   `Answer y or n` in the float and leaves the question open. A question's keymap takes the global
-  keymap's place, so no other key reaches a command, and text from an input method answers nothing. A
-  held key answers once: its repeats are dropped, as for the emergency copies' letters.
+  keymap's place, so no other key reaches a command, and text from an input method answers nothing
+  and says `Answer y or n` too. A held key answers once: its repeats are dropped, as for the
+  emergency copies' letters.
 - **A question shows in the same float at the top center (chosen),** ending in `(y or n)`.
 - **A question opens only from a command,** run by a key or by the socket, never from a background
   result such as a finished save, so a `y` typed in prose cannot answer a question that appeared under
@@ -171,9 +172,11 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
   such a question by its id, newer than any prompt open before the request.
 - **The exit guard asks (chosen):** `C-x C-c` and the close button, with a buffer modified or a save
   running, ask `2 modified buffers and 1 save running; exit without saving? (y or n)`. `y` exits as the
-  repeat of ADR 0059 did, unless a save has since failed or left its buffer modified, or more buffers are
-  at risk, when it asks again. The close button runs the same command through the dispatcher
-  (`Dispatcher::close_requested`), and pressed while the question is open does nothing more.
+  repeat of ADR 0059 did, unless a save has since failed or left its buffer modified, or a buffer the
+  question did not cover is at risk, when it asks again: the person agrees to lose those buffers and
+  no other. The close button runs the same command through the dispatcher
+  (`Dispatcher::close_requested`), dropping a prefix key or argument in progress as a key would, and
+  pressed while the question is open does nothing more.
   `ExitAction` goes.
 - **Saving over a file changed on disk asks (chosen).** A save that finds the regular file changed
   keeps it, as before, and remembers what it found there. Its message ends "C-x C-s asks to save over
@@ -312,7 +315,7 @@ Against the 8 ms typing budget ([ADR 0056](0056-typing.md)):
   `editor/prompts.rs` (opening, closing, answers, history and `Editor::quit`); `frame::float_regions`;
   `ArgSpec`'s variants and `Ctx::answer`/`Ctx::confirmed`; `Buffer::prompt`; `Verdict::Passphrase`;
   `Editor::start_save_over` and `Editor::may_save_over`.
-- **`oso-render`:** `Pane::border`, `CursorStyle`, `PaneContent::Masked`, three `Face` variants,
+- **`oso-render`:** `Pane::border`, `Pane::bands` and `Bands`, `CursorStyle`, `PaneContent::Masked`, three `Face` variants,
   `Layer::FLOAT` and `Layer::FLOAT_CONTENT`, and the band below in `Layout`.
 - **`oso`:** `commands/minibuffer.rs` and `bindings/minibuffer.rs`; `goto-line`; `dispatch/prompts.rs`
   (the waiting commands and what an answer runs); the panes in `app/draw/float.rs`; the condition in
@@ -359,7 +362,7 @@ These ADRs stay as they are; this one changes the following:
   `Editor::may_save_over`, `Editor::command_reads_passphrase`, `Editor::echo_withheld`,
   `SaveRefused::ChangedOnDisk`, `ArgSpec`'s two variants, `Ctx::answer`, `Ctx::number`,
   `Ctx::confirmed`, `Invocation`'s two fields and `Verdict::Passphrase`, and loses `ExitAction` and
-  `Editor::exit_attempt`. `oso-render`'s gains `Pane::border`, `CursorStyle`, `Masked`, `Layer`'s two
+  `Editor::exit_attempt`. `oso-render`'s gains `Pane::border`, `Pane::bands`, `Bands`, `CursorStyle`, `Masked`, `Layer`'s two
   constants and three `Face` variants.
 
 ## Alternatives considered

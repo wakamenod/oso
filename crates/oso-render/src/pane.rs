@@ -108,9 +108,26 @@ impl Layer {
     pub const TILED: Self = Self(0);
     /// A float's background and border, over the tiled regions (ADR 0072).
     pub const FLOAT: Self = Self(16);
-    /// What a float shows, inside its border. Glyphs here keep the bands above and below
-    /// their rows, into the float's padding, which nothing else draws on.
+    /// What a float shows, inside its border.
     pub const FLOAT_CONTENT: Self = Self(17);
+}
+
+/// The bands of ADR 0052 a pane's glyphs keep past its region: above its first row and below
+/// its last. Only into cells nothing else draws on, such as a float's padding, so that a
+/// glyph never draws over another pane or outside its float (ADR 0072).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bands {
+    pub above: bool,
+    pub below: bool,
+}
+
+impl Bands {
+    /// None: a glyph stays in its pane, but for the rules of the frame's top row and of the
+    /// modeline and the echo row (ADR 0061, ADR 0063).
+    pub const NONE: Self = Self {
+        above: false,
+        below: false,
+    };
 }
 
 /// How a view's cursor is drawn.
@@ -199,6 +216,8 @@ pub struct Pane<'a> {
     /// A line along the inside of the region's edges, in this face's background, as a
     /// float has (ADR 0072).
     pub border: Option<Face>,
+    /// The bands its glyphs keep past its region.
+    pub bands: Bands,
     pub content: PaneContent<'a>,
 }
 

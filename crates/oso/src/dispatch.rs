@@ -299,6 +299,17 @@ impl Dispatcher {
     }
 
     fn run_text(&mut self, editor: &mut Editor, text: &str, step: Step) -> Effects {
+        // Text answers no question, and says so, as another key does.
+        if editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question())
+        {
+            editor.prompt_says("Answer y or n");
+            return Effects {
+                redraw: true,
+                ..Effects::default()
+            };
+        }
         if !self.resolver.pending().is_empty() {
             let keys = display_keys(self.resolver.pending()).to_string();
             log::debug!("{keys} and text are undefined");

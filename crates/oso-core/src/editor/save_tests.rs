@@ -336,7 +336,7 @@ fn an_exit_is_refused_until_confirmed_and_counts_what_is_at_risk() {
         saving: 0,
     };
     assert_eq!(editor.confirm_exit(false), Err(refused));
-    assert_eq!(editor.exit_attempt, Some(refused));
+    assert_eq!(editor.exit_attempt.as_ref().map(Vec::len), Some(2));
     assert_eq!(
         editor.confirm_exit(false),
         Err(refused),
@@ -519,4 +519,28 @@ fn an_unmodified_buffer_asks_nothing_about_saving_over() {
     editor.may_save_over(id, stamp(9));
     assert!(!editor.current().1.is_modified());
     assert_ne!(editor.start_save(), Err(SaveRefused::ChangedOnDisk));
+}
+
+#[test]
+fn a_confirmed_exit_asks_again_for_a_buffer_the_question_did_not_name() {
+    let mut editor = visiting(b"abc\n");
+    let first = editor.window().buffer();
+    insert(&mut editor, 0, "x");
+    editor.start_save().unwrap();
+    let job = job(&mut editor);
+    // The question names the buffer being saved.
+    assert!(editor.confirm_exit(false).is_err());
+    editor.save_finished(job.buffer, job.content, stamp(5));
+    let other = editor.add_buffer(Buffer::new("other"));
+    editor.show(other);
+    insert(&mut editor, 0, "y");
+    editor.show(first);
+    assert_eq!(
+        editor.confirm_exit(true),
+        Err(ExitRefused {
+            modified: 1,
+            saving: 0
+        }),
+        "as many at risk as asked about, but another buffer"
+    );
 }

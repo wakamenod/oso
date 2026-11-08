@@ -304,15 +304,22 @@ impl Editor {
     pub fn confirm_exit(&mut self, confirmed: bool) -> Result<(), ExitRefused> {
         let modified = self.buffers().filter(|(_, b)| b.is_modified()).count();
         let saving = self.buffers().filter(|(_, b)| b.is_saving()).count();
+        // The person agreed to lose these buffers, and no other: a buffer modified since the
+        // question asks again, even if another's save landed meanwhile.
+        let at_risk: Vec<BufferId> = self
+            .buffers()
+            .filter(|(_, b)| b.is_modified() || b.is_saving())
+            .map(|(id, _)| id)
+            .collect();
         let agreed = self
             .exit_attempt
-            .is_some_and(|asked| modified <= asked.modified && saving <= asked.saving);
-        if modified + saving == 0 || (confirmed && agreed) {
+            .as_ref()
+            .is_some_and(|asked| at_risk.iter().all(|id| asked.contains(id)));
+        if at_risk.is_empty() || (confirmed && agreed) {
             return Ok(());
         }
-        let refused = ExitRefused { modified, saving };
-        self.exit_attempt = Some(refused);
-        Err(refused)
+        self.exit_attempt = Some(at_risk);
+        Err(ExitRefused { modified, saving })
     }
 
     /// Forgets a refused exit, so that the next one is refused again.

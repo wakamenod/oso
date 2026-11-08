@@ -279,7 +279,9 @@ fn rows_of(text: &str, width: usize, rows: usize) -> (Vec<Range<usize>>, bool) {
     // Where the row could end after a space, and the cells it would hold then.
     let mut space = None;
     for cluster in text_clusters(text, 0) {
-        if used + cluster.cells > width && used > 0 {
+        // What a break after a space carries over can still leave no room for a wide cluster,
+        // so this breaks again, before it, until the cluster fits or starts a row.
+        while used + cluster.cells > width && used > 0 {
             let (end, kept) = space
                 .filter(|&(end, _)| end > start)
                 .unwrap_or((cluster.offset, used));
@@ -356,7 +358,8 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
     }
     let regions = float_regions(frame, rows.len());
     let inner = regions.inner;
-    let after = row_cells(&rows, label_cut) + suffix_cells;
+    // A float too narrow for `(y or n)` clips it at its edge, and nothing goes past that.
+    let after = (row_cells(&rows, label_cut) + suffix_cells).min(inner.columns);
     let row = inner.row
         + rows
             .len()
@@ -563,6 +566,61 @@ mod tests {
         // Four columns: the cursor at the end shows in the last one.
         assert_eq!(mask(&text, text.len(), 4), (3, 3));
         assert_eq!(mask(&text, 0, 4), (4, 0));
+    }
+
+    proptest::proptest! {
+        /// Every row of a label fits its width, whatever spaces and wide clusters it holds,
+        /// and the rows cover the text in order.
+        #[test]
+        fn prop_label_rows_fit_their_width(
+            words in proptest::collection::vec("[a あ]{0,12}", 0..12),
+            width in 2usize..30,
+        ) {
+            let text = words.join(" ");
+            let (rows, cut) = rows_of(&text, width, usize::MAX);
+            proptest::prop_assert!(!cut);
+            let mut at = 0;
+            for row in &rows {
+                proptest::prop_assert!(cells_of(&text[row.clone()]) <= width);
+                proptest::prop_assert_eq!(row.start, at);
+                at = row.end;
+            }
+            proptest::prop_assert_eq!(at, text.len());
+        }
+    }
+
+    #[test]
+    fn y_or_n_stays_whole_while_it_fits_and_nothing_passes_a_narrow_float() {
+        let kind = Kind::Question { yes: "x" };
+        let label = format!("Save over it?{QUESTION_END}");
+        for columns in 1..40 {
+            let frame = frame_layout(FrameSize { rows: 30, columns });
+            let layout = layout(&frame, &label, kind, Some("Answer y or n"));
+            let inner = layout.regions.inner;
+            let end = inner.column + inner.columns;
+            assert!(
+                layout.message.column + layout.message.columns <= end,
+                "{columns}"
+            );
+            assert!(layout.input.column <= end, "{columns}");
+            let last = layout.label.last().unwrap();
+            let row = cells_of(&label[last.clone()])
+                + usize::from(layout.label_cut)
+                + cells_of(QUESTION_END);
+            if cells_of(QUESTION_END) <= label_width(kind, inner.columns) {
+                assert!(row <= inner.columns, "{columns}: the whole of it fits");
+            }
+        }
+    }
+
+    #[test]
+    fn a_wide_cluster_after_a_break_at_a_space_starts_a_row() {
+        let text = "aaaaaaaaaa aああああああ";
+        let (rows, _) = rows_of(text, 10, usize::MAX);
+        assert!(
+            rows.iter().all(|row| cells_of(&text[row.clone()]) <= 10),
+            "{rows:?}"
+        );
     }
 
     #[test]

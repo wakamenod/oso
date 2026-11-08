@@ -292,18 +292,13 @@ fn draw_pane<G: GlyphSource>(
             }
         }
     }
-    // What a float shows keeps its bands in the float's padding.
-    let inside_float = pane.layer == Layer::FLOAT_CONTENT;
     match &pane.content {
         PaneContent::Text(view) => {
             // Behind the boxes and the glyphs, so the text keeps its face.
             for cells in view.region_cells {
                 draws.fill(unscrolled.frame_cells(*cells), Face::Region);
             }
-            let mut layout = Layout::new(metrics, pane.region, view.scroll);
-            if inside_float {
-                layout = layout.with_bands();
-            }
+            let mut layout = Layout::new(metrics, pane.region, view.scroll).with_bands(pane.bands);
             if let Some(cells) = cursor.filter(|_| !hollow) {
                 // Glyphs take the box's color only where the box is.
                 layout = layout.with_cursor(view.cursor.row, cells);
@@ -317,22 +312,16 @@ fn draw_pane<G: GlyphSource>(
         }
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
-            // A modeline or an echo area, and what a float shows. Other panes are M3's to
-            // decide.
-            let layout = if inside_float {
-                unscrolled.with_bands()
-            } else if pane.layer == Layer::TILED && rows_shown == 1 {
+            // A modeline or an echo area. Other panes keep what their `bands` say.
+            let layout = if pane.layer == Layer::TILED && rows_shown == 1 {
                 unscrolled.with_band_above()
             } else {
-                unscrolled
+                unscrolled.with_bands(pane.bands)
             };
             draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
         PaneContent::Masked(masked) => {
-            let mut layout = unscrolled;
-            if inside_float {
-                layout = layout.with_bands();
-            }
+            let mut layout = unscrolled.with_bands(pane.bands);
             if let Some(cells) = cursor {
                 layout = layout.with_cursor(0, cells);
             }
@@ -513,6 +502,7 @@ fn draw_lines<G: GlyphSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pane::Bands;
     use crate::rows::tests::Recorder;
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::display_map::DisplayPoint;
@@ -601,6 +591,7 @@ mod tests {
             layer: Layer(layer),
             background: None,
             border: None,
+            bands: Bands::NONE,
             content,
         }
     }
@@ -833,6 +824,7 @@ mod tests {
         let panes = [Pane {
             background: Some(Face::Float),
             border: Some(Face::FloatBorder),
+            bands: Bands::NONE,
             ..pane(0, rect(1, 1, 3, 4), 16, PaneContent::Lines(&[]))
         }];
         let mut scene = Scene::new(LIMITS);
@@ -910,21 +902,39 @@ mod tests {
     }
 
     #[test]
-    fn what_a_float_shows_keeps_its_bands_in_the_padding() {
+    fn a_pane_keeps_only_the_bands_it_is_given() {
         let line = line("A");
         let lines: [&[Span<'_>]; 1] = [&line];
-        let mut heights = Vec::new();
-        for layer in [3, Layer::FLOAT_CONTENT.0] {
-            let panes = [pane(0, rect(2, 0, 1, 4), layer, PaneContent::Lines(&lines))];
+        // Bits above and below the row: [top, bottom] of the one quad, by the bands kept.
+        let mut reach = Vec::new();
+        for bands in [
+            Bands::NONE,
+            Bands {
+                above: true,
+                below: false,
+            },
+            Bands {
+                above: true,
+                below: true,
+            },
+        ] {
+            let panes = [Pane {
+                bands,
+                ..pane(0, rect(2, 0, 1, 4), 17, PaneContent::Lines(&lines))
+            }];
             let mut atlas = FakeAtlas {
                 bitmap: Some(([8, 40], 1, 22)),
                 ..FakeAtlas::default()
             };
             let mut scene = Scene::new(LIMITS);
             build(&mut scene, &panes, &mut atlas);
-            heights.push(scene.quads()[0].size()[1]);
+            let quad = &scene.quads()[0];
+            reach.push([quad.position()[1], quad.position()[1] + quad.size()[1]]);
         }
-        assert!(heights[1] > heights[0], "{heights:?}");
+        // The row spans y 48 to 68; nothing past it without a band, in any layer.
+        assert_eq!(reach[0], [48.0, 68.0], "{reach:?}");
+        assert!(reach[1][0] < 48.0 && reach[1][1] == 68.0, "{reach:?}");
+        assert!(reach[2][0] < 48.0 && reach[2][1] > 68.0, "{reach:?}");
     }
 
     #[test]
