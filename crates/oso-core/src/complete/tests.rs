@@ -1,0 +1,299 @@
+//! Tests of completion (ADR 0076): components in any order, each style and affix, smart
+//! case, the order candidates show in, and narrowing.
+//!
+//! Must not depend on: `editor` or `minibuffer`; these run on strings alone.
+
+use std::ops::Range;
+use std::sync::Arc;
+
+use proptest::prelude::*;
+
+use super::{Candidate, Candidates, Query};
+
+fn candidate(text: &str) -> Candidate {
+    Candidate::new(text, "", "")
+}
+
+fn matches(input: &str, text: &str) -> bool {
+    Query::parse(input).matches(&candidate(text))
+}
+
+fn highlights(input: &str, text: &str) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    Query::parse(input).highlights(&candidate(text), &mut out);
+    out
+}
+
+fn list(texts: &[&str], history: &[&str]) -> Candidates {
+    let items: Arc<[Candidate]> = texts.iter().map(|text| candidate(text)).collect();
+    Candidates::new(items, history.iter().copied())
+}
+
+fn shown(candidates: &Candidates) -> Vec<&str> {
+    (0..candidates.len())
+        .map(|place| candidates.get(place).unwrap().text())
+        .collect()
+}
+
+#[test]
+fn components_match_in_any_order() {
+    assert!(matches("buf save", "save-buffer"));
+    assert!(matches("save buf", "save-buffer"));
+    assert!(!matches("save kill", "save-buffer"));
+    assert!(matches("", "anything"));
+    assert!(matches("   ", "anything"));
+}
+
+#[test]
+fn a_space_after_a_backslash_stays_in_its_component() {
+    assert!(matches(r"a\ b", "a b"));
+    assert!(!matches(r"a\ b", "b a"));
+    assert!(matches("a b", "b a"));
+}
+
+#[test]
+fn case_is_ignored_unless_the_input_has_an_upper_case_letter() {
+    assert!(matches("save", "Save-Buffer"));
+    assert!(matches("Save", "Save-Buffer"));
+    assert!(!matches("Save", "save-buffer"));
+    // One upper-case letter anywhere makes every component match case.
+    assert!(!matches("save B", "save-buffer"));
+    assert!(matches("ä", "ÄRGER"));
+}
+
+#[test]
+fn each_affix_picks_its_style() {
+    // `!`: must not match.
+    assert!(!matches("!buf", "save-buffer"));
+    assert!(matches("save !kill", "save-buffer"));
+    assert!(matches("buf!", "goto-line"));
+    // `,`: initialism.
+    assert!(matches(",sbkt", "save-buffers-kill-terminal"));
+    assert!(matches("sbk,", "save-buffers-kill-terminal"));
+    assert!(!matches(",sbx", "save-buffers-kill-terminal"));
+    // `=`: literal only.
+    assert!(matches("=a.b", "a.b"));
+    assert!(!matches("=a.b", "axb"));
+    // `^`: at the start.
+    assert!(matches("^save", "save-buffer"));
+    assert!(!matches("^buffer", "save-buffer"));
+    // `~`: flex.
+    assert!(matches("~fwc", "forward-char"));
+    assert!(!matches("~cwf", "forward-char"));
+    // An affix alone matches everything.
+    assert!(matches("!", "anything"));
+}
+
+#[test]
+fn an_affix_and_matches_the_annotation() {
+    let item = Candidate::new(
+        "set-mark-command",
+        "C-SPC",
+        "Set the mark where the region starts.",
+    );
+    assert!(Query::parse("&region").matches(&item));
+    assert!(!Query::parse("region").matches(&item));
+    assert!(!Query::parse("&C-SPC").matches(&item));
+    let mut out = Vec::new();
+    Query::parse("&region mark").highlights(&item, &mut out);
+    assert_eq!(out, vec![4..8]);
+}
+
+#[test]
+fn a_component_with_an_expression_matches_as_one_or_as_a_literal() {
+    assert!(matches("for.*char", "forward-char"));
+    assert!(matches("^for", "forward-char"));
+    assert!(matches("char$", "forward-char"));
+    assert!(!matches("word$", "forward-char"));
+    assert!(matches("a.b", "a.b"));
+    assert!(matches("a.b", "axb"));
+    // One that does not compile is a literal.
+    assert!(matches("a(b", "xa(by"));
+    assert!(!matches("a(b", "ab"));
+    // Case as the input says.
+    assert!(matches("for.*char", "FORWARD-CHAR"));
+    assert!(!matches("For.*char", "forward-char"));
+    // Negated.
+    assert!(!matches("!for.*char", "forward-char"));
+}
+
+#[test]
+fn an_expression_too_large_to_compile_is_a_literal() {
+    let big = format!("(a{{1000}}){{1000}}{}", "b");
+    assert!(!matches(&big, "ab"));
+    assert!(matches(&big, &format!("x{big}y")));
+    let deep = format!("{}a{}", "(".repeat(64), ")".repeat(64));
+    assert!(!matches(&deep, "a"));
+}
+
+#[test]
+fn highlights_are_where_each_component_matched_in_the_text() {
+    assert_eq!(highlights("buf save", "save-buffer"), [0..4, 5..8]);
+    assert_eq!(highlights(",sb", "save-buffer"), [0..1, 5..6]);
+    assert_eq!(highlights("~svb", "save-buffer"), [0..1, 2..3, 5..6]);
+    assert_eq!(highlights("ave av", "save"), vec![1..4]);
+    assert_eq!(highlights("!x save", "save"), vec![0..4]);
+    assert_eq!(highlights("r.*d", "forward"), vec![2..7]);
+    // Offsets are the original text's, whatever folding did to its lengths.
+    let text = "İx K bar";
+    let range = highlights("bar", text)[0].clone();
+    assert_eq!(&text[range], "bar");
+    let range = highlights("k", text)[0].clone();
+    assert_eq!(&text[range], "K");
+}
+
+#[test]
+fn the_order_is_history_then_length_then_alphabetical() {
+    let candidates = list(
+        &["undo-redo", "undo", "forward-char", "goto-line", "abc"],
+        &["goto-line", "undo-redo"],
+    );
+    assert_eq!(
+        shown(&candidates),
+        ["goto-line", "undo-redo", "abc", "undo", "forward-char"]
+    );
+}
+
+#[test]
+fn an_exact_match_shows_first_and_the_rest_keep_their_order() {
+    let mut candidates = list(&["undo-redo", "undo", "redo"], &["undo-redo"]);
+    candidates.set_input("undo");
+    assert_eq!(shown(&candidates), ["undo", "undo-redo"]);
+    assert_eq!(candidates.selected_candidate().unwrap().text(), "undo");
+    candidates.set_input("und");
+    assert_eq!(shown(&candidates), ["undo-redo", "undo"]);
+}
+
+#[test]
+fn selection_stops_at_both_ends_and_resets_with_the_input() {
+    let mut candidates = list(&["a1", "a2", "a3", "b"], &[]);
+    assert_eq!(candidates.selected(), Some(0));
+    candidates.move_by(-1);
+    assert_eq!(candidates.selected(), Some(0));
+    candidates.move_by(10);
+    assert_eq!(candidates.selected(), Some(3));
+    candidates.set_input("a");
+    assert_eq!((candidates.selected(), candidates.len()), (Some(0), 3));
+    candidates.set_input("z");
+    assert_eq!(candidates.selected(), None);
+    assert!(candidates.selected_candidate().is_none());
+    assert_eq!(candidates.total(), 4);
+}
+
+#[test]
+fn the_rows_shown_follow_the_selection() {
+    let texts: Vec<String> = (0..30).map(|n| format!("c{n:02}")).collect();
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let mut candidates = list(&texts, &[]);
+    assert_eq!(candidates.keep_in_view(18), 0);
+    candidates.move_by(17);
+    assert_eq!(candidates.keep_in_view(18), 0);
+    candidates.move_by(1);
+    assert_eq!(candidates.keep_in_view(18), 1);
+    candidates.select(29);
+    assert_eq!(candidates.keep_in_view(18), 12);
+    candidates.select(5);
+    assert_eq!(candidates.keep_in_view(18), 5);
+    // Fewer rows than before keep the selection in view, and more show what is above.
+    assert_eq!(candidates.keep_in_view(1), 5);
+    candidates.select(29);
+    candidates.keep_in_view(1);
+    assert_eq!(candidates.keep_in_view(18), 12);
+}
+
+#[test]
+fn narrowing_needs_every_component_kept_or_longer_at_its_end() {
+    let narrows = |new: &str, old: &str| Query::parse(new).narrows(&Query::parse(old));
+    assert!(narrows("save", "sav"));
+    assert!(narrows("sav buf", "sav"));
+    assert!(narrows("sav", ""));
+    assert!(narrows("saV", "sa"));
+    assert!(narrows(",sbk", ",sb"));
+    assert!(!narrows("sa", "Sa"));
+    assert!(!narrows("sav", "save"));
+    assert!(!narrows("buf sav", "sav"));
+    assert!(!narrows("!bu", "!b"));
+    assert!(narrows("!b x", "!b"));
+    assert!(!narrows("sav!", "sav"));
+    assert!(!narrows("sav~", "sav"));
+    assert!(!narrows("a|b", "a"));
+    assert!(!narrows("a.", "a"));
+}
+
+#[test]
+fn debug_says_nothing_of_the_input() {
+    let mut candidates = list(&["secret-word"], &[]);
+    candidates.set_input("secret");
+    assert!(!format!("{candidates:?}").contains("secret"));
+    assert!(!format!("{:?}", Query::parse("secret")).contains("secret"));
+}
+
+fn words() -> impl Strategy<Value = Vec<String>> {
+    prop::collection::vec("[a-cA-C\\-]{1,6}", 1..40)
+}
+
+proptest! {
+    #[test]
+    fn components_in_any_order_match_the_same(
+        texts in words(),
+        parts in prop::collection::vec("[a-c!,~^]{1,3}", 1..4),
+    ) {
+        let forward = Query::parse(&parts.join(" "));
+        let mut reversed = parts.clone();
+        reversed.reverse();
+        let backward = Query::parse(&reversed.join(" "));
+        for text in &texts {
+            let item = candidate(text);
+            prop_assert_eq!(forward.matches(&item), backward.matches(&item));
+        }
+    }
+
+    #[test]
+    fn narrowing_gives_what_a_full_pass_gives(
+        texts in words(),
+        inputs in prop::collection::vec("[a-cA-C !,~^=&.*\\\\]{0,3}", 1..6),
+    ) {
+        let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let mut typed = list(&texts, &[]);
+        let mut input = String::new();
+        for part in &inputs {
+            input.push_str(part);
+            typed.set_input(&input);
+            let mut fresh = list(&texts, &[]);
+            fresh.set_input(&input);
+            prop_assert_eq!(shown(&typed), shown(&fresh));
+        }
+    }
+
+    #[test]
+    fn typing_never_moves_a_candidate(texts in words(), input in "[a-c]{0,4}") {
+        let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+        let mut candidates = list(&texts, &texts[..texts.len() / 2]);
+        let all: Vec<String> = shown(&candidates).iter().map(|s| (*s).to_owned()).collect();
+        candidates.set_input(&input);
+        // What shows, but an exact match moved first, keeps the order of the whole list.
+        let mut at = 0;
+        for text in shown(&candidates).into_iter().filter(|text| *text != input) {
+            let place = all[at..].iter().position(|other| other == text);
+            prop_assert!(place.is_some());
+            at += place.unwrap_or(0) + 1;
+        }
+    }
+
+    #[test]
+    fn highlights_are_inside_the_text_on_char_boundaries(
+        text in "[a-zA-ZİßK\\- ]{0,12}",
+        input in "[a-zİk~,^ ]{0,6}",
+    ) {
+        let item = candidate(&text);
+        let query = Query::parse(&input);
+        let mut out = Vec::new();
+        query.highlights(&item, &mut out);
+        let mut end = 0;
+        for range in &out {
+            prop_assert!(range.start >= end && range.start < range.end && range.end <= text.len());
+            prop_assert!(text.is_char_boundary(range.start) && text.is_char_boundary(range.end));
+            end = range.end;
+        }
+    }
+}

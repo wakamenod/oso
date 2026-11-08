@@ -9,6 +9,9 @@ rust-version.workspace = true
 
 [dependencies]
 log.workspace = true
+# Linear-time regular expressions, the only engine allowed (ADR 0010), for completion's
+# regexp style (ADR 0076). Already in the tree through env_logger, at this version.
+regex = { version = "1.12.4", default-features = false, features = ["std", "unicode-case", "perf"] }
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 

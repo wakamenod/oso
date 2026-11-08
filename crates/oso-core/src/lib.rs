@@ -12,6 +12,7 @@
 
 pub mod buffer;
 pub mod command;
+pub mod complete;
 pub mod decode;
 pub mod display_map;
 pub mod editor;

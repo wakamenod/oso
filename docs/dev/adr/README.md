@@ -80,6 +80,7 @@ old one's status.
 | 0071 | [The mark and the region](0071-mark-and-region.md) | Accepted |
 | 0072 | [Floating windows, the minibuffer and questions](0072-floating-windows-the-minibuffer-and-questions.md) | Accepted |
 | 0073 | [Secure input in secret buffers](0073-secure-input-in-secret-buffers.md) | Accepted |
+| 0076 | [Completion and `M-x`](0076-completion-and-m-x.md) | Proposed |
 
 ## Template
 
