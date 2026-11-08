@@ -51,7 +51,8 @@ The author chose these on 2026-11-08, through the coordinator.
   themes:
   - a theme's name, and whether it is dark or light;
   - its palette of named colours, written in the source as sRGB hex and converted to linear
-    once, the first time the list is read;
+    once, when the renderer is made, which keeps the list: there is no global state
+    ([ADR 0038](0038-architecture-guardrails.md));
   - its face map, from each face's token to palette names, for the foreground and the
     background: ADR 0027's two layers;
   - its `PanelStyle` (ADR 0075's sizes, shadow, hairline and border), which moves into the theme;
@@ -179,7 +180,9 @@ WCAG's, from linear colours; a colour with alpha is first laid over what it sits
   a question, a modeline with the `Agent` segment and a warning in the echo area.
 - The author sees them side by side with each pair's ratio, chooses among two or three
   candidates where a colour is open, and the choice is checked once more in the running app.
-- `dusk` starts from today's constants, so nothing changes in its look until the author says.
+- `dusk` starts from today's constants. Where they fall short of the floors above, the region
+  under text, the modeline's text and its warning, and a box's label, the author picks the
+  nearest colours that pass.
 
 ## Changes to accepted ADRs
 
