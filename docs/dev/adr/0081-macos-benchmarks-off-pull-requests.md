@@ -1,6 +1,6 @@
 # 0081. macOS benchmarks off pull requests
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -23,7 +23,8 @@ numbers.
 
 ## Decision
 
-It amends ADR 0046 as follows.
+The author accepted this on 2026-11-08, through the coordinator. It amends
+[ADR 0046](0046-performance-regression-checks.md) as follows.
 
 - The `benchmarks` job of `perf.yml` runs on Linux only for pull requests. Pushes to
   `main` still run it on Linux and macOS, so the macOS baseline stays current.
