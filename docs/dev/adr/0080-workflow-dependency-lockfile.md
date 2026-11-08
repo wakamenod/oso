@@ -1,6 +1,6 @@
 # 0080. Workflow dependency lockfile
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -26,7 +26,8 @@ lockfile pin what that action uses.
 
 ## Decision
 
-This amends [ADR 0021](0021-development-tooling.md): third-party actions are pinned by the
+The author accepted this on 2026-11-08, through the coordinator. It amends
+[ADR 0021](0021-development-tooling.md): third-party actions are pinned by the
 lockfile, not by SHAs in the workflow files.
 
 - **Every workflow is in the lockfile.** `.github/workflows/actions.lock` is generated with
