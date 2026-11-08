@@ -93,18 +93,19 @@ impl Window {
 
     /// Shows `buffer`, keeping where the window was in the one it leaves. Gives where it was
     /// in `buffer` the last time, for the editor to clip to the text as it is now; until then it
-    /// shows `buffer` from its start, with one cursor. Showing the buffer it shows starts it over
-    /// there. Ends a walk of `M-,` and `M-/`.
+    /// shows `buffer` from its start, with one cursor. Showing the buffer it shows changes
+    /// nothing there. Ends a walk of `M-,` and `M-/`.
     pub(crate) fn show(&mut self, buffer: BufferId) -> Option<Place> {
-        let mut places = std::mem::take(&mut self.places);
-        places.end_walk();
-        if buffer != self.buffer {
-            let place = Place {
-                selections: std::mem::take(&mut self.selections),
-                scroll: self.scroll,
-            };
-            places.leave(self.buffer, place);
+        self.places.end_walk();
+        if buffer == self.buffer {
+            return None;
         }
+        let mut places = std::mem::take(&mut self.places);
+        let place = Place {
+            selections: std::mem::take(&mut self.selections),
+            scroll: self.scroll,
+        };
+        places.leave(self.buffer, place);
         let place = places.take(buffer);
         *self = Self {
             size: self.size,
