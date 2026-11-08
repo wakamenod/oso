@@ -1,6 +1,6 @@
 # 0089. Built-in themes, switched at run time
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context

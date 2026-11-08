@@ -1,6 +1,6 @@
 # 0027. Theme
 
-- Status: Accepted
+- Status: Accepted, amended by 0089
 - Date: 2026-11-03
 
 ## Context
