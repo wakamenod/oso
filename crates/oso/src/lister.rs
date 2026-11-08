@@ -4,9 +4,12 @@
 //!
 //! The UI thread never touches the file system. A prompt asks for a directory's names, or for
 //! a look at the rows it shows, and a worker answers with the request's generation, which the
-//! prompt keeps only if it is still its newest. A thread serves one request at a time, and at
-//! most [`MAX_THREADS`] are alive: a directory on a file system that hangs stalls only its own
-//! thread, and a request made while all are busy waits for one. Nothing listed is opened.
+//! prompt keeps only if it is still its newest. The app holds one [`Lister`], so its limits hold
+//! for the process. A thread serves one request at a time, at most [`MAX_THREADS`] are alive,
+//! and at most one request per directory is in flight: a directory on a file system that hangs
+//! stalls only its own thread, and its next requests wait without holding others up. A newer
+//! request for a directory replaces one still waiting, and a prompt that closes drops what it
+//! left waiting. Nothing listed is opened.
 #![cfg_attr(
     not(test),
     expect(
@@ -64,10 +67,20 @@ pub struct Look {
     pub others: bool,
     /// For a link: where it leads, as it is written.
     pub target: Option<PathBuf>,
-    /// For a link: what it leads to is a directory.
-    pub to_directory: bool,
-    /// For a link: nothing is where it leads.
-    pub missing: bool,
+    /// For a link: what is where it leads.
+    pub leads_to: Option<LeadsTo>,
+}
+
+/// What is where a link leads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LeadsTo {
+    Directory,
+    /// A file, or anything else that is not a directory.
+    Other,
+    /// Nothing is there.
+    Missing,
+    /// It could not be told: a loop of links, or no right to look.
+    Unknown,
 }
 
 /// A worker's answer.
@@ -80,6 +93,8 @@ pub enum Answer {
         entries: Result<Arc<[Entry]>, String>,
         /// More than [`MAX_NAMES`] were there.
         truncated: bool,
+        /// Some names could not be read, and are left out.
+        partial: bool,
     },
     /// What a look at some of a directory's names found; a name that could not be looked at is
     /// left out.
@@ -91,17 +106,79 @@ pub enum Answer {
 }
 
 /// What a worker is asked.
+#[derive(Debug, PartialEq, Eq)]
 enum Request {
     List(PathBuf, u64),
     Look(PathBuf, Vec<OsString>, u64),
 }
 
+impl Request {
+    fn directory(&self) -> &Path {
+        match self {
+            Self::List(directory, _) | Self::Look(directory, ..) => directory,
+        }
+    }
+
+    /// Whether `self`, asked later, makes `other` of no use.
+    fn replaces(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::List(..), Self::List(..)) | (Self::Look(..), Self::Look(..))
+        ) && self.directory() == other.directory()
+    }
+}
+
+/// The requests waiting, and the directories a worker is busy with.
+#[derive(Debug, Default)]
+struct Queue {
+    waiting: VecDeque<Request>,
+    busy: Vec<PathBuf>,
+    /// Threads alive.
+    alive: usize,
+}
+
+impl Queue {
+    /// Queues `request` in place of one it replaces.
+    fn push(&mut self, request: Request) {
+        self.waiting.retain(|other| !request.replaces(other));
+        self.waiting.push_back(request);
+    }
+
+    /// The first request whose directory no worker is busy with, which this worker now is.
+    fn next(&mut self) -> Option<Request> {
+        let index = self
+            .waiting
+            .iter()
+            .position(|request| !self.busy.iter().any(|busy| busy == request.directory()))?;
+        let request = self.waiting.remove(index)?;
+        self.busy.push(request.directory().to_path_buf());
+        Some(request)
+    }
+
+    /// A worker is done with `directory`.
+    fn done(&mut self, directory: &Path) {
+        if let Some(index) = self.busy.iter().position(|busy| busy == directory) {
+            self.busy.swap_remove(index);
+        }
+    }
+
+    /// Whether another thread would find work that no thread alive is free to take: a request
+    /// for a directory no worker is busy with, beyond those the threads not busy will take.
+    fn wants_a_thread(&self) -> bool {
+        let free = self
+            .waiting
+            .iter()
+            .filter(|request| !self.busy.iter().any(|busy| busy == request.directory()))
+            .count();
+        self.alive < MAX_THREADS && free > self.alive.saturating_sub(self.busy.len())
+    }
+}
+
 /// What the workers and the prompt share.
 #[derive(Default)]
 struct Shared {
-    waiting: Mutex<VecDeque<Request>>,
+    queue: Mutex<Queue>,
     answers: Mutex<Vec<Answer>>,
-    alive: Mutex<usize>,
 }
 
 /// Locks `mutex`. Each is held only to move a value in or out, so whatever a panic left is
@@ -110,8 +187,8 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The listing workers of one prompt. Dropping it lets the threads end once their request is
-/// done, and drops what they answer.
+/// The listing workers. The app holds one, so that its limits hold for the process. Dropping it
+/// lets the threads end once their request is done, and drops what they answer.
 pub struct Lister {
     shared: Arc<Shared>,
     wake: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -142,11 +219,18 @@ impl Lister {
         std::mem::take(&mut *lock(&self.shared.answers))
     }
 
-    /// Queues `request`, and starts a thread for it if fewer than [`MAX_THREADS`] are alive.
+    /// Drops every request still waiting, and every answer not taken, as a prompt that asked
+    /// closes. A request a worker has begun runs to its end, and its answer is dropped later.
+    pub fn forget(&self) {
+        lock(&self.shared.queue).waiting.clear();
+        lock(&self.shared.answers).clear();
+    }
+
+    /// Queues `request`, and starts a thread for it if one would find it.
     fn ask(&self, request: Request) {
-        lock(&self.shared.waiting).push_back(request);
-        let mut alive = lock(&self.shared.alive);
-        if *alive >= MAX_THREADS {
+        let mut queue = lock(&self.shared.queue);
+        queue.push(request);
+        if !queue.wants_a_thread() {
             return;
         }
         let shared = Arc::clone(&self.shared);
@@ -155,35 +239,43 @@ impl Lister {
             .name("oso-list".into())
             .spawn(move || serve(&shared, wake.as_ref()));
         match spawned {
-            Ok(_) => *alive += 1,
+            Ok(_) => queue.alive += 1,
             Err(e) => log::warn!("could not start listing a directory: {e}"),
         }
     }
 }
 
-/// Answers requests until none waits, then ends.
+impl Drop for Lister {
+    fn drop(&mut self) {
+        self.forget();
+    }
+}
+
+/// Answers requests until none waits that it can take, then ends.
 fn serve(shared: &Shared, wake: &(dyn Fn() -> bool + Send + Sync)) {
     loop {
         let request = {
-            let mut waiting = lock(&shared.waiting);
-            let request = waiting.pop_front();
+            let mut queue = lock(&shared.queue);
+            let request = queue.next();
             if request.is_none() {
                 // Under the queue's lock, so that a request queued now finds this one gone
                 // and starts another.
-                *lock(&shared.alive) -= 1;
+                queue.alive -= 1;
             }
             request
         };
         let Some(request) = request else {
             return;
         };
+        let directory = request.directory().to_path_buf();
         let answer = std::panic::catch_unwind(|| answer(request));
+        lock(&shared.queue).done(&directory);
         let Ok(answer) = answer else {
             continue;
         };
         lock(&shared.answers).push(answer);
         if !wake() {
-            lock(&shared.waiting).clear();
+            lock(&shared.queue).waiting.clear();
         }
     }
 }
@@ -191,15 +283,16 @@ fn serve(shared: &Shared, wake: &(dyn Fn() -> bool + Send + Sync)) {
 fn answer(request: Request) -> Answer {
     match request {
         Request::List(directory, generation) => {
-            let (entries, truncated) = match list(&directory, MAX_NAMES) {
-                Ok((entries, truncated)) => (Ok(entries.into()), truncated),
-                Err(e) => (Err(e.to_string()), false),
+            let (entries, truncated, partial) = match list(&directory, MAX_NAMES) {
+                Ok(listed) => (Ok(listed.entries.into()), listed.truncated, listed.partial),
+                Err(e) => (Err(e.to_string()), false, false),
             };
             Answer::Listed {
                 directory,
                 generation,
                 entries,
                 truncated,
+                partial,
             }
         }
         Request::Look(directory, names, generation) => {
@@ -216,16 +309,31 @@ fn answer(request: Request) -> Answer {
     }
 }
 
-/// The names in `directory`, at most `limit`, and whether there were more. `read_dir` gives
-/// each one's type without a look at the file on most file systems.
-fn list(directory: &Path, limit: usize) -> io::Result<(Vec<Entry>, bool)> {
-    let mut entries = Vec::new();
+/// What a listing found.
+struct Listed {
+    entries: Vec<Entry>,
+    /// There were more than the limit.
+    truncated: bool,
+    /// Some names could not be read.
+    partial: bool,
+}
+
+/// The names in `directory`, at most `limit`. `read_dir` gives each one's type without a look at
+/// the file on most file systems.
+fn list(directory: &Path, limit: usize) -> io::Result<Listed> {
+    let mut listed = Listed {
+        entries: Vec::new(),
+        truncated: false,
+        partial: false,
+    };
     for entry in fs::read_dir(directory)? {
         let Ok(entry) = entry else {
+            listed.partial = true;
             continue;
         };
-        if entries.len() == limit {
-            return Ok((entries, true));
+        if listed.entries.len() == limit {
+            listed.truncated = true;
+            return Ok(listed);
         }
         let kind = match entry.file_type() {
             Ok(kind) if kind.is_symlink() => Kind::Link,
@@ -233,12 +341,12 @@ fn list(directory: &Path, limit: usize) -> io::Result<(Vec<Entry>, bool)> {
             Ok(kind) if kind.is_file() => Kind::File,
             _ => Kind::Other,
         };
-        entries.push(Entry {
+        listed.entries.push(Entry {
             name: entry.file_name(),
             kind,
         });
     }
-    Ok((entries, false))
+    Ok(listed)
 }
 
 /// A look at `name` in `directory`, which opens nothing.
@@ -246,15 +354,21 @@ fn look(directory: &Path, name: OsString) -> Option<Look> {
     let path = directory.join(&name);
     let own = fs::symlink_metadata(&path).ok()?;
     let link = own.file_type().is_symlink();
-    let led = link.then(|| fs::metadata(&path));
+    // Following a link can reach another file system, which may be slow to answer; this thread
+    // waits for it, and only this one.
+    let leads_to = link.then(|| match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_dir() => LeadsTo::Directory,
+        Ok(_) => LeadsTo::Other,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => LeadsTo::Missing,
+        Err(_) => LeadsTo::Unknown,
+    });
     Some(Look {
         mode: mode(&own),
         len: own.len(),
         modified: own.modified().ok(),
         others: !oso_platform::privacy::is_this_users(&own),
         target: link.then(|| fs::read_link(&path).ok()).flatten(),
-        to_directory: matches!(&led, Some(Ok(metadata)) if metadata.is_dir()),
-        missing: matches!(&led, Some(Err(_))),
+        leads_to,
         name,
     })
 }
