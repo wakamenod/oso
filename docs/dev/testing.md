@@ -435,6 +435,12 @@ run them for long periods.
 GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
+A pull request that changes nothing but `docs/` builds nothing: its first job, `changes`,
+finds that from the files it changes since it left `main`, and every job below that builds
+or checks code is skipped, so it shows as skipped, not failed. The gitleaks scan and
+`just markers`, which looks for conflict markers in every tracked file with `git grep`,
+still run. A push to `main` always runs everything.
+
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
   the dev features too (`--all-features`). The macOS job also runs
   `just public-api-macos-check`, below, so that a push starts one macOS job.
@@ -442,6 +448,8 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
+- `just markers` on Linux: no conflict marker in any tracked file, without a build, as
+  the architecture test checks within `just ci`
 - `just public-api-check` on Linux: the public API matches
   `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
   `just public-api-macos-check` in the macOS `just ci` job for `oso-platform`'s macOS API,
