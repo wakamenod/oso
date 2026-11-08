@@ -141,6 +141,7 @@ impl Dispatcher {
         let style = CompletionStyle {
             given_order: true,
             takes_input: read.purpose == BufferPurpose::Switch,
+            preview: read.purpose == BufferPurpose::Switch,
         };
         let items = buffers::candidates(editor, read.purpose);
         match editor.open_completion_as(read.prompt, read.history, items, style) {

@@ -451,6 +451,7 @@ pub fn oso_core::complete::Candidates::get(&self, usize) -> core::option::Option
 pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
 pub fn oso_core::complete::Candidates::len(&self) -> usize
 pub fn oso_core::complete::Candidates::on_input(&self) -> bool
+pub fn oso_core::complete::Candidates::previews(&self) -> bool
 pub fn oso_core::complete::Candidates::query(&self) -> &oso_core::complete::Query
 pub fn oso_core::complete::Candidates::selected(&self) -> core::option::Option<usize>
 pub fn oso_core::complete::Candidates::selected_candidate(&self) -> core::option::Option<&oso_core::complete::Candidate>
@@ -897,6 +898,21 @@ impl core::fmt::Debug for oso_core::editor::KillRefused
 pub fn oso_core::editor::KillRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::KillRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::KillRefused
+pub enum oso_core::editor::Preview
+pub oso_core::editor::Preview::Buffer
+pub oso_core::editor::Preview::Buffer::cursor: usize
+pub oso_core::editor::Preview::Buffer::id: oso_core::buffer::BufferId
+pub oso_core::editor::Preview::Buffer::top: usize
+pub oso_core::editor::Preview::Withheld
+impl core::clone::Clone for oso_core::editor::Preview
+pub fn oso_core::editor::Preview::clone(&self) -> oso_core::editor::Preview
+impl core::cmp::Eq for oso_core::editor::Preview
+impl core::cmp::PartialEq for oso_core::editor::Preview
+pub fn oso_core::editor::Preview::eq(&self, &oso_core::editor::Preview) -> bool
+impl core::fmt::Debug for oso_core::editor::Preview
+pub fn oso_core::editor::Preview::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Preview
+impl core::marker::StructuralPartialEq for oso_core::editor::Preview
 pub enum oso_core::editor::Quit
 pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
@@ -994,6 +1010,7 @@ impl core::fmt::Debug for oso_core::editor::ClipboardWrite
 pub fn oso_core::editor::ClipboardWrite::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::CompletionStyle
 pub oso_core::editor::CompletionStyle::given_order: bool
+pub oso_core::editor::CompletionStyle::preview: bool
 pub oso_core::editor::CompletionStyle::takes_input: bool
 impl core::clone::Clone for oso_core::editor::CompletionStyle
 pub fn oso_core::editor::CompletionStyle::clone(&self) -> oso_core::editor::CompletionStyle
@@ -1081,6 +1098,7 @@ pub fn oso_core::editor::Editor::home(&self) -> core::option::Option<&std::path:
 pub fn oso_core::editor::Editor::kill_asked(&self) -> core::option::Option<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::kill_by_person(&mut self, oso_core::buffer::BufferId, bool) -> core::result::Result<(), oso_core::editor::KillRefused>
+pub fn oso_core::editor::Editor::preview(&self) -> core::option::Option<oso_core::editor::Preview>
 pub fn oso_core::editor::Editor::set_home(&mut self, core::option::Option<std::path::PathBuf>)
 pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str)
 pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
@@ -1290,6 +1308,7 @@ pub oso_core::frame::FloatRegions::candidates: oso_core::frame::CellRect
 pub oso_core::frame::FloatRegions::gap: bool
 pub oso_core::frame::FloatRegions::inner: oso_core::frame::CellRect
 pub oso_core::frame::FloatRegions::outer: oso_core::frame::CellRect
+pub oso_core::frame::FloatRegions::preview: oso_core::frame::CellRect
 impl oso_core::frame::FloatRegions
 pub fn oso_core::frame::FloatRegions::candidates_padded(&self) -> bool
 pub fn oso_core::frame::FloatRegions::padded_below(&self) -> bool
@@ -1375,6 +1394,7 @@ impl core::hash::Hash for oso_core::frame::WindowRegions
 pub fn oso_core::frame::WindowRegions::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
+pub const oso_core::frame::MIN_LIST_COLUMNS: usize
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout

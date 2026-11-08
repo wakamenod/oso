@@ -31,24 +31,24 @@ keys: C-x b
 float at row 1, column 19: 19 x 62
 │ 1/2 Switch to buffer:                                        │
 :                       ^                                      :
-│>*Messages*          0  Fundamental                           │
-│ test                6  Fundamental                           │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│>*Messages*          0  …│o                                   │
+│ test                6  …│                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
 
 keys: t e
 │notes                                                                                               │
@@ -79,25 +79,25 @@ keys: t e
 float at row 1, column 19: 19 x 62
 │ 1/1 Switch to buffer: te                                     │
 :                         ^                                    :
-│>test          6  Fundamental                                 │
-: **                                                           :
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│>test          6  Fundam…│ootes                               │
+: **                       :
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
 
 keys: C-p
 │notes                                                                                               │
@@ -128,25 +128,25 @@ keys: C-p
 float at row 1, column 19: 19 x 62
 │ 0/1 Switch to buffer: te                                     │
 :                         ^                                    :
-│ test          6  Fundamental                                 │
-: **                                                           :
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
-│                                                              │
+│ test          6  Fundam…│                                    │
+: **                       :
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
 
 keys: C-g
 │notes                                                                                               │

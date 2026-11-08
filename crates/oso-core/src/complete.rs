@@ -175,6 +175,8 @@ pub struct Candidates {
     takes_input: bool,
     /// What is typed is selected, not a candidate.
     on_input: bool,
+    /// The float shows the selected candidate beside the list (ADR 0088).
+    previews: bool,
 }
 
 impl Candidates {
@@ -228,7 +230,18 @@ impl Candidates {
             chosen: false,
             takes_input: false,
             on_input: false,
+            previews: false,
         }
+    }
+
+    /// Shows the selected candidate beside the list.
+    pub(crate) fn show_preview(&mut self) {
+        self.previews = true;
+    }
+
+    /// Whether the float shows the selected candidate beside the list.
+    pub fn previews(&self) -> bool {
+        self.previews
     }
 
     /// Lets what is typed be selected and given, as a prompt for a file or a buffer that need

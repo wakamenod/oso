@@ -340,6 +340,7 @@ impl Editor {
                     &prompt.label,
                     message,
                     candidates.total(),
+                    candidates.previews(),
                 ),
                 None => minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message),
             }

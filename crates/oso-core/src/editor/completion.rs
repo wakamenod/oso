@@ -24,6 +24,8 @@ pub struct CompletionStyle {
     /// Any text is an answer, not only a candidate's: a buffer or a file that need not exist
     /// yet (ADR 0087, ADR 0088).
     pub takes_input: bool,
+    /// The float shows the selected candidate beside the list, as `C-x b` does (ADR 0088).
+    pub preview: bool,
 }
 
 impl Editor {
@@ -69,6 +71,9 @@ impl Editor {
         };
         if style.takes_input {
             candidates.take_input();
+        }
+        if style.preview {
+            candidates.show_preview();
         }
         let revision = self.prompt_revision().unwrap_or_default();
         if let Some(prompt) = self.prompts.last_mut() {

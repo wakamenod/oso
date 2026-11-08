@@ -13,6 +13,19 @@ use crate::window::{Place, Walk};
 
 use super::SCRATCH;
 
+/// What a prompt's preview shows (ADR 0088).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Preview {
+    /// The buffer `id`, from the display row `top`, with a cursor at the offset `cursor`.
+    Buffer {
+        id: BufferId,
+        top: usize,
+        cursor: usize,
+    },
+    /// A buffer that may hold secrets, or whose file is not judged yet: nothing of it shows.
+    Withheld,
+}
+
 /// Why a person's kill of a buffer did not happen (ADR 0088).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KillRefused {
@@ -173,6 +186,43 @@ impl Editor {
             None => self.add_buffer(Buffer::new(name)),
         };
         self.show(id);
+    }
+
+    /// What the innermost prompt's preview shows, if it has one and a candidate is selected:
+    /// the buffer that candidate names, from where the tiled window last was in it, or that
+    /// it may hold secrets, which it never shows (ADR 0088).
+    pub fn preview(&self) -> Option<Preview> {
+        let prompt = self.prompt()?;
+        let candidates = prompt
+            .candidates()
+            .filter(|candidates| candidates.previews())?;
+        let name = candidates.selected_candidate()?.text();
+        let id = self.buffer_named(name)?;
+        let buffer = self.buffer(id)?;
+        if buffer.verdict().is_withheld() {
+            return Some(Preview::Withheld);
+        }
+        let window = &self.windows[self.tiled_index()];
+        let (selections, scroll) = if window.buffer() == id {
+            (&window.selections, window.scroll())
+        } else {
+            let place = window.places().find(|(other, _)| *other == id);
+            match place {
+                Some((_, place)) => (&place.selections, place.scroll),
+                None => {
+                    return Some(Preview::Buffer {
+                        id,
+                        top: 0,
+                        cursor: 0,
+                    });
+                }
+            }
+        };
+        let cursor = selections.primary().cursor.min(buffer.text().len());
+        let top = scroll
+            .top
+            .min(buffer.display().row_count().saturating_sub(1));
+        Some(Preview::Buffer { id, top, cursor })
     }
 
     /// The home directory, which `~` stands for, as the host read it once at startup.

@@ -35,6 +35,7 @@ use std::ops::ControlFlow;
 use oso_core::display_map::{
     CellRun, CellStyle, DisplayPoint, DisplaySnapshot, Preedit, row_clusters, text_clusters,
 };
+use oso_core::editor::Preview;
 use oso_core::editor::{Editor, Status};
 use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
@@ -228,8 +229,10 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
     let mut highlights = Vec::new();
     for index in 0..rows.rows {
         let place = candidates.top() + index;
+        let beside = preview_row(editor, layout, index);
         let Some(candidate) = candidates.get(place) else {
-            lines.push(format!("{edge}{}{edge}", " ".repeat(outer.columns)));
+            let blank = " ".repeat(rows.columns);
+            lines.push(format!("{edge}{pad} {blank}{beside} {pad}{edge}"));
             continue;
         };
         let (text, binding, note) = (
@@ -260,7 +263,7 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
         } else {
             ' '
         };
-        lines.push(format!("{edge}{pad}{side}{line} {pad}{edge}"));
+        lines.push(format!("{edge}{pad}{side}{line}{beside} {pad}{edge}"));
         candidates.query().highlights(candidate, &mut highlights);
         let mut marks = vec![' '; rows.columns];
         for range in &highlights {
@@ -276,6 +279,46 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
             ));
         }
     }
+}
+
+/// What goes right of the candidates on their row `index` beside a preview: the column that
+/// divides them, then the previewed buffer's row from where its window was, its cursor as `o`,
+/// or what is said of a buffer that may hold secrets on the first row (ADR 0088).
+fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
+    let preview = layout.regions.preview;
+    if preview.columns == 0 || index >= preview.rows {
+        return String::new();
+    }
+    let text = match editor.preview() {
+        Some(Preview::Buffer { id, top, cursor }) => {
+            let Some(buffer) = editor.buffer(id) else {
+                return String::new();
+            };
+            let display = buffer.display();
+            let point = display.offset_to_display_point(cursor);
+            let scroll = Scroll { top, left: 0 };
+            let (place, cells) = motion::cursor_box(&display, point, None);
+            let row = top + index;
+            let cursor = frame::cursor_rect(preview, scroll, place, cells)
+                .filter(|cells| cells.row == preview.row + index)
+                .map_or(0..0, |cells| {
+                    let start = cells.column - preview.column;
+                    start..start + cells.columns
+                });
+            let (text, marks) = draw_row(&display, row, scroll, preview.columns, cursor, None, 'o');
+            // The cursor's mark shows in the text, as the row of marks is the list's.
+            text.chars()
+                .zip(marks)
+                .map(|(c, mark)| if mark == 'o' { 'o' } else { c })
+                .collect()
+        }
+        Some(Preview::Withheld) if index == 0 => {
+            let (text, _) = spans_row(&["may hold secrets"], preview.columns);
+            text
+        }
+        _ => " ".repeat(preview.columns),
+    };
+    format!("│{text}")
 }
 
 /// The answer's cells in `area`, as the renderer draws them: the prompt's window, or one `*`
@@ -720,6 +763,29 @@ mod scenarios {
             "C-g C-g",
         ];
         check_frame("complete_m_x", text, (30, 100), &steps);
+    }
+
+    #[test]
+    fn c_x_b_previews_the_selected_buffer_but_never_one_that_may_hold_secrets() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("plan.md", "budget\nhiring\n"));
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 100,
+        });
+        let path = std::path::PathBuf::from("/tmp/.env");
+        let mut secret = Buffer::visiting(path.clone());
+        secret.finish_empty();
+        secret.judge_secret(Some(&[path]));
+        let secret = editor.add_buffer(secret);
+        editor.show(secret);
+        let notes = editor.add_buffer(Buffer::from_text("test", "notes\n"));
+        editor.show(notes);
+        check_editor(
+            "buffers_preview",
+            b"notes\n",
+            editor,
+            &["C-x b", "C-n", "C-g"],
+        );
     }
 
     #[test]
