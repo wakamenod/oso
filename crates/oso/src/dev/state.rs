@@ -191,8 +191,9 @@ fn prompts_state(editor: &Editor) -> Value {
             };
             let buffer = editor.buffer(prompt.buffer()).filter(|_| shown);
             let cursor = shown.then(|| window.selections.primary().cursor);
+            // Its size follows the label and the message, so it goes with them.
             let region = layout
-                .filter(|_| index + 1 == count)
+                .filter(|_| shown && index + 1 == count)
                 .map(|layout| region_state(layout.regions.outer));
             json!({
                 "depth": index + 1,
@@ -970,6 +971,7 @@ mod tests {
         for hidden in ["prompt", "text", "cursor", "message"] {
             assert_eq!(prompt[hidden], json!(null), "{hidden}");
         }
+        assert_eq!(prompt["region"], json!(null), "its size follows the label");
         assert_eq!(prompt["kind"], "number");
     }
 

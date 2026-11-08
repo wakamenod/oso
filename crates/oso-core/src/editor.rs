@@ -528,6 +528,8 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
+        // Crossing a recovery takes its verdict along.
+        self.note_secret_shown();
         if let Some(scope) = &mut self.undo_scope {
             scope.before = (id, self.windows[self.selected].selections.clone());
             scope.crossed = true;

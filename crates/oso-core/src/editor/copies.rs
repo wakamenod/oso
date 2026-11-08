@@ -224,6 +224,8 @@ impl Editor {
                 window.selections = start.clone();
             }
         }
+        // The copy's verdict may have come with its text.
+        self.note_secret_shown();
         self.note_edited(target);
         self.follow_cursor();
         Ok(())
@@ -368,6 +370,30 @@ mod tests {
         );
         editor.redo().unwrap();
         assert_eq!(editor.buffer(file).unwrap().verdict(), Verdict::Yanked);
+    }
+
+    #[test]
+    fn keys_in_progress_are_withheld_when_a_recovery_or_its_redo_makes_the_shown_buffer_secret() {
+        let (mut editor, file, view) = with_copy("on disk\n", "the copy\n");
+        let paths = [std::path::PathBuf::from("/p/.env")];
+        editor
+            .buffer_mut(view)
+            .unwrap()
+            .judge_copy(&paths, Verdict::SecretName);
+        editor.set_keys_in_progress("C-u-");
+        assert!(!editor.keys_withheld());
+        editor.begin_undo_group();
+        editor.replace_text_from(file, view).unwrap();
+        editor.end_undo_group();
+        assert!(editor.buffer(file).unwrap().is_secret());
+        assert!(editor.keys_withheld(), "by the recovery");
+        editor.set_keys_in_progress("");
+        editor.undo().unwrap();
+        assert!(!editor.shows_secret());
+        editor.set_keys_in_progress("C-u-");
+        assert!(!editor.keys_withheld());
+        editor.redo().unwrap();
+        assert!(editor.keys_withheld(), "by the redo");
     }
 
     #[test]

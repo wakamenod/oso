@@ -33,7 +33,7 @@ that is what decides a restart ([ADR 0055](0055-oso-dev-never-loses-unsaved-text
   `get-state`,** in `keys.pending` and the echo area, until they end, and `export-state` hands
   them over as none.
 - **A prompt open while one was shown beneath it, or opened then, gives no label, answer,
-  cursor or message, and its answer enters no history,** also once that buffer is gone.
+  cursor, message or region, and its answer enters no history,** also once that buffer is gone.
 - **A composition open while one was shown gives no preedit, range or area** until it ends.
 - **`screenshot` is refused while any of these is left out,** as the screen shows them.
 - **What was around such a buffer is noted where it can change:** each change of what a window
