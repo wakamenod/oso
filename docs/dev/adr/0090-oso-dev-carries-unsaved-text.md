@@ -29,7 +29,7 @@ The author chose these on 2026-11-08, through the coordinator.
 - **For each modified buffer that cannot hold secrets:** its text, that it is modified, its
   file information (BOM and line ending), its save baseline (where the file is, and its
   modification time, size and mode), whether a save found the file changed and what it may
-  save over, and the file's own spelling. A modified `*scratch*` carries its text too.
+  save over, and the file's own spelling. A `*scratch*` with text carries it too.
 - **For the window:** the cursors with their goals and the scroll position, as before, and now
   the marks, the mark ring and whether the region shows. A region shown at the restart comes
   back shown.
@@ -45,8 +45,9 @@ The author chose these on 2026-11-08, through the coordinator.
 ### How the text travels
 
 - **The state stays one line, and holds no text.** `export-state` returns `version` 2. Each
-  text it carries, whether a buffer, a kill ring piece or a history, is an **item**: the state
-  gives its length and what it belongs to, and an `export` number names this export.
+  text it carries is an **item**: a buffer's text, a kill entry's pieces one after another, or
+  a history's answers one after another. The state gives each item's length, the length of
+  each piece or answer in it, and what it belongs to. An `export` number names this export.
 - **`export-state` takes an O(1) snapshot** of each item's rope. The pieces come from that
   snapshot, so text typed after the export goes into none of them, and the generation says it
   is there.
@@ -64,10 +65,14 @@ The author chose these on 2026-11-08, through the coordinator.
 - **The supervisor relays one piece at a time,** from the old instance to the new one, and holds
   nothing more. The text is never written to a file. It stays in the two editors' memory and
   passes through the same-user sockets in the control directory, which is `0700`.
-- **A snapshot is dropped** at the exit, at the next export, or 60 s after the export. Staged
-  pieces are dropped once the import is done or refused, or 60 s after the last piece.
-- **All the text carried, the kill ring included, is at most 64 MiB.** Above that the restart
-  waits, and the echo area says which buffer to save.
+- **A snapshot is dropped** at the exit or the next export, and is refused 60 s after the
+  export. Staged pieces are dropped once the import takes them or is refused, or when a
+  piece comes more than 60 s after the one before.
+- **All the text carried, the kill ring included, is at most 64 MiB.** If the buffers' text is
+  more, the restart waits, and the echo area names the largest buffer to save. Kill entries
+  fill what the buffers and histories leave, the newest first, and older ones that do not fit
+  are dropped, as there is nothing to save to make room. So are those past 10,000 pieces in
+  all.
 
 ### The new instance
 
@@ -93,8 +98,8 @@ The author chose these on 2026-11-08, through the coordinator.
 ### The generation
 
 - **It covers the kill ring now:** each buffer's id, each modified buffer's content id (as
-  before), and the newest kill entry's id with the number of entries. So a kill between the
-  export and the exit refuses the exit.
+  before), and the newest kill entry's id and length with the number of entries. So a kill
+  between the export and the exit refuses the exit, also one appended to the newest entry.
 - A save between the export and the exit changes it too, since the buffer stops being
   modified.
 - Marks, cursors, scroll positions and histories do not count. Like a cursor's moves, they
@@ -106,13 +111,14 @@ The author chose these on 2026-11-08, through the coordinator.
   each diagnostic's `rendered` text to the terminal itself, in color as before.
 - **The editor gets only the level, the message, the code and the primary span's file, line and
   column,** never `rendered`, so no escape sequence reaches it. Control characters are escaped
-  as in any message. Warnings are not sent.
+  as in any message. Warnings are not sent, nor rustc's closing count of errors. A build that
+  fails before the compiler says anything, such as on a manifest, says only that it failed.
 - **The echo area** says, for example,
   `oso dev: build failed: 3 errors; crates/oso/src/x.rs:12:5: mismatched types [E0308]`.
   **`*Messages*`** gets one row per error, the first 20, then `… and N more`.
-- **Why a restart waits reaches the echo area the same way,** for example
-  `oso dev: restart held: notes.txt has unsaved edits and may hold secrets`. While a buffer that
-  may hold secrets is shown, the reason stays the single one of ADR 0079.
+- **Why a restart waits reaches the old instance's echo area the same way,** for example
+  `oso dev: restart held: cannot hand over .env: it has unsaved edits and may hold secrets`.
+  While a buffer that may hold secrets is shown, the reason stays the single one of ADR 0079.
 - They go to the current instance and to the one beside it, through a new dev method,
   `dev-message {text}`, of at most 1 KiB.
 
@@ -148,6 +154,9 @@ These ADRs stay as they are; this one changes the following:
   - The generation covers the kill ring too, as above.
 - [ADR 0071](0071-mark-and-region.md), "A restart drops the marks and the ring": a restart
   carries them, and whether the region shows.
+- [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md), a history is "never written
+  to disk or carried through a restart": `oso dev` carries it to the instance that replaces this
+  one. It is still never written to disk.
 
 ## Consequences
 
@@ -163,7 +172,10 @@ These ADRs stay as they are; this one changes the following:
   it already can by typing.
 - The new instance's echo area says nothing on a restart that worked. The log has the timings.
 - The supervisor still runs the code it was started with, so build errors reach the echo area
-  only from a `just dev` started after this change.
+  only from a `just dev` started after this change. Each message also reaches the instance's
+  log, which goes to the same terminal, so the errors show there a second time, one row each.
+- Old kill entries can be dropped at a restart, when the buffers' text and newer kills fill
+  64 MiB.
 
 ## Alternatives considered
 

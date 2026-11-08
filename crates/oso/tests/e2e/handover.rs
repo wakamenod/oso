@@ -103,7 +103,7 @@ fn unsaved_text_its_region_and_its_kills_move_to_a_new_instance_and_save_there()
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_large_unsaved_buffer_goes_across_in_many_pieces() {
     let scratch = Scratch::new("carry-large");
-    let lines: String = (0..60_000).map(|n| format!("line {n:05} é\n")).collect();
+    let lines: String = (0..100_000).map(|n| format!("line {n:05} é\n")).collect();
     let file = scratch.write("large.txt", lines.as_bytes());
     let mut old = App::start(Some(&file), scratch.path());
     old.wait_for("the file to load", |state| {
@@ -123,8 +123,8 @@ fn a_large_unsaved_buffer_goes_across_in_many_pieces() {
         state["buffer"]["secret"] == false
     });
     assert_eq!(after["buffer"]["bytes"], bytes);
-    let last = new.call("get-text", Some(json!({ "start_row": 59_999, "rows": 1 })));
-    assert_eq!(last["rows"], json!(["line 59999 é"]));
+    let last = new.call("get-text", Some(json!({ "start_row": 99_999, "rows": 1 })));
+    assert_eq!(last["rows"], json!(["line 99999 é"]));
     let first = new.call("get-text", Some(json!({ "start_row": 0, "rows": 1 })));
     assert_eq!(first["rows"], json!(["xline 00000 é"]));
 }

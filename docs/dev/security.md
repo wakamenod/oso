@@ -274,13 +274,19 @@ and below the row, and a label's glyphs keep their own cells
   `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
-- The state handoff holds paths and positions, never text, so it cannot carry a
-  secret buffer's content, and no position in one either, so a restart starts it
-  from the top ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md))
-  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)). A buffer with
-  unsaved edits holds the restart, and the refusal names it without quoting it. The
-  generation that guards `exit` is not reported while a file holds edits
-  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
+- The state handoff never carries a secret buffer's content, and no position in one
+  either, so a restart starts it from the top
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md))
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)). It carries the
+  unsaved text of other buffers, and kills that came from neither a secret buffer nor
+  the clipboard, in pieces through the socket and memory only, never a file. A buffer
+  that may hold secrets with unsaved edits holds the restart, and the refusal names it
+  without quoting it ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md),
+  [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)). The new instance judges each
+  carried path again and withholds the buffer until then. The fingerprints of secret
+  kills are not carried, so a secret copied to the clipboard before a restart yanks back
+  as ordinary text after it, under `oso dev` only. Build errors reach the editor as
+  cargo's message and span, never its rendered text with escape sequences.
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this, only the agent
   channel above, with its own socket and fewer methods.

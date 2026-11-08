@@ -481,12 +481,18 @@ Full details are in [`security.md`](security.md).
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
   - It polls the sources, and spawns cargo and the new binary through
     `oso-platform::process`.
-  - The state holds paths and positions and never text, so the new instance
-    reads every file from disk. Unsaved content joins it with M2-15
-    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)); undo history
-    does not ([ADR 0051](adr/0051-m2-plan-decisions.md)).
-  - Until then a modified buffer holds the restart, as a running save does, and the
-    supervisor asks before it starts anything. An instance goes only when it says so itself: the supervisor
+  - The state holds paths and positions, and the new instance reads every file
+    without edits from disk ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+    The text of modified buffers, the marks, the kill ring and the histories are
+    carried as items the state names by length: `export-text` gives them in pieces
+    from an O(1) snapshot, the supervisor relays one piece at a time, and
+    `import-text` builds them off the UI thread. Undo history is not carried
+    ([ADR 0051](adr/0051-m2-plan-decisions.md),
+    [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)).
+  - A modified buffer that may hold secrets holds the restart, as a running save
+    does, and the supervisor asks before it starts anything. Why a restart waits, and
+    a failed build's errors, reach the echo area and `*Messages*` through
+    `dev-message`. An instance goes only when it says so itself: the supervisor
     never kills, the `exit` it sends carries the generation of the export, and an
     instance whose text has changed since refuses. If the old one refuses, the new
     one goes unless it has been edited too, and then both stay. Instances run in
