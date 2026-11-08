@@ -257,6 +257,21 @@ fn a_question_the_agent_caused_waits_for_the_person() {
     );
     assert_eq!(agent.call("cancel", None).unwrap()["cancelled"], true);
     assert_eq!(app.state()["prompts"], json!([]));
+
+    // A question the agent caused takes no answer once the channel stops: it closes.
+    agent.run("save-buffer", None, "change").unwrap();
+    assert!(
+        app.state()["prompts"][0]["prompt"]
+            .as_str()
+            .unwrap()
+            .starts_with("Agent: Save over")
+    );
+    app.run_command("agent-channel-stop", None).unwrap();
+    assert_eq!(
+        app.state()["prompts"],
+        json!([]),
+        "the agent's question closed with the channel"
+    );
     assert_eq!(
         std::fs::read(&file).unwrap(),
         b"changed on disk\n",

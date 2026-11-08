@@ -972,6 +972,7 @@ pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<all
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
 pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
+pub fn oso_core::editor::Editor::shows_keys_in_progress(&self) -> bool
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::confirm_exit(&mut self, bool) -> core::result::Result<(), oso_core::editor::ExitRefused>

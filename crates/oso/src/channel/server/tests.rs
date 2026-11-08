@@ -132,7 +132,7 @@ fn requests_reach_the_ui_once_the_person_agrees() {
     running.answer(true);
     let request = running.next();
     assert!(
-        matches!(request.event, Event::Op(Op::State)),
+        matches!(request.event, Event::Op(Op::State { .. })),
         "{:?}",
         request.event
     );
@@ -236,6 +236,8 @@ fn a_silent_client_is_closed_after_the_deadline() {
         "closed: {line}"
     );
     assert!(started.elapsed() < super::FIRST_REQUEST + Duration::from_secs(2));
+    // Noted for the person, once, but nothing asks.
+    assert!(matches!(running.next().event, Event::Silent));
     assert!(
         running
             .events
@@ -289,4 +291,15 @@ fn only_the_persons_refusal_holds_others_off() {
     next.send("version", None);
     running.answer(true);
     assert!(next.reply().is_ok());
+}
+
+#[test]
+fn connections_that_say_nothing_keep_no_agent_out() {
+    let running = Running::new();
+    let silent: Vec<Client> = (0..super::MAX_CLIENTS).map(|_| running.connect()).collect();
+    let mut client = running.connect();
+    client.send("version", None);
+    running.answer(true);
+    assert_eq!(client.reply().unwrap()["protocol"], 1);
+    drop(silent);
 }

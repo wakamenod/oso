@@ -206,6 +206,19 @@ mod tests {
     }
 
     #[test]
+    fn a_prefix_argument_that_reads_no_more_digits_is_still_in_progress() {
+        use oso_core::key::KeySequence;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let keys = "C-u 5 C-u".parse::<KeySequence>().unwrap().0;
+        dispatcher.handle_keys(&mut editor, keys);
+        assert!(!dispatcher.reads_keys());
+        assert!(
+            dispatcher.keys_in_progress(),
+            "the next command takes the argument"
+        );
+    }
+
+    #[test]
     fn a_change_runs_as_an_undo_step_of_its_own() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
         for _ in 0..2 {

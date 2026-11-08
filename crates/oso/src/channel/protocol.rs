@@ -4,7 +4,8 @@
 //! Must not depend on: sockets, threads or editor state; it only parses requests.
 //!
 //! - `version`: the channel's protocol, which a client asks first.
-//! - `state`: what the editor may show an agent.
+//! - `state`: what the editor may show an agent; `{"buffer_offset": 100}` lists the buffers
+//!   from the 101st.
 //! - `commands`: the commands an agent may run, with their reach.
 //! - `run`: `{"name": "forward-word", "arg": 3, "reach": "look"}` runs a `Look` or `Change`
 //!   command; `arg` is optional, and `reach` must be the command's.
@@ -46,7 +47,9 @@ pub enum Method {
 /// What the UI thread answers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Op {
-    State,
+    State {
+        buffer_offset: usize,
+    },
     Commands,
     Run {
         name: String,
@@ -74,13 +77,28 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
             none(&parts.params)?;
             Method::Version
         }
-        "state" => none(&parts.params).map(|()| Method::Ui(Op::State))?,
+        "state" => Method::Ui(parse_state(&parts.params).map_err(bad)?),
         "commands" => none(&parts.params).map(|()| Method::Ui(Op::Commands))?,
         "cancel" => none(&parts.params).map(|()| Method::Ui(Op::Cancel))?,
         "run" => Method::Ui(parse_run(&parts.params).map_err(bad)?),
         _ => return Err(parts.unknown()),
     };
     Ok(Request { id, method })
+}
+
+/// The parameters of `state`: where its list of buffers starts.
+fn parse_state(params: &Map<String, Value>) -> Result<Op, String> {
+    if let Some(other) = params.keys().find(|name| name.as_str() != "buffer_offset") {
+        return Err(format!("state takes no parameter {:?}", short(other)));
+    }
+    let buffer_offset = match params.get("buffer_offset") {
+        None | Some(Value::Null) => 0,
+        Some(offset) => offset
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or("state's \"buffer_offset\" must be a whole number")?,
+    };
+    Ok(Op::State { buffer_offset })
 }
 
 /// The parameters of `run`.
@@ -151,7 +169,11 @@ mod tests {
             parse(r#"{"id": 1, "method": "version"}"#).unwrap().id,
             json!(1)
         );
-        assert_eq!(op(r#"{"method": "state"}"#), Op::State);
+        assert_eq!(op(r#"{"method": "state"}"#), Op::State { buffer_offset: 0 });
+        assert_eq!(
+            op(r#"{"method": "state", "params": {"buffer_offset": 100}}"#),
+            Op::State { buffer_offset: 100 }
+        );
         assert_eq!(op(r#"{"method": "commands"}"#), Op::Commands);
         assert_eq!(op(r#"{"method": "cancel"}"#), Op::Cancel);
         assert_eq!(

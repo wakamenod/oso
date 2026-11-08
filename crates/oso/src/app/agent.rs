@@ -13,6 +13,7 @@
 //!   key.
 //! - What the channel's commands kill stays in oso's kill ring.
 
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -30,6 +31,9 @@ use crate::channel::{self, Connection, Event, Reply, protocol::Op};
 
 /// How long a question the channel caused takes no answer after the last key.
 pub const QUIET: Duration = Duration::from_millis(500);
+
+/// How often a row that can come many times a second is logged, at most.
+const OFTEN: Duration = Duration::from_secs(5);
 
 /// How long after the person's last key the channel runs nothing.
 pub const PERSON_TYPING: Duration = Duration::from_secs(1);
@@ -52,6 +56,12 @@ pub(super) struct Agent {
     asking: Option<Asking>,
     /// The questions the channel's commands caused, with the connection that caused each.
     caused: Vec<(PromptId, Connection)>,
+    /// Questions the agent caused whose connection went, or whose channel stopped, which
+    /// close as soon as they are innermost: no `y` answers them any more.
+    orphaned: Vec<PromptId>,
+    /// What was last logged of a kind that can come many times a second, and how many have
+    /// come since: reads and waits.
+    often: HashMap<&'static str, (Option<Instant>, usize)>,
     /// The channel's run: one more each time it starts, so that nothing of a stopped run
     /// passes for the current one.
     run: u64,
@@ -146,6 +156,7 @@ impl App {
                 });
             }
             Event::Gone => self.agent_gone(connection),
+            Event::Silent => self.agent_log_often("closed connections that sent nothing"),
             Event::Op(op) => {
                 let Some(reply) = reply else { return };
                 let result = if self.agent.connected.contains(&connection) {
@@ -161,6 +172,7 @@ impl App {
     /// A connection closed, or the channel stopped under it.
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
+        self.orphan_questions(Some(connection));
         if self
             .agent
             .asking
@@ -186,8 +198,14 @@ impl App {
     /// Answers a request of a connection the person let in.
     fn agent_op(&mut self, event_loop: &Loop<'_>, connection: Connection, op: Op) -> Reply {
         match op {
-            Op::State => Ok(channel::state::state(&self.editor)),
-            Op::Commands => Ok(channel::state::commands(self.dispatcher.commands())),
+            Op::State { buffer_offset } => {
+                self.agent_log_often("state");
+                Ok(channel::state::state(&self.editor, buffer_offset))
+            }
+            Op::Commands => {
+                self.agent_log_often("commands");
+                Ok(channel::state::commands(self.dispatcher.commands()))
+            }
             Op::Cancel => {
                 let innermost = self.editor.prompt().map(|prompt| prompt.id());
                 let own = |id: &PromptId| self.agent.caused.contains(&(*id, connection));
@@ -217,6 +235,7 @@ impl App {
         reach: Reach,
     ) -> Reply {
         if let Some(why) = self.agent_waits() {
+            self.agent_log_often(why);
             return Err(why.into());
         }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
@@ -259,7 +278,7 @@ impl App {
             shows_secret: self.editor.shows_secret(),
             agents_question: prompts.iter().any(|prompt| prompt.from_agent()),
             persons_prompt: !prompts.is_empty(),
-            keys_in_progress: self.dispatcher.reads_keys(),
+            keys_in_progress: self.dispatcher.keys_in_progress(),
             composing: self.composing(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),
         })
@@ -293,6 +312,7 @@ impl App {
             None => {}
         }
         self.ask_about_a_connection();
+        self.close_orphaned_questions();
         let open = self.editor.prompts();
         self.agent
             .caused
@@ -381,6 +401,7 @@ impl App {
             }
         }
         self.agent.connected.clear();
+        self.orphan_questions(None);
         self.agent_log("the agent channel is off");
         self.editor.message("Agent channel off");
     }
@@ -393,7 +414,10 @@ impl App {
         };
         match asking.question {
             None => {
-                if self.editor.prompt().is_some() || self.dispatcher.reads_keys() {
+                if self.editor.prompt().is_some()
+                    || self.dispatcher.keys_in_progress()
+                    || self.composing()
+                {
                     return;
                 }
                 let label = channel::question::connection(&asking.peer);
@@ -482,6 +506,51 @@ impl App {
             .is_some_and(|prompt| prompt.from_agent())
         {
             self.agent.quiet_since = Some(Instant::now());
+        }
+    }
+
+    /// The questions `connection` caused, or every connection if `None`, take no answer any
+    /// more: each closes once it is innermost.
+    fn orphan_questions(&mut self, connection: Option<Connection>) {
+        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.agent.caused)
+            .into_iter()
+            .partition(|(_, by)| connection.is_none_or(|c| c == *by));
+        self.agent.caused = kept;
+        self.agent
+            .orphaned
+            .extend(gone.into_iter().map(|(id, _)| id));
+        self.close_orphaned_questions();
+    }
+
+    /// Closes the orphaned questions that are innermost, as `C-g` would.
+    fn close_orphaned_questions(&mut self) {
+        while let Some(id) = self.editor.prompt().map(|prompt| prompt.id())
+            && self.agent.orphaned.contains(&id)
+        {
+            self.editor.quit();
+            self.request_redraw();
+        }
+        let open = self.editor.prompts();
+        self.agent
+            .orphaned
+            .retain(|id| open.iter().any(|prompt| prompt.id() == *id));
+    }
+
+    /// Logs `row`, which can come many times a second, at most once every few seconds, with
+    /// how many came since.
+    fn agent_log_often(&mut self, row: &'static str) {
+        let now = Instant::now();
+        let (at, count) = self.agent.often.entry(row).or_insert((None, 0));
+        *count += 1;
+        if at.is_none_or(|at| now.duration_since(at) >= OFTEN) {
+            let count = std::mem::take(count);
+            *at = Some(now);
+            let times = if count > 1 {
+                format!(" ({count} times)")
+            } else {
+                String::new()
+            };
+            self.agent_log(&format!("{row}{times}"));
         }
     }
 

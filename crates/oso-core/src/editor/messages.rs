@@ -268,6 +268,11 @@ impl Editor {
     }
 
     /// What the echo area shows.
+    /// Whether the echo area shows keys in progress: a prefix key or argument being typed.
+    pub fn shows_keys_in_progress(&self) -> bool {
+        !self.keys_in_progress.is_empty()
+    }
+
     pub(super) fn echo_text(&self) -> &str {
         if !self.keys_in_progress.is_empty() {
             return &self.keys_in_progress;

@@ -113,6 +113,12 @@ impl Dispatcher {
         self.resolver.pending()
     }
 
+    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
+    /// takes no more digits, which the next command would take.
+    pub fn keys_in_progress(&self) -> bool {
+        !self.resolver.pending().is_empty() || self.prefix.is_some()
+    }
+
     /// Whether the next key is read as a key rather than typed: a prefix key is
     /// pending, or a prefix argument reads digits or a minus. The input method stays
     /// off then, as a letter or a digit would start a composition (ADR 0069).

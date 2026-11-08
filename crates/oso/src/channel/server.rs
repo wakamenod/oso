@@ -13,10 +13,9 @@
 //! - Once let in, a connection sends at most [`MAX_RATE`] requests a second, one at a time,
 //!   with no idle limit.
 
-use std::collections::VecDeque;
 use std::io::{self, BufReader, Write};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -26,8 +25,15 @@ use serde_json::{Value, json};
 use super::protocol::{self, Method, Op, PROTOCOL_VERSION};
 use super::wire::{MAX_LINE, bounded, failure, read_line_within, success};
 
-/// The most connections open at once.
+/// The most connections open at once that have sent a request.
 pub const MAX_CLIENTS: usize = 2;
+
+/// The most connections open at once that have sent nothing yet. They have slots of their
+/// own, so that connections that never speak cannot keep an agent out.
+pub const MAX_SILENT: usize = 4;
+
+/// How often closing silent connections is noted for the person, at most.
+const SILENT_NOTED_EVERY: Duration = Duration::from_secs(60);
 
 /// How long a new connection has to send its first request.
 pub const FIRST_REQUEST: Duration = Duration::from_secs(2);
@@ -86,6 +92,8 @@ pub enum Event {
     Op(Op),
     /// It closed, or the channel stopped.
     Gone,
+    /// Connections were closed for sending nothing, at most once a minute, for `*Agent*`.
+    Silent,
 }
 
 /// A connection's event, with the channel for the reply, if it wants one.
@@ -105,6 +113,7 @@ pub struct Shared {
     run: u64,
     next: AtomicU64,
     open: AtomicUsize,
+    silent: AtomicUsize,
     gate: Mutex<Gate>,
 }
 
@@ -116,59 +125,6 @@ impl Shared {
             ..Self::default()
         }
     }
-}
-
-/// Who may ask the person, and when.
-#[derive(Debug, Default)]
-struct Gate {
-    accepts: VecDeque<Instant>,
-    asks: VecDeque<Instant>,
-    refused_until: Option<Instant>,
-    waiting: bool,
-}
-
-impl Gate {
-    /// Forgets what is older than a minute.
-    fn prune(&mut self, now: Instant) {
-        let minute = Duration::from_secs(60);
-        for times in [&mut self.accepts, &mut self.asks] {
-            while times
-                .front()
-                .is_some_and(|&at| now.duration_since(at) >= minute)
-            {
-                times.pop_front();
-            }
-        }
-    }
-
-    /// Whether a connection may ask now, and if so notes that it does.
-    fn may_ask(&mut self, now: Instant) -> Result<(), &'static str> {
-        self.prune(now);
-        if self.refused_until.is_some_and(|until| now < until) {
-            return Err("the person refused an agent a moment ago; try again later");
-        }
-        if self.waiting {
-            return Err("another agent waits for the person's answer");
-        }
-        if self.asks.len() >= MAX_ASKS {
-            return Err("too many agents asked the person this minute");
-        }
-        self.asks.push_back(now);
-        self.waiting = true;
-        Ok(())
-    }
-
-    /// The person answered the waiting connection, or it went.
-    fn answered(&mut self, refused: bool, now: Instant) {
-        self.waiting = false;
-        if refused {
-            self.refused_until = Some(now + REFUSED_FOR);
-        }
-    }
-}
-
-fn gate(shared: &Shared) -> std::sync::MutexGuard<'_, Gate> {
-    shared.gate.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Starts the accept loop on a background thread. `send` hands a request to the UI thread
@@ -217,15 +173,6 @@ where
             }
             gate.accepts.push_back(now);
         }
-        let taken = shared
-            .open
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < MAX_CLIENTS).then_some(n + 1)
-            });
-        if taken.is_err() {
-            refuse(stream, "too many agents are connected");
-            continue;
-        }
         let connection = Connection {
             run: shared.run,
             number: shared.next.fetch_add(1, Ordering::Relaxed),
@@ -234,10 +181,16 @@ where
         let spawned = thread::Builder::new()
             .name("oso-agent-client".into())
             .spawn(move || {
-                if let Err(e) = serve(stream, peer, connection, &shared, &send) {
+                let Some(silent) = Slot::take(&shared.silent, MAX_SILENT) else {
+                    refuse(
+                        stream,
+                        "too many connections wait to send their first request",
+                    );
+                    return;
+                };
+                if let Err(e) = serve(stream, peer, connection, silent, &shared, &send) {
                     log::debug!("agent channel: a client ended: {e}");
                 }
-                shared.open.fetch_sub(1, Ordering::AcqRel);
             });
         if let Err(e) = spawned {
             log::warn!("agent channel: cannot start a client thread: {e}");
@@ -318,6 +271,7 @@ fn serve<S>(
     stream: ControlStream,
     peer: Peer,
     connection: Connection,
+    silent: Slot<'_>,
     shared: &Arc<Shared>,
     send: &S,
 ) -> io::Result<()>
@@ -333,11 +287,24 @@ where
     };
     let lines = spawn_reader(stream.try_clone()?, Arc::clone(shared))?;
     let mut writer = stream;
-    let Ok(Line::Text(first)) = lines.recv_timeout(FIRST_REQUEST) else {
-        // A probe, or a client that says nothing: closed, unasked.
+    let first = lines.recv_timeout(FIRST_REQUEST);
+    let Ok(Line::Text(first)) = first else {
+        // A probe, or a client that says nothing: closed, unasked, and noted now and then.
+        if first.is_err() {
+            note_silence(shared, send);
+        }
         return Ok(());
     };
+    drop(silent);
     let first_id = protocol::parse(&first).map_or_else(|bad| bad.id, |request| request.id);
+    let Some(_slot) = Slot::take(&shared.open, MAX_CLIENTS) else {
+        writeln!(
+            writer,
+            "{}",
+            failure(&first_id, "too many agents are connected")
+        )?;
+        return Ok(());
+    };
     if let Err(why) = gate(shared).may_ask(Instant::now()) {
         writeln!(writer, "{}", failure(&first_id, why))?;
         return Ok(());
@@ -400,6 +367,31 @@ impl<S: Fn(Request) -> bool> Drop for Closing<'_, S> {
             });
         }
     }
+}
+
+/// Tells the UI that a connection was closed for saying nothing, unless it was told less
+/// than [`SILENT_NOTED_EVERY`] ago. A probe that connects and hangs up says nothing either,
+/// but it closes before the deadline, and is not noted.
+fn note_silence<S: Fn(Request) -> bool>(shared: &Shared, send: &S) {
+    let now = Instant::now();
+    {
+        let mut gate = gate(shared);
+        if gate
+            .silent_noted
+            .is_some_and(|at| now.duration_since(at) < SILENT_NOTED_EVERY)
+        {
+            return;
+        }
+        gate.silent_noted = Some(now);
+    }
+    send(Request {
+        connection: Connection {
+            run: shared.run,
+            number: u64::MAX,
+        },
+        event: Event::Silent,
+        reply: None,
+    });
 }
 
 /// How asking the person ended, when it did not let the connection in.
@@ -511,32 +503,9 @@ fn version() -> Value {
     })
 }
 
-/// A connection's requests a second: a bucket of [`MAX_RATE`] that fills at that rate.
-struct Rate {
-    tokens: f64,
-    at: Instant,
-}
+mod limits;
 
-impl Rate {
-    fn new(now: Instant) -> Self {
-        Self {
-            tokens: MAX_RATE,
-            at: now,
-        }
-    }
-
-    /// Whether one more request may go now.
-    fn take(&mut self, now: Instant) -> bool {
-        let refill = now.duration_since(self.at).as_secs_f64() * MAX_RATE;
-        self.tokens = (self.tokens + refill).min(MAX_RATE);
-        self.at = now;
-        if self.tokens < 1.0 {
-            return false;
-        }
-        self.tokens -= 1.0;
-        true
-    }
-}
+use limits::{Gate, Rate, Slot, gate};
 
 #[cfg(test)]
 mod tests;
