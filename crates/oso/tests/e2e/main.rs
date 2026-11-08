@@ -1159,7 +1159,11 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     // Real input can move its positions and size, since its window is on the
     // screen for anyone to scroll. CI has no such input, so there nothing may
     // change. `App::start` checks that sockets lead to the right instance.
+    // AppKit's current input context belongs to the key window, which the inner instance's
+    // window takes when it opens, so on the native layer whether it is the bystander's follows
+    // focus, not anything the bystander did.
     let mut changed = changed_fields(&before, &bystander.state());
+    changed.retain(|field| field != "ime.current_input_context");
     changed.retain(|field| on_ci() || field == "buffers");
     assert!(
         changed.is_empty(),
