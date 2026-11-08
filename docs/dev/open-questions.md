@@ -237,10 +237,9 @@ item notes when it must be settled.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M2-20 and M3: isearch and menus add their condition to `wants_ime` in `app/ime.rs`, as
   prompts have ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-17: a region in a prompt's answer is not drawn, as `Editor::region_cells` gives the tiled
-  window's ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- By M2-17: the selected candidate needs a background per row in `PaneContent::Lines`
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- By M2-18: matching on a worker thread past 5000 candidates, with the generation and the
+  snapshot ADR 0076 fixes, for large directories
+  ([ADR 0076](adr/0076-completion-and-m-x.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box

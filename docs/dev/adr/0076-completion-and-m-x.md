@@ -129,16 +129,17 @@ The float of ADR 0075, with the candidate rows below the answer's field:
   default `vertico-resize` (`grow-only`): the answer's row stays put, the panel's bottom edge does not
   jump while typing narrows the list, and a prompt with few candidates covers little.
 - **The count** shows at the end of the label's first row, `3/57`: the selected candidate's place and
-  the number of matches, in the label's dim face, as `vertico-count-format` does. Its cells are kept
-  for the widest count the list can show, so the label does not break again as the count changes. No
-  match shows `0/57`.
+  the number of matches, in the annotations' dim face, as `vertico-count-format` does. Its cells are
+  kept for the widest count the list can show, so the label does not break again as the count changes.
+  No match shows `0/0`.
 - **A row:** the candidate from the inner cells' first column, then the binding one cell after it in
   the key face, then the annotation, aligned to the right edge of the inner cells, in a dim face.
 - **When a row is narrow,** the annotation is cut first, with `…`, and goes below 8 cells; then the
   binding goes; then the candidate is cut with `…` at the edge. The candidate is never cut before the
   annotation and the binding have gone.
-- **The selected row** is a rounded box from ADR 0075's pipeline, in `Layer::FLOAT` under the text, the
-  inner cells' width and one row tall, radius 4 points, in `Face::Selected`'s background. The text keeps
+- **The selected row** is a rounded box from ADR 0075's pipeline, in `Layer::FLOAT` under the text, one
+  row tall and 6 points wider than the inner cells on each side, inside the panel, radius 4 points, in
+  `Face::Selected`'s background. The text keeps
   its faces on it. So `PaneContent::Lines` needs no background per row, and the open question about it
   closes. The candidates' rows are one pane of `PaneContent::Lines` in `Layer::FLOAT_CONTENT`, which
   keeps no bands into the panel's padding but the bottom one, so no glyph draws over another pane of the
@@ -147,7 +148,7 @@ The float of ADR 0075, with the candidate rows below the answer's field:
 - **A short frame gives up, in this order:** candidate rows down to one; the padding below them; the
   last candidate row; then ADR 0075's order (the padding under the field, the gap, the label's last
   rows, the one-row form). The count stays on the label's first row while it shows, and on the
-  one-row form at the end of the field.
+  one-row form at the end of the row.
 
 ### Keys
 

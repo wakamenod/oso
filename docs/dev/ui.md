@@ -80,8 +80,42 @@ are rounded.
 - **A passphrase** shows one `*` per character, keeps no undo and enters no history.
 - `C-g` does one thing at a time: a pending prefix, then the region, then the innermost
   prompt.
-- It shows **18 candidate rows** by default (configurable), with fuzzy
-  matching (orderless-style) and annotations on the right (marginalia-style).
+- **Completion** ([ADR 0076](adr/0076-completion-and-m-x.md)) shows up to **18 candidate
+  rows** below the answer (configurable once configuration exists), and a count such as
+  `3/57` at the end of the label's row. The float grows to fit the list and does not shrink
+  while it is open.
+
+```
+╭──────────────────────────────────────────────────────────╮
+│  M-x                                              2/2    │
+│                                                          │
+│  ╭ forw█ ─────────────────────────────────────────────╮  │
+│                                                          │
+│   forward-char C-f  Move point N characters forward (…   │
+│  ▌forward-word M-f  Move point to the end of the next…▐  │
+╰──────────────────────────────────────────────────────────╯
+```
+
+- **Matching is orderless's:** words separated by spaces match in any order, each as
+  literal text or a regular expression. An affix at a word's start or end picks one style:
+  `!` must not match, `,` initials (`,sbk` for `save-buffers-kill-terminal`), `=` literal
+  only, `^` at the start, `~` the letters in order, `&` the annotation. Case counts once the
+  input has an upper-case letter. What matched is highlighted.
+- **The order is vertico's:** the prompt's history first, then shorter, then alphabetical,
+  with an exact match of the input on top. Typing never moves a candidate.
+- **Annotations** show at the right end of each row: for commands, the shortest key and the
+  docstring's first line (marginalia-style). A narrow row cuts the annotation first, then
+  drops it, then the key, then cuts the name.
+- **Keys:** `C-n`/`C-p` and the arrows move (stopping at the ends), `M-<`/`M->` go to the
+  first and last, `C-v`/`M-v` by a page, `TAB` puts the selected candidate in the answer,
+  and `RET` gives the selected candidate, or says `No match`.
+- **`M-x`** lists every command but those that read their key or belong to a keymap not active
+  beneath it, runs the one taken with the prefix argument typed before `M-x` (its label says
+  it, `C-u M-x`), and puts the one run last first, so `M-x RET` runs it again.
+- A short frame gives up candidate rows first, down to one, then the padding after them, then
+  the last of them, before anything above.
+- Beside a buffer that may hold secrets, a prompt neither reads nor records history, so its
+  order says nothing of earlier answers.
 - **Preview inside the popup.** For commands with a preview, such as buffer
   switching, ripgrep search and line search, the popup splits: candidates on
   the left, a preview of the selected candidate on the right. Commands
