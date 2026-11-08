@@ -465,6 +465,11 @@ impl PixelGrid {
         ]
     }
 
+    /// How wide a cell is, in physical pixels.
+    pub(crate) fn cell_width(self) -> f32 {
+        self.cell[0]
+    }
+
     /// Where `cells` are, in physical pixels.
     pub fn rect(self, cells: CellRect) -> PixelRect {
         let [x, y] = self.cell(cells.row as i64, cells.column as i64);

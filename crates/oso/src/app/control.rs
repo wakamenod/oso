@@ -167,6 +167,16 @@ impl App {
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
+        // Whether the view gives the input method a context, which it does only while the IME
+        // is on (ADR 0070), and whether AppKit's current context is it; null on winit.
+        let context = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.input_context());
+        state["ime"]["input_context"] =
+            context.map_or(serde_json::Value::Null, |(given, _)| given.into());
+        state["ime"]["current_input_context"] =
+            context.map_or(serde_json::Value::Null, |(_, current)| current.into());
         // Whether secure input is wanted, held by oso, and on for any process in the system
         // (ADR 0073): nothing a process of the same user cannot read already (ADR 0044).
         let secure = self
