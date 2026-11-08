@@ -205,20 +205,26 @@ and below the row, and a label's glyphs keep their own cells
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is an agent steered by text it
   read, and other processes of the same user:
   - The channel is off until the person runs `agent-channel-start`, and each new connection
-    asks the person, from the keyboard only. The modeline shows `Agent` while it is on, and
-    `*Agent*` lists each request without its text.
+    asks the person, from the keyboard only, naming the process that connects. A refusal holds
+    off new connections for 60 s. The modeline shows `Agent` while it is on, and `*Agent*`
+    lists each request without its text.
   - It runs registered commands only, by name, with arguments checked against their spec, and
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
-    `Person` commands: exiting, `M-x`, answering prompts, the clipboard, emergency copies,
-    passphrases, and later trusting a project, spawning processes, secret buffers and secure
-    input.
-  - It runs nothing while a buffer that may hold secrets is shown, or while the person is in a
-    prompt, a key sequence or a composition. Its state withholds what `get-state` withholds,
-    and never has keys in progress, prompt input, the kill ring or the clipboard.
-  - A question it opens is answered by the person, and keys in the first 500 ms are dropped. Its
-    kills never reach the OS clipboard.
+    `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
+    copies, passphrases, and later trusting a project, spawning processes, secret buffers and
+    secure input. A channel action never starts a process by itself: what opening or saving
+    would start waits until the person acts in that buffer (M3 onward).
+  - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
+    prompt, a key sequence or a composition, within 1 s of the person's last key, or while a
+    question it opened is open. It does not open a path that matches the secret patterns, and
+    shows a file it opened only once it is judged ordinary. Its state withholds what
+    `get-state` withholds, and never has keys in progress, prompt input, the kill ring or the
+    clipboard.
+  - A question it opens starts with `Agent:`, is answered by the person, and takes no answer
+    until 500 ms pass with no key. Its kills never reach the OS clipboard, and its text enters
+    no prompt history.
   - Screenshots, the restart handoff, timings and hot reload stay dev-only.
-  - An agent it lets in reads any file oso can read, but for buffers that may hold secrets, and
+  - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits and saves the files oso has open.
 - Hooks are installed only by an explicit command that shows the settings
   change first.

@@ -23,8 +23,9 @@ often, so it must rebuild within 2 s.
   translates events and wires things together.
 - Dev-only code (the control socket, `oso ctl`, `oso dev`, timings) stays
   behind the `dev` feature; `just release-safety` checks it.
-- `src/channel/` is the agent channel and `oso mcp` (ADR 0085), in every build.
-  It has no dev method, and runs only commands whose reach is `Look` or `Change`.
+- `src/channel/` is the agent channel and `oso mcp` (ADR 0085), in every
+  build. It has no dev method, and runs only commands whose reach is `Look`
+  or `Change`.
 - End-to-end flows live in `tests/e2e` and run with `just e2e` (ADR 0049). They
   drive a dev build from outside, and start it through `oso_platform::process`.
 - Module layers are in `guardrails/layers.txt` (`[oso]`).

@@ -228,6 +228,9 @@ alongside the steps above, after M2-16:
   [ADR 0051](adr/0051-m2-plan-decisions.md)).
   A setting starts the agent channel at launch
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Whatever opening or saving starts, such as a format on save, waits in a buffer the agent
+  channel opened or saved until the person acts there
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML.
 - Window splits, indentation, project trust model.
 - Project file finding and asynchronous ripgrep search.

@@ -528,12 +528,15 @@ Full details are in [`security.md`](security.md).
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
     `oso-platform::control`, with the dev socket's thread model. Its methods are `run`, `open`,
-    `state`, `text`, `commands` and `cancel`, and no dev method.
+    `state`, `text`, `commands`, `cancel` and `version`, over JSON Lines, and no dev method.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. Arguments are checked against the spec, which gains `Text`.
   - Each connection waits for the person's yes. The channel runs nothing while a buffer that may
-    hold secrets is shown, or while the person is in a prompt, a key sequence or a composition.
-    A question it opens is answered from the window. Its kills stay in oso's kill ring.
+    hold secrets is shown, while the person is in a prompt, a key sequence or a composition or
+    typed in the last second, or while its own question is open. A question it opens is answered
+    from the window. Its kills stay in oso's kill ring.
+  - `oso-platform::control` is built in every build, and names the peer's process and its
+    parent for the connection question.
   - `oso mcp` is a subcommand: JSON-RPC over stdio, with the tools `state`, `text`, `commands`,
     `look`, `change` and `open`.
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
