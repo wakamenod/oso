@@ -153,6 +153,7 @@ impl core::marker::StructuralPartialEq for oso_render::PaneId
 pub struct oso_render::Panel<'a>
 pub oso_render::Panel::cells: oso_core::frame::CellRect
 pub oso_render::Panel::field: core::option::Option<oso_core::frame::CellRect>
+pub oso_render::Panel::field_room: oso_core::frame::CellRect
 pub oso_render::Panel::keys: &'a [oso_core::frame::CellRect]
 pub struct oso_render::RenderState
 impl oso_render::RenderState

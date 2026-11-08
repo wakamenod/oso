@@ -8,10 +8,7 @@
 use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
-use oso_core::frame::{CellRect, PixelGrid};
 use wgpu::util::DeviceExt;
-
-use crate::pane::{Face, PANEL, Panel};
 
 // ---- Vertex ----------------------------------------------------------------
 
@@ -61,11 +58,10 @@ pub(crate) struct Rounded {
     /// The outline's color. It is drawn outside the box.
     pub(crate) outline: [f32; 4],
     pub(crate) shadow: [f32; 4],
-    /// The outline's width, the shadow's offset down, its sigma, and how far past the box
-    /// the quad reaches, with the offset added below.
+    /// The outline's width, the shadow's offset down and its sigma. The last is unused.
     pub(crate) params: [f32; 4],
-    /// Nothing is drawn outside this: left, top, right and bottom.
-    pub(crate) clip: [f32; 4],
+    /// The quad drawn, already cut to its pane on the CPU: left, top, right and bottom.
+    pub(crate) bounds: [f32; 4],
 }
 
 impl Rounded {
@@ -371,99 +367,4 @@ impl ShapeRenderer {
         pass.set_vertex_buffer(0, self.rounded_buffer.slice(..));
         pass.draw(0..4, range);
     }
-}
-
-// ---- A float's panel ------------------------------------------------------
-
-/// One point in pixels: the cell's height over 16, so that a panel follows the font's size
-/// as well as the display's scale.
-fn point(cell: [f32; 2]) -> f32 {
-    cell[1] / 16.0
-}
-
-/// A float's panel, its field and its keys as rounded boxes, cut to `region`, and on the
-/// frame's top row also to the margin above it, which the panel covers up to the surface's
-/// edge (ADR 0075). Cells are `cell` pixels. Its colors and sizes are read from the faces
-/// and [`PANEL`] now, as a theme will switch them.
-pub(crate) fn panel(
-    panel: &Panel<'_>,
-    region: CellRect,
-    cell: [f32; 2],
-) -> impl Iterator<Item = Rounded> {
-    let grid = PixelGrid::new(cell[0], cell[1]);
-    let pt = point(cell);
-    let style = PANEL;
-    let mut clip = grid.rect(region);
-    if region.row == 0 {
-        clip.height += clip.y;
-        clip.y = 0.0;
-    }
-    let clip = [clip.x, clip.y, clip.x + clip.width, clip.y + clip.height];
-    let mut fill = grid.rect(panel.cells);
-    let attached = panel.cells.row == 0;
-    if attached {
-        fill.height += fill.y;
-        fill.y = 0.0;
-    }
-    let radius = style.radius * pt;
-    let top = if attached { 0.0 } else { radius };
-    let hairline = (style.hairline * pt).round().max(1.0);
-    let sigma = style.shadow_sigma * pt;
-    let down = style.shadow_down * pt;
-    let body = Rounded {
-        rect: [fill.x, fill.y, fill.width, fill.height],
-        radii: [top, top, radius, radius],
-        fill: Face::Float.background(),
-        outline: Face::FloatBorder.background(),
-        shadow: style.shadow,
-        params: [hairline, down, sigma, 3.0 * sigma + hairline + 1.0],
-        clip,
-    };
-    let field = panel
-        .field
-        .filter(|field| field.rows > 0 && field.columns > 0)
-        .map(|field| {
-            let cells = grid.rect(field);
-            let outline = (style.field_outline * pt).round().max(1.0);
-            let [across, up] = style
-                .field_reach
-                .map(|reach| (reach * pt).round() - outline);
-            Rounded {
-                rect: [
-                    cells.x - across,
-                    cells.y - up,
-                    cells.width + 2.0 * across,
-                    cells.height + 2.0 * up,
-                ],
-                radii: [style.field_radius * pt; 4],
-                fill: Face::Field.background(),
-                outline: Face::Field.foreground(),
-                shadow: [0.0; 4],
-                params: [outline, 0.0, 0.0, outline + 1.0],
-                clip,
-            }
-        });
-    let keys = panel
-        .keys
-        .iter()
-        .filter(|key| key.rows > 0 && key.columns > 0)
-        .map(move |key| {
-            let cells = grid.rect(*key);
-            let [across, up] = style.key_inset.map(|inset| (inset * pt).round());
-            Rounded {
-                rect: [
-                    cells.x + across,
-                    cells.y + up,
-                    (cells.width - 2.0 * across).max(0.0),
-                    (cells.height - 2.0 * up).max(0.0),
-                ],
-                radii: [style.key_radius * pt; 4],
-                fill: Face::Key.background(),
-                outline: [0.0; 4],
-                shadow: [0.0; 4],
-                params: [0.0, 0.0, 0.0, 1.0],
-                clip,
-            }
-        });
-    std::iter::once(body).chain(field).chain(keys)
 }

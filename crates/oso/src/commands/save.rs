@@ -37,10 +37,10 @@ fn save_buffer(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
             Ok(())
         }
         Err(SaveRefused::ChangedOnDisk) => {
-            // The name comes from a file, so it is cut first: the question's own words and
-            // its keys always show.
+            // The name comes from a file, so it goes after the question's own words, which a
+            // float too small for all of the label keeps first, and is cut to 40 cells.
             let (name, cut) = minibuffer::cut_to(ctx.editor.current().1.name(), NAME_CELLS);
-            let question = format!("{name}{cut} changed on disk since it was read; save over it?");
+            let question = format!("Changed on disk since it was read; save over {name}{cut}?");
             super::session::ask(ctx, question, "save-buffer", ["save over", "keep"])
         }
         Err(refused) => Err(CommandError::new(refused.to_string())),

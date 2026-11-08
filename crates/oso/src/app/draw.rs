@@ -265,6 +265,7 @@ mod tests {
     use super::*;
     use oso_core::buffer::Buffer;
     use oso_core::frame::{self, FrameSize};
+    use oso_core::minibuffer::Kind;
 
     /// A pane's region, its background, and its one row as spans of text and face.
     type Shown = (frame::CellRect, Option<Face>, Vec<(String, Face)>);
@@ -386,6 +387,33 @@ mod tests {
                 .collect();
             assert!(shown.contains(" y ") && shown.contains(" n "), "{shown}");
         });
+    }
+
+    #[test]
+    fn a_float_in_a_frame_of_few_rows_or_none_draws_what_fits() {
+        for rows in 0..4 {
+            for number in [false, true] {
+                let mut editor = Editor::default();
+                editor.set_frame_size(FrameSize { rows, columns: 60 });
+                if number {
+                    let kind = Kind::Number { history: None };
+                    editor.open_prompt("Go to line: ", kind).unwrap();
+                } else {
+                    editor.ask("Exit?", "keyboard-quit").unwrap();
+                }
+                let status = Status::default();
+                with_panes(&editor, &status, &mut Vec::new(), |panes| {
+                    let text = editor.frame().window.text;
+                    for pane in panes
+                        .iter()
+                        .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
+                    {
+                        let region = pane.region;
+                        assert!(region.row + region.rows <= text.row + text.rows, "{rows}");
+                    }
+                });
+            }
+        }
     }
 
     #[test]

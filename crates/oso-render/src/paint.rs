@@ -443,6 +443,12 @@ mod tests {
                     rows: 1,
                     columns: 4,
                 }),
+                field_room: CellRect {
+                    row: 0,
+                    column: 2,
+                    rows: 3,
+                    columns: 6,
+                },
                 keys: &keys,
             }),
             ..pane(0, (0, 0, rows, 12), 16, None, &[])

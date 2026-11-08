@@ -38,7 +38,8 @@ The author chose, through the coordinator, on 2026-11-08, the option described f
 [Alternatives considered](#alternatives-considered): the cell grid with chrome in pixels, the drawing in
 a second pipeline, the public API below, the hairline in points, the chips with verbs, the order for
 small frames, and the color tokens. They also accepted that row 0 of the text is hidden while a float is
-open. Values marked **(to pick)** are for the author to pick from screenshots.
+open. From screenshots of three variants taken in the app, they then picked the values marked
+**(picked)**: the middle one, the mock-up's, with a lighter key chip.
 
 ### Where it sits
 
@@ -87,7 +88,7 @@ open. Values marked **(to pick)** are for the author to pick from screenshots.
 
   | | Points | Scale 1 | Scale 2 |
   |---|---|---|---|
-  | Corner radius (to pick: 6, 8 or 12) | 8 | 8 px | 16 px |
+  | Corner radius (picked, of 6, 8 and 12) | 8 | 8 px | 16 px |
   | Hairline (chosen) | 1, outside the fill | 1 px | 2 px |
   | Shadow offset down | 10 | 10 px | 20 px |
   | Shadow blur, sigma | 14 (CSS's 28 px) | 14 px | 28 px |
@@ -105,13 +106,16 @@ open. Values marked **(to pick)** are for the author to pick from screenshots.
 ### The field and the chips
 
 - **The field** is the answer's row, widened 6 points into the side padding and 4 points into the
-  gap and the bottom padding: filled in the text area's background, with a 1-point outline in
-  `Face::Field`. A passphrase's `*` and the cursor box are in it as before.
+  gap and the bottom padding, but only into the padding there is: `oso-core` gives the cells it may
+  reach into (`PromptLayout::field_room`), and its box, outline included, is cut to them. It is
+  filled in `Face::Field`'s background, the text's, with a 1-point outline in its foreground. A
+  passphrase's `*` and the cursor box are in it as before.
 - **The chips (chosen):** a question shows its keys on their own row, right-aligned:
   `y exit  n stay`. Each key is 3 cells, ` y `, on a chip of those cells inset 2 points top and
-  bottom, in `Face::Key`, followed by a space and its verb in the label's dim face. Pairs are 2 cells
-  apart.
-- **The verbs come from the question (chosen):** `Editor::ask` takes them with the command
+  bottom and 1 point at the sides, in `Face::Key`, followed by a space and its verb in the label's dim
+  face. Pairs are 2 cells apart. The app draws each key and verb at the cells `minibuffer::layout`
+  gives it, as the snapshots do, so a chip and its letter cannot drift apart.
+- **The verbs come from the question (chosen):** `Editor::ask_with` takes them with the command
   `y` runs, as `&'static str`, so a command names what each key does: the exit guard `exit` and
   `stay`, saving over a changed file `save over` and `keep`. A question with none shows `yes` and
   `no`.
@@ -122,17 +126,28 @@ open. Values marked **(to pick)** are for the author to pick from screenshots.
   key as before.
 - `get-state`'s `prompt` keeps the label as asked, `(y or n)` included, so the socket and the flows
   read what they read today.
+- **A question puts its own words before a name from a file:** saving over a changed file asks
+  `Changed on disk since it was read; save over notes.md?`, not ADR 0072's
+  `notes.md changed on disk since it was read; save over it?`, so a float too small for the whole label
+  keeps what the question is, and a crafted name cannot push it out of view.
 
 ### Small frames (chosen)
 
 The text area of the window beneath has `t` rows, and the float with an `L`-row label wants `L + 3`.
 It gives up, in this order, and is never taller than the text area:
 
-1. the bottom padding row: the panel ends 4 points below the field, or at the text area's bottom;
+1. the bottom padding row: the panel ends at the text area's bottom, and the field keeps to the
+   answer's row there;
 2. the gap row: the field shrinks to the answer's row;
-3. the label's rows from the top, keeping its last, as ADR 0072 keeps it;
-4. at `t = 1`, ADR 0072's one-row form: the label's last row and then the answer, or the keys' chips
-   with no verbs, on one row, on the panel with no field.
+3. the label's last rows, keeping its first, the last of them cut with `…`, so that a nested prompt's
+   `[2]` and what the label says first stay in view. ADR 0072 kept the last row for its `(y or n)`,
+   which the keys' row now holds, and the author's choice was put that way; the security review
+   moved it to the first, which the coordinator was told;
+4. at `t = 1`, ADR 0072's one-row form: the label's first row and then the answer, or the keys' chips
+   with no verbs, on one row, on the panel with no field. The label stops before the keys, even for a
+   cluster wider than its room.
+
+A frame of no rows shows nothing of the float.
 
 So a one-row label has the full panel from 6 frame rows up (ADR 0072's ring went at 4 rows), and a
 frame of 3 rows (one text row) shows the one-row form. Narrow frames keep ADR 0072's widths. Below
@@ -145,7 +160,11 @@ inside the answer's cells.
   blur pass: one instanced quad per box, whose fragment shader takes the box's signed distance for the
   corners and the outline, and a closed-form approximation of a Gaussian blur of a rounded box for the
   shadow (Evan Wallace's, as several GPU UIs use). An instance holds the box, four corner radii, the
-  fill, the outline's width and color, the shadow's offset, sigma and color, and a clip; 112 bytes.
+  fill, the outline's width and color, the shadow's offset, sigma and color, and its quad; 112 bytes.
+- **The geometry is the scene's:** `scene::panel` turns a `Panel` into boxes, with colors from the
+  faces and sizes from a `PanelStyle` the caller passes, and **cuts each quad to the pane's region on
+  the CPU**, as ADR 0061 clips everything else, so a scene test checks that nothing passes it. The GPU
+  draws the quad as it is given.
 - **Order in a layer:** flat rectangles, then rounded boxes, then glyphs. A float's panel, field and
   chips are in `Layer::FLOAT`, under the content, so the cursor box in `Layer::FLOAT_CONTENT` stays
   above the field.
@@ -175,6 +194,8 @@ inside the answer's cells.
       pub cells: CellRect,
       /// The answer's cells, drawn as an input field.
       pub field: Option<CellRect>,
+      /// The cells the field may reach into past its own; its box is cut to them.
+      pub field_room: CellRect,
       /// Cells drawn as key chips, such as ` y ` and ` n `.
       pub keys: &'a [CellRect],
   }
@@ -182,11 +203,12 @@ inside the answer's cells.
 
   The pane's region is the text area of the window beneath, which the shadow stays in, and its
   `background` is `None`.
-- `Face::Field` (the field's outline) and `Face::Key` (a chip and its letter). `Face::FloatBorder`
+- `Face::Field` (the field's fill in its background, its outline in its foreground) and `Face::Key`
+  (a chip and its letter). `Face::FloatBorder`
   becomes the hairline, and `Face::Prompt` the label's dim face.
 - In `oso-core`: `Editor::ask_with` takes the two verbs, and `Editor::ask` gives `yes` and `no`
   (`minibuffer::VERBS`); `Kind::Question` gains `verbs`; `PromptLayout` gains `label_cells`, `field`,
-  `keys` and `verbs` and loses `suffix`; `FloatRegions` gains `gap` and `padded_below`; and
+  `field_room`, `keys` and `verbs` and loses `suffix`; `FloatRegions` gains `gap` and `padded_below`; and
   `minibuffer::KEYS` and `KEY_GAP` say how the keys are drawn, which the app and the snapshots share.
 - No new crate, crate edge, module, trait, dependency or `unsafe`.
 
@@ -197,15 +219,15 @@ converted to linear constants in `pane.rs`:
 
 | Token | Face | Default |
 |---|---|---|
-| `float.background` | `Float` | `#474959`, the text area's `#3f3f4a` lifted a little (to pick: `#43444f`, `#474959` or `#4d4f60`) |
+| `float.background` | `Float` | `#474959`, the text area's `#3f3f4a` lifted a little (picked, of `#43444f`, `#474959` and `#4d4f60`) |
 | `float.hairline` | `FloatBorder` | white at a low alpha, 3.5% in linear light, so about the mock-up's 9% in sRGB |
-| `float.shadow` | `PanelStyle::shadow` | `#08090e` at 55% (to pick: 35%, 55% or 70%) |
+| `float.shadow` | `PanelStyle::shadow` | `#08090e` at 55% (picked, of 35%, 55% and 70%) |
 | `float.shadow.size` | `PanelStyle` | 10 points down, sigma 14 |
 | `float.radius`, `float.hairline.width` | `PanelStyle` | 8 and 1 points |
 | `float.label` | `Prompt` | `#9c9eb0` |
-| `float.field.background` | `Text`'s background | the text area's |
+| `float.field.background` | `Field`'s background | the text area's |
 | `float.field.outline` | `Field` | `#6f86bd` |
-| `float.key.background` | `Key` | `#55576a`: the mock-up's `#4d4f60` all but vanished on the fill in the app |
+| `float.key.background` | `Key` | `#55576a` (picked): the mock-up's `#4d4f60` all but vanished on the fill in the app |
 | `float.key.foreground` | `Key` | `#c8cde0` |
 
 A question's label keeps the text's color, a prompt's label is dim, as in the mock-up. The keys'
@@ -223,13 +245,15 @@ float adds no work there:
 
 ### Tests
 
-- Scene tests: the panel is one rounded box in `Layer::FLOAT`, cut to its region; its top on the
-  frame's top row reaches the surface's edge; no float, no rounded box.
+- Scene tests: the panel is one rounded box in `Layer::FLOAT`, its quad cut to its region; its top on
+  the frame's top row reaches the surface's edge; a field keeps to its room; a box out of the region is
+  dropped; no float, no rounded box.
 - Pixel tests (`just pixel-tests`): a bottom corner leaves the text's background outside its radius;
   the shadow darkens below the panel and fades; nothing of it passes the region's bottom; the field's
   outline and fill; a chip under its letter.
 - `oso-core`: the rows of `float_regions` and `minibuffer::layout` at every `t` above, and the keys
-  always whole.
+  always whole and never under the label or a message, also with crafted file names in a question,
+  from frames of no rows up. The app draws a float in frames of 0 to 3 rows.
 - Text-grid snapshots change: the float starts on row 0, the label has its own row, and the keys show
   as `[y] exit  [n] stay`.
 
@@ -238,9 +262,12 @@ float adds no work there:
 - [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md): the float is attached to the top
   edge, not one row below it; it has a panel, a field and chips instead of a border and one cell of
   padding; the label has rows of its own; a question shows its keys as chips instead of `(y or n)`;
-  small frames give up the padding in the order above.
+  small frames give up the padding in the order above, and a label too tall keeps its first rows, not
+  its last; saving over a changed file asks with the name last.
 - [ADR 0061](0061-panes-clipping-and-layers.md): a pane in front on the top row covers the margin above
-  it where its panel is. Rounded boxes are drawn in a layer between its rectangles and its glyphs.
+  it where its panel is, and the panel's shadow and field draw outside the float's cells, inside the
+  pane's region. Rounded boxes are drawn in a layer between its rectangles and its glyphs, their quads
+  cut on the CPU as everything else is.
 - [ADR 0008](0008-floating-ui.md) stays as it is: the float is still a buffer in a floating window.
 - `ui.md` and `display-model.md` describe the new look.
 

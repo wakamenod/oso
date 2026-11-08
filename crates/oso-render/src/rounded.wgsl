@@ -20,11 +20,10 @@ struct Instance {
     // The outline's color, drawn outside the box.
     @location(3) outline: vec4<f32>,
     @location(4) shadow: vec4<f32>,
-    // The outline's width, the shadow's offset down, its sigma, and the quad's margin past
-    // the box, to which the bottom adds the offset.
+    // The outline's width, the shadow's offset down and its sigma.
     @location(5) params: vec4<f32>,
-    // Nothing is drawn outside this: x0, y0, x1, y1.
-    @location(6) clip: vec4<f32>,
+    // The quad, cut to its pane on the CPU: x0, y0, x1, y1.
+    @location(6) bounds: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -36,22 +35,13 @@ struct VertexOutput {
     @location(4) @interpolate(flat) outline: vec4<f32>,
     @location(5) @interpolate(flat) shadow: vec4<f32>,
     @location(6) @interpolate(flat) params: vec4<f32>,
-    @location(7) @interpolate(flat) clip: vec4<f32>,
 }
 
 @vertex
 fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> VertexOutput {
     // 0: (0, 0), 1: (1, 0), 2: (0, 1), 3: (1, 1)
     let corner = vec2<f32>(f32(index & 1u), f32(index >> 1u));
-    // The quad is cut to the clip here, on whole pixels, so no fragment falls outside it.
-    let margin = instance.params.w;
-    let down = max(instance.params.y, 0.0);
-    let low = max(instance.rect.xy - vec2<f32>(margin), instance.clip.xy);
-    let high = min(
-        instance.rect.xy + instance.rect.zw + vec2<f32>(margin, margin + down),
-        instance.clip.zw,
-    );
-    let point = mix(low, max(low, high), corner);
+    let point = mix(instance.bounds.xy, instance.bounds.zw, corner);
     var out: VertexOutput;
     out.clip_position = uniforms.ortho * vec4<f32>(point, 0.0, 1.0);
     out.point = point;
@@ -61,7 +51,6 @@ fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> VertexOutpu
     out.outline = instance.outline;
     out.shadow = instance.shadow;
     out.params = instance.params;
-    out.clip = instance.clip;
     return out;
 }
 

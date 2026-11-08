@@ -48,12 +48,16 @@ in the background color, so no partly shown row or column is drawn
   field with a thin accent outline, and a row of padding ends the panel.
 
 ```
-│            ╭──────────────────────────────────────╮            │
-│            │  Go to line:                         │            │
+┌────────────┬──────────────────────────────────────┬────────────┐
+│# Meeting no│  Go to line:                         │            │
 │            │                                      │            │
-│            │ [42█                 [Past the end]] │            │
-│▯ hiring: tw╰──────────────────────────────────────╯            │
+│Agenda      │ [42█                 [Past the end]] │            │
+│- budget for╰──────────────────────────────────────╯            │
+│▯ hiring: two engineers                                         │
 ```
+
+The panel's top is the window's edge, square and with no hairline; only its bottom corners
+are rounded.
 
 - The answer is one row and scrolls sideways. A long label breaks after a space onto at most
   three rows. A message from a key typed in the prompt shows at the end of its row, in

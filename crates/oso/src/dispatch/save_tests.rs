@@ -414,7 +414,7 @@ fn a_file_changed_on_disk_is_saved_over_once_agreed() {
     send(&mut dispatcher, &mut editor, "C-x C-s");
     assert_eq!(
         question(&editor),
-        Some("notes.txt changed on disk since it was read; save over it? (y or n)")
+        Some("Changed on disk since it was read; save over notes.txt? (y or n)")
     );
     send(&mut dispatcher, &mut editor, "n");
     assert_eq!(fs::read(&path).unwrap(), b"another program\n", "n keeps it");

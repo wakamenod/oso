@@ -148,8 +148,8 @@ impl Face {
 pub struct PaneId(pub u32);
 
 /// How far forward a pane is. A higher layer hides what is under it. Panes in
-/// one layer must not overlap: they are drawn together, all their rectangles
-/// and then all their text.
+/// one layer must not overlap: they are drawn together, all their rectangles,
+/// then all their rounded boxes, then all their text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Layer(pub u8);
 
@@ -252,8 +252,12 @@ pub struct Masked<'a> {
 pub struct Panel<'a> {
     /// The cells it covers, in [`Face::Float`].
     pub cells: CellRect,
-    /// Cells drawn as an input field, a little larger than they are, in [`Face::Field`].
+    /// Cells drawn as an input field, a little larger than they are, in [`Face::Field`]: its
+    /// fill in the background and its outline in the foreground.
     pub field: Option<CellRect>,
+    /// The cells the field may reach into past its own, such as the padding around them. Its
+    /// box, outline included, is cut to them.
+    pub field_room: CellRect,
     /// Cells drawn as key chips, such as ` y ` and ` n `, in [`Face::Key`].
     pub keys: &'a [CellRect],
 }
@@ -263,7 +267,8 @@ pub struct Panel<'a> {
 /// exceptions are the frame's top row, whose glyphs keep the band above their row
 /// in the top margin (ADR 0052), and a tiled pane of one row of [`PaneContent::Lines`], whose
 /// glyphs keep it on the row above, over what that row shows (ADR 0063). A pane in
-/// front on the top row does not cover the margin (ADR 0061).
+/// front on the top row does not cover the margin (ADR 0061), but for a float's
+/// [`Panel`], which covers it up to the surface's edge (ADR 0075).
 ///
 /// A frame's list needs no order between layers. Inside a layer, later panes come
 /// first if a frame runs out of room for glyphs or rectangles, so what must always

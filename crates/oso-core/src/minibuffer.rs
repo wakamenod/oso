@@ -265,7 +265,7 @@ impl Histories {
 pub struct PromptLayout {
     pub regions: FloatRegions,
     /// The rows of the label it shows, each a range of it. A float too short for all of them
-    /// keeps the last.
+    /// keeps the first, the last of them cut.
     pub label: Vec<Range<usize>>,
     /// Whether the label was cut, and its last row ends with `…`.
     pub label_cut: bool,
@@ -277,6 +277,9 @@ pub struct PromptLayout {
     /// The answer's row as the field around it is drawn, with the message. Empty for a
     /// question, and where the float has one row.
     pub field: CellRect,
+    /// The cells the field may reach into past its own: the padding beside it, the gap above
+    /// and the padding below, where the float has them (ADR 0075). Empty with no field.
+    pub field_room: CellRect,
     /// Where a message goes: at the end of the answer's row, or at the start of a question's
     /// keys. Empty with none.
     pub message: CellRect,
@@ -361,6 +364,20 @@ fn keys_cells(verbs: Option<[&str; 2]>) -> usize {
     }
 }
 
+/// The cells a field on the last row of `regions`' inner cells may reach into: the padding
+/// at its sides, and the rows of padding above and below it where they are.
+fn field_room(regions: &FloatRegions) -> CellRect {
+    let (outer, inner) = (regions.outer, regions.inner);
+    let row = inner.row + inner.rows.saturating_sub(1);
+    let above = usize::from(regions.gap);
+    CellRect {
+        row: row - above,
+        column: outer.column,
+        rows: above + 1 + usize::from(regions.padded_below()),
+        columns: outer.columns,
+    }
+}
+
 /// The columns and widths of a question's two keys from column `at`, and of `verbs` after
 /// them, or none.
 fn keys_at(at: usize, verbs: Option<[&str; 2]>) -> [[(usize, usize); 2]; 2] {
@@ -393,7 +410,7 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
         (probe.inner.columns, MAX_LABEL_ROWS)
     };
     // A row the keys leave no room on shows none of the label.
-    let (mut rows, cut) = if width == 0 {
+    let (mut rows, mut cut) = if width == 0 {
         (Vec::new(), false)
     } else {
         rows_of(body, width, most)
@@ -405,11 +422,17 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
     } else {
         inner.rows - 1 - usize::from(regions.gap)
     };
-    // A float too short for every row of the label keeps the last.
-    rows.drain(..rows.len().saturating_sub(shown.max(1)));
+    // A float too short for every row of the label keeps the first, cut with `…`, so that a
+    // nested prompt's depth and what the label says first stay in view.
+    if rows.len() > shown.max(1) {
+        rows.truncate(shown.max(1));
+        rows = cut_last(body, rows, width);
+        cut = true;
+    }
     let columns = if one_row {
+        // Never past the keys, even for a cluster wider than the row.
         let last = rows.last().map_or(0, |row| cells_of(&body[row.clone()]));
-        (last + usize::from(cut)).min(inner.columns)
+        (last + usize::from(cut)).min(width).min(inner.columns)
     } else {
         inner.columns
     };
@@ -457,7 +480,12 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
     };
     let left = inner.columns.saturating_sub(start);
     let rect = |column: usize, columns: usize| {
-        let columns = columns.min(inner.columns.saturating_sub(column));
+        // A float of no rows holds nothing.
+        let columns = if inner.rows == 0 {
+            0
+        } else {
+            columns.min(inner.columns.saturating_sub(column))
+        };
         CellRect {
             row,
             column: inner.column + column.min(inner.columns),
@@ -482,6 +510,7 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
             label_cells,
             input: rect(0, 0),
             field: rect(0, 0),
+            field_room: rect(0, 0),
             message: rect(start, message_columns),
             keys: keys.map(|(column, columns)| rect(column, columns)),
             verbs: verbs.map(|(column, columns)| rect(column, columns)),
@@ -498,6 +527,11 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
             rect(0, 0)
         } else {
             rect(0, inner.columns)
+        },
+        field_room: if one_row {
+            rect(0, 0)
+        } else {
+            field_room(&regions)
         },
         message: rect(inner.columns - message_columns, message_columns),
         keys: [rect(0, 0); 2],
@@ -597,6 +631,16 @@ mod tests {
         };
         assert_eq!(layout.input, row);
         assert_eq!(layout.field, row);
+        let outer = layout.regions.outer;
+        assert_eq!(
+            layout.field_room,
+            CellRect {
+                row: inner.row + 1,
+                rows: 3,
+                ..outer
+            },
+            "the gap, the answer's row and the padding below"
+        );
         assert_eq!(layout.message.columns, 0);
         assert_eq!(layout.keys[0].columns, 0);
     }
@@ -662,7 +706,7 @@ mod tests {
     #[test]
     fn the_keys_stay_whole_while_they_fit_and_nothing_passes_a_narrow_float() {
         let label = format!("Save over it?{QUESTION_END}");
-        for rows in 1..8 {
+        for rows in 0..8 {
             for columns in 1..40 {
                 let frame = frame_layout(FrameSize { rows, columns });
                 let layout = layout(&frame, &label, QUESTION, Some("Answer y or n"));
@@ -692,6 +736,53 @@ mod tests {
     }
 
     #[test]
+    fn a_crafted_name_never_hides_the_keys_or_the_questions_first_words() {
+        let names = [
+            format!("x {}", "x".repeat(36)),
+            "全角".repeat(10),
+            "\u{202e}".repeat(8),
+            "a\nb\u{7}c".to_owned(),
+        ];
+        for name in &names {
+            let label = format!("Changed on disk since it was read; save over {name}?");
+            for rows in 0..8 {
+                for columns in 0..80 {
+                    let frame = frame_layout(FrameSize { rows, columns });
+                    let layout = layout(&frame, &label, QUESTION, Some("Answer y or n"));
+                    let inner = layout.regions.inner;
+                    let [y, n] = layout.keys;
+                    let at = format!("{rows}x{columns} {name:?}");
+                    if inner.rows > 0 && inner.columns >= keys_cells(None) {
+                        assert_eq!((y.columns, n.columns), (3, 3), "{at}");
+                    }
+                    for other in [layout.label_cells, layout.message] {
+                        let overlap = other.rows > 0
+                            && other.row + other.rows > y.row
+                            && other.column + other.columns > y.column;
+                        assert!(!overlap || y.columns == 0, "{at}: {other:?} over {y:?}");
+                    }
+                    if let Some(first) = layout.label.first() {
+                        assert_eq!(first.start, 0, "{at}: the first words show");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_cluster_wider_than_a_shared_row_leaves_the_keys_whole() {
+        // One text row, a float of 11 columns: 3 columns of label before the keys.
+        let frame = frame_layout(FrameSize {
+            rows: 3,
+            columns: 15,
+        });
+        let layout = layout(&frame, "\u{202e}", QUESTION, None);
+        let [y, n] = layout.keys;
+        assert_eq!((y.columns, n.columns), (3, 3));
+        assert!(layout.label_cells.column + layout.label_cells.columns < y.column);
+    }
+
+    #[test]
     fn a_float_of_one_row_puts_the_label_before_the_answer() {
         let frame = frame_layout(FrameSize {
             rows: 3,
@@ -710,7 +801,7 @@ mod tests {
     }
 
     #[test]
-    fn a_short_float_keeps_the_last_row_of_the_label() {
+    fn a_short_float_keeps_the_first_row_of_the_label() {
         let frame = frame_layout(FrameSize {
             rows: 4,
             columns: 100,
@@ -719,7 +810,11 @@ mod tests {
         let layout = layout(&frame, &text, Kind::Number { history: None }, None);
         assert_eq!(layout.regions.inner.rows, 2);
         assert_eq!(layout.label.len(), 1);
-        assert!(layout.label[0].start > 0, "the last row of three");
+        assert_eq!(layout.label[0].start, 0, "the first row of three");
+        assert!(layout.label_cut);
+        // No gap and no padding below: the field keeps to its row but for the sides.
+        assert_eq!(layout.field_room.rows, 1);
+        assert_eq!(layout.field_room.row, layout.input.row);
         assert_eq!(layout.input.row, layout.regions.inner.row + 1);
     }
 

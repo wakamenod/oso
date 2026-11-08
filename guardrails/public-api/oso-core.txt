@@ -1433,6 +1433,7 @@ impl core::marker::Copy for oso_core::minibuffer::PromptId
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptId
 pub struct oso_core::minibuffer::PromptLayout
 pub oso_core::minibuffer::PromptLayout::field: oso_core::frame::CellRect
+pub oso_core::minibuffer::PromptLayout::field_room: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::input: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::keys: [oso_core::frame::CellRect; 2]
 pub oso_core::minibuffer::PromptLayout::label: alloc::vec::Vec<core::ops::range::Range<usize>>

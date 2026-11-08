@@ -24,10 +24,14 @@ use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
-use crate::pane::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
+use crate::pane::{
+    CursorStyle, Face, Layer, Masked, PANEL, Pane, PaneContent, PaneId, Span, TextView,
+};
 use crate::rows::{Rows, ShapedRow};
-use crate::shape::{self, MAX_ROUNDED, Rect, Rounded};
+use crate::shape::{MAX_ROUNDED, Rect, Rounded};
 use crate::text::{GlyphInstance, Layout};
+
+mod panel;
 
 /// Where a frame's glyphs come from, as an atlas gives them.
 pub(crate) trait GlyphSource {
@@ -302,7 +306,7 @@ fn draw_pane<G: GlyphSource>(
         let cell = [metrics.width, metrics.height];
         draws
             .rounded
-            .extend(shape::panel(panel, pane.region, cell).take(room));
+            .extend(panel::boxes(panel, pane.region, cell, &PANEL).take(room));
     }
     match &pane.content {
         PaneContent::Text(view) => {
@@ -361,7 +365,7 @@ fn draw_pane<G: GlyphSource>(
 
 /// A thin line's width in whole pixels, as the metrics give the cell's height.
 fn line_width(metrics: CellMetrics) -> f32 {
-    (metrics.height / 16.0).round().max(1.0)
+    panel::point(metrics.height).round().max(1.0)
 }
 
 /// The four sides of `rect`, `width` thick, inside it.
@@ -444,7 +448,7 @@ fn underline_preedit(
     let Some(preedit) = view.preedit else {
         return;
     };
-    let line = (metrics.height / 16.0).round().max(1.0);
+    let line = line_width(metrics);
     let at = view.cursor.column;
     let mut underline = |column: usize, cells: usize, thickness: f32| {
         let cells = layout.display_cells(view.cursor.row, column, cells);
@@ -838,6 +842,7 @@ mod tests {
             panel: Some(Panel {
                 cells: rect(0, 2, 4, 10),
                 field: Some(rect(2, 4, 1, 6)),
+                field_room: rect(1, 3, 3, 8),
                 keys: &keys,
             }),
             ..pane(0, rect(0, 0, 6, 12), 16, PaneContent::Lines(&[]))
@@ -853,7 +858,15 @@ mod tests {
         let panel = rounded[0];
         assert_eq!(panel.rect, [28.0, 0.0, 100.0, 88.0]);
         assert_eq!(panel.radii, [0.0, 0.0, 10.0, 10.0]);
-        assert_eq!(panel.clip, [8.0, 0.0, 128.0, 128.0]);
+        // Every quad is cut to the region, and to the margin above it on the top row.
+        for r in rounded {
+            let [x0, y0, x1, y1] = r.bounds;
+            assert!(
+                x0 >= 8.0 && y0 >= 0.0 && x1 <= 128.0 && y1 <= 128.0,
+                "{r:?}"
+            );
+        }
+        assert_eq!(panel.bounds[1], 0.0);
         assert!(panel.shadow[3] > 0.0 && panel.params[2] > 0.0);
         // The field reaches past its cells and its outline ends there.
         let field = rounded[1];
@@ -863,8 +876,30 @@ mod tests {
         );
         assert_eq!(field.fill, Face::Field.background());
         assert_eq!(field.outline, Face::Field.foreground());
-        assert!(rounded.iter().all(|r| r.clip == panel.clip));
         assert_eq!(rounded[2].fill, Face::Key.background());
+    }
+
+    #[test]
+    fn a_field_reaches_only_into_its_room_and_a_box_out_of_the_region_is_dropped() {
+        let keys = [rect(9, 4, 1, 3)];
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(0, 2, 2, 10),
+                // No gap and no padding: the field keeps to its row.
+                field: Some(rect(1, 4, 1, 6)),
+                field_room: rect(1, 4, 1, 6),
+                keys: &keys,
+            }),
+            ..pane(0, rect(0, 0, 2, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rounded = scene.rounded();
+        assert_eq!(rounded.len(), 2, "the key below the region is dropped");
+        // The row's cells are x 48..108 and y 28..48, the outline 1 px inside them.
+        assert_eq!(rounded[1].rect, [49.0, 29.0, 58.0, 18.0]);
+        // The shadow stops at the region's bottom, y 48.
+        assert_eq!(rounded[0].bounds[3], 48.0);
     }
 
     #[test]

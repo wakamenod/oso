@@ -75,54 +75,63 @@ impl<'a> Parts<'a> {
             text,
             face: Face::Float,
         });
-        // The keys and their verbs, as `minibuffer::layout` places them.
-        let [y, n] = minibuffer::KEYS.map(|text| Span {
-            text,
-            face: Face::Key,
-        });
-        let verbs = match self.kind {
-            Kind::Question { verbs, .. } if self.layout.verbs[0].columns > 0 => Some(verbs),
-            _ => None,
-        };
-        let verb = |text| Span {
-            text,
-            face: Face::Prompt,
-        };
-        let gap = |text| Span {
-            text,
-            face: Face::Float,
-        };
-        let (keys, shown) = match verbs {
-            Some([yes, no]) => (
-                [
-                    y,
-                    verb(" "),
-                    verb(yes),
-                    gap(&"  "[..minibuffer::KEY_GAP]),
-                    n,
-                    verb(" "),
-                    verb(no),
-                ],
-                7,
-            ),
-            None => ([y, gap(" "), n, gap(""), gap(""), gap(""), gap("")], 3),
-        };
         Spans {
             label,
             message,
-            keys,
-            shown,
+            keys: self.keys(),
         }
     }
+
+    /// A question's keys and their verbs, each at the column `minibuffer::layout` gives it,
+    /// from the first key's: spaces up to it, then what it shows. Empty for a prompt.
+    fn keys(&self) -> [Span<'a>; 12] {
+        let mut spans = std::array::from_fn(|_| Span {
+            text: "",
+            face: Face::Float,
+        });
+        let Kind::Question { verbs, .. } = self.kind else {
+            return spans;
+        };
+        let [y, n] = self.layout.keys;
+        let [yes, no] = self.layout.verbs;
+        let mut at = y.column;
+        let parts = [
+            (y, ["", minibuffer::KEYS[0]], Face::Key),
+            (yes, [" ", verbs[0]], Face::Prompt),
+            (n, ["", minibuffer::KEYS[1]], Face::Key),
+            (no, [" ", verbs[1]], Face::Prompt),
+        ];
+        for (index, (cells, texts, face)) in parts.into_iter().enumerate() {
+            if cells.columns == 0 {
+                continue;
+            }
+            let gap = cells.column.saturating_sub(at).min(SPACES.len());
+            spans[index * 3] = Span {
+                text: &SPACES[..gap],
+                face: Face::Float,
+            };
+            spans[index * 3 + 1] = Span {
+                text: texts[0],
+                face,
+            };
+            spans[index * 3 + 2] = Span {
+                text: texts[1],
+                face,
+            };
+            at = cells.column + cells.columns;
+        }
+        spans
+    }
 }
+
+/// Spaces for the gaps between a question's keys.
+const SPACES: &str = "        ";
 
 /// The spans of a float's rows, which its lines borrow.
 pub(super) struct Spans<'a> {
     label: Vec<[Span<'a>; 2]>,
     message: [Span<'a>; 4],
-    keys: [Span<'a>; 7],
-    /// How many of `keys` show: 7 with the verbs, 3 without.
-    shown: usize,
+    keys: [Span<'a>; 12],
 }
 
 impl<'a> Spans<'a> {
@@ -131,7 +140,7 @@ impl<'a> Spans<'a> {
         Lines {
             label: self.label.iter().map(|row| &row[..]).collect(),
             message: [&self.message],
-            keys: [&self.keys[..self.shown]],
+            keys: [&self.keys],
         }
     }
 }
@@ -153,6 +162,13 @@ pub(super) fn panes<'a>(
     let layout = &parts.layout;
     let regions = layout.regions;
     let inner = regions.inner;
+    // A frame of no rows has no room for a float.
+    let Some(last) = (inner.row + inner.rows)
+        .checked_sub(1)
+        .filter(|_| inner.rows > 0)
+    else {
+        return;
+    };
     // A pane's glyphs keep a band only into the float's padding, where its region borders on
     // it, so that none draws over another pane of the float or outside it (ADR 0072). The
     // label's rows border on the gap, and the answer's row on the padding below.
@@ -164,7 +180,7 @@ pub(super) fn panes<'a>(
         panel: None,
         bands: Bands {
             above: regions.gap && region.row == layout.input.row,
-            below: if region.row == inner.row + inner.rows - 1 {
+            below: if region.row == last {
                 regions.padded_below()
             } else {
                 regions.gap
@@ -187,6 +203,7 @@ pub(super) fn panes<'a>(
         panel: Some(Panel {
             cells: regions.outer,
             field,
+            field_room: layout.field_room,
             keys,
         }),
         bands: Bands::NONE,
