@@ -1,6 +1,6 @@
 # 0076. Completion and `M-x`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -42,8 +42,8 @@ questions under [Questions](#questions), which the text below describes. They al
 as a direct dependency of `oso-core`, the new public module `complete` and its line in
 `guardrails/layers.txt`, `ArgSpec::Command` and `ArgSpec::Key`, `Keymap::bindings`, `Kind::Complete`,
 the four `Face` variants, `Panel::selected`, and `get-state`'s `completion` field. The colors of the
-match and the selected row are picked from screenshots later, as ADR 0075's were. The ADR stays
-Proposed until the pull request.
+match and the selected row are picked from screenshots later, as ADR 0075's were. The author
+accepted this ADR, and the pull request with it, on 2026-11-09.
 
 After seeing builds in the app, the author changed question 4 (the float), twice: a completion's
 float sits at the center of the frame, 62% of its width, always as tall as 18 candidate rows and the
