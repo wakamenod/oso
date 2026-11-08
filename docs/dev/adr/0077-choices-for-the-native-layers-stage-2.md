@@ -1,6 +1,6 @@
 # 0077. Choices for the rest of the native window layer's stage 2
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -9,7 +9,7 @@
 layer. Its stage 2, the macOS layer behind `native-window`, landed in parts, and
 `open-questions.md` lists what it still owes before the layer becomes the default on macOS.
 Ten choices were left open there, and the author made them on 2026-11-08 through the
-coordinator.
+coordinator. The author accepted this on 2026-11-08, through the coordinator.
 
 ## Decision
 
