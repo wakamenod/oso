@@ -143,13 +143,13 @@ A completion's float, unlike every other prompt's:
 - **The answer's row:** the count first, `2/2`: the selected candidate's place and the number of
   matches, as `vertico-count-format` does, kept as wide as the widest count; then the label, cut with
   `…` to a third of the row at most; then what is typed, with a message at its end. Both the count and
-  the label are in `Face::ListPrompt`, a teal accent. There is no field around the answer.
+  the label are in `Face::CompletionPrompt`, a teal accent. There is no field around the answer.
 - **A plain panel:** filled with the text's background, framed by a 5-point border in a muted slate a
   little lighter than it (`PanelStyle::border`, read every frame as the theme's other values are),
   with square corners and no shadow. `Panel::border` asks for it.
 - **A row:** the candidate from the inner cells' first column, in the text's color; its binding one
-  cell after it, in parentheses, `(C-x C-s)`, in `Face::Binding`, a light blue; then its annotation,
-  in `Face::Annotation`, a dim blue-grey.
+  cell after it, in parentheses, `(C-x C-s)`, in `Face::CompletionBinding`, a light blue; then its annotation,
+  in `Face::CompletionAnnotation`, a dim blue-grey.
 - **Annotations form a column:** they start at one column, two cells after the longest candidate and
   binding among the rows shown, at most halfway across the row. A row whose own candidate and binding
   reach past it starts its annotation two cells after them.
@@ -157,7 +157,7 @@ A completion's float, unlike every other prompt's:
   cells; then the binding goes; then the candidate is cut with `…` at the edge. The candidate is never
   cut before the annotation and the binding have gone.
 - **The selected row** is a bar across the whole panel, inside the border, one row tall and square, in
-  `Face::Selected`'s background, a medium blue, drawn with ADR 0075's pipeline in `Layer::FLOAT` under
+  `Face::CompletionSelected`'s background, a medium blue, drawn with ADR 0075's pipeline in `Layer::FLOAT` under
   the text, which keeps its faces on it. So `PaneContent::Lines` needs no background per row, and the
   open question about it closes. The candidates' rows are one pane of `PaneContent::Lines` in
   `Layer::FLOAT_CONTENT`.
@@ -233,11 +233,11 @@ layer in the minibuffer keymap's place:
 
   | Token | Face | Use |
   |---|---|---|
-  | `float.selection.background` | `Selected` | The selected row's rounded box. |
-  | `float.match.foreground` | `Match` | The characters a component matched. |
-  | `float.annotation.foreground` | `Annotation` | The annotation and the count. |
-  | `float.binding.foreground` | `Binding` | The binding after a candidate. |
-  | `float.list.prompt` | `ListPrompt` | The count and the label on the answer's row. |
+  | `float.selection.background` | `CompletionSelected` | The selected row's rounded box. |
+  | `float.match.foreground` | `CompletionMatch` | The characters a component matched. |
+  | `float.annotation.foreground` | `CompletionAnnotation` | The annotation and the count. |
+  | `float.binding.foreground` | `CompletionBinding` | The binding after a candidate. |
+  | `float.list.prompt` | `CompletionPrompt` | The count and the label on the answer's row. |
 
 - **One match face for every component.** Orderless's four faces, one per component, wait for M2-23's
   theme, where the contrast of each is checked.

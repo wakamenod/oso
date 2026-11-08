@@ -211,7 +211,7 @@ fn selected_box(
     Rounded {
         rect: corners(wide),
         radii: [radius; 4],
-        fill: Face::Selected.background(),
+        fill: Face::CompletionSelected.background(),
         outline: [0.0; 4],
         shadow: [0.0; 4],
         params: [0.0; 4],

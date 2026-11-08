@@ -37,7 +37,7 @@ const SELECTED: [f32; 4] = [0.028, 0.058, 0.212, 1.0];
 const MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
 const ANNOTATION: [f32; 4] = [0.423, 0.479, 0.730, 1.0];
 const BINDING: [f32; 4] = [0.078, 0.546, 1.0, 1.0];
-const LIST_PROMPT: [f32; 4] = [0.114, 0.680, 0.429, 1.0];
+const COMPLETION_PROMPT: [f32; 4] = [0.114, 0.680, 0.429, 1.0];
 
 /// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height
 /// over 16) and the shadow's color and strength (ADR 0075). It is read every frame, as the
@@ -124,15 +124,15 @@ pub enum Face {
     Region,
     /// The selected candidate's row in a float: its box's background, behind the text, which
     /// keeps its own faces (ADR 0076).
-    Selected,
+    CompletionSelected,
     /// What the input matched in a candidate.
-    Match,
+    CompletionMatch,
     /// What is said of a candidate at the end of its row, and a list's count.
-    Annotation,
+    CompletionAnnotation,
     /// A key sequence after a candidate, such as a command's binding.
-    Binding,
+    CompletionBinding,
     /// A completion's count and label, at the start of its answer's row.
-    ListPrompt,
+    CompletionPrompt,
 }
 
 impl Face {
@@ -144,11 +144,11 @@ impl Face {
             | Self::Preedit
             | Self::Float
             | Self::Region
-            | Self::Selected => FOREGROUND,
-            Self::Match => MATCH,
-            Self::Annotation => ANNOTATION,
-            Self::Binding => BINDING,
-            Self::ListPrompt => LIST_PROMPT,
+            | Self::CompletionSelected => FOREGROUND,
+            Self::CompletionMatch => MATCH,
+            Self::CompletionAnnotation => ANNOTATION,
+            Self::CompletionBinding => BINDING,
+            Self::CompletionPrompt => COMPLETION_PROMPT,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
@@ -169,8 +169,11 @@ impl Face {
             Self::Preedit => FOREGROUND,
             Self::Float | Self::Prompt => FLOAT,
             // A completion's float is filled with the text's background (ADR 0076).
-            Self::Match | Self::Annotation | Self::Binding | Self::ListPrompt => BACKGROUND,
-            Self::Selected => SELECTED,
+            Self::CompletionMatch
+            | Self::CompletionAnnotation
+            | Self::CompletionBinding
+            | Self::CompletionPrompt => BACKGROUND,
+            Self::CompletionSelected => SELECTED,
             Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Key => KEY,
             Self::Region => REGION,
@@ -307,7 +310,7 @@ pub struct Panel<'a> {
     /// Cells drawn as key chips, such as ` y ` and ` n `, in [`Face::Key`].
     pub keys: &'a [CellRect],
     /// A row of cells drawn as the selected candidate's box, a little wider than they are,
-    /// in [`Face::Selected`] (ADR 0076).
+    /// in [`Face::CompletionSelected`] (ADR 0076).
     pub selected: Option<CellRect>,
     /// A completion's float (ADR 0076): filled with the text's background and framed by a
     /// border in place of the hairline, with square corners and no shadow, and its selected row
@@ -362,16 +365,24 @@ mod tests {
     #[test]
     fn a_lists_text_reads_on_the_fill_and_on_the_selected_row() {
         // ADR 0027's floor; M2-23 raises what it can to 7:1.
-        for face in [Face::Text, Face::Match, Face::Annotation, Face::Binding] {
-            for behind in [Face::Text, Face::Selected] {
+        for face in [
+            Face::Text,
+            Face::CompletionMatch,
+            Face::CompletionAnnotation,
+            Face::CompletionBinding,
+        ] {
+            for behind in [Face::Text, Face::CompletionSelected] {
                 let ratio = contrast(face.foreground(), behind.background());
                 assert!(ratio >= 4.5, "{face:?} on {behind:?}: {ratio:.2}");
             }
         }
-        let ratio = contrast(Face::ListPrompt.foreground(), Face::Text.background());
+        let ratio = contrast(Face::CompletionPrompt.foreground(), Face::Text.background());
         assert!(ratio >= 4.5, "the count and label: {ratio:.2}");
         // The selected row stands apart from the background.
-        assert_ne!(Face::Selected.background(), Face::Text.background());
+        assert_ne!(
+            Face::CompletionSelected.background(),
+            Face::Text.background()
+        );
     }
 
     #[test]

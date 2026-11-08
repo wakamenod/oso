@@ -924,7 +924,7 @@ mod tests {
         let rounded = scene.rounded();
         assert_eq!(rounded.len(), 2);
         let [panel, row] = [rounded[0], rounded[1]];
-        assert_eq!(row.fill, Face::Selected.background());
+        assert_eq!(row.fill, Face::CompletionSelected.background());
         // The row's cells are x 28..108; the box reaches past them, and stays in the panel.
         let [x, y, width, height] = row.rect;
         let [px, _, pwidth, _] = panel.rect;
@@ -960,7 +960,7 @@ mod tests {
         assert_eq!((panel.shadow[3], panel.params[0]), (0.0, 0.0));
         // The selected row is a bar across the whole panel.
         let bar = rounded[2];
-        assert_eq!(bar.fill, Face::Selected.background());
+        assert_eq!(bar.fill, Face::CompletionSelected.background());
         assert_eq!((bar.rect[0], bar.rect[2]), (panel.rect[0], panel.rect[2]));
         assert_eq!(bar.radii, [0.0; 4]);
     }

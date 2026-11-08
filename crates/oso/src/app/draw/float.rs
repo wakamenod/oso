@@ -73,7 +73,7 @@ impl<'a> Parts<'a> {
         let count = [
             Span {
                 text: count,
-                face: Face::ListPrompt,
+                face: Face::CompletionPrompt,
             },
             blank(),
         ];
@@ -100,7 +100,7 @@ impl<'a> Parts<'a> {
         let face = if self.kind.is_question() {
             Face::Float
         } else if self.list.is_some() {
-            Face::ListPrompt
+            Face::CompletionPrompt
         } else {
             Face::Prompt
         };
@@ -196,7 +196,7 @@ fn blank<'a>() -> Span<'a> {
 }
 
 /// The spans of a candidate's row of `columns` cells: its text with what matched in
-/// [`Face::Match`], its binding in parentheses, and its annotation at `column`, as
+/// [`Face::CompletionMatch`], its binding in parentheses, and its annotation at `column`, as
 /// `minibuffer::candidate_row` places them.
 fn candidate_spans<'a>(
     candidate: &'a oso_core::complete::Candidate,
@@ -221,7 +221,7 @@ fn candidate_spans<'a>(
         });
         spans.push(Span {
             text: &shown[start..end],
-            face: Face::Match,
+            face: Face::CompletionMatch,
         });
         at = end;
     }
@@ -245,7 +245,7 @@ fn candidate_spans<'a>(
         for text in [minibuffer::BINDING_OPEN, binding, minibuffer::BINDING_CLOSE] {
             spans.push(Span {
                 text,
-                face: Face::Binding,
+                face: Face::CompletionBinding,
             });
         }
         used = column + cells_of(binding) + 2;
@@ -257,12 +257,12 @@ fn candidate_spans<'a>(
         });
         spans.push(Span {
             text: &candidate.annotation()[..bytes],
-            face: Face::Annotation,
+            face: Face::CompletionAnnotation,
         });
         if cut {
             spans.push(Span {
                 text: minibuffer::CUT,
-                face: Face::Annotation,
+                face: Face::CompletionAnnotation,
             });
         }
     }

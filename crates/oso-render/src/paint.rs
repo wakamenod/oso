@@ -566,7 +566,7 @@ mod tests {
         }];
         let pixels = draw(&panes);
         // The row's cells are x 28..108 and y 68..88; the box reaches 8 px past their sides.
-        let selected = Face::Selected.background();
+        let selected = Face::CompletionSelected.background();
         assert_is(&pixels, (60, 78), selected, "on the row");
         assert_is(&pixels, (24, 78), selected, "past the row's left cell");
         assert_is(&pixels, (60, 66), Face::Float.background(), "the row above");
