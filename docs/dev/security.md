@@ -153,7 +153,11 @@ and below the row, and a label's glyphs keep their own cells
 - The OS input method is off in a buffer that may hold secrets, as in macOS password
   fields, and gets no cursor area there. A preedit is in no buffer, copy, handoff or log
   ([ADR 0069](adr/0069-macos-input-method.md)).
-- The kill ring syncs with the OS clipboard but is never persisted. Core
+- The kill ring syncs with the OS clipboard but is never persisted. oso reads the
+  clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
+  goes there marked concealed for clipboard managers, never shows over the socket, and
+  makes the buffer it is yanked into secret, also after a round trip through another app
+  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).

@@ -280,13 +280,28 @@ impl Buffer {
     /// if the path could not be resolved, which dev tooling counts as secret. The
     /// host resolves the path off the UI thread, before any content arrives.
     pub fn judge_secret(&mut self, resolved: Option<&[PathBuf]>) {
-        self.verdict = secret::judge(self.path.as_deref(), resolved);
+        if self.verdict != Verdict::Yanked {
+            self.verdict = secret::judge(self.path.as_deref(), resolved);
+        }
     }
 
     /// Decides whether the file may hold secrets when its path could not be resolved.
     /// `seen` holds what the walk passed before it failed, whose names count too.
     pub fn judge_unresolved(&mut self, seen: &[PathBuf]) {
-        self.verdict = secret::judge_unresolved(self.path.as_deref(), seen);
+        if self.verdict != Verdict::Yanked {
+            self.verdict = secret::judge_unresolved(self.path.as_deref(), seen);
+        }
+    }
+
+    /// Counts the text as secret from now on, as text from a secret kill was yanked into
+    /// it, for dev tooling and the emergency save alike. A file still loading keeps it
+    /// once judged. Returns whether a buffer that was not withheld now is.
+    pub(crate) fn treat_as_secret(&mut self) -> bool {
+        let was_withheld = self.verdict.is_withheld();
+        if !matches!(self.verdict, Verdict::SecretName | Verdict::Yanked) {
+            self.verdict = Verdict::Yanked;
+        }
+        !was_withheld
     }
 
     /// Whether the text may hold secrets, and why.

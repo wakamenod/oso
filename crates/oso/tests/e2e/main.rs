@@ -11,6 +11,7 @@
 
 mod harness;
 mod ime;
+mod kill;
 mod mark;
 mod png;
 mod recovery;

@@ -45,6 +45,9 @@ pub enum Verdict {
     Unresolved,
     /// A name on the path or where it leads matches a pattern.
     SecretName,
+    /// Text from a kill that counts as secret was yanked into it (ADR 0051, ADR 0074).
+    /// It stays so until the file is judged again, as it is when opened again.
+    Yanked,
 }
 
 impl Verdict {

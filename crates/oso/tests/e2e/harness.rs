@@ -84,11 +84,14 @@ pub struct App {
 impl App {
     /// Starts an instance, visiting `file` if given, running in `cwd`, and
     /// connects to its socket. Its emergency copies go in `cwd`, whatever happens to
-    /// it, and never among the real ones.
+    /// it, and never among the real ones, and its clipboard is in memory.
     pub fn start(file: Option<&Path>, cwd: &Path) -> Self {
         let mut args: Vec<OsString> = vec![
             "--emergency-dir".into(),
             emergency_dir(cwd).into_os_string(),
+            // Never the person's clipboard (ADR 0074).
+            "--clipboard".into(),
+            "memory".into(),
         ];
         args.extend(
             file.iter()

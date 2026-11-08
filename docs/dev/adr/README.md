@@ -78,6 +78,7 @@ old one's status.
 | 0069 | [The macOS input method](0069-macos-input-method.md) | Accepted |
 | 0070 | [Windowing and input without winit](0070-windowing-and-input-without-winit.md) | Accepted |
 | 0071 | [The mark and the region](0071-mark-and-region.md) | Accepted |
+| 0074 | [The kill ring and the clipboard](0074-the-kill-ring-and-the-clipboard.md) | Proposed |
 
 ## Template
 

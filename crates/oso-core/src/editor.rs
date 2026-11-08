@@ -33,12 +33,14 @@ use follow::Selected;
 
 mod copies;
 mod follow;
+mod kill;
 mod messages;
 mod save;
 mod status;
 mod view;
 
 pub use copies::RecoveryAction;
+pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
@@ -100,6 +102,8 @@ pub struct Editor {
     /// What an input method is composing, shown at the selected window's primary
     /// cursor and in no buffer (ADR 0069).
     preedit: Option<Preedit>,
+    /// The kill ring, and whether the command before killed (ADR 0074).
+    kills: kill::Kills,
 }
 
 impl Default for Editor {
@@ -130,6 +134,7 @@ impl Editor {
             save_jobs: Vec::new(),
             exit_attempt: None,
             preedit: None,
+            kills: kill::Kills::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));

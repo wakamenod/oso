@@ -18,6 +18,7 @@ pub mod editor;
 pub mod frame;
 pub mod key;
 pub mod keymap;
+pub mod kill;
 pub mod load;
 pub mod motion;
 pub mod rope;

@@ -103,6 +103,30 @@ pub enum UiOp {
     /// Report this as the OS's input method would, as no flow can drive a real one
     /// (ADR 0069).
     Ime(ImeReport),
+    /// Read or set the clipboard in memory, as another app would (ADR 0074).
+    Clipboard(ClipboardOp),
+}
+
+/// What `clipboard` does with the clipboard in memory. Its `Debug` gives lengths only.
+#[derive(Clone, PartialEq, Eq)]
+pub enum ClipboardOp {
+    /// Report what it holds.
+    Get,
+    /// Put text there, marked concealed or not.
+    Set { text: String, concealed: bool },
+}
+
+impl std::fmt::Debug for ClipboardOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Get => f.write_str("Get"),
+            Self::Set { text, concealed } => f
+                .debug_struct("Set")
+                .field("len", &text.len())
+                .field("concealed", concealed)
+                .finish(),
+        }
+    }
 }
 
 /// What `ime` reports in place of the OS's input method. Its `Debug` gives lengths
@@ -215,6 +239,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "dev-panic" => UiOp::Panic,
         "dev-end-unasked" => UiOp::EndUnasked,
         "ime" => UiOp::Ime(parse_ime(params).map_err(|m| bad(&id, m))?),
+        "clipboard" => UiOp::Clipboard(parse_clipboard(params).map_err(|m| bad(&id, m))?),
         "export-state" => UiOp::ExportState,
         "import-state" => {
             let state = params
@@ -324,6 +349,24 @@ fn parse_run_command(params: &Map<String, Value>) -> Result<UiOp, String> {
 /// The parameters of `ime`: one of `preedit` (with an optional `range` of two byte
 /// offsets), `commit`, `clear` or `disabled`. A range off the text is the editor's to
 /// drop, as one from the OS would be.
+/// `clipboard` with no parameters reads, and with `text`, and `concealed` if it is to
+/// be marked so, sets.
+fn parse_clipboard(params: &Map<String, Value>) -> Result<ClipboardOp, String> {
+    let concealed = match params.get("concealed") {
+        None => false,
+        Some(Value::Bool(concealed)) => *concealed,
+        Some(_) => return Err("clipboard's \"concealed\" must be a boolean".into()),
+    };
+    match params.get("text") {
+        None if params.is_empty() => Ok(ClipboardOp::Get),
+        Some(Value::String(text)) => Ok(ClipboardOp::Set {
+            text: text.clone(),
+            concealed,
+        }),
+        _ => Err("clipboard takes a string \"text\", and \"concealed\", or nothing".into()),
+    }
+}
+
 fn parse_ime(params: &Map<String, Value>) -> Result<ImeReport, String> {
     const USAGE: &str = "ime takes one of \"preedit\" (a string, with an optional \"range\" of \
                          two byte offsets), \"commit\" (a string), \"clear\" or \"disabled\" (true)";
@@ -433,8 +476,8 @@ pub fn request(id: u64, method: &str, params: Option<Value>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ImeReport, MAX_COMMAND_ARG, MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, UiOp, failure,
-        parse, request, success,
+        ClipboardOp, ImeReport, MAX_COMMAND_ARG, MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, UiOp,
+        failure, parse, request, success,
     };
     use serde_json::{Value, json};
 
@@ -445,6 +488,31 @@ mod tests {
     fn error(line: &str) -> (Value, String) {
         let e = parse(line).unwrap_err();
         (e.id, e.message)
+    }
+
+    #[test]
+    fn clipboard_reads_or_sets_and_its_debug_shows_no_text() {
+        let op = |params: &str| match parse(&format!(
+            r#"{{"method": "clipboard", "params": {params}}}"#
+        ))
+        .unwrap()
+        .method
+        {
+            Method::Ui(UiOp::Clipboard(op)) => op,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(op("{}"), ClipboardOp::Get);
+        let set = op(r#"{"text": "hunter2", "concealed": true}"#);
+        assert_eq!(
+            set,
+            ClipboardOp::Set {
+                text: "hunter2".into(),
+                concealed: true
+            }
+        );
+        assert!(!format!("{set:?}").contains("hunter2"));
+        assert!(parse(r#"{"method": "clipboard", "params": {"text": 1}}"#).is_err());
+        assert!(parse(r#"{"method": "clipboard", "params": {"concealed": true}}"#).is_err());
     }
 
     #[test]

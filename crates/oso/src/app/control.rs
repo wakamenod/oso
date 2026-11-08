@@ -89,6 +89,7 @@ impl App {
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
+            dev::UiOp::Clipboard(op) => self.memory_clipboard(op),
             dev::UiOp::ImportState(state) => self.import_state(*state),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
@@ -122,7 +123,31 @@ impl App {
             area: self.ime_area(),
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
+        state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
         state
+    }
+
+    /// The result of `clipboard`: what the clipboard in memory holds, but never text marked
+    /// concealed, or that it now holds the text given. Refused with the system's, so that
+    /// no client reads it through oso (ADR 0074).
+    fn memory_clipboard(&self, op: dev::ClipboardOp) -> dev::Reply {
+        let memory = self
+            .clipboard
+            .as_ref()
+            .and_then(oso_platform::clipboard::Clipboard::memory)
+            .ok_or("clipboard needs an editor started with --clipboard memory")?;
+        Ok(match op {
+            // Concealed text may be a secret kill's, which the socket never shows.
+            dev::ClipboardOp::Get => match memory.get() {
+                Some((_, true)) => json!({ "text": null, "concealed": true }),
+                Some((text, false)) => json!({ "text": text, "concealed": false }),
+                None => json!({ "text": null, "concealed": false }),
+            },
+            dev::ClipboardOp::Set { text, concealed } => {
+                memory.set(text, concealed);
+                json!({ "set": true })
+            }
+        })
     }
 
     /// The result of `ime`: the report goes where the OS's would, through the same
