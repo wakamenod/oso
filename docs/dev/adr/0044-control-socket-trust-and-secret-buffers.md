@@ -1,6 +1,6 @@
 # 0044. Control socket trust and secret-pattern buffers
 
-- Status: Accepted
+- Status: Accepted, amended by 0085
 - Date: 2026-11-04
 
 ## Context

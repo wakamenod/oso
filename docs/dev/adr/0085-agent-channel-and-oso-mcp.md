@@ -1,6 +1,6 @@
 # 0085. An agent channel in release builds, and the `oso mcp` bridge
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -31,6 +31,8 @@ Two facts shape the design. The release build has no JSON parser, since `serde_j
 dev-only. And `run-command` takes only a number, so no command takes a string over the socket.
 
 ## Decision
+
+The author accepted this on 2026-11-08, through the coordinator.
 
 The author chose these on 2026-11-08, through the coordinator.
 
