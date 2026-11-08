@@ -7,6 +7,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+mod buffers;
 mod complete;
 #[cfg(feature = "dev")]
 mod dev_tools;
@@ -42,6 +43,7 @@ const TABLES: &[&[Command]] = &[
     isearch::COMMANDS,
     kill::COMMANDS,
     mark::COMMANDS,
+    buffers::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,
     motion::COMMANDS,

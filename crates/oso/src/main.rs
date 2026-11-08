@@ -13,6 +13,7 @@ mod dev;
 mod dispatch;
 mod emergency;
 mod keys;
+mod lister;
 mod loader;
 mod saver;
 mod text;
@@ -72,6 +73,8 @@ fn main() {
         .as_deref()
         .and_then(std::path::Path::parent)
         .map(std::path::Path::to_path_buf);
+    // Read while the event loop and the GPU start, and taken as the window opens.
+    let theme_read = app::ThemeRead::start(theme_directory.clone());
     let emergency = Emergency::new(emergency_directory);
     emergency.install_hook();
     app::run(started, |waker| {
@@ -87,6 +90,7 @@ fn main() {
             clipboard,
             log_gate,
             theme_directory,
+            theme_read,
         );
         #[cfg(feature = "dev")]
         app.set_dev(dev);

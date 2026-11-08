@@ -1,8 +1,8 @@
 //! The theme chosen last, remembered in one line of `oso/theme` in the per-user state
 //! directory, beside the emergency copies' directory, until configuration exists
-//! (ADR 0089). It is read once, before the window exists, on a thread of its own that the
-//! start waits a few milliseconds for at most, and written on another after a switch, so a
-//! slow disk or a file that never answers costs the start no more than that.
+//! (ADR 0089). It is read on a thread of its own, started first thing and collected as the
+//! window opens without waiting, and written on another after a switch, so the UI thread
+//! never waits on it. A read not done by then draws the default theme.
 //!
 //! Must not depend on: the GPU or the window; it reads and writes one file.
 
@@ -11,7 +11,6 @@ use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
 
 use oso_platform::privacy::{PrivateDir, has_one_name, is_this_users};
 
@@ -22,9 +21,6 @@ const PART: &str = "theme.part";
 /// The most a theme's file is read of: a name and a line break, and room to spare.
 const MOST_BYTES: u64 = 256;
 
-/// How long the start waits for the remembered name before it draws the default theme.
-pub(super) const READ_DEADLINE: Duration = Duration::from_millis(30);
-
 /// Whether `name` could be a theme's: lower-case letters, digits and `-`, as the
 /// built-in ones are named.
 fn is_name(name: &str) -> bool {
@@ -34,41 +30,63 @@ fn is_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
-/// The name remembered in `directory`, read on a thread of its own, if it comes within
-/// `deadline`. Otherwise `None`, and the default theme is drawn; a thread that never ends
-/// holds nothing of the app's.
-pub(super) fn read_in_time(directory: PathBuf, deadline: Duration) -> Option<String> {
-    within(deadline, move || read(&directory))
+/// The remembered name, being read on a thread of its own.
+pub struct ThemeRead {
+    name: Option<mpsc::Receiver<Option<String>>>,
 }
 
-/// What `read` gives, if it gives it within `deadline`.
-fn within(
-    deadline: Duration,
-    read: impl FnOnce() -> Option<String> + Send + 'static,
-) -> Option<String> {
-    let (sender, receiver) = mpsc::channel();
-    let spawned = thread::Builder::new()
-        .name("oso-theme-read".into())
-        .spawn(move || {
-            let _ = sender.send(read());
-        });
-    if let Err(e) = spawned {
-        log::warn!("not reading the remembered theme: {e}");
-        return None;
+impl ThemeRead {
+    /// Starts reading the name remembered in `directory`. With no directory, there is none.
+    pub fn start(directory: Option<PathBuf>) -> Self {
+        match directory {
+            Some(directory) => Self::spawn(move || read(&directory)),
+            None => Self { name: None },
+        }
     }
-    receiver.recv_timeout(deadline).unwrap_or_else(|_| {
-        log::warn!(
-            "the remembered theme took longer than {deadline:?} to read; drawing the default"
-        );
-        None
-    })
+
+    fn spawn(read: impl FnOnce() -> Option<String> + Send + 'static) -> Self {
+        let (sender, receiver) = mpsc::channel();
+        let spawned = thread::Builder::new()
+            .name("oso-theme-read".into())
+            .spawn(move || {
+                let _ = sender.send(read());
+            });
+        match spawned {
+            Ok(_) => Self {
+                name: Some(receiver),
+            },
+            Err(e) => {
+                log::warn!("not reading the remembered theme: {e}");
+                Self { name: None }
+            }
+        }
+    }
+
+    /// The name read, if the read is done. It never waits: a read still going leaves the
+    /// default theme, and a thread that never ends holds nothing of the app's.
+    pub(super) fn take(self) -> Option<String> {
+        match self.name?.try_recv() {
+            Ok(name) => name,
+            Err(mpsc::TryRecvError::Empty) => {
+                log::warn!("the remembered theme was not read in time; drawing the default");
+                None
+            }
+            Err(mpsc::TryRecvError::Disconnected) => None,
+        }
+    }
 }
 
 /// The name remembered in `directory`, if the directory is private and the file there is a
 /// small one of this user's that holds one. Anything else gives `None`, and the default
 /// theme is drawn.
 fn read(directory: &Path) -> Option<String> {
-    let directory = PrivateDir::existing(directory).ok()??;
+    let directory = match PrivateDir::existing(directory) {
+        Ok(directory) => directory?,
+        Err(e) => {
+            log::warn!("not reading the remembered theme: {e}");
+            return None;
+        }
+    };
     let path = directory.path().join(FILE);
     let meta = fs::symlink_metadata(&path).ok()?;
     let plain = meta.is_file() && is_this_users(&meta) && has_one_name(&meta);
@@ -86,7 +104,14 @@ fn read(directory: &Path) -> Option<String> {
         .read_to_string(&mut text)
         .ok()?;
     let name = text.strip_suffix('\n').unwrap_or(&text);
-    is_name(name).then(|| name.to_owned())
+    if !is_name(name) {
+        log::warn!(
+            "not reading the remembered theme: {} holds no theme's name",
+            path.display()
+        );
+        return None;
+    }
+    Some(name.to_owned())
 }
 
 /// Writes `name` in `directory`, which is made private if it is missing. The file is
@@ -152,6 +177,7 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     /// A fresh private directory for one test, removed when dropped.
     struct Scratch(PathBuf);
@@ -208,24 +234,24 @@ mod tests {
     }
 
     #[test]
-    fn a_read_that_does_not_come_in_time_gives_the_default_without_waiting_for_it() {
+    fn a_read_not_done_gives_the_default_without_waiting_for_it() {
         let started = std::time::Instant::now();
-        let slow = || {
+        let slow = ThemeRead::spawn(|| {
             thread::sleep(Duration::from_secs(5));
             Some("light".to_owned())
-        };
-        assert_eq!(within(Duration::from_millis(20), slow), None);
+        });
+        assert_eq!(slow.take(), None);
         assert!(started.elapsed() < Duration::from_secs(2));
-        let quick = || Some("light".to_owned());
-        assert_eq!(within(READ_DEADLINE, quick).as_deref(), Some("light"));
     }
 
     #[test]
-    fn the_name_is_read_on_its_own_thread_in_time() {
+    fn the_name_is_read_on_its_own_thread() {
         let scratch = Scratch::new();
         write(&scratch.oso(), "dusk").unwrap();
-        let read = read_in_time(scratch.oso(), Duration::from_secs(5));
-        assert_eq!(read.as_deref(), Some("dusk"));
+        let read = ThemeRead::start(Some(scratch.oso()));
+        let name = read.name.unwrap().recv_timeout(Duration::from_secs(5));
+        assert_eq!(name, Ok(Some("dusk".to_owned())));
+        assert_eq!(ThemeRead::start(None).take(), None);
     }
 
     #[cfg(unix)]

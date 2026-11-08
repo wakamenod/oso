@@ -312,7 +312,7 @@ fn dark(name: Name) -> Color {
         FgPrompt => rgb(0xa6b0d0),
         FgKey => rgb(0xe2e6f2),
         FgQuestion => rgb(0xb8dcff),
-        Escape => rgb(0xf2a866),
+        Escape => rgb(0xfab06e),
         Warning => rgb(0xf5c84c),
         FieldOutline => rgb(0x5a76c2),
         Gold => rgb(0xf7c96e),
@@ -374,7 +374,7 @@ fn dusk(name: Name) -> Color {
         FgKey => rgb(0xdee3f1),
         // A pale green: no buffer text is drawn in it.
         FgQuestion => rgb(0xc8f7c0),
-        Escape => rgb(0xedb37c),
+        Escape => rgb(0xf4ba83),
         Warning => rgb(0xffdd6f),
         FieldOutline => rgb(0x6f86bd),
         Gold => rgb(0xffce7c),
@@ -502,7 +502,17 @@ pub(crate) mod tests {
             Face::Question => &[(Face::Float, READ)],
             Face::Warning => &[(Face::Text, READ), (Face::Modeline, LABEL)],
             Face::CompletionMatch => &[(LIST[0], READ), (LIST[1], READ)],
-            Face::Escape => &[(Face::Text, LABEL)],
+            // An escape's label sits wherever text can: on every fill behind buffer text, in a
+            // modeline's name and on a float.
+            Face::Escape => &[
+                (Face::Text, LABEL),
+                (Face::Region, LABEL),
+                (Face::SearchMatch, LABEL),
+                (Face::SearchCurrent, LABEL),
+                (Face::CompletionSelected, LABEL),
+                (Face::Modeline, LABEL),
+                (Face::Float, LABEL),
+            ],
             Face::Boxed => &[(Face::Boxed, LABEL)],
             Face::Prompt => &[(Face::Float, LABEL)],
             Face::Key => &[(Face::Key, LABEL)],
@@ -556,13 +566,13 @@ pub(crate) mod tests {
     #[test]
     fn dusk_keeps_the_colours_of_the_m2_steps_that_meet_their_floors() {
         // The constants `pane.rs` drew with before the themes, in linear RGB. The fills of
-        // boxes, the modeline, the region, the selected candidate and the current match, and a
-        // question's words, are the nearest colours that meet the floors instead (ADR 0089).
+        // boxes, the modeline, the region, the selected candidate and the current match, an
+        // escape's label and a question's words, are the nearest colours that meet the floors
+        // instead (ADR 0089).
         let (bg, fg) = ([0.05, 0.05, 0.07, 1.0], [0.90, 0.90, 0.92, 1.0]);
         let float = [0.063, 0.0666, 0.0999, 1.0];
         let before = [
             (Face::Text, fg, bg),
-            (Face::Escape, [0.85, 0.45, 0.20, 1.0], bg),
             (Face::Cursor, bg, fg),
             (Face::Warning, [1.0, 0.72, 0.16, 1.0], bg),
             (Face::Preedit, fg, fg),
@@ -594,7 +604,6 @@ pub(crate) mod tests {
             assert!(close(dusk.foreground(face), fg), "{face:?}'s foreground");
             assert!(close(dusk.background(face), bg), "{face:?}'s background");
         }
-        assert!(close(dusk.foreground(Face::Boxed), [0.85, 0.45, 0.20, 1.0]));
         assert!(close(dusk.panel().shadow, [0.0024, 0.0027, 0.0044, 0.55]));
         assert!(close(dusk.panel().border, [0.08, 0.085, 0.13, 1.0]));
     }
@@ -641,22 +650,34 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn fills_stand_apart_from_the_background() {
+    fn fills_stand_apart_from_what_they_sit_on() {
         for theme in &themes() {
-            let paper = theme.background(Face::Text);
-            for face in [
-                Face::Region,
-                Face::SearchMatch,
-                Face::SearchCurrent,
-                Face::CompletionSelected,
-                Face::Modeline,
-                Face::Float,
-                Face::Key,
-                Face::Boxed,
+            let behind_text = theme.background(Face::Text);
+            let float = theme.background(Face::Float);
+            for (face, behind) in [
+                (Face::Region, behind_text),
+                (Face::SearchMatch, behind_text),
+                (Face::SearchCurrent, behind_text),
+                (Face::CompletionSelected, behind_text),
+                (Face::Modeline, behind_text),
+                (Face::Float, behind_text),
+                (Face::Boxed, behind_text),
+                // A key's chip and an input field sit on a float's fill.
+                (Face::Key, float),
+                (Face::Field, float),
             ] {
-                let step = (oklab(theme.background(face))[0] - oklab(paper)[0]).abs();
+                let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
             }
+        }
+    }
+
+    #[test]
+    fn what_a_completion_matched_stands_apart_from_the_rest_of_its_text() {
+        for theme in &themes() {
+            let matched = theme.foreground(Face::CompletionMatch);
+            let apart = distance(matched, theme.foreground(Face::Text));
+            assert!(apart >= 0.05, "{}: {apart:.3}", theme.name());
         }
     }
 

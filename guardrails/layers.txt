@@ -55,4 +55,5 @@ dispatch
 bindings
 emergency
 saver
+lister
 commands dev keys loader text

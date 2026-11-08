@@ -294,18 +294,17 @@ impl RenderState {
         Redraw::Needed
     }
 
-    /// Draws from the next frame on in the theme at `index` of [`theme::themes`]. Nothing is
-    /// shaped or rasterized again, so a switch costs one frame (ADR 0089). An index past the
-    /// list changes nothing.
-    pub fn set_theme(&mut self, index: usize) -> Redraw {
-        match self.themes.get(index) {
-            Some(theme) if index != self.theme => {
-                self.painter.set_theme(&self.queue, *theme);
-                self.theme = index;
-                Redraw::Needed
-            }
-            _ => Redraw::NotNeeded,
+    /// Draws from the next frame on in the theme called `name`, one of [`theme::themes`].
+    /// Nothing is shaped or rasterized again, so a switch costs one frame (ADR 0089).
+    /// `None` if there is no theme of that name, and nothing changes.
+    pub fn set_theme(&mut self, name: &str) -> Option<Redraw> {
+        let index = self.themes.iter().position(|theme| theme.name() == name)?;
+        if index == self.theme {
+            return Some(Redraw::NotNeeded);
         }
+        self.painter.set_theme(&self.queue, self.themes[index]);
+        self.theme = index;
+        Some(Redraw::Needed)
     }
 
     /// Where the frame's cells are on the surface.

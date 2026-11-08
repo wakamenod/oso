@@ -132,8 +132,8 @@ pub(super) struct View {
     started: Option<Instant>,
     /// The cells behind the text, kept from frame to frame.
     cells: Cells,
-    /// The theme the renderer draws in, as the editor counts them (ADR 0089).
-    theme: usize,
+    /// The theme the renderer draws in, by name (ADR 0089).
+    theme: Option<&'static str>,
 }
 
 impl View {
@@ -152,7 +152,7 @@ impl View {
             render_state,
             started: Some(started),
             cells: Cells::default(),
-            theme: 0,
+            theme: None,
         }
     }
 
@@ -174,6 +174,8 @@ impl App {
                 log::debug!("resumed {:?} after start", started.elapsed());
             }
             self.view = Some(View::open(event_loop));
+            // Before the first frame, so that it is drawn in the remembered theme.
+            self.take_remembered_theme();
             // At once: it costs under 1 µs and does not slow the first frame.
             self.sync_ime(event_loop);
             self.sync_secure_input();
@@ -233,11 +235,14 @@ impl App {
         let Some(view) = self.view.as_mut() else {
             return;
         };
-        // A switch of theme costs this frame only: nothing is shaped again (ADR 0089).
-        if view.theme != self.editor.theme() {
-            view.theme = self.editor.theme();
-            // This frame is drawn already, so the redraw it asks for is this one.
-            let _ = view.render_state.set_theme(view.theme);
+        // A switch of theme costs this frame only: nothing is shaped again (ADR 0089). The
+        // editor's names are the renderer's, so it never refuses one.
+        let wanted = self.editor.theme_name();
+        if let Some(name) = wanted.filter(|_| wanted != view.theme) {
+            match view.render_state.set_theme(name) {
+                Some(_) => view.theme = Some(name),
+                None => debug_assert!(false, "the renderer has no theme named {name}"),
+            }
         }
         let window = &view.window;
         let window_size = || window.inner_size();

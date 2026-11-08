@@ -48,6 +48,7 @@ pub use log_gate::LogGate;
 use oso_platform::window::Held;
 use shell::Loop;
 pub use shell::{Waker, run};
+pub use theme_file::ThemeRead;
 
 /// Events sent to the event loop from other threads.
 #[derive(Debug)]
@@ -116,7 +117,9 @@ pub struct App {
     clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
-    /// What writes the theme chosen last, and which one it was given (ADR 0089).
+    /// The theme remembered from before, being read until the window opens, what writes the
+    /// theme chosen last, and which one it was given (ADR 0089).
+    theme_read: Option<ThemeRead>,
     theme_writer: theme_file::Writer,
     remembered_theme: usize,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
@@ -139,8 +142,8 @@ pub struct App {
 impl App {
     /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
     /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
-    /// installed logger's. It draws in the theme remembered in `theme_directory`, read on a
-    /// thread before the window exists, if it comes within a few milliseconds (ADR 0089).
+    /// installed logger's. It writes the theme chosen in `theme_directory`, and draws in the
+    /// one `theme_read` brings, if it has by the time the window opens (ADR 0089).
     pub fn new(
         waker: Waker,
         started: Instant,
@@ -148,6 +151,7 @@ impl App {
         source: oso_platform::clipboard::Source,
         log_gate: LogGate,
         theme_directory: Option<std::path::PathBuf>,
+        theme_read: ThemeRead,
     ) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
@@ -156,14 +160,7 @@ impl App {
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
         let mut editor = Editor::default();
-        let remembered = theme_directory
-            .clone()
-            .and_then(|directory| theme_file::read_in_time(directory, theme_file::READ_DEADLINE));
-        let themes = theme_names();
-        let theme = remembered
-            .and_then(|name| themes.iter().position(|&(theme, _)| theme == name))
-            .unwrap_or(0);
-        editor.set_themes(themes, theme);
+        editor.set_themes(theme_names(), 0);
         Self {
             view: None,
             editor,
@@ -184,8 +181,9 @@ impl App {
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
+            theme_read: Some(theme_read),
             theme_writer: theme_file::Writer::start(theme_directory),
-            remembered_theme: theme,
+            remembered_theme: 0,
             log_gate,
             #[cfg(feature = "dev")]
             dev: None,
@@ -195,6 +193,25 @@ impl App {
             remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
             restore: None,
+        }
+    }
+
+    /// Draws in the theme remembered from before, if its read is done and nothing has been
+    /// chosen since. A name this build has no theme of leaves the default.
+    fn take_remembered_theme(&mut self) {
+        let Some(name) = self.theme_read.take().and_then(ThemeRead::take) else {
+            return;
+        };
+        if self.editor.theme() != self.remembered_theme {
+            return;
+        }
+        let themes = theme_names();
+        match themes.iter().position(|&(theme, _)| theme == name) {
+            Some(index) => {
+                self.editor.set_themes(themes, index);
+                self.remembered_theme = index;
+            }
+            None => log::warn!("no theme named {name}, as remembered; drawing the default"),
         }
     }
 
@@ -218,6 +235,7 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
+        self.forget_killed();
         self.start_saves();
         self.start_searches();
         self.start_reverts();
