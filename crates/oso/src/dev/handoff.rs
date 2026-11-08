@@ -17,6 +17,10 @@
 //! A generation names the text an instance holds, so that it can refuse to exit
 //! if that has changed since a caller last looked. See [`generation`].
 //!
+//! While a buffer that may hold secrets is shown, an instance does not hand over, for one
+//! reason whatever its buffers are, so that the answer says nothing of that buffer. Keys in
+//! progress typed around one are not handed over.
+//!
 //! Parsing changes nothing, so a state with another version or a bad field
 //! leaves the new instance clean, and the old one is kept.
 
@@ -73,6 +77,9 @@ pub fn export(
     frame: Option<Frame>,
     restore: Option<&Restore>,
 ) -> Reply {
+    if editor.shows_secret() {
+        return Err(SECRET_SHOWN.into());
+    }
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
@@ -120,7 +127,11 @@ pub fn export(
         "buffers": buffers,
         "windows": windows,
         "selected": editor.selected_window(),
-        "pending_keys": display_keys(pending).to_string(),
+        "pending_keys": if editor.keys_withheld() {
+            String::new()
+        } else {
+            display_keys(pending).to_string()
+        },
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -196,6 +207,9 @@ fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
 /// without building a state, so that the supervisor can ask before it opens a new
 /// window.
 pub fn check(editor: &Editor) -> Reply {
+    if editor.shows_secret() {
+        return Err(SECRET_SHOWN.into());
+    }
     for (_, buffer) in editor.buffers() {
         file_to_read_again(buffer)?;
     }
@@ -215,6 +229,10 @@ const COMPOSING: &str = "cannot hand over: a composition is open";
 /// Why a restart waits for every prompt to close: it is no unsaved work, but a new
 /// instance would take it away from the person mid-answer (ADR 0072).
 const PROMPTING: &str = "cannot hand over: a prompt is open";
+
+/// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
+/// whatever that buffer holds.
+const SECRET_SHOWN: &str = "cannot hand over while a buffer that may hold secrets is shown";
 
 /// Names what an instance holds that a file does not: which buffers exist, and
 /// the content of each modified one. It is not a counter, as undoing an edit
@@ -237,9 +255,11 @@ pub fn generation(editor: &Editor) -> u64 {
 
 /// Whether `exit` may go ahead. Without a generation it always may: that is a
 /// person or an agent saying so. With one, only if nothing has changed since and
-/// no save is running, as a new instance may already have read the old file.
+/// no save is running, as a new instance may already have read the old file, and not
+/// while a buffer that may hold secrets is shown.
 pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String> {
     match expected {
+        Some(_) if editor.shows_secret() => Err(format!("{EXIT_REFUSED}: {SECRET_SHOWN}")),
         Some(_) if editor.buffers().any(|(_, buffer)| buffer.is_saving()) => {
             Err(format!("{EXIT_REFUSED}: a save is running"))
         }

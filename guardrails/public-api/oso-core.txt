@@ -891,6 +891,7 @@ pub fn oso_core::editor::Editor::clear_echo_saying(&mut self, &str)
 pub fn oso_core::editor::Editor::echo(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::echo_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::end_command(&mut self)
+pub fn oso_core::editor::Editor::keys_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::message(&mut self, impl core::convert::Into<alloc::string::String>)
 pub fn oso_core::editor::Editor::messages_buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::Option<(oso_core::buffer::BufferId, &oso_core::selection::SelectionSet, oso_core::window::Scroll)>
@@ -1405,6 +1406,7 @@ impl core::marker::Copy for oso_core::minibuffer::PromptError
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptError
 pub struct oso_core::minibuffer::Prompt
 impl oso_core::minibuffer::Prompt
+pub fn oso_core::minibuffer::Prompt::around_secret(&self) -> bool
 pub fn oso_core::minibuffer::Prompt::buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::minibuffer::Prompt::id(&self) -> oso_core::minibuffer::PromptId
 pub fn oso_core::minibuffer::Prompt::kind(&self) -> oso_core::minibuffer::Kind

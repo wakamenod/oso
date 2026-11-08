@@ -229,6 +229,30 @@ impl Editor {
     pub fn set_keys_in_progress(&mut self, keys: &str) {
         self.keys_in_progress.clear();
         self.keys_in_progress.push_str(keys);
+        if keys.is_empty() {
+            self.keys_withheld = false;
+        } else {
+            self.note_secret_shown();
+        }
+    }
+
+    /// Whether the keys in progress were typed, or stayed, while a buffer that may hold
+    /// secrets was shown, so the control socket leaves them out until they end.
+    pub fn keys_withheld(&self) -> bool {
+        self.keys_withheld
+    }
+
+    /// If a buffer that may hold secrets is shown, the keys in progress and the open prompts
+    /// were around it: the control socket leaves them out, the keys until they end, and no
+    /// answer of those prompts enters a history. Called before and after the window beneath
+    /// a prompt changes what it shows, and as keys are typed.
+    pub(super) fn note_secret_shown(&mut self) {
+        if self.shows_secret() {
+            self.keys_withheld |= !self.keys_in_progress.is_empty();
+            for prompt in &mut self.prompts {
+                prompt.records = false;
+            }
+        }
     }
 
     /// What the echo area shows.
@@ -375,12 +399,17 @@ mod tests {
         editor.echo_text()
     }
 
-    /// An editor showing a file that may hold secrets.
-    fn on_a_secret() -> Editor {
+    /// A file that may hold secrets.
+    fn secret_buffer() -> Buffer {
         let path = PathBuf::from("/tmp/.env");
         let mut buffer = Buffer::visiting(path.clone());
         buffer.judge_secret(Some(&[path]));
-        Editor::with_buffer(buffer)
+        buffer
+    }
+
+    /// An editor showing a file that may hold secrets.
+    fn on_a_secret() -> Editor {
+        Editor::with_buffer(secret_buffer())
     }
 
     #[test]
@@ -559,6 +588,44 @@ mod tests {
         editor.end_command();
         assert_eq!(echo(&editor), "");
         assert_eq!(messages_text(&editor), "");
+    }
+
+    #[test]
+    fn a_message_from_a_command_that_showed_a_secret_and_left_it_goes_nowhere() {
+        let mut editor = Editor::default();
+        let plain = editor.window().buffer();
+        let secret = editor.add_buffer(secret_buffer());
+        editor.begin_command();
+        editor.show(secret);
+        editor.show(plain);
+        assert!(!editor.shows_secret());
+        editor.message("Said around it");
+        editor.echo("Said around it");
+        editor.end_command();
+        assert_eq!(echo(&editor), "");
+        assert_eq!(messages_text(&editor), "");
+    }
+
+    #[test]
+    fn keys_in_progress_around_a_secret_stay_withheld_until_they_end() {
+        let mut editor = Editor::default();
+        let plain = editor.window().buffer();
+        let secret = editor.add_buffer(secret_buffer());
+        // Typed on a plain buffer, they show.
+        editor.set_keys_in_progress("C-u 4-");
+        assert!(!editor.keys_withheld());
+        // Still there when a secret comes, and typed while it is shown.
+        editor.show(secret);
+        assert!(editor.keys_withheld());
+        editor.set_keys_in_progress("C-u 42-");
+        editor.show(plain);
+        assert!(editor.keys_withheld(), "after it went");
+        editor.set_keys_in_progress("C-u 421-");
+        assert!(editor.keys_withheld(), "while they go on");
+        editor.set_keys_in_progress("");
+        assert!(!editor.keys_withheld());
+        editor.set_keys_in_progress("C-x-");
+        assert!(!editor.keys_withheld(), "new ones on a plain buffer");
     }
 
     #[test]

@@ -191,30 +191,33 @@ fn a_file_with_invalid_bytes_opens_read_only() {
     assert_visible_row(&state, 1, "next");
 }
 
-/// Checks that an instance showing a secret file gives away none of it.
+/// Checks that an instance showing a secret file gives away none of it, and hands nothing
+/// over while it shows one.
 #[track_caller]
 fn assert_withheld(app: &mut App) {
     let state = assert_text_withheld(app);
-    let line = app
-        .exchange("export-state", None)
-        .unwrap_or_else(|e| panic!("{e}"));
-    assert_no_secret(&line, "export-state");
-    let exported: Value = serde_json::from_str(&line).expect("a JSON response");
-    let path = &state["result"]["buffer"]["path"];
-    let buffers = exported["result"]["buffers"].as_array();
-    assert!(
-        buffers.is_some_and(|buffers| buffers.iter().any(|buffer| buffer["path"] == *path)),
-        "export-state did not hand over the secret buffer by its path",
-    );
-    let window = &exported["result"]["windows"][0];
-    assert_eq!(
-        (
-            window["selections"][0]["cursor"].as_u64(),
-            &window["scroll"]
-        ),
-        (Some(0), &json!({ "top": 0, "left": 0 })),
-        "export-state gave a position in the secret buffer",
-    );
+    let buffer = &state["result"]["buffer"];
+    for field in ["modified", "saving", "bytes", "lines", "invalid_bytes"] {
+        assert!(buffer[field].is_null(), "get-state gave its {field}");
+    }
+    assert_refused_while_shown(app);
+}
+
+/// Checks that a restart is refused for the one reason a shown secret buffer gives, which
+/// says nothing of that buffer.
+#[track_caller]
+fn assert_refused_while_shown(app: &mut App) {
+    for method in ["check-handover", "export-state"] {
+        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_no_secret(&line, method);
+        let response: Value = serde_json::from_str(&line).expect("a JSON response");
+        let message = response["error"]["message"].as_str();
+        assert_eq!(
+            message,
+            Some("cannot hand over while a buffer that may hold secrets is shown"),
+            "{method}",
+        );
+    }
 }
 
 /// Checks that no request gives the shown buffer's text or pixels. Returns the
@@ -378,23 +381,9 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     );
     app.show_buffer(&env_id);
 
-    // An edit does not make it readable, and a restart names it and quotes nothing.
+    // An edit does not make it readable, and a restart is refused as before it.
     app.send_keys("a");
-    let state = assert_text_withheld(&mut app);
-    assert!(
-        state["result"]["buffer"]["bytes"].is_null(),
-        "get-state gave an edited secret buffer's size",
-    );
-    for method in ["check-handover", "export-state"] {
-        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
-        assert_no_secret(&line, method);
-        let response: Value = serde_json::from_str(&line).expect("a JSON response");
-        let message = response["error"]["message"].as_str();
-        assert!(
-            message.is_some_and(|message| message.contains(".env")),
-            "{method} did not refuse by name: {message:?}",
-        );
-    }
+    assert_withheld(&mut app);
     // A character typed by mistake after a prefix stays out of the log.
     app.send_keys("C-x Ж");
     assert_failure_stays_on_the_screen(&mut app, &plain_id);

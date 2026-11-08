@@ -488,7 +488,10 @@ Full details are in [`security.md`](security.md).
   - Buffers that may hold secrets give no text and no pixels. The loading
     thread follows the path, and `Buffer::is_secret` holds the verdict, so
     the UI thread never touches the file system for this
-    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). While one is shown,
+    `get-state` leaves out what an edit or a save there changes and the keys and prompts around
+    it, and no restart is handed over
+    ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)).
   - `take-timings` reports key latency, startup and load times to benchmarks,
     and `open-file` visits a file with the window up, so that opening can be
     timed apart from startup

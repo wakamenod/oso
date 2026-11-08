@@ -96,6 +96,9 @@ pub struct Editor {
     /// A prefix argument and a prefix key being typed, for the echo area. The dispatcher
     /// holds them, and says so here after each key, so that a frame reads only the editor.
     keys_in_progress: String,
+    /// The keys in progress were typed, or stayed, while a buffer that may hold secrets was
+    /// shown, so the control socket leaves them out until they end.
+    keys_withheld: bool,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
     /// The buffers the last refused exit put at risk, until a question about it is answered
@@ -147,6 +150,7 @@ impl Editor {
             copy_actions: Vec::new(),
             echo: None,
             keys_in_progress: String::new(),
+            keys_withheld: false,
             save_jobs: Vec::new(),
             exit_attempt: None,
             preedit: None,
@@ -205,8 +209,10 @@ impl Editor {
                 self.way_back.clear();
             }
             self.window_moves_on();
+            self.note_secret_shown();
             let index = self.tiled_index();
             self.windows[index].show(buffer);
+            self.note_secret_shown();
         }
     }
 
@@ -219,6 +225,7 @@ impl Editor {
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
             self.window_moves_on();
+            self.note_secret_shown();
         }
         self.buffers.retain(|(other, _)| *other != id);
         if !shown {

@@ -136,7 +136,7 @@ pub struct Prompt {
     /// leaves it out.
     pub(crate) message_withheld: bool,
     /// Whether its answer may enter its history: not one opened while a buffer that may
-    /// hold secrets is shown.
+    /// hold secrets is shown, or open while one was shown beneath it.
     pub(crate) records: bool,
     /// Where `M-p` and `M-n` have got to: the entry shown, 0 the newest.
     pub(crate) walk: Option<usize>,
@@ -174,6 +174,13 @@ impl Prompt {
     /// socket leaves out (ADR 0072).
     pub fn message_withheld(&self) -> bool {
         self.message_withheld
+    }
+
+    /// Whether it opened while a buffer that may hold secrets was shown, or one was shown
+    /// beneath it since. Its answer then enters no history, and the control socket leaves
+    /// out what it holds.
+    pub fn around_secret(&self) -> bool {
+        !self.records
     }
 }
 
