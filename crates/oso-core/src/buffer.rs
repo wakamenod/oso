@@ -31,6 +31,7 @@ mod baseline;
 mod internal;
 mod mode;
 mod names;
+mod naming;
 mod recovery;
 mod reload;
 pub(crate) use reload::Noticed;
@@ -194,6 +195,9 @@ pub struct Buffer {
     copy_waits: bool,
     /// The file's own spelling, if something else may have been typed.
     own_spelling: Option<PathBuf>,
+    /// Changes whenever the name or the path does, so that what is kept of them elsewhere,
+    /// such as an emergency entry, can tell (ADR 0062, ADR 0087).
+    naming: u32,
     /// A copy's text was put in, until its copy has gone.
     recovery: Option<recovery::RecoveryMark>,
     /// A save of this buffer is running.
@@ -245,6 +249,7 @@ impl Buffer {
             mode: Mode::Fundamental,
             copy_waits: false,
             own_spelling: None,
+            naming: 0,
             recovery: None,
             saving: false,
             loading: None,
@@ -518,11 +523,6 @@ impl Buffer {
     /// The buffer's name, such as `main.rs` or `*scratch*`.
     pub fn name(&self) -> &str {
         &self.name
-    }
-
-    /// Renames the buffer, as the editor tells buffers of files with one name apart.
-    pub(crate) fn set_name(&mut self, name: String) {
-        self.name = name;
     }
 
     /// The file the buffer visits, if any.

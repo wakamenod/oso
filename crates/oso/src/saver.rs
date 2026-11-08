@@ -46,18 +46,21 @@ use std::time::SystemTime;
 
 use oso_core::buffer::{Baseline, BufferId, ContentId, FileStamp};
 use oso_core::decode::BOM;
-use oso_core::editor::{Editor, SaveJob, SaveRefused};
+use oso_core::editor::SaveJob;
 use oso_platform::file_meta::{self, AccessList, Quarantine};
 
 use crate::loader::{location, parent, stamp_of};
 
 mod attributes;
+mod elsewhere;
 mod leaving;
+mod report;
 
 #[cfg(all(test, unix))]
 use attributes::kept_mode;
 use attributes::{Made, attributes_moved, keep_mode, keep_owner};
 pub use leaving::{AfterSave, Agreement, AgreementCell, Leaving};
+pub use report::apply;
 
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
 /// a million.
@@ -95,6 +98,11 @@ pub enum SaveError {
     Io(io::Error),
     /// The saving thread panicked. This holds none of its message, which may quote text.
     Panicked,
+    /// A write to a new place found a regular file there, at `location`, which the person has
+    /// not agreed to write over (ADR 0087).
+    Exists { found: FileStamp, location: PathBuf },
+    /// A write to a new place found another buffer's file there.
+    OpenElsewhere,
 }
 
 impl From<io::Error> for SaveError {
@@ -114,6 +122,8 @@ pub struct Written {
     unsynced: Option<Unsynced>,
     /// The file is in place, but its quarantine flag could not be kept.
     quarantine_lost: Option<io::Error>,
+    /// The text went to a new place, which the buffer now visits (`C-x C-w`).
+    moved: Option<elsewhere::Moved>,
 }
 
 /// What the disk did not confirm.
@@ -134,6 +144,8 @@ pub struct SaveReport {
     path: PathBuf,
     /// `Ok(None)` if there was nothing to write.
     outcome: Result<Option<Written>, SaveError>,
+    /// The text was to go to a new place, not where the buffer's file was (`C-x C-w`).
+    elsewhere: bool,
 }
 
 impl SaveReport {
@@ -159,6 +171,7 @@ impl SaveReport {
             buffer,
             path,
             outcome: Err(SaveError::Io(error)),
+            elsewhere: false,
         }
     }
 }
@@ -194,90 +207,16 @@ fn run_with(
     // never frees what only the snapshot still held.
     SaveReport {
         buffer: job.buffer,
+        elsewhere: job.elsewhere.is_some(),
         path: job.path,
         outcome,
     }
 }
 
-/// Takes a report in: updates the buffer, and says how it went. Never quotes text.
-pub fn apply(editor: &mut Editor, report: SaveReport) {
-    let SaveReport {
-        buffer,
-        path,
-        outcome,
-    } = report;
-    let path = path.display();
-    let message = match outcome {
-        Ok(None) => {
-            editor.save_unneeded(buffer);
-            SaveRefused::Unmodified.to_string()
-        }
-        Ok(Some(written)) => {
-            editor.save_finished(buffer, written.content, written.stamp);
-            let lost = written.quarantine_lost.map(|e| {
-                format!(
-                    "Wrote the file, but its quarantine flag could not be kept, so macOS may not check it when opened: {e}: {path}"
-                )
-            });
-            // What the disk did not confirm is worth more, so it stays on the echo row.
-            match (written.unsynced, lost) {
-                (None, Some(lost)) => lost,
-                (unsynced, lost) => {
-                    if let Some(lost) = lost {
-                        editor.message(lost);
-                    }
-                    written_message(unsynced, &path)
-                }
-            }
-        }
-        Err(error) => {
-            editor.save_failed(buffer);
-            if matches!(error, SaveError::Conflict(_) | SaveError::Elsewhere) {
-                editor.file_changed_on_disk(buffer);
-            }
-            let mut asks = "";
-            if let SaveError::Conflict(Some(found)) = error {
-                editor.may_save_over(buffer, found);
-                asks = ". C-x C-s asks to save over it";
-            }
-            match error {
-                SaveError::Conflict(_) => format!(
-                    "Not saved: the file changed on disk since it was read, and was kept{asks}: {path}"
-                ),
-                SaveError::Elsewhere => format!(
-                    "Not saved: the path now leads somewhere other than when it was read, and nothing was written: {path}"
-                ),
-                SaveError::UnknownLocation => format!(
-                    "Not saved: where the path leads could not be told when it was read, so no place is safe: {path}"
-                ),
-                SaveError::AccessList(e) => format!(
-                    "Not saved: its access list could not be kept, and the file is as it was: {e}: {path}"
-                ),
-                SaveError::ListForbidsReplacing(e) => format!(
-                    "Not saved: the rename was refused, and its access list denies someone deleting it: {e}: {path}"
-                ),
-                SaveError::Io(e) => format!("Not saved: {e}: {path}"),
-                SaveError::Panicked => format!("Not saved: the save failed: {path}"),
-            }
-        }
-    };
-    editor.message(message);
-}
-
-/// What a save that wrote the file says of itself.
-fn written_message(unsynced: Option<Unsynced>, path: &std::path::Display<'_>) -> String {
-    match unsynced {
-        None => format!("Wrote {path}"),
-        Some(Unsynced::File(e)) => format!(
-            "Wrote the file, but the file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}: {path}"
-        ),
-        Some(Unsynced::Directory(e)) => format!(
-            "Wrote the file, but the disk did not confirm the rename. A power cut could bring back what was there: {e}: {path}"
-        ),
-    }
-}
-
 fn write(job: &SaveJob) -> Result<Option<Written>, SaveError> {
+    if let Some(elsewhere) = &job.elsewhere {
+        return elsewhere::write(job, elsewhere);
+    }
     if job.only_if_gone && !file_is_gone(job)? {
         return Ok(None);
     }
@@ -415,15 +354,27 @@ impl Prepared {
             }
         }
         let forbidden = self.list.denies_deleting();
-        self.temporary
-            .rename_over(&baseline.location)
-            .map_err(|e| {
-                if forbidden && e.kind() == io::ErrorKind::PermissionDenied {
-                    SaveError::ListForbidsReplacing(e)
-                } else {
-                    e.into()
-                }
-            })?;
+        // A list that denies deleting the file would keep its temporary name from going, so it
+        // gets the rename, which the system then refuses, as for a file it replaces.
+        let put = if self.replaced.is_none() && !forbidden {
+            self.temporary.put_where_nothing_is(&baseline.location)
+        } else {
+            self.temporary.rename_over(&baseline.location)
+        };
+        put.map_err(|e| {
+            if e.kind() == io::ErrorKind::AlreadyExists {
+                let found = fs::symlink_metadata(&baseline.location)
+                    .ok()
+                    .filter(Metadata::is_file)
+                    .and_then(|metadata| stamp_of(&metadata).ok());
+                return SaveError::Conflict(found);
+            }
+            if forbidden && e.kind() == io::ErrorKind::PermissionDenied {
+                SaveError::ListForbidsReplacing(e)
+            } else {
+                e.into()
+            }
+        })?;
         let directory = sync_directory(parent(&baseline.location)).err();
         Ok(Written {
             content: job.content,
@@ -433,6 +384,7 @@ impl Prepared {
                 .map(Unsynced::File)
                 .or(directory.map(Unsynced::Directory)),
             quarantine_lost: self.quarantine_lost,
+            moved: None,
         })
     }
 }
@@ -586,6 +538,30 @@ impl Temporary {
         fs::rename(&self.path, target)?;
         self.renamed = true;
         Ok(())
+    }
+
+    /// Puts the file at `target`, where nothing was when it was looked at, without replacing
+    /// whatever has come there since: as a second name, which fails if the name is taken, and
+    /// then without its own. A file system with no second names gets a rename, which has the
+    /// moment between the look and the rename that a save has (ADR 0059).
+    ///
+    /// # Errors
+    ///
+    /// `AlreadyExists` if something has come to `target`, or why the file could not go there.
+    pub(crate) fn put_where_nothing_is(mut self, target: &Path) -> io::Result<()> {
+        match fs::hard_link(&self.path, target) {
+            Ok(()) => {
+                // The file is in place. Its own name goes here, and never as a drop does it,
+                // which would take the list off the file now under `target` too.
+                self.renamed = true;
+                if let Err(e) = fs::remove_file(&self.path) {
+                    log::warn!("a saved file kept its temporary name too: {e}");
+                }
+                Ok(())
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Err(e),
+            Err(_) => self.rename_over(target),
+        }
     }
 }
 

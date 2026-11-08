@@ -207,6 +207,16 @@ ADR 0076's keys hold, with these for a path:
 - **The same path as the buffer's file** is a `C-x C-s`, with ADR 0059's and ADR 0072's rules.
 - **It refuses as `save-buffer` does:** read-only buffers (binary, invalid UTF-8, loading) and a
   running save. An unmodified buffer is still written, as the new file does not have its text.
+  An internal buffer is never written, so a prompt's text, a passphrase's among them, never
+  reaches a file.
+- **A file another buffer has open is refused,** `That file is open in another buffer`: by its
+  path at once, and on the save thread by where it leads and by device and inode, so another
+  spelling, a link or a second name of it counts. One file is never in two buffers.
+- **`y` writes over the file only where the path led when it was found:** a path that leads
+  elsewhere since writes nothing.
+- **A new file is put in place without replacing anything:** under a second name, which fails if
+  something has come there since the look, and then without its own. A file system with no
+  second names gets a rename, with the moment between the look and the rename a save has.
 - **The write is ADR 0059's,** with the new path resolved on the save thread, links followed, the
   new place's baseline checked as for a file that did not exist or as the question saw it, and no
   directory created. The mode of a new file is what the umask gives, as ADR 0059 says.
@@ -330,6 +340,12 @@ accepted, the status of ADR 0030, ADR 0040, ADR 0051, ADR 0059 and ADR 0085 gain
 - [ADR 0059](0059-safe-save-and-the-exit-guard.md), "**No file** says `Buffer has no file name`.
   `C-x C-w` comes in M2-18": `C-x C-w` writes such a buffer, and one whose load could not tell
   where its file was, under a new name.
+- ADR 0059, "**Rename, then fsync the directory.**" (step 7 of the order of a write): where nothing
+  was at the file's place, for `C-x C-w` and for any save of a file that did not exist or has gone,
+  the temporary file gets the file's name as a second name, which fails if something has come
+  there since step 6, and then loses its own; the directory is then synced. A file system with no
+  second names, or a list that denies deleting the file, keeps the rename. A file that is there
+  is replaced by the rename as before.
 - [ADR 0085](0085-agent-channel-and-oso-mcp.md), "This covers a buffer the channel opened and,
   once it exists, saving under a new name": `write-file` is `Person`, so the channel does not save
   under a new name.

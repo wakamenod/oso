@@ -26,6 +26,9 @@ struct Seen {
     at_risk: bool,
     saving: bool,
     verdict: Verdict,
+    /// Changes with the buffer's name and path, as a write under a new name or a name that
+    /// tells files apart changes them (ADR 0062, ADR 0087).
+    naming: u32,
 }
 
 impl Seen {
@@ -36,6 +39,7 @@ impl Seen {
             at_risk: buffer.is_modified() || buffer.is_saving(),
             saving: buffer.is_saving(),
             verdict: buffer.verdict(),
+            naming: buffer.naming(),
         }
     }
 }
@@ -173,8 +177,10 @@ impl Publisher {
             old.is_some_and(|old| old.content == now.content && old.verdict == now.verdict);
         let mut text = (!same_text && now.verdict.may_be_copied()).then(|| text.clone());
         if let Some(old) = old {
-            // A copy says whether its text was withheld, which an undo or a redo can change.
-            let mut identity = (old.verdict != now.verdict).then(|| Arc::new(identity_of(buffer)));
+            // A copy says whether its text was withheld, which an undo or a redo can change, and
+            // under which name and path, which a write under a new name changes.
+            let renamed = old.verdict != now.verdict || old.naming != now.naming;
+            let mut identity = renamed.then(|| Arc::new(identity_of(buffer)));
             let mut state = self.lock();
             if let Ok(index) = index_of(&state, now.id) {
                 let entry = &mut state.entries[index];

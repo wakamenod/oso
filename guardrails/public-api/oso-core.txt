@@ -146,6 +146,8 @@ pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId
 pub const fn oso_core::buffer::BufferId::get(self) -> u64
@@ -930,7 +932,9 @@ impl core::marker::StructuralPartialEq for oso_core::editor::ReloadOutcome
 pub enum oso_core::editor::SaveRefused
 pub oso_core::editor::SaveRefused::AlreadySaving
 pub oso_core::editor::SaveRefused::ChangedOnDisk
+pub oso_core::editor::SaveRefused::Exists
 pub oso_core::editor::SaveRefused::NoFile
+pub oso_core::editor::SaveRefused::OpenElsewhere
 pub oso_core::editor::SaveRefused::ReadOnly(oso_core::buffer::ReadOnly)
 pub oso_core::editor::SaveRefused::Unmodified
 impl core::clone::Clone for oso_core::editor::SaveRefused
@@ -1116,9 +1120,25 @@ pub fn oso_core::editor::Editor::kill_by_person(&mut self, oso_core::buffer::Buf
 pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::FileStamp, std::path::PathBuf)
+pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
+pub fn oso_core::editor::Editor::write_over_asked(&self) -> core::option::Option<&std::path::Path>
+pub fn oso_core::editor::Editor::written_elsewhere(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::ContentId, std::path::PathBuf, oso_core::buffer::FileStamp, impl core::ops::function::FnOnce(&mut oso_core::buffer::Buffer))
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
+pub struct oso_core::editor::Elsewhere
+pub oso_core::editor::Elsewhere::open: alloc::vec::Vec<std::path::PathBuf>
+pub oso_core::editor::Elsewhere::over: core::option::Option<oso_core::editor::Over>
+impl core::clone::Clone for oso_core::editor::Elsewhere
+pub fn oso_core::editor::Elsewhere::clone(&self) -> oso_core::editor::Elsewhere
+impl core::cmp::Eq for oso_core::editor::Elsewhere
+impl core::cmp::PartialEq for oso_core::editor::Elsewhere
+pub fn oso_core::editor::Elsewhere::eq(&self, &oso_core::editor::Elsewhere) -> bool
+impl core::fmt::Debug for oso_core::editor::Elsewhere
+pub fn oso_core::editor::Elsewhere::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::Elsewhere
 pub struct oso_core::editor::ExitRefused
 pub oso_core::editor::ExitRefused::modified: usize
 pub oso_core::editor::ExitRefused::saving: usize
@@ -1153,11 +1173,23 @@ impl core::default::Default for oso_core::editor::MatchCells
 pub fn oso_core::editor::MatchCells::default() -> oso_core::editor::MatchCells
 impl core::fmt::Debug for oso_core::editor::MatchCells
 pub fn oso_core::editor::MatchCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::Over
+pub oso_core::editor::Over::found: oso_core::buffer::FileStamp
+pub oso_core::editor::Over::location: std::path::PathBuf
+impl core::clone::Clone for oso_core::editor::Over
+pub fn oso_core::editor::Over::clone(&self) -> oso_core::editor::Over
+impl core::cmp::Eq for oso_core::editor::Over
+impl core::cmp::PartialEq for oso_core::editor::Over
+pub fn oso_core::editor::Over::eq(&self, &oso_core::editor::Over) -> bool
+impl core::fmt::Debug for oso_core::editor::Over
+pub fn oso_core::editor::Over::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::Over
 pub struct oso_core::editor::SaveJob
 pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::Baseline>
 pub oso_core::editor::SaveJob::bom: bool
 pub oso_core::editor::SaveJob::buffer: oso_core::buffer::BufferId
 pub oso_core::editor::SaveJob::content: oso_core::buffer::ContentId
+pub oso_core::editor::SaveJob::elsewhere: core::option::Option<oso_core::editor::Elsewhere>
 pub oso_core::editor::SaveJob::only_if_gone: bool
 pub oso_core::editor::SaveJob::path: std::path::PathBuf
 pub oso_core::editor::SaveJob::text: oso_core::rope::Rope
