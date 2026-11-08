@@ -33,7 +33,7 @@ runs:
 
     - name: Restore just's archive
       id: cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.pick.outputs.dir }}
         key: just-1.52.0-${{ runner.os }}-${{ runner.arch }}
@@ -56,7 +56,9 @@ runs:
         done
         exit 1
 
-    - name: Check and unpack just
+    # Only main writes the cache, as with the build cache (ADR 0021). The archive is
+    # checked below before anything uses it, and saved only once it has been.
+    - name: Check just's archive
       shell: bash
       env:
         ASSET: ${{ steps.pick.outputs.asset }}
@@ -70,6 +72,22 @@ runs:
         else
           echo "$SUM  $ASSET" | shasum -a 256 -c -
         fi
+
+    - name: Save just's archive
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.pick.outputs.dir }}
+        key: just-1.52.0-${{ runner.os }}-${{ runner.arch }}
+
+    - name: Unpack just
+      shell: bash
+      env:
+        ASSET: ${{ steps.pick.outputs.asset }}
+        SUM: ${{ steps.pick.outputs.sum }}
+        DIR: ${{ steps.pick.outputs.dir }}
+      run: |
+        cd "$DIR"
         bin="$RUNNER_TEMP/just-bin"
         mkdir -p "$bin"
         if [ "$RUNNER_OS" = Windows ]; then
