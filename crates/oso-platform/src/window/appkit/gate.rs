@@ -1,5 +1,6 @@
-//! What the input method may learn of the cursor: the cell the app last gave, answered only
-//! while oso has the IME on (ADR 0069, ADR 0070). A plain value, tested without a window.
+//! What the input method may learn of the cursor, the cell the app last gave, answered only
+//! while oso has the IME on (ADR 0069, ADR 0070); and when secure input is held (ADR 0073).
+//! Plain values, tested without a window.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 
@@ -34,9 +35,103 @@ impl ImeGate {
     }
 }
 
+/// Secure input: held while the app wants it, oso is the active app and its window has the
+/// keyboard, until the loop ends (ADR 0073). It counts the enables the system holds for oso
+/// and says which call to make next:
+///
+/// - one enable is held while it is wanted, and an enable the system refused is asked for
+///   again at the next settle;
+/// - a release the system refused is asked for again, and never stands in the way of an
+///   enable wanted now, as the system counts them;
+/// - every enable is released once it is no longer wanted, and nothing enables it again once
+///   the loop has ended.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct SecureInput {
+    wanted: bool,
+    active: bool,
+    key: bool,
+    /// The loop has ended, or the handler panicked.
+    ended: bool,
+    /// Enables the system accepted and has not been asked to release.
+    enables: u32,
+}
+
+/// A call to the system.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SecureStep {
+    Enable,
+    Disable,
+}
+
+impl SecureInput {
+    pub(super) fn held(self) -> bool {
+        self.enables > 0
+    }
+
+    pub(super) fn wanted(self) -> bool {
+        self.wanted
+    }
+
+    pub(super) fn set_wanted(&mut self, wanted: bool) {
+        self.wanted = wanted;
+    }
+
+    pub(super) fn set_active(&mut self, active: bool) {
+        self.active = active;
+    }
+
+    pub(super) fn set_key(&mut self, key: bool) {
+        self.key = key;
+    }
+
+    /// The loop is ending, or the handler panicked: released, and never held again.
+    pub(super) fn release(&mut self) {
+        self.ended = true;
+    }
+
+    /// The call to make now, if any.
+    pub(super) fn next(self) -> Option<SecureStep> {
+        let hold = self.wanted && self.active && self.key && !self.ended;
+        match (hold, self.enables) {
+            (true, 0) => Some(SecureStep::Enable),
+            (true, 1) | (false, 0) => None,
+            // More than one, after a release the system refused, or any once not wanted.
+            _ => Some(SecureStep::Disable),
+        }
+    }
+
+    /// `step` was made, and the system accepted it or not.
+    fn made(&mut self, step: SecureStep, accepted: bool) {
+        match (step, accepted) {
+            (SecureStep::Enable, true) => self.enables += 1,
+            (SecureStep::Disable, true) => self.enables = self.enables.saturating_sub(1),
+            (_, false) => {}
+        }
+    }
+
+    /// Makes the calls this asks for, through `call`, which gets the step and the state as it
+    /// will be if the system accepts, to keep before the call, and says whether the system
+    /// accepted. It stops at a refusal, which the next settle asks for again.
+    pub(super) fn settle(&mut self, mut call: impl FnMut(SecureStep, SecureInput) -> bool) {
+        // At most two calls: a release still owed, then the one the change asks for.
+        for _ in 0..2 {
+            let Some(step) = self.next() else {
+                return;
+            };
+            let mut hoped = *self;
+            hoped.made(step, true);
+            let accepted = call(step, hoped);
+            self.made(step, accepted);
+            if !accepted {
+                return;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ImeGate;
+    use super::{ImeGate, SecureInput, SecureStep};
     use crate::window::CursorArea;
 
     const CELL: CursorArea = CursorArea {
@@ -69,5 +164,129 @@ mod tests {
             Some(CELL),
             "the app does not give an unmoved cell again"
         );
+    }
+
+    /// The system's own count of enables, behind a `settle` that accepts as told.
+    fn settle(secure: &mut SecureInput, system: &mut i32, accept: bool) {
+        secure.settle(|step, _| {
+            if accept {
+                *system += if step == SecureStep::Enable { 1 } else { -1 };
+            }
+            accept
+        });
+    }
+
+    #[test]
+    fn secure_input_is_held_only_while_wanted_active_key_and_not_ended() {
+        for wanted in [false, true] {
+            for active in [false, true] {
+                for key in [false, true] {
+                    for ended in [false, true] {
+                        let mut secure = SecureInput::default();
+                        let mut system = 0;
+                        secure.set_wanted(wanted);
+                        secure.set_active(active);
+                        secure.set_key(key);
+                        if ended {
+                            secure.release();
+                        }
+                        settle(&mut secure, &mut system, true);
+                        let should = wanted && active && key && !ended;
+                        assert_eq!(secure.held(), should, "{wanted} {active} {key} {ended}");
+                        assert_eq!(system, i32::from(should), "the system's count");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn enables_and_disables_pair_up_whatever_the_order() {
+        let mut secure = SecureInput::default();
+        let mut system = 0;
+        let mut change = |secure: &mut SecureInput, f: fn(&mut SecureInput)| {
+            f(secure);
+            settle(secure, &mut system, true);
+            system
+        };
+        change(&mut secure, |s| s.set_active(true));
+        change(&mut secure, |s| s.set_key(true));
+        assert_eq!(change(&mut secure, |s| s.set_wanted(true)), 1);
+        assert_eq!(
+            change(&mut secure, |s| s.set_key(true)),
+            1,
+            "no second enable"
+        );
+        assert_eq!(
+            change(&mut secure, |s| s.set_active(false)),
+            0,
+            "went behind"
+        );
+        assert_eq!(change(&mut secure, |s| s.set_active(true)), 1);
+        assert_eq!(
+            change(&mut secure, |s| s.set_wanted(false)),
+            0,
+            "another buffer"
+        );
+    }
+
+    #[test]
+    fn nothing_holds_it_again_once_released() {
+        let mut secure = SecureInput::default();
+        let mut system = 0;
+        secure.set_wanted(true);
+        secure.set_active(true);
+        secure.set_key(true);
+        settle(&mut secure, &mut system, true);
+        secure.release();
+        settle(&mut secure, &mut system, true);
+        assert_eq!(system, 0, "released at the end");
+        secure.set_active(false);
+        secure.set_active(true);
+        secure.set_key(true);
+        secure.set_wanted(true);
+        settle(&mut secure, &mut system, true);
+        assert_eq!(
+            (system, secure.held()),
+            (0, false),
+            "not again after the end"
+        );
+    }
+
+    #[test]
+    fn a_refused_release_never_blocks_a_later_enable_and_the_books_balance() {
+        let mut secure = SecureInput::default();
+        let mut system = 0;
+        secure.set_wanted(true);
+        secure.set_active(true);
+        secure.set_key(true);
+        settle(&mut secure, &mut system, true);
+        // Another buffer, and the system refuses the release, every time.
+        secure.set_wanted(false);
+        settle(&mut secure, &mut system, false);
+        settle(&mut secure, &mut system, false);
+        assert_eq!(system, 1, "the system still holds it");
+        // A secret buffer again: wanted now, and held, with no enable on top.
+        secure.set_wanted(true);
+        assert_eq!(secure.next(), None, "the one held serves");
+        assert!(secure.held());
+        // Not wanted, and now the system accepts: back to none.
+        secure.set_wanted(false);
+        settle(&mut secure, &mut system, true);
+        assert_eq!((system, secure.held()), (0, false));
+    }
+
+    #[test]
+    fn a_refused_enable_is_asked_for_again_at_the_next_settle() {
+        let mut secure = SecureInput::default();
+        let mut system = 0;
+        secure.set_wanted(true);
+        secure.set_active(true);
+        secure.set_key(true);
+        settle(&mut secure, &mut system, false);
+        assert!(!secure.held());
+        // Nothing changed, as at the next turn of the loop: asked again, and now accepted.
+        settle(&mut secure, &mut system, true);
+        assert_eq!((system, secure.held()), (1, true));
     }
 }

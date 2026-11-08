@@ -153,6 +153,11 @@ and below the row, and a label's glyphs keep their own cells
 - The OS input method is off in a buffer that may hold secrets, as in macOS password
   fields, and gets no cursor area there. A preedit is in no buffer, copy, handoff or log
   ([ADR 0069](adr/0069-macos-input-method.md)).
+- With oso's own macOS window layer, a buffer that may hold secrets gets secure input while it
+  is selected and oso is in front with the keyboard, as a password field does: keystrokes
+  stay with oso. The window layer holds one enable at a time and releases it when any of that
+  stops, when the loop ends and after a panic in the handler
+  ([ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. oso reads the
   clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
   goes there marked concealed for clipboard managers, never shows over the socket, and
