@@ -40,7 +40,7 @@ impl App {
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
-        self.after_event();
+        self.after_event(event_loop);
     }
 
     /// The event loop is about to wait for the next events.
@@ -89,7 +89,7 @@ impl App {
 
             Event::Occluded(true) | Event::Other => {}
         }
-        self.after_event();
+        self.after_event(event_loop);
     }
 }
 

@@ -325,8 +325,8 @@ impl State {
                 // The state first, so that it holds whatever the input method does next.
                 self.update_ime(|ime| ime.set_allowed(allowed));
                 if !allowed {
-                    // As winit does: the composition is dropped. Committing it instead is
-                    // the next step of ADR 0070, with the app's side of it.
+                    // The app has committed a composition before it turns the IME off
+                    // (ADR 0077), so whatever the input method still holds is dropped.
                     view.discard_marked();
                 }
             }
@@ -338,6 +338,10 @@ impl State {
     /// once.
     fn stop(&self) {
         let app = NSApplication::sharedApplication(self.mtm);
+        // No more user events reach a handler that will not run again.
+        if let Some(hooks) = self.hooks.get() {
+            hooks.wake.close();
+        }
         app.stop(None);
         let event = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
             NSEventType::ApplicationDefined,

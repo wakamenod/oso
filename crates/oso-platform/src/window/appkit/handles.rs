@@ -271,12 +271,17 @@ impl<T> Clone for Waker<T> {
 }
 
 impl<T> Waker<T> {
-    /// Sends `event` to the main thread. `false` once the event loop is gone.
+    /// Sends `event` to the main thread. `false` once the event loop has stopped or its
+    /// handler panicked. `true` means it was queued before then; the loop may still stop
+    /// before it takes it, as on an exit asked for meanwhile.
     pub fn send(&self, event: T) -> bool {
-        let sent = self.sender.send(event).is_ok();
-        if sent {
-            self.wake.signal();
-        }
-        sent
+        // After a panic or the loop's end, nothing will take it, and a stop waits for this.
+        self.wake.while_open(|| {
+            let sent = self.sender.send(event).is_ok();
+            if sent {
+                self.wake.signal();
+            }
+            sent
+        })
     }
 }

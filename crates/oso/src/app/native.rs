@@ -18,6 +18,9 @@ use super::{App, UserEvent};
 /// The window's title.
 const TITLE: &str = "oso Editor";
 
+/// This layer commits a composition when oso turns the IME off (ADR 0077).
+pub(super) const COMMITS_WHEN_TURNED_OFF: bool = true;
+
 /// Runs the event loop until it ends. `start` makes the app, given the waker other threads
 /// reach it through, before the window opens. `started` is when the process started.
 pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {
