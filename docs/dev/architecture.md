@@ -450,7 +450,9 @@ where and what the buffer last read or wrote (its real location, modification ti
 size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button ask before exiting while a buffer is modified
-or a save runs, and a save still running at exit gets to finish. A save that found its file
+or a save runs, and on oso's own macOS layer so does a person's request to quit, from the Dock
+or another app, while the end of the session is never refused
+([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and a save still running at exit gets to finish. A save that found its file
 changed asks before going over it, and replaces it only if it is still what that save found. See
 [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
 [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
