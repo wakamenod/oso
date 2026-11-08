@@ -316,16 +316,24 @@ fn holds_opened(path: &Path, opened: &Metadata) -> Option<Metadata> {
 
 /// What decides whether the opened `file` may hold secrets: the path the system gives for the open
 /// file, with the names the walk of `resolved` passed, as the verdict is on the file that is read.
-/// Where the system gives no path, the one the walk ended at must surely hold the opened file, or
+/// A walk that could not tell still counts so. Where the system gives no path, the one the walk ended at must surely hold the opened file, or
 /// nobody can tell. With nothing opened, nothing was read.
 fn verdict_of_opened(resolved: Resolved, file: Option<(&File, &Metadata)>) -> Resolved {
     let Some((file, opened)) = file else {
         return resolved;
     };
     if let Ok(Some(real)) = oso_platform::file_meta::path_of_opened(file) {
-        let (Resolved::Paths(mut names) | Resolved::Unknown(mut names)) = resolved;
-        names.push(real);
-        return Resolved::Paths(names);
+        // A walk that could not tell stays so, with the file's own path among its names.
+        return match resolved {
+            Resolved::Paths(mut names) => {
+                names.push(real);
+                Resolved::Paths(names)
+            }
+            Resolved::Unknown(mut names) => {
+                names.push(real);
+                Resolved::Unknown(names)
+            }
+        };
     }
     match resolved {
         Resolved::Paths(paths)
@@ -667,6 +675,26 @@ mod tests {
         assert_eq!(verdict_of_opened(walked.clone(), None), walked);
         let unknown = Resolved::Unknown(vec![PathBuf::from("/p/notes.txt")]);
         assert_eq!(verdict_of_opened(unknown.clone(), None), unknown);
+    }
+
+    #[test]
+    fn a_walk_that_could_not_tell_stays_so_with_the_file_opened() {
+        let path = scratch_file("untold.txt", b"abc");
+        let file = File::open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+        let seen = vec![PathBuf::from("/p/notes.txt")];
+        let verdict = verdict_of_opened(Resolved::Unknown(seen.clone()), Some((&file, &metadata)));
+        let Resolved::Unknown(names) = verdict else {
+            panic!("{verdict:?}");
+        };
+        assert_eq!(names[0], seen[0]);
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        assert_eq!(
+            std::fs::canonicalize(names.last().unwrap()).unwrap(),
+            std::fs::canonicalize(&path).unwrap(),
+            "with its own path among the names"
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]

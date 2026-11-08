@@ -234,9 +234,10 @@ pub fn seal(file: &File) -> io::Result<()> {
 }
 
 /// Where the open `file` is, as the system names it now: the file itself, whatever a path that led
-/// to it leads to since. `None` where the system cannot say, which is everywhere but macOS, and Linux
-/// with `/proc`, or for a file no longer in any directory. It touches the disk, so it belongs off the
-/// UI thread.
+/// to it leads to since. On macOS that is `F_GETPATH`'s answer, which for a file no longer in any
+/// directory may be the path it had, or an error. On Linux it is the link `/proc` keeps, and `None`
+/// without `/proc` or for a file no longer in any directory. Elsewhere it is always `None`. It
+/// touches the disk, so it belongs off the UI thread.
 ///
 /// # Errors
 ///
