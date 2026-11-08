@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         continue-on-error: true
         with:
           persist-credentials: false
@@ -33,8 +33,8 @@ jobs:
         continue-on-error: true
       # just from the cache or its release through the API, checked (.github/actions).
       - continue-on-error: true
-        uses: ./.github/actions/install-just
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        uses: $/.github/actions/install-just
+      - uses: taiki-e/install-action@v2.87.29
         continue-on-error: true
         with:
           tool: cargo-llvm-cov@0.9.1

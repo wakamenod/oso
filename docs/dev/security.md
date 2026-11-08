@@ -306,9 +306,11 @@ and below the row, and a label's glyphs keep their own cells
   Claude Code pre-commit hook, and a full-history gitleaks scan in CI. Both
   scans ignore `gitleaks:allow` comments, and CI rejects gitleaks allowlist
   files.
-- CI actions are pinned by commit SHA, the workflow token is read-only, and
-  checkout does not persist credentials
-  ([ADR 0021](adr/0021-development-tooling.md)).
+- CI actions are pinned to commits by the workflow lockfile, which GitHub requires
+  of every workflow, the workflow token is read-only, and checkout does not persist
+  credentials ([ADR 0021](adr/0021-development-tooling.md),
+  [ADR 0080](adr/0080-workflow-dependency-lockfile.md)). Tools a step downloads are
+  checked against pinned checksums.
 
 ## What must never be committed
 
