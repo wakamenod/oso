@@ -34,7 +34,8 @@ fn main() {
     // buffer (ADR 0028).
     let core_dumps = oso_platform::privacy::disable_core_dumps();
     // The agent channel's bridge, in every build; it opens no window (ADR 0085).
-    if let Some(status) = channel::mcp::main_if_requested() {
+    let core_dumps_failed = core_dumps.as_ref().err().map(ToString::to_string);
+    if let Some(status) = channel::mcp::main_if_requested(core_dumps_failed) {
         std::process::exit(status);
     }
     #[cfg(feature = "dev")]
