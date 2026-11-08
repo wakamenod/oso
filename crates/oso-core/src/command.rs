@@ -37,6 +37,9 @@ pub struct Command {
     pub doc: &'static str,
     /// Which arguments the command takes.
     pub args: ArgSpec,
+    /// How far the agent channel may reach it (ADR 0085). It has no default, so that each
+    /// command decides.
+    pub reach: Reach,
     /// The function that runs it.
     pub run: CommandFn,
 }
@@ -46,8 +49,23 @@ impl fmt::Debug for Command {
         f.debug_struct("Command")
             .field("name", &self.name)
             .field("args", &self.args)
+            .field("reach", &self.reach)
             .finish_non_exhaustive()
     }
+}
+
+/// How far the agent channel may reach a command (ADR 0085). Keys and `M-x` reach every
+/// command whatever it says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// Moves, marks, shows or opens, and changes no buffer text and no file.
+    Look,
+    /// Edits buffer text or saves.
+    Change,
+    /// Needs a person at the keyboard, and the channel refuses it: exiting, answering a
+    /// prompt, reading the clipboard, anything that spawns a process, trusts a project, or
+    /// shows what a buffer that may hold secrets withholds.
+    Person,
 }
 
 /// Which arguments a command takes. It documents the command
@@ -556,7 +574,7 @@ fn is_command_name(name: &str) -> bool {
 mod tests {
     use super::{
         ArgSpec, Args, Command, CommandError, CommandId, Ctx, Effects, ExecuteError, Invocation,
-        Prefix, RegisterError, Registry,
+        Prefix, Reach, RegisterError, Registry,
     };
     use crate::editor::Editor;
     use crate::window::Scroll;
@@ -596,6 +614,7 @@ mod tests {
             name,
             doc: "A test command.",
             args: ArgSpec::Count,
+            reach: Reach::Look,
             run,
         }
     }
