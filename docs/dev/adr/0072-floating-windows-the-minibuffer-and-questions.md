@@ -1,6 +1,6 @@
 # 0072. Floating windows, the minibuffer and questions
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -42,6 +42,10 @@ It shrinks the real minibuffer window to nothing. Each recursive minibuffer gets
 border color per depth.
 
 ## Decision
+
+The author accepted this ADR on 2026-11-08, with the control socket's new fields, `minibuffer`'s
+line in `guardrails/layers.txt`, the public API it adds (among it `Bands` and `Pane::bands`) and the
+reported-only `prompt_type_p99_ms`.
 
 The author chose each UI choice below on 2026-11-08, from options put to them with text-grid
 mock-ups: where the float sits and how it looks, its width, the window beneath, which keys answer a
