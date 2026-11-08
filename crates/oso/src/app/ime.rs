@@ -88,7 +88,19 @@ impl App {
             }
         }
         self.sync_ime();
+        self.sync_secure_input();
         self.give_cursor_area();
+    }
+
+    /// Asks the window for secure input while the selected buffer may hold secrets, as a
+    /// password field has it (ADR 0073). Only the verdict crosses: no text, name or place of
+    /// the buffer. The window holds it only while oso is in front with the keyboard, and does
+    /// nothing when the answer is the same.
+    pub(super) fn sync_secure_input(&self) {
+        if let Some(view) = &self.view {
+            view.window
+                .set_secure_input(self.editor.current().1.is_secret());
+        }
     }
 
     /// Drops the preedit, if one is shown. Returns whether one was.

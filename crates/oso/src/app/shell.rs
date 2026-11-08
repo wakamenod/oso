@@ -160,6 +160,15 @@ impl Window {
         self.0.set_ime_allowed(allowed);
     }
 
+    /// Whether the app wants secure input. Only oso's own window layer gives it (ADR 0073).
+    pub(super) fn set_secure_input(&self, _wanted: bool) {}
+
+    /// Secure input is not this layer's (ADR 0073), so the dev socket reports none.
+    #[cfg(feature = "dev")]
+    pub(super) fn secure_input(&self) -> Option<(bool, bool, bool)> {
+        None
+    }
+
     /// Drops the composition the input method holds, with no commit. winit has no call for
     /// it; it drops the composition when the IME goes off, which follows (ADR 0069).
     pub(super) fn discard_composition(&self) {}

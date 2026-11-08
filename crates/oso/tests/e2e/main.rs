@@ -15,6 +15,8 @@ mod mark;
 mod png;
 mod prompts;
 mod recovery;
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+mod secure;
 
 use std::fmt::Write as _;
 use std::fs;
