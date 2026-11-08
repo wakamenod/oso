@@ -27,14 +27,14 @@ minibuffer
 frame
 window word
 buffer motion
-undo
+undo kill
 load selection
 display_map
 decode key rope secret
 sum_tree
 
 [oso-platform]
-control process text window
+clipboard control process text window
 privacy
 file_meta
 

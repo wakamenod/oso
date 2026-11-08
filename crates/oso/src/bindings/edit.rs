@@ -13,8 +13,6 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("DEL", "delete-backward-char"),
     ("C-d", "delete-char"),
     ("<delete>", "delete-char"),
-    ("M-d", "kill-word"),
-    ("M-DEL", "backward-kill-word"),
     ("TAB", "tab-to-tab-stop"),
     // Option-Space: `SPC` stays half-width with a Japanese input source (ADR 0069).
     ("s-SPC", "insert-full-width-space"),
