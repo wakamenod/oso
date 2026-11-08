@@ -9,13 +9,10 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
     NSApplicationTerminateReply, NSWindow, NSWindowDelegate, NSWindowOcclusionState,
 };
-use objc2_foundation::{
-    MainThreadMarker, NSAppleEventDescriptor, NSAppleEventManager, NSNotification, NSObject,
-    NSObjectProtocol,
-};
+use objc2_foundation::{MainThreadMarker, NSNotification, NSObject, NSObjectProtocol};
 
-use super::{Delivery, State, gate};
-use crate::window::{Event, QuitReason};
+use super::{Delivery, State, quit};
+use crate::window::Event;
 
 pub(super) struct Ivars {
     state: &'static State,
@@ -64,32 +61,16 @@ define_class!(
         /// The app answers, or holds the end for its answer (ADR 0070, ADR 0084).
         #[unsafe(method(applicationShouldTerminate:))]
         fn should_terminate(&self, _sender: &NSApplication) -> NSApplicationTerminateReply {
-            self.ivars().state.quit_requested(quit_reason_now())
+            self.ivars().state.quit_requested(quit::quit_reason_now())
         }
 
-        /// A Dock quit or a logout: AppKit ends the process after this returns.
+        /// The OS's request to end was answered yes: AppKit ends the process after this returns.
         #[unsafe(method(applicationWillTerminate:))]
         fn will_terminate(&self, _notification: &NSNotification) {
             self.ivars().state.exiting();
         }
     }
 );
-
-/// Why the OS asks to end now, from the quit Apple event being handled, if any.
-fn quit_reason_now() -> QuitReason {
-    let event = NSAppleEventManager::sharedAppleEventManager().currentAppleEvent();
-    let code = event.and_then(|event| {
-        // SAFETY: the receiver is an `NSAppleEventDescriptor`, retained for the call, which
-        // declares `- (nullable NSAppleEventDescriptor *)paramDescriptorForKeyword:
-        // (AEKeyword)keyword`: one argument, an `AEKeyword`, a four-character code that is a
-        // `u32`, as `QUIT_REASON_KEY` is, and a descriptor or nil returned at +0, which the
-        // `Option<Retained<_>>` retains or reads as `None`.
-        let reason: Option<Retained<NSAppleEventDescriptor>> =
-            unsafe { msg_send![&event, paramDescriptorForKeyword: gate::QUIT_REASON_KEY] };
-        reason.map(|reason| reason.enumCodeValue())
-    });
-    gate::quit_reason(code)
-}
 
 impl AppDelegate {
     pub(super) fn new(mtm: MainThreadMarker, state: &'static State) -> Retained<Self> {

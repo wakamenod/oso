@@ -43,7 +43,10 @@ made both choices below on 2026-11-08, through the coordinator.
 - No request to end gets past the exit question but the end of the session, which never
   waits on a person.
 - The reason decides only whether the question is asked. Any local process can send a quit
-  with a logout reason, and gets what a logout gets: copies of what is at risk, and an end.
+  with a logout reason, and gets what a logout gets: copies of what is at risk, and an end,
+  which is no more than ending the process would give it. A buffer that may hold secrets
+  gets no copy at any end (ADR 0062), so its unsaved text goes with a logout, real or not,
+  without a question.
 - On winit nothing changes: winit does not ask the app, so any request to end ends it and
   writes copies of what is at risk, until the native layer is the default.
 - The e2e flow for the end of the session needs osascript to send an Apple event to the
@@ -52,10 +55,16 @@ made both choices below on 2026-11-08, through the coordinator.
 
 ## Changes to accepted ADRs
 
-ADR 0070's "A Dock quit is guarded as `C-x C-c` is ... the first one is refused
-(`NSTerminateCancel`) with the guard's message, and the next goes" becomes: a person's quit
-is refused to the OS and opens the exit question, as `C-x C-c` does. The rest of its
-"Quitting" section holds.
+Three passages of ADR 0070 change; the rest of its "Quitting" section holds:
+
+- "A Dock quit is guarded as `C-x C-c` is ... the first one is refused
+  (`NSTerminateCancel`) with the guard's message, and the next goes" becomes: a person's
+  quit is refused to the OS and opens the exit question, as `C-x C-c` does.
+- "A Dock quit let through counts as agreed ... as the person was told and quit again"
+  becomes: a person's quit counts as agreed once the person answers `y` to the question.
+- Its change to ADR 0062, "it is refused once while a buffer is modified, and one let
+  through is agreed", becomes: it opens the exit question while a buffer is modified, and
+  `y` agrees.
 
 ## Alternatives considered
 

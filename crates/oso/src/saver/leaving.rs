@@ -1,6 +1,7 @@
 //! An exit agreed to while saves run: whether to go, keep waiting, or take it back
-//! (ADR 0059). The state and every decision are here, with no window, and the app only acts
-//! on what they say.
+//! (ADR 0059); and the end of the session, which waits a few seconds for saves and is never
+//! refused (ADR 0077, ADR 0084). The state and every decision are here, with no window, and
+//! the app only acts on what they say.
 //!
 //! Must not depend on: `app`, winit or the GPU.
 
@@ -34,7 +35,7 @@ pub enum AfterSave {
 }
 
 /// What this instance has agreed to lose, should it end now. An end nobody agreed to is the
-/// OS's (Dock quit, logout), or a panic, and the text it would lose gets an emergency copy
+/// OS's (a logout, or on winit a Dock quit too), or a panic, and the text it would lose gets an emergency copy
 /// (ADR 0062).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agreement {
@@ -176,9 +177,9 @@ impl Leaving {
         Some(deadline)
     }
 
-    /// Whether the end of the session waits no longer, as its saves have ended or its time
-    /// is up. Once it says so, no end of the session waits.
-    pub fn session_end_ready(&mut self, editor: &Editor, now: Instant) -> bool {
+    /// Ends the wait of the end of the session if it waits no longer, as its saves have ended
+    /// or its time is up. Returns whether it did.
+    pub fn take_session_end_if_ready(&mut self, editor: &Editor, now: Instant) -> bool {
         let Some(deadline) = self.session_end else {
             return false;
         };
@@ -187,6 +188,17 @@ impl Leaving {
             self.session_end = None;
         }
         ready
+    }
+
+    /// When the app must look again: the earlier of an exit's deadline and the end of the
+    /// session's, or `None` with neither waiting. One deadline for both, so that neither
+    /// wait outlasts its bound because the other set the wake.
+    pub fn next_wake(&self) -> Option<Instant> {
+        let exit = self.under_way.as_ref().map(|under_way| under_way.deadline);
+        match (exit, self.session_end) {
+            (Some(exit), Some(session)) => Some(exit.min(session)),
+            (exit, session) => exit.or(session),
+        }
     }
 
     /// Whether the end of the session waits for saves.
@@ -310,22 +322,36 @@ mod tests {
         assert_eq!(deadline, now + SESSION_END_WAIT);
         assert!(leaving.session_end_waits());
         assert_eq!(leaving.cell.get(), Agreement::Nothing, "copies at the end");
-        assert!(!leaving.session_end_ready(&editor, now), "the save runs");
         assert!(
-            leaving.session_end_ready(&editor, deadline),
+            !leaving.take_session_end_if_ready(&editor, now),
+            "the save runs"
+        );
+        assert!(
+            leaving.take_session_end_if_ready(&editor, deadline),
             "the time is up"
         );
         assert!(!leaving.session_end_waits());
-        assert!(!leaving.session_end_ready(&editor, deadline), "once");
+        assert!(
+            !leaving.take_session_end_if_ready(&editor, deadline),
+            "once"
+        );
         // Its saves ending lets it go at once.
         leaving.begin_session_end(&editor, now).unwrap();
         assert!(
-            leaving.session_end_ready(&idle, now),
+            leaving.take_session_end_if_ready(&idle, now),
             "no save runs any more"
         );
         leaving.begin_session_end(&editor, now).unwrap();
         assert!(leaving.take_session_end(), "the app goes by itself");
         assert!(!leaving.take_session_end() && !leaving.session_end_waits());
+        // One wake for both waits: the earlier.
+        assert_eq!(leaving.next_wake(), None);
+        let exit = leaving.begin(&editor, false, now).unwrap();
+        let session = leaving.begin_session_end(&editor, now).unwrap();
+        assert!(session < exit);
+        assert_eq!(leaving.next_wake(), Some(session));
+        assert!(leaving.take_session_end());
+        assert_eq!(leaving.next_wake(), Some(exit));
     }
 
     #[test]

@@ -15,6 +15,7 @@ mod delegates;
 mod gate;
 mod handles;
 mod keys;
+mod quit;
 mod runloop;
 mod secure;
 mod view;
@@ -30,8 +31,8 @@ use objc2::exception;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
-    NSApplication, NSApplicationTerminateReply, NSEvent, NSEventModifierFlags, NSEventType,
-    NSScreen, NSWindow, NSWindowOcclusionState,
+    NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSScreen, NSWindow,
+    NSWindowOcclusionState,
 };
 use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
@@ -155,8 +156,6 @@ enum Pending {
     Occluded(bool),
     ModifiersChanged(super::Held),
     CloseRequested,
-    /// The OS asked to end while the handler ran; AppKit holds the end for the answer.
-    Quit(QuitReason),
 }
 
 /// The window layer's state, on the main thread, for the rest of the process.
@@ -192,6 +191,8 @@ struct State {
     panic: RefCell<Option<Box<dyn Any + Send>>>,
     /// The handler's answer to the last request to end, while it is being asked.
     quit_answer: Cell<Option<QuitAnswer>>,
+    /// AppKit holds an end for the app's answer (`NSTerminateLater`).
+    quit_held: Cell<bool>,
 }
 
 impl State {
@@ -216,6 +217,7 @@ impl State {
             hidden_frame: Cell::new(gate::HiddenFrame::default()),
             panic: RefCell::new(None),
             quit_answer: Cell::new(None),
+            quit_held: Cell::new(false),
         }
     }
 
@@ -249,37 +251,13 @@ impl State {
         drop(dispatch);
         if let Err(payload) = result {
             self.update_secure(gate::SecureInput::release);
+            // An end AppKit holds for an answer that will not come goes now.
+            self.answer_held_quit(true);
             *self.panic.borrow_mut() = Some(payload);
             self.stop();
             return;
         }
         self.after_handler();
-    }
-
-    /// The OS asks to end (`applicationShouldTerminate:`). The handler answers; one that comes
-    /// while it runs holds the end until it has returned and answered (ADR 0070, ADR 0084).
-    /// After a panic or the loop's end nothing of the app is asked, and the end goes ahead.
-    fn quit_requested(&'static self, reason: QuitReason) -> NSApplicationTerminateReply {
-        if self.panic.borrow().is_some() || self.exited.get() {
-            return NSApplicationTerminateReply::TerminateNow;
-        }
-        if self.dispatch.try_borrow_mut().is_err() {
-            self.pending.borrow_mut().push(Pending::Quit(reason));
-            return NSApplicationTerminateReply::TerminateLater;
-        }
-        match self.ask_to_quit(reason) {
-            Some(QuitAnswer::Now) => NSApplicationTerminateReply::TerminateNow,
-            Some(QuitAnswer::Later) => NSApplicationTerminateReply::TerminateLater,
-            // A panic while it was asked stops the loop, which then resumes it.
-            Some(QuitAnswer::Cancel) | None => NSApplicationTerminateReply::TerminateCancel,
-        }
-    }
-
-    /// Asks the handler whether to end, for `reason`. `None` if it was not asked or panicked.
-    fn ask_to_quit(&'static self, reason: QuitReason) -> Option<QuitAnswer> {
-        self.quit_answer.set(None);
-        self.deliver(Delivery::Quit(reason));
-        self.quit_answer.take()
     }
 
     /// Keeps an event that came while the handler ran, if it is one that must not be lost.
@@ -320,16 +298,6 @@ impl State {
         let pending = self.pending.take();
         for event in pending {
             let event = match event {
-                Pending::Quit(reason) => {
-                    // AppKit holds the end it asked about while the handler ran.
-                    let yes = self.ask_to_quit(reason);
-                    match yes {
-                        Some(QuitAnswer::Now) => self.apply(Request::AnswerQuit(true)),
-                        Some(QuitAnswer::Cancel) | None => self.apply(Request::AnswerQuit(false)),
-                        Some(QuitAnswer::Later) => {}
-                    }
-                    continue;
-                }
                 Pending::Resized => self.resized_event(),
                 Pending::ScaleFactorChanged => Event::ScaleFactorChanged(self.scale_factor()),
                 Pending::Occluded(occluded) => Event::Occluded(occluded),
@@ -353,8 +321,7 @@ impl State {
 
     fn apply(&'static self, request: Request) {
         if let Request::AnswerQuit(yes) = request {
-            // A yes ends the process: `applicationWillTerminate:` runs `exiting` first.
-            NSApplication::sharedApplication(self.mtm).replyToApplicationShouldTerminate(yes);
+            self.answer_held_quit(yes);
             return;
         }
         let Some((window, view, _)) = self.window.get() else {
@@ -385,6 +352,7 @@ impl State {
                 }
             }
             Request::DiscardComposition => view.discard_marked(),
+            // Answered above, with or without a window.
             Request::AnswerQuit(_) => {}
         }
     }
@@ -421,8 +389,8 @@ impl State {
         if self.panic.borrow().is_some() || self.exited.get() {
             return;
         }
-        // Not while the handler runs: it hears it once it returns. The quit guard answers a
-        // quit "later" meanwhile, so AppKit does not end the process before (ADR 0070).
+        // Not while the handler runs: it hears it once it returns. AppKit ends the process only
+        // once the app has answered yes, which it does outside the handler (ADR 0084).
         if self.dispatch.try_borrow_mut().is_err() {
             self.exit_waiting.set(true);
             return;

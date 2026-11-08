@@ -128,6 +128,18 @@ impl App {
         self.process.child.id()
     }
 
+    /// Asks this instance to quit as another app or the Dock does: `terminate`, a quit Apple
+    /// event with no reason, which oso's own layer takes as a person's (ADR 0084). Returns
+    /// whether osascript sent it.
+    #[cfg(target_os = "macos")]
+    pub fn ask_to_quit(&self) -> bool {
+        let pid = self.pid();
+        let script = format!(
+            "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate"
+        );
+        run_osascript(&script)
+    }
+
     /// Asks this instance, and only it, to quit as the end of the session does: a quit Apple
     /// event with a logout reason (`keyAEQuitReason`), which oso never refuses (ADR 0084).
     /// The event goes to this instance's process ID, after osascript has checked that the
@@ -143,19 +155,22 @@ impl App {
         );
         let binary = fs::canonicalize(env!("CARGO_BIN_EXE_oso")).expect("the binary is there");
         let expected = serde_json::Value::from(binary.to_str().expect("a path in UTF-8"));
-        // 'aevt' 'quit' to `pid` alone, with the reason 'why?' = 'logo' and no reply awaited.
+        // 'aevt' 'quit' to `pid` alone, with the reason 'why?' = 'logo' as an attribute, as
+        // the system sends it, and no reply awaited.
         let script = format!(
             "ObjC.import('AppKit');
             const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid});
-            if (app.isNil() || app.executableURL.URLByResolvingSymlinksInPath.path.js !== {expected}) {{
+            const resolved = (url) => url.URLByResolvingSymlinksInPath.path.js;
+            const launched = resolved($.NSURL.fileURLWithPath({expected}));
+            if (app.isNil() || resolved(app.executableURL) !== launched) {{
                 throw new Error('not the instance this test launched');
             }}
             const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier({pid});
             const quit = $.NSAppleEventDescriptor
                 .appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
                     0x61657674, 0x71756974, target, -1, 0);
-            quit.setParamDescriptorForKeyword(
-                $.NSAppleEventDescriptor.descriptorWithEnumCode(0x6c6f676f), 0x7768793f);
+            quit.setAttributeDescriptorForKeyword(
+                $.NSAppleEventDescriptor.descriptorWithTypeCode(0x6c6f676f), 0x7768793f);
             quit.sendEventWithOptionsTimeoutError(1, 10, null);"
         );
         run_osascript(&script)
@@ -586,17 +601,8 @@ impl Drop for Scratch {
     }
 }
 
-/// Asks the app with process ID `pid` to quit, as the Dock's Quit does, and says whether
-/// the request could be sent.
-#[cfg(target_os = "macos")]
-pub fn ask_to_quit(pid: u32) -> bool {
-    let script = format!(
-        "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate"
-    );
-    run_osascript(&script)
-}
-
 /// Runs `script` as JavaScript for Automation. Returns whether it ran.
+#[cfg(target_os = "macos")]
 fn run_osascript(script: &str) -> bool {
     let osascript = Executable::from_path("osascript", None).expect("osascript is on PATH");
     let args = ["-l".into(), "JavaScript".into(), "-e".into(), script.into()];

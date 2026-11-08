@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::window::{CursorArea, QuitReason};
+use crate::window::CursorArea;
 
 /// Whether oso has the IME on, and the cursor's cell the app last gave.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -34,26 +34,6 @@ impl ImeGate {
     /// The cell to answer the input method with: none while the IME is off.
     pub(super) fn area(self) -> Option<CursorArea> {
         if self.allowed { self.area } else { None }
-    }
-}
-
-/// The quit Apple event's reason parameter (`keyAEQuitReason`).
-pub(super) const QUIT_REASON_KEY: u32 = u32::from_be_bytes(*b"why?");
-
-/// Why the OS asks to end, from the quit Apple event's reason, if it gave one: a logout, a
-/// restart or a shutdown, with or without the system's dialog, ends the session, and
-/// anything else is a person's (ADR 0070, ADR 0084).
-pub(super) fn quit_reason(code: Option<u32>) -> QuitReason {
-    const SESSION_ENDS: [&[u8; 4]; 6] = [b"logo", b"rlgo", b"rrst", b"rest", b"rsdn", b"shut"];
-    match code {
-        Some(code)
-            if SESSION_ENDS
-                .iter()
-                .any(|end| u32::from_be_bytes(**end) == code) =>
-        {
-            QuitReason::SessionEnd
-        }
-        _ => QuitReason::Person,
     }
 }
 
@@ -206,9 +186,7 @@ impl HiddenFrame {
 #[cfg(test)]
 mod tests {
     use super::{HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, SecureInput, SecureStep};
-    use super::{QUIT_REASON_KEY, quit_reason};
     use crate::window::CursorArea;
-    use crate::window::QuitReason;
     use std::time::Instant;
 
     const CELL: CursorArea = CursorArea {
@@ -241,21 +219,6 @@ mod tests {
             Some(CELL),
             "the app does not give an unmoved cell again"
         );
-    }
-
-    #[test]
-    fn only_a_session_end_is_told_from_a_persons_quit() {
-        let code = |four: &[u8; 4]| Some(u32::from_be_bytes(*four));
-        for end in [b"logo", b"rlgo", b"rrst", b"rest", b"rsdn", b"shut"] {
-            assert_eq!(quit_reason(code(end)), QuitReason::SessionEnd);
-        }
-        assert_eq!(
-            quit_reason(None),
-            QuitReason::Person,
-            "no reason: the Dock or a script"
-        );
-        assert_eq!(quit_reason(code(b"quit")), QuitReason::Person);
-        assert_eq!(QUIT_REASON_KEY, 0x7768_793F, "keyAEQuitReason");
     }
 
     /// The system's own count of enables, behind a `settle` that accepts as told.
