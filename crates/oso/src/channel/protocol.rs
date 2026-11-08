@@ -271,9 +271,7 @@ fn short(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Arg, DEFAULT_ROWS, MAX_PATH, MAX_ROWS, MAX_TEXT_ARG, METHODS, Method, Op, TextOf, parse,
-    };
+    use super::{Arg, DEFAULT_ROWS, MAX_ROWS, MAX_TEXT_ARG, METHODS, Method, Op, TextOf, parse};
     use oso_core::command::Reach;
     use serde_json::Value;
     use serde_json::json;
@@ -365,6 +363,8 @@ mod tests {
         assert!(error(&long.to_string()).contains("at most"));
     }
 
+    // Its paths are Unix ones, and the channel has no transport elsewhere yet (ADR 0032).
+    #[cfg(unix)]
     #[test]
     fn open_takes_an_absolute_path_whose_name_is_ordinary() {
         let open = |params: Value| json!({ "method": "open", "params": params }).to_string();
@@ -381,7 +381,7 @@ mod tests {
             error(&open(json!({ "path": "/home/a/.ssh/config" }))).contains("may hold secrets")
         );
         assert!(error(&open(json!({ "path": "/a", "line": 0 }))).contains("at least 1"));
-        let long = format!("/{}", "a".repeat(MAX_PATH));
+        let long = format!("/{}", "a".repeat(super::MAX_PATH));
         assert!(error(&open(json!({ "path": long }))).contains("at most"));
     }
 
