@@ -222,7 +222,8 @@ item notes when it must be settled.
   medians sat a few milliseconds above winit's within overlapping ranges; and the author's
   checks at the keyboard of what remains: a window covered by another app and uncovered
   drawing again with no key, a composition committed when the IME turns off, a Dock quit
-  asking the exit question and a logout going past it
+  asking the exit question, and a real Log Out, cancelled from the system's dialog, going
+  past it, which shows oso reads a real logout's reason
   ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each item above as it
   lands. The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from

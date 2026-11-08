@@ -40,6 +40,19 @@ made both choices below on 2026-11-08, through the coordinator.
   and `Control::answer_quit`) follows ADR 0070, and the author approves it with its pull
   request.
 
+## Changes to accepted ADRs
+
+Three passages of ADR 0070 change; the rest of its "Quitting" section holds:
+
+- "A Dock quit is guarded as `C-x C-c` is ... the first one is refused
+  (`NSTerminateCancel`) with the guard's message, and the next goes" becomes: a person's
+  quit is refused to the OS and opens the exit question, as `C-x C-c` does.
+- "A Dock quit let through counts as agreed ... as the person was told and quit again"
+  becomes: a person's quit counts as agreed once the person answers `y` to the question.
+- Its change to ADR 0062, "it is refused once while a buffer is modified, and one let
+  through is agreed", becomes: it opens the exit question while a buffer is modified, and
+  `y` agrees.
+
 ## Consequences
 
 - No request to end gets past the exit question but the end of the session, which never
@@ -54,19 +67,6 @@ made both choices below on 2026-11-08, through the coordinator.
 - The e2e flow for the end of the session needs osascript to send an Apple event to the
   instance. If a runner's privacy settings refused that, the flow would fail rather than
   pass unchecked.
-
-## Changes to accepted ADRs
-
-Three passages of ADR 0070 change; the rest of its "Quitting" section holds:
-
-- "A Dock quit is guarded as `C-x C-c` is ... the first one is refused
-  (`NSTerminateCancel`) with the guard's message, and the next goes" becomes: a person's
-  quit is refused to the OS and opens the exit question, as `C-x C-c` does.
-- "A Dock quit let through counts as agreed ... as the person was told and quit again"
-  becomes: a person's quit counts as agreed once the person answers `y` to the question.
-- Its change to ADR 0062, "it is refused once while a buffer is modified, and one let
-  through is agreed", becomes: it opens the exit question while a buffer is modified, and
-  `y` agrees.
 
 ## Alternatives considered
 
