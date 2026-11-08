@@ -80,6 +80,7 @@ old one's status.
 | 0071 | [The mark and the region](0071-mark-and-region.md) | Accepted |
 | 0072 | [Floating windows, the minibuffer and questions](0072-floating-windows-the-minibuffer-and-questions.md) | Accepted |
 | 0073 | [Secure input in secret buffers](0073-secure-input-in-secret-buffers.md) | Accepted |
+| 0074 | [The kill ring and the clipboard](0074-the-kill-ring-and-the-clipboard.md) | Accepted |
 | 0079 | [State and restarts around a secret buffer](0079-state-and-restarts-around-a-secret-buffer.md) | Accepted |
 
 ## Template

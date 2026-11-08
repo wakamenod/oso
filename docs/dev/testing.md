@@ -313,6 +313,14 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). While one is
   shown, `modeline` and `echo` are left out
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+- `get-state` also gives `kill_ring`: the number of entries and the newest one's pieces,
+  at most 16 of 1 KiB each, leaving out entries killed from a buffer that may hold secrets,
+  and null while one is shown; and `clipboard.waiting`, while a yank waits for the
+  clipboard ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)).
+- `clipboard` reads the clipboard in memory, or with `text` (and `concealed`) sets it as
+  another app would. It works only in an instance started with `--clipboard memory`, which
+  the harness always passes, so no flow touches the person's clipboard. Text marked
+  concealed reads as null.
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.

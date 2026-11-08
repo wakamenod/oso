@@ -38,6 +38,11 @@ pub(super) fn at(text: &str, cursors: &[usize]) -> (Dispatcher, Editor) {
     (Dispatcher::new(), editor)
 }
 
+/// Puts a cursor at each of `cursors`, with no mark.
+pub(super) fn place_at(editor: &mut Editor, cursors: &[usize]) {
+    place(editor, cursors);
+}
+
 fn place(editor: &mut Editor, cursors: &[usize]) {
     let selections = cursors.iter().map(|at| Selection::at(*at)).collect();
     let set = SelectionSet::from_parts(selections, 0).unwrap();

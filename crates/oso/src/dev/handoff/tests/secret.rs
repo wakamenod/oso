@@ -113,3 +113,24 @@ fn a_modified_secret_file_off_the_screen_is_refused_the_same_way() {
         assert!(!message.contains(TYPED), "{message}");
     }
 }
+
+#[test]
+fn a_saved_file_a_secret_kill_was_yanked_into_is_refused() {
+    let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
+    let fingerprint = oso_core::kill::Fingerprint { len: 3, hash: 1 };
+    editor.take_from_clipboard(oso_core::rope::Rope::from("KEY"), true, fingerprint);
+    editor.yank(0, false).unwrap();
+    let id = editor.window().buffer();
+    let saved = editor.current().1.content_id();
+    editor.buffer_mut(id).unwrap().mark_saved(saved);
+    assert!(editor.current().1.is_secret() && !editor.current().1.is_modified());
+    // Off the screen, as nothing hands over while it is shown.
+    editor.toggle_messages();
+    for message in [
+        export(&editor, &[], None, None).unwrap_err(),
+        check(&editor).unwrap_err(),
+    ] {
+        assert!(message.contains("notes.txt"), "{message}");
+        assert!(!message.contains("KEY"), "{message}");
+    }
+}

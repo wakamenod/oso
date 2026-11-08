@@ -29,7 +29,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
-use oso_core::buffer::{Buffer, BufferId};
+use oso_core::buffer::{Buffer, BufferId, Verdict};
 use oso_core::display_map::DisplayPoint;
 use oso_core::editor::{Editor, SCRATCH};
 use oso_core::key::{KeyPress, KeySequence};
@@ -186,6 +186,11 @@ fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
         )),
         Some(_) if buffer.is_modified() => Err(format!(
             "cannot hand over {}: it has unsaved edits",
+            buffer.name()
+        )),
+        // Read again by its path, it would be judged by its name alone (ADR 0074).
+        Some(_) if buffer.verdict() == Verdict::Yanked => Err(format!(
+            "cannot hand over {}: it holds a secret kill yanked into it",
             buffer.name()
         )),
         Some(path) => path.to_str().map(Some).ok_or_else(|| {
