@@ -91,9 +91,9 @@ fn initializes_without_connecting_and_lists_its_tools() {
     let mut bridge = bridge(&asked);
     let init = response(
         &mut bridge,
-        &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-03-26" } }),
+        &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2024-11-05" } }),
     );
-    assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
+    assert_eq!(init["result"]["protocolVersion"], "2024-11-05");
     assert_eq!(init["result"]["serverInfo"]["name"], "oso");
     let newest = response(
         &mut bridge,
@@ -267,7 +267,7 @@ fn unknown_methods_tools_and_bad_lines_are_errors() {
 }
 
 #[test]
-fn serves_each_line_until_input_ends_and_refuses_an_overlong_one() {
+fn serves_each_line_until_input_ends_and_skips_an_overlong_one() {
     let asked = Rc::default();
     let mut bridge = bridge(&asked);
     let input = format!(
@@ -282,14 +282,55 @@ fn serves_each_line_until_input_ends_and_refuses_an_overlong_one() {
     );
     let output = String::from_utf8(output).unwrap();
     assert_eq!(output.lines().count(), 1, "{output}");
-    let long = format!("{}\n", "x".repeat(MAX_LINE + 10));
+    let long = format!(
+        "{}\n{}\n",
+        "x".repeat(MAX_LINE + 10),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "ping" })
+    );
     let mut output = Vec::new();
     assert_eq!(
         serve(&mut bridge, Box::new(Cursor::new(long)), true, &mut output),
-        1
+        0
     );
-    let refused: Value = serde_json::from_slice(&output).unwrap();
-    assert_eq!(refused["error"]["code"], -32700);
+    let lines: Vec<Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(lines[0]["error"]["code"], -32700);
+    assert_eq!(lines[1]["id"], 2, "the line after it is answered");
+}
+
+#[test]
+fn ids_params_batches_and_the_agents_responses_follow_mcp() {
+    let asked = Rc::default();
+    let mut bridge = bridge(&asked);
+    for id in [json!({ "a": 1 }), json!([1]), json!(true), Value::Null] {
+        let refused = response(
+            &mut bridge,
+            &json!({ "jsonrpc": "2.0", "id": id, "method": "ping" }),
+        );
+        assert_eq!(refused["error"]["code"], -32600, "{id}");
+        assert_eq!(refused["id"], Value::Null);
+    }
+    let array = response(
+        &mut bridge,
+        &json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": [1] }),
+    );
+    assert_eq!(array["error"]["code"], -32602);
+    let mut arguments = call("state", &json!({}));
+    arguments["params"]["arguments"] = json!(["buffer_offset"]);
+    assert_eq!(response(&mut bridge, &arguments)["error"]["code"], -32602);
+    let batch = json!([{ "jsonrpc": "2.0", "id": 1, "method": "ping" }]);
+    assert_eq!(response(&mut bridge, &batch)["error"]["code"], -32600);
+    for answer in [
+        json!({ "jsonrpc": "2.0", "id": 4, "result": {} }),
+        json!({ "jsonrpc": "2.0", "id": 4, "error": { "code": 1, "message": "no" } }),
+    ] {
+        assert!(bridge.respond(&answer.to_string()).is_none(), "{answer}");
+    }
+    assert_eq!(asked.borrow().connects, 0);
 }
 
 /// Whether the call has started waiting, and whether its connection was closed.
@@ -366,3 +407,6 @@ fn a_call_that_waits_ends_when_the_agents_stdin_does() {
     );
     assert!(waited.0.lock().unwrap().1, "the connection was closed");
 }
+
+mod cancel;
+mod target;

@@ -550,7 +550,12 @@ Full details are in [`security.md`](security.md).
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `commands`, `look`,
     `change` and `open`. It connects on the first tool call, asks the channel's `version`
-    first, and connects again after oso restarts. To use it with Claude Code:
+    first, and connects again after oso restarts. It looks through every instance's socket
+    only while it knows none to use, at most once each 5 s, since each look counts toward each
+    instance's connections a minute. stdin is read on a thread of its own
+    (`channel/mcp/stdin.rs`): the end of stdin, or a cancel naming the call in flight, closes
+    that call's connection, a cancelled request that still waits never runs, and at most 8
+    lines wait, so a cancel is never stuck behind them. To use it with Claude Code:
     `claude mcp add --scope user oso -- /absolute/path/to/oso mcp`, then `M-x
     agent-channel-start` in oso, and `y` to the question when Claude Code first calls a tool.
   - `open` visits a file that exists, unshown, through `app/agent/open.rs`, and shows it at
