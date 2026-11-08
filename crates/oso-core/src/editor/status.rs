@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn several_cursors_are_counted() {
         let mut editor = editor("abc");
-        let selection = |cursor| Selection { cursor, goal: None };
+        let selection = |cursor| Selection::at(cursor);
         let cursors = vec![selection(0), selection(1), selection(2)];
         editor.current_mut().0.selections = SelectionSet::from_parts(cursors, 1).unwrap();
         assert_eq!(
@@ -393,7 +393,7 @@ mod tests {
             .buffer_mut(id)
             .unwrap()
             .apply_load(builder.snapshot());
-        let selection = |cursor| Selection { cursor, goal: None };
+        let selection = |cursor| Selection::at(cursor);
         let cursors = vec![selection(1), selection(4)];
         editor.current_mut().0.selections = SelectionSet::from_parts(cursors, 0).unwrap();
         let status = status(&editor);

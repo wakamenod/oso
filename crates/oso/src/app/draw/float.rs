@@ -179,6 +179,8 @@ pub(super) fn panes<'a>(
                     cursor,
                     cursor_style: CursorStyle::Box,
                     preedit: editor.preedit(),
+                    // A region in a prompt is not drawn yet (open-questions.md).
+                    region_cells: &[],
                 })
             }
         };

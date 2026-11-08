@@ -372,8 +372,10 @@ fn parse_selections(window: &Map<String, Value>) -> Result<SelectionSet, String>
                 Some(Value::Object(goal)) => Some(Goal::Column(size(goal, "column")?)),
                 Some(_) => return Err("a selection's goal is not understood".to_owned()),
             };
+            // Marks are not handed over until M2-15 (ADR 0051, ADR 0071).
             Ok(Selection {
                 cursor: size(selection, "cursor")?,
+                mark: None,
                 goal,
             })
         })
@@ -464,6 +466,7 @@ impl Restore {
                 let point: DisplayPoint = display.offset_to_display_point(selection.cursor);
                 Selection {
                     cursor: display.display_point_to_offset(point, Bias::Left),
+                    mark: None,
                     goal: selection.goal,
                 }
             })

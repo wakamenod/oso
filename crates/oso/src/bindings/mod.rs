@@ -5,6 +5,7 @@
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 mod edit;
+mod mark;
 mod messages;
 mod minibuffer;
 mod motion;
@@ -24,6 +25,7 @@ use oso_core::keymap::Keymap;
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
+    mark::BINDINGS,
     messages::BINDINGS,
     #[cfg(feature = "dev")]
     minibuffer::DEV,

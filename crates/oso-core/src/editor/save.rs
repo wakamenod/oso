@@ -16,7 +16,8 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use super::{Editor, clip_cursors};
+use super::Editor;
+use super::follow::clip_selections;
 use crate::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp, ReadOnly, Replacement};
 use crate::rope::Rope;
 
@@ -228,7 +229,7 @@ impl Editor {
             Ok::<(), ()>(())
         });
         // A `\n` after a lone `\r` makes one cluster of the two.
-        clip_cursors(selections, &display, &[]);
+        clip_selections(selections, &display, &[], true);
     }
 
     /// The saves queued and not yet taken, each with the text it is to write.

@@ -45,7 +45,7 @@ keys: M->
 │            │
 :^           :
 =-- test  13:=
-"            "
+"Mark set    "
 
 keys: M-<
 │line 00     │
@@ -54,4 +54,4 @@ keys: M-<
 │line 02     │
 │line 03     │
 =-- test  1:0=
-"            "
+"Mark set    "

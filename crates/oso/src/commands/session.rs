@@ -1,5 +1,5 @@
 //! Commands for the session as a whole: cancelling what is in progress, and
-//! exiting (ADR 0034, ADR 0059).
+//! exiting (ADR 0034, ADR 0059, ADR 0071).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -11,7 +11,7 @@ use oso_core::editor::Quit;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "keyboard-quit",
-        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the innermost prompt or question closes, and runs nothing.",
+        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, and then the innermost prompt or question closes, and runs nothing.",
         args: ArgSpec::None,
         run: keyboard_quit,
     },
@@ -24,7 +24,7 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    if ctx.editor.quit() == Quit::Prompt {
+    if ctx.editor.quit() != Quit::Nothing {
         ctx.request_redraw();
     }
     log::debug!("Quit");

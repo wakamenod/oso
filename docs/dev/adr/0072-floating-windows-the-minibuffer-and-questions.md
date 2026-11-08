@@ -147,7 +147,8 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 - **`run-command` gives the answer in its `arg`,** as it gives a count, and refuses a command that
   reads a number without one, or a passphrase at all. It never opens a prompt that waits for a person to
   read an argument. A flow tests the prompt with `send-keys`.
-- `goto-line` on `M-g g` and `M-g M-g` is the first such command. `M-x` waits for M2-17.
+- `goto-line` on `M-g g` and `M-g M-g` is the first such command. As `M-<` does, it sets the mark
+  where the cursors were (ADR 0071). `M-x` waits for M2-17.
 
 ### Questions
 
@@ -205,7 +206,8 @@ covered cursor, long input and the IME. They are marked "(chosen)" where they ap
 6. extra cursors (M2-21);
 7. otherwise nothing more.
 
-Steps 3 to 7 are one function, `Editor::quit`, which returns what it did. `keyboard-quit` is a thin
+Steps 3 to 7 are one function, `Editor::quit`, which returns what it did (`Quit::Region`,
+`Quit::Prompt` or `Quit::Nothing`). `keyboard-quit` is a thin
 call into it in every keymap, the prompt's too, so M2-13, M2-20 and M2-21 add their step there and
 nowhere else.
 

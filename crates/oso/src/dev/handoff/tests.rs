@@ -68,10 +68,12 @@ fn a_state_round_trips() {
         Selection::at(5),
         Selection {
             cursor: 11,
+            mark: None,
             goal: Some(Goal::Column(3)),
         },
         Selection {
             cursor: 15,
+            mark: None,
             goal: Some(Goal::LineEnd),
         },
     ];

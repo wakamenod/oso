@@ -1,0 +1,19 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: abcdef\\n"
+---
+a region after the preedit
+│aかなbcdef    │
+: <><>^        :
++     *****    +
+_ ----         _
+=-- test  1:1  =
+"              "
+
+a region before the preedit
+│abcdefかな    │
+:      <><>^   :
++ *****        +
+_      ----    _
+=-- test  1:6  =
+"              "

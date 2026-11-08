@@ -216,7 +216,10 @@ impl App {
         let mut status = oso_core::editor::Status::default();
         self.editor.status_into(&mut status);
         let render_state = &mut view.render_state;
-        let capture = with_panes(&self.editor, &status, |panes| render_state.capture(panes));
+        let cells = &mut Vec::new();
+        let capture = with_panes(&self.editor, &status, cells, |panes| {
+            render_state.capture(panes)
+        });
         log::debug!(
             "screenshot submitted on the UI thread in {:?}",
             started.elapsed()

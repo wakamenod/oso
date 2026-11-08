@@ -334,8 +334,8 @@ impl Dispatcher {
         self.last = None;
     }
 
-    /// Runs one command with `input` as the text that invoked it and `key_char` the
-    /// character on its key, in an undo group of its own, so that it undoes as one
+    /// Runs one command, invoked as `invocation` says but for its repeats, which are
+    /// counted here, in an undo group of its own, so that it undoes as one
     /// step across all cursors. Then keeps the prefix argument it left, and scrolls
     /// the selected window to keep its cursor in view, as Emacs's redisplay does. A
     /// failure is not fatal (ADR 0014), and leaves a message, which stays out of the log
@@ -416,29 +416,13 @@ impl Dispatcher {
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         let reading = self.keymaps.reading();
         let layers = self.keymaps.active(&reading, self.prefix, editor);
-        match self.resolver.feed(&layers, key) {
-            Resolution::Command(id) => {
-                // The text comes from the key, so keys from the window and from
-                // the socket type the same. `KeyEvent.text` would type `q` for an
-                // unbound `C-q` (ADR 0051).
-                let mut utf8 = [0; 4];
-                let input = key.text().map_or("", |c| c.encode_utf8(&mut utf8));
-                let key_char = match key.key {
-                    Key::Char(c) => Some(c),
-                    Key::Named(_) => None,
-                };
-                let args = Args::with_prefix(self.prefix.take());
-                let invocation = Invocation {
-                    input,
-                    key_char,
-                    ..Invocation::default()
-                };
-                let effects = self.run_or_read(editor, id, args, invocation).0;
-                effects.union(self.after_prompts(editor))
-            }
+        let (id, shifted) = match self.resolver.feed(&layers, key) {
+            Resolution::Command(id) => (id, false),
+            // A shifted key that only its unshifted form binds (ADR 0071).
+            Resolution::Shifted(id) => (id, true),
             Resolution::Pending => {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
-                Effects::default()
+                return Effects::default();
             }
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
@@ -458,15 +442,32 @@ impl Dispatcher {
                     editor.echo(format!("{} is undefined", display_keys(keys)));
                 }
                 self.forget_keys();
-                Effects::default()
+                return Effects::default();
             }
             Resolution::Cancelled => {
                 log::debug!("Quit");
                 editor.echo("Quit");
                 self.forget_keys();
-                Effects::default()
+                return Effects::default();
             }
-        }
+        };
+        // The text comes from the key, so keys from the window and from the socket
+        // type the same. `KeyEvent.text` would type `q` for an unbound `C-q` (ADR 0051).
+        let mut utf8 = [0; 4];
+        let input = key.text().map_or("", |c| c.encode_utf8(&mut utf8));
+        let key_char = match key.key {
+            Key::Char(c) => Some(c),
+            Key::Named(_) => None,
+        };
+        let args = Args::with_prefix(self.prefix.take());
+        let invocation = Invocation {
+            input,
+            key_char,
+            shifted,
+            ..Invocation::default()
+        };
+        let effects = self.run_or_read(editor, id, args, invocation).0;
+        effects.union(self.after_prompts(editor))
     }
 }
 
@@ -534,6 +535,8 @@ mod emergency_tests;
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
+#[cfg(test)]
+mod mark_tests;
 #[cfg(test)]
 mod motion_tests;
 #[cfg(test)]

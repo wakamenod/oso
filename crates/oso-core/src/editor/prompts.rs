@@ -19,6 +19,8 @@ use crate::window::{ViewSize, Window};
 /// What one `C-g` did.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Quit {
+    /// It hid the selected window's region, on every cursor (ADR 0071).
+    Region,
     /// It closed the innermost prompt, and ran nothing.
     Prompt,
     /// Nothing was in progress.
@@ -287,10 +289,15 @@ impl Editor {
     }
 
     /// Does what one `C-g` does once a pending prefix is dealt with: the first that applies of
-    /// the steps of ADR 0072, which M2-13 (the region), M2-20 (isearch) and M2-21 (extra
-    /// cursors) add their part to, in this order. Closing a question runs nothing and forgets
+    /// the steps of ADR 0072: the region, then the innermost prompt. M2-20 (isearch) and M2-21
+    /// (extra cursors) add their part after them, in that order. Closing a question runs nothing and forgets
     /// a refused exit.
     pub fn quit(&mut self) -> Quit {
+        // A region in a prompt goes before the prompt, as with Emacs's
+        // `delete-selection-mode`.
+        if self.deactivate_mark() {
+            return Quit::Region;
+        }
         if let Some(prompt) = self.prompts.last() {
             if prompt.kind.is_question() {
                 self.reset_exit_guard();

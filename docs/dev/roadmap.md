@@ -180,7 +180,8 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 
 **Everyday editing.**
 
-- **M2-13** (after M2-6): mark and region, drawn as pane decorations.
+- **M2-13** (after M2-6): mark and region, drawn as rectangles in the window's pane
+  ([ADR 0071](adr/0071-mark-and-region.md)).
 - **M2-14** (after M2-13): kill ring, with `M-d` and `M-DEL` as kills, `C-w`, `M-w`, `C-k`, `C-y`, typing over a
   region, per-cursor kills and the OS clipboard.
 - **M2-15** (after M2-2, M2-7, M2-13 and M2-14): `oso dev` carries unsaved text, and

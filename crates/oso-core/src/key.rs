@@ -267,6 +267,24 @@ impl KeyPress {
         };
         Some(Self { modifiers, key })
     }
+
+    /// This press without Shift, as Emacs's shift translation reads a shifted key
+    /// that is bound to nothing: `S-<right>` is `<right>` and `C-F` is `C-f`.
+    /// `None` for a press with no Shift, and for an upper-case letter with no
+    /// Control, Meta or Super, which types itself.
+    pub fn unshifted(self) -> Option<Self> {
+        let key = match self.key {
+            Key::Named(_) if self.modifiers.contains(Modifiers::SHIFT) => self.key,
+            Key::Char(c) if c.is_ascii_uppercase() && !self.modifiers.is_empty() => {
+                Key::Char(c.to_ascii_lowercase())
+            }
+            _ => return None,
+        };
+        Some(Self {
+            modifiers: self.modifiers.without(Modifiers::SHIFT),
+            key,
+        })
+    }
 }
 
 impl fmt::Display for KeyPress {
@@ -403,6 +421,18 @@ mod tests {
         assert_eq!(text("語"), Some('語'));
         for keys in ["C-a", "M-a", "s-a", "C-A", "RET", "TAB", "DEL", "S-<left>"] {
             assert_eq!(text(keys), None, "{keys}");
+        }
+    }
+
+    #[test]
+    fn shift_comes_off_a_named_key_and_a_letter_with_modifiers() {
+        let unshifted = |keys: &str| press(keys).unshifted().map(|key| key.to_string());
+        assert_eq!(unshifted("S-<right>").as_deref(), Some("<right>"));
+        assert_eq!(unshifted("C-S-<home>").as_deref(), Some("C-<home>"));
+        assert_eq!(unshifted("C-F").as_deref(), Some("C-f"));
+        assert_eq!(unshifted("M-F").as_deref(), Some("M-f"));
+        for keys in ["<right>", "C-f", "F", "A", "C-!", "M-<", "C-語"] {
+            assert_eq!(unshifted(keys), None, "{keys}");
         }
     }
 

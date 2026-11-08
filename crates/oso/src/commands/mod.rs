@@ -9,6 +9,7 @@
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+mod mark;
 mod messages;
 mod minibuffer;
 mod motion;
@@ -32,6 +33,7 @@ const TABLES: &[&[Command]] = &[
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
+    mark::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,
     motion::COMMANDS,

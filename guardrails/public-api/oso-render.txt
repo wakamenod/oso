@@ -30,6 +30,7 @@ pub oso_render::Face::FloatBorder
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
+pub oso_render::Face::Region
 pub oso_render::Face::Text
 pub oso_render::Face::Warning
 impl core::clone::Clone for oso_render::Face
@@ -154,5 +155,6 @@ pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
 pub oso_render::TextView::cursor_style: oso_render::CursorStyle
 pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
+pub oso_render::TextView::region_cells: &'a [oso_core::frame::CellRect]
 pub oso_render::TextView::revision: u64
 pub oso_render::TextView::scroll: oso_core::window::Scroll

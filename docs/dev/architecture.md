@@ -120,11 +120,13 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   ([ADR 0057](adr/0057-frame-layout.md)).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
-  goal column for vertical motion and, from M2, its own mark. See
-  [ADR 0007](adr/0007-multi-cursor.md). Every window's cursors follow an edit
-  of the buffer it shows, and are clipped to display clusters. In the selected
-  window a cursor at an insertion ends after it; in others it stays before, as
-  an Emacs marker.
+  goal column for vertical motion and its own mark. The set says whether the
+  regions show, for all of them, and keeps the primary's mark ring. See
+  [ADR 0007](adr/0007-multi-cursor.md) and [ADR 0071](adr/0071-mark-and-region.md).
+  Every window's cursors follow an edit of the buffer it shows, and are clipped
+  to display clusters. In the selected window a cursor at an insertion ends after
+  it; in others it stays before, as an Emacs marker. Marks follow as markers in
+  every window, and an edit hides the regions.
 - **Edits** go through `Editor::apply_edits`, but for an internal buffer's, which have no undo
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), and a recovered emergency copy's whole text
   (`Editor::replace_text_from`, [ADR 0064](adr/0064-recovering-an-emergency-copy.md)): one replacement per cursor, for

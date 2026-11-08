@@ -234,6 +234,8 @@ pub struct Invocation<'a> {
     pub answer: Option<&'a str>,
     /// It runs because the person answered `y` to a question it asked.
     pub confirmed: bool,
+    /// Its key had Shift, which its binding has not (Emacs's shift translation).
+    pub shifted: bool,
 }
 
 impl fmt::Debug for Invocation<'_> {
@@ -241,6 +243,7 @@ impl fmt::Debug for Invocation<'_> {
         f.debug_struct("Invocation")
             .field("repeats", &self.repeats)
             .field("confirmed", &self.confirmed)
+            .field("shifted", &self.shifted)
             .finish_non_exhaustive()
     }
 }
@@ -307,6 +310,12 @@ impl<'a> Ctx<'a> {
     /// question said.
     pub fn confirmed(&self) -> bool {
         self.invocation.confirmed
+    }
+
+    /// Whether the key that invoked the command had a Shift that its binding has
+    /// not, as `S-<right>` runs `forward-char`. A motion then selects (ADR 0071).
+    pub fn shifted(&self) -> bool {
+        self.invocation.shifted
     }
 
     /// Leaves `prefix` for the next command, in place of the one this command got.

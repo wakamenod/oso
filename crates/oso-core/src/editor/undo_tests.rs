@@ -7,7 +7,7 @@
 use super::edit_tests::{cursors, edit, editor_with, plain_edit, second_window, self_insert, text};
 use super::*;
 use crate::display_map::TabWidth;
-use crate::selection::Selection;
+use crate::selection::{MarkActive, Selection};
 
 #[test]
 fn undoing_to_the_saved_state_is_unmodified_and_redoing_is_modified() {
@@ -349,17 +349,22 @@ fn a_failed_redo_inside_a_command_does_not_split_its_group() {
 }
 
 #[test]
-fn edits_keep_a_selections_other_fields_to_themselves() {
-    // Only the cursor and the goal change, so a mark added to `Selection` has
-    // to be mapped on purpose: this builds the selection field by field.
+fn edits_move_every_field_of_a_selection_that_holds_an_offset() {
+    // This builds the selection field by field, so a field added to `Selection`
+    // has to be thought about here.
     let selection = Selection {
         cursor: 2,
+        mark: Some(4),
         goal: Some(crate::selection::Goal::LineEnd),
     };
     let (mut editor, id) = editor_with("abcdef");
     editor.windows[0].selections = SelectionSet::from_parts(vec![selection], 0).unwrap();
     editor.apply_edits(id, &[edit(0..0, "x")]).unwrap();
-    assert_eq!(*editor.window().selections.primary(), Selection::at(3));
+    let moved = Selection {
+        mark: Some(5),
+        ..Selection::at(3)
+    };
+    assert_eq!(*editor.window().selections.primary(), moved);
 }
 
 #[test]
@@ -492,4 +497,50 @@ fn a_step_kept_apart_joins_neither_side() {
     assert_eq!(text(&editor, id), "aあ");
     editor.undo().unwrap();
     assert_eq!(text(&editor, id), "a");
+}
+
+#[test]
+fn an_edit_hides_the_regions_of_every_window_showing_the_buffer() {
+    let (mut editor, id) = editor_with("abcdef");
+    let other = second_window(&mut editor, id, &[5]);
+    for window in &mut editor.windows {
+        window.selections.push_marks();
+        window.selections.set_mark_active(MarkActive::Active);
+    }
+    plain_edit(&mut editor, id, 0..0, "x");
+    for window in &editor.windows {
+        assert_eq!(window.selections.mark_active(), MarkActive::Inactive);
+    }
+    // The marks stay, and follow.
+    assert_eq!(editor.windows[other].selections.primary().mark, Some(6));
+    assert_eq!(editor.window().selections.primary().mark, Some(0));
+}
+
+#[test]
+fn undo_puts_back_the_marks_hides_the_region_and_leaves_the_ring() {
+    let (mut editor, id) = editor_with("abcdef");
+    let set = |cursor, mark| {
+        let selection = Selection {
+            mark: Some(mark),
+            ..Selection::at(cursor)
+        };
+        SelectionSet::from_parts(vec![selection], 0).unwrap()
+    };
+    editor.windows[0].selections = set(2, 4);
+    plain_edit(&mut editor, id, 0..0, "x");
+    // A mark pushed after the edit stays in the ring through the undo.
+    editor.windows[0].selections = set(1, 6);
+    editor.windows[0].selections.push_marks();
+    editor.windows[0]
+        .selections
+        .set_mark_active(MarkActive::Active);
+    editor.undo().unwrap();
+    let selections = &editor.window().selections;
+    assert_eq!(*selections.primary(), *set(2, 4).primary());
+    assert_eq!(selections.mark_active(), MarkActive::Inactive);
+    assert_eq!(
+        selections.mark_ring().iter().collect::<Vec<_>>(),
+        [5],
+        "6 less the x"
+    );
 }

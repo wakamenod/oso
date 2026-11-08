@@ -5,7 +5,7 @@
 //! OS with no window.
 
 use oso_core::buffer::{Buffer, Replacement};
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Effects};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Effects, Invocation};
 use oso_core::display_map::DisplayPoint;
 use oso_core::editor::Editor;
 use oso_core::key::KeySequence;
@@ -84,15 +84,14 @@ fn run(
     input: &str,
 ) -> (Effects, Result<(), String>) {
     let id = dispatcher.registry.lookup(name).unwrap();
-    let invocation = oso_core::command::Invocation {
-        input,
-        ..Default::default()
-    };
     let (effects, result) = dispatcher.execute(
         editor,
         id,
         Args::numeric(count),
-        invocation,
+        Invocation {
+            input,
+            ..Invocation::default()
+        },
         super::Step::MayJoin,
     );
     (effects, result.map_err(|e| e.to_string()))
