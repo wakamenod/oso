@@ -10,7 +10,7 @@
 
 use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
-use oso_core::minibuffer::{Kind, PromptLayout};
+use oso_core::minibuffer::{self, Kind, PromptLayout};
 use oso_render::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
 
 /// The most panes a float takes.
@@ -85,7 +85,9 @@ impl<'a> Parts<'a> {
                 ]
             })
             .collect();
-        let message = [" [", self.message.unwrap_or(""), "]"].map(|text| Span {
+        let (said, cut) =
+            minibuffer::fit_message(self.message.unwrap_or(""), self.layout.message.columns);
+        let message = [" [", said, cut, "]"].map(|text| Span {
             text,
             face: Face::Float,
         });
@@ -96,7 +98,7 @@ impl<'a> Parts<'a> {
 /// The spans of a float's rows, which its lines borrow.
 pub(super) struct Spans<'a> {
     label: Vec<[Span<'a>; 2]>,
-    message: [Span<'a>; 3],
+    message: [Span<'a>; 4],
 }
 
 impl<'a> Spans<'a> {

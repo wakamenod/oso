@@ -524,6 +524,8 @@ mod motion_tests;
 #[cfg(test)]
 mod prefix_tests;
 #[cfg(test)]
+mod prompt_tests;
+#[cfg(test)]
 mod recovery_tests;
 #[cfg(test)]
 mod save_tests;

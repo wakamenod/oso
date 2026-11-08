@@ -984,6 +984,8 @@ mod edit_tests;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]
+mod prompt_tests;
+#[cfg(test)]
 mod save_tests;
 #[cfg(test)]
 mod undo_tests;

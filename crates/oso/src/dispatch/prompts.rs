@@ -69,8 +69,13 @@ impl Dispatcher {
         };
         let (prompt, kind) = kind;
         if let Err(error) = editor.open_prompt(prompt, kind) {
-            editor.message(error.to_string());
-            return (Effects::default(), Ok(()));
+            // The innermost prompt is where the person looks.
+            editor.prompt_says(error.to_string());
+            let effects = Effects {
+                redraw: true,
+                ..Effects::default()
+            };
+            return (effects, Ok(()));
         }
         self.reading.push(Reading {
             id,

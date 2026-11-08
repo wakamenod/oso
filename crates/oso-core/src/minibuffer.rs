@@ -37,6 +37,12 @@ pub const MAX_LABEL_ROWS: usize = 3;
 /// The columns a prompt that reads an answer leaves for it, past the end of its text.
 const INPUT_COLUMNS: usize = 20;
 
+/// The columns a message leaves for the answer, as it takes the end of the answer's row.
+const MIN_INPUT_COLUMNS: usize = 8;
+
+/// What ends a message cut to fit.
+const CUT: &str = "…";
+
 /// What a prompt reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
@@ -165,7 +171,7 @@ impl fmt::Debug for Outcome {
 /// disk or carried through a restart (ADR 0013, ADR 0051).
 #[derive(Default)]
 pub struct Histories {
-    lists: Vec<(&'static str, VecDeque<String>)>,
+    pub(crate) lists: Vec<(&'static str, VecDeque<String>)>,
 }
 
 impl Histories {
@@ -222,22 +228,30 @@ pub fn cells_of(text: &str) -> usize {
     text_clusters(text, 0).map(|cluster| cluster.cells).sum()
 }
 
-/// `text` cut into rows of at most `width` cells at whole clusters, at most `rows` of
-/// them. Returns the rows and whether some was left over, in which case the last row
-/// leaves a cell for `…`.
+/// `text` cut into rows of at most `width` cells, after the last space that fits, or at a
+/// whole cluster where a word is longer than a row, and at most `rows` of them. Returns the
+/// rows and whether some was left over, in which case the last row leaves a cell for `…`.
 fn rows_of(text: &str, width: usize, rows: usize) -> (Vec<Range<usize>>, bool) {
     let width = width.max(1);
     let mut out = Vec::new();
     let (mut start, mut used) = (0, 0);
+    // Where the row could end after a space, and the cells it would hold then.
+    let mut space = None;
     for cluster in text_clusters(text, 0) {
         if used + cluster.cells > width && used > 0 {
-            out.push(start..cluster.offset);
+            let (end, kept) = space
+                .filter(|&(end, _)| end > start)
+                .unwrap_or((cluster.offset, used));
+            out.push(start..end);
             if out.len() == rows {
                 return (cut_last(text, out, width), true);
             }
-            (start, used) = (cluster.offset, 0);
+            (start, used, space) = (end, used - kept, None);
         }
         used += cluster.cells;
+        if cluster.text == " " {
+            space = Some((cluster.offset + 1, used));
+        }
     }
     out.push(start..text.len());
     (out, false)
@@ -280,8 +294,8 @@ fn label_width(kind: Kind, inner_columns: usize) -> usize {
 }
 
 /// Where the label, the answer and a message go in `regions`, the float of a prompt with
-/// `label`. A message takes the end of the last row, as far as half of it, and the answer
-/// what is between.
+/// `label`. A message takes the end of the last row, leaving the answer at least 8 columns,
+/// and the answer what is between. A question has no answer to leave room for.
 pub fn layout(
     regions: FloatRegions,
     label: &str,
@@ -297,9 +311,13 @@ pub fn layout(
             .len()
             .saturating_sub(1)
             .min(inner.rows.saturating_sub(1));
-    let message_columns = message.map_or(0, |message| {
-        (cells_of(message) + 3).min(inner.columns.saturating_sub(after) / 2)
-    });
+    let left = inner.columns.saturating_sub(after);
+    let room = if kind.is_question() {
+        left
+    } else {
+        left.saturating_sub(MIN_INPUT_COLUMNS)
+    };
+    let message_columns = message.map_or(0, |message| (cells_of(message) + 3).min(room));
     let input_columns = if kind.is_question() {
         0
     } else {
@@ -328,6 +346,25 @@ pub fn layout(
         input,
         message,
     }
+}
+
+/// `message` cut at a whole cluster to fit, with the brackets around it, in `columns` cells,
+/// and `…` if it was cut: what a prompt's message row shows.
+pub fn fit_message(message: &str, columns: usize) -> (&str, &'static str) {
+    let room = columns.saturating_sub(3);
+    if cells_of(message) <= room {
+        return (message, "");
+    }
+    let mut used = 0;
+    let mut end = 0;
+    for cluster in text_clusters(message, 0) {
+        used += cluster.cells;
+        if used >= room {
+            break;
+        }
+        end = cluster.offset + cluster.text.len();
+    }
+    (&message[..end], CUT)
 }
 
 #[cfg(test)]
@@ -431,6 +468,14 @@ mod tests {
 
     fn layout_rows(text: &str, kind: Kind, width: usize) -> usize {
         label_rows(text, kind, width)
+    }
+
+    #[test]
+    fn a_message_that_does_not_fit_is_cut_with_its_brackets_kept() {
+        assert_eq!(fit_message("No match", 11), ("No match", ""));
+        assert_eq!(fit_message("Beginning of buffer", 12), ("Beginnin", "…"));
+        let (shown, cut) = fit_message("全角の文字", 9);
+        assert_eq!((shown, cut), ("全角", "…"));
     }
 
     #[test]
