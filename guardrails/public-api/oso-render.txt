@@ -51,6 +51,7 @@ pub oso_render::PaneContent::Text(oso_render::TextView<'a>)
 pub enum oso_render::Redraw
 pub oso_render::Redraw::Needed
 pub oso_render::Redraw::NotNeeded
+pub oso_render::Redraw::WhenVisible
 impl core::clone::Clone for oso_render::Redraw
 pub fn oso_render::Redraw::clone(&self) -> oso_render::Redraw
 impl core::cmp::Eq for oso_render::Redraw

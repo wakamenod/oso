@@ -82,6 +82,7 @@ old one's status.
 | 0073 | [Secure input in secret buffers](0073-secure-input-in-secret-buffers.md) | Accepted |
 | 0074 | [The kill ring and the clipboard](0074-the-kill-ring-and-the-clipboard.md) | Accepted |
 | 0075 | [A float as a panel attached to the top edge](0075-a-float-as-a-panel-attached-to-the-top-edge.md) | Accepted |
+| 0080 | [Workflow dependency lockfile](0080-workflow-dependency-lockfile.md) | Accepted |
 
 ## Template
 

@@ -141,8 +141,10 @@ impl View {
 
     /// Requests a redraw if the renderer asked for one.
     pub(super) fn redraw_if(&self, redraw: Redraw) {
-        if redraw == Redraw::Needed {
-            self.window.request_redraw();
+        match redraw {
+            Redraw::Needed => self.window.request_redraw(),
+            Redraw::WhenVisible => self.window.redraw_when_visible(),
+            Redraw::NotNeeded => {}
         }
     }
 }
