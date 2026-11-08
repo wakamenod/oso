@@ -28,13 +28,15 @@ The author chose, from options put to them:
 5. **A commit goes where typing goes at that moment,** also when the IME turns off because
    another buffer was selected. A buffer that refuses text refuses it, and one that may hold
    secrets drops the composition, as ADR 0069 has it.
-6. **The input method learns where each character of the composition is drawn.** With the
-   cursor area, the app gives the x offset of each preedit character on its row, from the
-   frame that drew it, so `firstRectForCharacterRange` answers any range inside the marked
-   text and the candidate window follows the segment being converted.
+6. **The input method learns where each character of the composition is drawn.** After
+   each event that changed the composition, the app gives the window the x of each of its
+   characters from the cursor's cell, as the next frame lays them out, so
+   `firstRectForCharacterRange` answers any range inside the marked text and the candidate
+   window follows the segment being converted. The window layer turns the input method's
+   UTF-16 ranges into characters. A composition of more than 4096 characters gets the cell.
 7. **A range outside the marked text is answered with the cursor area,** as now, and not
    laid out.
-8. **The cursor's line is given to the window layer with each frame in which the cursor or
+8. **The cursor's line is given to the window layer after each event in which the cursor or
    its line changed, and only while the IME is on.** It is bounded as ADR 0070 says: up to
    2000 bytes before the cursor and 2000 after, cut on grapheme cluster boundaries, with every
    range counted from the excerpt's start, and only from a buffer whose verdict is
@@ -54,11 +56,20 @@ The author chose, from options put to them:
   reach the disk, and its buffer has an emergency copy either way.
 - A Dock quit behaves as the quit key does.
 - No call to the OS is made for a key that only moves the cursor.
-- The candidate window can follow the segment being converted, at the cost of a short list of
-  offsets with each frame that draws a composition.
-- With the IME on, a frame in which the cursor or its line changed copies at most 4000 bytes
+- The candidate window can follow the segment being converted, at the cost of a list of at
+  most 4096 positions after each event that changes a composition.
+- With the IME on, an event in which the cursor or its line changed copies at most 4000 bytes
   for the input method. Until reconversion lands, an input method that offers it inserts at
   the cursor instead of replacing the text it read.
+
+## Changes to accepted ADRs
+
+[ADR 0070](0070-windowing-and-input-without-winit.md) has the handler answer the input
+method's queries through `Handler::text_input`. Choices 6 and 8 replace that: the app gives
+the window layer what the answers need after each event that changes it (the cursor's cell,
+where the composition's characters are, and the cursor's line), and the layer keeps them and
+answers from them, with no call into the handler while the input method asks. No OS call
+is made for them: they stay in oso's process until the input method asks.
 
 ## Alternatives considered
 
