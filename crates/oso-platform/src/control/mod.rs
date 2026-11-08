@@ -69,7 +69,9 @@ impl Socket {
 /// nothing.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Peer {
-    /// The process that connected.
+    /// The process the system names for the other end. On Linux it is the one that connected.
+    /// On macOS it is the last one that sent or received on the client's socket, which a
+    /// process can hand on to another, and the system keeps it once that process has ended.
     pub process: Option<PeerProcess>,
     /// The process that started it.
     pub parent: Option<PeerProcess>,

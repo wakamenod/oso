@@ -7,12 +7,16 @@
 //!
 //! - macOS: `getpeereid` and `LOCAL_PEERPID`, then `proc_pidinfo` for the name and the
 //!   parent, and `proc_pidpath` for the program.
-//! - Linux: `SO_PEERCRED`, then `/proc/<pid>/comm`, `/proc/<pid>/stat` and `/proc/<pid>/exe`.
+//! - Linux: `SO_PEERCRED`, then `/proc/<pid>/comm`, `/proc/<pid>/stat`, and `/proc/<pid>/exe`
+//!   against `/proc/self/exe` by device and inode.
 //! - Other Unix systems: every peer is refused, and nothing is named.
 
 use std::io;
 use std::os::unix::net::UnixStream;
-use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "macos", test))]
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
 use crate::control::{Peer, PeerProcess};
 
@@ -112,12 +116,36 @@ pub fn of(stream: &UnixStream) -> Peer {
     Peer {
         process: Some(PeerProcess { pid, name }),
         parent,
-        runs_this_program: program(pid).is_some_and(|path| is_this_program(&path)),
+        runs_this_program: runs_this_program(pid),
     }
+}
+
+/// Whether the process `pid` runs this process's own program.
+#[cfg(target_os = "macos")]
+fn runs_this_program(pid: u32) -> bool {
+    program(pid).is_some_and(|path| is_this_program(&path))
+}
+
+/// Whether the process `pid` runs this process's own program: the same file, by device and
+/// inode, so that a program replaced on disk since it started, which `/proc` names
+/// `(deleted)`, or one seen through another mount, still counts.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn runs_this_program(pid: u32) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let theirs = std::fs::metadata(format!("/proc/{pid}/exe"));
+    let ours = std::fs::metadata("/proc/self/exe");
+    matches!((theirs, ours), (Ok(a), Ok(b)) if a.dev() == b.dev() && a.ino() == b.ino())
+}
+
+/// Nothing is known here, so no process runs this program.
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
+fn runs_this_program(_pid: u32) -> bool {
+    false
 }
 
 /// Whether `path` is this process's own program. Both sides are resolved, so a link to it
 /// counts; anything that cannot be resolved does not.
+#[cfg(any(target_os = "macos", test))]
 fn is_this_program(path: &Path) -> bool {
     let ours = std::env::current_exe().and_then(std::fs::canonicalize);
     let theirs = std::fs::canonicalize(path);
@@ -226,12 +254,6 @@ fn describe(pid: u32) -> (Option<String>, Option<u32>) {
     (name, parent)
 }
 
-/// The program the process `pid` runs.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn program(pid: u32) -> Option<PathBuf> {
-    std::fs::read_link(format!("/proc/{pid}/exe")).ok()
-}
-
 /// The parent's process ID in a `/proc/<pid>/stat` line: the field after the state, which
 /// follows the name in parentheses. The name may hold spaces and parentheses itself, so this
 /// starts after the last `)`.
@@ -247,15 +269,9 @@ fn describe(_pid: u32) -> (Option<String>, Option<u32>) {
     (None, None)
 }
 
-/// Nothing is known here.
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "android")))]
-fn program(_pid: u32) -> Option<PathBuf> {
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{is_this_program, of, parent_in_stat};
+    use super::{is_this_program, of, parent_in_stat, runs_this_program};
     use std::os::unix::net::UnixStream;
 
     #[test]
@@ -271,6 +287,10 @@ mod tests {
         assert!(is_this_program(&std::env::current_exe().unwrap()));
         assert!(!is_this_program(std::path::Path::new("/bin/sh")));
         assert!(!is_this_program(std::path::Path::new("/no/such/program")));
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            assert!(runs_this_program(std::process::id()));
+        }
+        assert!(!runs_this_program(1));
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
