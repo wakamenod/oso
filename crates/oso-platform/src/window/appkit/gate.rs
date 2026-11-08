@@ -1,7 +1,7 @@
 //! What the input method may learn of the cursor: the cell the app last gave, where the
-//! composition is laid out and the excerpt of the cursor's line, answered only while oso has the IME on (ADR 0069,
-//! ADR 0070, ADR 0077); when secure input is held (ADR 0073); and a frame owed to a window
-//! that was hidden. Plain values, tested without a window or a clock.
+//! composition is laid out and the excerpt of the cursor's line, answered only while oso has
+//! the IME on (ADR 0069, ADR 0070, ADR 0077); when secure input is held (ADR 0073); and a
+//! frame owed to a window that was hidden. Plain values, tested without a window or a clock.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 

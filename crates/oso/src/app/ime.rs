@@ -59,7 +59,7 @@ pub(super) struct ImeState {
     /// The next layout is worked out here, so that a key of a composition allocates nothing.
     scratch: Vec<f32>,
     /// The excerpt of the cursor's line is worked out here and handed to the window, which
-    /// leaves the one it held here for reuse. Never logged.
+    /// leaves the one it held here, emptied at once and kept for its room. Never logged.
     excerpt: String,
     /// What the excerpt last given was worked out from ([`Editor::excerpt_stamp`]), or none
     /// while the IME is off.
@@ -284,12 +284,20 @@ impl App {
         if excerpt_for == self.ime.excerpt_for {
             return;
         }
+        // During a composition the excerpt the input method reads stays as it was, so that
+        // the composition's place in it does not move under the input method, as a reload or
+        // an edit in another window would move it. It is dropped at once where none is given.
+        if excerpt_for.is_some() && self.ime.excerpt_for.is_some() && self.composing() {
+            return;
+        }
         self.ime.excerpt_for = excerpt_for;
         let cursor = match excerpt_for {
             Some(_) => self.editor.cursor_excerpt(&mut self.ime.excerpt),
             None => None,
         };
         view.window.set_ime_excerpt(&mut self.ime.excerpt, cursor);
+        // What comes back is the excerpt the window held before: no text of a buffer stays.
+        self.ime.excerpt.clear();
     }
 }
 
