@@ -4,6 +4,7 @@
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
+mod buffers;
 mod edit;
 mod kill;
 mod mark;
@@ -28,6 +29,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
     kill::BINDINGS,
     mark::BINDINGS,
+    buffers::BINDINGS,
     messages::BINDINGS,
     #[cfg(feature = "dev")]
     minibuffer::DEV,

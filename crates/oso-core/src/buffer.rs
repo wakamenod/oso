@@ -30,12 +30,14 @@ use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 mod baseline;
 mod internal;
 mod mode;
+mod names;
 mod recovery;
 mod splice;
 
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, FileStamp};
 pub use mode::Mode;
+pub(crate) use names::distinct as distinct_names;
 use splice::{SpliceText, apply, normalized, offset_edit};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
@@ -532,6 +534,11 @@ impl Buffer {
     /// The buffer's name, such as `main.rs` or `*scratch*`.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Renames the buffer, as the editor tells buffers of files with one name apart.
+    pub(crate) fn set_name(&mut self, name: String) {
+        self.name = name;
     }
 
     /// The file the buffer visits, if any.

@@ -19,6 +19,11 @@ use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, Edge};
 use crate::selection::SelectionSet;
 
+mod places;
+
+pub use places::Place;
+pub(crate) use places::{Places, Walk};
+
 /// Rows that `C-v` and `M-v` keep from the previous screen, as Emacs's
 /// `next-screen-context-lines`.
 pub const CONTEXT_LINES: usize = 2;
@@ -65,6 +70,8 @@ pub struct Window {
     /// What the window shows.
     scroll: Scroll,
     size: ViewSize,
+    /// Where it was in the buffers it showed before (ADR 0088).
+    places: Places,
 }
 
 impl Window {
@@ -75,6 +82,7 @@ impl Window {
             selections: SelectionSet::default(),
             scroll: Scroll::default(),
             size: ViewSize::default(),
+            places: Places::default(),
         }
     }
 
@@ -83,12 +91,41 @@ impl Window {
         self.buffer
     }
 
-    /// Shows `buffer` from its start, with one cursor.
-    pub(crate) fn show(&mut self, buffer: BufferId) {
+    /// Shows `buffer`, keeping where the window was in the one it leaves. Gives where it was
+    /// in `buffer` the last time, for the editor to clip to the text as it is now; until then it
+    /// shows `buffer` from its start, with one cursor. Showing the buffer it shows starts it over
+    /// there. Ends a walk of `M-,` and `M-/`.
+    pub(crate) fn show(&mut self, buffer: BufferId) -> Option<Place> {
+        let mut places = std::mem::take(&mut self.places);
+        places.end_walk();
+        if buffer != self.buffer {
+            let place = Place {
+                selections: std::mem::take(&mut self.selections),
+                scroll: self.scroll,
+            };
+            places.leave(self.buffer, place);
+        }
+        let place = places.take(buffer);
         *self = Self {
             size: self.size,
+            places,
             ..Self::new(buffer)
         };
+        place
+    }
+
+    /// The buffers the window showed before the one it shows, most recent first, with where it
+    /// was in each.
+    pub fn places(&self) -> impl Iterator<Item = (BufferId, &Place)> {
+        self.places.iter()
+    }
+
+    pub(crate) fn places_mut(&mut self) -> &mut Places {
+        &mut self.places
+    }
+
+    pub(crate) fn walk(&self) -> Option<&Walk> {
+        self.places.walk(self.buffer)
     }
 
     /// The rows and columns shown in full.

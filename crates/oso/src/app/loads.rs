@@ -63,6 +63,26 @@ impl App {
         }
     }
 
+    /// Stops the loads of buffers that are gone, at once, and frees what killed buffers held
+    /// on a thread of its own, as a large one's trees take tens of milliseconds a GB to free
+    /// (ADR 0088).
+    pub(super) fn forget_killed(&mut self) {
+        let editor = &self.editor;
+        self.loads
+            .retain(|load| editor.buffer(load.handle.buffer()).is_some());
+        let freed = self.editor.take_freed();
+        if freed.is_empty() {
+            return;
+        }
+        let spawned = std::thread::Builder::new()
+            .name("oso-free".into())
+            .spawn(move || drop(freed));
+        if let Err(e) = spawned {
+            // What it held was freed here, as the thread could not take it.
+            log::warn!("could not free a killed buffer off the UI thread: {e}");
+        }
+    }
+
     /// A loading thread has an update for `buffer`: takes it in, and asks for a
     /// frame if it needs one.
     pub(super) fn load_updated(&mut self, buffer: BufferId) {
@@ -71,6 +91,7 @@ impl App {
             && let Some(update) = self.loads[index].handle.take()
         {
             let redraw = self.apply_load(index, update);
+            self.forget_killed();
             // Not in `apply_load`, as `poll_loads` runs on the frame path. A buffer still
             // loading is not at risk, so nothing is lost by waiting for this event.
             self.dispatcher.publish_for_emergency(&self.editor);
