@@ -25,7 +25,9 @@ mod ime;
 mod input;
 mod loads;
 mod log_gate;
+mod reloads;
 mod saves;
+mod searches;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
 // Both give the same loop, window and waker, under the one name.
 #[cfg(all(target_os = "macos", feature = "native-window"))]
@@ -54,12 +56,16 @@ pub enum UserEvent {
     Load(BufferId),
     /// A saving thread has ended.
     Save(SaveReport),
+    /// The watcher saw open files change on disk (ADR 0083).
+    Watch,
     /// No emergency copy could be written, for this reason (ADR 0062).
     NoEmergencyCopies(String),
     /// A thread working on the emergency copies on offer has something to say (ADR 0064).
     Copies(CopiesEvent),
     /// The clipboard's threads wrote or read (ADR 0074).
     Clipboard(clipboard::ClipboardEvent),
+    /// isearch's worker found or counted something (ADR 0082).
+    Search(oso_core::editor::SearchReport),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -76,6 +82,7 @@ pub enum UserEvent {
 /// - `dispatcher`: keymaps and commands, which turn keys into changes.
 /// - `modifiers`: the modifier keys held, as the window system last reported them.
 /// - `loads`: files loading in the background.
+/// - `disk`: what is known of open files on disk.
 /// - `dev`: the control socket, in dev builds where it started.
 pub struct App {
     view: Option<View>,
@@ -85,6 +92,8 @@ pub struct App {
     /// Wakes the event loop from other threads.
     waker: Waker,
     loads: Vec<Load>,
+    /// What is known of open files on disk, and the thread that looks at them.
+    disk: reloads::Disk,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
     /// What the panic hook and the end of the event loop write (ADR 0062).
@@ -109,6 +118,8 @@ pub struct App {
     ime: ime::ImeState,
     /// The OS clipboard's threads, or none if they could not start (ADR 0074).
     clipboard: Option<oso_platform::clipboard::Clipboard>,
+    /// isearch's worker (ADR 0082).
+    searcher: searches::Searcher,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -144,6 +155,7 @@ impl App {
         let leaving = Leaving::with_cell(emergency.agreement_cell());
         let offer = emergency.offer();
         let clipboard = clipboard::start(source, waker.clone());
+        let disk = reloads::Disk::start(waker.clone());
         Self {
             view: None,
             editor: Editor::default(),
@@ -151,6 +163,7 @@ impl App {
             modifiers: Held::NONE,
             waker,
             loads: Vec::new(),
+            disk,
             leaving,
             emergency,
             offer,
@@ -162,6 +175,7 @@ impl App {
             next_status: Status::default(),
             ime: ime::ImeState::default(),
             clipboard,
+            searcher: searches::Searcher::default(),
             log_gate,
             agent: agent::Agent::default(),
             #[cfg(feature = "dev")]
@@ -185,6 +199,8 @@ impl App {
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
         self.start_saves();
+        self.start_searches();
+        self.start_reverts();
         self.answer_about_copies();
         if effects.redraw {
             self.request_redraw();

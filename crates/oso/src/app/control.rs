@@ -277,7 +277,7 @@ impl App {
         let mut status = oso_core::editor::Status::default();
         self.editor.status_into(&mut status);
         let render_state = &mut view.render_state;
-        let cells = &mut Vec::new();
+        let cells = &mut super::draw::Cells::default();
         let capture = with_panes(&self.editor, &status, cells, |panes| {
             render_state.capture(panes)
         });

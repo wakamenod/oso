@@ -101,6 +101,8 @@ struct Now {
     persons_prompt: bool,
     keys_in_progress: bool,
     composing: bool,
+    /// An isearch is on (ADR 0082).
+    searching: bool,
     /// How long since the person last typed, if they have.
     since_typed: Option<Duration>,
 }
@@ -121,6 +123,9 @@ fn waits(now: &Now) -> Option<&'static str> {
     }
     if now.composing {
         return Some("the person is composing text");
+    }
+    if now.searching {
+        return Some("the person is searching");
     }
     if now.since_typed.is_some_and(|since| since < PERSON_TYPING) {
         return Some("the person is typing; try again in a moment");
@@ -332,6 +337,7 @@ impl App {
             persons_prompt: !prompts.is_empty(),
             keys_in_progress: self.dispatcher.keys_in_progress(),
             composing: self.composing(),
+            searching: self.editor.isearch().is_some(),
             since_typed: self.agent.person_typed.map(|at| at.elapsed()),
         })
     }
@@ -534,6 +540,13 @@ mod tests {
                     ..Now::default()
                 },
                 "composing",
+            ),
+            (
+                Now {
+                    searching: true,
+                    ..Now::default()
+                },
+                "searching",
             ),
             (
                 Now {

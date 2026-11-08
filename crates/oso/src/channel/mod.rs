@@ -73,7 +73,8 @@ impl Drop for Channel {
             .name("oso-agent-stop".into())
             .spawn(move || {
                 let _ = dir.connect(Socket::Agent, Some(std::process::id()));
-                drop(cleanup);
+                // Held to here, so that the socket goes only after the loop woke.
+                let _removes_the_socket = cleanup;
             });
         if let Err(e) = spawned {
             log::warn!("agent channel: cannot start the thread that stops it: {e}");

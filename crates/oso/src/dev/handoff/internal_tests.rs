@@ -177,3 +177,19 @@ fn a_composition_holds_the_handover_and_an_exit_for_a_generation() {
     editor.set_preedit(None);
     assert_eq!(check(&editor), Ok(json!({ "generation": before })));
 }
+
+#[test]
+fn a_search_holds_the_handover_and_an_exit_for_a_generation() {
+    let mut editor = Editor::default();
+    let before = generation(&editor);
+    editor.isearch_begin(false);
+    assert_eq!(
+        check(&editor),
+        Err("cannot hand over: a search is under way".into())
+    );
+    assert!(export(&editor, &[], None, None).is_err());
+    let refused = exit_allowed(&editor, Some(before)).unwrap_err();
+    assert!(refused.ends_with("a search is under way"), "{refused}");
+    editor.isearch_exit();
+    assert_eq!(check(&editor), Ok(json!({ "generation": before })));
+}
