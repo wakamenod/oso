@@ -28,7 +28,8 @@ The author chose, from options put to them:
 5. **A commit goes where typing goes at that moment,** also when the IME turns off because
    another buffer was selected. A buffer that refuses text refuses it, and one that may hold
    secrets drops the composition, as ADR 0069 has it. **A commit is made only where its text
-   would go in as typed** (the coordinator's review of the first pull request): with a prefix
+   would go in as typed** (the author's choice too, after the coordinator's review of the
+   first pull request): with a prefix
    key or a prefix argument waiting, a question open, or nothing active that takes text, the
    IME stays on until the composition ends, as on winit, and so it does once oso is leaving.
    A commit never takes a prefix argument, and never answers a question.
