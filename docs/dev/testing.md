@@ -294,6 +294,11 @@ macOS. The glyphs come from a fake text system, so they assert the same on both,
 failure on Linux is real. There are no stored images to compare. Once M2-16 draws floats,
 a flow can take over.
 
+**Themes** ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)): a unit test checks
+the contrast of every face's pairs in every theme, with no GPU. A pixel test keeps each theme's
+text gamma curve, and a sample frame for each theme is drawn off screen as PNGs for the author
+to choose colours from.
+
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
 [ADR 0032](adr/0032-control-socket-transport.md)):

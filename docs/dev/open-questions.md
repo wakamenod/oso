@@ -250,11 +250,19 @@ item notes when it must be settled.
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
   ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+- Following the OS's dark or light appearance, as an opt-in entry of `load-theme` that picks
+  the pair's dark or light theme. It needs appearance events on both window layers
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
   M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
   ([ADR 0057](adr/0057-frame-layout.md)).
 
 ## M3
+
+- Whether users can define their own themes, or override a built-in one's palette entries
+  and mappings, and in what format. Themes are data to keep it possible. Configuration
+  names the default theme and `<f5>`'s pair
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 
 - The configuration setting that starts the agent channel at launch: its name, and whether it
   may skip the question on each connection, which ADR 0085 always asks

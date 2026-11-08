@@ -302,6 +302,10 @@ null text system: the cursor is drawn on the grid, and no text. See
 - **Clipping** is done on the CPU. A glyph's quad is cut to its cluster's cells, its
   row with the bands of [ADR 0052](adr/0052-glyphs-stay-in-their-cells.md), and its
   pane, moving the atlas position along with the corner.
+- **Colours** come from the current theme, which the app hands the renderer each frame
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)). Shaped rows and rasters
+  hold none, and the text shader corrects coverage by the foreground's luminance with the
+  theme's gamma terms, so a switch shapes and rasterizes nothing again.
 - **Text that is no buffer's,** such as a modeline row, comes as `Span`s with a `Face`
   and goes through `display_map::text_clusters`, so its control characters, tabs and
   line breaks are escapes.
