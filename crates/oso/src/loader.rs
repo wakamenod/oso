@@ -483,13 +483,9 @@ fn read_into(
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
 ) -> Result<(), LoadError> {
-    let started = Instant::now();
     let mut sent: Option<Instant> = None;
     let read = read_all(file, total, shared, |builder| {
         if sent.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL) {
-            if sent.is_none() {
-                log::debug!("first piece decoded in {:?}", started.elapsed());
-            }
             if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
                 return false;
             }
@@ -503,7 +499,6 @@ fn read_into(
     if grew {
         log::info!("the file grew while loading; the rest is not shown");
     }
-    log::debug!("read in {:?}", started.elapsed());
     send(LoadUpdate::Snapshot(Box::new(builder.snapshot())));
     Ok(())
 }
