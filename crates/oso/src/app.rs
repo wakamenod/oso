@@ -24,6 +24,7 @@ mod ime;
 mod input;
 mod loads;
 mod log_gate;
+mod reloads;
 mod saves;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
 // Both give the same loop, window and waker, under the one name.
@@ -53,6 +54,8 @@ pub enum UserEvent {
     Load(BufferId),
     /// A saving thread has ended.
     Save(SaveReport),
+    /// The watcher saw open files change on disk (ADR 0083).
+    Watch,
     /// No emergency copy could be written, for this reason (ADR 0062).
     NoEmergencyCopies(String),
     /// A thread working on the emergency copies on offer has something to say (ADR 0064).
@@ -71,6 +74,7 @@ pub enum UserEvent {
 /// - `dispatcher`: keymaps and commands, which turn keys into changes.
 /// - `modifiers`: the modifier keys held, as the window system last reported them.
 /// - `loads`: files loading in the background.
+/// - `disk`: what is known of open files on disk.
 /// - `dev`: the control socket, in dev builds where it started.
 pub struct App {
     view: Option<View>,
@@ -80,6 +84,8 @@ pub struct App {
     /// Wakes the event loop from other threads.
     waker: Waker,
     loads: Vec<Load>,
+    /// What is known of open files on disk, and the thread that looks at them.
+    disk: reloads::Disk,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
     /// What the panic hook and the end of the event loop write (ADR 0062).
@@ -137,6 +143,7 @@ impl App {
         let leaving = Leaving::with_cell(emergency.agreement_cell());
         let offer = emergency.offer();
         let clipboard = clipboard::start(source, waker.clone());
+        let disk = reloads::Disk::start(waker.clone());
         Self {
             view: None,
             editor: Editor::default(),
@@ -144,6 +151,7 @@ impl App {
             modifiers: Held::NONE,
             waker,
             loads: Vec::new(),
+            disk,
             leaving,
             emergency,
             offer,
@@ -177,6 +185,7 @@ impl App {
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
         self.start_saves();
+        self.start_reverts();
         self.answer_about_copies();
         if effects.redraw {
             self.request_redraw();

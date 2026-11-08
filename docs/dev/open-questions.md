@@ -59,8 +59,7 @@ item notes when it must be settled.
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - Later, before anyone uses oso on Windows: decide what a private directory and a save do about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
-- A file changed on disk can be saved over once asked, but nothing yet reloads it (M2-22). A
-  buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
+- A buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
   (M2-18), and a file owned by another user, or with hard links, cannot be saved at all; decide
   whether a question should offer writing in place
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md), [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).

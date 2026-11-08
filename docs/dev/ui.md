@@ -137,7 +137,8 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - M2 contents:
   - a warning when the file contains bidirectional control characters
   - a warning when the file changed on disk while the buffer has unsaved
-    changes
+    changes, or when the file is gone from disk
+    ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md))
   - a warning when an emergency copy of the file waits for an answer
   - buffer name and modified marker
   - loading progress, while a file is loading

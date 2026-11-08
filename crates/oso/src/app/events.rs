@@ -31,6 +31,7 @@ impl App {
                 self.load_updated(buffer);
             }
             UserEvent::Save(report) => self.save_ended(event_loop, report),
+            UserEvent::Watch => self.watch_reported(),
             UserEvent::NoEmergencyCopies(problem) => {
                 // Only this level reaches a terminal with no `RUST_LOG`.
                 log::error!("{}", problem.escape_debug());
@@ -50,6 +51,7 @@ impl App {
         self.begin_logging();
         self.check_leaving(event_loop);
         self.scan_if_a_file_has_loaded();
+        self.check_disk();
         self.ask_for_a_frame_if_status_changed();
         self.note_logging();
     }
@@ -76,6 +78,9 @@ impl App {
 
             // ---- Visible again: frames skipped while occluded need a redraw ----
             Event::Occluded(false) => self.request_redraw(),
+
+            // ---- In front again: another program may have changed open files ----
+            Event::Focused => self.window_focused(),
 
             // ---- Redraw ----
             Event::RedrawRequested => self.draw_frame(),
