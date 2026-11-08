@@ -39,6 +39,16 @@ pub const COMMANDS: &[Command] = &[
         run: self_insert_command,
     },
     Command {
+        name: "insert",
+        doc: "Insert text at every cursor, as one undo step.\n\nReads the text in a prompt; the agent channel gives it with the command (ADR 0085).",
+        args: ArgSpec::Text {
+            prompt: "Insert: ",
+            history: "insert",
+        },
+        reach: Reach::Change,
+        run: insert,
+    },
+    Command {
         name: "insert-full-width-space",
         doc: "Insert a full-width space (U+3000) at every cursor, N times.\n\n`SPC` inserts a half-width one, also with a Japanese input source. It undoes with the typing around it, as one typed character does. A negative N signals an error.",
         args: ArgSpec::Count,
@@ -128,6 +138,14 @@ fn insert_at_cursors(ctx: &mut Ctx<'_>, text: &str, count: isize) -> Result<(), 
     ctx.editor.apply_edits(buffer, &edits)?;
     ctx.request_redraw();
     Ok(())
+}
+
+fn insert(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let text = ctx.answer().unwrap_or_default().to_owned();
+    if text.is_empty() {
+        return Err(CommandError::new("No text to insert"));
+    }
+    insert_at_cursors(ctx, &text, 1)
 }
 
 fn self_insert_command(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

@@ -71,6 +71,10 @@ pub enum Reach {
     Person,
 }
 
+/// The largest count the dev socket or the agent channel passes on, in either direction: a
+/// command runs on the UI thread and may repeat its work this many times (ADR 0044).
+pub const MAX_REMOTE_COUNT: isize = 10_000;
+
 /// Which arguments a command takes. It documents the command
 /// (`describe-function`) and tells `run-command` what to accept.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,6 +88,13 @@ pub enum ArgSpec {
     /// kept in the history named `history` (ADR 0072). A numeric prefix argument stands
     /// for it, with no prompt. The command reads it with [`Ctx::answer`].
     Number {
+        prompt: &'static str,
+        history: &'static str,
+    },
+    /// Text, read in a prompt that says `prompt` and kept in the history named `history`
+    /// (ADR 0085). The agent channel gives it with the command, with no prompt. The command
+    /// reads it with [`Ctx::answer`].
+    Text {
         prompt: &'static str,
         history: &'static str,
     },

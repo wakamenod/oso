@@ -8,7 +8,8 @@
 //!   from the 101st.
 //! - `commands`: the commands an agent may run, with their reach.
 //! - `run`: `{"name": "forward-word", "arg": 3, "reach": "look"}` runs a `Look` or `Change`
-//!   command; `arg` is optional, and `reach` must be the command's.
+//!   command; `arg` is optional, a count or a number, or text for a command that reads text,
+//!   and `reach` must be the command's.
 //! - `cancel`: closes a question the channel caused.
 
 use oso_core::command::Reach;
@@ -21,6 +22,9 @@ pub const PROTOCOL_VERSION: u32 = 1;
 
 /// The longest command name `run` takes, in bytes.
 const MAX_COMMAND_NAME: usize = 256;
+
+/// The longest text `run` passes on, in bytes (ADR 0085).
+pub const MAX_TEXT_ARG: usize = 64 * 1024;
 
 /// The methods, and the ones the dev socket has, which the channel must never answer. A
 /// unit test checks that no name is in both.
@@ -53,10 +57,26 @@ pub enum Op {
     Commands,
     Run {
         name: String,
-        arg: Option<isize>,
+        arg: Option<Arg>,
         reach: Reach,
     },
     Cancel,
+}
+
+/// An argument given with `run`. Its `Debug` gives a text's length only.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Arg {
+    Count(isize),
+    Text(String),
+}
+
+impl std::fmt::Debug for Arg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Count(n) => write!(f, "Count({n})"),
+            Self::Text(text) => write!(f, "Text({} bytes)", text.len()),
+        }
+    }
 }
 
 /// Parses one request line.
@@ -119,11 +139,15 @@ fn parse_run(params: &Map<String, Value>) -> Result<Op, String> {
     }
     let arg = match params.get("arg") {
         None | Some(Value::Null) => None,
-        Some(arg) => Some(
+        Some(Value::String(text)) if text.len() > MAX_TEXT_ARG => {
+            return Err(format!("run's text is at most {MAX_TEXT_ARG} bytes"));
+        }
+        Some(Value::String(text)) => Some(Arg::Text(text.clone())),
+        Some(arg) => Some(Arg::Count(
             arg.as_i64()
                 .and_then(|n| isize::try_from(n).ok())
-                .ok_or("run's \"arg\" must be a whole number")?,
-        ),
+                .ok_or("run's \"arg\" must be a whole number or text")?,
+        )),
     };
     let reach = match params.get("reach").and_then(Value::as_str) {
         Some("look") => Reach::Look,
@@ -144,7 +168,7 @@ fn short(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{METHODS, Method, Op, parse};
+    use super::{Arg, MAX_TEXT_ARG, METHODS, Method, Op, parse};
     use oso_core::command::Reach;
     use serde_json::json;
 
@@ -182,7 +206,7 @@ mod tests {
             ),
             Op::Run {
                 name: "forward-word".into(),
-                arg: Some(-3),
+                arg: Some(Arg::Count(-3)),
                 reach: Reach::Look
             }
         );
@@ -216,6 +240,23 @@ mod tests {
             json!({ "method": "run", "params": { "name": "a".repeat(257), "reach": "look" } });
         assert!(error(&long.to_string()).contains("at most"));
         assert!(error(r#"{"method": "state", "params": {"x": 1}}"#).contains("no parameter"));
+    }
+
+    #[test]
+    fn run_takes_text_up_to_its_limit_and_hides_it_in_debug() {
+        let line = json!({ "method": "run", "params": { "name": "insert", "arg": "secret-ish", "reach": "change" } });
+        let parsed = op(&line.to_string());
+        assert_eq!(
+            parsed,
+            Op::Run {
+                name: "insert".into(),
+                arg: Some(Arg::Text("secret-ish".into())),
+                reach: Reach::Change
+            }
+        );
+        assert!(!format!("{parsed:?}").contains("secret-ish"));
+        let long = json!({ "method": "run", "params": { "name": "insert", "arg": "a".repeat(MAX_TEXT_ARG + 1), "reach": "change" } });
+        assert!(error(&long.to_string()).contains("at most"));
     }
 
     /// The channel answers none of the dev socket's methods, whatever the build.

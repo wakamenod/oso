@@ -27,13 +27,18 @@ use oso_platform::control::{Peer, PeerProcess};
 use super::App;
 use super::UserEvent;
 use super::shell::Loop;
-use crate::channel::{self, Connection, Event, Reply, protocol::Op};
+use crate::channel::protocol::{Arg, Op};
+use crate::channel::{self, Connection, Event, Reply};
+use crate::dispatch::Given;
 
 /// How long a question the channel caused takes no answer after the last key.
 pub const QUIET: Duration = Duration::from_millis(500);
 
 /// How often a row that can come many times a second is logged, at most.
 const OFTEN: Duration = Duration::from_secs(5);
+
+/// The most bytes a text argument may come to, times the cursors it goes in at (ADR 0085).
+pub const MAX_INSERTED: usize = 1 << 20;
 
 /// How long after the person's last key the channel runs nothing.
 pub const PERSON_TYPING: Duration = Duration::from_secs(1);
@@ -231,17 +236,33 @@ impl App {
         event_loop: &Loop<'_>,
         connection: Connection,
         name: &str,
-        arg: Option<isize>,
+        arg: Option<Arg>,
         reach: Reach,
     ) -> Reply {
         if let Some(why) = self.agent_waits() {
             self.agent_log_often(why);
             return Err(why.into());
         }
+        let given = match &arg {
+            None => Given::Nothing,
+            Some(Arg::Count(n)) => Given::Count(*n),
+            Some(Arg::Text(text)) => Given::Text(text),
+        };
+        // Text goes in at every cursor, so its size times theirs is what it costs.
+        if let Given::Text(text) = given
+            && text
+                .len()
+                .saturating_mul(self.editor.window().selections.len())
+                > MAX_INSERTED
+        {
+            return Err(format!(
+                "the text times the cursors is more than {MAX_INSERTED} bytes"
+            ));
+        }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
         let ran = self
             .dispatcher
-            .run_for_agent(&mut self.editor, name, arg, reach);
+            .run_for_agent(&mut self.editor, name, given, reach);
         let (effects, result) = match ran {
             Ok(ran) => ran,
             Err(refused) => {
@@ -254,7 +275,12 @@ impl App {
         self.note_logging();
         let asked = self.note_caused(newest, connection);
         self.apply(event_loop, effects);
-        let shown_arg = arg.map_or_else(String::new, |n| format!(" {n}"));
+        // A text argument is never logged, only its length.
+        let shown_arg = match &arg {
+            None => String::new(),
+            Some(Arg::Count(n)) => format!(" {n}"),
+            Some(Arg::Text(text)) => format!(" ({} bytes of text)", text.len()),
+        };
         let outcome = match (&result, &asked) {
             (Err(message), _) => format!("failed: {message}"),
             (Ok(()), Some(_)) => "waiting for the person".to_owned(),

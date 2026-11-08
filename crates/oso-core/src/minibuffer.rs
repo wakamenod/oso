@@ -58,6 +58,8 @@ pub const CUT: &str = "…";
 pub enum Kind {
     /// A whole number, kept in the history named, if any.
     Number { history: Option<&'static str> },
+    /// Any text, kept in the history named, if any (ADR 0085).
+    Text { history: Option<&'static str> },
     /// A passphrase. It shows as one `*` per character, keeps no undo record and enters no
     /// history. Its buffer may hold secrets, so every rule for such a buffer applies.
     Passphrase,
@@ -74,7 +76,7 @@ impl Kind {
     /// The history its answers go to, if any.
     pub fn history(self) -> Option<&'static str> {
         match self {
-            Self::Number { history } => history,
+            Self::Number { history } | Self::Text { history } => history,
             Self::Passphrase | Self::Question { .. } => None,
         }
     }

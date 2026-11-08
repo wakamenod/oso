@@ -66,6 +66,12 @@ impl Dispatcher {
                     },
                 )
             }
+            Some(ArgSpec::Text { prompt, history }) => (
+                prompt,
+                Kind::Text {
+                    history: Some(history),
+                },
+            ),
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
