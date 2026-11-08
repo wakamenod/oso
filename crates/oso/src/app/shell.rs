@@ -180,6 +180,12 @@ impl Window {
         None
     }
 
+    /// winit keeps the input context to itself, so the dev socket reports none.
+    #[cfg(feature = "dev")]
+    pub(super) fn input_context(&self) -> Option<(bool, bool)> {
+        None
+    }
+
     /// Drops the composition the input method holds, with no commit. winit has no call for
     /// it; it drops the composition when the IME goes off, which follows (ADR 0069).
     pub(super) fn discard_composition(&self) {}
@@ -191,6 +197,10 @@ impl Window {
             PhysicalSize::new(f64::from(area.width), f64::from(area.height)),
         );
     }
+
+    /// winit gives the input method one rectangle, the cursor area's, so where a composition
+    /// is drawn goes nowhere (ADR 0077).
+    pub(super) fn set_ime_preedit(&self, _laid_out: Option<(&str, PixelRect, &[f32])>) {}
 }
 
 impl ApplicationHandler<UserEvent> for App {

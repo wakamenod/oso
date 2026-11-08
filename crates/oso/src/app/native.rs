@@ -161,6 +161,12 @@ impl Window {
         Some(self.0.secure_input())
     }
 
+    /// Whether the view gives the input method a context, for the dev socket.
+    #[cfg(feature = "dev")]
+    pub(super) fn input_context(&self) -> Option<(bool, bool)> {
+        Some(self.0.input_context())
+    }
+
     /// Drops the composition the input method holds, with no commit.
     pub(super) fn discard_composition(&self) {
         self.0.discard_composition();
@@ -169,12 +175,16 @@ impl Window {
     /// Tells the input method where the cursor's cell is, for its candidate window. The
     /// native layer only keeps it, and answers the input method with it when asked.
     pub(super) fn set_ime_cursor_area(&self, area: PixelRect) {
-        self.0.set_ime_cursor_area(CursorArea {
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: area.height,
-        });
+        self.0.set_ime_cursor_area(cursor_area(area));
+    }
+
+    /// Tells the input method where the composition `text` is drawn: its first cell, and
+    /// where each of its characters is from that cell's left (ADR 0077). Only kept, as the
+    /// cursor area is.
+    pub(super) fn set_ime_preedit(&self, laid_out: Option<(&str, PixelRect, &[f32])>) {
+        let laid_out =
+            laid_out.map(|(text, first, positions)| (text, cursor_area(first), positions));
+        self.0.set_ime_preedit(laid_out);
     }
 }
 
@@ -203,5 +213,15 @@ impl Handler<UserEvent> for App {
     /// OS's request to end was answered yes.
     fn exiting(&mut self) {
         self.ending();
+    }
+}
+
+/// `rect` as the window layer takes a place for the input method.
+fn cursor_area(rect: PixelRect) -> CursorArea {
+    CursorArea {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
     }
 }

@@ -236,6 +236,10 @@ and below the row, and a label's glyphs keep their own cells
   - Screenshots, the restart handoff, timings and hot reload stay dev-only.
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits the files oso has open. Any save of a buffer the person did not visit asks the person.
+    `C-x C-f`, `C-x C-w` and `kill-buffer` are the person's only. The channel switches buffers by
+    name, but never to one that may hold secrets
+    ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
+    [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - Hooks are installed only by an explicit command that shows the settings
   change first.
 
@@ -243,7 +247,12 @@ and below the row, and a label's glyphs keep their own cells
 
 - Files load in the background, and the UI stays responsive on huge files and
   long lines. Only regular files are opened, so a pipe or a device cannot
-  block or feed the loader forever. Rendering shapes only the visible
+  block or feed the loader forever. Opening never blocks on a special file: the
+  loader opens without waiting and checks the open file
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+  Directories for `C-x C-f` are listed on worker threads, at most 4, bounded to
+  100,000 names each, and no listed file is opened. A file of 2 GiB or more asks
+  before it is read, as running out of memory aborts with no emergency save. Rendering shapes only the visible
   columns of a row, and rasterizes a bounded number of new glyphs per frame
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Parsing runs in the background with cancellation and timeouts.
