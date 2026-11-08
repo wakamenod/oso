@@ -174,6 +174,8 @@ mod tests {
         assert!(refused("delete-char", None, Reach::Look).contains("changes"));
         assert!(refused("forward-char", None, Reach::Change).contains("only looks"));
         assert!(refused("goto-line", None, Reach::Look).contains("needs a number"));
+        // Its name would be read in a prompt, which the channel never opens.
+        assert!(refused("switch-to-buffer", None, Reach::Look).contains("buffer's name"));
         assert!(refused("mark-whole-buffer", Some(1), Reach::Look).contains("takes no argument"));
         let beyond = Some(MAX_AGENT_COUNT + 1);
         assert!(refused("forward-char", beyond, Reach::Look).contains("beyond"));
