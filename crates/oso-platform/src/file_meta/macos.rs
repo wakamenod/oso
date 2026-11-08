@@ -4,13 +4,13 @@
 //!
 //! Must not depend on: `control`, `privacy`, `process` or `text`.
 
-use std::ffi::{CString, c_char, c_int, c_void};
+use std::ffi::{CString, OsString, c_char, c_int, c_void};
 use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr;
 
 use super::{AccessEntry, AccessList, Quarantine};
@@ -956,4 +956,20 @@ mod tests {
         set_for_everyone(&path, "deny", "writeextattr");
         assert!(give_quarantine(&Quarantine(b"0081;00000000;oso;".to_vec()), &file).is_err());
     }
+}
+
+/// The path `F_GETPATH` gives for the open `file`.
+pub(super) fn path_of_opened(file: &File) -> io::Result<Option<PathBuf>> {
+    let mut path = vec![0_u8; libc::PATH_MAX as usize];
+    // SAFETY: the descriptor stays open while `file` is borrowed, and `F_GETPATH` writes at most
+    // `MAXPATHLEN` bytes, its NUL included, which is `PATH_MAX` here and the buffer's length.
+    let result = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, path.as_mut_ptr()) };
+    if result == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    let Some(end) = path.iter().position(|&byte| byte == 0) else {
+        return Err(io::Error::other("the path has no end"));
+    };
+    path.truncate(end);
+    Ok(Some(PathBuf::from(OsString::from_vec(path))))
 }
