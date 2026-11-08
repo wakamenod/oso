@@ -879,12 +879,14 @@ mod tests {
             name: "show-secret",
             doc: "Show a secret buffer, as `C-x b` will.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, true),
         };
         let plain_command = Command {
             name: "show-plain",
             doc: "Show an ordinary buffer, as `C-x b` will.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, false),
         };
         registry
@@ -939,6 +941,7 @@ mod tests {
                 name: "explode",
                 doc: "Panic, to test the command boundary.",
                 args: ArgSpec::None,
+                reach: oso_core::command::Reach::Look,
                 run: explode,
             })
             .unwrap();
@@ -1004,6 +1007,7 @@ mod tests {
                 name: "explode",
                 doc: "Panics.",
                 args: ArgSpec::None,
+                reach: oso_core::command::Reach::Look,
                 run: explode,
             })
             .unwrap();
