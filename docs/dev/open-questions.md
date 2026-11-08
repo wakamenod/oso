@@ -212,8 +212,8 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
   the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the cursor's line for the input method; the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
-  runs must still reach `exiting`; whether frames keep up during a live resize, now that the
+  the cursor's line for the input method;
+  whether frames keep up during a live resize, now that the
   view also draws when AppKit displays its layer; `open_window` and `request_attention`
   queued as the other requests are;
   startup and `open_from_launch_ms` measured again with more runs, where the native layer's
@@ -221,7 +221,10 @@ item notes when it must be settled.
   checks at the keyboard of what remains: a window covered by another app and uncovered
   drawing again with no key, a composition committed when the IME turns off, the candidate
   window following the segment being converted, no text service reading the view while the
-  IME is off, no Writing Tools for it, and each item above as it lands. The author checked at the keyboard on 2026-11-08
+  IME is off, no Writing Tools for it, a Dock quit asking the exit question, and a real Log
+  Out, cancelled from the system's dialog, going past it, which shows oso reads a real
+  logout's reason ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each
+  item above as it lands. The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting
@@ -251,6 +254,10 @@ item notes when it must be settled.
   ([ADR 0057](adr/0057-frame-layout.md)).
 
 ## M3
+
+- The configuration setting that starts the agent channel at launch: its name, and whether it
+  may skip the question on each connection, which ADR 0085 always asks
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 - With configurable fonts: `Placer::place` ends a span where the style changes,
   so a shaper cluster crossing a boundary between text and a label is cut to its
@@ -285,8 +292,11 @@ item notes when it must be settled.
 ## M4
 
 - Claude Code hooks: which events map to which states, and how
-  `oso integration install claude` merges with existing user settings
-  ([ADR 0031](adr/0031-claude-code-integration.md)).
+  `oso integration install claude` merges with existing user settings, and registers `oso mcp`
+  ([ADR 0031](adr/0031-claude-code-integration.md),
+  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Which review and worktree tools join `oso mcp`, and the reach of each
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - OSC 7501 is a draft; track its revisions.
@@ -325,9 +335,10 @@ item notes when it must be settled.
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.
 
-- Dev control socket on Windows: a named pipe restricted to the current
-  user ([ADR 0032](adr/0032-control-socket-transport.md)). Needed when
-  agents test on Windows.
+- Dev control socket and agent channel on Windows: a named pipe restricted to the current
+  user ([ADR 0032](adr/0032-control-socket-transport.md),
+  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). Needed when agents test or drive oso on
+  Windows.
 - Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz. Until
   then Linux (and Windows, until DirectWrite) draws no text
   ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)). Each must keep cells in logical

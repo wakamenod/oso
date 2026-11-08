@@ -9,7 +9,7 @@
 //! the prefix between keys. `C-g` needs nothing here: it is a command, so the prefix
 //! goes to it, which ignores it.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Reach};
 
 /// The prefix argument commands.
 pub const COMMANDS: &[Command] = &[
@@ -17,18 +17,21 @@ pub const COMMANDS: &[Command] = &[
         name: "universal-argument",
         doc: "Begin a numeric argument for the next command: 4, and 4 times more with each repeat.\n\nDigits and `-` after it make another number. After digits it ends them, so that `C-u 5 C-u 3` inserts five 3s, and a further one starts over.",
         args: ArgSpec::Count,
+        reach: Reach::Person,
         run: universal_argument,
     },
     Command {
         name: "digit-argument",
         doc: "Add the digit on the key that ran this to the numeric argument for the next command.\n\nOnce it has begun, plain digits add to it too. It has to come from a key.",
         args: ArgSpec::Count,
+        reach: Reach::Person,
         run: digit_argument,
     },
     Command {
         name: "negative-argument",
         doc: "Begin a negative numeric argument for the next command, -1 until digits follow.\n\nAfter a number, change its sign. A second one in a row cancels the first.",
         args: ArgSpec::Count,
+        reach: Reach::Person,
         run: negative_argument,
     },
 ];

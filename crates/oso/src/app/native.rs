@@ -10,7 +10,9 @@ use std::time::Instant;
 
 use oso_core::frame::PixelRect;
 use oso_platform::text::TextSystem;
-use oso_platform::window::{self as platform, Control, CursorArea, Event, Handler};
+use oso_platform::window::{
+    self as platform, Control, CursorArea, Event, Handler, QuitAnswer, QuitReason,
+};
 use oso_render::RenderState;
 
 use super::{App, UserEvent};
@@ -64,6 +66,11 @@ impl Loop<'_> {
     /// From now on, the loop also wakes when `deadline` passes, with no event.
     pub(super) fn wake_at(&self, deadline: Instant) {
         self.0.wake_at(deadline);
+    }
+
+    /// Gives the OS the app's answer to an end it held (ADR 0084).
+    pub(super) fn answer_quit(&self, yes: bool) {
+        self.0.answer_quit(yes);
     }
 
     /// Opens the window.
@@ -198,8 +205,12 @@ impl Handler<UserEvent> for App {
         self.before_waiting(&Loop(control));
     }
 
-    /// The event loop is ending, on every exit. On macOS `applicationWillTerminate` leads
-    /// here for a Dock quit or a logout.
+    fn quit_requested(&mut self, control: &Control, reason: QuitReason) -> QuitAnswer {
+        self.quit_requested(&Loop(control), reason)
+    }
+
+    /// The event loop is ending, on every exit. `applicationWillTerminate` leads here when the
+    /// OS's request to end was answered yes.
     fn exiting(&mut self) {
         self.ending();
     }

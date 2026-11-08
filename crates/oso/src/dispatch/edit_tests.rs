@@ -766,6 +766,7 @@ mod scenarios {
                 name: "edit-and-panic",
                 doc: "Edit, then panic, to test the command boundary.",
                 args: ArgSpec::None,
+                reach: oso_core::command::Reach::Look,
                 run: edit_and_panic,
             })
             .unwrap();

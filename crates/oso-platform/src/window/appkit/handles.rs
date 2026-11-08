@@ -43,6 +43,15 @@ impl Control {
         self.state.exit.get()
     }
 
+    /// The app's answer to an end it held with `QuitAnswer::Later`: yes ends the process, as
+    /// for `QuitAnswer::Now`, once the handler returns. With no end held, nothing happens.
+    pub fn answer_quit(&self, yes: bool) {
+        self.state
+            .requests
+            .borrow_mut()
+            .push(Request::AnswerQuit(yes));
+    }
+
     /// From now on, the loop sleeps while no event comes.
     pub fn sleep_when_idle(&self) {
         self.state.deadline.set(None);

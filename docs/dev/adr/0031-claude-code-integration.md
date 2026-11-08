@@ -1,6 +1,6 @@
 # 0031. Claude Code integration: host the official TUI
 
-- Status: Accepted
+- Status: Accepted, amended by 0085
 - Date: 2026-11-03
 
 ## Context

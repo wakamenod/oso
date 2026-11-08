@@ -384,6 +384,31 @@ pub enum oso_platform::window::ImeEvent
 pub oso_platform::window::ImeEvent::Commit(alloc::string::String)
 pub oso_platform::window::ImeEvent::Disabled
 pub oso_platform::window::ImeEvent::Preedit(alloc::string::String, core::option::Option<core::ops::range::Range<usize>>)
+pub enum oso_platform::window::QuitAnswer
+pub oso_platform::window::QuitAnswer::Cancel
+pub oso_platform::window::QuitAnswer::Later
+pub oso_platform::window::QuitAnswer::Now
+impl core::clone::Clone for oso_platform::window::QuitAnswer
+pub fn oso_platform::window::QuitAnswer::clone(&self) -> oso_platform::window::QuitAnswer
+impl core::cmp::Eq for oso_platform::window::QuitAnswer
+impl core::cmp::PartialEq for oso_platform::window::QuitAnswer
+pub fn oso_platform::window::QuitAnswer::eq(&self, &oso_platform::window::QuitAnswer) -> bool
+impl core::fmt::Debug for oso_platform::window::QuitAnswer
+pub fn oso_platform::window::QuitAnswer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::QuitAnswer
+impl core::marker::StructuralPartialEq for oso_platform::window::QuitAnswer
+pub enum oso_platform::window::QuitReason
+pub oso_platform::window::QuitReason::Person
+pub oso_platform::window::QuitReason::SessionEnd
+impl core::clone::Clone for oso_platform::window::QuitReason
+pub fn oso_platform::window::QuitReason::clone(&self) -> oso_platform::window::QuitReason
+impl core::cmp::Eq for oso_platform::window::QuitReason
+impl core::cmp::PartialEq for oso_platform::window::QuitReason
+pub fn oso_platform::window::QuitReason::eq(&self, &oso_platform::window::QuitReason) -> bool
+impl core::fmt::Debug for oso_platform::window::QuitReason
+pub fn oso_platform::window::QuitReason::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::QuitReason
+impl core::marker::StructuralPartialEq for oso_platform::window::QuitReason
 pub enum oso_platform::window::SystemKey<'a>
 pub oso_platform::window::SystemKey::Character(&'a str)
 pub oso_platform::window::SystemKey::Dead
@@ -440,6 +465,7 @@ impl core::marker::Copy for oso_platform::window::Wheel
 impl core::marker::StructuralPartialEq for oso_platform::window::Wheel
 pub struct oso_platform::window::Control
 impl oso_platform::window::Control
+pub fn oso_platform::window::Control::answer_quit(&self, bool)
 pub fn oso_platform::window::Control::exit(&self)
 pub fn oso_platform::window::Control::exit_requested(&self) -> bool
 pub fn oso_platform::window::Control::open_window(&self, &str) -> oso_platform::window::Window
@@ -521,6 +547,7 @@ pub fn oso_platform::window::Window::set_visible(&self, bool)
 pub trait oso_platform::window::Handler<T>
 pub fn oso_platform::window::Handler::before_waiting(&mut self, &oso_platform::window::Control)
 pub fn oso_platform::window::Handler::exiting(&mut self)
+pub fn oso_platform::window::Handler::quit_requested(&mut self, &oso_platform::window::Control, oso_platform::window::QuitReason) -> oso_platform::window::QuitAnswer
 pub fn oso_platform::window::Handler::resume(&mut self, &oso_platform::window::Control)
 pub fn oso_platform::window::Handler::user_event(&mut self, &oso_platform::window::Control, T)
 pub fn oso_platform::window::Handler::window_event(&mut self, &oso_platform::window::Control, oso_platform::window::Event<'_>)

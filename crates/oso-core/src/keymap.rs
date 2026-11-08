@@ -411,7 +411,7 @@ mod tests {
         BindError, Binding, CANCEL, KeyResolver, Keymap, Layers, Resolution, TableErrorReason,
         display_keys,
     };
-    use crate::command::{ArgSpec, Args, Command, CommandError, CommandId, Ctx, Registry};
+    use crate::command::{ArgSpec, Args, Command, CommandError, CommandId, Ctx, Reach, Registry};
     use crate::key::{KeyPress, KeySequence};
     use proptest::prelude::*;
     use std::collections::HashMap;
@@ -433,6 +433,7 @@ mod tests {
                     name,
                     doc: "A test command.",
                     args: ArgSpec::None,
+                    reach: Reach::Look,
                     run: noop,
                 })
                 .unwrap();

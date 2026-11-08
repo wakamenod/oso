@@ -1041,7 +1041,8 @@ fn a_refused_directory_is_said_at_startup_and_a_panic_then_writes_nothing() {
     assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
 }
 
-/// What the Dock's Quit and a logout send: a real `applicationWillTerminate`.
+/// What the end of the session sends, and on winit any request to end: a real
+/// `applicationWillTerminate`, after which copies of what is at risk are written.
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
@@ -1050,11 +1051,50 @@ fn the_system_asking_the_app_to_quit_writes_the_copies() {
     let mut app = App::start(None, scratch.path());
     app.wait_until_ready();
     app.send_keys(&typing(FAKE_TEXT));
-    assert!(harness::ask_to_quit(app.pid()), "osascript could not ask");
+    // On oso's own layer only the end of the session goes past a modified buffer unasked; a
+    // quit with no reason is a person's, and asks first (ADR 0084).
+    let asked = if cfg!(feature = "native-window") {
+        app.ask_to_quit_for_logout()
+    } else {
+        app.ask_to_quit()
+    };
+    assert!(asked, "osascript could not ask");
     assert!(app.wait_for_exit().success());
     let copies = read_copies(&emergency_dir(scratch.path()));
     assert_eq!(copies.len(), 1);
     assert_eq!(copy_with(&copies, "why exit"), FAKE_TEXT.as_bytes());
+}
+
+/// A Dock quit, or another app's with no reason, is guarded as `C-x C-c` is on oso's own layer
+/// (ADR 0084): the exit question opens, `n` stays, and `y` goes with nothing written, as the
+/// person agreed.
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_persons_quit_asks_the_exit_question() {
+    let scratch = Scratch::new("quit-asks");
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    let question = |state: &Value| {
+        state["prompts"][0]["prompt"] == "1 modified buffer; exit without saving? (y or n)"
+    };
+    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.wait_for("the exit question", question);
+    app.send_keys("n");
+    let state = app.wait_for("the question answered", |state| {
+        state["prompts"] == json!([])
+    });
+    assert_eq!(state["buffer"]["modified"], true, "still here");
+    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.wait_for("the exit question again", question);
+    // It may exit before answering.
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "y" })));
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+    assert!(
+        read_copies(&emergency_dir(scratch.path())).is_empty(),
+        "agreed: none written"
+    );
 }
 
 #[test]
