@@ -398,7 +398,12 @@ inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). A command never
 waits for an answer: the dispatcher reads what its `ArgSpec` asks for in a prompt
 before running it, and a command that has to ask leaves a question whose `y` runs a
 command of its own, which checks again. `C-g` does one thing at a time, in
-`Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+`Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). A prompt that
+completes keeps its candidates in the editor (`oso_core::complete`): orderless matching in an
+order fixed as it opens, matched once each command ends, on the UI thread up to 5000 candidates,
+in a float at the center of the frame.
+`M-x` reads a command's name through `ArgSpec::Command`, and the dispatcher runs that command
+with `M-x`'s prefix argument ([ADR 0076](adr/0076-completion-and-m-x.md)).
 
 ### Background work
 

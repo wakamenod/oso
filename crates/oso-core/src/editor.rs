@@ -36,6 +36,7 @@ use follow::Selected;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
+mod completion;
 mod copies;
 mod follow;
 mod isearch;

@@ -9,6 +9,10 @@ rust-version.workspace = true
 
 [dependencies]
 log.workspace = true
+# Linear-time regular expressions, the only engine allowed (ADR 0010), for completion's
+# regexp style (ADR 0076). Already in the tree through env_logger, at this version. Perl classes
+# (`\w`, `\d`, `\s`, `\b`) and general categories (`\pL`) need their Unicode data.
+regex = { version = "1.12.4", default-features = false, features = ["std", "unicode-case", "unicode-perl", "unicode-gencat", "perf"] }
 unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
