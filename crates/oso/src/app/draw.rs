@@ -90,7 +90,7 @@ fn panes<'a>(
         region,
         layer: Layer::TILED,
         background,
-        border: None,
+        panel: None,
         bands: Bands::NONE,
         content,
     };
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn a_float_too_short_for_its_label_keeps_the_answers_row_and_nothing_overlaps() {
+    fn a_float_too_short_for_its_label_keeps_the_keys_and_nothing_overlaps() {
         let mut editor = Editor::default();
         editor.set_frame_size(FrameSize {
             rows: 4,
@@ -384,19 +384,24 @@ mod tests {
                 })
                 .flat_map(|row| row.iter().map(|span| span.text))
                 .collect();
-            assert!(shown.contains("(y or n)"), "{shown}");
+            assert!(shown.contains(" y ") && shown.contains(" n "), "{shown}");
         });
     }
 
     #[test]
     fn panes_in_a_float_keep_bands_only_into_its_padding() {
-        for rows in [4, 24] {
+        for rows in [3, 4, 5, 6, 24] {
             let mut editor = Editor::default();
             editor.set_frame_size(FrameSize { rows, columns: 60 });
             let long = "a question long enough to take two rows of the float, at least";
             editor.ask(long, "keyboard-quit").unwrap();
-            let inner = editor.prompt_layout().unwrap().regions.inner;
-            let framed = editor.prompt_layout().unwrap().regions.framed();
+            let regions = editor.prompt_layout().unwrap().regions;
+            let inner = regions.inner;
+            // The rows of padding: the gap above the answer's row, and the row below it.
+            let last = inner.row + inner.rows - 1;
+            let padding = |row: usize| {
+                (regions.gap && row + 1 == last) || (regions.padded_below() && row == last + 1)
+            };
             let status = Status::default();
             with_panes(&editor, &status, &mut Vec::new(), |panes| {
                 for pane in panes
@@ -404,14 +409,10 @@ mod tests {
                     .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
                 {
                     let region = pane.region;
-                    let top = region.row == inner.row;
-                    let bottom = region.row + region.rows == inner.row + inner.rows;
-                    assert_eq!(pane.bands.above, framed && top, "{rows} rows: {region:?}");
-                    assert_eq!(
-                        pane.bands.below,
-                        framed && bottom,
-                        "{rows} rows: {region:?}"
-                    );
+                    let above = region.row.checked_sub(1).is_some_and(padding);
+                    let below = padding(region.row + region.rows);
+                    assert_eq!(pane.bands.above, above, "{rows} rows: {region:?}");
+                    assert_eq!(pane.bands.below, below, "{rows} rows: {region:?}");
                 }
             });
         }

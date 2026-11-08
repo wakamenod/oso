@@ -106,19 +106,27 @@ pub fn layout(size: FrameSize) -> FrameLayout {
     }
 }
 
-/// The cells a float takes over the frame (ADR 0072).
+/// The cells a float takes over the frame (ADR 0072, ADR 0075).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FloatRegions {
-    /// All of it, with the ring of border and padding.
+    /// All of it: the cells its panel covers, padding included.
     pub outer: CellRect,
-    /// What it shows, inside the ring. The same as `outer` where the ring did not fit.
+    /// What it shows, inside the padding: the label's rows, the gap and the answer's row.
+    /// The same as `outer` where no padding fits.
     pub inner: CellRect,
+    /// Whether a row of padding goes between the label and the answer.
+    pub gap: bool,
 }
 
 impl FloatRegions {
-    /// Whether it has the ring, whose outer edge the border is drawn along.
+    /// Whether it has padding around what it shows.
     pub fn framed(&self) -> bool {
         self.inner != self.outer
+    }
+
+    /// Whether a row of padding goes below what it shows.
+    pub fn padded_below(&self) -> bool {
+        self.outer.row + self.outer.rows > self.inner.row + self.inner.rows
     }
 }
 
@@ -131,12 +139,16 @@ const FLOAT_MIN_COLUMNS: usize = 40;
 /// The columns a float keeps from each edge of the frame.
 const FLOAT_EDGE: usize = 2;
 
-/// Where a float of `rows` rows of content goes, at the top center of the window's text
-/// area in `frame`, as the minibuffer does (ADR 0026, ADR 0072). It takes 60% of the
-/// columns, at least 40, and never comes closer than 2 to an edge. One row of the text
-/// stays in view above it, and a ring of one cell holds its border and padding. A small
-/// frame gives up the row above first, then the ring. It is never taller than the text
-/// area, so the modeline and the echo area stay in view.
+/// The columns of padding on each side of what a float shows, while it is wide enough.
+const FLOAT_SIDE: usize = 2;
+
+/// Where a float with `rows` rows of label goes, attached to the top edge of the window's
+/// text area in `frame` and centered, as the minibuffer does (ADR 0026, ADR 0075). It takes
+/// 60% of the columns, at least 40, and never comes closer than 2 to an edge. Below the
+/// label come a row of padding, the answer's row and a row of padding, with 2 columns of
+/// padding on each side. A small frame gives up the padding below first, then the gap, then
+/// the label's rows; with one row of text left, the label and the answer share it. It is
+/// never taller than the text area, so the modeline and the echo area stay in view.
 pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
     let text = frame.window.text;
     let room = text.columns.saturating_sub(2 * FLOAT_EDGE);
@@ -147,27 +159,33 @@ pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
             .max(FLOAT_MIN_COLUMNS)
             .min(room)
     };
-    let rows = rows.max(1);
-    let (gap, ring) = if text.rows > rows + 2 && columns > 2 {
-        (1, 1)
-    } else if text.rows == rows + 2 && columns > 2 {
-        (0, 1)
+    let side = if columns >= 12 {
+        FLOAT_SIDE
     } else {
-        (0, 0)
+        usize::from(columns >= 5)
+    };
+    let rows = rows.max(1);
+    let below = text.rows >= rows + 3;
+    let gap = text.rows >= rows + 2;
+    // With one row, or none, the label and the answer share what there is.
+    let content = if text.rows <= 1 {
+        text.rows
+    } else {
+        (rows + usize::from(gap) + 1).min(text.rows)
     };
     let outer = CellRect {
-        row: text.row + gap,
+        row: text.row,
         column: text.column + (text.columns - columns) / 2,
-        rows: (rows + 2 * ring).min(text.rows),
+        rows: content + usize::from(below),
         columns,
     };
     let inner = CellRect {
-        row: outer.row + ring,
-        column: outer.column + ring,
-        rows: outer.rows - 2 * ring,
-        columns: outer.columns - 2 * ring,
+        column: outer.column + side,
+        rows: content,
+        columns: columns - 2 * side,
+        ..outer
     };
-    FloatRegions { outer, inner }
+    FloatRegions { outer, inner, gap }
 }
 
 /// The cells of a cursor at `point`, whose cluster takes `cells` cells, in a
@@ -360,31 +378,47 @@ mod tests {
     }
 
     #[test]
-    fn a_float_takes_three_fifths_of_the_columns_a_row_below_the_top() {
+    fn a_float_takes_three_fifths_of_the_columns_from_the_top() {
         let layout = frame(30, 100);
         let regions = float_regions(&layout, 1);
-        assert_eq!(regions.outer, rect(1, 20, 3, 60));
-        assert_eq!(regions.inner, rect(2, 21, 1, 58));
-        assert!(regions.framed());
-        assert_eq!(float_regions(&frame(30, 200), 1).outer, rect(1, 40, 3, 120));
+        // The label, the gap, the answer and the padding below.
+        assert_eq!(regions.outer, rect(0, 20, 4, 60));
+        assert_eq!(regions.inner, rect(0, 22, 3, 56));
+        assert!(regions.framed() && regions.gap && regions.padded_below());
+        assert_eq!(float_regions(&frame(30, 200), 1).outer, rect(0, 40, 4, 120));
+        assert_eq!(float_regions(&layout, 3).outer, rect(0, 20, 6, 60));
     }
 
     #[test]
     fn a_float_takes_forty_columns_while_the_frame_keeps_two_at_each_edge() {
-        assert_eq!(float_regions(&frame(30, 64), 1).outer, rect(1, 12, 3, 40));
-        assert_eq!(float_regions(&frame(30, 30), 1).outer, rect(1, 2, 3, 26));
+        assert_eq!(float_regions(&frame(30, 64), 1).outer, rect(0, 12, 4, 40));
+        assert_eq!(float_regions(&frame(30, 30), 1).outer, rect(0, 2, 4, 26));
         assert_eq!(float_regions(&frame(30, 4), 1).outer.columns, 4);
     }
 
     #[test]
-    fn a_short_frame_gives_up_the_row_above_and_then_the_ring() {
-        // Three text rows hold the ring and one row of content, with no row above.
+    fn a_narrow_float_keeps_less_padding_at_its_sides() {
+        assert_eq!(float_regions(&frame(30, 16), 1).inner.columns, 8);
+        assert_eq!(float_regions(&frame(30, 15), 1).inner.columns, 9);
+        let regions = float_regions(&frame(30, 8), 1);
+        assert_eq!(regions.inner.columns, regions.outer.columns);
+    }
+
+    #[test]
+    fn a_short_frame_gives_up_the_padding_then_the_gap_then_the_label() {
+        // Three text rows: no padding below.
         let regions = float_regions(&frame(5, 100), 1);
         assert_eq!(regions.outer, rect(0, 20, 3, 60));
-        assert!(regions.framed());
+        assert!(regions.gap && !regions.padded_below());
+        // Two: no gap either.
         let regions = float_regions(&frame(4, 100), 1);
+        assert_eq!((regions.inner.rows, regions.gap), (2, false));
+        // Two, for a label of three rows: one of them and the answer.
+        assert_eq!(float_regions(&frame(4, 100), 3).inner.rows, 2);
+        // One: the label and the answer share it.
+        let regions = float_regions(&frame(3, 100), 3);
         assert_eq!(regions.outer, rect(0, 20, 1, 60));
-        assert!(!regions.framed());
+        assert_eq!(regions.inner, rect(0, 22, 1, 56));
         // A frame of one row has the float over it.
         assert_eq!(float_regions(&frame(1, 100), 1).outer, rect(0, 20, 1, 60));
     }
@@ -704,7 +738,7 @@ mod tests {
         ) {
             let layout = frame(rows, columns);
             let text = layout.window.text;
-            let FloatRegions { outer, inner } = float_regions(&layout, content);
+            let FloatRegions { outer, inner, .. } = float_regions(&layout, content);
             prop_assert!(outer.row >= text.row && outer.row + outer.rows <= text.row + text.rows);
             prop_assert!(outer.column >= text.column);
             prop_assert!(outer.column + outer.columns <= text.column + text.columns);

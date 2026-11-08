@@ -100,7 +100,8 @@ impl Painter {
             );
         }
         self.text.prepare(device, queue, self.scene.quads());
-        self.shape.prepare(device, queue, self.scene.rects());
+        self.shape
+            .prepare(device, queue, self.scene.rects(), self.scene.rounded());
     }
 
     /// Records the prepared frame into `view`.
@@ -125,6 +126,7 @@ impl Painter {
         });
         for layer in self.scene.layers() {
             self.shape.render(&mut pass, layer.rects.clone());
+            self.shape.render_rounded(&mut pass, layer.rounded.clone());
             self.text.render(&mut pass, layer.quads.clone());
         }
     }
@@ -137,7 +139,7 @@ mod tests {
     //! system, so these assert the same on an OS with no text backend.
 
     use super::*;
-    use crate::pane::{Bands, Layer, PaneContent, PaneId, Span};
+    use crate::pane::{Bands, Layer, PaneContent, PaneId, Panel, Span};
     use oso_core::frame::CellRect;
     use oso_platform::text::{CellMetrics, FontId, GlyphBitmap, GlyphFormat, GlyphId, ShapedGlyph};
 
@@ -296,7 +298,7 @@ mod tests {
             },
             layer: Layer(layer),
             background,
-            border: None,
+            panel: None,
             bands: Bands::NONE,
             content: PaneContent::Lines(lines),
         }
@@ -415,5 +417,123 @@ mod tests {
         let panes = [pane(0, (1, 0, 1, 4), 1, None, &lines)];
         let pixels = draw(&panes);
         assert_is(&pixels, (20, 27), PAPER(), "above a row in a higher layer");
+    }
+
+    /// A float's panel over rows 0 to 2 and columns 2 to 7, x 28..88 and y 0..68, with a
+    /// field on row 1 and a key on row 2, in a pane of `rows` rows from the top. A point
+    /// is 20 / 16 px.
+    fn panel(rows: usize) -> Vec<u8> {
+        let keys = [CellRect {
+            row: 2,
+            column: 5,
+            rows: 1,
+            columns: 3,
+        }];
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: CellRect {
+                    row: 0,
+                    column: 2,
+                    rows: 3,
+                    columns: 6,
+                },
+                field: Some(CellRect {
+                    row: 1,
+                    column: 3,
+                    rows: 1,
+                    columns: 4,
+                }),
+                keys: &keys,
+            }),
+            ..pane(0, (0, 0, rows, 12), 16, None, &[])
+        }];
+        draw(&panes)
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_panel_hangs_from_the_top_with_its_bottom_corners_rounded() {
+        let pixels = panel(6);
+        let fill = Face::Float.background();
+        assert_is(&pixels, (28, 0), fill, "the square top corner");
+        assert_is(&pixels, (29, 38), fill, "the panel's left edge");
+        assert_is(&pixels, (58, 66), fill, "the panel's bottom edge");
+        let corner = i32::from(red(&pixels, 28, 67));
+        assert!(
+            corner < eight_bit(fill) - 2,
+            "outside the rounded corner: {corner}"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_panels_shadow_darkens_below_it_and_fades() {
+        let pixels = panel(6);
+        let paper = eight_bit(PAPER());
+        let at = |y| i32::from(red(&pixels, 58, y));
+        let (near, far) = (at(72), at(120));
+        assert!(near < far && far <= paper, "{near} then {far}, on {paper}");
+        assert!(
+            paper - near >= 3,
+            "the shadow shows below the panel: {near}"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_panels_shadow_stays_in_its_pane() {
+        // The pane is rows 0 to 3, y 0..88.
+        let pixels = panel(4);
+        let paper = eight_bit(PAPER());
+        assert!(i32::from(red(&pixels, 58, 86)) < paper, "inside the pane");
+        assert_is(&pixels, (58, 88), PAPER(), "the first row past the pane");
+        assert_is(&pixels, (4, 40), PAPER(), "the left margin");
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_field_has_its_outline_around_the_texts_background() {
+        // Its cells are x 38..78 and y 28..48; it reaches 6 points across and 4 down and
+        // up, rounded: 8 and 5 px.
+        let pixels = panel(6);
+        assert_is(
+            &pixels,
+            (58, 38),
+            Face::Field.background(),
+            "inside the field",
+        );
+        assert_is(
+            &pixels,
+            (58, 23),
+            Face::Field.foreground(),
+            "its top outline",
+        );
+        assert_is(&pixels, (58, 22), Face::Float.background(), "above it");
+        assert_is(
+            &pixels,
+            (30, 38),
+            Face::Field.foreground(),
+            "its left outline",
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_key_is_a_chip_inside_its_cells() {
+        // Its cells are x 58..88 and y 48..68, inset 1 and 3 px: below the field's reach.
+        let pixels = panel(6);
+        assert_is(&pixels, (73, 60), Face::Key.background(), "the chip");
+        assert_is(
+            &pixels,
+            (73, 66),
+            Face::Float.background(),
+            "below the chip",
+        );
+        assert_is(
+            &pixels,
+            (58, 60),
+            Face::Float.background(),
+            "left of the chip",
+        );
     }
 }

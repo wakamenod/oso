@@ -70,6 +70,9 @@ item notes when it must be settled.
 - By M2-14: kills from a passphrase prompt reach neither the kill ring nor the OS clipboard, and a
   yank into it works. By M3: keyboard macros do not record what is typed there
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- The float's new look, a panel attached to the top edge: its geometry, the chips' verbs, small
+  frames, and the shadow, radius and fill the screenshots settle
+  ([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md), Proposed).
 - By M2-18: try at the keyboard whether かな reaches oso while the IME is off in a prompt, and decide
   whether it turns the IME on for that prompt, for Japanese file names
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).

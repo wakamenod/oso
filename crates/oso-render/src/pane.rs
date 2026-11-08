@@ -17,10 +17,52 @@ const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
 const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
 const MODELINE: [f32; 4] = [0.16, 0.16, 0.21, 1.0];
 const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
-const FLOAT: [f32; 4] = [0.11, 0.11, 0.15, 1.0];
-const FLOAT_BORDER: [f32; 4] = [0.42, 0.42, 0.50, 1.0];
-const PROMPT: [f32; 4] = [0.55, 0.72, 1.0, 1.0];
+// A float's panel (ADR 0075): a fill only a little lighter than the text's, a hairline of
+// white at low alpha, a dim label, a field on the text's background with an accent outline,
+// and key chips.
+const FLOAT: [f32; 4] = [0.063, 0.0666, 0.0999, 1.0];
+const FLOAT_HAIRLINE: [f32; 4] = [1.0, 1.0, 1.0, 0.035];
+const PROMPT: [f32; 4] = [0.3325, 0.3419, 0.4341, 1.0];
+const FIELD_OUTLINE: [f32; 4] = [0.159, 0.2384, 0.5089, 1.0];
+const KEY: [f32; 4] = [0.0742, 0.0782, 0.117, 1.0];
+const KEY_TEXT: [f32; 4] = [0.5776, 0.6105, 0.7454, 1.0];
 const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
+
+/// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height
+/// over 16) and the shadow's color and strength (ADR 0075). It is read every frame, as the
+/// faces are, so the theme (M2-23) can switch it at run time: a light theme wants a lighter,
+/// smaller shadow and a dark hairline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PanelStyle {
+    pub(crate) radius: f32,
+    /// Outside the fill, in [`Face::FloatBorder`].
+    pub(crate) hairline: f32,
+    /// Linear RGB and its strength, straight alpha.
+    pub(crate) shadow: [f32; 4],
+    pub(crate) shadow_down: f32,
+    pub(crate) shadow_sigma: f32,
+    /// How far a field reaches past its cells, across and up and down.
+    pub(crate) field_reach: [f32; 2],
+    pub(crate) field_radius: f32,
+    pub(crate) field_outline: f32,
+    /// How far a key's chip stays inside its cells, across and up and down.
+    pub(crate) key_inset: [f32; 2],
+    pub(crate) key_radius: f32,
+}
+
+/// The panel's style until the theme.
+pub(crate) const PANEL: PanelStyle = PanelStyle {
+    radius: 8.0,
+    hairline: 1.0,
+    shadow: [0.0024, 0.0027, 0.0044, 0.55],
+    shadow_down: 10.0,
+    shadow_sigma: 14.0,
+    field_reach: [6.0, 4.0],
+    field_radius: 5.0,
+    field_outline: 1.0,
+    key_inset: [1.0, 2.0],
+    key_radius: 4.0,
+};
 
 /// What a piece of the screen means. The renderer turns it into colors, and
 /// the theme (M2-23) will map it to its palette.
@@ -45,10 +87,15 @@ pub enum Face {
     Preedit,
     /// A float's text, on its own background (ADR 0072).
     Float,
-    /// A float's border.
+    /// The hairline around a float's panel (ADR 0075).
     FloatBorder,
-    /// What a prompt says before its answer, on the float's background.
+    /// What a prompt says before its answer, dim on the float's background.
     Prompt,
+    /// An input field in a float: the text's background, and its outline in the foreground
+    /// (ADR 0075).
+    Field,
+    /// A key's chip, such as a question's `y`, and the key on it.
+    Key,
     /// The region between a mark and its cursor (ADR 0071). Only its background
     /// is drawn, behind the text, which keeps its own face.
     Region,
@@ -62,21 +109,24 @@ impl Face {
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
-            Self::FloatBorder => FLOAT_BORDER,
+            Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Prompt => PROMPT,
+            Self::Field => FIELD_OUTLINE,
+            Self::Key => KEY_TEXT,
         }
     }
 
     /// The color of rectangles.
     pub(crate) fn background(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Escape | Self::Warning => BACKGROUND,
+            Self::Text | Self::Escape | Self::Warning | Self::Field => BACKGROUND,
             Self::Boxed => ESCAPE_BOX,
             Self::Cursor => CURSOR,
             Self::Modeline => MODELINE,
             Self::Preedit => FOREGROUND,
             Self::Float | Self::Prompt => FLOAT,
-            Self::FloatBorder => FLOAT_BORDER,
+            Self::FloatBorder => FLOAT_HAIRLINE,
+            Self::Key => KEY,
             Self::Region => REGION,
         }
     }
@@ -106,9 +156,9 @@ pub struct Layer(pub u8);
 impl Layer {
     /// The regions of the frame's layout, which never overlap (ADR 0057).
     pub const TILED: Self = Self(0);
-    /// A float's background and border, over the tiled regions (ADR 0072).
+    /// A float's panel, over the tiled regions (ADR 0072, ADR 0075).
     pub const FLOAT: Self = Self(16);
-    /// What a float shows, inside its border.
+    /// What a float shows, over its panel.
     pub const FLOAT_CONTENT: Self = Self(17);
 }
 
@@ -195,6 +245,19 @@ pub struct Masked<'a> {
     pub cursor: usize,
 }
 
+/// A float's panel (ADR 0075), drawn in pixels around cells, with its bottom corners rounded,
+/// a hairline in [`Face::FloatBorder`] and a soft shadow, all cut to its pane's region. On the
+/// frame's top row it also covers the margin above, up to the surface's edge, where its
+/// corners stay square.
+pub struct Panel<'a> {
+    /// The cells it covers, in [`Face::Float`].
+    pub cells: CellRect,
+    /// Cells drawn as an input field, a little larger than they are, in [`Face::Field`].
+    pub field: Option<CellRect>,
+    /// Cells drawn as key chips, such as ` y ` and ` n `, in [`Face::Key`].
+    pub keys: &'a [CellRect],
+}
+
 /// A region of the frame and what it shows. Nothing of it is drawn outside the
 /// region, and nothing of what is under it shows through its background. The
 /// exceptions are the frame's top row, whose glyphs keep the band above their row
@@ -213,9 +276,8 @@ pub struct Pane<'a> {
     /// Filled in behind the content, in this face's background. `None` leaves
     /// what is under the pane, so a pane above others needs one to hide them.
     pub background: Option<Face>,
-    /// A line along the inside of the region's edges, in this face's background, as a
-    /// float has (ADR 0072).
-    pub border: Option<Face>,
+    /// A float's panel, drawn over the background and under the content (ADR 0075).
+    pub panel: Option<Panel<'a>>,
     /// The bands its glyphs keep past its region.
     pub bands: Bands,
     pub content: PaneContent<'a>,
