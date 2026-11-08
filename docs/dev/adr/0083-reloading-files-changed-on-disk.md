@@ -1,6 +1,6 @@
 # 0083. Reloading files changed on disk
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -94,6 +94,18 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   whatever it is, and a report from a look made before it is ignored.
 - **A buffer still on its first load** needs nothing more: the load's baseline is from its
   own open, so the next look finds the difference.
+
+### Changes to accepted ADRs
+
+- **[ADR 0029](0029-file-changes-on-disk.md):** "Watch open files with OS file notifications
+  and detect changes immediately" now holds as a `stat` of each open file once a second and
+  when oso gains the focus, and "The file-watching dependency (for example `notify`) goes
+  through the normal dependency approval" no longer applies: there is none. The rest of its
+  decision stands.
+- **[ADR 0059](0059-safe-save-and-the-exit-guard.md):** the file a save checks is compared by
+  its modification time and size, and now also by its device and inode where the system gives
+  them, so the change it lists as going unseen, one that keeps both the size and the
+  modification time, is seen when another file was renamed in.
 
 ## Consequences
 
