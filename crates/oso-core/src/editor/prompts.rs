@@ -70,7 +70,6 @@ impl Editor {
             walk: None,
             typed: None,
             completion: None,
-            list_rows: 0,
         });
         self.relayout_prompt();
         Ok(id)
@@ -289,15 +288,18 @@ impl Editor {
     /// where its answer is typed. Called whenever the frame, the innermost prompt or its
     /// message changes.
     pub(super) fn relayout_prompt(&mut self) {
-        let list = self.list_size();
         self.prompt_layout = self.prompts.last().map(|prompt| {
-            minibuffer::layout_with(
-                &self.frame,
-                &prompt.label,
-                prompt.kind,
-                prompt.message.as_deref(),
-                list,
-            )
+            let message = prompt.message.as_deref();
+            match prompt.candidates() {
+                // A prompt that completes floats at the center (ADR 0076).
+                Some(candidates) => minibuffer::completion_layout(
+                    &self.frame,
+                    &prompt.label,
+                    message,
+                    candidates.total(),
+                ),
+                None => minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message),
+            }
         });
         if let Some(layout) = &self.prompt_layout {
             let size = ViewSize::new(1, layout.input.columns);

@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use super::Editor;
 use crate::buffer::Replacement;
-use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, ROWS};
-use crate::minibuffer::{Kind, ListSize, PromptError, PromptId};
+use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES};
+use crate::minibuffer::{Kind, PromptError, PromptId};
 
 impl Editor {
     /// Opens a prompt that says `label` and completes over `items`, kept in the history
@@ -51,8 +51,9 @@ impl Editor {
     }
 
     /// Matches the innermost prompt's answer against its candidates again, if it changed
-    /// since they were last matched. Called as each command ends.
-    pub(super) fn refresh_completion(&mut self) {
+    /// since they were last matched. The dispatcher calls it as each command ends, so what a
+    /// command typed is matched once.
+    pub fn match_completion(&mut self) {
         let Some(prompt) = self.prompts.last() else {
             return;
         };
@@ -88,18 +89,6 @@ impl Editor {
     pub fn candidate_rows(&self) -> usize {
         self.prompt_layout()
             .map_or(0, |layout| layout.regions.candidates.rows)
-    }
-
-    /// The innermost prompt's list's size for its layout: the most rows it has wanted, up to
-    /// [`ROWS`], and its candidates. Records the rows it wants now.
-    pub(super) fn list_size(&mut self) -> Option<ListSize> {
-        let prompt = self.prompts.last_mut()?;
-        let (candidates, _) = prompt.completion.as_ref()?;
-        prompt.list_rows = prompt.list_rows.max(candidates.len().min(ROWS));
-        Some(ListSize {
-            rows: prompt.list_rows,
-            total: candidates.total(),
-        })
     }
 
     /// Scrolls the innermost prompt's candidates so that the selected one shows in the rows
@@ -145,7 +134,7 @@ impl Editor {
 
     fn with_candidates(&mut self, f: impl FnOnce(&mut Candidates)) -> Result<(), PromptError> {
         // What was typed last is matched before the selection moves over it.
-        self.refresh_completion();
+        self.match_completion();
         let (candidates, _) = self.completion_mut().ok_or(PromptError::NoPrompt)?;
         if candidates.is_empty() {
             return Err(PromptError::Invalid);
@@ -175,7 +164,7 @@ impl Editor {
             }],
         )
         .map_err(|_| PromptError::NoPrompt)?;
-        self.refresh_completion();
+        self.match_completion();
         Ok(())
     }
 
@@ -186,7 +175,7 @@ impl Editor {
     ///
     /// As [`Editor::move_completion`].
     pub(super) fn selected_completion(&mut self) -> Result<String, PromptError> {
-        self.refresh_completion();
+        self.match_completion();
         let prompt = self.prompts.last().ok_or(PromptError::NoPrompt)?;
         let candidates = prompt.candidates().ok_or(PromptError::NoPrompt)?;
         candidates

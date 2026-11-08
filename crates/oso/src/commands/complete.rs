@@ -65,43 +65,43 @@ pub const COMMANDS: &[Command] = &[
     },
 ];
 
-/// Reached only through `run-command`, which refuses it: the dispatcher reads the name and
-/// runs that command instead.
+/// Never reached: the dispatcher reads the name and runs that command instead, and
+/// `run-command` refuses it.
 fn execute_extended_command(_: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Err(CommandError::new("Run a command through M-x"))
 }
 
 fn next_completion(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    moved(ctx, |editor| editor.move_completion(args.count()))
+    in_list(ctx, |editor| editor.move_completion(args.count()))
 }
 
 fn previous_completion(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    moved(ctx, |editor| editor.move_completion(-args.count()))
+    in_list(ctx, |editor| editor.move_completion(-args.count()))
 }
 
 fn first_completion(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    moved(ctx, |editor| editor.select_completion_end(false))
+    in_list(ctx, |editor| editor.select_completion_end(false))
 }
 
 fn last_completion(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    moved(ctx, |editor| editor.select_completion_end(true))
+    in_list(ctx, |editor| editor.select_completion_end(true))
 }
 
 fn scroll_completions_up(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    moved(ctx, |editor| editor.page_completion(args.count()))
+    in_list(ctx, |editor| editor.page_completion(args.count()))
 }
 
 fn scroll_completions_down(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    moved(ctx, |editor| editor.page_completion(-args.count()))
+    in_list(ctx, |editor| editor.page_completion(-args.count()))
 }
 
 fn insert_completion(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    moved(ctx, oso_core::editor::Editor::insert_completion)
+    in_list(ctx, oso_core::editor::Editor::insert_completion)
 }
 
-/// Runs `step` on the editor, and draws what it changed. With nothing matching, it says so,
-/// as the prompt does for `RET`.
-fn moved(
+/// Runs `step` on the editor's list of candidates, and draws what it changed. With nothing
+/// matching, it says so, as the prompt does for `RET`.
+fn in_list(
     ctx: &mut Ctx<'_>,
     step: impl FnOnce(&mut oso_core::editor::Editor) -> Result<(), PromptError>,
 ) -> Result<(), CommandError> {
@@ -144,7 +144,7 @@ mod tests {
                 }],
             )
             .unwrap();
-        editor.end_command();
+        editor.match_completion();
     }
 
     fn selected(editor: &Editor) -> Option<&str> {

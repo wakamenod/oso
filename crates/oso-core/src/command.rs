@@ -41,6 +41,13 @@ pub struct Command {
     pub run: CommandFn,
 }
 
+impl Command {
+    /// The first line of its docstring: a one-sentence summary.
+    pub fn summary(&self) -> &'static str {
+        self.doc.lines().next().unwrap_or_default()
+    }
+}
+
 impl fmt::Debug for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Command")

@@ -36,13 +36,17 @@ pub(super) fn boxes(
     let fill = to_edge(grid.rect(panel.cells), attached);
     let radius = style.radius * pt;
     let top = if attached { 0.0 } else { radius };
-    let hairline = whole(style.hairline, pt);
+    let (outline, hairline) = if panel.border {
+        (style.border, whole(style.border_width, pt))
+    } else {
+        (Face::FloatBorder.background(), whole(style.hairline, pt))
+    };
     let (shadow, down, sigma) = fit_shadow(style, pt, fill, clip);
     let body = Rounded {
         rect: corners(fill),
         radii: [top, top, radius, radius],
         fill: Face::Float.background(),
-        outline: Face::FloatBorder.background(),
+        outline,
         shadow,
         params: [hairline, down, sigma, 0.0],
         bounds: [0.0; 4],
@@ -87,30 +91,41 @@ pub(super) fn boxes(
     let keys = panel
         .keys
         .iter()
-        .filter(|key| key.rows > 0 && key.columns > 0)
-        .filter_map(move |key| {
-            let cells = grid.rect(*key);
-            let [across, up] = style.key_inset.map(|inset| (inset * pt).round());
-            Rounded {
-                rect: [
-                    cells.x + across,
-                    cells.y + up,
-                    (cells.width - 2.0 * across).max(0.0),
-                    (cells.height - 2.0 * up).max(0.0),
-                ],
-                radii: [style.key_radius * pt; 4],
-                fill: Face::Key.background(),
-                outline: [0.0; 4],
-                shadow: [0.0; 4],
-                params: [0.0; 4],
-                bounds: [0.0; 4],
-            }
-            .cut(1.0, 0.0, clip)
-        });
+        .filter_map(move |key| key_chip(*key, &grid, pt, style, clip));
     let selected = panel
         .selected
         .and_then(|row| selected_box(row, &grid, pt, style, fill, clip));
     body.into_iter().chain(field).chain(selected).chain(keys)
+}
+
+/// A key's chip inside its `cells`, cut to `clip` (ADR 0075).
+fn key_chip(
+    cells: CellRect,
+    grid: &PixelGrid,
+    pt: f32,
+    style: &PanelStyle,
+    clip: PixelRect,
+) -> Option<Rounded> {
+    if cells.rows == 0 || cells.columns == 0 {
+        return None;
+    }
+    let cells = grid.rect(cells);
+    let [across, up] = style.key_inset.map(|inset| (inset * pt).round());
+    Rounded {
+        rect: [
+            cells.x + across,
+            cells.y + up,
+            (cells.width - 2.0 * across).max(0.0),
+            (cells.height - 2.0 * up).max(0.0),
+        ],
+        radii: [style.key_radius * pt; 4],
+        fill: Face::Key.background(),
+        outline: [0.0; 4],
+        shadow: [0.0; 4],
+        params: [0.0; 4],
+        bounds: [0.0; 4],
+    }
+    .cut(1.0, 0.0, clip)
 }
 
 /// The selected candidate's `row`, a little wider than its cells, kept inside the panel's

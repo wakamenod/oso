@@ -114,7 +114,8 @@ pub struct FloatRegions {
     /// What it shows, inside the padding: the label's rows, the gap and the answer's row.
     /// The same as `outer` where no padding fits.
     pub inner: CellRect,
-    /// Whether a row of padding goes between the label and the answer.
+    /// Whether a row of padding goes right above the answer's row: between the label and the
+    /// answer, or at the top of a completion's float.
     pub gap: bool,
     /// The rows of candidates below the answer's padding, as wide as `inner` (ADR 0076).
     /// Empty with none, or where the frame has no room for them.
@@ -122,10 +123,15 @@ pub struct FloatRegions {
 }
 
 impl FloatRegions {
-    /// Whether a row of padding goes below what it shows: below the answer, before any
+    /// Whether a row of padding goes right below what it shows: below the answer, before any
     /// candidates.
     pub fn padded_below(&self) -> bool {
-        self.outer.row + self.outer.rows > self.inner.row + self.inner.rows
+        let end = self.inner.row + self.inner.rows;
+        if self.candidates.rows > 0 {
+            self.candidates.row > end
+        } else {
+            self.outer.row + self.outer.rows > end
+        }
     }
 
     /// Whether a row of padding goes below the candidates.
@@ -155,54 +161,82 @@ const FLOAT_SIDE: usize = 2;
 /// the label's rows; with one row of text left, the label and the answer share it. It is
 /// never taller than the text area, so the modeline and the echo area stay in view.
 pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
-    float_regions_with(frame, rows, 0)
+    answer_regions(frame, rows)
 }
 
-/// Where a float with `rows` rows of label and up to `candidates` rows of candidates goes, as
-/// [`float_regions`] places it, with the candidates below the answer's row of padding and a row
-/// of padding after them (ADR 0076). A small frame gives up candidate rows first, down to one,
-/// then the padding after them, then the last of them, and then what [`float_regions`] gives
-/// up.
-pub fn float_regions_with(frame: &FrameLayout, rows: usize, candidates: usize) -> FloatRegions {
+/// The share of the frame's columns a completion's float takes, in hundredths.
+const COMPLETION_HUNDREDTHS: usize = 62;
+
+/// Where a completion's float goes, centered in the window's text area in `frame` (ADR 0076):
+/// a row of padding, the answer's row, a row of padding, `candidates` rows and a row of
+/// padding, as tall whatever matches. It takes 62% of the columns, at least 40, and never
+/// comes closer than 2 to an edge. A small frame gives up candidate rows first, down to one,
+/// then the padding below them, above the answer and between, then the candidates. It is never
+/// taller than the text area.
+pub(crate) fn completion_regions(frame: &FrameLayout, candidates: usize) -> FloatRegions {
     let text = frame.window.text;
-    let full = rows.max(1) + 3;
-    // The label, the gap, the answer and its padding, then the candidates and theirs.
-    let (shown, padded) = match text.rows.checked_sub(full) {
-        Some(left) if candidates > 0 && left >= 2 => (candidates.min(left - 1), true),
-        Some(1) if candidates > 0 => (1, false),
-        _ => (0, false),
-    };
-    let mut regions = answer_regions(frame, rows);
-    if shown > 0 {
-        regions.candidates = CellRect {
-            row: regions.outer.row + regions.outer.rows,
-            rows: shown,
-            ..regions.inner
-        };
-        regions.outer.rows += shown + usize::from(padded);
+    let columns = float_columns(text.columns, COMPLETION_HUNDREDTHS, 100);
+    let side = float_side(columns);
+    // Rows beyond the answer's and one candidate's, given up from the last.
+    let spare = text.rows.saturating_sub(2);
+    let shown = if text.rows >= 2 {
+        candidates.min(1 + spare.saturating_sub(3))
     } else {
-        regions.candidates.column = regions.inner.column;
-        regions.candidates.row = regions.outer.row + regions.outer.rows;
+        0
+    };
+    let [below, above, between] = [3, 2, 1].map(|need| shown > 0 && spare >= need);
+    let rows =
+        (usize::from(above) + 1 + usize::from(between) + shown + usize::from(below)).min(text.rows);
+    let outer = CellRect {
+        row: text.row + (text.rows - rows) / 2,
+        column: text.column + (text.columns - columns) / 2,
+        rows,
+        columns,
+    };
+    let inner = CellRect {
+        row: outer.row + usize::from(above),
+        column: outer.column + side,
+        rows: usize::from(rows > 0),
+        columns: columns - 2 * side,
+    };
+    let candidates = CellRect {
+        row: inner.row + 1 + usize::from(between),
+        rows: shown,
+        ..inner
+    };
+    FloatRegions {
+        outer,
+        inner,
+        gap: above,
+        candidates,
     }
-    regions
+}
+
+/// The columns of a float that takes `share` of `total` of the text area's `columns`, at least
+/// 40, and never closer than 2 to an edge.
+fn float_columns(columns: usize, share: usize, total: usize) -> usize {
+    let room = columns.saturating_sub(2 * FLOAT_EDGE);
+    if room == 0 {
+        columns
+    } else {
+        (columns * share / total).max(FLOAT_MIN_COLUMNS).min(room)
+    }
+}
+
+/// The columns of padding on each side of what a float of `columns` shows.
+fn float_side(columns: usize) -> usize {
+    if columns >= 12 {
+        FLOAT_SIDE
+    } else {
+        usize::from(columns >= 5)
+    }
 }
 
 /// [`float_regions`]: the label's rows, the gap, the answer and its padding.
 fn answer_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
     let text = frame.window.text;
-    let room = text.columns.saturating_sub(2 * FLOAT_EDGE);
-    let columns = if room == 0 {
-        text.columns
-    } else {
-        (text.columns * FLOAT_TENTHS / 10)
-            .max(FLOAT_MIN_COLUMNS)
-            .min(room)
-    };
-    let side = if columns >= 12 {
-        FLOAT_SIDE
-    } else {
-        usize::from(columns >= 5)
-    };
+    let columns = float_columns(text.columns, FLOAT_TENTHS, 10);
+    let side = float_side(columns);
     let rows = rows.max(1);
     let below = text.rows >= rows + 3;
     let gap = text.rows >= rows + 2;
@@ -445,38 +479,32 @@ mod tests {
     }
 
     #[test]
-    fn candidates_go_below_the_answers_padding_with_a_row_after_them() {
-        let regions = float_regions_with(&frame(40, 100), 1, 18);
-        // The label, the gap, the answer, its padding, 18 rows and the padding after them.
-        assert_eq!(regions.outer, rect(0, 20, 23, 60));
-        assert_eq!(regions.inner, rect(0, 22, 3, 56));
-        assert_eq!(regions.candidates, rect(4, 22, 18, 56));
-        assert!(regions.padded_below() && regions.candidates_padded());
-        assert_eq!(
-            float_regions_with(&frame(40, 100), 1, 0),
-            float_regions(&frame(40, 100), 1)
-        );
+    fn a_completion_is_centered_and_as_tall_whatever_matches() {
+        // 40 text rows: padding, the answer, padding, 18 rows and padding: 22, centered.
+        let regions = completion_regions(&frame(42, 100), 18);
+        assert_eq!(regions.outer, rect(9, 19, 22, 62));
+        assert_eq!(regions.inner, rect(10, 21, 1, 58));
+        assert_eq!(regions.candidates, rect(12, 21, 18, 58));
+        assert!(regions.gap && regions.padded_below() && regions.candidates_padded());
     }
 
     #[test]
-    fn a_short_frame_gives_up_candidate_rows_first() {
-        // Text rows 20: 4 for the answer, 15 candidates and the padding.
-        let regions = float_regions_with(&frame(22, 100), 1, 18);
-        assert_eq!((regions.candidates.rows, regions.outer.rows), (15, 20));
-        assert!(regions.candidates_padded());
-        // Room for one row and its padding, then one row with none.
-        let regions = float_regions_with(&frame(8, 100), 1, 18);
-        assert_eq!((regions.candidates.rows, regions.outer.rows), (1, 6));
-        let regions = float_regions_with(&frame(7, 100), 1, 18);
-        assert_eq!((regions.candidates.rows, regions.outer.rows), (1, 5));
-        assert!(!regions.candidates_padded() && regions.padded_below());
-        // Then none, and the answer's own order.
-        let regions = float_regions_with(&frame(6, 100), 1, 18);
-        assert_eq!(regions.candidates.rows, 0);
-        assert_eq!(regions, float_regions(&frame(6, 100), 1));
-        // A label of three rows wants three more.
-        let regions = float_regions_with(&frame(12, 100), 3, 18);
-        assert_eq!((regions.candidates.rows, regions.outer.rows), (3, 10));
+    fn a_short_frame_gives_up_a_completions_rows_then_its_padding() {
+        let shape = |rows: usize| {
+            let regions = completion_regions(&frame(rows + 2, 100), 18);
+            let padding = [
+                regions.gap,
+                regions.padded_below(),
+                regions.candidates_padded(),
+            ];
+            (regions.outer.rows, regions.candidates.rows, padding)
+        };
+        assert_eq!(shape(10), (10, 6, [true, true, true]));
+        assert_eq!(shape(5), (5, 1, [true, true, true]));
+        assert_eq!(shape(4), (4, 1, [true, true, false]));
+        assert_eq!(shape(3), (3, 1, [false, true, false]));
+        assert_eq!(shape(2), (2, 1, [false, false, false]));
+        assert_eq!(shape(1), (1, 0, [false, false, false]));
     }
 
     #[test]
@@ -822,11 +850,15 @@ mod tests {
         ) {
             let layout = frame(rows, columns);
             let text = layout.window.text;
-            let regions = float_regions_with(&layout, content, listed);
+            let regions = if listed == 0 {
+                float_regions(&layout, content)
+            } else {
+                completion_regions(&layout, listed)
+            };
             let FloatRegions { outer, inner, candidates, .. } = regions;
             // The candidates, inside the float and below what it shows, never over it.
             if candidates.rows > 0 {
-                prop_assert!(candidates.row > inner.row + inner.rows);
+                prop_assert!(candidates.row >= inner.row + inner.rows);
                 prop_assert!(candidates.row + candidates.rows <= outer.row + outer.rows);
                 prop_assert_eq!((candidates.column, candidates.columns), (inner.column, inner.columns));
                 prop_assert!(candidates.rows <= listed);

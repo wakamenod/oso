@@ -451,6 +451,7 @@ mod tests {
                 },
                 keys: &keys,
                 selected: None,
+                border: false,
             }),
             ..pane(0, (0, 0, rows, 12), 16, None, &[])
         }];
@@ -559,6 +560,7 @@ mod tests {
                     rows: 1,
                     columns: 8,
                 }),
+                border: false,
             }),
             ..pane(0, (0, 0, 6, 12), 16, None, &[])
         }];
@@ -643,6 +645,7 @@ mod tests {
                 },
                 keys: &[],
                 selected: None,
+                border: false,
             }),
             ..pane(0, (0, 0, 6, 12), 16, None, &[])
         }];

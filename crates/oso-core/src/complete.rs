@@ -19,7 +19,8 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-pub use query::{MAX_COMPONENTS, MAX_INPUT_BYTES, Query};
+pub(crate) use query::MAX_INPUT_BYTES;
+pub use query::Query;
 
 mod query;
 
@@ -29,23 +30,23 @@ pub const ROWS: usize = 18;
 /// The characters that pick a component's style, at its start or its end, as orderless's
 /// `orderless-affix-dispatch-alist`: `!` not, `,` initialism, `=` literal, `^` literal
 /// prefix, `~` flex, `&` the annotation.
-pub const AFFIXES: [char; 6] = ['!', ',', '=', '^', '~', '&'];
+pub(crate) const AFFIXES: [char; 6] = ['!', ',', '=', '^', '~', '&'];
 
 /// One thing a prompt may complete to.
 pub struct Candidate {
     text: Box<str>,
-    key: Box<str>,
+    binding: Box<str>,
     annotation: Box<str>,
     folded: Folded,
     folded_annotation: Folded,
 }
 
 impl Candidate {
-    /// A candidate that reads `text`, with `key` after it and `annotation` at the end of
+    /// A candidate that reads `text`, with `binding` after it and `annotation` at the end of
     /// its row, either of them empty. Folding its case is done here, once.
     pub fn new(
         text: impl Into<Box<str>>,
-        key: impl Into<Box<str>>,
+        binding: impl Into<Box<str>>,
         annotation: impl Into<Box<str>>,
     ) -> Self {
         let (text, annotation) = (text.into(), annotation.into());
@@ -53,7 +54,7 @@ impl Candidate {
             folded: Folded::of(&text),
             folded_annotation: Folded::of(&annotation),
             text,
-            key: key.into(),
+            binding: binding.into(),
             annotation,
         }
     }
@@ -64,8 +65,8 @@ impl Candidate {
     }
 
     /// A key sequence shown after it, such as a command's binding. May be empty.
-    pub fn key(&self) -> &str {
-        &self.key
+    pub fn binding(&self) -> &str {
+        &self.binding
     }
 
     /// What is said of it at the end of its row, such as a docstring's first line. May be
@@ -79,7 +80,7 @@ impl fmt::Debug for Candidate {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Candidate")
             .field("text", &self.text)
-            .field("key", &self.key)
+            .field("binding", &self.binding)
             .finish_non_exhaustive()
     }
 }
@@ -124,12 +125,17 @@ impl Folded {
         let Some(from) = &self.from else {
             return range;
         };
-        let start = from[range.start] as usize;
+        // Read with `get`: matching runs after a command's panic boundary, so a range it was
+        // never given must give an empty range, not a panic.
+        let start = from.get(range.start).map_or(0, |&offset| offset as usize);
         // The end is where the next original character starts, past the one `range` ends in.
-        let last = from[range.end.saturating_sub(1).max(range.start)];
-        let end = from[range.end..]
-            .iter()
-            .find(|&&offset| offset > last)
+        let last = from
+            .get(range.end.saturating_sub(1).max(range.start))
+            .copied()
+            .unwrap_or(0);
+        let end = from
+            .get(range.end..)
+            .and_then(|rest| rest.iter().find(|&&offset| offset > last))
             .map_or(start, |&offset| offset as usize);
         start..end.max(start)
     }
@@ -167,7 +173,10 @@ pub struct Candidates {
 impl Candidates {
     /// `items` in the order they show, every one matching: first those in `history`, newest
     /// first, then the shorter, then by their text.
-    pub fn new<'a>(items: Arc<[Candidate]>, history: impl IntoIterator<Item = &'a str>) -> Self {
+    pub(crate) fn new<'a>(
+        items: Arc<[Candidate]>,
+        history: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
         let mut recent: HashMap<&str, usize> = HashMap::new();
         for (place, text) in history.into_iter().enumerate() {
             // The newest of an answer given twice decides.
@@ -203,7 +212,7 @@ impl Candidates {
 
     /// Matches `input`, looking only at what matched before where it narrows that, and
     /// selects the first match. Nothing changes for the input matched last.
-    pub fn set_input(&mut self, input: &str) {
+    pub(crate) fn set_input(&mut self, input: &str) {
         if input.len() > MAX_INPUT_BYTES {
             self.set_too_long();
             return;
@@ -240,7 +249,7 @@ impl Candidates {
 
     /// Matches an input longer than [`MAX_INPUT_BYTES`], which nothing matches, without
     /// reading it.
-    pub fn set_too_long(&mut self) {
+    pub(crate) fn set_too_long(&mut self) {
         self.matches.clear();
         self.exact = None;
         self.query = Query::too_long();
@@ -292,20 +301,20 @@ impl Candidates {
     }
 
     /// Selects the match at `place`, or the last if there are fewer.
-    pub fn select(&mut self, place: usize) {
+    pub(crate) fn select(&mut self, place: usize) {
         self.selected = place.min(self.matches.len().saturating_sub(1));
     }
 
     /// Selects the match `by` places after the selected one, or before for a negative
     /// `by`, stopping at the first and the last, as vertico does with `vertico-cycle` off.
-    pub fn move_by(&mut self, by: isize) {
+    pub(crate) fn move_by(&mut self, by: isize) {
         let place = self.selected.saturating_add_signed(by);
         self.select(place);
     }
 
     /// The first row to show of `rows` so that the selected one is in view, moving the rows
     /// shown no more than it must. The rows shown are `top..top + rows`.
-    pub fn keep_in_view(&mut self, rows: usize) -> usize {
+    pub(crate) fn keep_in_view(&mut self, rows: usize) -> usize {
         if rows == 0 {
             return self.top;
         }
@@ -317,6 +326,13 @@ impl Candidates {
         // Rows past the last match show the ones before them instead.
         self.top = self.top.min(self.matches.len().saturating_sub(rows));
         self.top
+    }
+
+    /// The matches in the `rows` rows shown, from the first, with where each shows.
+    pub fn shown(&self, rows: usize) -> impl Iterator<Item = (usize, &Candidate)> {
+        (self.top..self.len())
+            .take(rows)
+            .filter_map(|place| Some((place, self.get(place)?)))
     }
 
     /// The first row shown, as [`Candidates::keep_in_view`] left it.

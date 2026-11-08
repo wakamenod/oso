@@ -45,6 +45,12 @@ the four `Face` variants, `Panel::selected`, and `get-state`'s `completion` fiel
 match and the selected row are picked from screenshots later, as ADR 0075's were. The ADR stays
 Proposed until the pull request.
 
+After seeing the first build in the app, the author changed question 4 (the float): a completion's
+float sits at the center of the frame, 62% of its width, always as tall as 18 candidate rows and the
+answer's row, with a 5-point border. Questions and every other prompt keep ADR 0075's panel on the
+top edge. [The float](#the-float) describes that, and the rest of question 4's first answer no longer
+holds.
+
 ### The matcher
 
 A new public module, `oso_core::complete`, holds the matcher and a list of candidates. It depends
@@ -95,8 +101,12 @@ on nothing of the editor, so M2-18's worker can run it on a snapshot.
 ### Where matching runs
 
 - **On the UI thread, up to 5000 candidates,** which every list of M2-17 and M2-19 is: `M-x` has about
-  60 commands now and a few hundred later. The budget is 1 ms of matching per key at 5000 candidates on
-  the M1, measured in `just perf`, so `prompt_type_p99_ms` stays where it is.
+  60 commands now and a few hundred later. The budget is 1 ms of matching per key at 5000 candidates,
+  which an ignored test in `complete` checks when run by hand in a release build; `just perf`'s
+  `mx_type_p99_ms` measures typing into `M-x` in the app.
+- **What is matched is bounded:** an answer over 1024 bytes, or of more than 32 components, matches
+  nothing, and is not copied out of its buffer, so a whole file yanked into the answer costs no key
+  more than that. A component's compiled expression is reused while its text and case stay the same.
 - **Narrowing reuses the last result:** an input that only adds characters to the last one filters the
   candidates that matched before, not the whole list.
 - **Past 5000, on a worker thread, built with M2-18,** whose directories are the first list that can be
@@ -108,51 +118,56 @@ on nothing of the editor, so M2-18's worker can run it on a snapshot.
 
 ### The float
 
-The float of ADR 0075, with the candidate rows below the answer's field:
+A completion's float, unlike every other prompt's:
 
 ```
-┌──────────────────────────────────────────────────────────┐ ← panel, from the top edge
-│  M-x                                              3/57   │ label, with the count at its end
-│                                                          │ gap
-│  ╭ save█ ───────────────────────────────────────────╮    │ field
-│                                                          │ padding
-│  save-buffer  C-x C-s            Save the current buffer │ ← selected (a rounded box)
-│  save-buffers-kill-terminal  C-x C-c     Offer to save … │
-│  ...                                                     │ up to 18 rows
-│                                                          │ padding
-╰──────────────────────────────────────────────────────────╯
+          ╭────────────────────────────────────────────────────────────╮
+          │                                                            │
+          │  M-x ╭ forw█ ─────────────────────────────────────╮  2/2   │ the answer's row
+          │                                                            │
+          │   forward-char C-f  Move point N characters forward (…     │
+          │  ▌forward-word M-f  Move point to the end of the next…▐    │ ← selected
+          │                                                            │ 18 rows, matching or not
+          │                                                            │
+          ╰────────────────────────────────────────────────────────────╯
 ```
 
-- **Up to 18 candidate rows** below the field's padding row, then a row of padding. The number is a
-  constant, `complete::ROWS`, until configuration (M3) sets it.
-- **The float grows to fit the matches and never shrinks while the prompt is open,** as vertico's
-  default `vertico-resize` (`grow-only`): the answer's row stays put, the panel's bottom edge does not
-  jump while typing narrows the list, and a prompt with few candidates covers little.
-- **The count** shows at the end of the label's first row, `3/57`: the selected candidate's place and
-  the number of matches, in the annotations' dim face, as `vertico-count-format` does. Its cells are
-  kept for the widest count the list can show, so the label does not break again as the count changes.
-  No match shows `0/0`.
-- **A row:** the candidate from the inner cells' first column, then the binding one cell after it in
-  the key face, then the annotation, aligned to the right edge of the inner cells, in a dim face.
+- **At the center of the frame's text area,** both ways, not on its top edge. Questions and the other
+  prompts keep ADR 0075's panel on the top edge, which stands for the minibuffer; a question asked
+  from inside `M-x` shows there, as the innermost prompt.
+- **62% of the text area's columns,** at least 40 and never closer than 2 to an edge, as ADR 0075's
+  floats are bounded.
+- **As tall as 18 candidate rows and the answer's row, from the moment it opens,** with a row of
+  padding above the answer, one between it and the list and one below the list. The float neither
+  grows nor shrinks with the matches: rows that nothing fills stay empty. The number is a constant,
+  `complete::ROWS`, until configuration (M3) sets it.
+- **One row for the label, the answer and the count:** the label first, cut with `…` to half the row
+  at most, then the answer in its field with a message at its end, then the count, `2/2`: the selected
+  candidate's place and the number of matches, in the annotations' dim face, as `vertico-count-format`
+  does. Its cells are kept for the widest count the list can show. No match shows `0/0`.
+- **A 5-point border** in place of ADR 0075's hairline, in a color a little darker than the fill
+  (`PanelStyle::border`, read every frame as the theme's other values are), with ADR 0075's rounded
+  corners, all four, and soft shadow. `Panel::border` asks for it.
+- **A row:** the candidate from the inner cells' first column, then its binding one cell after it in
+  the binding's face, then the annotation, ending at the right edge of the inner cells, in a dim face.
 - **When a row is narrow,** the annotation is cut first, with `…`, and goes below 8 cells; then the
   binding goes; then the candidate is cut with `…` at the edge. The candidate is never cut before the
   annotation and the binding have gone.
 - **The selected row** is a rounded box from ADR 0075's pipeline, in `Layer::FLOAT` under the text, one
   row tall and 6 points wider than the inner cells on each side, inside the panel, radius 4 points, in
-  `Face::Selected`'s background. The text keeps
-  its faces on it. So `PaneContent::Lines` needs no background per row, and the open question about it
-  closes. The candidates' rows are one pane of `PaneContent::Lines` in `Layer::FLOAT_CONTENT`, which
-  keeps no bands into the panel's padding but the bottom one, so no glyph draws over another pane of the
-  float (ADR 0072).
+  `Face::Selected`'s background. The text keeps its faces on it. So `PaneContent::Lines` needs no
+  background per row, and the open question about it closes. The candidates' rows are one pane of
+  `PaneContent::Lines` in `Layer::FLOAT_CONTENT`, which keeps no bands into the panel's padding but the
+  bottom one, so no glyph draws over another pane of the float (ADR 0072).
 - **The list scrolls** to keep the selected row in view, with no margin, as vertico does.
 - **A short frame gives up, in this order:** candidate rows down to one; the padding below them; the
-  last candidate row; then ADR 0075's order (the padding under the field, the gap, the label's last
-  rows, the one-row form). The count stays on the label's first row while it shows, and on the
-  one-row form at the end of the row.
+  padding above the answer; the padding between; the last candidate row. The float is never taller
+  than the text area.
 
 ### Keys
 
-In a prompt that completes, a keymap above ADR 0072's minibuffer keymap:
+In a prompt that completes, a keymap made of ADR 0072's minibuffer keys and these, in the major-mode
+layer in the minibuffer keymap's place:
 
 | Key | Command | |
 |---|---|---|
@@ -198,9 +213,16 @@ In a prompt that completes, a keymap above ADR 0072's minibuffer keymap:
 - **A passphrase prompt never completes.**
 - **Annotations come from the registry,** which holds no text of a buffer. M2-19's buffer names and
   M2-18's paths decide what they show of a secret buffer when they come.
-- **`get-state`** gives a prompt that completes the kind `complete`, and `completion`: `count`, `total`, `selected` and
-  `rows`, the names of the candidate rows shown, at most 18. While a buffer that may hold secrets is
-  shown it is left out with the label and the answer, as the set of matches tells the answer.
+- **`get-state`** gives a prompt that completes the kind `complete`, and, for the innermost,
+  `completion`: `count`, `total`, `selected` and `rows`, the names of the candidate rows shown, at most
+  18. While a buffer that may hold secrets is shown it is left out with the label and the answer, as the
+  set of matches tells the answer.
+- **While a prompt that completes is open beside a buffer that may hold secrets,** `run-command` runs
+  only `keyboard-quit`, as while a passphrase prompt is open (ADR 0072): whether a command found a
+  match would say something of the answer withheld.
+- **A prompt that completes opened by a control socket request is answered over the socket,** as a
+  question it asked is (ADR 0072): keys from the window say so and leave it open, but `C-g`, so that a
+  person's `RET` cannot run a command an agent chose.
 
 ### Theme
 
@@ -222,20 +244,26 @@ In a prompt that completes, a keymap above ADR 0072's minibuffer keymap:
 
 ### The region in an answer
 
-- `Editor::region_cells` gives the selected window's region, the prompt's while one is selected, and the
-  answer's pane draws it, as the tiled window does. The open question for M2-17 closes.
+- `Editor::prompt_region_cells` gives the innermost prompt's region, in its answer's cells, and the
+  answer's pane draws it, as the tiled window's does from `Editor::region_cells`. The open question for
+  M2-17 closes.
 
 ### Where it lives
 
 - **`oso-core`:** the new public module `complete` (the matcher, `Candidate`, `Candidates` with the
-  selection, the order and the narrowing), on the lowest line but one of `guardrails/layers.txt`,
-  with the modules that use no other, as it uses only `std` and `regex`; `minibuffer::Kind::Complete { history }` and the
-  candidate rows in `PromptLayout`; `Editor`'s completion methods in `editor/prompts.rs`;
-  `ArgSpec::Command` and `ArgSpec::Key`; `Keymap::bindings`.
-- **`oso-render`:** the four faces, and `Panel::selected`, the selected row's box.
-- **`oso`:** `execute-extended-command` and the completion commands in `commands/minibuffer.rs`, their
-  keys in `bindings/minibuffer.rs`, the candidates read from the registry in `dispatch/prompts.rs`, the
-  candidate pane in `app/draw/float.rs`, and the socket's field in `dev`.
+  selection, the order and the narrowing), on the lowest line but one of `guardrails/layers.txt`, with
+  the modules that use no other, as it uses only `std` and `regex`; `minibuffer::Kind::Complete
+  { history }`, `PromptLayout::count`, and the placing of a completion's row and of a candidate's row
+  in `minibuffer/completion.rs` and `minibuffer/candidates.rs`; the float's cells in
+  `frame::completion_regions` and `FloatRegions::candidates`; `Editor`'s completion methods in
+  `editor/completion.rs`; `ArgSpec::Command` and `ArgSpec::Key`; `Keymap::bindings`;
+  `Command::summary`.
+- **`oso-render`:** the four faces, `Panel::selected` and `Panel::border`, and the border's width and
+  color in `PanelStyle`.
+- **`oso`:** `execute-extended-command` and the completion commands in `commands/complete.rs`, their
+  keys in `bindings/complete.rs`, the candidates read from the registry and keymaps in
+  `dispatch/extended.rs`, what an answer runs in `dispatch/prompts.rs`, the candidate pane in
+  `app/draw/float.rs`, and the socket's field in `dev`.
 - **One new direct dependency, a gate:** `regex` in `oso-core`, the only regular-expression crate
   the rules allow (ADR 0010). It is in `Cargo.lock` already, 1.12.4 through `env_logger`, so no crate
   is added to the build; `oso-core` takes it with `std`, `unicode-case` and `perf`, for smart case
@@ -246,8 +274,10 @@ In a prompt that completes, a keymap above ADR 0072's minibuffer keymap:
 - `complete`: property tests that a match keeps every component's match, in any order, that narrowing
   gives what a full pass gives, that the order never changes while typing, and that smart case and every
   affix do what the table says; unit tests for a bad expression, the compile limit and an empty input.
-- `minibuffer::layout`: the candidate rows, the count and the cuts at every frame height and width
-  from 0 up, as ADR 0075's are tested.
+- `frame::completion_regions` and `minibuffer::completion_layout`: the rows, the count and the cuts at
+  every frame height and width from 0 up, as ADR 0075's are tested, and that no part overlaps another.
+- An ignored test in `complete` that matching at 5000 candidates takes under 1 ms a key, run by hand in
+  a release build.
 - Text-grid snapshots of `M-x`: rows, the selected row, a narrow frame and a short one.
 - A flow (`just e2e`, `just e2e-native`): `M-x`, typed, `C-n`, `RET` runs the command, `get-state` on
   the way; `C-u 3 M-x forward-char`; `M-x goto-line` opening its prompt after.
@@ -296,8 +326,11 @@ each:
 - [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md): `TAB`, `C-n` and `C-p` gain their
   completion meanings in a prompt that completes; `RET` there gives the selected candidate; the selected
   row is a rounded box, not a background per row of `PaneContent::Lines`.
-- [ADR 0075](0075-a-float-as-a-panel-attached-to-the-top-edge.md): the float gains the candidate rows
-  and their padding, which a short frame gives up first, and `Panel` the selected row.
+- [ADR 0075](0075-a-float-as-a-panel-attached-to-the-top-edge.md): a prompt that completes floats at the
+  center of the frame, 62% of its width and as tall as its 18 candidate rows and its answer's row, with
+  its label, answer and count on one row, and a 5-point border in place of the hairline, all corners
+  rounded. Every other prompt keeps the panel on the top edge. `Panel` gains the selected row and the
+  border.
 
 ## Consequences
 
@@ -306,12 +339,18 @@ each:
   the others, `TAB`, `C-n`, `RET`.
 - The order never moves while typing, and nothing is scored, so a typo shows no near miss: flex is one
   `~` away.
-- A prompt that completes covers up to 23 rows from the top of the text with a one-row label.
+- A prompt that completes covers 22 rows at the center of the text, whatever matches, and the text
+  above and below it stays in view.
 - M2-18 builds the worker path on the generation and snapshot fixed here, and M2-19 the preview beside
   the candidate rows.
-- `oso-core`'s public API gains `complete`, `Kind::Complete`, the candidate rows in `PromptLayout`,
-  `Editor`'s completion methods, `ArgSpec::Command`, `ArgSpec::Key` and `Keymap::bindings`;
-  `oso-render`'s gains four `Face` variants and `Panel::selected`.
+- `oso-core`'s public API gains `complete` (`Candidate`, `Candidates` with its reading methods, and
+  `Query::highlights`), `Kind::Complete`, `PromptLayout::count`, `minibuffer::candidate_row` and
+  `CandidateRow`, `FloatRegions::candidates` and `candidates_padded`, `Prompt::candidates`, `Editor`'s
+  completion methods (`open_completion`, `match_completion`, the moves, `insert_completion`,
+  `candidate_rows`, `prompt_region_cells`), `ArgSpec::Command`, `ArgSpec::Key`, `Keymap::bindings` and
+  `Command::summary`. The matcher's parsing and narrowing stay inside the crate, for M2-18's worker to
+  change. `oso-render`'s gains four `Face` variants, `Panel::selected` and `Panel::border`.
+- M2-18's worker gives back matches, not where the list is scrolled to, which stays with the prompt.
 
 ## Alternatives considered
 
@@ -323,8 +362,9 @@ each:
   short components match most commands, and the list says less.
 - **Matching always on a worker:** one path, but a frame with the old list for every key of `M-x`, whose
   60 commands take microseconds.
-- **A fixed height of 18 rows:** the panel never moves, but a prompt with three candidates covers 18
-  rows of text.
+- **The float on the top edge, as ADR 0075's, growing to fit the list and never shrinking while open
+  (the first build):** one place for every prompt, but the panel's bottom edge left most of the panel
+  empty once typing narrowed the list, and a long list hangs from the top far from where the eye is.
 - **A height that fits the matches at every key:** covers the least, but the panel's edge jumps as the
   list narrows.
 - **A background per row in `PaneContent::Lines`:** what ADR 0072 expected, but a flat box beside ADR
@@ -333,5 +373,7 @@ each:
   `M-x` do nothing useful.
 - **`M-x` as a command that runs another itself:** reads naturally, but a command has no registry and
   keeps no state; the dispatcher already runs what a prompt's answer calls for.
-- **The count before the label, as vertico's:** familiar, but in ADR 0075's float the label has a row
-  of its own, and its end is free.
+- **The count before the label, as vertico's:** familiar, but the end of the answer's row keeps it
+  apart from what is typed.
+- **The field's accent color for the border:** stands out more, but a quiet border close to the fill
+  draws the eye to the list rather than the frame.

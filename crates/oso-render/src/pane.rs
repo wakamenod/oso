@@ -60,6 +60,10 @@ pub(crate) struct PanelStyle {
     /// How far the selected candidate's box reaches past its row's cells, across.
     pub(crate) selected_reach: f32,
     pub(crate) selected_radius: f32,
+    /// The border of a panel that has one, such as a completion's (ADR 0076), in place of the
+    /// hairline: its width, and its color in linear RGB, a little darker than the fill.
+    pub(crate) border_width: f32,
+    pub(crate) border: [f32; 4],
 }
 
 /// The panel's style until the theme.
@@ -76,6 +80,8 @@ pub(crate) const PANEL: PanelStyle = PanelStyle {
     key_radius: 4.0,
     selected_reach: 6.0,
     selected_radius: 4.0,
+    border_width: 5.0,
+    border: [0.035, 0.037, 0.056, 1.0],
 };
 
 /// What a piece of the screen means. The renderer turns it into colors, and
@@ -295,6 +301,8 @@ pub struct Panel<'a> {
     /// A row of cells drawn as the selected candidate's box, a little wider than they are,
     /// in [`Face::Selected`] (ADR 0076).
     pub selected: Option<CellRect>,
+    /// A border in place of the hairline, as a completion's float has (ADR 0076).
+    pub border: bool,
 }
 
 /// A region of the frame and what it shows. Nothing of it is drawn outside the

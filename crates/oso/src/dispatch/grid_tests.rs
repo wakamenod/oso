@@ -80,6 +80,10 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
     let edge = if framed { '│' } else { '|' };
     let label = prompt.label();
     let rows = &layout.label;
+    // Rows of padding above what it shows, as a completion's float has.
+    for _ in outer.row..inner.row {
+        lines.push(format!("{edge}{}{edge}", " ".repeat(outer.columns)));
+    }
     for index in 0..inner.rows {
         let row = inner.row + index;
         // What goes on the row, by column from the inner cells' left edge.
@@ -122,7 +126,8 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
         let gap = inner.columns.saturating_sub(marks.len());
         text.extend(std::iter::repeat_n(' ', gap));
         marks.extend(std::iter::repeat_n(' ', gap));
-        let field = layout.field.columns > 0 && row == layout.field.row;
+        // A field that spans the row shows by brackets in the padding beside it.
+        let field = layout.field.columns == inner.columns && row == layout.field.row;
         let (open, close) = if field { ('[', ']') } else { (' ', ' ') };
         let side = (inner.column - outer.column).saturating_sub(1);
         let pad = " ".repeat(side);
@@ -219,8 +224,12 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
             lines.push(format!("{edge}{}{edge}", " ".repeat(outer.columns)));
             continue;
         };
-        let (text, key, note) = (candidate.text(), candidate.key(), candidate.annotation());
-        let row = minibuffer::candidate_row(text, key, note, rows.columns);
+        let (text, binding, note) = (
+            candidate.text(),
+            candidate.binding(),
+            candidate.annotation(),
+        );
+        let row = minibuffer::candidate_row(text, binding, note, rows.columns);
         let shown = &text[..row.text];
         let mut spans = vec![shown.to_owned()];
         let mut used = minibuffer::cells_of(shown);
@@ -228,9 +237,9 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
             spans.push(minibuffer::CUT.to_owned());
             used += 1;
         }
-        if let Some(column) = row.key {
-            spans.push(" ".repeat(column - used) + key);
-            used = column + minibuffer::cells_of(key);
+        if let Some(column) = row.binding {
+            spans.push(" ".repeat(column - used) + binding);
+            used = column + minibuffer::cells_of(binding);
         }
         if let Some((column, bytes, cut)) = row.annotation {
             let cut = if cut { minibuffer::CUT } else { "" };

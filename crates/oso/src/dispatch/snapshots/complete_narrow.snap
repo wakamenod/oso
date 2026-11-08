@@ -17,10 +17,9 @@ keys: M-x b u f
 =-- test  1:0  Fundamental  UTF-8 LF         =
 "                                            "
 float at row 0, column 2: 10 x 40
-│  M-x                              1/5  │
 │                                        │
-│ [buf                                 ] │
-:     ^                                  :
+│  M-x buf                          1/5  │
+:         ^                              :
 │                                        │
 │ >save-buffer C-x C-s  Save the buffe…  │
 :       ***                              :
@@ -32,4 +31,5 @@ float at row 0, column 2: 10 x 40
 :               ***                      :
 │  save-buffers-kill-terminal C-x C-c    │
 :       ***                              :
+│                                        │
 └────────────────────────────────────────┘

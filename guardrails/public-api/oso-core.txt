@@ -285,6 +285,8 @@ pub oso_core::command::Command::args: oso_core::command::ArgSpec
 pub oso_core::command::Command::doc: &'static str
 pub oso_core::command::Command::name: &'static str
 pub oso_core::command::Command::run: oso_core::command::CommandFn
+impl oso_core::command::Command
+pub fn oso_core::command::Command::summary(&self) -> &'static str
 impl core::clone::Clone for oso_core::command::Command
 pub fn oso_core::command::Command::clone(&self) -> oso_core::command::Command
 impl core::fmt::Debug for oso_core::command::Command
@@ -390,7 +392,7 @@ pub mod oso_core::complete
 pub struct oso_core::complete::Candidate
 impl oso_core::complete::Candidate
 pub fn oso_core::complete::Candidate::annotation(&self) -> &str
-pub fn oso_core::complete::Candidate::key(&self) -> &str
+pub fn oso_core::complete::Candidate::binding(&self) -> &str
 pub fn oso_core::complete::Candidate::new(impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>) -> Self
 pub fn oso_core::complete::Candidate::text(&self) -> &str
 impl core::fmt::Debug for oso_core::complete::Candidate
@@ -399,15 +401,11 @@ pub struct oso_core::complete::Candidates
 impl oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::get(&self, usize) -> core::option::Option<&oso_core::complete::Candidate>
 pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
-pub fn oso_core::complete::Candidates::keep_in_view(&mut self, usize) -> usize
 pub fn oso_core::complete::Candidates::len(&self) -> usize
-pub fn oso_core::complete::Candidates::move_by(&mut self, isize)
-pub fn oso_core::complete::Candidates::new<'a>(alloc::sync::Arc<[oso_core::complete::Candidate]>, impl core::iter::traits::collect::IntoIterator<Item = &'a str>) -> Self
 pub fn oso_core::complete::Candidates::query(&self) -> &oso_core::complete::Query
-pub fn oso_core::complete::Candidates::select(&mut self, usize)
 pub fn oso_core::complete::Candidates::selected(&self) -> core::option::Option<usize>
 pub fn oso_core::complete::Candidates::selected_candidate(&self) -> core::option::Option<&oso_core::complete::Candidate>
-pub fn oso_core::complete::Candidates::set_input(&mut self, &str)
+pub fn oso_core::complete::Candidates::shown(&self, usize) -> impl core::iter::traits::iterator::Iterator<Item = (usize, &oso_core::complete::Candidate)>
 pub fn oso_core::complete::Candidates::top(&self) -> usize
 pub fn oso_core::complete::Candidates::total(&self) -> usize
 impl core::fmt::Debug for oso_core::complete::Candidates
@@ -415,9 +413,6 @@ pub fn oso_core::complete::Candidates::fmt(&self, &mut core::fmt::Formatter<'_>)
 pub struct oso_core::complete::Query
 impl oso_core::complete::Query
 pub fn oso_core::complete::Query::highlights(&self, &oso_core::complete::Candidate, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
-pub fn oso_core::complete::Query::matches(&self, &oso_core::complete::Candidate) -> bool
-pub fn oso_core::complete::Query::narrows(&self, &oso_core::complete::Query) -> bool
-pub fn oso_core::complete::Query::parse(&str) -> Self
 impl core::clone::Clone for oso_core::complete::Query
 pub fn oso_core::complete::Query::clone(&self) -> oso_core::complete::Query
 impl core::cmp::Eq for oso_core::complete::Query
@@ -428,7 +423,6 @@ pub fn oso_core::complete::Query::default() -> oso_core::complete::Query
 impl core::fmt::Debug for oso_core::complete::Query
 pub fn oso_core::complete::Query::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::complete::Query
-pub const oso_core::complete::AFFIXES: [char; 6]
 pub const oso_core::complete::ROWS: usize
 pub mod oso_core::decode
 pub enum oso_core::decode::LineEnding
@@ -983,6 +977,7 @@ pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::candidate_rows(&self) -> usize
 pub fn oso_core::editor::Editor::insert_completion(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::match_completion(&mut self)
 pub fn oso_core::editor::Editor::move_completion(&mut self, isize) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_completion(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, alloc::sync::Arc<[oso_core::complete::Candidate]>) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::page_completion(&mut self, isize) -> core::result::Result<(), oso_core::minibuffer::PromptError>
@@ -1179,7 +1174,6 @@ impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
-pub fn oso_core::frame::float_regions_with(&oso_core::frame::FrameLayout, usize, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub mod oso_core::key
@@ -1607,7 +1601,7 @@ impl core::marker::Copy for oso_core::minibuffer::PromptError
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptError
 pub struct oso_core::minibuffer::CandidateRow
 pub oso_core::minibuffer::CandidateRow::annotation: core::option::Option<(usize, usize, bool)>
-pub oso_core::minibuffer::CandidateRow::key: core::option::Option<usize>
+pub oso_core::minibuffer::CandidateRow::binding: core::option::Option<usize>
 pub oso_core::minibuffer::CandidateRow::text: usize
 pub oso_core::minibuffer::CandidateRow::text_cut: bool
 impl core::clone::Clone for oso_core::minibuffer::CandidateRow
@@ -1619,18 +1613,6 @@ impl core::fmt::Debug for oso_core::minibuffer::CandidateRow
 pub fn oso_core::minibuffer::CandidateRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::minibuffer::CandidateRow
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::CandidateRow
-pub struct oso_core::minibuffer::ListSize
-pub oso_core::minibuffer::ListSize::rows: usize
-pub oso_core::minibuffer::ListSize::total: usize
-impl core::clone::Clone for oso_core::minibuffer::ListSize
-pub fn oso_core::minibuffer::ListSize::clone(&self) -> oso_core::minibuffer::ListSize
-impl core::cmp::Eq for oso_core::minibuffer::ListSize
-impl core::cmp::PartialEq for oso_core::minibuffer::ListSize
-pub fn oso_core::minibuffer::ListSize::eq(&self, &oso_core::minibuffer::ListSize) -> bool
-impl core::fmt::Debug for oso_core::minibuffer::ListSize
-pub fn oso_core::minibuffer::ListSize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::minibuffer::ListSize
-impl core::marker::StructuralPartialEq for oso_core::minibuffer::ListSize
 pub struct oso_core::minibuffer::Prompt
 impl oso_core::minibuffer::Prompt
 pub fn oso_core::minibuffer::Prompt::buffer(&self) -> oso_core::buffer::BufferId
@@ -1683,7 +1665,6 @@ pub const oso_core::minibuffer::KEY_GAP: usize
 pub const oso_core::minibuffer::MAX_DEPTH: usize
 pub const oso_core::minibuffer::MAX_ENTRY_BYTES: usize
 pub const oso_core::minibuffer::MAX_LABEL_ROWS: usize
-pub const oso_core::minibuffer::MIN_ANNOTATION: usize
 pub const oso_core::minibuffer::QUESTION_END: &str
 pub const oso_core::minibuffer::VERBS: [&str; 2]
 pub fn oso_core::minibuffer::candidate_row(&str, &str, &str, usize) -> oso_core::minibuffer::CandidateRow
@@ -1691,7 +1672,6 @@ pub fn oso_core::minibuffer::cells_of(&str) -> usize
 pub fn oso_core::minibuffer::cut_to(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::fit_message(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::layout(&oso_core::frame::FrameLayout, &str, oso_core::minibuffer::Kind, core::option::Option<&str>) -> oso_core::minibuffer::PromptLayout
-pub fn oso_core::minibuffer::layout_with(&oso_core::frame::FrameLayout, &str, oso_core::minibuffer::Kind, core::option::Option<&str>, core::option::Option<oso_core::minibuffer::ListSize>) -> oso_core::minibuffer::PromptLayout
 pub fn oso_core::minibuffer::mask(&oso_core::rope::Rope, usize, usize) -> (usize, usize)
 pub fn oso_core::minibuffer::parse_number(&str) -> core::option::Option<i64>
 pub mod oso_core::motion

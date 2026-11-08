@@ -226,7 +226,7 @@ fn completion_beside_a_secret_neither_reads_nor_records_its_history() {
     let mut editor = editor(3);
     editor.open_completion("M-x", "command", items()).unwrap();
     type_in_prompt(&mut editor, "forward");
-    editor.end_command();
+    editor.match_completion();
     editor.submit_prompt().unwrap();
     editor.open_completion("M-x", "command", items()).unwrap();
     assert_eq!(first(&editor), "forward-char", "the history comes first");

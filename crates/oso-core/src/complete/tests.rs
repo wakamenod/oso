@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use proptest::prelude::*;
 
-use super::{Candidate, Candidates, MAX_COMPONENTS, MAX_INPUT_BYTES, Query};
+use super::query::MAX_COMPONENTS;
+use super::{Candidate, Candidates, MAX_INPUT_BYTES, Query};
 
 fn candidate(text: &str) -> Candidate {
     Candidate::new(text, "", "")
@@ -357,7 +358,7 @@ proptest! {
     #[test]
     fn highlights_are_inside_the_text_on_char_boundaries(
         text in "[a-zA-ZİßK\\- ]{0,12}",
-        input in "[a-zİk~,^ ]{0,6}",
+        input in "[a-zİk~,^ .*?]{0,6}",
     ) {
         let item = candidate(&text);
         let query = Query::parse(&input);

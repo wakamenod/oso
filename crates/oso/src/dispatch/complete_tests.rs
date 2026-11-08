@@ -173,6 +173,26 @@ mod socket {
     }
 
     #[test]
+    fn beside_a_secret_run_command_runs_only_c_g_in_a_prompt_that_completes() {
+        let path = std::path::PathBuf::from("/tmp/.env");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_load(oso_core::load::decode_all(b"TOKEN=x\n", Default::default()));
+        buffer.judge_secret(Some(&[path]));
+        let mut editor = Editor::with_buffer(buffer);
+        editor.set_view_size(ViewSize::new(10, 60));
+        let mut d = Dispatcher::new();
+        send(&mut d, &mut editor, "M-x");
+        send(&mut d, &mut editor, &typing("char"));
+        for name in ["next-completion", "exit-minibuffer", "insert-completion"] {
+            let (_, result) = d.run_command(&mut editor, name, None);
+            assert!(result.unwrap_err().contains("only keyboard-quit"), "{name}");
+        }
+        let (_, result) = d.run_command(&mut editor, "keyboard-quit", None);
+        assert_eq!(result, Ok(()));
+        assert!(editor.prompt().is_none());
+    }
+
+    #[test]
     fn run_command_refuses_m_x_and_gives_a_count_to_a_command_that_reads_its_key() {
         let (mut d, mut editor) = on(LINES);
         let (_, result) = d.run_command(&mut editor, "execute-extended-command", None);

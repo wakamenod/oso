@@ -238,7 +238,8 @@ item notes when it must be settled.
 - By M2-20 and M3: isearch and menus add their condition to `wants_ime` in `app/ime.rs`, as
   prompts have ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M2-18: matching on a worker thread past 5000 candidates, with the generation and the
-  snapshot ADR 0076 fixes, for large directories
+  snapshot ADR 0076 fixes, for large directories. The worker gives back matches; where the list
+  is scrolled to stays with the prompt
   ([ADR 0076](adr/0076-completion-and-m-x.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other

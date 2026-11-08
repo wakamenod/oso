@@ -17,7 +17,7 @@ use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
 use oso_core::keymap::{Binding, display_keys};
 
-use super::{Dispatcher, Keymaps};
+use super::Dispatcher;
 
 impl Dispatcher {
     /// The commands `M-x` lists, opened over what `editor` shows now.
@@ -54,26 +54,10 @@ impl Dispatcher {
             })
             .map(|(id, command)| {
                 let key = shortest.get(&id).map_or("", |(_, text)| text.as_str());
-                Candidate::new(command.name, key, first_line(command.doc))
+                Candidate::new(command.name, key, command.summary())
             })
             .collect()
     }
-}
-
-impl Keymaps {
-    /// Every keymap, active or not.
-    fn all(&self) -> impl Iterator<Item = &oso_core::keymap::Keymap> {
-        [&self.global]
-            .into_iter()
-            .chain(&self.prefix)
-            .chain(&self.copy)
-            .chain(&self.prompt)
-    }
-}
-
-/// The first line of a docstring, its summary.
-fn first_line(doc: &str) -> &str {
-    doc.lines().next().unwrap_or_default()
 }
 
 /// `prompt` with the prefix argument it passes on before it, as Emacs's `M-x` says it:
@@ -89,7 +73,7 @@ pub(super) fn with_prefix(prompt: &str, prefix: Option<Prefix>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{first_line, with_prefix};
+    use super::with_prefix;
     use crate::dispatch::Dispatcher;
     use oso_core::buffer::Buffer;
     use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Registry};
@@ -104,10 +88,10 @@ mod tests {
         let items = dispatcher.command_candidates(&editor);
         let find = |name: &str| items.iter().find(|item| item.text() == name);
         let save = find("save-buffer").unwrap();
-        assert_eq!(save.key(), "C-x C-s");
+        assert_eq!(save.binding(), "C-x C-s");
         assert!(save.annotation().starts_with("Save"));
-        assert_eq!(find("forward-char").map(Candidate::key), Some("C-f"));
-        assert_eq!(find("yank").map(Candidate::key), Some("C-y"));
+        assert_eq!(find("forward-char").map(Candidate::binding), Some("C-f"));
+        assert_eq!(find("yank").map(Candidate::binding), Some("C-y"));
         assert!(find("execute-extended-command").is_some());
         // Not one that reads its key, nor one of a keymap not active.
         for name in [
@@ -139,7 +123,10 @@ mod tests {
         let dispatcher = Dispatcher::with(registry, global);
         let editor = Editor::with_buffer(Buffer::from_text("test", "text"));
         let items = dispatcher.command_candidates(&editor);
-        let listed: Vec<_> = items.iter().map(|item| (item.text(), item.key())).collect();
+        let listed: Vec<_> = items
+            .iter()
+            .map(|item| (item.text(), item.binding()))
+            .collect();
         assert_eq!(listed, [("bound", "C-c b"), ("unbound", "")]);
     }
 
@@ -150,6 +137,5 @@ mod tests {
         assert_eq!(with_prefix("M-x", Some(Prefix::Universal(16))), "16 M-x");
         assert_eq!(with_prefix("M-x", Some(Prefix::Negative)), "- M-x");
         assert_eq!(with_prefix("M-x", Some(Prefix::Number(3))), "3 M-x");
-        assert_eq!(first_line("Summary.\n\nMore."), "Summary.");
     }
 }

@@ -82,10 +82,9 @@ impl<'a> Parts<'a> {
         ];
         let shown = self.layout.regions.candidates;
         let mut highlights = Vec::new();
-        let rows = (candidates.top()..candidates.len())
-            .take(shown.rows)
-            .filter_map(|place| candidates.get(place))
-            .map(|candidate| {
+        let rows = candidates
+            .shown(shown.rows)
+            .map(|(_, candidate)| {
                 candidates.query().highlights(candidate, &mut highlights);
                 candidate_spans(candidate, &highlights, shown.columns)
             })
@@ -200,7 +199,7 @@ fn candidate_spans<'a>(
     columns: usize,
 ) -> Vec<Span<'a>> {
     let text = candidate.text();
-    let row = minibuffer::candidate_row(text, candidate.key(), candidate.annotation(), columns);
+    let row = minibuffer::candidate_row(text, candidate.binding(), candidate.annotation(), columns);
     let shown = &text[..row.text];
     let mut spans = Vec::with_capacity(2 * highlights.len() + 6);
     let mut at = 0;
@@ -231,16 +230,16 @@ fn candidate_spans<'a>(
         });
         used += 1;
     }
-    if let Some(column) = row.key {
+    if let Some(column) = row.binding {
         spans.push(Span {
             text: spaces(column.saturating_sub(used)),
             face: Face::Float,
         });
         spans.push(Span {
-            text: candidate.key(),
+            text: candidate.binding(),
             face: Face::Binding,
         });
-        used = column + cells_of(candidate.key());
+        used = column + cells_of(candidate.binding());
     }
     if let Some((column, bytes, cut)) = row.annotation {
         spans.push(Span {
@@ -342,6 +341,8 @@ pub(super) fn panes<'a>(
             field_room: layout.field_room,
             keys,
             selected: selected_row(parts),
+            // A completion's float sits at the center, framed by a border (ADR 0076).
+            border: parts.list.is_some(),
         }),
         bands: Bands::NONE,
         content: PaneContent::Lines(&[]),

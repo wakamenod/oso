@@ -217,10 +217,10 @@ fn starts_word(before: Option<char>, c: char) -> bool {
 
 /// The longest input matched, in bytes. A longer one, such as a whole file yanked into the
 /// answer, matches nothing, so that no key costs more than this much matching (ADR 0076).
-pub const MAX_INPUT_BYTES: usize = 1024;
+pub(crate) const MAX_INPUT_BYTES: usize = 1024;
 
 /// The most components an input is matched with. One with more matches nothing.
-pub const MAX_COMPONENTS: usize = 32;
+pub(crate) const MAX_COMPONENTS: usize = 32;
 
 /// An input read as components, which a candidate matches when it matches all of them.
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -235,12 +235,13 @@ impl Query {
     /// `input` split at spaces into components, a space after a backslash kept in one, as
     /// orderless's `orderless-escapable-split-on-space` does. Case is ignored unless `input`
     /// holds an upper-case letter.
-    pub fn parse(input: &str) -> Self {
+    #[cfg(test)]
+    pub(crate) fn parse(input: &str) -> Self {
         Self::parse_after(input, &Self::default())
     }
 
     /// [`Query::parse`], reusing what `before` compiled for a component that is the same.
-    pub fn parse_after(input: &str, before: &Query) -> Self {
+    pub(crate) fn parse_after(input: &str, before: &Query) -> Self {
         if input.len() > MAX_INPUT_BYTES {
             return Self::too_long();
         }
@@ -274,7 +275,7 @@ impl Query {
     }
 
     /// The query of an input too long to match: nothing matches it.
-    pub fn too_long() -> Self {
+    pub(crate) fn too_long() -> Self {
         Self {
             too_long: true,
             ..Self::default()
@@ -282,7 +283,7 @@ impl Query {
     }
 
     /// Whether `candidate` matches every component.
-    pub fn matches(&self, candidate: &Candidate) -> bool {
+    pub(crate) fn matches(&self, candidate: &Candidate) -> bool {
         !self.too_long
             && self
                 .components
@@ -303,6 +304,10 @@ impl Query {
         let mut kept: usize = 0;
         for index in 0..out.len() {
             let range = out[index].clone();
+            // An expression such as `a*` may match nothing, which shows nothing.
+            if range.is_empty() {
+                continue;
+            }
             match kept.checked_sub(1).map(|last| &mut out[last]) {
                 Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
                 _ => {
@@ -318,7 +323,7 @@ impl Query {
     /// needs to look only at those: each of `before`'s components is one of this query's,
     /// in its place, at most longer at its end, and none says what must not match unless
     /// it is the same. Case may stop being ignored, and never start.
-    pub fn narrows(&self, before: &Query) -> bool {
+    pub(crate) fn narrows(&self, before: &Query) -> bool {
         if before.too_long {
             return false;
         }

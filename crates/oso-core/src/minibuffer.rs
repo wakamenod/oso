@@ -17,16 +17,18 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
 
-pub use candidates::{CandidateRow, MIN_ANNOTATION, candidate_row};
+pub use candidates::{CandidateRow, candidate_row};
+pub(crate) use completion::completion_layout;
 use cut::rows_of;
 pub use cut::{cells_of, cut_to, fit_message};
 
 use crate::buffer::BufferId;
 use crate::complete::Candidates;
-use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions, float_regions_with};
+use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions};
 use crate::rope::Rope;
 
 mod candidates;
+mod completion;
 mod cut;
 
 /// The most prompts open at once. One more is refused.
@@ -169,9 +171,6 @@ pub struct Prompt {
     /// Its candidates, for a prompt that completes, and the revision of its buffer they
     /// were last matched against.
     pub(crate) completion: Option<(Candidates, u64)>,
-    /// The most candidate rows it has wanted, so that its float grows and never shrinks
-    /// while it is open, as vertico's `grow-only` (ADR 0076).
-    pub(crate) list_rows: usize,
 }
 
 impl Prompt {
@@ -310,25 +309,9 @@ pub struct PromptLayout {
     pub keys: [CellRect; 2],
     /// Each key's verb after it, a cell on: empty where the row is too narrow for them.
     pub verbs: [CellRect; 2],
-    /// A list's count, such as `3/57`: at the end of the label's first row, or of the one
-    /// row. Empty with no list (ADR 0076).
+    /// A list's count, such as `3/57`, at the end of the answer's row. Empty with no list
+    /// (ADR 0076).
     pub count: CellRect,
-}
-
-/// How big a prompt's list of candidates is, for its layout (ADR 0076).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ListSize {
-    /// The candidate rows it wants.
-    pub rows: usize,
-    /// How many candidates it has, which the count's cells are kept for.
-    pub total: usize,
-}
-
-impl ListSize {
-    /// The cells its count takes at most, `total/total`, with a cell before it.
-    fn count_cells(self) -> usize {
-        2 * self.total.max(1).to_string().len() + 2
-    }
 }
 
 /// The cells of a row the label may take where it shares the row with the answer: all of
@@ -386,16 +369,14 @@ struct Label {
 
 /// Cuts `body` into the rows a float in `frame` shows of it, and places them: on rows of
 /// their own, or first on a float of one row.
-fn place_label(frame: &FrameLayout, body: &str, kind: Kind, list: Option<ListSize>) -> Label {
+fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
     // The width does not depend on the rows, nor whether there is one.
     let probe = float_regions(frame, 1);
     let one_row = probe.inner.rows <= 1;
-    // A list's count keeps its cells at the end of the label's rows.
-    let count = list.map_or(0, ListSize::count_cells);
     let (width, most) = if one_row {
         (label_width(kind, probe.inner.columns), 1)
     } else {
-        (probe.inner.columns.saturating_sub(count), MAX_LABEL_ROWS)
+        (probe.inner.columns, MAX_LABEL_ROWS)
     };
     // A row the keys leave no room on shows none of the label.
     let (mut rows, mut cut) = if width == 0 {
@@ -403,7 +384,7 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind, list: Option<ListSiz
     } else {
         rows_of(body, width, most)
     };
-    let regions = float_regions_with(frame, rows.len(), list.map_or(0, |list| list.rows));
+    let regions = float_regions(frame, rows.len());
     let inner = regions.inner;
     let shown = if one_row {
         inner.rows
@@ -420,7 +401,7 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind, list: Option<ListSiz
         let last = rows.last().map_or(0, |row| cells_of(&body[row.clone()]));
         (last + usize::from(cut)).min(width).min(inner.columns)
     } else {
-        width.min(inner.columns)
+        inner.columns
     };
     let cells = CellRect {
         row: inner.row,
@@ -437,32 +418,6 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind, list: Option<ListSiz
     }
 }
 
-/// Where a list's count goes in a float whose inner cells are `inner`: at the end of the
-/// label's first row, or, with the label on the answer's one row or showing none of it, at the
-/// end of the answer's row, of whose `left` cells it then takes some. Returns the count's cells
-/// on the label's row, if it goes there, and the cells it takes of the answer's.
-fn place_count(
-    list: Option<ListSize>,
-    inner: CellRect,
-    label_cells: CellRect,
-    one_row: bool,
-    left: usize,
-) -> (Option<CellRect>, usize) {
-    let columns = list
-        .map_or(0, ListSize::count_cells)
-        .min(left.saturating_sub(MIN_INPUT_COLUMNS));
-    if one_row || label_cells.rows == 0 || columns == 0 {
-        return (None, columns);
-    }
-    let count = CellRect {
-        row: inner.row,
-        column: inner.column + inner.columns - columns,
-        rows: 1,
-        columns,
-    };
-    (Some(count), 0)
-}
-
 /// Where a prompt with `label` floats in a frame laid out as `frame`, and where its label,
 /// its answer, a message and a question's keys go in it (ADR 0075). The label takes rows of
 /// its own, cut into them once, and the float is as tall as they are. The answer's row comes
@@ -470,19 +425,6 @@ fn place_count(
 /// has its keys there instead. A float of one row puts the label first on it, as ADR 0072
 /// did.
 pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str>) -> PromptLayout {
-    layout_with(frame, label, kind, message, None)
-}
-
-/// [`layout`], for a prompt with a list of candidates of `list`'s size, if any: its rows
-/// below the answer, and its count at the end of the label's first row, or of the one row
-/// (ADR 0076).
-pub fn layout_with(
-    frame: &FrameLayout,
-    label: &str,
-    kind: Kind,
-    message: Option<&str>,
-    list: Option<ListSize>,
-) -> PromptLayout {
     let body = match kind {
         Kind::Question { .. } => label.strip_suffix(QUESTION_END).unwrap_or(label),
         _ => label,
@@ -493,7 +435,7 @@ pub fn layout_with(
         cut: label_cut,
         cells: label_cells,
         one_row,
-    } = place_label(frame, body, kind, list);
+    } = place_label(frame, body, kind);
     let inner = regions.inner;
     let row = inner.row + inner.rows.saturating_sub(1);
     let label_columns = label_cells.columns;
@@ -542,10 +484,6 @@ pub fn layout_with(
             count: rect(0, 0),
         };
     }
-    // On one row, the count takes the end of it, past the message.
-    let (count, taken) = place_count(list, inner, label_cells, one_row, left);
-    let left = left - taken;
-    let count = count.unwrap_or_else(|| rect(inner.columns - taken, taken));
     let message_columns = message_cells(left.saturating_sub(MIN_INPUT_COLUMNS));
     PromptLayout {
         regions,
@@ -559,10 +497,10 @@ pub fn layout_with(
         } else {
             field_room(&regions)
         },
-        message: rect(start + left - message_columns, message_columns),
+        message: rect(inner.columns - message_columns, message_columns),
         keys: [rect(0, 0); 2],
         verbs: [rect(0, 0); 2],
-        count,
+        count: rect(0, 0),
     }
 }
 

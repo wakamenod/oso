@@ -89,7 +89,10 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 
 #[cfg(test)]
 mod tests {
-    use super::{TABLES, global_keymap, prefix, prefix_keymaps, recovery, recovery_keymaps};
+    use super::{
+        TABLES, complete, global_keymap, minibuffer, prefix, prefix_keymaps, prompt_keymaps,
+        recovery, recovery_keymaps,
+    };
     use crate::commands;
     use oso_core::key::KeySequence;
     use oso_core::keymap::{Binding, Keymap};
@@ -127,6 +130,16 @@ mod tests {
         let (digits, minus) = prefix_keymaps(&commands::registry());
         assert_eq!(digits.len(), prefix::DIGITS.len());
         assert_eq!(minus.len(), prefix::MINUS.len());
+    }
+
+    #[test]
+    fn the_prompt_keymaps_bind_all_their_rows() {
+        // A clash would leave a keymap empty, and `RET` in `M-x` to the global keymap.
+        let [minibuffer, question, completing] = prompt_keymaps(&commands::registry());
+        assert_eq!(minibuffer.len(), minibuffer::MINIBUFFER.len());
+        assert_eq!(question.len(), minibuffer::QUESTION.len());
+        let both = minibuffer::MINIBUFFER.len() + complete::COMPLETION.len();
+        assert_eq!(completing.len(), both);
     }
 
     /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means

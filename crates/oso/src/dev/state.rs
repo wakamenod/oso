@@ -22,7 +22,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
-use oso_core::complete::{Candidate, Candidates};
+use oso_core::complete::Candidates;
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::editor::{Editor, Status};
 use oso_core::frame::{CellRect, PixelRect};
@@ -199,9 +199,10 @@ fn prompts_state(editor: &Editor) -> Value {
                 "cursor": cursor,
                 "message": prompt.message().filter(|_| shown && !prompt.message_withheld()),
                 "region": region,
+                // Only the innermost shows its rows and keeps them in view.
                 "completion": prompt
                     .candidates()
-                    .filter(|_| shown)
+                    .filter(|_| shown && index + 1 == count)
                     .map(|candidates| completion_state(candidates, editor.candidate_rows())),
             })
         })
@@ -211,10 +212,9 @@ fn prompts_state(editor: &Editor) -> Value {
 /// How many candidates match of how many, which is selected, and the names of those in the
 /// rows shown, as the float shows them (ADR 0076).
 fn completion_state(candidates: &Candidates, shown: usize) -> Value {
-    let rows = (candidates.top()..candidates.len())
-        .take(shown)
-        .filter_map(|place| candidates.get(place))
-        .map(Candidate::text)
+    let rows = candidates
+        .shown(shown)
+        .map(|(_, candidate)| candidate.text())
         .collect::<Vec<_>>();
     json!({
         "count": candidates.len(),

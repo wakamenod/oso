@@ -78,8 +78,10 @@ impl Dispatcher {
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;
+        // `M-x` completes over the commands, and runs the one named in its place (ADR 0076).
+        let runs_answer = matches!(spec, Some(ArgSpec::Command { .. }));
         let opened = match kind {
-            Kind::Complete { history } => {
+            Kind::Complete { history } if runs_answer => {
                 let items = self.command_candidates(editor);
                 editor.open_completion(extended::with_prefix(prompt, args.raw()), history, items)
             }
@@ -91,7 +93,7 @@ impl Dispatcher {
                 prefix: args.raw(),
                 prompt,
                 passphrase: kind == Kind::Passphrase,
-                runs_answer: matches!(kind, Kind::Complete { .. }),
+                runs_answer,
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
