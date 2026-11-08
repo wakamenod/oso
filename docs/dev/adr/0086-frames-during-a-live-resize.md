@@ -1,6 +1,6 @@
 # 0086. Frames during a live resize
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -14,7 +14,8 @@ the new size, so text can wobble or smear while the window is dragged.
 
 [ADR 0077](0077-choices-for-the-native-layers-stage-2.md) left the live resize, and the
 startup measured again against winit, for the rest of stage 2. The author made the choices
-below on 2026-11-08, through the coordinator.
+below on 2026-11-08, through the coordinator. The author accepted this on 2026-11-09,
+through the coordinator.
 
 ## Decision
 
