@@ -139,8 +139,8 @@ pub struct App {
 impl App {
     /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
     /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
-    /// installed logger's. It draws in the theme remembered in `theme_directory`, read here,
-    /// before the window exists (ADR 0089).
+    /// installed logger's. It draws in the theme remembered in `theme_directory`, read on a
+    /// thread before the window exists, if it comes within a few milliseconds (ADR 0089).
     pub fn new(
         waker: Waker,
         started: Instant,
@@ -156,7 +156,9 @@ impl App {
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
         let mut editor = Editor::default();
-        let remembered = theme_directory.as_deref().and_then(theme_file::read);
+        let remembered = theme_directory
+            .clone()
+            .and_then(|directory| theme_file::read_in_time(directory, theme_file::READ_DEADLINE));
         let themes = theme_names();
         let theme = remembered
             .and_then(|name| themes.iter().position(|&(theme, _)| theme == name))

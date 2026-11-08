@@ -50,7 +50,7 @@ float at row 4, column 19: 19 x 62
 │ save-buffer (C-x C-s)  Save the buffer to its file, if it i… │
 │ forward-char (C-f)     Move point N characters forward (bac… │
 │ forward-word (M-f)     Move point to the end of the next wo… │
-│ toggle-theme (<f5>)    Switch between the dark and the ligh… │
+│ toggle-theme (<f5>)    Switch between the two themes of the… │
 │ backward-char (C-b)    Move point N characters backward (fo… │
 │ backward-word (M-b)    Move point to the start of the previ… │
 │ end-of-buffer (M->)    Move point to the end of the buffer.  │

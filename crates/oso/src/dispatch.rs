@@ -973,6 +973,18 @@ mod tests {
     }
 
     #[test]
+    fn run_command_refuses_a_command_that_reads_a_themes_name() {
+        let mut dispatcher = Dispatcher::new();
+        let mut editor = editor("abcdef");
+        editor.set_themes(vec![("dark", "dark"), ("light", "light")], 0);
+        let (effects, result) = dispatcher.run_command(&mut editor, "load-theme", None);
+        assert_eq!(effects, Effects::default());
+        assert!(result.unwrap_err().contains("theme's name"));
+        assert!(editor.prompt().is_none());
+        assert_eq!(editor.theme_name(), Some("dark"));
+    }
+
+    #[test]
     fn run_command_scrolls_to_the_cursor_and_asks_to_exit() {
         let mut dispatcher = Dispatcher::new();
         let text: String = (0..100).map(|i| format!("{i}\n")).collect();

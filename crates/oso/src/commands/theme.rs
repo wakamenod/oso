@@ -20,7 +20,7 @@ pub const COMMANDS: &[Command] = &[
     },
     Command {
         name: "toggle-theme",
-        doc: "Switch between the dark and the light theme.\n\nFrom another theme, switch to the dark one. The choice is remembered for the next start.",
+        doc: "Switch between the two themes of the pair: the dark and the light one, until configuration names them.\n\nFrom another theme, switch to the pair's first. The choice is remembered for the next start.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: toggle_theme,

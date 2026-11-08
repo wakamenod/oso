@@ -1,7 +1,8 @@
 //! The theme chosen last, remembered in one line of `oso/theme` in the per-user state
 //! directory, beside the emergency copies' directory, until configuration exists
-//! (ADR 0089). It is read once, before the window exists, and written on a thread of its
-//! own after a switch, so the UI thread never waits on it.
+//! (ADR 0089). It is read once, before the window exists, on a thread of its own that the
+//! start waits a few milliseconds for at most, and written on another after a switch, so a
+//! slow disk or a file that never answers costs the start no more than that.
 //!
 //! Must not depend on: the GPU or the window; it reads and writes one file.
 
@@ -10,6 +11,7 @@ use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
+use std::time::Duration;
 
 use oso_platform::privacy::{PrivateDir, has_one_name, is_this_users};
 
@@ -17,8 +19,11 @@ use oso_platform::privacy::{PrivateDir, has_one_name, is_this_users};
 const FILE: &str = "theme";
 /// Where a write goes first, so that the file is whole or not there.
 const PART: &str = "theme.part";
-/// The most a theme's file holds: a name and a line break.
-const MOST_BYTES: u64 = 64;
+/// The most a theme's file is read of: a name and a line break, and room to spare.
+const MOST_BYTES: u64 = 256;
+
+/// How long the start waits for the remembered name before it draws the default theme.
+pub(super) const READ_DEADLINE: Duration = Duration::from_millis(30);
 
 /// Whether `name` could be a theme's: lower-case letters, digits and `-`, as the
 /// built-in ones are named.
@@ -29,10 +34,40 @@ fn is_name(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// The name remembered in `directory`, read on a thread of its own, if it comes within
+/// `deadline`. Otherwise `None`, and the default theme is drawn; a thread that never ends
+/// holds nothing of the app's.
+pub(super) fn read_in_time(directory: PathBuf, deadline: Duration) -> Option<String> {
+    within(deadline, move || read(&directory))
+}
+
+/// What `read` gives, if it gives it within `deadline`.
+fn within(
+    deadline: Duration,
+    read: impl FnOnce() -> Option<String> + Send + 'static,
+) -> Option<String> {
+    let (sender, receiver) = mpsc::channel();
+    let spawned = thread::Builder::new()
+        .name("oso-theme-read".into())
+        .spawn(move || {
+            let _ = sender.send(read());
+        });
+    if let Err(e) = spawned {
+        log::warn!("not reading the remembered theme: {e}");
+        return None;
+    }
+    receiver.recv_timeout(deadline).unwrap_or_else(|_| {
+        log::warn!(
+            "the remembered theme took longer than {deadline:?} to read; drawing the default"
+        );
+        None
+    })
+}
+
 /// The name remembered in `directory`, if the directory is private and the file there is a
 /// small one of this user's that holds one. Anything else gives `None`, and the default
 /// theme is drawn.
-pub(super) fn read(directory: &Path) -> Option<String> {
+fn read(directory: &Path) -> Option<String> {
     let directory = PrivateDir::existing(directory).ok()??;
     let path = directory.path().join(FILE);
     let meta = fs::symlink_metadata(&path).ok()?;
@@ -168,8 +203,29 @@ mod tests {
             fs::write(&path, text).unwrap();
             assert_eq!(read(&scratch.oso()), None, "{text:?}");
         }
-        fs::write(&path, "a".repeat(100)).unwrap();
+        fs::write(&path, "a".repeat(300)).unwrap();
         assert_eq!(read(&scratch.oso()), None, "too long");
+    }
+
+    #[test]
+    fn a_read_that_does_not_come_in_time_gives_the_default_without_waiting_for_it() {
+        let started = std::time::Instant::now();
+        let slow = || {
+            thread::sleep(Duration::from_secs(5));
+            Some("light".to_owned())
+        };
+        assert_eq!(within(Duration::from_millis(20), slow), None);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let quick = || Some("light".to_owned());
+        assert_eq!(within(READ_DEADLINE, quick).as_deref(), Some("light"));
+    }
+
+    #[test]
+    fn the_name_is_read_on_its_own_thread_in_time() {
+        let scratch = Scratch::new();
+        write(&scratch.oso(), "dusk").unwrap();
+        let read = read_in_time(scratch.oso(), Duration::from_secs(5));
+        assert_eq!(read.as_deref(), Some("dusk"));
     }
 
     #[cfg(unix)]

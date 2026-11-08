@@ -82,13 +82,14 @@ impl Dispatcher {
         let (prompt, kind) = kind;
         // `M-x` completes over the commands, and runs the one named in its place (ADR 0076).
         let runs_answer = matches!(spec, Some(ArgSpec::Command { .. }));
+        let names_a_theme = matches!(spec, Some(ArgSpec::Theme { .. }));
         let opened = match kind {
             Kind::Complete { history } if runs_answer => {
                 let items = self.command_candidates(editor);
                 editor.open_completion(extended::with_prefix(prompt, args.raw()), history, items)
             }
             // `load-theme` completes over the themes the host draws with (ADR 0089).
-            Kind::Complete { history } => {
+            Kind::Complete { history } if names_a_theme => {
                 let items = editor.theme_candidates();
                 editor.open_completion(prompt, history, items)
             }
