@@ -33,7 +33,7 @@ runs:
 
     - name: Restore just's archive
       id: cache
-      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: actions/cache/restore@v6.1.0
       with:
         path: ${{ steps.pick.outputs.dir }}
         key: just-1.52.0-${{ runner.os }}-${{ runner.arch }}
@@ -75,7 +75,7 @@ runs:
 
     - name: Save just's archive
       if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
-      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      uses: actions/cache/save@v6.1.0
       with:
         path: ${{ steps.pick.outputs.dir }}
         key: just-1.52.0-${{ runner.os }}-${{ runner.arch }}
