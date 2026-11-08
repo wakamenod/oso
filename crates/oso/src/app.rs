@@ -23,7 +23,14 @@ mod ime;
 mod input;
 mod loads;
 mod saves;
+// The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
+// Both give the same loop, window and waker, under the one name.
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+mod native;
+#[cfg(not(all(target_os = "macos", feature = "native-window")))]
 mod shell;
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+use native as shell;
 
 #[cfg(feature = "dev")]
 use crate::dev;

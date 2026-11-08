@@ -11,14 +11,6 @@
 use oso_core::key::{Key, KeyPress, Modifiers, NamedKey};
 use oso_platform::window::{Held, KeyInput, SystemKey, SystemNamed};
 
-/// Whether a key event is a press the user made now: `pressed`, and not `synthetic`. On
-/// X11 and Windows, winit generates presses for keys already held when the window gains
-/// focus, and one of those would run a command or type text nobody asked for. Only these
-/// become a [`KeyInput`].
-pub fn is_real_press(pressed: bool, synthetic: bool) -> bool {
-    pressed && !synthetic
-}
-
 /// The key press for `input`, or `None` for keys oso does not handle yet:
 /// lone modifiers, dead keys, text of several characters ([`typed_text`]) and keys
 /// with no Emacs name.
@@ -127,7 +119,7 @@ fn single_char(text: &str) -> Option<char> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Held, SystemKey, SystemNamed, is_real_press, several_characters, translate};
+    use super::{Held, SystemKey, SystemNamed, several_characters, translate};
     use oso_core::key::KeyPress;
 
     fn ch(s: &str) -> SystemKey<'_> {
@@ -151,14 +143,6 @@ mod tests {
     const SHIFT: Held = Held::SHIFT;
     const CONTROL: Held = Held::CONTROL;
     const LOGO: Held = Held::LOGO;
-
-    #[test]
-    fn only_a_real_press_counts() {
-        assert!(is_real_press(true, false));
-        assert!(!is_real_press(true, true), "held at focus");
-        assert!(!is_real_press(false, false));
-        assert!(!is_real_press(false, true));
-    }
 
     #[test]
     fn only_plain_text_of_several_characters_is_typed_text() {

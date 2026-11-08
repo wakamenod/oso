@@ -1,0 +1,124 @@
+//! The application's and the window's delegates: the app has launched or will end, and the
+//! window was asked to close, resized, hidden or lost the keyboard.
+//!
+//! Must not depend on: the run loop's hooks; each method reports to the state.
+
+use objc2::rc::Retained;
+use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send};
+use objc2_app_kit::{
+    NSApplication, NSApplicationDelegate, NSWindow, NSWindowDelegate, NSWindowOcclusionState,
+};
+use objc2_foundation::{MainThreadMarker, NSNotification, NSObject, NSObjectProtocol};
+
+use super::{Delivery, State};
+use crate::window::Event;
+
+pub(super) struct Ivars {
+    state: &'static State,
+}
+
+define_class!(
+    // SAFETY:
+    // - NSObject has no subclassing requirements.
+    // - `AppDelegate` does not implement `Drop`.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "OsoAppDelegate"]
+    #[ivars = Ivars]
+    pub(super) struct AppDelegate;
+
+    // SAFETY: `NSObjectProtocol` has no requirements.
+    unsafe impl NSObjectProtocol for AppDelegate {}
+
+    // SAFETY: the methods have the signatures AppKit declares.
+    unsafe impl NSApplicationDelegate for AppDelegate {
+        #[unsafe(method(applicationDidFinishLaunching:))]
+        fn did_finish_launching(&self, _notification: &NSNotification) {
+            // Launched from a terminal, an unbundled app is not in front unless it asks.
+            #[expect(
+                deprecated,
+                reason = "`activate` does not bring an unbundled app forward"
+            )]
+            NSApplication::sharedApplication(self.mtm()).activateIgnoringOtherApps(true);
+            self.ivars().state.deliver(Delivery::Resume);
+        }
+
+        /// A Dock quit or a logout: AppKit ends the process after this returns.
+        #[unsafe(method(applicationWillTerminate:))]
+        fn will_terminate(&self, _notification: &NSNotification) {
+            self.ivars().state.exiting();
+        }
+    }
+);
+
+impl AppDelegate {
+    pub(super) fn new(mtm: MainThreadMarker, state: &'static State) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars { state });
+        // SAFETY: NSObject's `init`, with this signature.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+define_class!(
+    // SAFETY:
+    // - NSObject has no subclassing requirements.
+    // - `WindowDelegate` does not implement `Drop`.
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "OsoWindowDelegate"]
+    #[ivars = Ivars]
+    pub(super) struct WindowDelegate;
+
+    // SAFETY: `NSObjectProtocol` has no requirements.
+    unsafe impl NSObjectProtocol for WindowDelegate {}
+
+    // SAFETY: the methods have the signatures AppKit declares.
+    unsafe impl NSWindowDelegate for WindowDelegate {
+        /// The close button: the app decides, so the window stays (ADR 0059).
+        #[unsafe(method(windowShouldClose:))]
+        fn should_close(&self, _sender: &NSWindow) -> bool {
+            self.ivars()
+                .state
+                .deliver(Delivery::Window(Event::CloseRequested));
+            false
+        }
+
+        #[unsafe(method(windowDidResize:))]
+        fn did_resize(&self, _notification: &NSNotification) {
+            let state = self.ivars().state;
+            state.deliver(Delivery::Window(state.resized_event()));
+        }
+
+        #[unsafe(method(windowDidChangeOcclusionState:))]
+        fn did_change_occlusion(&self, _notification: &NSNotification) {
+            let state = self.ivars().state;
+            let Some((window, _, _)) = state.window.get() else {
+                return;
+            };
+            let visible = window
+                .occlusionState()
+                .contains(NSWindowOcclusionState::Visible);
+            state.deliver(Delivery::Window(Event::Occluded(!visible)));
+        }
+
+        /// Keys released elsewhere never reach the window, so no modifier counts as held.
+        #[unsafe(method(windowDidResignKey:))]
+        fn did_resign_key(&self, _notification: &NSNotification) {
+            let state = self.ivars().state;
+            if let Some((_, view, _)) = state.window.get() {
+                view.forget_modifiers();
+            }
+            state.deliver(Delivery::Window(Event::ModifiersChanged(
+                crate::window::Held::NONE,
+            )));
+        }
+    }
+);
+
+impl WindowDelegate {
+    pub(super) fn new(mtm: MainThreadMarker, state: &'static State) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(Ivars { state });
+        // SAFETY: NSObject's `init`, with this signature.
+        unsafe { msg_send![super(this), init] }
+    }
+}

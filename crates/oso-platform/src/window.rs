@@ -6,8 +6,16 @@
 //! that turn an OS's events into these sit beside it.
 //!
 //! None of the types that can hold what the person types has `Debug` (ADR 0028).
+//!
+//! With `native-window`, macOS gets oso's own layer in place of winit: `run` drives a
+//! `Handler` (ADR 0070, stage 2).
 
 use std::ops::{BitOr, Range};
+
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+mod appkit;
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+pub use appkit::{Control, RenderTarget, Waker, Window, run};
 
 /// What the window reports, as the app sees it.
 pub enum Event<'a> {
@@ -123,6 +131,32 @@ pub enum ImeEvent {
     Commit(String),
     /// The composition is over, whether oso asked for it or not.
     Disabled,
+}
+
+/// The cursor's cell in physical pixels, from the top left of the window's drawable area, for
+/// the input method's candidate window.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CursorArea {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+/// What the app does with the native layer's events, one method per callback of the loop
+/// (ADR 0070). It is called on the main thread, never twice at once: what it asks of the window
+/// is done once it returns.
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+pub trait Handler<T> {
+    /// The window may be opened now.
+    fn resume(&mut self, control: &Control);
+    /// Another thread sent `event`.
+    fn user_event(&mut self, control: &Control, event: T);
+    fn window_event(&mut self, control: &Control, event: Event<'_>);
+    /// The loop is about to wait for the next events.
+    fn before_waiting(&mut self, control: &Control);
+    /// The loop is ending, on every exit: the last call.
+    fn exiting(&mut self);
 }
 
 #[cfg(test)]

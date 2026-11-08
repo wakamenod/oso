@@ -362,6 +362,19 @@ impl core::fmt::Debug for oso_platform::window::Wheel
 pub fn oso_platform::window::Wheel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_platform::window::Wheel
 impl core::marker::StructuralPartialEq for oso_platform::window::Wheel
+pub struct oso_platform::window::CursorArea
+pub oso_platform::window::CursorArea::height: f32
+pub oso_platform::window::CursorArea::width: f32
+pub oso_platform::window::CursorArea::x: f32
+pub oso_platform::window::CursorArea::y: f32
+impl core::clone::Clone for oso_platform::window::CursorArea
+pub fn oso_platform::window::CursorArea::clone(&self) -> oso_platform::window::CursorArea
+impl core::cmp::PartialEq for oso_platform::window::CursorArea
+pub fn oso_platform::window::CursorArea::eq(&self, &oso_platform::window::CursorArea) -> bool
+impl core::fmt::Debug for oso_platform::window::CursorArea
+pub fn oso_platform::window::CursorArea::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::CursorArea
+impl core::marker::StructuralPartialEq for oso_platform::window::CursorArea
 pub struct oso_platform::window::Held(_)
 impl oso_platform::window::Held
 pub const oso_platform::window::Held::ALT: Self

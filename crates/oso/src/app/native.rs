@@ -1,0 +1,170 @@
+//! The native macOS window layer in place of winit (ADR 0070, stage 2), behind
+//! `native-window`: the same loop, window and waker as `shell` gives, over
+//! `oso_platform::window`'s, so the rest of the app does not know which one runs.
+//!
+//! Must not depend on: what an event does. Each one goes to the app's handler for it, and
+//! nothing here reads the editor.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use oso_core::frame::PixelRect;
+use oso_platform::text::TextSystem;
+use oso_platform::window::{self as platform, Control, CursorArea, Event, Handler};
+use oso_render::RenderState;
+
+use super::{App, UserEvent};
+
+/// The window's title.
+const TITLE: &str = "oso Editor";
+
+/// Runs the event loop until it ends. `start` makes the app, given the waker other threads
+/// reach it through, before the window opens. `started` is when the process started.
+pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {
+    platform::run(|waker| {
+        log::debug!("event loop built {:?} after start", started.elapsed());
+        start(Waker(waker))
+    });
+}
+
+/// Wakes the event loop from another thread with a [`UserEvent`].
+#[derive(Clone)]
+pub struct Waker(platform::Waker<UserEvent>);
+
+impl Waker {
+    /// Sends `event` to the UI thread. `false` once the event loop is gone.
+    pub fn send(&self, event: UserEvent) -> bool {
+        self.0.send(event)
+    }
+}
+
+/// The running event loop, lent to the app while it handles an event.
+pub(super) struct Loop<'a>(&'a Control);
+
+impl Loop<'_> {
+    /// Ends the loop once the app has handled this event.
+    pub(super) fn exit(&self) {
+        self.0.exit();
+    }
+
+    /// Whether [`Loop::exit`] was called.
+    pub(super) fn exiting(&self) -> bool {
+        self.0.exiting()
+    }
+
+    /// From now on, the loop sleeps while no event comes. This only says how it waits; it
+    /// never blocks.
+    pub(super) fn sleep_when_idle(&self) {
+        self.0.sleep_when_idle();
+    }
+
+    /// From now on, the loop also wakes when `deadline` passes, with no event.
+    pub(super) fn wake_at(&self, deadline: Instant) {
+        self.0.wake_at(deadline);
+    }
+
+    /// Opens the window.
+    pub(super) fn open_window(&self) -> Window {
+        Window(self.0.open_window(TITLE))
+    }
+}
+
+/// The OS window. Sizes and places are physical pixels.
+pub(super) struct Window(platform::Window);
+
+impl Window {
+    /// Sets up the renderer for this window, `width` x `height` pixels, drawing text
+    /// with `text_system`.
+    pub(super) fn start_renderer(
+        &self,
+        width: u32,
+        height: u32,
+        text_system: Box<dyn TextSystem>,
+    ) -> RenderState {
+        pollster::block_on(RenderState::new(
+            Arc::new(self.0.render_target()),
+            width,
+            height,
+            text_system,
+        ))
+    }
+
+    /// The drawable area's size.
+    pub(super) fn inner_size(&self) -> (u32, u32) {
+        self.0.inner_size()
+    }
+
+    pub(super) fn scale_factor(&self) -> f64 {
+        self.0.scale_factor()
+    }
+
+    pub(super) fn request_redraw(&self) {
+        self.0.request_redraw();
+    }
+
+    pub(super) fn set_visible(&self, visible: bool) {
+        self.0.set_visible(visible);
+    }
+
+    /// Asks for the person's attention, without taking the keyboard from another app.
+    pub(super) fn request_attention(&self) {
+        self.0.request_attention();
+    }
+
+    /// Where the window's frame is on the screen. For the restart handoff.
+    #[cfg(feature = "dev")]
+    pub(super) fn outer_position(&self) -> Option<(i32, i32)> {
+        self.0.outer_position()
+    }
+
+    #[cfg(feature = "dev")]
+    pub(super) fn set_outer_position(&self, x: i32, y: i32) {
+        self.0.set_outer_position(x, y);
+    }
+
+    /// Asks for a drawable area of `width` x `height`. It is applied once the app has handled
+    /// this event, and a `Resized` says what it came to, so this gives no size.
+    #[cfg(feature = "dev")]
+    pub(super) fn request_inner_size(&self, width: u32, height: u32) -> Option<(u32, u32)> {
+        self.0.request_inner_size(width, height)
+    }
+
+    pub(super) fn set_ime_allowed(&self, allowed: bool) {
+        self.0.set_ime_allowed(allowed);
+    }
+
+    /// Tells the input method where the cursor's cell is, for its candidate window. The
+    /// native layer only keeps it, and answers the input method with it when asked.
+    pub(super) fn set_ime_cursor_area(&self, area: PixelRect) {
+        self.0.set_ime_cursor_area(CursorArea {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height,
+        });
+    }
+}
+
+impl Handler<UserEvent> for App {
+    fn resume(&mut self, control: &Control) {
+        self.open_window(&Loop(control));
+    }
+
+    fn user_event(&mut self, control: &Control, event: UserEvent) {
+        self.handle_user_event(&Loop(control), event);
+    }
+
+    fn window_event(&mut self, control: &Control, event: Event<'_>) {
+        self.handle_window_event(&Loop(control), event);
+    }
+
+    fn before_waiting(&mut self, control: &Control) {
+        self.before_waiting(&Loop(control));
+    }
+
+    /// The event loop is ending, on every exit. On macOS `applicationWillTerminate` leads
+    /// here for a Dock quit or a logout.
+    fn exiting(&mut self) {
+        self.ending();
+    }
+}
