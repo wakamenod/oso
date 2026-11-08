@@ -124,6 +124,13 @@ pub enum Event {
 }
 
 /// What a backend found on reading.
+#[cfg_attr(
+    not(any(target_os = "macos", test, feature = "dev")),
+    expect(
+        dead_code,
+        reason = "only the macOS backend and the one in memory find text; Linux and Windows have none until their window layers (ADR 0074)"
+    )
+)]
 enum Found {
     Text { text: String, concealed: bool },
     Nothing,
