@@ -1,18 +1,17 @@
-//! Files changed on disk (ADR 0029, ADR 0083): comparing what the watcher saw with what each
-//! buffer read, reading a file again into a buffer with no unsaved edits, and telling about a
-//! file that changed under edits or went away.
+//! Files changed on disk (ADR 0029, ADR 0083): handing what the watcher saw to the editor,
+//! which decides what each buffer needs, and running the reads it asks for.
 //!
 //! Must not depend on: key presses or how a frame is drawn. Files are looked at and read on
-//! the loader's threads, never here; this compares and decides.
+//! the loader's threads, never here, and what a look means is the editor's to decide.
 
 use std::path::PathBuf;
-use std::time::Instant;
+use std::thread;
 
-use oso_core::buffer::{Baseline, Buffer, BufferId, ContentId, FileStamp};
+use oso_core::buffer::{Baseline, Buffer, BufferId, ContentId, DiskState};
 use oso_core::editor::ReloadOutcome;
 
 use super::{App, UserEvent};
-use crate::loader::{self, LoadError, LoadUpdate, Resolved, Seen, Watcher};
+use crate::loader::{self, LoadError, LoadHandle, LoadUpdate, Resolved, Watcher};
 
 /// What the app knows of open files on disk.
 #[derive(Default)]
@@ -21,10 +20,10 @@ pub(super) struct Disk {
     watcher: Option<Watcher>,
     /// The paths it was last given, by buffer.
     files: Vec<(BufferId, PathBuf)>,
-    /// What it last saw of them.
-    seen: Vec<(BufferId, Seen)>,
-    /// What was done about each file, by buffer.
-    watched: Vec<Watched>,
+    /// What it last saw of them, sorted by buffer.
+    seen: Vec<(BufferId, DiskState)>,
+    /// The files being read again.
+    running: Vec<Running>,
     /// The names of buffers reloaded since that was last said.
     reloaded: Vec<String>,
 }
@@ -42,46 +41,19 @@ impl Disk {
         }
     }
 
-    fn watched(&mut self, buffer: BufferId) -> &mut Watched {
-        let index = match self.watched.iter().position(|w| w.buffer == buffer) {
-            Some(index) => index,
-            None => {
-                self.watched.push(Watched {
-                    buffer,
-                    acted: None,
-                    identity: None,
-                });
-                self.watched.len() - 1
-            }
-        };
-        &mut self.watched[index]
+    fn busy(&self, buffer: BufferId) -> bool {
+        self.running
+            .iter()
+            .any(|running| running.handle.buffer() == buffer)
     }
 }
 
-/// What was done about one buffer's file.
-struct Watched {
-    buffer: BufferId,
-    /// What was last seen of the file that differed from what the buffer read, and what was
-    /// done then, so that it is done once.
-    acted: Option<(Seen, Act)>,
-    /// The device and inode of the file as the buffer last read or wrote it, learnt at the first
-    /// look that matched that stamp, so that a file swapped for another of the same time and
-    /// size still counts as changed.
-    identity: Option<(FileStamp, (u64, u64))>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Act {
-    /// The file is being read again.
-    Reload,
-    /// The person was told, as the buffer has edits or the file is gone.
-    Told,
-}
-
-/// What a reload running in a load keeps until its text arrives.
-pub(super) struct Reload {
+/// A file being read again.
+struct Running {
+    /// Holds the latest update; cancels the read when dropped.
+    handle: LoadHandle,
     /// The state of the buffer the read compares with.
-    from: ContentId,
+    read_from: ContentId,
     /// What the read opened, which becomes the buffer's only once its text is in.
     baseline: Option<Baseline>,
     spelling: Option<PathBuf>,
@@ -89,43 +61,24 @@ pub(super) struct Reload {
     asked: bool,
 }
 
-impl Reload {
-    pub(super) fn from(&self) -> ContentId {
-        self.from
-    }
-}
-
-/// Whether `seen` is the file a buffer read or wrote, as `read` says, learning its identity
-/// in `identity` at the first look.
-fn is_as_read(
-    seen: Seen,
-    read: Option<FileStamp>,
-    identity: &mut Option<(FileStamp, (u64, u64))>,
-) -> bool {
-    match (seen, read) {
-        (Seen::Gone, None) => true,
-        (
-            Seen::File {
-                stamp,
-                identity: id,
-            },
-            Some(read),
-        ) if stamp.same_content(read) => match (id, *identity) {
-            (None, _) => true,
-            (Some(id), Some((known_for, known))) if known_for == read => id == known,
-            (Some(id), _) => {
-                *identity = Some((read, id));
-                true
-            }
-        },
-        _ => false,
+/// Drops `value` on a thread of its own, as freeing a large file's text could hold up the UI
+/// thread for a frame or more. If no thread starts, it is dropped here.
+fn free_elsewhere<T: Send + 'static>(value: T) {
+    let (sender, receiver) = std::sync::mpsc::channel::<T>();
+    let spawned = thread::Builder::new()
+        .name("oso-free".into())
+        .spawn(move || drop(receiver.recv()));
+    // With no thread, it is dropped here.
+    if spawned.is_ok() {
+        drop(sender.send(value));
     }
 }
 
 impl App {
     /// The watcher saw something new.
     pub(super) fn watch_reported(&mut self) {
-        if let Some(seen) = self.disk.watcher.as_ref().and_then(Watcher::take) {
+        if let Some(mut seen) = self.disk.watcher.as_ref().and_then(Watcher::take) {
+            seen.sort_unstable_by_key(|(buffer, _)| *buffer);
             self.disk.seen = seen;
         }
     }
@@ -139,42 +92,42 @@ impl App {
     }
 
     /// A save of `id` has ended: what was seen of its file before is no longer news, as the
-    /// save may have written it, and the file is looked at again.
+    /// save may have written it, and the file is looked at again and reported whatever it is.
     pub(super) fn look_again_after_save(&mut self, id: BufferId) {
         self.disk.seen.retain(|(buffer, _)| *buffer != id);
-        self.window_focused();
+        if let Some(watcher) = &self.disk.watcher {
+            watcher.look_again();
+        }
     }
 
-    /// Compares what the watcher last saw with what each buffer read, and acts on what
-    /// changed. Before the loop waits, so after every batch of events. O(buffers), with no
-    /// I/O and nothing allocated while nothing changes.
+    /// Hands what the watcher last saw to the editor and starts the reads it asks for, and
+    /// those `revert-buffer` asked for. Before the loop waits, so after every batch of events.
+    /// Nothing is allocated and no file is touched while nothing changes.
     pub(super) fn check_disk(&mut self) {
         self.sync_watched_files();
         self.drop_stale_reloads();
-        if !self.editor.reload_waits() {
-            for index in 0..self.disk.seen.len() {
-                let (buffer, seen) = self.disk.seen[index];
-                self.check_file(buffer, seen);
-            }
+        let disk = &self.disk;
+        let reads = self.editor.files_seen(&disk.seen, |id| disk.busy(id));
+        for id in reads {
+            self.start_reload(id, false);
         }
+        self.start_reverts();
         self.tell_reloaded();
     }
 
     /// Gives the watcher the paths of the buffers visiting files, when they changed.
     fn sync_watched_files(&mut self) {
-        let same = {
-            let mut now = self
-                .editor
-                .buffers()
-                .filter_map(|(id, buffer)| buffer.path().map(|path| (id, path)));
-            let mut known = self.disk.files.iter();
-            loop {
-                match (now.next(), known.next()) {
-                    (None, None) => break true,
-                    (Some((id, path)), Some((known_id, known_path)))
-                        if id == *known_id && path == known_path => {}
-                    _ => break false,
-                }
+        let mut now = self
+            .editor
+            .buffers()
+            .filter_map(|(id, buffer)| buffer.path().map(|path| (id, path)));
+        let mut known = self.disk.files.iter();
+        let same = loop {
+            match (now.next(), known.next()) {
+                (None, None) => break true,
+                (Some((id, path)), Some((known_id, known_path)))
+                    if id == *known_id && path == known_path => {}
+                _ => break false,
             }
         };
         if same {
@@ -187,9 +140,6 @@ impl App {
             .collect();
         let files = &self.disk.files;
         self.disk
-            .watched
-            .retain(|watched| files.iter().any(|(id, _)| *id == watched.buffer));
-        self.disk
             .seen
             .retain(|(id, _)| files.iter().any(|(file, _)| file == id));
         if let Some(watcher) = &self.disk.watcher {
@@ -198,101 +148,51 @@ impl App {
     }
 
     /// Stops reading a file again into a buffer that has changed since, as its text could not
-    /// go in. What the buffer then needs is decided again.
+    /// go in. The editor decides again what the buffer needs at its next look.
     fn drop_stale_reloads(&mut self) {
         let editor = &self.editor;
-        let mut dropped = Vec::new();
-        self.loads.retain(|load| {
-            let Some(from) = load.reload_from() else {
-                return true;
-            };
-            let id = load.buffer();
-            let keep = editor
-                .buffer(id)
-                .is_some_and(|buffer| buffer.content_id() == from);
-            if !keep {
-                dropped.push(id);
-            }
-            keep
-        });
-        for id in dropped {
-            self.disk.watched(id).acted = None;
+        let stale = |running: &Running| {
+            !editor
+                .buffer(running.handle.buffer())
+                .is_some_and(|buffer| buffer.content_id() == running.read_from)
+        };
+        if !self.disk.running.iter().any(stale) {
+            return;
+        }
+        let (stale, kept): (Vec<Running>, Vec<Running>) = std::mem::take(&mut self.disk.running)
+            .into_iter()
+            .partition(|running| stale(running));
+        self.disk.running = kept;
+        for running in stale {
+            // A text read and not taken is freed off the UI thread, and so is the read.
+            free_elsewhere((running.handle.take(), running.handle));
         }
     }
 
-    /// Acts on what the watcher saw of the file of `id`, once for each thing seen.
-    fn check_file(&mut self, id: BufferId, seen: Seen) {
-        let Some(buffer) = self.editor.buffer(id) else {
-            return;
-        };
-        let reloading = self.loads.iter().any(|load| load.buffer() == id);
-        if buffer.loading().is_some() || buffer.is_saving() || reloading {
-            return;
-        }
-        // A buffer whose load could not tell where its file is has nothing to compare with.
-        let Some(baseline) = buffer.baseline() else {
-            return;
-        };
-        let read = baseline.file;
-        let modified = buffer.is_modified();
-        let watched = self.disk.watched(id);
-        if is_as_read(seen, read, &mut watched.identity) {
-            watched.acted = None;
-            self.take_mode(id, seen);
-            return;
-        }
-        let act = match seen {
-            Seen::Unknown => return,
-            Seen::File { .. } if !modified => Act::Reload,
-            _ => Act::Told,
-        };
-        if watched.acted == Some((seen, act)) {
-            return;
-        }
-        watched.acted = Some((seen, act));
-        let name = self.editor.buffer(id).map_or("", Buffer::name).to_owned();
-        match seen {
-            Seen::File { .. } if act == Act::Reload => self.start_reload(id, false),
-            Seen::File { stamp, .. } => {
-                self.editor.file_changed_on_disk(id);
-                // A save asks before it goes over this file, and replaces only this one.
-                self.editor.may_save_over(id, stamp);
-                self.editor
-                    .message(format!("{name} changed on disk; your edits are kept"));
-            }
-            _ => {
-                self.editor.file_gone_from_disk(id);
-                self.editor
-                    .message(format!("{name} is gone from disk; its text is kept"));
-            }
-        }
-    }
-
-    /// Takes the mode of a file whose text is as read, as `chmod` changes no text.
-    fn take_mode(&mut self, id: BufferId, seen: Seen) {
-        let Seen::File { stamp, .. } = seen else {
-            return;
-        };
-        if let Some(buffer) = self.editor.buffer_mut(id)
-            && let Some(baseline) = buffer.baseline()
-            && baseline.file.is_some_and(|read| read.mode != stamp.mode)
-        {
-            let location = baseline.location.clone();
-            let file = baseline.file.map(|read| FileStamp {
-                mode: stamp.mode,
-                ..read
-            });
-            buffer.set_baseline(Baseline { location, file });
-        }
-    }
-
-    /// Starts reading again the files of the buffers `revert-buffer` asked for, after a
-    /// command. A read already running for one starts over.
+    /// Starts reading again the files of the buffers `revert-buffer` asked for, once nothing
+    /// makes them wait. One whose file is being read already takes that read, so a read that
+    /// hangs, as on a mount gone away, is never joined by another.
     pub(super) fn start_reverts(&mut self) {
+        if self.editor.reload_waits() {
+            return;
+        }
         for id in self.editor.take_revert_requests() {
-            self.loads
-                .retain(|load| load.buffer() != id || load.reload_from().is_none());
-            self.start_reload(id, true);
+            let content = self.editor.buffer(id).map(Buffer::content_id);
+            let running = self
+                .disk
+                .running
+                .iter_mut()
+                .find(|running| running.handle.buffer() == id);
+            match (running, content) {
+                (Some(running), Some(content)) if running.read_from == content => {
+                    running.asked = true;
+                }
+                (Some(_), _) => {
+                    self.editor
+                        .message("Not reloaded, as a read of the file is still running");
+                }
+                (None, _) => self.start_reload(id, true),
+            }
         }
     }
 
@@ -304,23 +204,20 @@ impl App {
         let Some(path) = buffer.path().map(PathBuf::from) else {
             return;
         };
-        let from = buffer.content_id();
+        let read_from = buffer.content_id();
         let old = buffer.text().clone();
         let waker = self.waker.clone();
         let spawned = loader::spawn_reload(id, path, old, move |buffer| {
             waker.send(UserEvent::Load(buffer))
         });
         match spawned {
-            Ok(handle) => self.loads.push(super::loads::Load::reloading(
+            Ok(handle) => self.disk.running.push(Running {
                 handle,
-                Instant::now(),
-                Reload {
-                    from,
-                    baseline: None,
-                    spelling: None,
-                    asked,
-                },
-            )),
+                read_from,
+                baseline: None,
+                spelling: None,
+                asked,
+            }),
             Err(e) => {
                 let name = buffer.name();
                 let message = format!("Cannot reload: cannot start reading: {e}: {name}");
@@ -329,90 +226,118 @@ impl App {
         }
     }
 
-    /// Takes in what reading a file again reported. Returns whether a frame is needed: only if
+    /// A thread reading `id`'s file again has an update: takes it in, and asks for a frame if
     /// the window shows the buffer and its text changed.
-    pub(super) fn apply_reload(&mut self, index: usize, update: LoadUpdate) -> bool {
-        let load = &mut self.loads[index];
-        let id = load.buffer();
-        if let Some(resolved) = load.handle().take_resolved() {
+    pub(super) fn reload_updated(&mut self, id: BufferId) {
+        let Some(index) = self
+            .disk
+            .running
+            .iter()
+            .position(|running| running.handle.buffer() == id)
+        else {
+            return;
+        };
+        // The verdict comes first, before any text.
+        if let Some(resolved) = self.disk.running[index].handle.take_resolved() {
             match &resolved {
                 Resolved::Paths(paths) => self.editor.judge_reload(id, Ok(paths)),
                 Resolved::Unknown(seen) => self.editor.judge_reload(id, Err(seen)),
             }
         }
-        let load = &mut self.loads[index];
-        let baseline = load.handle().take_baseline();
-        let spelling = load.handle().take_own_spelling();
-        if let Some(reload) = load.reload_mut() {
-            reload.baseline = baseline.or(reload.baseline.take());
-            reload.spelling = spelling.or(reload.spelling.take());
+        let running = &mut self.disk.running[index];
+        if let Some(baseline) = running.handle.take_baseline() {
+            running.baseline = Some(baseline);
         }
+        if let Some(spelling) = running.handle.take_own_spelling() {
+            running.spelling = Some(spelling);
+        }
+        let Some(update) = running.handle.take() else {
+            return;
+        };
+        let running = self.disk.running.swap_remove(index);
+        let redraw = self.apply_reload(id, running, update);
+        self.dispatcher.publish_for_emergency(&self.editor);
+        if redraw {
+            self.request_redraw();
+        }
+    }
+
+    /// Takes in what reading `id`'s file again ended with. Returns whether a frame is needed.
+    fn apply_reload(&mut self, id: BufferId, running: Running, update: LoadUpdate) -> bool {
         let shown = self.editor.tiled().0.buffer() == id;
         let name = self.editor.buffer(id).map_or("", Buffer::name).to_owned();
-        match update {
-            // A reload sends its text whole.
-            LoadUpdate::Snapshot(_) => false,
-            LoadUpdate::Reloaded(reloaded) => {
-                let load = self.loads.swap_remove(index);
-                let Some(reload) = load.into_reload() else {
-                    return false;
-                };
-                let outcome = if reload.asked {
-                    self.editor.revert(id, *reloaded, reload.from)
-                } else {
-                    self.editor.reload(id, *reloaded, reload.from)
-                };
-                match outcome {
-                    outcome @ (ReloadOutcome::Reloaded | ReloadOutcome::Same) => {
-                        if let Some(buffer) = self.editor.buffer_mut(id) {
-                            if let Some(baseline) = reload.baseline {
-                                buffer.set_baseline(baseline);
-                            }
-                            if let Some(spelling) = reload.spelling {
-                                buffer.set_own_spelling(spelling);
-                            }
-                        }
-                        // One asked for is said even if nothing changed.
-                        if outcome == ReloadOutcome::Reloaded || reload.asked {
-                            self.disk.reloaded.push(name);
-                        }
-                        shown && outcome == ReloadOutcome::Reloaded
-                    }
-                    // What the buffer needs now is decided again, as it has edits, or something
-                    // stood in the way.
-                    ReloadOutcome::Edited | ReloadOutcome::Later => {
-                        if reload.asked {
-                            self.editor
-                                .message(format!("Not reloaded, as {name} changed meanwhile"));
-                        }
-                        self.disk.watched(id).acted = None;
-                        false
-                    }
-                    ReloadOutcome::NoSuchBuffer => false,
-                }
-            }
+        let Running {
+            handle,
+            read_from,
+            baseline,
+            spelling,
+            asked,
+        } = running;
+        drop(handle);
+        let reloaded = match update {
+            LoadUpdate::Reloaded(reloaded) => reloaded,
             // Gone between the look and the read: the next look says so, unless a person asked.
             LoadUpdate::Failed(e @ (LoadError::NotFound | LoadError::NotAFile)) => {
-                let load = self.loads.swap_remove(index);
-                if load.into_reload().is_some_and(|reload| reload.asked) {
+                if asked {
                     self.editor.message(format!("Cannot reload: {e}: {name}"));
                 }
-                false
+                return false;
             }
             LoadUpdate::Failed(e) => {
-                self.loads.swap_remove(index);
                 self.editor.message(format!("Cannot reload: {e}: {name}"));
+                return false;
+            }
+            // A reload sends its text whole.
+            LoadUpdate::Snapshot(snapshot) => {
+                free_elsewhere(snapshot);
+                return false;
+            }
+        };
+        // Where the opened file is could not be told, so its text would pair with a place a
+        // save could not trust. It stays out, as a first load's would be refused a save.
+        let Some(baseline) = baseline else {
+            free_elsewhere(reloaded);
+            let message = format!(
+                "Not reloaded, as where its file leads could not be told as it was read: {name}"
+            );
+            self.editor.message(message);
+            return false;
+        };
+        let (outcome, leftover) = if asked {
+            self.editor.revert(id, *reloaded, read_from)
+        } else {
+            self.editor.reload(id, *reloaded, read_from)
+        };
+        free_elsewhere(leftover);
+        match outcome {
+            ReloadOutcome::Reloaded | ReloadOutcome::Same => {
+                if let Some(buffer) = self.editor.buffer_mut(id) {
+                    buffer.set_baseline(baseline);
+                    if let Some(spelling) = spelling {
+                        buffer.set_own_spelling(spelling);
+                    }
+                }
+                // One asked for is said even if nothing changed.
+                if outcome == ReloadOutcome::Reloaded || asked {
+                    self.disk.reloaded.push(name);
+                }
+                shown && outcome == ReloadOutcome::Reloaded
+            }
+            ReloadOutcome::Edited if asked => {
+                self.editor
+                    .message(format!("Not reloaded, as {name} changed meanwhile"));
                 false
             }
+            // The editor decides again at the next look, and a revert that must wait is asked
+            // for again.
+            ReloadOutcome::Edited | ReloadOutcome::Later | ReloadOutcome::NoSuchBuffer => false,
         }
     }
 
     /// Says which buffers were reloaded, once no other reload is running, so that a checkout
     /// that changed many files says so once.
     fn tell_reloaded(&mut self) {
-        if self.disk.reloaded.is_empty()
-            || self.loads.iter().any(|load| load.reload_from().is_some())
-        {
+        if self.disk.reloaded.is_empty() || !self.disk.running.is_empty() {
             return;
         }
         let names = std::mem::take(&mut self.disk.reloaded);
@@ -423,79 +348,5 @@ impl App {
             self.editor
                 .message(format!("Reloaded {} files", names.len()));
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::{Duration, SystemTime};
-
-    fn stamp(len: u64) -> FileStamp {
-        FileStamp {
-            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(9),
-            len,
-            mode: 0o644,
-        }
-    }
-
-    fn file(len: u64, identity: Option<(u64, u64)>) -> Seen {
-        Seen::File {
-            stamp: stamp(len),
-            identity,
-        }
-    }
-
-    #[test]
-    fn a_file_is_as_read_by_its_time_size_and_identity() {
-        let mut identity = None;
-        assert!(is_as_read(
-            file(3, Some((1, 2))),
-            Some(stamp(3)),
-            &mut identity
-        ));
-        assert_eq!(
-            identity,
-            Some((stamp(3), (1, 2))),
-            "learnt at the first look"
-        );
-        assert!(is_as_read(
-            file(3, Some((1, 2))),
-            Some(stamp(3)),
-            &mut identity
-        ));
-        assert!(
-            !is_as_read(file(3, Some((1, 9))), Some(stamp(3)), &mut identity),
-            "another file of the same time and size"
-        );
-        assert!(!is_as_read(
-            file(4, Some((1, 2))),
-            Some(stamp(3)),
-            &mut identity
-        ));
-        assert!(!is_as_read(Seen::Gone, Some(stamp(3)), &mut identity));
-        assert!(!is_as_read(Seen::NotAFile, Some(stamp(3)), &mut identity));
-    }
-
-    #[test]
-    fn a_new_identity_is_learnt_after_a_save() {
-        let mut identity = Some((stamp(3), (1, 2)));
-        // A save renamed a new file in, and the buffer's stamp is the new one.
-        assert!(is_as_read(
-            file(5, Some((1, 7))),
-            Some(stamp(5)),
-            &mut identity
-        ));
-        assert_eq!(identity, Some((stamp(5), (1, 7))));
-    }
-
-    #[test]
-    fn a_file_that_was_not_there_is_as_read_while_it_is_not() {
-        let mut identity = None;
-        assert!(is_as_read(Seen::Gone, None, &mut identity));
-        assert!(
-            !is_as_read(file(1, None), None, &mut identity),
-            "it appeared"
-        );
     }
 }

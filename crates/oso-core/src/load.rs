@@ -134,10 +134,10 @@ impl Builder {
 /// `start..old_end` of the old text became `start..new_end` of the new. Each end is on a
 /// character boundary in both texts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Change {
-    pub start: usize,
-    pub old_end: usize,
-    pub new_end: usize,
+pub(crate) struct Change {
+    pub(crate) start: usize,
+    pub(crate) old_end: usize,
+    pub(crate) new_end: usize,
 }
 
 /// A file read again in full, with where it differs from the text it is to replace.
@@ -149,9 +149,9 @@ pub struct Reloaded {
 }
 
 impl Reloaded {
-    /// Where the text differs, if it does.
-    pub fn change(&self) -> Option<Change> {
-        self.change
+    /// Whether the text differs from the one it was compared with.
+    pub fn is_changed(&self) -> bool {
+        self.change.is_some()
     }
 }
 
@@ -398,7 +398,7 @@ mod tests {
 
     fn change(old: &str, new: &str) -> Option<Change> {
         let snapshot = decode_all(new.as_bytes(), TabWidth::default());
-        snapshot.compared_with(&Rope::from(old)).change()
+        snapshot.compared_with(&Rope::from(old)).change
     }
 
     #[test]

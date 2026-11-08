@@ -29,9 +29,13 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   show the same way. The thread wakes the UI only when what it saw differs from its last
   report. The window layer reports the focus as `Event::Focused`.
 - **What counts as a change:** the modification time or the size differs from the buffer's
-  baseline, or a file with another device and inode is there, or nothing is. The file is
+  baseline, or a file with another device and inode is there, or nothing is. The baseline's
+  stamp holds the device and inode of the file the load opened or the save wrote. The file is
   then read again off the UI thread. If the text is the same, only the baseline changes,
   silently. A change of mode alone only updates the baseline.
+- **The editor decides.** `Editor::files_seen` takes what the looks found and says which
+  files to read again. It sets and clears the warnings and says each thing once. The host
+  only looks, reads and frees.
 - **A buffer with no unsaved edits takes the new text as one undo step.** It is unmodified
   afterwards, since it matches the disk. Undo brings back the old text, and the buffer is
   then modified. A text that cannot be edited, a binary file's or one with invalid UTF-8,
@@ -57,7 +61,13 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   the buffer stays editable meanwhile. Its text goes in only once complete, and only if the
   buffer still holds what the read compared with. An edit made meanwhile drops the read, and
   the buffer is then one with edits whose file changed. One read runs per buffer at a time,
-  so a file being written to is read again at most about once a second.
+  and `revert-buffer` joins a read already running rather than start another. So a file being
+  written to is read again at most about once a second, and a read that hangs is never
+  doubled. The text a reload leaves, the one before it or one not put in, is freed on a
+  thread of its own, as freeing a large file's text takes longer than a frame.
+- **A read whose file could not be placed:** if where the opened file is cannot be told, as
+  when a link is switched around the open, its text stays out, as a first load's would be
+  refused a save.
 - **Secrets:** a reload opens, follows and judges the file exactly as a first load does, from
   the file it opened ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)). The verdict
   never becomes less strict on a reload, as undo can bring back text read under the old one.
@@ -66,8 +76,10 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   only, and the reload logs nothing of its size.
 - **Waiting:** a reload neither starts nor goes in while a prompt is open
   (`Editor::reload_waits`), as what the prompt's command acts on must not change under it.
-  One that finishes then is dropped and read again once the prompt closes. A buffer that is
-  still loading or saving is not looked at. Once a save ends, its file is looked at again.
+  One that finishes then is dropped and read again once the prompt closes, and a
+  `revert-buffer` that has to wait is asked for again. A buffer that is still loading or
+  saving is not looked at. Once a save ends, its file is looked at again and reported
+  whatever it is.
 - **A buffer still on its first load** needs nothing more: the load's baseline is from its
   own open, so the next look finds the difference.
 
@@ -77,11 +89,14 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   in another program shows as soon as oso is in front again.
 - A file another program writes to all the time is read in full about once a second while
   oso shows it unmodified. A large log costs a background read each time, never the UI.
+- The looks go on while oso is in the background, so a window beside a terminal follows
+  the files. They cost one `stat` a file a second and wake nothing while nothing changes.
 - After a reload, undo can go back past it, which Emacs's `revert-buffer` does not offer.
-- A reload holds the old text and the new one until it goes in, twice the memory for a
-  moment.
+- A reload holds the old text and the new one, with its display map, until it goes in, more
+  than twice the memory for a moment.
 - A change that keeps the time, the size and the inode, on a file system with coarse times,
-  is missed until the next one.
+  is missed until the next one. Where the system gives no inode, only the time and size
+  count.
 - `Editor::reload_waits` is the one place that says when a reload must wait. A mode of a
   window that a change of text would disturb adds its condition there.
 

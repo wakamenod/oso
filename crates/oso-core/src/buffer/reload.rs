@@ -1,19 +1,116 @@
 //! A buffer's file read again after it changed on disk (ADR 0029, ADR 0083): what is known of
-//! the file's state, the verdict judged again, and the new text put in as one undo step.
+//! the file's state, as a look or a save found it, the verdict judged again, and the new text
+//! put in as one undo step.
 //!
 //! Must not depend on: `window`, `editor` or `command`, or file I/O; the host reads the
 //! file and hands over what it found.
 
 use std::path::PathBuf;
 
-use super::{Buffer, OffsetEdit, StagedEdit};
+use super::{Buffer, DiskState, FileStamp, OffsetEdit, StagedEdit};
 use crate::decode::FileInfo;
 use crate::load::{Change, LoadSnapshot};
 use crate::secret::{self, stricter};
 use crate::selection::SelectionSet;
 use crate::undo::{Opening, Splice};
 
+/// What a look at the file found that the buffer must act on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Noticed {
+    /// The file changed under a buffer with no unsaved edits: read it again.
+    Reload,
+    /// The file changed under unsaved edits, which stay.
+    Changed,
+    /// The file is gone, or no longer a regular file.
+    Gone,
+}
+
+/// Whether `seen` is the file `read`, as a buffer read or wrote it: by time and size, and
+/// by device and inode where both say.
+fn is_as_read(seen: DiskState, read: Option<FileStamp>) -> bool {
+    match (seen, read) {
+        (DiskState::Gone, None) => true,
+        (DiskState::File(stamp), Some(read)) => stamp.same_file(read),
+        _ => false,
+    }
+}
+
 impl Buffer {
+    /// Takes in what a look at the file found, and says what must be done about it, once
+    /// for each thing seen. A file as read clears what was known of a change, and gives the
+    /// baseline its mode, as `chmod` changes no text. A buffer loading, saving, or with no
+    /// baseline has nothing to compare with.
+    pub(crate) fn file_seen(&mut self, seen: DiskState) -> Option<Noticed> {
+        if self.loading.is_some() || self.saving {
+            return None;
+        }
+        let modified = self.is_modified();
+        let baseline = self.baseline.as_mut()?;
+        if is_as_read(seen, baseline.file) {
+            if let (DiskState::File(stamp), Some(read)) = (seen, &mut baseline.file) {
+                read.mode = stamp.mode;
+            }
+            self.disk_acted = None;
+            self.gone_from_disk = false;
+            self.set_changed_on_disk(false);
+            return None;
+        }
+        let noticed = match seen {
+            DiskState::Unknown => return None,
+            DiskState::File(_) if !modified => Noticed::Reload,
+            DiskState::File(_) => Noticed::Changed,
+            DiskState::Gone | DiskState::NotAFile => Noticed::Gone,
+        };
+        if self.disk_acted == Some((seen, noticed)) {
+            return None;
+        }
+        self.disk_acted = Some((seen, noticed));
+        match (noticed, seen) {
+            (Noticed::Changed, DiskState::File(stamp)) => {
+                self.gone_from_disk = false;
+                self.set_changed_on_disk(true);
+                // A save asks before it goes over this file, and replaces only this one.
+                self.save_over = Some(stamp);
+            }
+            (Noticed::Gone, _) => self.gone_from_disk = true,
+            _ => {}
+        }
+        Some(noticed)
+    }
+
+    /// Whether a save found the file changed since this buffer read it or wrote it.
+    pub(crate) fn changed_on_disk(&self) -> bool {
+        self.changed_on_disk
+    }
+
+    /// Records whether a save found the file changed. A file that has not changed has
+    /// nothing to save over.
+    pub(crate) fn set_changed_on_disk(&mut self, changed: bool) {
+        self.changed_on_disk = changed;
+        if !changed {
+            self.save_over = None;
+        }
+    }
+
+    /// The regular file a save found changed on disk, which a save the person agrees to
+    /// may replace, if it is still that file (ADR 0072).
+    pub(crate) fn save_over(&self) -> Option<FileStamp> {
+        self.save_over.filter(|_| self.changed_on_disk)
+    }
+
+    pub(crate) fn set_save_over(&mut self, found: FileStamp) {
+        self.save_over = Some(found);
+    }
+
+    pub(crate) fn forget_save_over(&mut self) {
+        self.save_over = None;
+    }
+
+    /// What was done about the file is to be decided again, as a read of it did not go in.
+    pub(crate) fn forget_disk_action(&mut self) {
+        self.disk_acted = None;
+    }
+
     /// Whether the file was found gone since it was read or written, or no longer a file.
     pub(crate) fn gone_from_disk(&self) -> bool {
         self.gone_from_disk
@@ -101,6 +198,7 @@ impl Buffer {
     pub(crate) fn reloaded(&mut self) {
         self.set_changed_on_disk(false);
         self.gone_from_disk = false;
+        self.disk_acted = None;
         self.recovery = None;
     }
 }

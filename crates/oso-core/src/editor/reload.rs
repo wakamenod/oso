@@ -9,9 +9,9 @@ use std::path::PathBuf;
 
 use super::Editor;
 use super::follow::clip_selections;
-use crate::buffer::{BufferId, ContentId};
+use crate::buffer::{BufferId, ContentId, DiskState, Noticed};
 use crate::display_map::DisplaySnapshot;
-use crate::load::{Change, Reloaded};
+use crate::load::{Change, LoadSnapshot, Reloaded};
 use crate::rope::Rope;
 use crate::selection::{MarkActive, SelectionSet};
 
@@ -30,6 +30,25 @@ pub enum ReloadOutcome {
     Later,
     /// No buffer has the id.
     NoSuchBuffer,
+}
+
+/// Text a reload left: the one before it, or the one read and not put in. Dropping it can
+/// take long for a large file, so the host drops it on another thread.
+#[derive(Default)]
+#[expect(dead_code, reason = "held only to be dropped where the host says")]
+pub struct Leftover {
+    text: Option<Rope>,
+    display: Option<DisplaySnapshot>,
+    snapshot: Option<LoadSnapshot>,
+}
+
+impl Leftover {
+    fn of_snapshot(snapshot: LoadSnapshot) -> Self {
+        Self {
+            snapshot: Some(snapshot),
+            ..Self::default()
+        }
+    }
 }
 
 /// Where an offset of the old text goes in the new one. Before the change and after it, it
@@ -69,13 +88,15 @@ impl Editor {
     /// column inside it, and each window keeps its top row.
     ///
     /// What the host records of the file, the baseline, is the host's to set on
-    /// [`ReloadOutcome::Reloaded`] and [`ReloadOutcome::Same`].
+    /// [`ReloadOutcome::Reloaded`] and [`ReloadOutcome::Same`]. The [`Leftover`], the text
+    /// before or the one refused, is the host's to free off the UI thread, as a large file's
+    /// would take long to.
     pub fn reload(
         &mut self,
         id: BufferId,
         reloaded: Reloaded,
         read_from: ContentId,
-    ) -> ReloadOutcome {
+    ) -> (ReloadOutcome, Leftover) {
         self.put_reload_in(id, reloaded, read_from, false)
     }
 
@@ -86,7 +107,7 @@ impl Editor {
         id: BufferId,
         reloaded: Reloaded,
         read_from: ContentId,
-    ) -> ReloadOutcome {
+    ) -> (ReloadOutcome, Leftover) {
         self.put_reload_in(id, reloaded, read_from, true)
     }
 
@@ -110,19 +131,28 @@ impl Editor {
         reloaded: Reloaded,
         read_from: ContentId,
         discard_edits: bool,
-    ) -> ReloadOutcome {
+    ) -> (ReloadOutcome, Leftover) {
         let waits = self.reload_waits();
-        let Some(buffer) = self.buffer(id) else {
-            return ReloadOutcome::NoSuchBuffer;
-        };
-        if waits || buffer.loading().is_some() || buffer.is_saving() {
-            return ReloadOutcome::Later;
-        }
-        if buffer.content_id() != read_from || (buffer.is_modified() && !discard_edits) {
-            self.file_changed_on_disk(id);
-            return ReloadOutcome::Edited;
-        }
         let Reloaded { snapshot, change } = reloaded;
+        let Some(buffer) = self.buffer(id) else {
+            return (ReloadOutcome::NoSuchBuffer, Leftover::of_snapshot(snapshot));
+        };
+        let later = waits || buffer.loading().is_some() || buffer.is_saving();
+        let edited = buffer.content_id() != read_from || (buffer.is_modified() && !discard_edits);
+        if later || edited {
+            if let Some(buffer) = self.buffer_mut(id) {
+                buffer.forget_disk_action();
+            }
+            if later {
+                // A person asked for it, so it is asked for again.
+                if discard_edits && !self.reverts.contains(&id) {
+                    self.reverts.push(id);
+                }
+                return (ReloadOutcome::Later, Leftover::of_snapshot(snapshot));
+            }
+            self.file_changed_on_disk(id);
+            return (ReloadOutcome::Edited, Leftover::of_snapshot(snapshot));
+        }
         let old = buffer.text().clone();
         let change = match change {
             None if snapshot.display.invalid_bytes().is_empty()
@@ -134,7 +164,7 @@ impl Editor {
                     buffer.mark_saved(buffer.content_id());
                     buffer.reloaded();
                 }
-                return ReloadOutcome::Same;
+                return (ReloadOutcome::Same, Leftover::of_snapshot(snapshot));
             }
             None => Change {
                 start: 0,
@@ -142,6 +172,12 @@ impl Editor {
                 new_end: snapshot.text.len(),
             },
             Some(change) => change,
+        };
+        // The text before, kept until the host frees it off the UI thread.
+        let leftover = Leftover {
+            text: Some(old.clone()),
+            display: Some(buffer.display()),
+            snapshot: None,
         };
         let display = snapshot.display.snapshot();
         let moved = self.reloaded_selections(id, &old, &snapshot.text, &display, change);
@@ -170,15 +206,53 @@ impl Editor {
         }
         self.note_edited(id);
         self.note_secret_shown();
-        ReloadOutcome::Reloaded
+        (ReloadOutcome::Reloaded, leftover)
     }
 
-    /// The file of `id` was found gone, or no longer a file: its text stays, and the modeline
-    /// says so until the file is back or a save writes it.
-    pub fn file_gone_from_disk(&mut self, id: BufferId) {
-        if let Some(buffer) = self.buffer_mut(id) {
-            buffer.set_gone_from_disk(true);
+    /// Takes in what the host's looks at files found, as `(buffer, state)` sorted by buffer,
+    /// and returns the buffers whose files are to be read again: those whose file changed under
+    /// no unsaved edits. A file that changed under edits, or went away, warns on the modeline and
+    /// says so once in the echo area. Each thing seen is acted on once. `busy` says which buffers
+    /// a read already runs for. Nothing is done while [`Editor::reload_waits`]. O(buffers log
+    /// seen), and allocates only to act.
+    pub fn files_seen(
+        &mut self,
+        seen: &[(BufferId, DiskState)],
+        busy: impl Fn(BufferId) -> bool,
+    ) -> Vec<BufferId> {
+        let mut reads = Vec::new();
+        if self.reload_waits() {
+            return reads;
         }
+        let mut said = Vec::new();
+        for (id, buffer) in &mut self.buffers {
+            if buffer.is_internal() || busy(*id) {
+                continue;
+            }
+            let Ok(index) = seen.binary_search_by_key(id, |(seen, _)| *seen) else {
+                continue;
+            };
+            match buffer.file_seen(seen[index].1) {
+                Some(Noticed::Reload) => reads.push(*id),
+                Some(Noticed::Changed) => {
+                    said.push(format!(
+                        "{} changed on disk; your edits are kept",
+                        buffer.name()
+                    ));
+                }
+                Some(Noticed::Gone) => {
+                    said.push(format!(
+                        "{} is gone from disk; its text is kept",
+                        buffer.name()
+                    ));
+                }
+                None => {}
+            }
+        }
+        for message in said {
+            self.message(message);
+        }
+        reads
     }
 
     /// The cursors of every window showing `id` once the text read again is in, by window

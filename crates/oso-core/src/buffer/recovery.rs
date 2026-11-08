@@ -101,6 +101,7 @@ impl Buffer {
                 modified: NO_TIME,
                 len: 0,
                 mode: 0o600,
+                identity: None,
             });
         }
         let side = self.side();

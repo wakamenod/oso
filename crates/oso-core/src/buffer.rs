@@ -32,10 +32,11 @@ mod internal;
 mod mode;
 mod recovery;
 mod reload;
+pub(crate) use reload::Noticed;
 mod splice;
 
 pub use crate::secret::Verdict;
-pub use baseline::{Baseline, FileStamp};
+pub use baseline::{Baseline, DiskState, FileStamp};
 pub use mode::Mode;
 use splice::{SpliceText, apply, normalized, offset_edit};
 
@@ -174,6 +175,9 @@ pub struct Buffer {
     save_over: Option<FileStamp>,
     /// The file was found gone, or no longer a file, and nothing has written it since.
     gone_from_disk: bool,
+    /// What was last seen of the file that differs from the baseline, and what came of it, so
+    /// that each thing seen is acted on once (ADR 0083).
+    disk_acted: Option<(DiskState, reload::Noticed)>,
     /// The editor keeps this buffer for itself.
     internal: bool,
     /// An internal buffer that takes typing, as a prompt's does (ADR 0072).
@@ -229,6 +233,7 @@ impl Buffer {
             changed_on_disk: false,
             save_over: None,
             gone_from_disk: false,
+            disk_acted: None,
             internal: false,
             takes_typing: false,
             no_history: false,
@@ -369,34 +374,6 @@ impl Buffer {
             baseline.file = Some(stamp);
         }
         self.note_written(stamp);
-    }
-
-    /// Whether a save found the file changed since this buffer read it or wrote it.
-    pub(crate) fn changed_on_disk(&self) -> bool {
-        self.changed_on_disk
-    }
-
-    /// Records whether a save found the file changed. A file that has not changed has
-    /// nothing to save over.
-    pub(crate) fn set_changed_on_disk(&mut self, changed: bool) {
-        self.changed_on_disk = changed;
-        if !changed {
-            self.save_over = None;
-        }
-    }
-
-    /// The regular file a save found changed on disk, which a save the person agrees to
-    /// may replace, if it is still that file (ADR 0072).
-    pub(crate) fn save_over(&self) -> Option<FileStamp> {
-        self.save_over.filter(|_| self.changed_on_disk)
-    }
-
-    pub(crate) fn set_save_over(&mut self, found: FileStamp) {
-        self.save_over = Some(found);
-    }
-
-    pub(crate) fn forget_save_over(&mut self) {
-        self.save_over = None;
     }
 
     /// Whether a save of this buffer is running. Until it ends, the disk may hold

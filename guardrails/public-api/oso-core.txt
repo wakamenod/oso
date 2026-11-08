@@ -1,5 +1,19 @@
 pub mod oso_core
 pub mod oso_core::buffer
+pub enum oso_core::buffer::DiskState
+pub oso_core::buffer::DiskState::File(oso_core::buffer::FileStamp)
+pub oso_core::buffer::DiskState::Gone
+pub oso_core::buffer::DiskState::NotAFile
+pub oso_core::buffer::DiskState::Unknown
+impl core::clone::Clone for oso_core::buffer::DiskState
+pub fn oso_core::buffer::DiskState::clone(&self) -> oso_core::buffer::DiskState
+impl core::cmp::Eq for oso_core::buffer::DiskState
+impl core::cmp::PartialEq for oso_core::buffer::DiskState
+pub fn oso_core::buffer::DiskState::eq(&self, &oso_core::buffer::DiskState) -> bool
+impl core::fmt::Debug for oso_core::buffer::DiskState
+pub fn oso_core::buffer::DiskState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::buffer::DiskState
+impl core::marker::StructuralPartialEq for oso_core::buffer::DiskState
 pub enum oso_core::buffer::EditError
 pub oso_core::buffer::EditError::NoRedo
 pub oso_core::buffer::EditError::NoSuchBuffer
@@ -163,11 +177,13 @@ pub fn oso_core::buffer::ContentId::hash<__H: core::hash::Hasher>(&self, &mut __
 impl core::marker::Copy for oso_core::buffer::ContentId
 impl core::marker::StructuralPartialEq for oso_core::buffer::ContentId
 pub struct oso_core::buffer::FileStamp
+pub oso_core::buffer::FileStamp::identity: core::option::Option<(u64, u64)>
 pub oso_core::buffer::FileStamp::len: u64
 pub oso_core::buffer::FileStamp::mode: u32
 pub oso_core::buffer::FileStamp::modified: std::time::SystemTime
 impl oso_core::buffer::FileStamp
 pub fn oso_core::buffer::FileStamp::same_content(self, Self) -> bool
+pub fn oso_core::buffer::FileStamp::same_file(self, Self) -> bool
 impl core::clone::Clone for oso_core::buffer::FileStamp
 pub fn oso_core::buffer::FileStamp::clone(&self) -> oso_core::buffer::FileStamp
 impl core::cmp::Eq for oso_core::buffer::FileStamp
@@ -976,12 +992,12 @@ pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::Fram
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::file_gone_from_disk(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::files_seen(&mut self, &[(oso_core::buffer::BufferId, oso_core::buffer::DiskState)], impl core::ops::function::Fn(oso_core::buffer::BufferId) -> bool) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::judge_reload(&mut self, oso_core::buffer::BufferId, core::result::Result<&[std::path::PathBuf], &[std::path::PathBuf]>)
-pub fn oso_core::editor::Editor::reload(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> oso_core::editor::ReloadOutcome
+pub fn oso_core::editor::Editor::reload(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
 pub fn oso_core::editor::Editor::reload_waits(&self) -> bool
 pub fn oso_core::editor::Editor::request_revert(&mut self)
-pub fn oso_core::editor::Editor::revert(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> oso_core::editor::ReloadOutcome
+pub fn oso_core::editor::Editor::revert(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
 pub fn oso_core::editor::Editor::take_revert_requests(&mut self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::forget_kills(&mut self)
@@ -1010,6 +1026,9 @@ impl core::fmt::Display for oso_core::editor::ExitRefused
 pub fn oso_core::editor::ExitRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::ExitRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::ExitRefused
+pub struct oso_core::editor::Leftover
+impl core::default::Default for oso_core::editor::Leftover
+pub fn oso_core::editor::Leftover::default() -> oso_core::editor::Leftover
 pub struct oso_core::editor::SaveJob
 pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::Baseline>
 pub oso_core::editor::SaveJob::bom: bool
@@ -1503,19 +1522,6 @@ pub fn oso_core::load::Builder::len(&self) -> usize
 pub fn oso_core::load::Builder::new(core::option::Option<u64>, oso_core::display_map::cell::TabWidth) -> Self
 pub fn oso_core::load::Builder::push(&mut self, &[u8])
 pub fn oso_core::load::Builder::snapshot(&self) -> oso_core::load::LoadSnapshot
-pub struct oso_core::load::Change
-pub oso_core::load::Change::new_end: usize
-pub oso_core::load::Change::old_end: usize
-pub oso_core::load::Change::start: usize
-impl core::clone::Clone for oso_core::load::Change
-pub fn oso_core::load::Change::clone(&self) -> oso_core::load::Change
-impl core::cmp::Eq for oso_core::load::Change
-impl core::cmp::PartialEq for oso_core::load::Change
-pub fn oso_core::load::Change::eq(&self, &oso_core::load::Change) -> bool
-impl core::fmt::Debug for oso_core::load::Change
-pub fn oso_core::load::Change::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::load::Change
-impl core::marker::StructuralPartialEq for oso_core::load::Change
 pub struct oso_core::load::LoadSnapshot
 impl oso_core::load::LoadSnapshot
 pub fn oso_core::load::LoadSnapshot::compared_with(self, &oso_core::rope::Rope) -> oso_core::load::Reloaded
@@ -1541,7 +1547,7 @@ impl core::marker::Copy for oso_core::load::Progress
 impl core::marker::StructuralPartialEq for oso_core::load::Progress
 pub struct oso_core::load::Reloaded
 impl oso_core::load::Reloaded
-pub fn oso_core::load::Reloaded::change(&self) -> core::option::Option<oso_core::load::Change>
+pub fn oso_core::load::Reloaded::is_changed(&self) -> bool
 impl core::clone::Clone for oso_core::load::Reloaded
 pub fn oso_core::load::Reloaded::clone(&self) -> oso_core::load::Reloaded
 pub fn oso_core::load::decode_all(&[u8], oso_core::display_map::cell::TabWidth) -> oso_core::load::LoadSnapshot

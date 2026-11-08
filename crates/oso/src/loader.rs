@@ -51,7 +51,7 @@ mod watch;
 
 pub use resolve::{Resolved, location, parent};
 use resolve::{own_spelling, resolve};
-pub use watch::{Seen, Watcher};
+pub use watch::Watcher;
 
 /// Bytes read at a time.
 const READ_SIZE: usize = 64 * 1024;
@@ -83,7 +83,7 @@ impl std::fmt::Debug for LoadUpdate {
             // Whether it changed, and nothing of its size or where.
             Self::Reloaded(reloaded) => f
                 .debug_struct("Reloaded")
-                .field("changed", &reloaded.change().is_some())
+                .field("changed", &reloaded.is_changed())
                 .finish_non_exhaustive(),
             Self::Failed(e) => f.debug_tuple("Failed").field(e).finish(),
         }
@@ -286,7 +286,7 @@ where
     })
 }
 
-/// What a save records of a file, from its metadata. Loading and saving must agree on
+/// What a save records of a file, from its metadata, with its device and inode. Loading and saving must agree on
 /// it, or every save would report a conflict.
 ///
 /// # Errors
@@ -297,10 +297,19 @@ pub fn stamp_of(metadata: &Metadata) -> io::Result<FileStamp> {
     let mode = std::os::unix::fs::PermissionsExt::mode(&metadata.permissions());
     #[cfg(not(unix))]
     let mode = 0;
+    #[cfg(unix)]
+    let identity = {
+        use std::os::unix::fs::MetadataExt;
+        Some((metadata.dev(), metadata.ino()))
+    };
+    // `std` keeps a file's identity unstable here.
+    #[cfg(not(unix))]
+    let identity = None;
     Ok(FileStamp {
         modified: metadata.modified()?,
         len: metadata.len(),
         mode,
+        identity,
     })
 }
 
@@ -871,10 +880,7 @@ mod tests {
         let LoadUpdate::Reloaded(reloaded) = update else {
             panic!("{update:?}");
         };
-        let change = reloaded.change().unwrap();
-        // Both end in a line break.
-        assert_eq!((change.start, change.old_end), (5, 10));
-        assert_eq!(change.new_end, content.len() - 1);
+        assert!(reloaded.is_changed());
         assert!(handle.take().is_none(), "one update only");
         std::fs::remove_file(path).unwrap();
     }

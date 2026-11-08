@@ -17,54 +17,21 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use oso_core::buffer::{BufferId, FileStamp};
+use oso_core::buffer::{BufferId, DiskState};
 
 use super::stamp_of;
 
 /// How long the thread waits between two looks.
 const INTERVAL: Duration = Duration::from_secs(1);
 
-/// What a look at a visited path saw.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Seen {
-    /// A regular file, with its device and inode where the system has them.
-    File {
-        stamp: FileStamp,
-        identity: Option<(u64, u64)>,
-    },
-    /// Nothing is there.
-    Gone,
-    /// Something other than a regular file is there.
-    NotAFile,
-    /// The look failed otherwise, as for a directory the user may not search: nothing can be
-    /// told.
-    Unknown,
-}
-
-impl Seen {
-    fn of(look: io::Result<Metadata>) -> Self {
-        match look {
-            Ok(metadata) if !metadata.is_file() => Self::NotAFile,
-            Ok(metadata) => stamp_of(&metadata).map_or(Self::Unknown, |stamp| Self::File {
-                stamp,
-                identity: identity(&metadata),
-            }),
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Self::Gone,
-            Err(_) => Self::Unknown,
-        }
+/// What a look at a visited path found. The device and inode go in the stamp.
+fn state_of(look: io::Result<Metadata>) -> DiskState {
+    match look {
+        Ok(metadata) if !metadata.is_file() => DiskState::NotAFile,
+        Ok(metadata) => stamp_of(&metadata).map_or(DiskState::Unknown, DiskState::File),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => DiskState::Gone,
+        Err(_) => DiskState::Unknown,
     }
-}
-
-#[cfg(unix)]
-fn identity(metadata: &Metadata) -> Option<(u64, u64)> {
-    use std::os::unix::fs::MetadataExt;
-    Some((metadata.dev(), metadata.ino()))
-}
-
-/// `std` keeps a file's identity unstable here.
-#[cfg(not(unix))]
-fn identity(_: &Metadata) -> Option<(u64, u64)> {
-    None
 }
 
 /// What the thread and the UI share.
@@ -74,16 +41,29 @@ struct Shared {
     wake: Condvar,
 }
 
-#[derive(Default)]
 struct State {
-    /// The paths to look at, by buffer.
-    files: Vec<(BufferId, PathBuf)>,
+    /// The paths to look at, by buffer, shared so that a look copies none.
+    files: Arc<[(BufferId, PathBuf)]>,
     /// The UI asked for a look now.
     poked: bool,
+    /// The UI forgot what it was told, so the next look reports whatever it finds.
+    forget: bool,
     /// The watcher is gone.
     stop: bool,
     /// The latest report the UI has not taken.
-    report: Option<Vec<(BufferId, Seen)>>,
+    report: Option<Vec<(BufferId, DiskState)>>,
+}
+
+impl Default for State {
+    fn default() -> Self {
+        Self {
+            files: Arc::new([]),
+            poked: false,
+            forget: false,
+            stop: false,
+            report: None,
+        }
+    }
 }
 
 impl Shared {
@@ -116,8 +96,8 @@ impl Watcher {
     /// Looks at these paths from now on, and at once if they changed.
     pub fn watch(&self, files: Vec<(BufferId, PathBuf)>) {
         let mut state = self.shared.state();
-        if state.files != files {
-            state.files = files;
+        if *state.files != *files {
+            state.files = files.into();
             state.poked = true;
             self.shared.wake.notify_one();
         }
@@ -129,8 +109,17 @@ impl Watcher {
         self.shared.wake.notify_one();
     }
 
+    /// Looks at once, and reports what it finds even if it was reported before, as the UI
+    /// forgot it: a save of a buffer has ended.
+    pub fn look_again(&self) {
+        let mut state = self.shared.state();
+        state.poked = true;
+        state.forget = true;
+        self.shared.wake.notify_one();
+    }
+
     /// What the last look saw, if it differs from the report taken before.
-    pub fn take(&self) -> Option<Vec<(BufferId, Seen)>> {
+    pub fn take(&self) -> Option<Vec<(BufferId, DiskState)>> {
         self.shared.state().report.take()
     }
 }
@@ -143,7 +132,7 @@ impl Drop for Watcher {
 }
 
 fn run(shared: &Shared, wake: &dyn Fn() -> bool) {
-    let mut last: Vec<(BufferId, Seen)> = Vec::new();
+    let mut last: Vec<(BufferId, DiskState)> = Vec::new();
     loop {
         let files = {
             let mut state = shared.state();
@@ -169,11 +158,14 @@ fn run(shared: &Shared, wake: &dyn Fn() -> bool) {
                 return;
             }
             state.poked = false;
-            state.files.clone()
+            if std::mem::take(&mut state.forget) {
+                last.clear();
+            }
+            Arc::clone(&state.files)
         };
-        let seen: Vec<(BufferId, Seen)> = files
+        let seen: Vec<(BufferId, DiskState)> = files
             .iter()
-            .map(|(buffer, path)| (*buffer, Seen::of(std::fs::metadata(path))))
+            .map(|(buffer, path)| (*buffer, state_of(std::fs::metadata(path))))
             .collect();
         if seen == last {
             continue;
@@ -202,7 +194,7 @@ mod tests {
     }
 
     /// The next report, within a few seconds.
-    fn next(watcher: &Watcher, rx: &mpsc::Receiver<()>) -> Vec<(BufferId, Seen)> {
+    fn next(watcher: &Watcher, rx: &mpsc::Receiver<()>) -> Vec<(BufferId, DiskState)> {
         rx.recv_timeout(Duration::from_secs(5)).unwrap();
         watcher.take().unwrap()
     }
@@ -215,24 +207,27 @@ mod tests {
         let watcher = Watcher::spawn(move || tx.send(()).is_ok()).unwrap();
         watcher.watch(vec![(id(), path.clone())]);
         let first = next(&watcher, &rx);
-        let [(_, Seen::File { stamp, .. })] = first[..] else {
+        let [(_, DiskState::File(stamp))] = first[..] else {
             panic!("{first:?}");
         };
         assert_eq!(stamp.len, 3);
 
         std::fs::write(&path, "three").unwrap();
         watcher.look_now();
-        let [(_, Seen::File { stamp, .. })] = next(&watcher, &rx)[..] else {
+        let [(_, DiskState::File(stamp))] = next(&watcher, &rx)[..] else {
             panic!("a regular file");
         };
         assert_eq!(stamp.len, 5);
         // Nothing changed, so nothing wakes the UI.
         watcher.look_now();
         assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
+        // Unless the UI forgot it.
+        watcher.look_again();
+        assert_eq!(next(&watcher, &rx)[0].1, DiskState::File(stamp));
 
         std::fs::remove_file(&path).unwrap();
         watcher.look_now();
-        assert_eq!(next(&watcher, &rx)[0].1, Seen::Gone);
+        assert_eq!(next(&watcher, &rx)[0].1, DiskState::Gone);
     }
 
     #[test]
@@ -240,7 +235,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let watcher = Watcher::spawn(move || tx.send(()).is_ok()).unwrap();
         watcher.watch(vec![(id(), std::env::temp_dir())]);
-        assert_eq!(next(&watcher, &rx)[0].1, Seen::NotAFile);
+        assert_eq!(next(&watcher, &rx)[0].1, DiskState::NotAFile);
     }
 
     #[cfg(unix)]
@@ -252,22 +247,18 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let watcher = Watcher::spawn(move || tx.send(()).is_ok()).unwrap();
         watcher.watch(vec![(id(), path.clone())]);
-        let Seen::File {
-            identity: before, ..
-        } = next(&watcher, &rx)[0].1
-        else {
+        let DiskState::File(before) = next(&watcher, &rx)[0].1 else {
             panic!("a regular file");
         };
         std::fs::write(&other, "same").unwrap();
         std::fs::rename(&other, &path).unwrap();
         watcher.look_now();
-        let Seen::File {
-            identity: after, ..
-        } = next(&watcher, &rx)[0].1
-        else {
+        let DiskState::File(after) = next(&watcher, &rx)[0].1 else {
             panic!("a regular file");
         };
-        assert_ne!(before, after);
+        assert_eq!(before.len, after.len);
+        assert_ne!(before.identity, after.identity);
+        assert!(!before.same_file(after));
         std::fs::remove_file(&path).unwrap();
     }
 }

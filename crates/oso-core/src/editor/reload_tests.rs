@@ -4,9 +4,10 @@
 //! Must not depend on: threads or the file system.
 
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 use super::{Editor, ReloadOutcome, Status};
-use crate::buffer::{Buffer, BufferId, ContentId, Replacement};
+use crate::buffer::{Baseline, Buffer, BufferId, ContentId, DiskState, FileStamp, Replacement};
 use crate::display_map::TabWidth;
 use crate::load::{Reloaded, decode_all};
 use crate::rope::Rope;
@@ -37,7 +38,7 @@ fn read_again(editor: &Editor, id: BufferId, new: &[u8]) -> (Reloaded, ContentId
 
 fn reload(editor: &mut Editor, id: BufferId, new: &str) -> ReloadOutcome {
     let (reloaded, from) = read_again(editor, id, new.as_bytes());
-    editor.reload(id, reloaded, from)
+    editor.reload(id, reloaded, from).0
 }
 
 fn text(editor: &Editor, id: BufferId) -> String {
@@ -163,7 +164,7 @@ fn a_buffer_changed_while_the_file_was_read_keeps_its_text() {
     // Saved meanwhile, so unmodified, but not what the read compared with.
     let buffer = editor.buffer_mut(id).unwrap();
     buffer.mark_saved(buffer.content_id());
-    assert_eq!(editor.reload(id, reloaded, from), ReloadOutcome::Edited);
+    assert_eq!(editor.reload(id, reloaded, from).0, ReloadOutcome::Edited);
     assert_eq!(text(&editor, id), "xabc\n");
 }
 
@@ -173,7 +174,7 @@ fn a_buffer_undone_to_what_was_read_takes_the_reload() {
     let (reloaded, from) = read_again(&editor, id, b"new\n");
     type_at(&mut editor, id, 0, "x");
     editor.undo().unwrap();
-    assert_eq!(editor.reload(id, reloaded, from), ReloadOutcome::Reloaded);
+    assert_eq!(editor.reload(id, reloaded, from).0, ReloadOutcome::Reloaded);
     assert_eq!(text(&editor, id), "new\n");
 }
 
@@ -199,23 +200,128 @@ fn the_same_text_changes_nothing() {
 fn a_binary_file_replaces_the_text_with_no_undo() {
     let (mut editor, id) = visiting("abc\n");
     let (reloaded, from) = read_again(&editor, id, b"a\0b");
-    assert_eq!(editor.reload(id, reloaded, from), ReloadOutcome::Reloaded);
+    assert_eq!(editor.reload(id, reloaded, from).0, ReloadOutcome::Reloaded);
     assert_eq!(text(&editor, id), "a\0b");
     assert!(!modified(&editor, id));
     assert!(editor.undo().is_err());
 }
 
+fn stamp(len: u64) -> FileStamp {
+    FileStamp {
+        modified: SystemTime::UNIX_EPOCH + Duration::from_secs(7),
+        len,
+        mode: 0o644,
+        identity: Some((1, 2)),
+    }
+}
+
+/// `id` visiting a file read as `stamp(len)`.
+fn with_baseline(editor: &mut Editor, id: BufferId, len: u64) {
+    editor.buffer_mut(id).unwrap().set_baseline(Baseline {
+        location: path(),
+        file: Some(stamp(len)),
+    });
+}
+
+fn seen(editor: &mut Editor, id: BufferId, state: DiskState) -> Vec<BufferId> {
+    editor.files_seen(&[(id, state)], |_| false)
+}
+
+#[test]
+fn a_file_as_read_needs_nothing_and_a_changed_one_a_read_once() {
+    let (mut editor, id) = visiting("abc\n");
+    with_baseline(&mut editor, id, 4);
+    assert!(seen(&mut editor, id, DiskState::File(stamp(4))).is_empty());
+    let changed = DiskState::File(stamp(9));
+    assert_eq!(seen(&mut editor, id, changed), vec![id]);
+    assert!(seen(&mut editor, id, changed).is_empty(), "once");
+    assert!(
+        editor.files_seen(&[(id, changed)], |_| true).is_empty(),
+        "nor while a read runs"
+    );
+}
+
+#[test]
+fn another_file_of_the_same_time_and_size_is_a_change() {
+    let (mut editor, id) = visiting("abc\n");
+    with_baseline(&mut editor, id, 4);
+    let swapped = FileStamp {
+        identity: Some((1, 3)),
+        ..stamp(4)
+    };
+    assert_eq!(seen(&mut editor, id, DiskState::File(swapped)), vec![id]);
+}
+
+#[test]
+fn a_file_changed_under_edits_warns_once_and_may_be_saved_over() {
+    let (mut editor, id) = visiting("abc\n");
+    with_baseline(&mut editor, id, 4);
+    type_at(&mut editor, id, 0, "x");
+    let changed = DiskState::File(stamp(9));
+    assert!(seen(&mut editor, id, changed).is_empty());
+    assert_eq!(warnings(&editor), "[changed on disk] ");
+    assert_eq!(
+        editor.buffer(id).unwrap().save_over(),
+        Some(stamp(9)),
+        "a save asks before it goes over this file"
+    );
+    seen(&mut editor, id, changed);
+    let messages = editor
+        .buffer(editor.messages_buffer())
+        .unwrap()
+        .text()
+        .to_string();
+    assert_eq!(messages.matches("changed on disk").count(), 1, "{messages}");
+    // Undone to what was read: it is read again.
+    editor.undo().unwrap();
+    assert_eq!(seen(&mut editor, id, changed), vec![id]);
+}
+
 #[test]
 fn a_file_gone_warns_until_it_is_back() {
     let (mut editor, id) = visiting("abc\n");
-    editor.file_gone_from_disk(id);
-    assert_eq!(warnings(&editor), "[deleted on disk] ");
+    with_baseline(&mut editor, id, 4);
     type_at(&mut editor, id, 0, "x");
-    editor.file_changed_on_disk(id);
-    assert_eq!(warnings(&editor), "[deleted on disk] ", "one of the two");
-    editor.undo().unwrap();
-    assert_eq!(reload(&mut editor, id, "back\n"), ReloadOutcome::Reloaded);
+    seen(&mut editor, id, DiskState::Gone);
+    assert_eq!(warnings(&editor), "[deleted on disk] ");
+    // Back as something else, under the edits.
+    seen(&mut editor, id, DiskState::File(stamp(9)));
+    assert_eq!(warnings(&editor), "[changed on disk] ");
+    seen(&mut editor, id, DiskState::Gone);
+    // Back as it was read.
+    seen(&mut editor, id, DiskState::File(stamp(4)));
     assert_eq!(warnings(&editor), "");
+}
+
+#[test]
+fn a_chmod_alone_is_taken_in() {
+    let (mut editor, id) = visiting("abc\n");
+    with_baseline(&mut editor, id, 4);
+    let chmod = FileStamp {
+        mode: 0o600,
+        ..stamp(4)
+    };
+    assert!(seen(&mut editor, id, DiskState::File(chmod)).is_empty());
+    let read = editor.buffer(id).unwrap().baseline().unwrap().file.unwrap();
+    assert_eq!(read.mode, 0o600);
+}
+
+#[test]
+fn nothing_is_acted_on_while_a_prompt_is_open() {
+    let (mut editor, id) = visiting("abc\n");
+    with_baseline(&mut editor, id, 4);
+    editor.ask("Really", "ignore").unwrap();
+    assert!(seen(&mut editor, id, DiskState::File(stamp(9))).is_empty());
+}
+
+#[test]
+fn a_revert_that_must_wait_is_asked_for_again() {
+    let (mut editor, id) = visiting("abc\n");
+    type_at(&mut editor, id, 0, "x");
+    let (reloaded, from) = read_again(&editor, id, b"disk\n");
+    editor.ask("Really", "ignore").unwrap();
+    assert_eq!(editor.revert(id, reloaded, from).0, ReloadOutcome::Later);
+    assert_eq!(editor.take_revert_requests(), vec![id]);
 }
 
 #[test]
@@ -247,7 +353,7 @@ fn a_revert_discards_edits_as_one_undo_step() {
     assert_eq!(editor.take_revert_requests(), vec![id]);
     assert!(editor.take_revert_requests().is_empty());
     let (reloaded, from) = read_again(&editor, id, b"disk\n");
-    assert_eq!(editor.revert(id, reloaded, from), ReloadOutcome::Reloaded);
+    assert_eq!(editor.revert(id, reloaded, from).0, ReloadOutcome::Reloaded);
     assert_eq!(text(&editor, id), "disk\n");
     assert!(!modified(&editor, id));
     editor.undo().unwrap();
@@ -265,6 +371,31 @@ fn a_revert_to_the_same_text_leaves_the_buffer_unmodified() {
     editor.apply_edits(id, &[edit]).unwrap();
     assert!(modified(&editor, id), "typed and deleted");
     let (reloaded, from) = read_again(&editor, id, b"abc\n");
-    assert_eq!(editor.revert(id, reloaded, from), ReloadOutcome::Same);
+    assert_eq!(editor.revert(id, reloaded, from).0, ReloadOutcome::Same);
     assert!(!modified(&editor, id));
+}
+
+proptest::proptest! {
+    #[test]
+    fn cursors_stay_on_characters_in_the_new_text(
+        old in "[aé\n🍣\u{301}]{0,40}",
+        new in "[aé\n🍣\u{301}]{0,40}",
+        offsets in proptest::collection::vec(0usize..200, 1..4),
+    ) {
+        let (mut editor, id) = visiting(&old);
+        let offsets: Vec<usize> = offsets.iter().map(|o| (*o).min(old.len())).collect();
+        let selections = offsets
+            .iter()
+            .map(|&offset| {
+                let offset = editor.buffer(id).unwrap().text().clip_offset(offset, crate::sum_tree::Bias::Left);
+                Selection::at(offset)
+            })
+            .collect();
+        editor.current_mut().0.selections = SelectionSet::from_parts(selections, 0).unwrap();
+        reload(&mut editor, id, &new);
+        proptest::prop_assert_eq!(text(&editor, id), new.clone());
+        for cursor in cursors(&editor) {
+            proptest::prop_assert!(cursor <= new.len() && new.is_char_boundary(cursor));
+        }
+    }
 }
