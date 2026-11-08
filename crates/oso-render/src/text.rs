@@ -25,6 +25,7 @@ use crate::atlas::{AtlasGlyph, GlyphAtlas};
 use crate::grid::PlacedGlyph;
 use crate::pane::{Bands, Face};
 use crate::shape::Uniforms;
+use crate::theme::{TextGamma, luminance};
 
 /// Columns shaped beyond the visible ones on each side, and the step the
 /// shaped window moves by.
@@ -52,6 +53,8 @@ pub(crate) struct GlyphInstance {
     uv: [f32; 2],
     color: [f32; 4],
     kind: u32,
+    /// The luminance of what the glyph is drawn on, which text gamma needs (ADR 0089).
+    paper: f32,
 }
 
 impl GlyphInstance {
@@ -70,12 +73,13 @@ impl GlyphInstance {
         self.uv
     }
 
-    const ATTRIBUTES: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+    const ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
         0 => Float32x2,
         1 => Float32x2,
         2 => Float32x2,
         3 => Float32x4,
         4 => Uint32,
+        5 => Float32,
     ];
 
     fn desc() -> wgpu::VertexBufferLayout<'static> {
@@ -308,11 +312,27 @@ impl Layout {
                 GlyphFormat::Coverage => 0,
                 GlyphFormat::Color => 1,
             },
+            paper: luminance(face.background()),
         })
     }
 }
 
 /// Draws glyph quads.
+/// CPU-side mirror of the WGSL `Uniforms` struct: the projection, and the theme's text gamma.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct TextUniforms {
+    ortho: Uniforms,
+    /// The gamma's strength, then padding.
+    gamma: [f32; 4],
+}
+
+impl TextUniforms {
+    fn gamma(gamma: TextGamma) -> [f32; 4] {
+        [gamma.strength, 0.0, 0.0, 0.0]
+    }
+}
+
 pub(crate) struct TextRenderer {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
@@ -336,11 +356,7 @@ impl TextRenderer {
         height: f32,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("text.wgsl"));
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Text Uniform Buffer"),
-            contents: bytemuck::bytes_of(&Uniforms::new(width, height)),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let uniform_buffer = Self::uniform_buffer(device, width, height);
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -356,7 +372,7 @@ impl TextRenderer {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -442,6 +458,19 @@ impl TextRenderer {
         })
     }
 
+    /// The projection for a surface of `width` by `height`, and text as the OS draws it.
+    fn uniform_buffer(device: &wgpu::Device, width: f32, height: f32) -> wgpu::Buffer {
+        let uniforms = TextUniforms {
+            ortho: Uniforms::new(width, height),
+            gamma: TextUniforms::gamma(TextGamma::NATIVE),
+        };
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Text Uniform Buffer"),
+            contents: bytemuck::bytes_of(&uniforms),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        })
+    }
+
     fn instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
         device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Text Instance Buffer"),
@@ -455,6 +484,17 @@ impl TextRenderer {
     pub(crate) fn resize(&self, queue: &wgpu::Queue, width: f32, height: f32) {
         let uniforms = Uniforms::new(width, height);
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+    }
+
+    /// Corrects text's coverage with `gamma` from the next frame on (ADR 0089).
+    #[expect(
+        dead_code,
+        reason = "the app switches themes once M2-23's commands land"
+    )]
+    pub(crate) fn set_gamma(&self, queue: &wgpu::Queue, gamma: TextGamma) {
+        let offset = std::mem::size_of::<Uniforms>() as wgpu::BufferAddress;
+        let gamma = TextUniforms::gamma(gamma);
+        queue.write_buffer(&self.uniform_buffer, offset, bytemuck::bytes_of(&gamma));
     }
 
     /// The most quads a frame may draw.

@@ -51,6 +51,18 @@ impl core::fmt::Debug for oso_render::Face
 pub fn oso_render::Face::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_render::Face
 impl core::marker::StructuralPartialEq for oso_render::Face
+pub enum oso_render::Kind
+pub oso_render::Kind::Dark
+pub oso_render::Kind::Light
+impl core::clone::Clone for oso_render::Kind
+pub fn oso_render::Kind::clone(&self) -> oso_render::Kind
+impl core::cmp::Eq for oso_render::Kind
+impl core::cmp::PartialEq for oso_render::Kind
+pub fn oso_render::Kind::eq(&self, &oso_render::Kind) -> bool
+impl core::fmt::Debug for oso_render::Kind
+pub fn oso_render::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::Kind
+impl core::marker::StructuralPartialEq for oso_render::Kind
 pub enum oso_render::PaneContent<'a>
 pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
 pub oso_render::PaneContent::Masked(oso_render::Masked<'a>)
@@ -192,3 +204,8 @@ pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::C
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64
 pub oso_render::TextView::scroll: oso_core::window::Scroll
+pub struct oso_render::Theme
+impl oso_render::Theme
+pub fn oso_render::Theme::kind(&self) -> oso_render::Kind
+pub fn oso_render::Theme::name(&self) -> &'static str
+pub fn oso_render::themes() -> alloc::vec::Vec<oso_render::Theme>

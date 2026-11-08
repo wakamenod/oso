@@ -14,6 +14,7 @@ mod rows;
 mod scene;
 mod shape;
 mod text;
+mod theme;
 use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
@@ -21,6 +22,7 @@ use paint::Painter;
 pub use pane::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
+pub use theme::{Kind, Theme, themes};
 
 use std::sync::Arc;
 

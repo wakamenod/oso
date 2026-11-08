@@ -147,8 +147,8 @@ mod tests {
     const HEIGHT: u32 = 128;
 
     /// One glyph per character. Its bitmap fills its cell, 6 px above it and
-    /// 8 px below it, past the bands of ADR 0052 on both sides.
-    struct Blocks;
+    /// 8 px below it, past the bands of ADR 0052 on both sides, at the coverage it holds.
+    struct Blocks(u8);
 
     impl TextSystem for Blocks {
         fn metrics(&self) -> CellMetrics {
@@ -183,7 +183,7 @@ mod tests {
                 left: 0,
                 top: 22,
                 format: GlyphFormat::Coverage,
-                data: vec![255; 340],
+                data: vec![self.0; 340],
             })
         }
     }
@@ -201,6 +201,11 @@ mod tests {
 
     /// Draws `panes` on a real device, and gives back RGBA pixels.
     fn draw(panes: &[Pane<'_>]) -> Vec<u8> {
+        draw_at(panes, 255)
+    }
+
+    /// Draws `panes` with glyphs of `coverage`.
+    fn draw_at(panes: &[Pane<'_>], coverage: u8) -> Vec<u8> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::default(),
@@ -215,7 +220,7 @@ mod tests {
         let format = wgpu::TextureFormat::Rgba8Unorm;
         let mut painter = Painter::new(&device, format, WIDTH as f32, HEIGHT as f32);
         let mut budget = RasterBudget::new(64);
-        painter.prepare(&device, &queue, &mut Blocks, panes, &mut budget);
+        painter.prepare(&device, &queue, &mut Blocks(coverage), panes, &mut budget);
 
         let size = wgpu::Extent3d {
             width: WIDTH,
@@ -328,6 +333,37 @@ mod tests {
         assert_is(&pixels, (32, 38), PAPER(), "text under the pane");
         assert_is(&pixels, (67, 67), PAPER(), "the pane's last pixel");
         assert_is(&pixels, (68, 67), INK(), "the first pixel past it");
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn text_at_half_coverage_looks_as_blended_in_srgb() {
+        let word = [Span {
+            text: "xx",
+            face: Face::Text,
+        }];
+        let lines: [&[Span<'_>]; 1] = [&word];
+        let panes = [pane(0, (1, 1, 1, 4), 0, Some(Face::Text), &lines)];
+        let pixels = draw_at(&panes, 128);
+        let (ink, paper) = (INK(), PAPER());
+        let coverage = 128.0 / 255.0;
+        let gamma = crate::theme::themes()[0].text();
+        let a = crate::theme::corrected_coverage(
+            coverage,
+            crate::theme::luminance(ink),
+            crate::theme::luminance(paper),
+            gamma,
+        );
+        let want = a * ink[0] + (1.0 - a) * paper[0];
+        assert_is(
+            &pixels,
+            (22, 38),
+            [want, 0.0, 0.0, 1.0],
+            "a glyph at half coverage",
+        );
+        // Lighter than blending in linear light, which the theme corrects.
+        let linear = coverage * ink[0] + (1.0 - coverage) * paper[0];
+        assert!(f32::from(red(&pixels, 22, 38)) < linear * 255.0 - 20.0);
     }
 
     #[test]
