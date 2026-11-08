@@ -1,4 +1,4 @@
-//! A float's panel as rounded boxes: the panel, its field and its keys, in pixels around
+//! A float's panel as rounded boxes: the panel, its field, its selected candidate and its keys, in pixels around
 //! their cells, colored by their faces and sized by a [`PanelStyle`] (ADR 0075). Each box's
 //! quad is cut to the pane's region here, on the CPU, as everything else a frame draws is
 //! (ADR 0061), so the GPU draws nothing outside it.
@@ -107,7 +107,45 @@ pub(super) fn boxes(
             }
             .cut(1.0, 0.0, clip)
         });
-    body.into_iter().chain(field).chain(keys)
+    let selected = panel
+        .selected
+        .and_then(|row| selected_box(row, &grid, pt, style, fill, clip));
+    body.into_iter().chain(field).chain(selected).chain(keys)
+}
+
+/// The selected candidate's `row`, a little wider than its cells, kept inside the panel's
+/// `fill` and cut to `clip` (ADR 0076).
+fn selected_box(
+    row: CellRect,
+    grid: &PixelGrid,
+    pt: f32,
+    style: &PanelStyle,
+    fill: PixelRect,
+    clip: PixelRect,
+) -> Option<Rounded> {
+    if row.rows == 0 || row.columns == 0 {
+        return None;
+    }
+    let across = (style.selected_reach * pt).round();
+    let cells = grid.rect(row);
+    let wide = cut(
+        PixelRect {
+            x: cells.x - across,
+            width: cells.width + 2.0 * across,
+            ..cells
+        },
+        fill,
+    )?;
+    Rounded {
+        rect: corners(wide),
+        radii: [style.selected_radius * pt; 4],
+        fill: Face::Selected.background(),
+        outline: [0.0; 4],
+        shadow: [0.0; 4],
+        params: [0.0; 4],
+        bounds: [0.0; 4],
+    }
+    .cut(1.0, 0.0, clip)
 }
 
 /// The shadow's color, offset down and sigma below `fill`. With less room above `clip`'s

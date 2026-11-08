@@ -450,6 +450,7 @@ mod tests {
                     columns: 6,
                 },
                 keys: &keys,
+                selected: None,
             }),
             ..pane(0, (0, 0, rows, 12), 16, None, &[])
         }];
@@ -604,6 +605,7 @@ mod tests {
                     columns: 0,
                 },
                 keys: &[],
+                selected: None,
             }),
             ..pane(0, (0, 0, 6, 12), 16, None, &[])
         }];

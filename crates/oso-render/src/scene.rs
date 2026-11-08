@@ -844,6 +844,7 @@ mod tests {
                 field: Some(rect(2, 4, 1, 6)),
                 field_room: rect(1, 3, 3, 8),
                 keys: &keys,
+                selected: None,
             }),
             ..pane(0, rect(0, 0, 6, 12), 16, PaneContent::Lines(&[]))
         }];
@@ -889,6 +890,7 @@ mod tests {
                 field: Some(rect(1, 4, 1, 6)),
                 field_room: rect(1, 4, 1, 6),
                 keys: &keys,
+                selected: None,
             }),
             ..pane(0, rect(0, 0, 2, 12), 16, PaneContent::Lines(&[]))
         }];
@@ -903,6 +905,31 @@ mod tests {
     }
 
     #[test]
+    fn the_selected_candidate_is_a_box_a_little_wider_than_its_row_inside_the_panel() {
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(0, 1, 6, 10),
+                field: None,
+                field_room: rect(0, 0, 0, 0),
+                keys: &[],
+                selected: Some(rect(4, 2, 1, 8)),
+            }),
+            ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rounded = scene.rounded();
+        assert_eq!(rounded.len(), 2);
+        let [panel, row] = [rounded[0], rounded[1]];
+        assert_eq!(row.fill, Face::Selected.background());
+        // The row's cells are x 28..108; the box reaches past them, and stays in the panel.
+        let [x, y, width, height] = row.rect;
+        let [px, _, pwidth, _] = panel.rect;
+        assert!(x < 28.0 && x >= px && x + width > 108.0 && x + width <= px + pwidth);
+        assert_eq!((y, height), (8.0 + 4.0 * 20.0, 20.0));
+    }
+
+    #[test]
     fn a_shadow_with_little_room_below_shrinks_to_end_inside_its_pane() {
         let panes = [Pane {
             panel: Some(Panel {
@@ -910,6 +937,7 @@ mod tests {
                 field: None,
                 field_room: rect(0, 0, 0, 0),
                 keys: &[],
+                selected: None,
             }),
             ..pane(0, rect(0, 0, 3, 12), 16, PaneContent::Lines(&[]))
         }];

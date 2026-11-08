@@ -1,0 +1,35 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: notes\\n"
+---
+keys: M-x b u f
+│notes                                       │
+:o                                           :
+│                                            │
+│                                            │
+│                                            │
+│                                            │
+│                                            │
+│                                            │
+│                                            │
+│                                            │
+│                                            │
+=-- test  1:0  Fundamental  UTF-8 LF         =
+"                                            "
+float at row 0, column 2: 10 x 40
+│  M-x                              1/5  │
+│                                        │
+│ [buf                                 ] │
+:     ^                                  :
+│                                        │
+│ >save-buffer C-x C-s  Save the buffe…  │
+:       ***                              :
+│  end-of-buffer M->  Move point to th…  │
+:         ***                            :
+│  mark-whole-buffer C-x h  Put one cu…  │
+:             ***                        :
+│  beginning-of-buffer M-<  Move point…  │
+:               ***                      :
+│  save-buffers-kill-terminal C-x C-c    │
+:       ***                              :
+└────────────────────────────────────────┘

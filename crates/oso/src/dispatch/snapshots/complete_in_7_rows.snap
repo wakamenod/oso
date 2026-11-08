@@ -1,0 +1,20 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: notes\\n"
+---
+keys: M-x
+│notes                                                                           │
+:o                                                                               :
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                                             =
+"                                                                                "
+float at row 0, column 16: 5 x 48
+│  M-x                                     1/41  │
+│                                                │
+│ [                                            ] │
+:  ^                                             :
+│                                                │
+│ >undo C-z  Undo the last N changes to the bu…  │

@@ -1,0 +1,45 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: notes\\n"
+---
+keys: M-x
+│notes                                                                           │
+:o                                                                               :
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                                             =
+"                                                                                "
+float at row 0, column 16: 7 x 48
+│  M-x                                     1/41  │
+│                                                │
+│ [                                            ] │
+:  ^                                             :
+│                                                │
+│ >undo C-z  Undo the last N changes to the bu…  │
+│  yank C-y  Insert the newest kill at every c…  │
+└────────────────────────────────────────────────┘
+
+keys: C-v
+│notes                                                                           │
+:o                                                                               :
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+│                                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                                             =
+"                                                                                "
+float at row 0, column 16: 7 x 48
+│  M-x                                     3/41  │
+│                                                │
+│ [                                            ] │
+:  ^                                             :
+│                                                │
+│  yank C-y  Insert the newest kill at every c…  │
+│ >newline RET  Insert a line break at every c…  │
+└────────────────────────────────────────────────┘

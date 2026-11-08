@@ -13,7 +13,7 @@ use std::sync::Arc;
 use super::Editor;
 use crate::buffer::Replacement;
 use crate::complete::{Candidate, Candidates, ROWS};
-use crate::minibuffer::{Kind, PromptError, PromptId};
+use crate::minibuffer::{Kind, ListSize, PromptError, PromptId};
 
 impl Editor {
     /// Opens a prompt that says `label` and completes over `items`, kept in the history
@@ -66,12 +66,11 @@ impl Editor {
             return;
         }
         let (revision, text) = (buffer.revision(), buffer.text().to_string());
-        let rows = self.candidate_rows();
         if let Some((candidates, seen)) = self.completion_mut() {
             candidates.set_input(&text);
-            candidates.keep_in_view(rows);
             *seen = revision;
         }
+        // Which also keeps the selection in view, in the rows the float has now.
         self.relayout_prompt();
     }
 
@@ -82,7 +81,29 @@ impl Editor {
 
     /// How many candidate rows the innermost prompt shows.
     pub fn candidate_rows(&self) -> usize {
-        ROWS
+        self.prompt_layout()
+            .map_or(0, |layout| layout.regions.candidates.rows)
+    }
+
+    /// The innermost prompt's list's size for its layout: the most rows it has wanted, up to
+    /// [`ROWS`], and its candidates. Records the rows it wants now.
+    pub(super) fn list_size(&mut self) -> Option<ListSize> {
+        let prompt = self.prompts.last_mut()?;
+        let (candidates, _) = prompt.completion.as_ref()?;
+        prompt.list_rows = prompt.list_rows.max(candidates.len().min(ROWS));
+        Some(ListSize {
+            rows: prompt.list_rows,
+            total: candidates.total(),
+        })
+    }
+
+    /// Scrolls the innermost prompt's candidates so that the selected one shows in the rows
+    /// its float has.
+    pub(super) fn keep_selection_in_view(&mut self) {
+        let rows = self.candidate_rows();
+        if let Some((candidates, _)) = self.completion_mut() {
+            candidates.keep_in_view(rows);
+        }
     }
 
     /// Selects the candidate `by` places after the selected one, or before it for a negative
@@ -113,20 +134,19 @@ impl Editor {
     ///
     /// As [`Editor::move_completion`].
     pub fn page_completion(&mut self, pages: isize) -> Result<(), PromptError> {
-        let rows = isize::try_from(self.candidate_rows()).unwrap_or(isize::MAX);
+        let rows = isize::try_from(self.candidate_rows().max(1)).unwrap_or(isize::MAX);
         self.move_completion(pages.saturating_mul(rows))
     }
 
     fn with_candidates(&mut self, f: impl FnOnce(&mut Candidates)) -> Result<(), PromptError> {
         // What was typed last is matched before the selection moves over it.
         self.refresh_completion();
-        let rows = self.candidate_rows();
         let (candidates, _) = self.completion_mut().ok_or(PromptError::NoPrompt)?;
         if candidates.is_empty() {
             return Err(PromptError::Invalid);
         }
         f(candidates);
-        candidates.keep_in_view(rows);
+        self.keep_selection_in_view();
         Ok(())
     }
 

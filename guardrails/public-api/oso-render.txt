@@ -22,6 +22,8 @@ pub fn oso_render::CursorStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::Copy for oso_render::CursorStyle
 impl core::marker::StructuralPartialEq for oso_render::CursorStyle
 pub enum oso_render::Face
+pub oso_render::Face::Annotation
+pub oso_render::Face::Binding
 pub oso_render::Face::Boxed
 pub oso_render::Face::Cursor
 pub oso_render::Face::Escape
@@ -29,10 +31,12 @@ pub oso_render::Face::Field
 pub oso_render::Face::Float
 pub oso_render::Face::FloatBorder
 pub oso_render::Face::Key
+pub oso_render::Face::Match
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
 pub oso_render::Face::Region
+pub oso_render::Face::Selected
 pub oso_render::Face::Text
 pub oso_render::Face::Warning
 impl core::clone::Clone for oso_render::Face
@@ -156,6 +160,7 @@ pub oso_render::Panel::cells: oso_core::frame::CellRect
 pub oso_render::Panel::field: core::option::Option<oso_core::frame::CellRect>
 pub oso_render::Panel::field_room: oso_core::frame::CellRect
 pub oso_render::Panel::keys: &'a [oso_core::frame::CellRect]
+pub oso_render::Panel::selected: core::option::Option<oso_core::frame::CellRect>
 pub struct oso_render::RenderState
 impl oso_render::RenderState
 pub fn oso_render::RenderState::capture(&mut self, &[oso_render::Pane<'_>]) -> core::result::Result<oso_render::Capture, oso_render::CaptureError>

@@ -29,6 +29,13 @@ const FIELD_OUTLINE: [f32; 4] = [0.159, 0.2384, 0.5089, 1.0];
 const KEY: [f32; 4] = [0.0908, 0.0953, 0.1413, 1.0];
 const KEY_TEXT: [f32; 4] = [0.73, 0.77, 0.88, 1.0];
 const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
+// A float's list (ADR 0076): the selected row a little bluer than the fill, what matched in a
+// warm accent, annotations as dim as a label, and keys in a cool green. Every one at least
+// 4.5:1 on the fill and on the selected row, which the tests check, until M2-23's theme.
+const SELECTED: [f32; 4] = [0.06, 0.075, 0.18, 1.0];
+const MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
+const ANNOTATION: [f32; 4] = [0.52, 0.57, 0.74, 1.0];
+const BINDING: [f32; 4] = [0.45, 0.78, 0.70, 1.0];
 
 /// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height
 /// over 16) and the shadow's color and strength (ADR 0075). It is read every frame, as the
@@ -50,6 +57,9 @@ pub(crate) struct PanelStyle {
     /// How far a key's chip stays inside its cells, across and up and down.
     pub(crate) key_inset: [f32; 2],
     pub(crate) key_radius: f32,
+    /// How far the selected candidate's box reaches past its row's cells, across.
+    pub(crate) selected_reach: f32,
+    pub(crate) selected_radius: f32,
 }
 
 /// The panel's style until the theme.
@@ -64,6 +74,8 @@ pub(crate) const PANEL: PanelStyle = PanelStyle {
     field_outline: 1.0,
     key_inset: [1.0, 2.0],
     key_radius: 4.0,
+    selected_reach: 6.0,
+    selected_radius: 4.0,
 };
 
 /// What a piece of the screen means. The renderer turns it into colors, and
@@ -101,13 +113,30 @@ pub enum Face {
     /// The region between a mark and its cursor (ADR 0071). Only its background
     /// is drawn, behind the text, which keeps its own face.
     Region,
+    /// The selected candidate's row in a float: its box's background, behind the text, which
+    /// keeps its own faces (ADR 0076).
+    Selected,
+    /// What the input matched in a candidate.
+    Match,
+    /// What is said of a candidate at the end of its row, and a list's count.
+    Annotation,
+    /// A key sequence after a candidate, such as a command's binding.
+    Binding,
 }
 
 impl Face {
     /// The color of coverage glyphs.
     pub(crate) fn foreground(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Modeline | Self::Preedit | Self::Float | Self::Region => FOREGROUND,
+            Self::Text
+            | Self::Modeline
+            | Self::Preedit
+            | Self::Float
+            | Self::Region
+            | Self::Selected => FOREGROUND,
+            Self::Match => MATCH,
+            Self::Annotation => ANNOTATION,
+            Self::Binding => BINDING,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
@@ -126,7 +155,8 @@ impl Face {
             Self::Cursor => CURSOR,
             Self::Modeline => MODELINE,
             Self::Preedit => FOREGROUND,
-            Self::Float | Self::Prompt => FLOAT,
+            Self::Float | Self::Prompt | Self::Match | Self::Annotation | Self::Binding => FLOAT,
+            Self::Selected => SELECTED,
             Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Key => KEY,
             Self::Region => REGION,
@@ -262,6 +292,9 @@ pub struct Panel<'a> {
     pub field_room: CellRect,
     /// Cells drawn as key chips, such as ` y ` and ` n `, in [`Face::Key`].
     pub keys: &'a [CellRect],
+    /// A row of cells drawn as the selected candidate's box, a little wider than they are,
+    /// in [`Face::Selected`] (ADR 0076).
+    pub selected: Option<CellRect>,
 }
 
 /// A region of the frame and what it shows. Nothing of it is drawn outside the
@@ -299,6 +332,26 @@ mod tests {
         assert_eq!(Face::Cursor.of_run(CellStyle::Text), Face::Cursor);
         assert_eq!(Face::Cursor.of_run(CellStyle::Escape), Face::Escape);
         assert_eq!(Face::Cursor.of_run(CellStyle::Boxed), Face::Boxed);
+    }
+
+    /// WCAG's contrast ratio of two linear colors.
+    fn contrast(a: [f32; 4], b: [f32; 4]) -> f32 {
+        let luminance = |c: [f32; 4]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let (a, b) = (luminance(a) + 0.05, luminance(b) + 0.05);
+        a.max(b) / a.min(b)
+    }
+
+    #[test]
+    fn a_lists_text_reads_on_the_fill_and_on_the_selected_row() {
+        // ADR 0027's floor; M2-23 raises what it can to 7:1.
+        for face in [Face::Float, Face::Match, Face::Annotation, Face::Binding] {
+            for behind in [Face::Float, Face::Selected] {
+                let ratio = contrast(face.foreground(), behind.background());
+                assert!(ratio >= 4.5, "{face:?} on {behind:?}: {ratio:.2}");
+            }
+        }
+        // The selected row stands apart from the fill, beyond its text's reach.
+        assert_ne!(Face::Selected.background(), Face::Float.background());
     }
 
     #[test]

@@ -70,6 +70,7 @@ impl Editor {
             walk: None,
             typed: None,
             completion: None,
+            list_rows: 0,
         });
         self.relayout_prompt();
         Ok(id)
@@ -288,18 +289,21 @@ impl Editor {
     /// where its answer is typed. Called whenever the frame, the innermost prompt or its
     /// message changes.
     pub(super) fn relayout_prompt(&mut self) {
+        let list = self.list_size();
         self.prompt_layout = self.prompts.last().map(|prompt| {
-            minibuffer::layout(
+            minibuffer::layout_with(
                 &self.frame,
                 &prompt.label,
                 prompt.kind,
                 prompt.message.as_deref(),
+                list,
             )
         });
         if let Some(layout) = &self.prompt_layout {
             let size = ViewSize::new(1, layout.input.columns);
             self.windows[self.selected].set_size(size);
         }
+        self.keep_selection_in_view();
     }
 
     /// Closes the innermost prompt, with its window and its buffer, and selects the window it

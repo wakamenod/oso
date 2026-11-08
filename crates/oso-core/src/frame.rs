@@ -116,12 +116,22 @@ pub struct FloatRegions {
     pub inner: CellRect,
     /// Whether a row of padding goes between the label and the answer.
     pub gap: bool,
+    /// The rows of candidates below the answer's padding, as wide as `inner` (ADR 0076).
+    /// Empty with none, or where the frame has no room for them.
+    pub candidates: CellRect,
 }
 
 impl FloatRegions {
-    /// Whether a row of padding goes below what it shows.
+    /// Whether a row of padding goes below what it shows: below the answer, before any
+    /// candidates.
     pub fn padded_below(&self) -> bool {
         self.outer.row + self.outer.rows > self.inner.row + self.inner.rows
+    }
+
+    /// Whether a row of padding goes below the candidates.
+    pub fn candidates_padded(&self) -> bool {
+        self.candidates.rows > 0
+            && self.outer.row + self.outer.rows > self.candidates.row + self.candidates.rows
     }
 }
 
@@ -145,6 +155,40 @@ const FLOAT_SIDE: usize = 2;
 /// the label's rows; with one row of text left, the label and the answer share it. It is
 /// never taller than the text area, so the modeline and the echo area stay in view.
 pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
+    float_regions_with(frame, rows, 0)
+}
+
+/// Where a float with `rows` rows of label and up to `candidates` rows of candidates goes, as
+/// [`float_regions`] places it, with the candidates below the answer's row of padding and a row
+/// of padding after them (ADR 0076). A small frame gives up candidate rows first, down to one,
+/// then the padding after them, then the last of them, and then what [`float_regions`] gives
+/// up.
+pub fn float_regions_with(frame: &FrameLayout, rows: usize, candidates: usize) -> FloatRegions {
+    let text = frame.window.text;
+    let full = rows.max(1) + 3;
+    // The label, the gap, the answer and its padding, then the candidates and theirs.
+    let (shown, padded) = match text.rows.checked_sub(full) {
+        Some(left) if candidates > 0 && left >= 2 => (candidates.min(left - 1), true),
+        Some(1) if candidates > 0 => (1, false),
+        _ => (0, false),
+    };
+    let mut regions = answer_regions(frame, rows);
+    if shown > 0 {
+        regions.candidates = CellRect {
+            row: regions.outer.row + regions.outer.rows,
+            rows: shown,
+            ..regions.inner
+        };
+        regions.outer.rows += shown + usize::from(padded);
+    } else {
+        regions.candidates.column = regions.inner.column;
+        regions.candidates.row = regions.outer.row + regions.outer.rows;
+    }
+    regions
+}
+
+/// [`float_regions`]: the label's rows, the gap, the answer and its padding.
+fn answer_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
     let text = frame.window.text;
     let room = text.columns.saturating_sub(2 * FLOAT_EDGE);
     let columns = if room == 0 {
@@ -180,7 +224,16 @@ pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
         columns: columns - 2 * side,
         ..outer
     };
-    FloatRegions { outer, inner, gap }
+    FloatRegions {
+        outer,
+        inner,
+        gap,
+        candidates: CellRect {
+            rows: 0,
+            columns: 0,
+            ..inner
+        },
+    }
 }
 
 /// The cells of a cursor at `point`, whose cluster takes `cells` cells, in a
@@ -389,6 +442,41 @@ mod tests {
         assert_eq!(float_regions(&frame(30, 64), 1).outer, rect(0, 12, 4, 40));
         assert_eq!(float_regions(&frame(30, 30), 1).outer, rect(0, 2, 4, 26));
         assert_eq!(float_regions(&frame(30, 4), 1).outer.columns, 4);
+    }
+
+    #[test]
+    fn candidates_go_below_the_answers_padding_with_a_row_after_them() {
+        let regions = float_regions_with(&frame(40, 100), 1, 18);
+        // The label, the gap, the answer, its padding, 18 rows and the padding after them.
+        assert_eq!(regions.outer, rect(0, 20, 23, 60));
+        assert_eq!(regions.inner, rect(0, 22, 3, 56));
+        assert_eq!(regions.candidates, rect(4, 22, 18, 56));
+        assert!(regions.padded_below() && regions.candidates_padded());
+        assert_eq!(
+            float_regions_with(&frame(40, 100), 1, 0),
+            float_regions(&frame(40, 100), 1)
+        );
+    }
+
+    #[test]
+    fn a_short_frame_gives_up_candidate_rows_first() {
+        // Text rows 20: 4 for the answer, 15 candidates and the padding.
+        let regions = float_regions_with(&frame(22, 100), 1, 18);
+        assert_eq!((regions.candidates.rows, regions.outer.rows), (15, 20));
+        assert!(regions.candidates_padded());
+        // Room for one row and its padding, then one row with none.
+        let regions = float_regions_with(&frame(8, 100), 1, 18);
+        assert_eq!((regions.candidates.rows, regions.outer.rows), (1, 6));
+        let regions = float_regions_with(&frame(7, 100), 1, 18);
+        assert_eq!((regions.candidates.rows, regions.outer.rows), (1, 5));
+        assert!(!regions.candidates_padded() && regions.padded_below());
+        // Then none, and the answer's own order.
+        let regions = float_regions_with(&frame(6, 100), 1, 18);
+        assert_eq!(regions.candidates.rows, 0);
+        assert_eq!(regions, float_regions(&frame(6, 100), 1));
+        // A label of three rows wants three more.
+        let regions = float_regions_with(&frame(12, 100), 3, 18);
+        assert_eq!((regions.candidates.rows, regions.outer.rows), (3, 10));
     }
 
     #[test]
@@ -730,10 +818,19 @@ mod tests {
         #[test]
         fn prop_a_float_stays_in_the_text_area(
             rows in 0usize..60, columns in 0usize..300, content in 0usize..30,
+            listed in 0usize..30,
         ) {
             let layout = frame(rows, columns);
             let text = layout.window.text;
-            let FloatRegions { outer, inner, .. } = float_regions(&layout, content);
+            let regions = float_regions_with(&layout, content, listed);
+            let FloatRegions { outer, inner, candidates, .. } = regions;
+            // The candidates, inside the float and below what it shows, never over it.
+            if candidates.rows > 0 {
+                prop_assert!(candidates.row > inner.row + inner.rows);
+                prop_assert!(candidates.row + candidates.rows <= outer.row + outer.rows);
+                prop_assert_eq!((candidates.column, candidates.columns), (inner.column, inner.columns));
+                prop_assert!(candidates.rows <= listed);
+            }
             prop_assert!(outer.row >= text.row && outer.row + outer.rows <= text.row + text.rows);
             prop_assert!(outer.column >= text.column);
             prop_assert!(outer.column + outer.columns <= text.column + text.columns);

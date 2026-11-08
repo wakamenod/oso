@@ -17,11 +17,17 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
 
+pub use candidates::{CandidateRow, MIN_ANNOTATION, candidate_row};
+use cut::rows_of;
+pub use cut::{cells_of, cut_to, fit_message};
+
 use crate::buffer::BufferId;
 use crate::complete::Candidates;
-use crate::display_map::text_clusters;
-use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions};
+use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions, float_regions_with};
 use crate::rope::Rope;
+
+mod candidates;
+mod cut;
 
 /// The most prompts open at once. One more is refused.
 pub const MAX_DEPTH: usize = 8;
@@ -163,6 +169,9 @@ pub struct Prompt {
     /// Its candidates, for a prompt that completes, and the revision of its buffer they
     /// were last matched against.
     pub(crate) completion: Option<(Candidates, u64)>,
+    /// The most candidate rows it has wanted, so that its float grows and never shrinks
+    /// while it is open, as vertico's `grow-only` (ADR 0076).
+    pub(crate) list_rows: usize,
 }
 
 impl Prompt {
@@ -301,70 +310,25 @@ pub struct PromptLayout {
     pub keys: [CellRect; 2],
     /// Each key's verb after it, a cell on: empty where the row is too narrow for them.
     pub verbs: [CellRect; 2],
+    /// A list's count, such as `3/57`: at the end of the label's first row, or of the one
+    /// row. Empty with no list (ADR 0076).
+    pub count: CellRect,
 }
 
-/// The cells of `text` as one row.
-pub fn cells_of(text: &str) -> usize {
-    text_clusters(text, 0).map(|cluster| cluster.cells).sum()
+/// How big a prompt's list of candidates is, for its layout (ADR 0076).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ListSize {
+    /// The candidate rows it wants.
+    pub rows: usize,
+    /// How many candidates it has, which the count's cells are kept for.
+    pub total: usize,
 }
 
-/// `text` cut into rows of at most `width` cells, after the last space that fits, or at a
-/// whole cluster where a word is longer than a row, which then starts where it is rather
-/// than on a row of its own, and at most `rows` of them. Returns the
-/// rows and whether some was left over, in which case the last row leaves a cell for `…`.
-fn rows_of(text: &str, width: usize, rows: usize) -> (Vec<Range<usize>>, bool) {
-    let width = width.max(1);
-    let mut out = Vec::new();
-    let (mut start, mut used) = (0, 0);
-    // Where the row could end after a space, and the cells it would hold then.
-    let mut space = None;
-    for cluster in text_clusters(text, 0) {
-        // What a break after a space carries over can still leave no room for a wide cluster,
-        // so this breaks again, before it, until the cluster fits or starts a row.
-        while used + cluster.cells > width && used > 0 {
-            let (end, kept) = space
-                .filter(|&(end, _)| end > start)
-                // A word too long for any row is broken here, not moved to the next.
-                .filter(|&(_, kept)| used - kept + word_cells(&text[cluster.offset..]) <= width)
-                .unwrap_or((cluster.offset, used));
-            out.push(start..end);
-            if out.len() == rows {
-                return (cut_last(text, out, width), true);
-            }
-            (start, used, space) = (end, used - kept, None);
-        }
-        used += cluster.cells;
-        if cluster.text == " " {
-            space = Some((cluster.offset + 1, used));
-        }
+impl ListSize {
+    /// The cells its count takes at most, `total/total`, with a cell before it.
+    fn count_cells(self) -> usize {
+        2 * self.total.max(1).to_string().len() + 2
     }
-    out.push(start..text.len());
-    (out, false)
-}
-
-/// The cells of the word `text` starts with, up to its first space.
-fn word_cells(text: &str) -> usize {
-    text_clusters(text, 0)
-        .take_while(|cluster| cluster.text != " ")
-        .map(|cluster| cluster.cells)
-        .sum()
-}
-
-/// Shortens the last of `rows` so that a `…` fits after it in `width` cells.
-fn cut_last(text: &str, mut rows: Vec<Range<usize>>, width: usize) -> Vec<Range<usize>> {
-    if let Some(last) = rows.last_mut() {
-        let mut used = 0;
-        let mut end = last.start;
-        for cluster in text_clusters(&text[last.clone()], 0) {
-            used += cluster.cells;
-            if used >= width {
-                break;
-            }
-            end = last.start + cluster.offset + cluster.text.len();
-        }
-        last.end = end;
-    }
-    rows
 }
 
 /// The cells of a row the label may take where it shares the row with the answer: all of
@@ -422,14 +386,16 @@ struct Label {
 
 /// Cuts `body` into the rows a float in `frame` shows of it, and places them: on rows of
 /// their own, or first on a float of one row.
-fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
+fn place_label(frame: &FrameLayout, body: &str, kind: Kind, list: Option<ListSize>) -> Label {
     // The width does not depend on the rows, nor whether there is one.
     let probe = float_regions(frame, 1);
     let one_row = probe.inner.rows <= 1;
+    // A list's count keeps its cells at the end of the label's rows.
+    let count = list.map_or(0, ListSize::count_cells);
     let (width, most) = if one_row {
         (label_width(kind, probe.inner.columns), 1)
     } else {
-        (probe.inner.columns, MAX_LABEL_ROWS)
+        (probe.inner.columns.saturating_sub(count), MAX_LABEL_ROWS)
     };
     // A row the keys leave no room on shows none of the label.
     let (mut rows, mut cut) = if width == 0 {
@@ -437,7 +403,7 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
     } else {
         rows_of(body, width, most)
     };
-    let regions = float_regions(frame, rows.len());
+    let regions = float_regions_with(frame, rows.len(), list.map_or(0, |list| list.rows));
     let inner = regions.inner;
     let shown = if one_row {
         inner.rows
@@ -454,7 +420,7 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
         let last = rows.last().map_or(0, |row| cells_of(&body[row.clone()]));
         (last + usize::from(cut)).min(width).min(inner.columns)
     } else {
-        inner.columns
+        width.min(inner.columns)
     };
     let cells = CellRect {
         row: inner.row,
@@ -471,6 +437,32 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
     }
 }
 
+/// Where a list's count goes in a float whose inner cells are `inner`: at the end of the
+/// label's first row, or, with the label on the answer's one row or showing none of it, at the
+/// end of the answer's row, of whose `left` cells it then takes some. Returns the count's cells
+/// on the label's row, if it goes there, and the cells it takes of the answer's.
+fn place_count(
+    list: Option<ListSize>,
+    inner: CellRect,
+    label_cells: CellRect,
+    one_row: bool,
+    left: usize,
+) -> (Option<CellRect>, usize) {
+    let columns = list
+        .map_or(0, ListSize::count_cells)
+        .min(left.saturating_sub(MIN_INPUT_COLUMNS));
+    if one_row || label_cells.rows == 0 || columns == 0 {
+        return (None, columns);
+    }
+    let count = CellRect {
+        row: inner.row,
+        column: inner.column + inner.columns - columns,
+        rows: 1,
+        columns,
+    };
+    (Some(count), 0)
+}
+
 /// Where a prompt with `label` floats in a frame laid out as `frame`, and where its label,
 /// its answer, a message and a question's keys go in it (ADR 0075). The label takes rows of
 /// its own, cut into them once, and the float is as tall as they are. The answer's row comes
@@ -478,6 +470,19 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
 /// has its keys there instead. A float of one row puts the label first on it, as ADR 0072
 /// did.
 pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str>) -> PromptLayout {
+    layout_with(frame, label, kind, message, None)
+}
+
+/// [`layout`], for a prompt with a list of candidates of `list`'s size, if any: its rows
+/// below the answer, and its count at the end of the label's first row, or of the one row
+/// (ADR 0076).
+pub fn layout_with(
+    frame: &FrameLayout,
+    label: &str,
+    kind: Kind,
+    message: Option<&str>,
+    list: Option<ListSize>,
+) -> PromptLayout {
     let body = match kind {
         Kind::Question { .. } => label.strip_suffix(QUESTION_END).unwrap_or(label),
         _ => label,
@@ -488,7 +493,7 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
         cut: label_cut,
         cells: label_cells,
         one_row,
-    } = place_label(frame, body, kind);
+    } = place_label(frame, body, kind, list);
     let inner = regions.inner;
     let row = inner.row + inner.rows.saturating_sub(1);
     let label_columns = label_cells.columns;
@@ -534,8 +539,13 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
             message: rect(start, message_columns),
             keys: keys.map(|(column, columns)| rect(column, columns)),
             verbs: verbs.map(|(column, columns)| rect(column, columns)),
+            count: rect(0, 0),
         };
     }
+    // On one row, the count takes the end of it, past the message.
+    let (count, taken) = place_count(list, inner, label_cells, one_row, left);
+    let left = left - taken;
+    let count = count.unwrap_or_else(|| rect(inner.columns - taken, taken));
     let message_columns = message_cells(left.saturating_sub(MIN_INPUT_COLUMNS));
     PromptLayout {
         regions,
@@ -543,49 +553,21 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
         label_cut,
         label_cells,
         input: rect(start, left - message_columns),
-        field: if one_row {
-            rect(0, 0)
-        } else {
-            rect(0, inner.columns)
-        },
+        field: rect(0, if one_row { 0 } else { inner.columns }),
         field_room: if one_row {
             rect(0, 0)
         } else {
             field_room(&regions)
         },
-        message: rect(inner.columns - message_columns, message_columns),
+        message: rect(start + left - message_columns, message_columns),
         keys: [rect(0, 0); 2],
         verbs: [rect(0, 0); 2],
+        count,
     }
 }
 
 /// What ends a question's label: what the keys that answer it are.
 pub const QUESTION_END: &str = " (y or n)";
-
-/// `message` cut at a whole cluster to fit, with the brackets around it, in `columns` cells,
-/// and `…` if it was cut: what a prompt's message row shows.
-pub fn fit_message(message: &str, columns: usize) -> (&str, &'static str) {
-    cut_to(message, columns.saturating_sub(3))
-}
-
-/// `text` cut at a whole cluster to fit in `cells` cells with a `…` after it, and the `…`,
-/// or `text` whole and nothing if it fits. A name an untrusted file gives is cut this way
-/// before a question says it, so that it cannot push the question's own words out of view.
-pub fn cut_to(text: &str, cells: usize) -> (&str, &'static str) {
-    if cells_of(text) <= cells {
-        return (text, "");
-    }
-    let mut used = 0;
-    let mut end = 0;
-    for cluster in text_clusters(text, 0) {
-        used += cluster.cells;
-        if used >= cells {
-            break;
-        }
-        end = cluster.offset + cluster.text.len();
-    }
-    (&text[..end], CUT)
-}
 
 #[cfg(test)]
 mod tests {

@@ -37,7 +37,7 @@ use oso_core::display_map::{
 use oso_core::editor::{Editor, Status};
 use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
-use oso_core::minibuffer::{self, Kind};
+use oso_core::minibuffer::{self, Kind, Prompt, PromptLayout};
 use oso_core::motion;
 use oso_core::window::{Scroll, ViewSize};
 
@@ -65,7 +65,8 @@ fn text_grid(editor: &Editor) -> String {
 }
 
 /// The innermost prompt's float, if one is open: where it is, then its cells. The answer's
-/// field shows as `[` and `]` in the padding beside it, and a key's chip as `[y]`.
+/// field shows as `[` and `]` in the padding beside it, and a key's chip as `[y]`. A list's
+/// rows follow, the selected one with `>` beside it and what matched marked `*` below.
 fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
     let (Some(prompt), Some(layout)) = (editor.prompt(), editor.prompt_layout()) else {
         return;
@@ -99,28 +100,16 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
             let (text, marks) = draw_input(editor, layout.input);
             parts.push((layout.input.column - inner.column, text, marks));
         }
+        if row == layout.count.row && layout.count.columns > 0 {
+            parts.extend(draw_count(prompt, layout));
+        }
         if row == layout.message.row && layout.message.columns > 0 {
             let message = prompt.message().unwrap_or("");
             let (message, cut) = minibuffer::fit_message(message, layout.message.columns);
             let (text, marks) = spans_row(&[" [", message, cut, "]"], layout.message.columns);
             parts.push((layout.message.column - inner.column, text, marks));
         }
-        let keys = layout.keys.iter().zip(&layout.verbs).zip(minibuffer::KEYS);
-        let verbs = match prompt.kind() {
-            Kind::Question { verbs, .. } => verbs,
-            _ => ["", ""],
-        };
-        for (((key, verb), shown), said) in keys.zip(verbs) {
-            if row == key.row && key.columns > 0 {
-                let chip = format!("[{}]", shown.trim());
-                let (text, marks) = spans_row(&[&chip], key.columns);
-                parts.push((key.column - inner.column, text, marks));
-            }
-            if row == verb.row && verb.columns > 0 {
-                let (text, marks) = spans_row(&[" ", said], verb.columns);
-                parts.push((verb.column - inner.column, text, marks));
-            }
-        }
+        draw_keys(prompt, layout, row, &mut parts);
         parts.sort_by_key(|part| part.0);
         let (mut text, mut marks) = (String::new(), Vec::new());
         for (column, part, part_marks) in parts {
@@ -142,9 +131,133 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
             let marks = marks.into_iter().collect::<String>();
             lines.push(format!(":{pad} {marks} {pad}:"));
         }
+        if row == layout.input.row {
+            lines.extend(draw_answer_region(editor, inner, &pad));
+        }
     }
-    if layout.regions.padded_below() {
+    draw_candidates(editor, edge, lines);
+    let regions = layout.regions;
+    if regions.candidates_padded() || regions.candidates.rows == 0 && regions.padded_below() {
         lines.push(format!("└{}┘", "─".repeat(outer.columns)));
+    }
+}
+
+/// A question's keys on `row`, as chips such as `[y]`, and their verbs, from the inner cells'
+/// left.
+fn draw_keys(
+    prompt: &Prompt,
+    layout: &PromptLayout,
+    row: usize,
+    parts: &mut Vec<(usize, String, Vec<char>)>,
+) {
+    let inner = layout.regions.inner;
+    let keys = layout.keys.iter().zip(&layout.verbs).zip(minibuffer::KEYS);
+    let verbs = match prompt.kind() {
+        Kind::Question { verbs, .. } => verbs,
+        _ => ["", ""],
+    };
+    for (((key, verb), shown), said) in keys.zip(verbs) {
+        if row == key.row && key.columns > 0 {
+            let chip = format!("[{}]", shown.trim());
+            let (text, marks) = spans_row(&[&chip], key.columns);
+            parts.push((key.column - inner.column, text, marks));
+        }
+        if row == verb.row && verb.columns > 0 {
+            let (text, marks) = spans_row(&[" ", said], verb.columns);
+            parts.push((verb.column - inner.column, text, marks));
+        }
+    }
+}
+
+/// A list's count, such as `3/57`, right-aligned in its cells, from the inner cells' left.
+fn draw_count(prompt: &Prompt, layout: &PromptLayout) -> Option<(usize, String, Vec<char>)> {
+    let candidates = prompt.candidates()?;
+    let place = candidates.selected().map_or(0, |place| place + 1);
+    let count = format!("{place}/{}", candidates.len());
+    let pad = " ".repeat(layout.count.columns.saturating_sub(count.len()));
+    let (text, marks) = spans_row(&[&pad, &count], layout.count.columns);
+    Some((
+        layout.count.column - layout.regions.inner.column,
+        text,
+        marks,
+    ))
+}
+
+/// The line under the answer's row marking its region with `*`, if it shows one.
+fn draw_answer_region(editor: &Editor, inner: CellRect, pad: &str) -> Option<String> {
+    let mut region = Vec::new();
+    editor.prompt_region_cells(&mut region);
+    let mut marks = vec![' '; inner.columns];
+    for cells in &region {
+        let start = cells.column - inner.column;
+        marks[start..start + cells.columns].fill('*');
+    }
+    let marks = marks.into_iter().collect::<String>();
+    marks
+        .contains('*')
+        .then(|| format!("+{pad} {marks} {pad}+"))
+}
+
+/// A list's rows below the answer's padding, as the renderer draws them.
+fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
+    let (Some(prompt), Some(layout)) = (editor.prompt(), editor.prompt_layout()) else {
+        return;
+    };
+    let (Some(candidates), rows) = (prompt.candidates(), layout.regions.candidates) else {
+        return;
+    };
+    if rows.rows == 0 {
+        return;
+    }
+    let outer = layout.regions.outer;
+    let pad = " ".repeat((rows.column - outer.column).saturating_sub(1));
+    lines.push(format!("{edge}{}{edge}", " ".repeat(outer.columns)));
+    let mut highlights = Vec::new();
+    for index in 0..rows.rows {
+        let place = candidates.top() + index;
+        let Some(candidate) = candidates.get(place) else {
+            lines.push(format!("{edge}{}{edge}", " ".repeat(outer.columns)));
+            continue;
+        };
+        let (text, key, note) = (candidate.text(), candidate.key(), candidate.annotation());
+        let row = minibuffer::candidate_row(text, key, note, rows.columns);
+        let shown = &text[..row.text];
+        let mut spans = vec![shown.to_owned()];
+        let mut used = minibuffer::cells_of(shown);
+        if row.text_cut {
+            spans.push(minibuffer::CUT.to_owned());
+            used += 1;
+        }
+        if let Some(column) = row.key {
+            spans.push(" ".repeat(column - used) + key);
+            used = column + minibuffer::cells_of(key);
+        }
+        if let Some((column, bytes, cut)) = row.annotation {
+            let cut = if cut { minibuffer::CUT } else { "" };
+            spans.push(" ".repeat(column - used) + &note[..bytes] + cut);
+        }
+        let spans: Vec<&str> = spans.iter().map(String::as_str).collect();
+        let (line, _) = spans_row(&spans, rows.columns);
+        let side = if candidates.selected() == Some(place) {
+            '>'
+        } else {
+            ' '
+        };
+        lines.push(format!("{edge}{pad}{side}{line} {pad}{edge}"));
+        candidates.query().highlights(candidate, &mut highlights);
+        let mut marks = vec![' '; rows.columns];
+        for range in &highlights {
+            let (start, end) = (range.start.min(shown.len()), range.end.min(shown.len()));
+            let from = minibuffer::cells_of(&shown[..start]);
+            let to = minibuffer::cells_of(&shown[..end]).min(rows.columns);
+            marks[from..to].fill('*');
+        }
+        if marks.contains(&'*') {
+            lines.push(format!(
+                ":{pad} {} {pad}:",
+                marks.into_iter().collect::<String>()
+            ));
+        }
     }
 }
 
@@ -561,6 +674,38 @@ mod scenarios {
             (3, 64),
             &["M-g g 1", "C-g x C-x C-c"],
         );
+    }
+
+    // A dev build lists its own commands too, so these run in a build without them.
+    #[cfg(not(feature = "dev"))]
+    #[test]
+    fn m_x_lists_commands_below_the_answer_with_their_keys_and_summaries() {
+        let text = "# Notes\n\nAgenda\n- budget\n";
+        let steps = [
+            "M-x",
+            "f o r w",
+            "C-n",
+            "SPC , w",
+            "C-a C-SPC C-e",
+            "C-g C-g",
+        ];
+        check_frame("complete_m_x", text, (30, 100), &steps);
+    }
+
+    // A dev build lists its own commands too, so these run in a build without them.
+    #[cfg(not(feature = "dev"))]
+    #[test]
+    fn a_narrow_list_cuts_the_summary_then_drops_it_then_the_key() {
+        check_frame("complete_narrow", "notes\n", (12, 44), &["M-x b u f"]);
+    }
+
+    // A dev build lists its own commands too, so these run in a build without them.
+    #[cfg(not(feature = "dev"))]
+    #[test]
+    fn a_short_frame_gives_up_candidate_rows_first() {
+        check_frame("complete_in_9_rows", "notes\n", (9, 80), &["M-x", "C-v"]);
+        check_frame("complete_in_7_rows", "notes\n", (7, 80), &["M-x"]);
+        check_frame("complete_in_3_rows", "notes\n", (3, 80), &["M-x"]);
     }
 
     #[cfg(feature = "dev")]

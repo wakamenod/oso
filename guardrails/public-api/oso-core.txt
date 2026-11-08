@@ -1088,10 +1088,12 @@ pub fn oso_core::frame::CellRect::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::frame::CellRect
 impl core::marker::StructuralPartialEq for oso_core::frame::CellRect
 pub struct oso_core::frame::FloatRegions
+pub oso_core::frame::FloatRegions::candidates: oso_core::frame::CellRect
 pub oso_core::frame::FloatRegions::gap: bool
 pub oso_core::frame::FloatRegions::inner: oso_core::frame::CellRect
 pub oso_core::frame::FloatRegions::outer: oso_core::frame::CellRect
 impl oso_core::frame::FloatRegions
+pub fn oso_core::frame::FloatRegions::candidates_padded(&self) -> bool
 pub fn oso_core::frame::FloatRegions::padded_below(&self) -> bool
 impl core::clone::Clone for oso_core::frame::FloatRegions
 pub fn oso_core::frame::FloatRegions::clone(&self) -> oso_core::frame::FloatRegions
@@ -1177,6 +1179,7 @@ impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
+pub fn oso_core::frame::float_regions_with(&oso_core::frame::FrameLayout, usize, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub mod oso_core::key
@@ -1602,6 +1605,32 @@ impl core::fmt::Display for oso_core::minibuffer::PromptError
 pub fn oso_core::minibuffer::PromptError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::minibuffer::PromptError
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptError
+pub struct oso_core::minibuffer::CandidateRow
+pub oso_core::minibuffer::CandidateRow::annotation: core::option::Option<(usize, usize, bool)>
+pub oso_core::minibuffer::CandidateRow::key: core::option::Option<usize>
+pub oso_core::minibuffer::CandidateRow::text: usize
+pub oso_core::minibuffer::CandidateRow::text_cut: bool
+impl core::clone::Clone for oso_core::minibuffer::CandidateRow
+pub fn oso_core::minibuffer::CandidateRow::clone(&self) -> oso_core::minibuffer::CandidateRow
+impl core::cmp::Eq for oso_core::minibuffer::CandidateRow
+impl core::cmp::PartialEq for oso_core::minibuffer::CandidateRow
+pub fn oso_core::minibuffer::CandidateRow::eq(&self, &oso_core::minibuffer::CandidateRow) -> bool
+impl core::fmt::Debug for oso_core::minibuffer::CandidateRow
+pub fn oso_core::minibuffer::CandidateRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::minibuffer::CandidateRow
+impl core::marker::StructuralPartialEq for oso_core::minibuffer::CandidateRow
+pub struct oso_core::minibuffer::ListSize
+pub oso_core::minibuffer::ListSize::rows: usize
+pub oso_core::minibuffer::ListSize::total: usize
+impl core::clone::Clone for oso_core::minibuffer::ListSize
+pub fn oso_core::minibuffer::ListSize::clone(&self) -> oso_core::minibuffer::ListSize
+impl core::cmp::Eq for oso_core::minibuffer::ListSize
+impl core::cmp::PartialEq for oso_core::minibuffer::ListSize
+pub fn oso_core::minibuffer::ListSize::eq(&self, &oso_core::minibuffer::ListSize) -> bool
+impl core::fmt::Debug for oso_core::minibuffer::ListSize
+pub fn oso_core::minibuffer::ListSize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::minibuffer::ListSize
+impl core::marker::StructuralPartialEq for oso_core::minibuffer::ListSize
 pub struct oso_core::minibuffer::Prompt
 impl oso_core::minibuffer::Prompt
 pub fn oso_core::minibuffer::Prompt::buffer(&self) -> oso_core::buffer::BufferId
@@ -1628,6 +1657,7 @@ pub fn oso_core::minibuffer::PromptId::fmt(&self, &mut core::fmt::Formatter<'_>)
 impl core::marker::Copy for oso_core::minibuffer::PromptId
 impl core::marker::StructuralPartialEq for oso_core::minibuffer::PromptId
 pub struct oso_core::minibuffer::PromptLayout
+pub oso_core::minibuffer::PromptLayout::count: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::field: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::field_room: oso_core::frame::CellRect
 pub oso_core::minibuffer::PromptLayout::input: oso_core::frame::CellRect
@@ -1653,12 +1683,15 @@ pub const oso_core::minibuffer::KEY_GAP: usize
 pub const oso_core::minibuffer::MAX_DEPTH: usize
 pub const oso_core::minibuffer::MAX_ENTRY_BYTES: usize
 pub const oso_core::minibuffer::MAX_LABEL_ROWS: usize
+pub const oso_core::minibuffer::MIN_ANNOTATION: usize
 pub const oso_core::minibuffer::QUESTION_END: &str
 pub const oso_core::minibuffer::VERBS: [&str; 2]
+pub fn oso_core::minibuffer::candidate_row(&str, &str, &str, usize) -> oso_core::minibuffer::CandidateRow
 pub fn oso_core::minibuffer::cells_of(&str) -> usize
 pub fn oso_core::minibuffer::cut_to(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::fit_message(&str, usize) -> (&str, &'static str)
 pub fn oso_core::minibuffer::layout(&oso_core::frame::FrameLayout, &str, oso_core::minibuffer::Kind, core::option::Option<&str>) -> oso_core::minibuffer::PromptLayout
+pub fn oso_core::minibuffer::layout_with(&oso_core::frame::FrameLayout, &str, oso_core::minibuffer::Kind, core::option::Option<&str>, core::option::Option<oso_core::minibuffer::ListSize>) -> oso_core::minibuffer::PromptLayout
 pub fn oso_core::minibuffer::mask(&oso_core::rope::Rope, usize, usize) -> (usize, usize)
 pub fn oso_core::minibuffer::parse_number(&str) -> core::option::Option<i64>
 pub mod oso_core::motion
