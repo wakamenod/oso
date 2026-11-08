@@ -24,7 +24,7 @@
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, EditError, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -134,7 +134,7 @@ pub struct Editor {
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
-    reverts: Vec<BufferId>,
+    reverts: Vec<(BufferId, ContentId)>,
 }
 
 impl Default for Editor {

@@ -39,6 +39,7 @@ impl App {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
+        self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
         let spawned = loader::spawn(buffer, path, move |buffer| {

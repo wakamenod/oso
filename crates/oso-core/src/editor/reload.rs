@@ -28,6 +28,9 @@ pub enum ReloadOutcome {
     /// Not now, as [`Editor::reload_waits`] says, or the buffer loads or saves. Nothing went
     /// in, and a read later may.
     Later,
+    /// The file is now binary or not valid UTF-8, whose text cannot be edited or undone, and
+    /// the buffer has unsaved edits: nothing went in.
+    NotEditable,
     /// No buffer has the id.
     NoSuchBuffer,
 }
@@ -52,18 +55,29 @@ impl Leftover {
 }
 
 /// Where an offset of the old text goes in the new one. Before the change and after it, it
-/// keeps its place, and inside it, its line and column, as far as the new line reaches.
+/// keeps its place, and inside it, its line and column, as far as the new line reaches and no
+/// further than the change.
 fn through_reload(offset: usize, old: &Rope, new: &Rope, change: Change) -> usize {
     if offset <= change.start {
         offset
     } else if offset >= change.old_end {
         offset - change.old_end + change.new_end
     } else {
+        // A line gone past the change would put it in the text after.
         new.point_to_offset(old.offset_to_point(offset))
+            .clamp(change.start, change.new_end)
     }
 }
 
 impl Editor {
+    /// The file of `id` could not be read again: the modeline says it changed on disk, edits or
+    /// not, and the next look tries again.
+    pub fn reload_failed(&mut self, id: BufferId) {
+        if let Some(buffer) = self.buffer_mut(id) {
+            buffer.set_reload_failed();
+        }
+    }
+
     /// Whether a file read again must wait: while a prompt is open, as what it acts on must
     /// not change under it (ADR 0072).
     pub fn reload_waits(&self) -> bool {
@@ -112,17 +126,48 @@ impl Editor {
     }
 
     /// Asks the host to read the selected window's buffer again from its file, discarding its
-    /// unsaved edits, for `revert-buffer`.
+    /// unsaved edits as they are now, for `revert-buffer`.
     pub fn request_revert(&mut self) {
         let id = self.window().buffer();
-        if !self.reverts.contains(&id) {
-            self.reverts.push(id);
-        }
+        let content = self.current().1.content_id();
+        self.queue_revert(id, content);
     }
 
-    /// The buffers asked to be read again since the last call, for the host.
-    pub fn take_revert_requests(&mut self) -> Vec<BufferId> {
-        std::mem::take(&mut self.reverts)
+    fn queue_revert(&mut self, id: BufferId, content: ContentId) {
+        self.reverts.retain(|(other, _)| *other != id);
+        self.reverts.push((id, content));
+    }
+
+    /// The buffers asked to be read again that may be now, each with the state its read is to
+    /// replace. One waits while [`Editor::reload_waits`], or while its buffer loads or saves.
+    /// One whose buffer changed since it was asked for is dropped and said so, as the edits
+    /// made since were not what the person agreed to lose.
+    pub fn take_revert_requests(&mut self) -> Vec<(BufferId, ContentId)> {
+        let mut ready = Vec::new();
+        if self.reverts.is_empty() || self.reload_waits() {
+            return ready;
+        }
+        let mut said = Vec::new();
+        let requests = std::mem::take(&mut self.reverts);
+        for (id, content) in requests {
+            let Some(buffer) = self.buffer(id) else {
+                continue;
+            };
+            if buffer.loading().is_some() || buffer.is_saving() {
+                self.reverts.push((id, content));
+            } else if buffer.content_id() == content {
+                ready.push((id, content));
+            } else {
+                said.push(format!(
+                    "Not reloaded, as {} changed meanwhile",
+                    buffer.name()
+                ));
+            }
+        }
+        for message in said {
+            self.message(message);
+        }
+        ready
     }
 
     fn put_reload_in(
@@ -144,9 +189,9 @@ impl Editor {
                 buffer.forget_disk_action();
             }
             if later {
-                // A person asked for it, so it is asked for again.
-                if discard_edits && !self.reverts.contains(&id) {
-                    self.reverts.push(id);
+                // A person asked for it, so it is asked for again, for the same state.
+                if discard_edits {
+                    self.queue_revert(id, read_from);
                 }
                 return (ReloadOutcome::Later, Leftover::of_snapshot(snapshot));
             }
@@ -182,6 +227,10 @@ impl Editor {
         let display = snapshot.display.snapshot();
         let moved = self.reloaded_selections(id, &old, &snapshot.text, &display, change);
         let staged = buffer.stage_reload(&snapshot, change);
+        if staged.is_none() && buffer.is_modified() {
+            // The edits would go with no undo to bring them back.
+            return (ReloadOutcome::NotEditable, Leftover::of_snapshot(snapshot));
+        }
         let opening = self.opening(id, buffer);
         let after = moved
             .iter()
@@ -212,12 +261,14 @@ impl Editor {
     /// Takes in what the host's looks at files found, as `(buffer, state)` sorted by buffer,
     /// and returns the buffers whose files are to be read again: those whose file changed under
     /// no unsaved edits. A file that changed under edits, or went away, warns on the modeline and
-    /// says so once in the echo area. Each thing seen is acted on once. `busy` says which buffers
+    /// says so once in the echo area. Each thing seen is acted on once, but for a read that
+    /// failed, which is tried again when `seen` is `fresh`, a new look. `busy` says which buffers
     /// a read already runs for. Nothing is done while [`Editor::reload_waits`]. O(buffers log
     /// seen), and allocates only to act.
     pub fn files_seen(
         &mut self,
         seen: &[(BufferId, DiskState)],
+        fresh: bool,
         busy: impl Fn(BufferId) -> bool,
     ) -> Vec<BufferId> {
         let mut reads = Vec::new();
@@ -232,6 +283,9 @@ impl Editor {
             let Ok(index) = seen.binary_search_by_key(id, |(seen, _)| *seen) else {
                 continue;
             };
+            if fresh && buffer.reload_failed() {
+                buffer.forget_disk_action();
+            }
             match buffer.file_seen(seen[index].1) {
                 Some(Noticed::Reload) => reads.push(*id),
                 Some(Noticed::Changed) => {

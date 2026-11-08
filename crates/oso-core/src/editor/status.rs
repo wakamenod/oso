@@ -172,7 +172,7 @@ impl Editor {
         }
         if buffer.gone_from_disk() {
             status.warnings.push_str(GONE_WARNING);
-        } else if buffer.changed_on_disk() && buffer.is_modified() {
+        } else if buffer.changed_on_disk() && (buffer.is_modified() || buffer.reload_failed()) {
             status.warnings.push_str(DISK_WARNING);
         }
         if buffer.copy_waits() {

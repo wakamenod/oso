@@ -224,7 +224,7 @@ fn with_baseline(editor: &mut Editor, id: BufferId, len: u64) {
 }
 
 fn seen(editor: &mut Editor, id: BufferId, state: DiskState) -> Vec<BufferId> {
-    editor.files_seen(&[(id, state)], |_| false)
+    editor.files_seen(&[(id, state)], false, |_| false)
 }
 
 #[test]
@@ -236,7 +236,9 @@ fn a_file_as_read_needs_nothing_and_a_changed_one_a_read_once() {
     assert_eq!(seen(&mut editor, id, changed), vec![id]);
     assert!(seen(&mut editor, id, changed).is_empty(), "once");
     assert!(
-        editor.files_seen(&[(id, changed)], |_| true).is_empty(),
+        editor
+            .files_seen(&[(id, changed)], false, |_| true)
+            .is_empty(),
         "nor while a read runs"
     );
 }
@@ -331,7 +333,71 @@ fn a_revert_that_must_wait_is_asked_for_again() {
     let (reloaded, from) = read_again(&editor, id, b"disk\n");
     editor.ask("Really", "ignore").unwrap();
     assert_eq!(editor.revert(id, reloaded, from).0, ReloadOutcome::Later);
-    assert_eq!(editor.take_revert_requests(), vec![id]);
+    assert!(
+        editor.take_revert_requests().is_empty(),
+        "not while the prompt is open"
+    );
+    editor.quit();
+    assert_eq!(editor.take_revert_requests(), vec![(id, from)]);
+}
+
+#[test]
+fn a_revert_asked_for_drops_what_was_typed_after_only_by_asking_again() {
+    let (mut editor, id) = visiting("abc\n");
+    type_at(&mut editor, id, 0, "x");
+    editor.request_revert();
+    type_at(&mut editor, id, 0, "y");
+    assert!(editor.take_revert_requests().is_empty());
+    let messages = editor
+        .buffer(editor.messages_buffer())
+        .unwrap()
+        .text()
+        .to_string();
+    assert!(
+        messages.contains("Not reloaded, as notes.txt changed meanwhile"),
+        "{messages}"
+    );
+    assert_eq!(text(&editor, id), "yxabc\n");
+}
+
+#[test]
+fn a_revert_to_a_binary_file_keeps_the_edits() {
+    let (mut editor, id) = visiting("abc\n");
+    type_at(&mut editor, id, 0, "x");
+    let (reloaded, from) = read_again(&editor, id, b"a\0b");
+    assert_eq!(
+        editor.revert(id, reloaded, from).0,
+        ReloadOutcome::NotEditable
+    );
+    assert_eq!(text(&editor, id), "xabc\n");
+    assert!(modified(&editor, id));
+}
+
+#[test]
+fn a_cursor_on_a_line_gone_stays_in_the_change() {
+    let (mut editor, id) = visiting("x\n\n\nY");
+    set_cursors(&mut editor, &[3]);
+    reload(&mut editor, id, "x\nY");
+    assert_eq!(cursors(&editor), vec![2], "before the Y, not after it");
+}
+
+#[test]
+fn a_read_that_failed_warns_and_is_tried_again_at_a_new_look() {
+    let (mut editor, id) = visiting("abc\n");
+    with_baseline(&mut editor, id, 4);
+    let changed = DiskState::File(stamp(9));
+    assert_eq!(seen(&mut editor, id, changed), vec![id]);
+    editor.reload_failed(id);
+    assert_eq!(warnings(&editor), "[changed on disk] ", "with no edits too");
+    assert!(
+        seen(&mut editor, id, changed).is_empty(),
+        "not at every check"
+    );
+    assert_eq!(
+        editor.files_seen(&[(id, changed)], true, |_| false),
+        vec![id],
+        "but at a new look"
+    );
 }
 
 #[test]
@@ -360,7 +426,8 @@ fn a_revert_discards_edits_as_one_undo_step() {
     let (mut editor, id) = visiting("abc\n");
     type_at(&mut editor, id, 0, "x");
     editor.request_revert();
-    assert_eq!(editor.take_revert_requests(), vec![id]);
+    let from = editor.buffer(id).unwrap().content_id();
+    assert_eq!(editor.take_revert_requests(), vec![(id, from)]);
     assert!(editor.take_revert_requests().is_empty());
     let (reloaded, from) = read_again(&editor, id, b"disk\n");
     assert_eq!(editor.revert(id, reloaded, from).0, ReloadOutcome::Reloaded);

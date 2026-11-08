@@ -55,6 +55,7 @@ impl Buffer {
             }
             self.disk_acted = None;
             self.gone_from_disk = false;
+            self.reload_failed = false;
             self.set_changed_on_disk(false);
             return None;
         }
@@ -107,6 +108,17 @@ impl Buffer {
 
     pub(crate) fn forget_save_over(&mut self) {
         self.save_over = None;
+    }
+
+    /// Whether the file could not be read again since it changed.
+    pub(crate) fn reload_failed(&self) -> bool {
+        self.reload_failed
+    }
+
+    /// The file could not be read again: it counts as changed on disk, with edits or not.
+    pub(crate) fn set_reload_failed(&mut self) {
+        self.reload_failed = true;
+        self.changed_on_disk = true;
     }
 
     /// What was done about the file is to be decided again, as a read of it did not go in.
@@ -202,6 +214,7 @@ impl Buffer {
         self.set_changed_on_disk(false);
         self.gone_from_disk = false;
         self.disk_acted = None;
+        self.reload_failed = false;
         self.recovery = None;
     }
 }

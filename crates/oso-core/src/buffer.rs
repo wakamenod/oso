@@ -178,6 +178,8 @@ pub struct Buffer {
     /// What was last seen of the file that differs from the baseline, and what came of it, so
     /// that each thing seen is acted on once (ADR 0083).
     disk_acted: Option<(DiskState, reload::Noticed)>,
+    /// The file could not be read again since it changed, and a new look tries again.
+    reload_failed: bool,
     /// The editor keeps this buffer for itself.
     internal: bool,
     /// An internal buffer that takes typing, as a prompt's does (ADR 0072).
@@ -234,6 +236,7 @@ impl Buffer {
             save_over: None,
             gone_from_disk: false,
             disk_acted: None,
+            reload_failed: false,
             internal: false,
             takes_typing: false,
             no_history: false,

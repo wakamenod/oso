@@ -452,7 +452,12 @@ fn revert_asks_before_it_discards_edits() {
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     let id = editor.window().buffer();
     send(&mut dispatcher, &mut editor, "C-x x g");
-    assert_eq!(editor.take_revert_requests(), vec![id], "nothing to lose");
+    let read = editor.current().1.content_id();
+    assert_eq!(
+        editor.take_revert_requests(),
+        vec![(id, read)],
+        "nothing to lose"
+    );
 
     send(&mut dispatcher, &mut editor, "x C-x x g");
     assert!(editor.prompt().is_some());
@@ -461,7 +466,8 @@ fn revert_asks_before_it_discards_edits() {
     assert_eq!(text(&editor), "xold\n");
 
     send(&mut dispatcher, &mut editor, "C-x x g y");
-    assert_eq!(editor.take_revert_requests(), vec![id]);
+    let edited = editor.current().1.content_id();
+    assert_eq!(editor.take_revert_requests(), vec![(id, edited)]);
 }
 
 #[test]

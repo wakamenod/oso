@@ -5,7 +5,9 @@
 //! the loader's threads, never here, and what a look means is the editor's to decide.
 
 use std::path::PathBuf;
+use std::sync::mpsc::{self, Sender};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use oso_core::buffer::{Baseline, Buffer, BufferId, ContentId, DiskState};
 use oso_core::editor::ReloadOutcome;
@@ -28,7 +30,20 @@ pub(super) struct Disk {
     running: Vec<Running>,
     /// The names of buffers reloaded since that was last said.
     reloaded: Vec<String>,
+    /// A report from a look older than this was looked at before a save ended, and says
+    /// nothing true of that save's file.
+    min_generation: u64,
+    /// A report came since the editor last saw one.
+    fresh: bool,
+    /// The buffers or their paths may have changed since the watcher was given them.
+    files_changed: bool,
+    /// The thread that frees what reloads leave, or none if it could not start.
+    freer: Option<Sender<Box<dyn Send>>>,
 }
+
+/// How long a read may run before the message about the reloads done waits no longer for it:
+/// one that hangs, as on a mount gone away, must not hold back the rest.
+const READ_PATIENCE: Duration = Duration::from_secs(1);
 
 impl Disk {
     /// Starts the watcher, which reports through `waker`.
@@ -37,9 +52,26 @@ impl Disk {
         if let Err(e) = &watcher {
             log::warn!("cannot watch files for changes on disk: {e}");
         }
+        let (freer, freed) = mpsc::channel::<Box<dyn Send>>();
+        // Freeing a large file's text can take longer than a frame, so it is done here.
+        let freer = thread::Builder::new()
+            .name("oso-free".into())
+            .spawn(move || freed.iter().for_each(drop))
+            .is_ok()
+            .then_some(freer);
         Self {
             watcher: watcher.ok(),
+            files_changed: true,
+            freer,
             ..Self::default()
+        }
+    }
+
+    /// Drops `value` on the freeing thread, or here if it could not start.
+    fn free<T: Send + 'static>(&self, value: T) {
+        if let Some(freer) = &self.freer {
+            // A thread that has gone hands it back in the error, and it is dropped here.
+            drop(freer.send(Box::new(value)));
         }
     }
 
@@ -61,35 +93,38 @@ struct Running {
     spelling: Option<PathBuf>,
     /// A person asked for it, over unsaved edits too (`revert-buffer`).
     asked: bool,
-}
-
-/// Drops `value` on a thread of its own, as freeing a large file's text could hold up the UI
-/// thread for a frame or more. If no thread starts, it is dropped here.
-fn free_elsewhere<T: Send + 'static>(value: T) {
-    let (sender, receiver) = std::sync::mpsc::channel::<T>();
-    let spawned = thread::Builder::new()
-        .name("oso-free".into())
-        .spawn(move || drop(receiver.recv()));
-    // With no thread, it is dropped here.
-    if spawned.is_ok() {
-        drop(sender.send(value));
-    }
+    started: Instant,
 }
 
 impl App {
     /// The watcher saw something new.
     pub(super) fn watch_reported(&mut self) {
-        if let Some(mut seen) = self.disk.watcher.as_ref().and_then(Watcher::take) {
-            seen.sort_unstable_by_key(|(buffer, _)| *buffer);
-            self.disk.seen = seen;
+        let Some((generation, mut seen)) = self.disk.watcher.as_ref().and_then(Watcher::take)
+        else {
+            return;
+        };
+        if generation < self.disk.min_generation {
+            return;
         }
+        seen.sort_unstable_by_key(|(buffer, _)| *buffer);
+        self.disk.seen = seen;
+        self.disk.fresh = true;
+        self.disk.files_changed = true;
+    }
+
+    /// A buffer may have been added, or its path changed, so the watcher's paths are checked
+    /// at the next look.
+    pub(super) fn buffers_changed(&mut self) {
+        self.disk.files_changed = true;
     }
 
     /// The window has gained the focus: the files are looked at now, as another program may
     /// have changed them meanwhile.
-    pub(super) fn window_focused(&self) {
+    pub(super) fn window_focused(&mut self) {
+        self.disk.files_changed = true;
         if let Some(watcher) = &self.disk.watcher {
-            watcher.look_now();
+            // Reported whatever it finds, so that a read that failed is tried again.
+            watcher.look_again();
         }
     }
 
@@ -97,18 +132,25 @@ impl App {
     /// save may have written it, and the file is looked at again and reported whatever it is.
     pub(super) fn look_again_after_save(&mut self, id: BufferId) {
         self.disk.seen.retain(|(buffer, _)| *buffer != id);
+        self.disk.files_changed = true;
         if let Some(watcher) = &self.disk.watcher {
-            watcher.look_again();
+            self.disk.min_generation = watcher.look_again();
         }
     }
 
     /// Hands what the watcher last saw to the editor and starts the reads it asks for, and
     /// those `revert-buffer` asked for. Before the loop waits, so after every batch of events.
-    /// Nothing is allocated and no file is touched while nothing changes.
+    /// Nothing is allocated and no file is touched while nothing changes, and the paths are
+    /// compared only after a report, a save or a new buffer.
     pub(super) fn check_disk(&mut self) {
-        self.sync_watched_files();
+        if std::mem::take(&mut self.disk.files_changed) {
+            self.sync_watched_files();
+        }
+        let fresh = std::mem::take(&mut self.disk.fresh);
         let disk = &self.disk;
-        let reads = self.editor.files_seen(&disk.seen, |id| disk.busy(id));
+        let reads = self
+            .editor
+            .files_seen(&disk.seen, fresh, |id| disk.busy(id));
         for id in reads {
             self.start_reload(id, false);
         }
@@ -152,25 +194,19 @@ impl App {
     /// makes them wait. One whose file is being read already takes that read, so a read that
     /// hangs, as on a mount gone away, is never joined by another.
     pub(super) fn start_reverts(&mut self) {
-        if self.editor.reload_waits() {
-            return;
-        }
-        for id in self.editor.take_revert_requests() {
-            let content = self.editor.buffer(id).map(Buffer::content_id);
+        for (id, content) in self.editor.take_revert_requests() {
             let running = self
                 .disk
                 .running
                 .iter_mut()
                 .find(|running| running.handle.buffer() == id);
-            match (running, content) {
-                (Some(running), Some(content)) if running.read_from == content => {
-                    running.asked = true;
-                }
-                (Some(_), _) => {
+            match running {
+                Some(running) if running.read_from == content => running.asked = true,
+                Some(_) => {
                     self.editor
                         .message("Not reloaded, as a read of the file is still running");
                 }
-                (None, _) => self.start_reload(id, true),
+                None => self.start_reload(id, true),
             }
         }
     }
@@ -196,6 +232,7 @@ impl App {
                 baseline: None,
                 spelling: None,
                 asked,
+                started: Instant::now(),
             }),
             Err(e) => {
                 let name = buffer.name();
@@ -251,6 +288,7 @@ impl App {
             baseline,
             spelling,
             asked,
+            started: _,
         } = running;
         drop(handle);
         let reloaded = match update {
@@ -264,22 +302,24 @@ impl App {
             }
             LoadUpdate::Failed(e) => {
                 self.editor.message(format!("Cannot reload: {e}: {name}"));
+                self.editor.reload_failed(id);
                 return false;
             }
             // A reload sends its text whole.
             LoadUpdate::Snapshot(snapshot) => {
-                free_elsewhere(snapshot);
+                self.disk.free(snapshot);
                 return false;
             }
         };
         // Where the opened file is could not be told, so its text would pair with a place a
         // save could not trust. It stays out, as a first load's would be refused a save.
         let Some(baseline) = baseline else {
-            free_elsewhere(reloaded);
+            self.disk.free(reloaded);
             let message = format!(
                 "Not reloaded, as where its file leads could not be told as it was read: {name}"
             );
             self.editor.message(message);
+            self.editor.reload_failed(id);
             return false;
         };
         let (outcome, leftover) = if asked {
@@ -287,7 +327,7 @@ impl App {
         } else {
             self.editor.reload(id, *reloaded, read_from)
         };
-        free_elsewhere(leftover);
+        self.disk.free(leftover);
         match outcome {
             ReloadOutcome::Reloaded | ReloadOutcome::Same => {
                 if let Some(buffer) = self.editor.buffer_mut(id) {
@@ -302,6 +342,13 @@ impl App {
                 }
                 shown && outcome == ReloadOutcome::Reloaded
             }
+            ReloadOutcome::NotEditable => {
+                self.editor.message(format!(
+                    "Not reloaded, as the file of {name} is now binary or not valid UTF-8, and \
+                     your edits would be lost"
+                ));
+                false
+            }
             ReloadOutcome::Edited if asked => {
                 self.editor
                     .message(format!("Not reloaded, as {name} changed meanwhile"));
@@ -313,19 +360,19 @@ impl App {
         }
     }
 
-    /// Says which buffers were reloaded, once no other reload is running, so that a checkout
-    /// that changed many files says so once.
+    /// Says in one message which buffers were reloaded, once no other read has started in
+    /// the last [`READ_PATIENCE`], so that a checkout that changed many files says so once, and
+    /// a read that hangs holds back nothing.
     fn tell_reloaded(&mut self) {
-        if self.disk.reloaded.is_empty() || !self.disk.running.is_empty() {
+        let waiting = |running: &Running| running.started.elapsed() < READ_PATIENCE;
+        if self.disk.reloaded.is_empty() || self.disk.running.iter().any(waiting) {
             return;
         }
         let names = std::mem::take(&mut self.disk.reloaded);
-        for name in &names {
-            self.editor.message(format!("Reloaded {name}"));
-        }
-        if names.len() > 1 {
-            self.editor
-                .message(format!("Reloaded {} files", names.len()));
-        }
+        let message = match &names[..] {
+            [name] => format!("Reloaded {name}"),
+            names => format!("Reloaded {} files: {}", names.len(), names.join(", ")),
+        };
+        self.editor.message(message);
     }
 }

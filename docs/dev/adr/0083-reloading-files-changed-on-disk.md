@@ -56,9 +56,16 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
 - **`revert-buffer` (`C-x x g`, as in Emacs 28)** reads the file again on request. With unsaved
   edits it asks first, "Discard your edits and reload NAME?", and the text read goes in as
   one undo step, so undo brings the edits back. A command only queues the request
-  (`Editor::request_revert`); the host reads the file.
+  (`Editor::request_revert`), with the state the person agreed to lose; the host reads the
+  file. A request waits while a prompt is open or the buffer saves. If the buffer changed
+  since the person said yes, nothing goes in, and the echo area says so. A file now binary
+  or not valid UTF-8, whose text would replace the edits with no undo, is refused too.
+- **A read that fails**, for an error or because its file could not be placed, says so,
+  shows `[changed on disk]` with edits or not, and is tried again at the next new look:
+  when the file changes again, or when oso comes to the front.
 - **The echo area says "Reloaded NAME".** When several reload together, as after a
-  checkout, each name goes to `*Messages*` and the echo area ends with "Reloaded N files".
+  checkout, one message says "Reloaded N files: NAMES". A read running for over a second
+  does not hold it back.
 - **A file gone, or no longer a regular file:** the text stays, the modeline says
   `[deleted on disk]`, and the echo area says so once. A save writes the file again, as it
   does for a file deleted since it was read. A file that comes back counts as a change.
@@ -84,7 +91,7 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   One that finishes then is dropped and read again once the prompt closes, and a
   `revert-buffer` that has to wait is asked for again. A buffer that is still loading or
   saving is not looked at. Once a save ends, its file is looked at again and reported
-  whatever it is.
+  whatever it is, and a report from a look made before it is ignored.
 - **A buffer still on its first load** needs nothing more: the load's baseline is from its
   own open, so the next look finds the difference.
 
@@ -101,7 +108,10 @@ The author chose these on 2026-11-08, through the coordinator. This amends ADR 0
   than twice the memory for a moment.
 - A change that keeps the time, the size and the inode, on a file system with coarse times,
   is missed until the next one. Where the system gives no inode, only the time and size
-  count.
+  count. A file system that gives a file a new inode at each look, as some network and
+  FUSE mounts do, makes every look a change: the file is read again, its text found the
+  same, and a save asks before it goes over it. Telling such mounts apart is left for when
+  someone uses one.
 - `Editor::reload_waits` is the one place that says when a reload must wait. A mode of a
   window that a change of text would disturb adds its condition there.
 

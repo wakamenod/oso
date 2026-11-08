@@ -48,10 +48,13 @@ struct State {
     poked: bool,
     /// The UI forgot what it was told, so the next look reports whatever it finds.
     forget: bool,
+    /// The number of the last [`Watcher::look_again`], which each report carries, so that the
+    /// UI can tell a report from a look made before it.
+    generation: u64,
     /// The watcher is gone.
     stop: bool,
     /// The latest report the UI has not taken.
-    report: Option<Vec<(BufferId, DiskState)>>,
+    report: Option<(u64, Vec<(BufferId, DiskState)>)>,
 }
 
 impl Default for State {
@@ -60,6 +63,7 @@ impl Default for State {
             files: Arc::new([]),
             poked: false,
             forget: false,
+            generation: 0,
             stop: false,
             report: None,
         }
@@ -103,23 +107,20 @@ impl Watcher {
         }
     }
 
-    /// Looks at once, as the window has gained the focus.
-    pub fn look_now(&self) {
-        self.shared.state().poked = true;
-        self.shared.wake.notify_one();
-    }
-
     /// Looks at once, and reports what it finds even if it was reported before, as the UI
-    /// forgot it: a save of a buffer has ended.
-    pub fn look_again(&self) {
+    /// forgot it, or a save of a buffer has ended. Returns the generation that look's report
+    /// carries: a report of an older one was looked at before this call.
+    pub fn look_again(&self) -> u64 {
         let mut state = self.shared.state();
         state.poked = true;
         state.forget = true;
+        state.generation += 1;
         self.shared.wake.notify_one();
+        state.generation
     }
 
-    /// What the last look saw, if it differs from the report taken before.
-    pub fn take(&self) -> Option<Vec<(BufferId, DiskState)>> {
+    /// What the last look saw, with its generation, if it differs from the report taken before.
+    pub fn take(&self) -> Option<(u64, Vec<(BufferId, DiskState)>)> {
         self.shared.state().report.take()
     }
 }
@@ -161,8 +162,9 @@ fn run(shared: &Shared, wake: &dyn Fn() -> bool) {
             if std::mem::take(&mut state.forget) {
                 last.clear();
             }
-            Arc::clone(&state.files)
+            (state.generation, Arc::clone(&state.files))
         };
+        let (generation, files) = files;
         let seen: Vec<(BufferId, DiskState)> = files
             .iter()
             .map(|(buffer, path)| (*buffer, state_of(std::fs::metadata(path))))
@@ -171,7 +173,7 @@ fn run(shared: &Shared, wake: &dyn Fn() -> bool) {
             continue;
         }
         last.clone_from(&seen);
-        let was_empty = shared.state().report.replace(seen).is_none();
+        let was_empty = shared.state().report.replace((generation, seen)).is_none();
         if was_empty && !wake() {
             return;
         }
@@ -196,7 +198,7 @@ mod tests {
     /// The next report, within a few seconds.
     fn next(watcher: &Watcher, rx: &mpsc::Receiver<()>) -> Vec<(BufferId, DiskState)> {
         rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        watcher.take().unwrap()
+        watcher.take().unwrap().1
     }
 
     #[test]
@@ -213,20 +215,23 @@ mod tests {
         assert_eq!(stamp.len, 3);
 
         std::fs::write(&path, "three").unwrap();
-        watcher.look_now();
         let [(_, DiskState::File(stamp))] = next(&watcher, &rx)[..] else {
             panic!("a regular file");
         };
         assert_eq!(stamp.len, 5);
-        // Nothing changed, so nothing wakes the UI.
-        watcher.look_now();
-        assert!(rx.recv_timeout(Duration::from_millis(300)).is_err());
-        // Unless the UI forgot it.
-        watcher.look_again();
-        assert_eq!(next(&watcher, &rx)[0].1, DiskState::File(stamp));
+        // Nothing changed, so the next look, a second later, wakes nothing.
+        assert!(
+            rx.recv_timeout(INTERVAL + Duration::from_millis(300))
+                .is_err()
+        );
+        // Unless the UI forgot it, and then the report says which look it is.
+        let generation = watcher.look_again();
+        rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let (reported, seen) = watcher.take().unwrap();
+        assert_eq!(reported, generation);
+        assert_eq!(seen[0].1, DiskState::File(stamp));
 
         std::fs::remove_file(&path).unwrap();
-        watcher.look_now();
         assert_eq!(next(&watcher, &rx)[0].1, DiskState::Gone);
     }
 
@@ -252,7 +257,6 @@ mod tests {
         };
         std::fs::write(&other, "same").unwrap();
         std::fs::rename(&other, &path).unwrap();
-        watcher.look_now();
         let DiskState::File(after) = next(&watcher, &rx)[0].1 else {
             panic!("a regular file");
         };
