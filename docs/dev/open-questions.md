@@ -61,8 +61,7 @@ item notes when it must be settled.
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - Later, before anyone uses oso on Windows: decide what a private directory and a save do about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
-- A file changed on disk can be saved over once asked, but nothing yet reloads it (M2-22). A
-  buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
+- A buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
   (M2-18), and a file owned by another user, or with hard links, cannot be saved at all; decide
   whether a question should offer writing in place
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md), [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
@@ -137,8 +136,6 @@ item notes when it must be settled.
   the load right after the command, and refuses while a save runs
   ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 
-- isearch must not match the U+FFFD of an invalid byte
-  (`InvalidBytes`, ADR 0040).
 - Killing a large buffer (and a load that fails midway) frees its trees on
   the UI thread, which takes tens of milliseconds for a 1 GB file. Drop
   them on a background thread. M2-19 does this for a kill
@@ -259,21 +256,29 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-20 and M3: isearch and menus add their condition to `wants_ime` in `app/ime.rs`, as
-  prompts have ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-17: a region in a prompt's answer is not drawn, as `Editor::region_cells` gives the tiled
-  window's ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- By M2-17: the selected candidate needs a background per row in `PaneContent::Lines`
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
+  have ([ADR 0069](adr/0069-macos-input-method.md)).
+- By M2-18: matching on a worker thread past 5000 candidates, with the generation and the
+  snapshot ADR 0076 fixes, for large directories. The worker gives back matches; where the list
+  is scrolled to stays with the prompt
+  ([ADR 0076](adr/0076-completion-and-m-x.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
   ([ADR 0052](adr/0052-glyphs-stay-in-their-cells.md)).
+- Following the OS's dark or light appearance, as an opt-in entry of `load-theme` that picks
+  the pair's dark or light theme. It needs appearance events on both window layers
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
   M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
   ([ADR 0057](adr/0057-frame-layout.md)).
 
 ## M3
+
+- Whether users can define their own themes, or override a built-in one's palette entries
+  and mappings, and in what format. Themes are data to keep it possible. Configuration
+  names the default theme and `<f5>`'s pair
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 
 - The configuration setting that starts the agent channel at launch: its name, and whether it
   may skip the question on each connection, which ADR 0085 always asks

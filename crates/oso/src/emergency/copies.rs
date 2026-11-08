@@ -541,6 +541,7 @@ fn relation(meta: &Meta, now: Option<FileStamp>) -> RowState {
                     modified,
                     len,
                     mode: 0,
+                    identity: None,
                 })
             });
             if same {

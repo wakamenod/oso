@@ -470,15 +470,15 @@ fn sync_is_unsupported(error: &io::Error) -> bool {
 /// the text to a place nobody chose. Being missing is no conflict, even if the baseline says
 /// a file was there: a file that was deleted holds nothing to keep, as in Emacs.
 ///
-/// The check goes by the location, which is what a rename replaces, and does not follow a
-/// link: the location has none left unless one was swapped in since, and that is a change.
+/// The check goes by the location, which a rename replaces, without following a link: one
+/// swapped in since is a change, and so is another file renamed in (ADR 0083).
 fn unchanged_file(path: &Path, baseline: &Baseline) -> Result<Option<Metadata>, SaveError> {
     if location(path)? != baseline.location {
         return Err(SaveError::Elsewhere);
     }
     match fs::symlink_metadata(&baseline.location) {
         Ok(metadata) if metadata.is_file() => match baseline.file {
-            Some(file) if file.same_content(stamp_of(&metadata)?) => Ok(Some(metadata)),
+            Some(file) if file.same_file(stamp_of(&metadata)?) => Ok(Some(metadata)),
             _ => Err(SaveError::Conflict(stamp_of(&metadata).ok())),
         },
         Ok(_) => Err(SaveError::Conflict(None)),

@@ -1,6 +1,6 @@
 # 0029. File changes on disk and editing while loading
 
-- Status: Accepted
+- Status: Accepted, amended by 0083
 - Date: 2026-11-03
 
 ## Context
