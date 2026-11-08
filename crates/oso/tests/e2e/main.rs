@@ -1074,7 +1074,7 @@ fn the_system_asking_the_app_to_quit_writes_the_copies() {
     } else {
         app.ask_to_quit()
     };
-    assert!(asked, "osascript could not ask");
+    asked.unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
     assert!(app.wait_for_exit().success());
     let copies = read_copies(&emergency_dir(scratch.path()));
     assert_eq!(copies.len(), 1);
@@ -1095,14 +1095,16 @@ fn a_persons_quit_asks_the_exit_question() {
     let question = |state: &Value| {
         state["prompts"][0]["prompt"] == "1 modified buffer; exit without saving? (y or n)"
     };
-    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.ask_to_quit()
+        .unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
     app.wait_for("the exit question", question);
     app.send_keys("n");
     let state = app.wait_for("the question answered", |state| {
         state["prompts"] == json!([])
     });
     assert_eq!(state["buffer"]["modified"], true, "still here");
-    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.ask_to_quit()
+        .unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
     app.wait_for("the exit question again", question);
     // It may exit before answering.
     let _ = app.exchange("send-keys", Some(json!({ "keys": "y" })));
