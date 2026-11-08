@@ -18,7 +18,8 @@
 //! Right after opening the file, before reading it, the thread follows the
 //! path to where it really leads, so that the UI can tell whether the file
 //! may hold secrets (ADR 0044) without touching the file system. A file
-//! swapped in before the open is what gets judged. It also hands over the file's
+//! swapped in before the open is what gets judged, and the path must still end at
+//! the opened file once resolved, or nobody can tell. It also hands over the file's
 //! baseline: where the path really leads, and the modification time, size and mode read
 //! from the open file, which a save checks before it replaces the file (ADR 0029,
 //! ADR 0059).
@@ -308,6 +309,23 @@ fn baseline_of_opened(location: PathBuf, opened: &Metadata) -> Option<Baseline> 
     Some(Baseline { location, file })
 }
 
+/// `resolved`, if the path it ends at holds the file opened with `opened` as its metadata. The
+/// path is resolved after the open, so a link switched in between would otherwise have one file
+/// judged by where another is. If it holds another file, or cannot be looked at, nobody can
+/// tell, and the walk's paths still count as names. With nothing opened, nothing was read.
+fn of_opened(resolved: Resolved, opened: Option<&Metadata>) -> Resolved {
+    let holds = |path: Option<&PathBuf>, opened: &Metadata| {
+        path.and_then(|path| std::fs::metadata(path).ok())
+            .is_some_and(|there| same_file(opened, &there))
+    };
+    match (resolved, opened) {
+        (Resolved::Paths(paths), Some(opened)) if !holds(paths.last(), opened) => {
+            Resolved::Unknown(paths)
+        }
+        (resolved, _) => resolved,
+    }
+}
+
 /// Whether two sets of metadata are of one file: its device and inode.
 #[cfg(unix)]
 pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
@@ -350,7 +368,9 @@ fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
 /// appending to (a log) cannot be read forever.
 fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> {
     let opened = open(path);
-    *shared.resolved() = Some(resolve(path));
+    let resolved = resolve(path);
+    let opened_metadata = opened.as_ref().ok().map(|(_, metadata)| metadata);
+    *shared.resolved() = Some(of_opened(resolved, opened_metadata));
     let baseline = baseline_after_open(path, &opened);
     *shared.spelling() = baseline
         .as_ref()
@@ -546,6 +566,35 @@ mod tests {
         // To nowhere: the text must not count as a file deleted from there.
         let missing = location.with_file_name("oso-no-such-file-after-the-open");
         assert_eq!(baseline_of_opened(missing, &metadata), None);
+        std::fs::remove_file(opened).unwrap();
+        std::fs::remove_file(other).unwrap();
+    }
+
+    #[test]
+    fn a_verdict_holds_only_if_the_resolved_path_ends_at_the_opened_file() {
+        let opened = scratch_file("judged.txt", b"abc");
+        let other = scratch_file("judged-other.txt", b"abcd");
+        let metadata = std::fs::metadata(&opened).unwrap();
+        let canonical = |path: &PathBuf| std::fs::canonicalize(path).unwrap();
+        let ending_at = |path: PathBuf| Resolved::Paths(vec![path]);
+        let there = ending_at(canonical(&opened));
+        assert_eq!(of_opened(there.clone(), Some(&metadata)), there);
+        // Another file, or none, where the path ends.
+        let elsewhere = vec![canonical(&other)];
+        assert_eq!(
+            of_opened(Resolved::Paths(elsewhere.clone()), Some(&metadata)),
+            Resolved::Unknown(elsewhere)
+        );
+        let missing = vec![canonical(&opened).with_file_name("oso-no-such-file-judged")];
+        assert_eq!(
+            of_opened(Resolved::Paths(missing.clone()), Some(&metadata)),
+            Resolved::Unknown(missing)
+        );
+        // What could not be told stays so, and with nothing opened nothing was read.
+        let unknown = Resolved::Unknown(vec![canonical(&other)]);
+        assert_eq!(of_opened(unknown.clone(), Some(&metadata)), unknown);
+        let new_file = ending_at(canonical(&other));
+        assert_eq!(of_opened(new_file.clone(), None), new_file);
         std::fs::remove_file(opened).unwrap();
         std::fs::remove_file(other).unwrap();
     }
