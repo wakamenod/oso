@@ -14,14 +14,17 @@
 //! places one from the layout, which holds none (ADR 0072).
 //!
 //! [`region_cells`] says which cells of a window's text area its regions take,
-//! so the renderer only fills them (ADR 0061, ADR 0071).
+//! so the renderer only fills them (ADR 0061, ADR 0071), and [`match_cells`] those
+//! isearch's matches take (ADR 0082).
 //!
 //! [`PixelGrid`] says where those cells are on the surface. The grid starts at
 //! the top-left margin and holds whole cells only. The pixels left over at the
 //! bottom and on the right are not part of any region.
 
+use std::ops::Range;
+
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
-use crate::selection::SelectionSet;
+use crate::selection::{Selection, SelectionSet};
 use crate::sum_tree::Bias;
 use crate::window::{Scroll, ViewSize};
 
@@ -232,14 +235,65 @@ pub fn region_cells(
     if !selections.mark_active().is_active() {
         return;
     }
+    // While the regions show, none overlap, so their ends are in order too.
+    let place = Place {
+        text,
+        scroll,
+        display,
+        preedit,
+    };
+    range_cells(place, selections.as_slice(), Selection::range, out);
+}
+
+/// The cells of `ranges`, which are in order and do not overlap, in a window as
+/// [`region_cells`] takes it, into `out`, after what it holds: as a region's, with a row
+/// whose line break is in one filled to the right edge. For isearch's matches (ADR 0082).
+pub fn match_cells(
+    text: CellRect,
+    scroll: Scroll,
+    display: &DisplaySnapshot,
+    ranges: &[Range<usize>],
+    preedit: Option<(DisplayPoint, usize)>,
+    out: &mut Vec<CellRect>,
+) {
+    let place = Place {
+        text,
+        scroll,
+        display,
+        preedit,
+    };
+    range_cells(place, ranges, Range::clone, out);
+}
+
+/// Where cells of ranges go: a window's text area, its view, and a preedit in it.
+#[derive(Clone, Copy)]
+struct Place<'a> {
+    text: CellRect,
+    scroll: Scroll,
+    display: &'a DisplaySnapshot,
+    preedit: Option<(DisplayPoint, usize)>,
+}
+
+/// The cells of `items`' ranges, in order and none overlapping, into `out`, as
+/// [`region_cells`] says.
+fn range_cells<T>(
+    place: Place<'_>,
+    all: &[T],
+    range_of: impl Fn(&T) -> Range<usize>,
+    out: &mut Vec<CellRect>,
+) {
+    let Place {
+        text,
+        scroll,
+        display,
+        preedit,
+    } = place;
     let rows = scroll.top
         ..scroll
             .top
             .saturating_add(text.rows)
             .min(display.row_count());
     let columns = scroll.left..scroll.left.saturating_add(text.columns);
-    // While the regions show, none overlap, so their ends are in order too.
-    let all = selections.as_slice();
     let mut first = 0;
     for row in rows.clone() {
         let pushed = preedit.filter(|(at, _)| at.row == row);
@@ -250,9 +304,9 @@ pub fn region_cells(
         let offset =
             |column| display.display_point_to_offset(DisplayPoint::new(row, column), Bias::Left);
         let (shown_start, shown_end) = (offset(left), offset(columns.end));
-        first += all[first..].partition_point(|selection| selection.range().end <= shown_start);
-        for selection in &all[first..] {
-            let range = selection.range();
+        first += all[first..].partition_point(|item| range_of(item).end <= shown_start);
+        for item in &all[first..] {
+            let range = range_of(item);
             if range.start > shown_end {
                 break;
             }

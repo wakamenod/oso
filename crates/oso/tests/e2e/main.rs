@@ -11,6 +11,7 @@
 
 mod harness;
 mod ime;
+mod isearch;
 mod kill;
 mod mark;
 mod png;

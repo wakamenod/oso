@@ -24,6 +24,7 @@ mod ime;
 mod input;
 mod loads;
 mod saves;
+mod searches;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
 // Both give the same loop, window and waker, under the one name.
 #[cfg(all(target_os = "macos", feature = "native-window"))]
@@ -57,6 +58,8 @@ pub enum UserEvent {
     Copies(CopiesEvent),
     /// The clipboard's threads wrote or read (ADR 0074).
     Clipboard(clipboard::ClipboardEvent),
+    /// isearch's worker found or counted something (ADR 0082).
+    Search(oso_core::search::SearchReport),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -169,6 +172,7 @@ impl App {
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
         self.start_saves();
+        self.start_searches();
         self.answer_about_copies();
         if effects.redraw {
             self.request_redraw();

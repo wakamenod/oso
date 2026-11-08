@@ -69,7 +69,9 @@ underline with `-`, and the segment being converted with `=`
 
 Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
-([ADR 0071](adr/0071-mark-and-region.md)).
+([ADR 0071](adr/0071-mark-and-region.md)). The same line marks the current isearch match
+with `#` and the other matches in view with `~`, from `Editor::search_cells`
+([ADR 0082](adr/0082-isearch.md)).
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `#`

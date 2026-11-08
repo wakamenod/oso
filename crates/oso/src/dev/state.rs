@@ -23,7 +23,7 @@ use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use oso_core::editor::{Editor, Status};
+use oso_core::editor::{Editor, Isearch, Status, Tally};
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
@@ -67,7 +67,8 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 /// progress, which stay out until they end if they were typed then.
 ///
 /// The window, its buffer and its text are the tiled window's, also beneath a prompt.
-/// `prompts` describes the open prompts, the outermost first (ADR 0072).
+/// `prompts` describes the open prompts, the outermost first (ADR 0072), and `isearch` the
+/// search under way (ADR 0082), whose line leaves `echo` while it is around a secret.
 pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     let (window, buffer) = editor.tiled();
     let shows_secret = editor.shows_secret();
@@ -91,6 +92,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             .collect::<Vec<_>>(),
         "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
+        "isearch": isearch_state(editor),
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
     if !buffer.is_secret() {
@@ -109,12 +111,41 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         let mut status = Status::default();
         editor.status_into(&mut status);
         state["modeline"] = json!(status.modeline());
-        if keys_shown {
+        // isearch's line holds its string.
+        let search_withheld = editor.isearch().is_some_and(Isearch::around_secret);
+        if keys_shown && !search_withheld {
             state["echo"] = json!(status.echo);
         }
     }
     state["kill_ring"] = kill_ring_state(editor);
     state
+}
+
+/// The `isearch` field of `get-state`: null, or the search under way, its string, where it
+/// has got to and its count, `null` while counting (ADR 0082). While a buffer that may hold
+/// secrets is shown, or for a search around one, only that one is under way, as its string
+/// and its count can say something of the text.
+fn isearch_state(editor: &Editor) -> Value {
+    let Some(search) = editor.isearch() else {
+        return Value::Null;
+    };
+    if editor.shows_secret() || search.around_secret() {
+        return json!({ "active": true });
+    }
+    let count = match search.tally() {
+        Some(Tally::Known { index, total }) => json!({ "index": index, "total": total }),
+        _ => Value::Null,
+    };
+    json!({
+        "active": true,
+        "string": search.string(),
+        "backward": search.backward(),
+        "failing": search.failing(),
+        "wrapped": search.wrapped(),
+        "case_sensitive": search.case_sensitive(),
+        "searching": search.searching(),
+        "count": count,
+    })
 }
 
 /// The most pieces of the newest entry `get-state` shows, and the most bytes of each.
@@ -593,6 +624,7 @@ mod tests {
                 "keys": { "pending": "" },
                 "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
+                "isearch": null,
                 "surface": { "width": 800, "height": 600 },
             })
         );
@@ -770,6 +802,58 @@ mod tests {
         let state = get_state(&editor, &[], None);
         assert!(state.get("modeline").is_none());
         assert!(state.get("echo").is_none());
+    }
+
+    #[test]
+    fn isearch_reads_back_unless_it_is_around_a_secret() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("plain.txt", "ab ab"));
+        editor.isearch_begin(false);
+        editor.isearch_add("ab");
+        let state = get_state(&editor, &[], None);
+        assert_eq!(
+            state["isearch"],
+            json!({
+                "active": true,
+                "string": "ab",
+                "backward": false,
+                "failing": false,
+                "wrapped": false,
+                "case_sensitive": false,
+                "searching": false,
+                "count": null,
+            })
+        );
+        assert_eq!(state["echo"], "I-search: ab [?/…]");
+
+        // A kill from a buffer that may hold secrets, yanked into the string.
+        editor.isearch_exit();
+        let plain = editor.window().buffer();
+        let path = PathBuf::from("/tmp/.env");
+        let mut key = Buffer::visiting(path.clone());
+        key.judge_secret(Some(&[path]));
+        key.apply_load(oso_core::load::decode_all(b"TOKEN=x", Default::default()));
+        let key = editor.add_buffer(key);
+        editor.show(key);
+        editor
+            .kill(
+                std::iter::once(0..5),
+                oso_core::kill::Direction::Forward,
+                true,
+            )
+            .unwrap();
+        editor.show(plain);
+        editor.isearch_begin(false);
+        editor.isearch_yank_kill();
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"], json!({ "active": true }));
+        assert!(state.get("echo").is_none());
+
+        let secret = editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/.env")));
+        editor.isearch_exit();
+        editor.show(secret);
+        editor.isearch_begin(false);
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["isearch"], json!({ "active": true }));
     }
 
     #[test]

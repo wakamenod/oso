@@ -5,6 +5,7 @@
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 mod edit;
+mod isearch;
 mod kill;
 mod mark;
 mod messages;
@@ -26,6 +27,7 @@ use oso_core::keymap::Keymap;
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
+    isearch::BINDINGS,
     kill::BINDINGS,
     mark::BINDINGS,
     messages::BINDINGS,
@@ -69,6 +71,16 @@ pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 pub fn prompt_keymaps(registry: &Registry) -> (Keymap, Keymap) {
     let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
     (keymap(minibuffer::MINIBUFFER), keymap(minibuffer::QUESTION))
+}
+
+/// The keymap of a search under way, in place of the others (ADR 0082), with its text
+/// command. Empty for a registry without its commands, as in tests that bring their own.
+pub fn isearch_keymap(registry: &Registry) -> Keymap {
+    let mut keymap = Keymap::from_table(registry, isearch::ISEARCH).unwrap_or_default();
+    if let Some(typing) = registry.lookup(isearch::TEXT_COMMAND) {
+        keymap.set_text_command(typing);
+    }
+    keymap
 }
 
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global

@@ -24,8 +24,13 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    if ctx.editor.quit() != Quit::Nothing {
+    let quit = ctx.editor.quit();
+    if quit != Quit::Nothing {
         ctx.request_redraw();
+    }
+    // The search goes on, and its line stays (ADR 0082).
+    if quit == Quit::SearchFailure {
+        return Ok(());
     }
     log::debug!("Quit");
     ctx.editor.echo("Quit");

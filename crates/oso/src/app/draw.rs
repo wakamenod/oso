@@ -21,12 +21,21 @@ use crate::text;
 
 mod float;
 
-/// Calls `draw` with what the frame shows, for the renderer. The cells of the regions
-/// go in `region_cells`, which a frame reuses.
+/// The cells a frame fills behind the text, kept from frame to frame so they are not
+/// allocated again: the regions' (ADR 0071) and isearch's matches' (ADR 0082).
+#[derive(Default)]
+pub(super) struct Cells {
+    region: Vec<frame::CellRect>,
+    matches: Vec<frame::CellRect>,
+    current_match: Vec<frame::CellRect>,
+}
+
+/// Calls `draw` with what the frame shows, for the renderer. The cells behind the text go
+/// in `cells`, which a frame reuses.
 pub(super) fn with_panes<R>(
     editor: &Editor,
     status: &Status,
-    region_cells: &mut Vec<frame::CellRect>,
+    cells: &mut Cells,
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
     let span = |text, face| Span { text, face };
@@ -41,9 +50,10 @@ pub(super) fn with_panes<R>(
         span(status.echo_warnings(), Face::Warning),
         span(&status.echo[..], Face::Text),
     ];
-    editor.region_cells(region_cells);
+    editor.region_cells(&mut cells.region);
+    editor.search_cells(&mut cells.current_match, &mut cells.matches);
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
-    let tiled = panes(editor, region_cells, &modeline, &echo);
+    let tiled = panes(editor, cells, &modeline, &echo);
     let Some(parts) = float::Parts::of(editor) else {
         return draw(&tiled);
     };
@@ -62,7 +72,7 @@ pub(super) fn with_panes<R>(
 /// not selected (ADR 0072).
 fn panes<'a>(
     editor: &'a Editor,
-    region_cells: &'a [frame::CellRect],
+    cells: &'a Cells,
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -83,7 +93,9 @@ fn panes<'a>(
             CursorStyle::Box
         },
         preedit: editor.preedit().filter(|_| !beneath),
-        region_cells,
+        region_cells: &cells.region,
+        matches: &cells.matches,
+        current_match: &cells.current_match,
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),
@@ -115,9 +127,8 @@ pub(super) struct View {
     pub(super) render_state: RenderState,
     /// When the window was requested, until the first frame is presented.
     started: Option<Instant>,
-    /// The cells of the regions, kept from frame to frame so they are not allocated
-    /// again.
-    region_cells: Vec<frame::CellRect>,
+    /// The cells behind the text, kept from frame to frame.
+    cells: Cells,
 }
 
 impl View {
@@ -135,7 +146,7 @@ impl View {
             window,
             render_state,
             started: Some(started),
-            region_cells: Vec::new(),
+            cells: Cells::default(),
         }
     }
 
@@ -222,7 +233,7 @@ impl App {
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
         let render_state = &mut view.render_state;
-        let cells = &mut view.region_cells;
+        let cells = &mut view.cells;
         let result = with_panes(&self.editor, &self.status, cells, |panes| {
             render_state.render(panes, &window_size)
         });
@@ -280,7 +291,7 @@ mod tests {
         editor.message("Saved");
         let mut status = Status::default();
         editor.status_into(&mut status);
-        with_panes(&editor, &status, &mut Vec::new(), |panes| {
+        with_panes(&editor, &status, &mut Cells::default(), |panes| {
             panes
                 .iter()
                 .map(|pane| {
@@ -307,7 +318,7 @@ mod tests {
         editor.set_frame_size(size);
         let layout = frame::layout(size);
         let status = Status::default();
-        with_panes(&editor, &status, &mut Vec::new(), |panes| {
+        with_panes(&editor, &status, &mut Cells::default(), |panes| {
             let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
             assert_eq!(
                 regions,
@@ -359,7 +370,7 @@ mod tests {
         let long = "a question long enough to take three rows of a narrow float";
         editor.ask(long, "keyboard-quit").unwrap();
         let status = Status::default();
-        with_panes(&editor, &status, &mut Vec::new(), |panes| {
+        with_panes(&editor, &status, &mut Cells::default(), |panes| {
             let inside: Vec<_> = panes
                 .iter()
                 .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
@@ -405,7 +416,7 @@ mod tests {
                     editor.ask("Exit?", "keyboard-quit").unwrap();
                 }
                 let status = Status::default();
-                with_panes(&editor, &status, &mut Vec::new(), |panes| {
+                with_panes(&editor, &status, &mut Cells::default(), |panes| {
                     let text = editor.frame().window.text;
                     for pane in panes
                         .iter()
@@ -437,7 +448,7 @@ mod tests {
                         || (regions.padded_below() && row == last + 1))
             };
             let status = Status::default();
-            with_panes(&editor, &status, &mut Vec::new(), |panes| {
+            with_panes(&editor, &status, &mut Cells::default(), |panes| {
                 for pane in panes
                     .iter()
                     .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)

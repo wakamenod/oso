@@ -19,7 +19,8 @@
 //! and a line between `_` below its row marks its underline with `-` and the segment
 //! being converted with `=` (ADR 0069). A line between `+` below a row marks with `*`
 //! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
-//! (ADR 0071).
+//! (ADR 0071), and with `#` and `~` the current isearch match and the others in view,
+//! from `Editor::search_cells` (ADR 0082).
 //!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
@@ -190,6 +191,8 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let cursor = frame::cursor_rect(area, scroll, place, cells);
     let mut region = Vec::new();
     editor.region_cells(&mut region);
+    let (mut current, mut matches) = (Vec::new(), Vec::new());
+    editor.search_cells(&mut current, &mut matches);
     for index in 0..area.rows {
         let row = scroll.top + index;
         let cursor = cursor
@@ -207,13 +210,15 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
             let marks: String = marks.into_iter().collect();
             lines.push(format!(":{marks}:"));
         }
-        let in_row = region.iter().filter(|cells| cells.row == area.row + index);
         let mut marks = vec![' '; area.columns];
-        for cells in in_row {
-            let start = cells.column - area.column;
-            marks[start..start + cells.columns].fill('*');
+        // In the renderer's order, so a region shows over a match.
+        for (cells, mark) in [(&current, '#'), (&matches, '~'), (&region, '*')] {
+            for cells in cells.iter().filter(|cells| cells.row == area.row + index) {
+                let start = cells.column - area.column;
+                marks[start..start + cells.columns].fill(mark);
+            }
         }
-        if marks.contains(&'*') {
+        if marks.iter().any(|&mark| mark != ' ') {
             lines.push(format!("+{}+", marks.into_iter().collect::<String>()));
         }
         if let Some((at, preedit)) = spliced {
@@ -393,6 +398,14 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
             let sequence: KeySequence = keys.parse().unwrap();
             dispatcher.handle_keys(&mut editor, sequence.0);
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
+        }
+        // isearch's count, as its worker would give it before the frame.
+        while let Some(job) = editor.take_search_job() {
+            let mut reports = Vec::new();
+            job.run(|report| reports.push(report));
+            for report in reports {
+                editor.search_reported(report);
+            }
         }
         let keys = if keys.is_empty() { "none" } else { keys };
         frames.push(format!("keys: {keys}\n{}", text_grid(&editor)));
@@ -935,6 +948,25 @@ mod scenarios {
                 "C-x C-x",
                 "C-SPC C-SPC",
                 "C-x h",
+                "C-g",
+            ],
+        );
+    }
+
+    #[test]
+    fn isearch_highlights_its_matches_and_says_its_line() {
+        check_frame(
+            "isearch_matches",
+            "foo bar foo\nbaz foo\nFoo\n",
+            (6, 30),
+            &[
+                "C-s f o",
+                "C-s",
+                "C-s C-s C-s",
+                "C-s",
+                "RET",
+                "C-s O",
+                "M-c",
                 "C-g",
             ],
         );

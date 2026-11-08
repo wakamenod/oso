@@ -18,8 +18,8 @@
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
-//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], and kills and
-//! yanks in [`kill`].
+//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], kills and
+//! yanks in [`kill`], and isearch in [`isearch`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -28,13 +28,17 @@ use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
+use crate::search::SearchJob;
 use crate::selection::SelectionSet;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 use follow::Selected;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 mod copies;
 mod follow;
+mod isearch;
 mod kill;
 mod messages;
 mod prompts;
@@ -43,6 +47,7 @@ mod status;
 mod view;
 
 pub use copies::RecoveryAction;
+pub use isearch::{Isearch, Tally};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
@@ -131,6 +136,12 @@ pub struct Editor {
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
+    /// The isearch under way in the selected window (ADR 0082).
+    isearch: Option<Isearch>,
+    /// The generation of the search job that may run, which a worker checks to stop.
+    search_live: Arc<AtomicU64>,
+    /// A job for a worker, until the host takes it.
+    search_job: Option<SearchJob>,
 }
 
 impl Default for Editor {
@@ -171,6 +182,9 @@ impl Editor {
             passphrase_command: false,
             save_over_asked: None,
             kills: kill::Kills::default(),
+            isearch: None,
+            search_live: Arc::new(AtomicU64::new(0)),
+            search_job: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -955,6 +969,8 @@ mod tests {
 
 #[cfg(test)]
 mod edit_tests;
+#[cfg(test)]
+mod isearch_tests;
 #[cfg(test)]
 mod model_tests;
 #[cfg(test)]
