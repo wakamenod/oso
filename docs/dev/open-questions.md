@@ -256,6 +256,10 @@ item notes when it must be settled.
 
 ## M3
 
+- The configuration setting that starts the agent channel at launch: its name, and whether it
+  may skip the question on each connection, which ADR 0085 always asks
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+
 - With configurable fonts: `Placer::place` ends a span where the style changes,
   so a shaper cluster crossing a boundary between text and a label is cut to its
   first cell, and the next grapheme's cell stays empty. Menlo forms no such
@@ -289,8 +293,11 @@ item notes when it must be settled.
 ## M4
 
 - Claude Code hooks: which events map to which states, and how
-  `oso integration install claude` merges with existing user settings
-  ([ADR 0031](adr/0031-claude-code-integration.md)).
+  `oso integration install claude` merges with existing user settings, and registers `oso mcp`
+  ([ADR 0031](adr/0031-claude-code-integration.md),
+  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Which review and worktree tools join `oso mcp`, and the reach of each
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - OSC 7501 is a draft; track its revisions.
@@ -329,9 +336,10 @@ item notes when it must be settled.
   ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)). It needs the
   `cjk` feature of `unicode-width`.
 
-- Dev control socket on Windows: a named pipe restricted to the current
-  user ([ADR 0032](adr/0032-control-socket-transport.md)). Needed when
-  agents test on Windows.
+- Dev control socket and agent channel on Windows: a named pipe restricted to the current
+  user ([ADR 0032](adr/0032-control-socket-transport.md),
+  [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). Needed when agents test or drive oso on
+  Windows.
 - Linux text-rendering backend: cosmic-text or FreeType + HarfBuzz. Until
   then Linux (and Windows, until DirectWrite) draws no text
   ([ADR 0036](adr/0036-text-system-and-glyph-atlas.md)). Each must keep cells in logical
