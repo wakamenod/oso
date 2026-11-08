@@ -172,6 +172,8 @@ mod tests {
         assert!(visited.prompt().is_none());
     }
 
+    // Unix paths and `HOME`, which Windows need not have.
+    #[cfg(unix)]
     #[test]
     fn the_place_shows_its_end_and_home_as_a_tilde() {
         let home = std::env::var_os("HOME")
