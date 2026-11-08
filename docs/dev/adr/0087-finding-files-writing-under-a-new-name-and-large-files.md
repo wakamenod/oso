@@ -171,11 +171,12 @@ ADR 0076's keys hold, with these for a path:
 
 ### Opening never blocks on a special file
 
-- **The loader opens through `oso_platform::file_meta::open_for_reading`,** which opens without
-  waiting on the file (`O_NONBLOCK` on Unix), checks from the open file that it is a regular
-  file, then clears the flag, and gives the file with its metadata. Anything else is refused as
-  not a file. So a path swapped for a pipe or a device between a look and the open cannot hold
-  the loading thread. The look before the open goes, as the open file says what it is.
+- **The loader opens through `oso_platform::file_meta::open_for_reading`,** which looks at the
+  path first, so a directory, a device or a pipe is not opened at all, then opens it without
+  waiting on the file and without taking a terminal as the controlling one (`O_NONBLOCK` and
+  `O_NOCTTY` on Unix), checks from the open file that it is a regular file, clears the flag, and
+  gives the file with its metadata. Anything else is refused as not a file. So a path swapped for
+  a pipe or a device between the look and the open cannot hold the loading thread.
 - `oso-platform` already depends on `libc`, and `file_meta` already opens files with what `std`
   cannot do (`open_for_writing`, ADR 0067). No dependency or crate edge is added, and the `unsafe`
   calls stay in `oso-platform`, each with its `// SAFETY:` comment. Other systems open as `std`
@@ -252,8 +253,8 @@ ADR 0076's keys hold, with these for a path:
   layer above `loader` in `guardrails/layers.txt`, which uses no other module of the crate; what an
   answer starts in `dispatch/prompts.rs`; the same-file check and the size check in `loader`; the
   write to a new path in `saver`.
-- **`oso-platform`:** `file_meta::open_for_reading(&Path) -> io::Result<(File, Metadata)>`, the one
-  new public function.
+- **`oso-platform`:** `file_meta::open_for_reading(&Path) -> io::Result<Option<(File, Metadata)>>`,
+  `None` for what is no regular file, the one new public function.
 - No new crate, crate edge, dependency or public trait. The new module of the tip crate and its line
   in `layers.txt` are named in the pull request, as ADR 0038 asks.
 
@@ -317,8 +318,8 @@ accepted, the status of ADR 0030, ADR 0040, ADR 0051, ADR 0059 and ADR 0085 gain
   matching inside each segment": the segments before the last match as smart-case prefixes, and
   only the last uses the orderless matcher of ADR 0076, with its affixes, `~` for flex among them.
 - [ADR 0040](0040-buffers-loading-motion-and-scrolling.md), "Only regular files are opened,
-  checked before opening, since opening a pipe blocks": they are opened without waiting and checked
-  from the open file, with no look before the open.
+  checked before opening, since opening a pipe blocks": they are still looked at first, and then
+  opened without waiting and checked again from the open file.
 - ADR 0040, "a missing file opens an empty buffer": also from `C-x C-f`, which says `(New file)`.
 - [ADR 0051](0051-m2-plan-decisions.md), "Files of 2 GiB or more ask before opening, in the
   minibuffer": `C-x C-f` asks, at once or at its next try; `oso FILE` and the agent channel's

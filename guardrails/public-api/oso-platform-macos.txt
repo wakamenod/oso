@@ -146,6 +146,7 @@ pub fn oso_platform::file_meta::Quarantine::fmt(&self, &mut core::fmt::Formatter
 impl core::marker::StructuralPartialEq for oso_platform::file_meta::Quarantine
 pub fn oso_platform::file_meta::clear_access_list_at(&std::path::Path) -> std::io::error::Result<()>
 pub fn oso_platform::file_meta::create_private(&std::path::Path) -> std::io::error::Result<std::fs::File>
+pub fn oso_platform::file_meta::open_for_reading(&std::path::Path) -> std::io::error::Result<core::option::Option<(std::fs::File, std::fs::Metadata)>>
 pub fn oso_platform::file_meta::open_for_writing(&std::path::Path) -> std::io::error::Result<std::fs::File>
 pub fn oso_platform::file_meta::path_of_opened(&std::fs::File) -> std::io::error::Result<core::option::Option<std::path::PathBuf>>
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>

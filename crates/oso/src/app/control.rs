@@ -234,7 +234,7 @@ impl App {
 
     /// The result of `open-file`: visits a file in the selected window.
     fn open_file(&mut self, path: PathBuf) -> dev::Reply {
-        let visited = self.visit(path);
+        let visited = self.visit(path, crate::loader::UNASKED);
         let result = visited
             .map(|buffer| {
                 self.editor.show(buffer);
@@ -311,8 +311,10 @@ impl App {
         let mut shown = scratch;
         for (index, path) in state.buffers.into_iter().enumerate() {
             let buffer = match path {
+                // The old instance held it, so it opens without asking, whatever its size
+                // (ADR 0087).
                 Some(path) => self
-                    .visit(path)
+                    .visit(path, u64::MAX)
                     .ok_or("a file could not begin to load, so the old instance should stay")?,
                 None => scratch,
             };

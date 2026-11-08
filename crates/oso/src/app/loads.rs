@@ -27,21 +27,21 @@ impl App {
     /// shows at once, read-only, and fills in as a background thread loads
     /// it. Nothing in the file is run (security.md, T1).
     pub fn open(&mut self, path: PathBuf) {
-        if let Some(buffer) = self.visit(path) {
+        if let Some(buffer) = self.visit(path, loader::UNASKED) {
             self.editor.show(buffer);
         }
         self.request_redraw();
     }
 
-    /// Adds a buffer for `path` and starts loading it. `None` if the loading
-    /// thread cannot start.
-    pub(super) fn visit(&mut self, path: PathBuf) -> Option<BufferId> {
+    /// Adds a buffer for `path` and starts loading it, if it holds at most `limit` bytes
+    /// ([`loader::spawn`]). `None` if the loading thread cannot start.
+    pub(super) fn visit(&mut self, path: PathBuf, limit: u64) -> Option<BufferId> {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
         let waker = self.waker.clone();
         let started = Instant::now();
-        let spawned = loader::spawn(buffer, path, move |buffer| {
+        let spawned = loader::spawn(buffer, path, limit, move |buffer| {
             waker.send(UserEvent::Load(buffer))
         });
         match spawned {
