@@ -19,12 +19,13 @@
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
 //! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], kills and
-//! yanks in [`kill`], and isearch in [`isearch`].
+//! yanks in [`kill`], isearch in [`isearch`], and files read again after they changed on disk
+//! in [`reload`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, EditError, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -41,6 +42,7 @@ mod isearch;
 mod kill;
 mod messages;
 mod prompts;
+mod reload;
 mod save;
 mod status;
 mod view;
@@ -51,6 +53,7 @@ pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
+pub use reload::{Leftover, ReloadOutcome};
 pub use save::{ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 
@@ -142,6 +145,8 @@ pub struct Editor {
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
     search_job: Option<SearchJob>,
+    /// Buffers a person asked to read again from their files, for the host (ADR 0083).
+    reverts: Vec<(BufferId, ContentId)>,
 }
 
 impl Default for Editor {
@@ -185,6 +190,7 @@ impl Editor {
             isearch: None,
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
+            reverts: Vec::new(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -978,6 +984,8 @@ mod isearch_tests;
 mod model_tests;
 #[cfg(test)]
 mod prompt_tests;
+#[cfg(test)]
+mod reload_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

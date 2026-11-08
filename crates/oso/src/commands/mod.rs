@@ -152,6 +152,7 @@ mod tests {
             "emergency-copy-recover",
             "emergency-copy-view",
             "recover-session",
+            "revert-buffer",
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",

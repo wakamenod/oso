@@ -17,6 +17,7 @@ mod mark;
 mod png;
 mod prompts;
 mod recovery;
+mod reload;
 #[cfg(all(target_os = "macos", feature = "native-window"))]
 mod secure;
 

@@ -415,11 +415,19 @@ The UI thread never blocks on I/O or parsing:
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+- Open files are looked at once a second, and when the window gains the focus, by a
+  thread that only `stat`s them (`loader::Watcher`). A file that changed under a buffer
+  with no unsaved edits is read again on a loading thread, which compares the new text
+  with the old one there. The UI puts it in as one undo step and maps every window's
+  cursors through the one changed span. A buffer with edits keeps them and warns. A reload
+  waits while a prompt is open (`Editor::reload_waits`)
+  ([ADR 0029](adr/0029-file-changes-on-disk.md),
+  [ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
-- The event loop's user event is an enum: loader wake-ups, save reports and what threads
-  find of emergency copies in every build, and control socket requests in dev builds.
+- The event loop's user event is an enum: loader wake-ups, save reports, the watcher's
+  reports and what threads find of emergency copies in every build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in
@@ -455,7 +463,7 @@ with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
 after the command and runs it on a thread (`saver`): a temporary file in the file's
 own directory, the file's owner, access list and mode, fsync, a check that the file on disk is
 where and what the buffer last read or wrote (its real location, modification time and
-size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
+size, and its device and inode where the system has them, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button ask before exiting while a buffer is modified
 or a save runs, and on oso's own macOS layer so does a person's request to quit, from the Dock
