@@ -6,12 +6,12 @@
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSWindow,
-    NSWindowDelegate, NSWindowOcclusionState,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
+    NSApplicationTerminateReply, NSWindow, NSWindowDelegate, NSWindowOcclusionState,
 };
 use objc2_foundation::{MainThreadMarker, NSNotification, NSObject, NSObjectProtocol};
 
-use super::{Delivery, State};
+use super::{Delivery, State, quit};
 use crate::window::Event;
 
 pub(super) struct Ivars {
@@ -57,7 +57,14 @@ define_class!(
             self.ivars().state.read_focus_for_secure_input();
         }
 
-        /// A Dock quit or a logout: AppKit ends the process after this returns.
+        /// The OS asks to end: a Dock quit, another app's request, or the end of the session.
+        /// The app answers, or holds the end for its answer (ADR 0070, ADR 0084).
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn should_terminate(&self, _sender: &NSApplication) -> NSApplicationTerminateReply {
+            self.ivars().state.quit_requested(quit::quit_reason_now())
+        }
+
+        /// The OS's request to end was answered yes: AppKit ends the process after this returns.
         #[unsafe(method(applicationWillTerminate:))]
         fn will_terminate(&self, _notification: &NSNotification) {
             self.ivars().state.exiting();

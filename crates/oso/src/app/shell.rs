@@ -67,6 +67,9 @@ impl Loop<'_> {
         self.0.exit();
     }
 
+    /// winit never asks the app whether to end, so it holds no end to answer (ADR 0084).
+    pub(super) fn answer_quit(&self, _yes: bool) {}
+
     /// Whether [`Loop::exit`] was called.
     pub(super) fn exiting(&self) -> bool {
         self.0.exiting()

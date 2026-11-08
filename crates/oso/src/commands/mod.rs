@@ -1,7 +1,8 @@
 //! The editor's commands (ADR 0034). Each is a plain function over the
-//! host-owned state in `Ctx`, registered with a docstring and an argument
-//! spec. Each feature has a module here with its own table of commands, and
-//! [`TABLES`] lists them. Default key bindings are in `bindings`.
+//! host-owned state in `Ctx`, registered with a docstring, an argument spec
+//! and a reach (ADR 0085). Each feature has a module here with its own table
+//! of commands, and [`TABLES`] lists them. Default key bindings are in
+//! `bindings`.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -83,7 +84,7 @@ pub fn registry() -> Registry {
 mod tests {
     use super::{TABLES, registry};
     use oso_core::buffer::Buffer;
-    use oso_core::command::{Args, Ctx, Effects, ExecuteError};
+    use oso_core::command::{ArgSpec, Args, Ctx, Effects, ExecuteError, Reach};
     use oso_core::editor::Editor;
     use oso_core::window::ViewSize;
 
@@ -122,5 +123,87 @@ mod tests {
     fn every_command_registers() {
         let commands: usize = TABLES.iter().map(|table| table.len()).sum();
         assert_eq!(registry().iter().len(), commands);
+    }
+
+    /// The commands the agent channel refuses (ADR 0085). A change here is a change to what an
+    /// agent may do in a person's editor, so it shows in review.
+    #[test]
+    fn the_agent_channel_refuses_what_needs_a_person() {
+        let mut person: Vec<&str> = registry()
+            .iter()
+            .filter(|(_, command)| command.reach == Reach::Person)
+            .map(|(_, command)| command.name)
+            .collect();
+        person.sort_unstable();
+        let mut expected = vec![
+            // Answering a prompt.
+            "answer-no",
+            "answer-yes",
+            "exit-minibuffer",
+            "next-history-element",
+            "previous-history-element",
+            // Emergency copies.
+            "emergency-copies-back",
+            "emergency-copies-refresh",
+            "emergency-copy-compare",
+            "emergency-copy-delete",
+            "emergency-copy-recover",
+            "emergency-copy-view",
+            "recover-session",
+            "revert-buffer",
+            // Exiting, and leaving what the person is doing.
+            "keyboard-quit",
+            "save-buffers-kill-terminal",
+            // Keys: the channel passes a count or text instead.
+            "digit-argument",
+            "negative-argument",
+            "self-insert-command",
+            "universal-argument",
+            // The OS clipboard.
+            "yank",
+        ];
+        #[cfg(feature = "dev")]
+        expected.extend(["dev-panic", "dev-read-passphrase"]);
+        expected.sort_unstable();
+        assert_eq!(person, expected);
+    }
+
+    /// A `Look` command changes no buffer text, with a region and with a count either way
+    /// (ADR 0085). What it may do to the kill ring and the clipboard, the channel decides.
+    #[test]
+    fn look_commands_change_no_text() {
+        let registry = registry();
+        let looks = registry
+            .iter()
+            .filter(|(_, command)| command.reach == Reach::Look);
+        for (id, command) in looks {
+            for args in [Args::NONE, Args::numeric(3), Args::numeric(-3)] {
+                let mut editor = editor("one two three\nfour five\n  six\n");
+                assert_eq!(run(&mut editor, "set-mark-command", Args::NONE).0, Ok(()));
+                assert_eq!(run(&mut editor, "forward-word", Args::numeric(2)).0, Ok(()));
+                let before = editor.current().1.content_id();
+                let mut ctx = Ctx::new(&mut editor);
+                // Failing is fine here: a motion at the end, or a number with no answer.
+                let _ = registry.execute(id, &mut ctx, args);
+                let buffer = editor.current().1;
+                assert_eq!(buffer.content_id(), before, "{} {args:?}", command.name);
+                assert!(!buffer.is_modified(), "{} {args:?}", command.name);
+            }
+        }
+    }
+
+    /// What a command's argument or name says it needs settles its reach, whatever the list
+    /// above holds (ADR 0085).
+    #[test]
+    fn passphrases_the_clipboard_and_dev_commands_need_a_person() {
+        for (_, command) in registry().iter() {
+            let needs_a_person = matches!(
+                command.args,
+                ArgSpec::Passphrase { .. } | ArgSpec::CountAndClipboard
+            ) || command.name.starts_with("dev-");
+            if needs_a_person {
+                assert_eq!(command.reach, Reach::Person, "{}", command.name);
+            }
+        }
     }
 }

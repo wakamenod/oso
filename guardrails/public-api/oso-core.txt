@@ -258,6 +258,19 @@ impl core::fmt::Debug for oso_core::command::Prefix
 pub fn oso_core::command::Prefix::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::command::Prefix
 impl core::marker::StructuralPartialEq for oso_core::command::Prefix
+pub enum oso_core::command::Reach
+pub oso_core::command::Reach::Change
+pub oso_core::command::Reach::Look
+pub oso_core::command::Reach::Person
+impl core::clone::Clone for oso_core::command::Reach
+pub fn oso_core::command::Reach::clone(&self) -> oso_core::command::Reach
+impl core::cmp::Eq for oso_core::command::Reach
+impl core::cmp::PartialEq for oso_core::command::Reach
+pub fn oso_core::command::Reach::eq(&self, &oso_core::command::Reach) -> bool
+impl core::fmt::Debug for oso_core::command::Reach
+pub fn oso_core::command::Reach::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::command::Reach
+impl core::marker::StructuralPartialEq for oso_core::command::Reach
 pub enum oso_core::command::RegisterError
 pub oso_core::command::RegisterError::BadName(&'static str)
 pub oso_core::command::RegisterError::Duplicate(&'static str)
@@ -296,6 +309,7 @@ pub struct oso_core::command::Command
 pub oso_core::command::Command::args: oso_core::command::ArgSpec
 pub oso_core::command::Command::doc: &'static str
 pub oso_core::command::Command::name: &'static str
+pub oso_core::command::Command::reach: oso_core::command::Reach
 pub oso_core::command::Command::run: oso_core::command::CommandFn
 impl core::clone::Clone for oso_core::command::Command
 pub fn oso_core::command::Command::clone(&self) -> oso_core::command::Command

@@ -1,6 +1,6 @@
 # 0074. The kill ring and the clipboard
 
-- Status: Accepted
+- Status: Accepted, amended by 0085
 - Date: 2026-11-08
 
 ## Context

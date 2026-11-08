@@ -13,7 +13,7 @@
 use std::borrow::Cow;
 
 use oso_core::buffer::{EditError, Replacement};
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot, TabWidth};
 use oso_core::motion::{self, Edge, WalkBudget};
 
@@ -35,48 +35,56 @@ pub const COMMANDS: &[Command] = &[
         name: "self-insert-command",
         doc: "Insert the typed character at every cursor, N times, in place of the region if it shows.\n\nSingle characters typed in a row undo together, up to 20 of them. A count over 1, text of several characters, or an input method's commit, is an undo step of its own. A negative N signals an error.",
         args: ArgSpec::Count,
+        reach: Reach::Person,
         run: self_insert_command,
     },
     Command {
         name: "insert-full-width-space",
         doc: "Insert a full-width space (U+3000) at every cursor, N times.\n\n`SPC` inserts a half-width one, also with a Japanese input source. It undoes with the typing around it, as one typed character does. A negative N signals an error.",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: insert_full_width_space,
     },
     Command {
         name: "newline",
         doc: "Insert a line break at every cursor, N times.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. Each is an undo step of its own. A negative N signals an error.",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: newline,
     },
     Command {
         name: "delete-backward-char",
         doc: "Delete the N characters before every cursor (after it if N is negative), or the region if it shows.\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters before it deletes nothing and signals \"Beginning of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: delete_backward_char,
     },
     Command {
         name: "delete-char",
         doc: "Delete the N characters after every cursor (before it if N is negative), or the region if it shows.\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters after it deletes nothing and signals \"End of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: delete_char,
     },
     Command {
         name: "tab-to-tab-stop",
         doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. Indenting by mode comes with modes.",
         args: ArgSpec::None,
+        reach: Reach::Change,
         run: tab_to_tab_stop,
     },
     Command {
         name: "undo",
         doc: "Undo the last N changes to the buffer (redo them if N is negative).\n\nThe cursors go back to where they were. With nothing more to undo, signal \"No further undo information\". After 256 changes, stop and signal \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: undo,
     },
     Command {
         name: "undo-redo",
         doc: "Redo the last N undone changes (undo if N is negative).\n\nAny edit after an undo discards what could be redone (ADR 0030). With nothing more to redo, signal \"No further redo information\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: undo_redo,
     },
 ];

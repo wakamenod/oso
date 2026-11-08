@@ -290,6 +290,7 @@ fn what_is_left_past_the_bound_on_follow_ups_does_not_run_later() {
             name: "ask-and-answer",
             doc: "Ask and answer at once.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: ask_and_answer,
         })
         .unwrap();

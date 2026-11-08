@@ -1,6 +1,7 @@
 //! Saving files and leaving: starting the saves commands asked for, taking in how they
-//! ended, the window's close button, and ending the event loop once saves have finished. An
-//! end nobody here agreed to is the OS's, and writes emergency copies (ADR 0062).
+//! ended, the window's close button, the OS's requests to end (ADR 0084), and ending the
+//! event loop once saves have finished. An end nobody here agreed to is the OS's, and writes
+//! emergency copies (ADR 0062).
 //!
 //! Must not depend on: key presses or how a frame is drawn. Files are written on the
 //! saver's threads, never here.
@@ -11,6 +12,8 @@ use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::saver::{self, AfterSave, SaveReport};
 use oso_platform::window::Held;
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+use oso_platform::window::{Event, QuitAnswer, QuitReason};
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
@@ -40,6 +43,7 @@ impl App {
         self.look_again_after_save(buffer);
         self.dispatcher.publish_for_emergency(&self.editor);
         self.copies_after_a_save(buffer, confirmed);
+        self.answer_session_end(event_loop);
         match self.leaving.save_ended(&self.editor, failed) {
             None | Some(AfterSave::KeepWaiting) => {}
             Some(AfterSave::Exit) => self.go(event_loop),
@@ -62,6 +66,61 @@ impl App {
         }
     }
 
+    /// The OS asks to end oso (ADR 0070, ADR 0084). A person's request, from the Dock or with
+    /// no reason, is guarded as `C-x C-c` is: it becomes oso's own close request, which may
+    /// ask about modified buffers or wait for saves, and the OS is told no. The end of the
+    /// session is never refused: it waits a few seconds for running saves, then the answer
+    /// is yes, and [`App::ending`] writes copies of what is at risk.
+    #[cfg(all(target_os = "macos", feature = "native-window"))]
+    pub(super) fn quit_requested(
+        &mut self,
+        event_loop: &Loop<'_>,
+        reason: QuitReason,
+    ) -> QuitAnswer {
+        match reason {
+            // As the window's close button: through the same path, which takes nothing once
+            // an exit is under way.
+            QuitReason::Person => {
+                self.handle_window_event(event_loop, Event::CloseRequested);
+                // With nothing to ask about or wait for, the close request has ended oso: yes.
+                if event_loop.exiting() {
+                    QuitAnswer::Now
+                } else {
+                    QuitAnswer::Cancel
+                }
+            }
+            QuitReason::SessionEnd => {
+                match self.leaving.begin_session_end(&self.editor, Instant::now()) {
+                    Some(_) => {
+                        self.set_wake(event_loop);
+                        QuitAnswer::Later
+                    }
+                    None => QuitAnswer::Now,
+                }
+            }
+        }
+    }
+
+    /// Lets the end of the session go once its saves have ended or its time is up. On winit
+    /// none waits, as winit never asks, so this does nothing there.
+    fn answer_session_end(&mut self, event_loop: &Loop<'_>) {
+        if self
+            .leaving
+            .take_session_end_if_ready(&self.editor, Instant::now())
+        {
+            event_loop.answer_quit(true);
+            self.set_wake(event_loop);
+        }
+    }
+
+    /// Wakes the loop for the next deadline of leaving, if any, and otherwise lets it sleep.
+    fn set_wake(&self, event_loop: &Loop<'_>) {
+        match self.leaving.next_wake() {
+            Some(deadline) => event_loop.wake_at(deadline),
+            None => event_loop.sleep_when_idle(),
+        }
+    }
+
     /// Exits: at once, or if a save is running, once it has ended. A save the user asked
     /// for should not depend on how fast they leave, and a process that ends mid-write
     /// would leave its temporary file behind. The event loop keeps running until then, so
@@ -69,11 +128,15 @@ impl App {
     ///
     /// `anyway` is for the socket's `exit`, which means to go whatever the buffers hold.
     pub(super) fn leave(&mut self, event_loop: &Loop<'_>, anyway: bool) {
-        let Some(deadline) = self.leaving.begin(&self.editor, anyway, Instant::now()) else {
+        if self
+            .leaving
+            .begin(&self.editor, anyway, Instant::now())
+            .is_none()
+        {
             self.go(event_loop);
             return;
-        };
-        event_loop.wake_at(deadline);
+        }
+        self.set_wake(event_loop);
         if let Some(view) = &self.view {
             view.window.set_visible(false);
         }
@@ -81,6 +144,10 @@ impl App {
 
     /// Ends the event loop, as this instance has agreed to, so that nothing is written.
     fn go(&mut self, event_loop: &Loop<'_>) {
+        // An end of the session the OS holds for an answer goes with this one.
+        if self.leaving.take_session_end() {
+            event_loop.answer_quit(true);
+        }
         self.leaving.go();
         event_loop.exit();
     }
@@ -100,6 +167,7 @@ impl App {
 
     /// Acts on a save that has held an exit for too long.
     pub(super) fn check_leaving(&mut self, event_loop: &Loop<'_>) {
+        self.answer_session_end(event_loop);
         match self.leaving.check_deadline(&self.editor, Instant::now()) {
             None | Some(AfterSave::KeepWaiting) => {}
             Some(AfterSave::Exit) => {
@@ -120,7 +188,7 @@ impl App {
 
     /// Takes a leave back: the window returns, with the message that says why.
     fn stay_open(&mut self, event_loop: &Loop<'_>) {
-        event_loop.sleep_when_idle();
+        self.set_wake(event_loop);
         // The key that confirmed the exit may have held Control. Its release, if it reached
         // the hidden window at all, may be gone, and the system says again when one is held.
         self.modifiers = Held::NONE;

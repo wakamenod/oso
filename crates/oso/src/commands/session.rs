@@ -4,7 +4,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::Quit;
 
 /// The session commands.
@@ -13,12 +13,14 @@ pub const COMMANDS: &[Command] = &[
         name: "keyboard-quit",
         doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, and then the innermost prompt or question closes, and runs nothing.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: keyboard_quit,
     },
     Command {
         name: "save-buffers-kill-terminal",
         doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer or a save running, this asks whether to exit without saving, and says how many. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: save_buffers_kill_terminal,
     },
 ];

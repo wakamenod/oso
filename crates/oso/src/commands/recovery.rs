@@ -4,7 +4,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the host-owned state
 //! and does not know its keys.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::RecoveryAction;
 
 /// The commands for emergency copies.
@@ -13,42 +13,49 @@ pub const COMMANDS: &[Command] = &[
         name: "recover-session",
         doc: "Show the emergency copies waiting for an answer, or go back from them.\n\nIn the list, `v` looks at a copy, `=` compares it with its file, `r` recovers it, and `d` deletes it. Nothing is written to a file until it is saved.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: recover_session,
     },
     Command {
         name: "emergency-copy-view",
         doc: "Show the text of the copy on this row, read-only.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: view,
     },
     Command {
         name: "emergency-copy-compare",
         doc: "Show how the copy on this row differs from its file.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: compare,
     },
     Command {
         name: "emergency-copy-recover",
         doc: "Put the copy's text in its file's buffer, once it has been shown.\n\nThe first time, this shows the text. Repeated there, it replaces the buffer's text as one undo step. The buffer is then modified, and the file is untouched until it is saved. The copy goes once that save has reached the disk.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: recover,
     },
     Command {
         name: "emergency-copy-delete",
         doc: "Delete the copy on this row, when repeated.\n\nThe first time, this says what the second does. Any other key cancels it. With several cursors, it takes each cursor's row. A copy deleted cannot be brought back.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: delete,
     },
     Command {
         name: "emergency-copies-refresh",
         doc: "Read the directory of emergency copies again, for what another instance has written.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: refresh,
     },
     Command {
         name: "emergency-copies-back",
         doc: "Go from a copy to the list, or from the list to where the window was.",
         args: ArgSpec::None,
+        reach: Reach::Person,
         run: back,
     },
 ];

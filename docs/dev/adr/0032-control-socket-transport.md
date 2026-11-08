@@ -1,6 +1,6 @@
 # 0032. Control socket transport, limits and release check
 
-- Status: Accepted
+- Status: Accepted, amended by 0085
 - Date: 2026-11-03
 
 ## Context

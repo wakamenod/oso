@@ -3,8 +3,8 @@
 //! Must not depend on: `keymap`, key presses or the concrete commands, which
 //! the tip crate registers.
 //!
-//! A [`Command`] is a name, a docstring, an argument spec and a plain
-//! function over host-owned state: `fn(&mut Ctx, Args) -> Result<(),
+//! A [`Command`] is a name, a docstring, an argument spec, a [`Reach`] and a
+//! plain function over host-owned state: `fn(&mut Ctx, Args) -> Result<(),
 //! CommandError>`. The host owns a [`Registry`] and the [`Editor`], and
 //! lends the editor to each command through a [`Ctx`]. Commands keep no
 //! state of their own, which keeps them testable and restartable.
@@ -37,6 +37,9 @@ pub struct Command {
     pub doc: &'static str,
     /// Which arguments the command takes.
     pub args: ArgSpec,
+    /// How far the agent channel may reach it (ADR 0085). It has no default, so that each
+    /// command decides.
+    pub reach: Reach,
     /// The function that runs it.
     pub run: CommandFn,
 }
@@ -46,8 +49,26 @@ impl fmt::Debug for Command {
         f.debug_struct("Command")
             .field("name", &self.name)
             .field("args", &self.args)
+            .field("reach", &self.reach)
             .finish_non_exhaustive()
     }
+}
+
+/// How far the agent channel may reach a command (ADR 0085). The agent channel enforces it.
+/// Keys, `M-x` and the dev control socket's `run-command`, which trusts the same user
+/// (ADR 0044), reach every command whatever it says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// Moves, marks, shows or opens, and changes no buffer text and no file. Copying to the
+    /// kill ring is one: from the channel it never reaches the OS clipboard.
+    Look,
+    /// Edits buffer text or saves.
+    Change,
+    /// Needs a person at the keyboard, and the channel refuses it. Either it must stay the
+    /// person's (exiting, answering a prompt, reading the clipboard, a passphrase, anything
+    /// that spawns a process, trusts a project, or shows what a buffer that may hold secrets
+    /// withholds), or it reads a key, which the channel replaces with a count or text.
+    Person,
 }
 
 /// Which arguments a command takes. It documents the command
@@ -556,7 +577,7 @@ fn is_command_name(name: &str) -> bool {
 mod tests {
     use super::{
         ArgSpec, Args, Command, CommandError, CommandId, Ctx, Effects, ExecuteError, Invocation,
-        Prefix, RegisterError, Registry,
+        Prefix, Reach, RegisterError, Registry,
     };
     use crate::editor::Editor;
     use crate::window::Scroll;
@@ -596,6 +617,7 @@ mod tests {
             name,
             doc: "A test command.",
             args: ArgSpec::Count,
+            reach: Reach::Look,
             run,
         }
     }
