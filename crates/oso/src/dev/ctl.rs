@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::time::Duration;
 
-use oso_platform::control::ControlDir;
+use oso_platform::control::{ControlDir, Socket};
 use serde_json::{Value, json};
 
 use super::protocol::{self, MAX_LINE};
@@ -42,6 +42,9 @@ methods:
   ime JSON          reports what the OS's input method would, such as
                     '{\"preedit\": \"にほ\", \"range\": [6, 6]}', '{\"commit\": \"日本\"}',
                     '{\"clear\": true}' or '{\"disabled\": true}'
+  clipboard [JSON]  reads the clipboard in memory, or sets it as another app would,
+                    with '{\"text\": \"copied\"}' or '{\"text\": \"pw\", \"concealed\": true}';
+                    only in an instance started with --clipboard memory
 
 Secret-pattern files (ADR 0044): get-state and get-text return no text for them,
 and screenshot fails while one is shown.
@@ -165,6 +168,10 @@ fn parse_params(
             let report: Value = serde_json::from_str(&report).map_err(|e| format!("ime: {e}"))?;
             Some(report)
         }
+        "clipboard" => positional
+            .next()
+            .map(|set| serde_json::from_str::<Value>(&set).map_err(|e| format!("clipboard: {e}")))
+            .transpose()?,
         "send-keys" => {
             let keys = positional.next().ok_or("send-keys needs KEYS")?;
             Some(json!({ "keys": keys }))
@@ -242,7 +249,7 @@ pub fn exchange_within(
     params: Option<Value>,
     patience: Duration,
 ) -> io::Result<String> {
-    let (_, stream) = dir.connect(pid)?;
+    let (_, stream) = dir.connect(Socket::Dev, pid)?;
     stream.set_read_timeout(Some(patience))?;
     stream.set_write_timeout(Some(patience))?;
     let mut writer = stream.try_clone()?;
@@ -395,6 +402,9 @@ mod tests {
 
     #[test]
     fn ime_takes_a_report_as_json() {
+        let parsed = parse(&["clipboard", r#"{"text":"a"}"#]).unwrap().unwrap();
+        assert_eq!(parsed.params, Some(json!({ "text": "a" })));
+        assert_eq!(parse(&["clipboard"]).unwrap().unwrap().params, None);
         let parsed = parse(&["ime", r#"{"commit":"日本"}"#]).unwrap().unwrap();
         assert_eq!(parsed.params, Some(json!({ "commit": "日本" })));
         assert_eq!(parse(&["ime"]), Err("ime needs JSON".into()));

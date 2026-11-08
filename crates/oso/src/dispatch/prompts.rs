@@ -14,7 +14,7 @@ use oso_core::command::{ArgSpec, Args, CommandId, Effects, ExecuteError, Invocat
 use oso_core::editor::Editor;
 use oso_core::minibuffer::{Kind, Outcome, PromptId};
 
-use super::{Dispatcher, Step};
+use super::{Dispatcher, Step, extended};
 
 /// A command waiting for the answer of the prompt `prompt`.
 pub(super) struct Reading {
@@ -23,6 +23,8 @@ pub(super) struct Reading {
     prompt: PromptId,
     /// The answer is a passphrase.
     passphrase: bool,
+    /// The answer names a command, which runs in its place, as `M-x` does (ADR 0076).
+    runs_answer: bool,
 }
 
 /// The most commands one key runs through prompts that end: a question's answer runs
@@ -39,8 +41,8 @@ fn stands_for_number(prefix: Option<Prefix>) -> Option<isize> {
 }
 
 impl Dispatcher {
-    /// Runs the command `id`, or first opens a prompt for what its spec reads. Returns
-    /// what the host should do.
+    /// Runs the command `id`, or first opens a prompt for what its spec reads, or waits for
+    /// the clipboard. Returns what the host should do.
     pub(super) fn run_or_read(
         &mut self,
         editor: &mut Editor,
@@ -67,15 +69,31 @@ impl Dispatcher {
                 )
             }
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
+            // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
+            Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
+                self.wait_for_clipboard(editor, id, args, &invocation);
+                return (Effects::default(), Ok(()));
+            }
+            Some(ArgSpec::Command { prompt, history }) => (prompt, Kind::Complete { history }),
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;
-        match editor.open_prompt(prompt, kind) {
+        // `M-x` completes over the commands, and runs the one named in its place (ADR 0076).
+        let runs_answer = matches!(spec, Some(ArgSpec::Command { .. }));
+        let opened = match kind {
+            Kind::Complete { history } if runs_answer => {
+                let items = self.command_candidates(editor);
+                editor.open_completion(extended::with_prefix(prompt, args.raw()), history, items)
+            }
+            _ => editor.open_prompt(prompt, kind),
+        };
+        match opened {
             Ok(prompt) => self.reading.push(Reading {
                 id,
                 prefix: args.raw(),
                 prompt,
                 passphrase: kind == Kind::Passphrase,
+                runs_answer,
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
@@ -105,11 +123,14 @@ impl Dispatcher {
                         waiting.as_ref().is_some_and(|reading| reading.passphrase);
                     self.forget_closed(editor);
                     waiting.map(|reading| {
+                        let args = Args::with_prefix(reading.prefix);
+                        if reading.runs_answer {
+                            return self.run_answer(editor, &text, args);
+                        }
                         let invocation = Invocation {
                             answer: Some(&text),
                             ..Invocation::default()
                         };
-                        let args = Args::with_prefix(reading.prefix);
                         self.execute(editor, reading.id, args, invocation, Step::MayJoin)
                             .0
                     })
@@ -167,12 +188,25 @@ impl Dispatcher {
         // As a key would: a prefix key or argument in progress is dropped, not carried under
         // the question.
         self.resolver.reset();
-        self.forget_keys();
+        self.forget_keys(editor);
         self.show_keys_in_progress(editor);
         let effects = self
             .execute(editor, id, Args::NONE, Invocation::default(), Step::MayJoin)
             .0;
         effects.union(self.after_prompts(editor))
+    }
+
+    /// Runs the command named `name`, given to `M-x`, with `M-x`'s prefix argument, reading
+    /// first what it reads (ADR 0076).
+    fn run_answer(&mut self, editor: &mut Editor, name: &str, args: Args) -> Effects {
+        let Some(id) = self.registry.lookup(name) else {
+            // The prompt gives only a candidate, and every candidate is a command.
+            log::error!("M-x gave no command's name");
+            editor.message(format!("No command named {name}"));
+            return Effects::default();
+        };
+        let (effects, _) = self.run_or_read(editor, id, args, Invocation::default());
+        effects
     }
 
     /// Drops the commands that waited for a prompt now closed with no answer.

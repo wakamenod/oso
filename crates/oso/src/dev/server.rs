@@ -274,7 +274,7 @@ fn version() -> Value {
 mod tests {
     use super::{IDLE_TIMEOUT, MAX_CLIENTS, UiRequest, serve, spawn, spawn_with_idle_timeout};
     use crate::dev::protocol::{self, MAX_LINE, UiOp};
-    use oso_platform::control::{ControlDir, ControlStream};
+    use oso_platform::control::{ControlDir, ControlStream, Socket};
     use serde_json::{Value, json};
     use std::fs::{self, Permissions};
     use std::io::{BufRead, BufReader, Read, Write};
@@ -298,7 +298,9 @@ mod tests {
             UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
             UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),
             UiOp::ShowBuffer(buffer) => Ok(json!({ "buffer": buffer })),
-            UiOp::Panic | UiOp::EndUnasked | UiOp::Ime(_) => Err("not in this fake".to_owned()),
+            UiOp::Panic | UiOp::EndUnasked | UiOp::Ime(_) | UiOp::Clipboard(_) => {
+                Err("not in this fake".to_owned())
+            }
             UiOp::CheckHandover | UiOp::ExportState | UiOp::ImportState(_) | UiOp::Exit { .. } => {
                 Ok(json!({}))
             }
@@ -532,16 +534,16 @@ mod tests {
     #[test]
     fn idle_clients_give_their_slots_back() {
         let (dir, scratch) = control_dir();
-        let listener = dir.bind().unwrap();
+        let listener = dir.listen(Socket::Dev).unwrap();
         let cleanup = listener.cleanup_guard();
         spawn_with_idle_timeout(listener, fake_ui, Duration::from_secs(1)).unwrap();
 
         // Every slot is taken by a client that never sends anything.
         let idle: Vec<_> = (0..MAX_CLIENTS)
-            .map(|_| dir.connect(None).unwrap().1)
+            .map(|_| dir.connect(Socket::Dev, None).unwrap().1)
             .collect();
         thread::sleep(Duration::from_millis(50));
-        let (_, mut extra) = dir.connect(None).unwrap();
+        let (_, mut extra) = dir.connect(Socket::Dev, None).unwrap();
         let _ = writeln!(extra, "{}", protocol::request(1, "version", None));
         let mut response = String::new();
         let _ = BufReader::new(extra).read_line(&mut response);
@@ -549,7 +551,7 @@ mod tests {
 
         // Once they time out, a new client is served.
         thread::sleep(Duration::from_millis(1500));
-        let (_, client) = dir.connect(None).unwrap();
+        let (_, client) = dir.connect(Socket::Dev, None).unwrap();
         let mut reader = BufReader::new(client.try_clone().unwrap());
         let mut writer = client;
         let response = call(
@@ -578,14 +580,14 @@ mod tests {
     #[test]
     fn serves_over_a_real_socket_and_limits_clients() {
         let (dir, scratch) = control_dir();
-        let listener = dir.bind().unwrap();
+        let listener = dir.listen(Socket::Dev).unwrap();
         let cleanup = listener.cleanup_guard();
         spawn(listener, fake_ui).unwrap();
 
         // Fill every slot; each client proves it is served.
         let mut clients = Vec::new();
         for id in 0..MAX_CLIENTS {
-            let (_, client) = dir.connect(None).unwrap();
+            let (_, client) = dir.connect(Socket::Dev, None).unwrap();
             let mut reader = BufReader::new(client.try_clone().unwrap());
             let mut writer = client;
             let id = u64::try_from(id).unwrap();
@@ -598,7 +600,7 @@ mod tests {
             clients.push((reader, writer));
         }
         // One more is refused with an error and closed.
-        let (_, extra) = dir.connect(None).unwrap();
+        let (_, extra) = dir.connect(Socket::Dev, None).unwrap();
         let mut response = String::new();
         BufReader::new(extra).read_line(&mut response).unwrap();
         assert!(response.contains("too many control clients"), "{response}");
@@ -609,7 +611,7 @@ mod tests {
         for _ in 0..50 {
             // Until the slot is free, the connection may be refused and
             // closed, so errors here only mean "try again".
-            let (_, mut client) = dir.connect(None).unwrap();
+            let (_, mut client) = dir.connect(Socket::Dev, None).unwrap();
             let request = protocol::request(9, "version", None);
             let _ = writeln!(client, "{request}");
             let mut response = String::new();

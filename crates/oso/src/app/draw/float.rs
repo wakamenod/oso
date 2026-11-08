@@ -1,22 +1,26 @@
-//! The panes of an open prompt's float: its background and border, what it says, the
-//! answer and a message (ADR 0072).
+//! The panes of an open prompt's float: its panel, what it says, the answer or a
+//! question's keys, a message, and a list's candidates and count (ADR 0072, ADR 0075,
+//! ADR 0076).
 //!
 //! Must not depend on: key presses or commands; a frame only reads the editor's state.
 //!
-//! The float's background and border are one pane in [`Layer::FLOAT`], over the tiled
-//! panes, and what it shows is in [`Layer::FLOAT_CONTENT`], in panes that never overlap
-//! one another. A passphrase shows one `*` per character, and nothing of it reaches a
+//! The float's panel, with its field and key chips, is one pane in [`Layer::FLOAT`], over
+//! the tiled panes, and what it shows is in [`Layer::FLOAT_CONTENT`], in panes that never
+//! overlap one another. A passphrase shows one `*` per character, and nothing of it reaches a
 //! pane.
 
+use std::ops::Range;
+
+use oso_core::complete::Candidates;
 use oso_core::editor::Editor;
 use oso_core::frame::CellRect;
-use oso_core::minibuffer::{self, Kind, PromptLayout};
+use oso_core::minibuffer::{self, Kind, PromptLayout, cells_of};
 use oso_render::{
-    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView,
+    Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
 
 /// The most panes a float takes.
-pub(super) const MAX_PANES: usize = 5;
+pub(super) const MAX_PANES: usize = 7;
 
 /// What the innermost prompt shows, worked out for one frame.
 pub(super) struct Parts<'a> {
@@ -26,6 +30,10 @@ pub(super) struct Parts<'a> {
     message: Option<&'a str>,
     /// For a passphrase: one `*` per character in view, and the cursor's column among them.
     mask: Option<(String, usize)>,
+    /// For a prompt that completes: its candidates, and its count, such as `3/57`.
+    list: Option<(&'a Candidates, String)>,
+    /// The cells of a region in the answer.
+    region: Vec<CellRect>,
 }
 
 impl<'a> Parts<'a> {
@@ -39,37 +47,74 @@ impl<'a> Parts<'a> {
             let (stars, column) = minibuffer::mask(buffer.text(), cursor, layout.input.columns);
             ("*".repeat(stars), column)
         });
+        let list = prompt.candidates().map(|candidates| {
+            let place = candidates.selected().map_or(0, |place| place + 1);
+            (candidates, format!("{place}/{}", candidates.len()))
+        });
+        let mut region = Vec::new();
+        editor.prompt_region_cells(&mut region);
         Some(Self {
             layout,
             label: prompt.label(),
             kind: prompt.kind(),
             message: prompt.message(),
             mask,
+            list,
+            region,
         })
+    }
+
+    /// The spans of the candidate rows shown, their annotations in one column, and of the
+    /// count.
+    fn list_spans(&self) -> (Vec<Vec<Span<'_>>>, [Span<'_>; 2]) {
+        let Some((candidates, count)) = &self.list else {
+            return (Vec::new(), [blank(), blank()]);
+        };
+        let count = [
+            Span {
+                text: count,
+                face: Face::CompletionPrompt,
+            },
+            blank(),
+        ];
+        let shown = self.layout.regions.candidates;
+        let named = candidates
+            .shown(shown.rows)
+            .map(|(_, candidate)| (candidate.text(), candidate.binding()));
+        let column = minibuffer::annotation_column(named, shown.columns);
+        let mut highlights = Vec::new();
+        let rows = candidates
+            .shown(shown.rows)
+            .map(|(_, candidate)| {
+                candidates.query().highlights(candidate, &mut highlights);
+                candidate_spans(candidate, &highlights, shown.columns, column)
+            })
+            .collect();
+        (rows, count)
     }
 
     /// The spans of its rows.
     pub(super) fn spans(&self) -> Spans<'_> {
+        // A question's label reads as the text does, a prompt's is dim beside its answer, and a
+        // completion's takes its count's accent.
+        let face = if self.kind.is_question() {
+            Face::Float
+        } else if self.list.is_some() {
+            Face::CompletionPrompt
+        } else {
+            Face::Prompt
+        };
         let rows = &self.layout.label;
         let label = rows
             .iter()
             .enumerate()
             .map(|(index, range)| {
-                let last = index + 1 == rows.len();
-                let cut = if last && self.layout.label_cut {
+                let cut = if index + 1 == rows.len() && self.layout.label_cut {
                     minibuffer::CUT
                 } else {
                     ""
                 };
-                let suffix = if last {
-                    &self.label[self.layout.suffix.clone()]
-                } else {
-                    ""
-                };
-                [&self.label[range.clone()], cut, suffix].map(|text| Span {
-                    text,
-                    face: Face::Prompt,
-                })
+                [&self.label[range.clone()], cut].map(|text| Span { text, face })
             })
             .collect();
         let (said, cut) =
@@ -78,36 +123,194 @@ impl<'a> Parts<'a> {
             text,
             face: Face::Float,
         });
-        Spans { label, message }
+        let (candidates, count) = self.list_spans();
+        Spans {
+            label,
+            message,
+            keys: self.keys(),
+            candidates,
+            count,
+            region: &self.region,
+        }
     }
+
+    /// A question's keys and their verbs, each at the column `minibuffer::layout` gives it,
+    /// from the first key's: spaces up to it, then what it shows. Empty for a prompt.
+    fn keys(&self) -> [Span<'a>; 12] {
+        let mut spans = std::array::from_fn(|_| Span {
+            text: "",
+            face: Face::Float,
+        });
+        let Kind::Question { verbs, .. } = self.kind else {
+            return spans;
+        };
+        let [y, n] = self.layout.keys;
+        let [yes, no] = self.layout.verbs;
+        let mut at = y.column;
+        let parts = [
+            (y, ["", minibuffer::KEYS[0]], Face::Key),
+            (yes, [" ", verbs[0]], Face::Prompt),
+            (n, ["", minibuffer::KEYS[1]], Face::Key),
+            (no, [" ", verbs[1]], Face::Prompt),
+        ];
+        for (index, (cells, texts, face)) in parts.into_iter().enumerate() {
+            if cells.columns == 0 {
+                continue;
+            }
+            let gap = cells.column.saturating_sub(at).min(SPACES.len());
+            spans[index * 3] = Span {
+                text: &SPACES[..gap],
+                face: Face::Float,
+            };
+            spans[index * 3 + 1] = Span {
+                text: texts[0],
+                face,
+            };
+            spans[index * 3 + 2] = Span {
+                text: texts[1],
+                face,
+            };
+            at = cells.column + cells.columns;
+        }
+        spans
+    }
+}
+
+/// Spaces for the gaps between a question's keys and in a candidate's row.
+const SPACES: &str = concat!(
+    "                                                                ",
+    "                                                                ",
+    "                                                                ",
+    "                                                                ",
+);
+
+/// `n` spaces, at most as many as [`SPACES`] holds.
+fn spaces(n: usize) -> &'static str {
+    &SPACES[..n.min(SPACES.len())]
+}
+
+/// Pushes `n` spaces onto `spans`, in pieces of [`SPACES`], so that no gap is cut short however
+/// wide the row.
+fn push_spaces(spans: &mut Vec<Span<'_>>, mut n: usize) {
+    while n > 0 {
+        let text = spaces(n);
+        spans.push(Span {
+            text,
+            face: Face::Float,
+        });
+        n -= text.len();
+    }
+}
+
+fn blank<'a>() -> Span<'a> {
+    Span {
+        text: "",
+        face: Face::Float,
+    }
+}
+
+/// The spans of a candidate's row of `columns` cells: its text with what matched in
+/// [`Face::CompletionMatch`], its binding in parentheses, and its annotation at `column`, as
+/// `minibuffer::candidate_row` places them.
+fn candidate_spans<'a>(
+    candidate: &'a oso_core::complete::Candidate,
+    highlights: &[Range<usize>],
+    columns: usize,
+    column: usize,
+) -> Vec<Span<'a>> {
+    let text = candidate.text();
+    let (binding, annotation) = (candidate.binding(), candidate.annotation());
+    let row = minibuffer::candidate_row(text, binding, annotation, columns, column);
+    let shown = &text[..row.text];
+    let mut spans = Vec::with_capacity(2 * highlights.len() + 6);
+    let mut at = 0;
+    for range in highlights {
+        let (start, end) = (range.start.min(shown.len()), range.end.min(shown.len()));
+        if start >= end {
+            continue;
+        }
+        spans.push(Span {
+            text: &shown[at..start],
+            face: Face::Float,
+        });
+        spans.push(Span {
+            text: &shown[start..end],
+            face: Face::CompletionMatch,
+        });
+        at = end;
+    }
+    spans.push(Span {
+        text: &shown[at..],
+        face: Face::Float,
+    });
+    let mut used = cells_of(shown);
+    if row.text_cut {
+        spans.push(Span {
+            text: minibuffer::CUT,
+            face: Face::Float,
+        });
+        used += 1;
+    }
+    if let Some(column) = row.binding {
+        push_spaces(&mut spans, column.saturating_sub(used));
+        for text in [minibuffer::BINDING_OPEN, binding, minibuffer::BINDING_CLOSE] {
+            spans.push(Span {
+                text,
+                face: Face::CompletionBinding,
+            });
+        }
+        used = column + cells_of(binding) + 2;
+    }
+    if let Some((column, bytes, cut)) = row.annotation {
+        push_spaces(&mut spans, column.saturating_sub(used));
+        spans.push(Span {
+            text: &candidate.annotation()[..bytes],
+            face: Face::CompletionAnnotation,
+        });
+        if cut {
+            spans.push(Span {
+                text: minibuffer::CUT,
+                face: Face::CompletionAnnotation,
+            });
+        }
+    }
+    spans
 }
 
 /// The spans of a float's rows, which its lines borrow.
 pub(super) struct Spans<'a> {
-    label: Vec<[Span<'a>; 3]>,
+    label: Vec<[Span<'a>; 2]>,
     message: [Span<'a>; 4],
+    keys: [Span<'a>; 12],
+    candidates: Vec<Vec<Span<'a>>>,
+    count: [Span<'a>; 2],
+    /// The cells of a region in the answer.
+    region: &'a [CellRect],
 }
 
 impl<'a> Spans<'a> {
     /// The rows as the panes take them.
     pub(super) fn lines(&'a self) -> Lines<'a> {
-        let mut label: Vec<&[Span<'a>]> = self.label.iter().map(|row| &row[..]).collect();
-        let last = label.pop().map_or([&[][..]], |row| [row]);
         Lines {
-            label,
-            last,
+            label: self.label.iter().map(|row| &row[..]).collect(),
             message: [&self.message],
+            keys: [&self.keys],
+            candidates: self.candidates.iter().map(|row| &row[..]).collect(),
+            count: [&self.count],
+            fills: [(Face::Region, self.region)],
         }
     }
 }
 
 /// A float's rows, as [`PaneContent::Lines`] takes them.
 pub(super) struct Lines<'a> {
-    /// The label's rows but the last.
     label: Vec<&'a [Span<'a>]>,
-    /// The label's last row, which the answer follows.
-    last: [&'a [Span<'a>]; 1],
     message: [&'a [Span<'a>]; 1],
+    keys: [&'a [Span<'a>]; 1],
+    candidates: Vec<&'a [Span<'a>]>,
+    count: [&'a [Span<'a>]; 1],
+    /// What the answer's pane fills behind its text: its region (ADR 0076).
+    fills: [(Face, &'a [CellRect]); 1],
 }
 
 /// Adds the float's panes to `list`, after the tiled ones.
@@ -120,59 +323,70 @@ pub(super) fn panes<'a>(
     let layout = &parts.layout;
     let regions = layout.regions;
     let inner = regions.inner;
+    // A frame of no rows has no room for a float.
+    if inner.rows == 0 {
+        return;
+    }
+    // The answer's row, or the keys'.
+    let last = inner.row + inner.rows - 1;
     // A pane's glyphs keep a band only into the float's padding, where its region borders on
-    // it, so that none draws over another pane of the float or outside it (ADR 0072).
-    let framed = regions.framed();
+    // it, and each row of padding goes to the panes of one row at most, so that no glyph draws
+    // over another pane of the float or outside it (ADR 0072, ADR 0075). The gap and the
+    // padding below both go to the answer's row; the label keeps to its own rows.
     let content = |id, region: CellRect, content| Pane {
         id: PaneId(id),
         region,
         layer: Layer::FLOAT_CONTENT,
         background: None,
-        border: None,
+        panel: None,
         bands: Bands {
-            above: framed && region.row == inner.row,
-            below: framed && region.row + region.rows == inner.row + inner.rows,
+            above: regions.gap && region.row == last,
+            below: regions.padded_below() && region.row == last,
         },
         content,
     };
+    let field = Some(layout.field).filter(|field| field.columns > 0);
+    let keys: &[CellRect] = if parts.kind.is_question() {
+        &layout.keys
+    } else {
+        &[]
+    };
+    // The panel's pane is the text area beneath, which its shadow stays in (ADR 0075).
     list.push(Pane {
         id: PaneId(3),
-        region: regions.outer,
+        region: editor.frame().window.text,
         layer: Layer::FLOAT,
-        background: Some(Face::Float),
-        border: framed.then_some(Face::FloatBorder),
+        background: None,
+        panel: Some(Panel {
+            cells: regions.outer,
+            field,
+            field_room: layout.field_room,
+            keys,
+            selected: selected_row(parts),
+            // A completion's float sits at the center, framed by a border (ADR 0076).
+            border: parts.list.is_some(),
+        }),
         bands: Bands::NONE,
         content: PaneContent::Lines(&[]),
     });
-    // The label's rows above the answer's row, as many as the float holds there. In a frame
-    // too short for all of them, the last row, with the answer or `(y or n)`, is the one kept.
-    let row = layout.input.row;
-    let above = (row - inner.row).min(lines.label.len());
-    if above > 0 {
-        let region = CellRect {
-            rows: above,
-            ..inner
-        };
+    if layout.label_cells.rows > 0 && layout.label_cells.columns > 0 {
         list.push(content(
             4,
-            region,
-            PaneContent::Lines(&lines.label[..above]),
+            layout.label_cells,
+            PaneContent::Lines(&lines.label),
         ));
     }
-    let end = if parts.kind.is_question() {
-        layout.message.column.min(inner.column + inner.columns)
-    } else {
-        layout.input.column
-    };
-    let last = CellRect {
-        row,
-        column: inner.column,
-        rows: usize::from(inner.rows > 0),
-        columns: end - inner.column,
-    };
-    list.push(content(5, last, PaneContent::Lines(&lines.last)));
+    let [y, _] = layout.keys;
+    if parts.kind.is_question() && y.columns > 0 {
+        let end = inner.column + inner.columns;
+        let region = CellRect {
+            columns: end - y.column,
+            ..y
+        };
+        list.push(content(5, region, PaneContent::Lines(&lines.keys)));
+    }
     if layout.input.columns > 0 {
-        list.push(content(6, layout.input, answer(editor, parts)));
+        list.push(content(6, layout.input, answer(editor, parts, lines)));
     }
     if parts.message.is_some() && layout.message.columns > 0 {
         list.push(content(
@@ -181,11 +395,58 @@ pub(super) fn panes<'a>(
             PaneContent::Lines(&lines.message),
         ));
     }
+    list_panes(parts, lines, list);
+}
+
+/// Adds a list's panes to `list`: its count, and its candidates' rows, which keep the padding
+/// after them and none of the answer's above (ADR 0076).
+fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pane<'a>>) {
+    let layout = &parts.layout;
+    let regions = layout.regions;
+    let count = Pane {
+        id: PaneId(8),
+        region: layout.count,
+        layer: Layer::FLOAT_CONTENT,
+        background: None,
+        panel: None,
+        bands: Bands::NONE,
+        content: PaneContent::Lines(&lines.count),
+    };
+    if parts.list.is_some() && layout.count.columns > 0 {
+        list.push(count);
+    }
+    let candidates = regions.candidates;
+    if parts.list.is_some() && candidates.rows > 0 && candidates.columns > 0 {
+        list.push(Pane {
+            id: PaneId(9),
+            region: candidates,
+            layer: Layer::FLOAT_CONTENT,
+            background: None,
+            panel: None,
+            bands: Bands {
+                above: false,
+                below: regions.candidates_padded(),
+            },
+            content: PaneContent::Lines(&lines.candidates),
+        });
+    }
+}
+
+/// The cells of the selected candidate's row, while it shows.
+fn selected_row(parts: &Parts<'_>) -> Option<CellRect> {
+    let (candidates, _) = parts.list.as_ref()?;
+    let rows = parts.layout.regions.candidates;
+    let place = candidates.selected()?.checked_sub(candidates.top())?;
+    (place < rows.rows).then_some(CellRect {
+        row: rows.row + place,
+        rows: 1,
+        ..rows
+    })
 }
 
 /// What the answer's pane shows: the prompt's window, or one `*` per character of a
 /// passphrase.
-fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>) -> PaneContent<'a> {
+fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) -> PaneContent<'a> {
     if let Some((text, cursor)) = &parts.mask {
         return PaneContent::Masked(Masked {
             text,
@@ -203,7 +464,6 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>) -> PaneContent<'a> {
         cursor,
         cursor_style: CursorStyle::Box,
         preedit: editor.preedit(),
-        // A region in a prompt is not drawn yet (open-questions.md).
-        region_cells: &[],
+        fills: &lines.fills,
     })
 }

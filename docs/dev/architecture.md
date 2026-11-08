@@ -43,11 +43,12 @@ Commands live in the tip crate because it changes most often and rebuilds
 fastest. Stable foundations live in library crates. See
 [ADR 0004](adr/0004-crate-layout.md).
 
-Files are read today with portable `std::fs` calls in the tip crate's
-loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
-How file-system code splits between the loader and `oso-platform` is
-settled when the loader needs `libc` (opening with `O_NONBLOCK`); see
-`open-questions.md`. Saving uses `std`'s Unix file calls in the tip crate
+Files are read with portable `std::fs` calls in the tip crate's
+loader ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)),
+and opened through `oso_platform::file_meta::open_for_reading`, which does
+not wait on a special file
+([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+What needs `libc` stays in `oso-platform`. Saving uses `std`'s Unix file calls in the tip crate
 ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)), and for what a file
 holds beyond its mode, and for opening it without waiting,
 `oso_platform::file_meta`
@@ -162,6 +163,24 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   rope slices, so killing a huge region copies nothing. History is bounded in
   bytes, 64 MiB per buffer, not counting the group last recorded or crossed, which
   always stays. It is not persisted to disk.
+- **The kill ring** (`oso_core::kill`, [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md))
+  is owned by `Editor`. A kill takes one piece per cursor as rope slices, merging ranges
+  that overlap, so it copies nothing on the UI thread, and appends to the newest entry
+  when the command before also killed. It keeps 120 entries and 64 MiB, and a yank
+  inserts at most 16 MiB. An entry killed from a buffer that may hold secrets is secret,
+  and yanking it makes the target buffer secret (`Verdict::Yanked`).
+- **isearch** (`Editor::isearch`, [ADR 0082](adr/0082-isearch.md)) is a mode of the selected
+  window, with its own keymap in place of the others. The matcher (`oso_core::search`, private to
+  the crate) runs Knuth–Morris–Pratt over the rope's chunks. Each key searches 256 KiB on the UI
+  thread, and one worker thread of the host's (`app/searches.rs`) goes on with a far match and counts
+  the matches over an O(1) snapshot, superseded by the next job through a generation. A frame
+  searches only the rows in view for the highlights. A search ends when its window shows another
+  buffer or a prompt opens.
+- **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
+  the system's clipboard, and one answers each read within 500 ms. The host hands it what
+  a command killed, joined there with line breaks, and `yank` waits for its read through
+  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank.
+  macOS uses `NSPasteboard`; Linux and Windows have none until their window layers.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
   restore the stored one, and a buffer is modified when its id differs from the
   saved one. So undoing to the saved state is unmodified, and a buffer whose saved
@@ -175,10 +194,11 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
 
 ### Command registry
 
-Every command is registered with a name, a docstring, an argument spec and a
-function. The registry drives `M-x` completion, `describe-function`,
-`describe-key`, the control socket's `run-command` and the generated command
-reference. Commands never keep global state: the host owns all state and
+Every command is registered with a name, a docstring, an argument spec, a reach and a
+function. The reach says whether the agent channel may run it
+([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The registry drives `M-x` completion,
+`describe-function`, `describe-key`, the control socket's `run-command`, the agent channel and
+the generated command reference. Commands never keep global state: the host owns all state and
 passes it in. This keeps commands testable, restartable and hot-patchable.
 See [ADR 0034](adr/0034-command-registry-and-keymaps.md).
 
@@ -302,6 +322,10 @@ null text system: the cursor is drawn on the grid, and no text. See
 - **Clipping** is done on the CPU. A glyph's quad is cut to its cluster's cells, its
   row with the bands of [ADR 0052](adr/0052-glyphs-stay-in-their-cells.md), and its
   pane, moving the atlas position along with the corner.
+- **Colours** come from the current theme, which the app hands the renderer each frame
+  ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)). Shaped rows and rasters
+  hold none, and the text shader corrects coverage by the foreground's luminance with the
+  theme's gamma terms, so a switch shapes and rasterizes nothing again.
 - **Text that is no buffer's,** such as a modeline row, comes as `Span`s with a `Face`
   and goes through `display_map::text_clusters`, so its control characters, tabs and
   line breaks are escapes.
@@ -335,16 +359,21 @@ glyphs:
 ```
 for each layer, back to front:
   rectangles: backgrounds, boxes, cursors, selections   (shape renderer)
+  rounded boxes: a float's panel, field and key chips   (shape renderer, one quad each)
   glyphs from the atlas                                 (text renderer)
 ```
+
+A layer with no rounded box draws none, so a frame with no float costs nothing more
+([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)).
 
 `scene` builds those ranges with no GPU, and `paint` uploads and records them, for the
 window and for a screenshot alike. Panes are built front to back, so the caps on quads
 and rectangles and the budget of new glyphs run out behind what is in front. A text pane
 holds one rectangle back for its cursor box, so nothing of its own takes its place. A frame is
-clipped to pixels on the CPU, so there is no scissor. Only the background is drawn in the
-margins and in what is left over of a cell at the right and bottom, apart from the band
-that glyphs on the frame's top row keep above it.
+clipped to pixels on the CPU, so there is no scissor; a rounded box's quad is cut to its
+pane there too. Only the background is drawn in the margins and in what is left over of a
+cell at the right and bottom, apart from the band that glyphs on the frame's top row keep
+above it, and a float's panel, which covers the top margin above it.
 
 The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
 on input that changes the view, on resize, when the window becomes visible, and when
@@ -386,7 +415,12 @@ inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). A command never
 waits for an answer: the dispatcher reads what its `ArgSpec` asks for in a prompt
 before running it, and a command that has to ask leaves a question whose `y` runs a
 command of its own, which checks again. `C-g` does one thing at a time, in
-`Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+`Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). A prompt that
+completes keeps its candidates in the editor (`oso_core::complete`): orderless matching in an
+order fixed as it opens, matched once each command ends, on the UI thread up to 5000 candidates,
+in a float at the center of the frame.
+`M-x` reads a command's name through `ArgSpec::Command`, and the dispatcher runs that command
+with `M-x`'s prefix argument ([ADR 0076](adr/0076-completion-and-m-x.md)).
 
 ### Background work
 
@@ -403,11 +437,23 @@ The UI thread never blocks on I/O or parsing:
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+- Open files are looked at once a second, and when the window gains the focus, by a
+  thread that only `stat`s them (`loader::Watcher`). A file that changed under a buffer
+  with no unsaved edits is read again on a loading thread, which compares the new text
+  with the old one there. The UI puts it in as one undo step and maps every window's
+  cursors through the one changed span. A buffer with edits keeps them and warns. A reload
+  waits while a prompt is open (`Editor::reload_waits`)
+  ([ADR 0029](adr/0029-file-changes-on-disk.md),
+  [ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
+- Directories for `C-x C-f` are listed on worker threads (`crates/oso/src/lister.rs`),
+  one per directory and at most 4, and their names come back as a snapshot with the
+  input's generation, which the prompt takes only if it is still the newest
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
-- The event loop's user event is an enum: loader wake-ups, save reports and what threads
-  find of emergency copies in every build, and control socket requests in dev builds.
+- The event loop's user event is an enum: loader wake-ups, save reports, the watcher's
+  reports and what threads find of emergency copies in every build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in
@@ -443,10 +489,12 @@ with an O(1) snapshot of the rope (`Editor::start_save`). The host takes the job
 after the command and runs it on a thread (`saver`): a temporary file in the file's
 own directory, the file's owner, access list and mode, fsync, a check that the file on disk is
 where and what the buffer last read or wrote (its real location, modification time and
-size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
+size, and its device and inode where the system has them, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
 break. `C-x C-c` and the window's close button ask before exiting while a buffer is modified
-or a save runs, and a save still running at exit gets to finish. A save that found its file
+or a save runs, and on oso's own macOS layer so does a person's request to quit, from the Dock
+or another app, while the end of the session is never refused
+([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and a save still running at exit gets to finish. A save that found its file
 changed asks before going over it, and replaces it only if it is still what that save found. See
 [ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
 [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
@@ -506,17 +554,40 @@ Full details are in [`security.md`](security.md).
   - Buffers that may hold secrets give no text and no pixels. The loading
     thread follows the path, and `Buffer::is_secret` holds the verdict, so
     the UI thread never touches the file system for this
-    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). While one is shown,
+    `get-state` leaves out what an edit or a save there changes and the keys and prompts around
+    it, and no restart is handed over
+    ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)).
   - `take-timings` reports key latency, startup and load times to benchmarks,
     and `open-file` visits a file with the window up, so that opening can be
     timed apart from startup
     ([ADR 0046](adr/0046-performance-regression-checks.md)). Keys and frames around a
     buffer that may hold secrets stay out of them
-    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)), and so do its loads. While
+    one is shown, the log keeps warnings and errors only
+    ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
+- **Agent channel:** the one control entry point in release builds, off until the person
+  runs `agent-channel-start`, for agents such as Claude Code through `oso mcp`
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+  - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
+    `oso-platform::control`, with the dev socket's thread model. Its methods are `run`, `open`,
+    `state`, `text`, `commands`, `cancel` and `version`, over JSON Lines, and no dev method.
+  - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
+    commands. Arguments are checked against the spec, which gains `Text`.
+  - Each connection waits for the person's yes. The channel runs nothing while a buffer that may
+    hold secrets is shown, while the person is in a prompt, a key sequence or a composition or
+    typed in the last second, or while its own question is open. A question it opens is answered
+    from the window. Its kills stay in oso's kill ring. It opens only files that exist, and a
+    save of a buffer the person did not visit asks the person.
+  - `oso-platform::control` is built in every build, and names the peer's process and its
+    parent for the connection question.
+  - `oso mcp` is a subcommand: JSON-RPC over stdio, with the tools `state`, `text`, `commands`,
+    `look`, `change` and `open`.
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 
 Hot reload and the control socket are behind cargo features (`dev` in each
-crate, enabled through `oso/dev`) that release builds never enable. CI checks
+crate, enabled through `oso/dev`) that release builds never enable. The agent channel is not:
+it ships, off by default. CI checks
 this with `just release-safety`
 ([ADR 0032](adr/0032-control-socket-transport.md)).

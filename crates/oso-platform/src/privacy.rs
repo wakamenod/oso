@@ -21,7 +21,7 @@ mod unix;
 #[cfg(unix)]
 use unix as backend;
 
-#[cfg(all(unix, feature = "dev"))]
+#[cfg(unix)]
 pub(crate) use unix::{euid, itself_problem, list_problem};
 
 /// Turns core dumps off for this process and whatever it starts, for good: a dump would
@@ -247,7 +247,7 @@ pub(crate) fn list_stops_making(entries: &[AccessEntry]) -> bool {
 
 /// Why a directory cannot be the parent of a private one, whether or not that one exists yet, for
 /// the control socket, which looks at one parent and not all the way.
-#[cfg(all(unix, feature = "dev"))]
+#[cfg(unix)]
 pub(crate) fn whole_parent_list_problem(entries: &[AccessEntry]) -> Option<DirProblem> {
     way_list_problem(entries).or_else(|| parent_list_problem(entries))
 }

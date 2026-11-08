@@ -4,7 +4,10 @@
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
+mod complete;
 mod edit;
+mod isearch;
+mod kill;
 mod mark;
 mod messages;
 mod minibuffer;
@@ -24,7 +27,10 @@ use oso_core::keymap::Keymap;
 /// key does: a key bound twice fails to build the keymap, whichever comes first.
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
+    complete::BINDINGS,
     edit::BINDINGS,
+    isearch::BINDINGS,
+    kill::BINDINGS,
     mark::BINDINGS,
     messages::BINDINGS,
     #[cfg(feature = "dev")]
@@ -61,12 +67,42 @@ pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
     (keymap(prefix::DIGITS), keymap(prefix::MINUS))
 }
 
-/// The keymaps of a prompt that reads an answer, above the global one, and of a question, in
-/// place of it (ADR 0072). Empty for a registry without their commands, as in tests that bring
-/// their own.
-pub fn prompt_keymaps(registry: &Registry) -> (Keymap, Keymap) {
-    let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
-    (keymap(minibuffer::MINIBUFFER), keymap(minibuffer::QUESTION))
+/// The keymaps of a prompt that reads an answer, above the global one, of a question, in
+/// place of it (ADR 0072), and of a prompt that completes, with the first one's keys
+/// (ADR 0076). Empty for a registry without their commands, as in tests that bring their
+/// own.
+pub fn prompt_keymaps(registry: &Registry) -> [Keymap; 3] {
+    let keymap = |table: &[(&str, &str)]| Keymap::from_table(registry, table).unwrap_or_default();
+    let completing = [minibuffer::MINIBUFFER, complete::COMPLETION].concat();
+    [
+        keymap(minibuffer::MINIBUFFER),
+        keymap(minibuffer::QUESTION),
+        keymap(&completing),
+    ]
+}
+
+/// The keymap of a search under way, in place of the others (ADR 0082), with its text
+/// command. Empty for a registry without its commands, as in tests that bring their own.
+pub fn isearch_keymap(registry: &Registry) -> Keymap {
+    let mut keymap = Keymap::from_table(registry, isearch::ISEARCH).unwrap_or_default();
+    if let Some(typing) = registry.lookup(isearch::TEXT_COMMAND) {
+        keymap.set_text_command(typing);
+    }
+    keymap
+}
+
+/// The commands that run in a search rather than end it: those of its keymap, its text
+/// command, and the global ones that start a search, which repeat it once it is on.
+#[cfg(any(test, feature = "dev"))]
+pub fn isearch_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    let names = isearch::ISEARCH
+        .iter()
+        .chain(isearch::BINDINGS)
+        .map(|&(_, name)| name);
+    names
+        .chain([isearch::TEXT_COMMAND])
+        .filter_map(|name| registry.lookup(name))
+        .collect()
 }
 
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global
@@ -79,7 +115,10 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 
 #[cfg(test)]
 mod tests {
-    use super::{TABLES, global_keymap, prefix, prefix_keymaps, recovery, recovery_keymaps};
+    use super::{
+        TABLES, complete, global_keymap, isearch, isearch_commands, isearch_keymap, minibuffer,
+        prefix, prefix_keymaps, prompt_keymaps, recovery, recovery_keymaps,
+    };
     use crate::commands;
     use oso_core::key::KeySequence;
     use oso_core::keymap::{Binding, Keymap};
@@ -117,6 +156,29 @@ mod tests {
         let (digits, minus) = prefix_keymaps(&commands::registry());
         assert_eq!(digits.len(), prefix::DIGITS.len());
         assert_eq!(minus.len(), prefix::MINUS.len());
+    }
+
+    #[test]
+    fn the_prompt_keymaps_bind_all_their_rows() {
+        // A clash would leave a keymap empty, and `RET` in `M-x` to the global keymap.
+        let [minibuffer, question, completing] = prompt_keymaps(&commands::registry());
+        assert_eq!(minibuffer.len(), minibuffer::MINIBUFFER.len());
+        assert_eq!(question.len(), minibuffer::QUESTION.len());
+        let both = minibuffer::MINIBUFFER.len() + complete::COMPLETION.len();
+        assert_eq!(completing.len(), both);
+    }
+
+    #[test]
+    fn the_isearch_keymap_binds_all_its_rows_and_types() {
+        let registry = commands::registry();
+        let keymap = isearch_keymap(&registry);
+        assert_eq!(keymap.len(), isearch::ISEARCH.len());
+        assert_eq!(
+            keymap.text_command(),
+            registry.lookup(isearch::TEXT_COMMAND)
+        );
+        let wanted = isearch::ISEARCH.len() + isearch::BINDINGS.len() + 1;
+        assert_eq!(isearch_commands(&registry).len(), wanted);
     }
 
     /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means

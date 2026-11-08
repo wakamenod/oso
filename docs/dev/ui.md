@@ -2,7 +2,8 @@
 
 This document describes the screen layout and visual behavior that M2
 builds. The decision record is [ADR 0026](adr/0026-m2-ui-layout.md); the
-theme is in [ADR 0027](adr/0027-theme.md). UI for later features is designed
+themes are in [ADR 0027](adr/0027-theme.md) and
+[ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md). UI for later features is designed
 before each feature is built.
 
 ## Layout
@@ -25,8 +26,9 @@ before each feature is built.
 ```
 
 All floating UI uses the floating windows of
-[ADR 0008](adr/0008-floating-ui.md), with a border and padding similar to
-posframe.
+[ADR 0008](adr/0008-floating-ui.md). A prompt's float is a panel attached to the top
+edge, close to VS Code's Quick Input
+([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)).
 
 `oso_core::frame` divides the frame into whole cells
 ([ADR 0057](adr/0057-frame-layout.md)). The modeline and the echo area take the
@@ -37,23 +39,33 @@ in the background color, so no partly shown row or column is drawn
 
 ## Minibuffer and completion
 
-- The minibuffer floats at the **top center** of the frame, **one row below the top**, so the
-  window's first row stays in view above it
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- It has a **border and one cell of padding** on every side, and takes **60% of the frame's
-  columns**, at least 40 and never closer than 2 to an edge. It does not change while typing.
+- The minibuffer **hangs from the top edge** of the text area, centered, over its first rows
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
+  [ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)). It is a panel only a
+  little lighter than the text, with its bottom corners rounded, a soft shadow and a hairline.
+- It takes **60% of the frame's columns**, at least 40 and never closer than 2 to an edge,
+  with 2 columns of padding at its sides. It does not change while typing.
+- The label has rows of its own. Below it, after a row of padding, the answer is typed in a
+  field with a thin accent outline, and a row of padding ends the panel.
 
 ```
-│# Meeting notes 2026-11-08                                      │
-│            ┌──────────────────────────────────────┐            │
-│Agenda      │ Go to line: 42█        [Past the end]│            │
-│- budget for└──────────────────────────────────────┘            │
+┌────────────┬──────────────────────────────────────┬────────────┐
+│# Meeting no│  Go to line:                         │            │
+│            │                                      │            │
+│Agenda      │ [42█                 [Past the end]] │            │
+│- budget for╰──────────────────────────────────────╯            │
 │▯ hiring: two engineers                                         │
 ```
+
+The panel's top is the window's edge, square and with no hairline; only its bottom corners
+are rounded.
 
 - The answer is one row and scrolls sideways. A long label breaks after a space onto at most
   three rows. A message from a key typed in the prompt shows at the end of its row, in
   brackets, until the next key.
+- A short frame gives up the padding below, then the row between the label and the answer,
+  then the label's last rows: it keeps its first, the last of them cut with `…`. With one row
+  of text, the label and the answer share it.
 - The window beneath keeps its text and modeline, and its cursor is drawn **hollow**. The
   float may cover it, and the view does not move. The wheel scrolls it, and its cursors stay.
 - Keys: `RET` gives the answer, `C-g` closes the prompt, `M-p` and `M-n` walk its history,
@@ -61,21 +73,100 @@ in the background color, so no partly shown row or column is drawn
   answer given again moves to the front. A prompt opened while a buffer that may hold secrets
   is shown keeps none.
 - A prompt can open from a prompt, 8 deep. Only the innermost shows, its depth first: `[2]`.
-- **Questions** show in the same float, ending in `(y or n)`. Only `y` and `n` answer; `SPC`,
+- **Questions** show in the same float, with their keys as chips on the last row, each with
+  what it does: `[y] exit  [n] stay`. Only `y` and `n` answer; `SPC`,
   `DEL` and `RET` do not, unlike in Emacs, and any other key says `Answer y or n`. A held
   key answers once. `C-x C-c` and the close button ask before exiting with unsaved work, and
   `C-x C-s` asks before saving over a file that changed on disk.
 - **A passphrase** shows one `*` per character, keeps no undo and enters no history.
 - `C-g` does one thing at a time: a pending prefix, then the region, then the innermost
   prompt.
-- It shows **18 candidate rows** by default (configurable), with fuzzy
-  matching (orderless-style) and annotations on the right (marginalia-style).
+- **Completion** ([ADR 0076](adr/0076-completion-and-m-x.md)) floats at the **center** of the
+  frame, unlike the other prompts: 62% of its width, and always as tall as **18 candidate rows**
+  and the answer's row (configurable once configuration exists), however many match. The label,
+  the answer in its field and a count such as `3/57` share one row. A 5-point border a little
+  darker than the fill frames it, with all four corners rounded.
+
+```
+│Agenda         ╭────────────────────────────────────────────────────╮        │
+│- budget for Q3│                                                    │        │
+│- hiring: two e│  M-x ╭ forw█ ───────────────────────────────╮  2/2 │        │
+│- office move  │                                                    │        │
+│               │   forward-char C-f  Move point N characters (…     │        │
+│Decisions      │  ▌forward-word M-f  Move point to the end of t…▐   │        │
+│- keep the Frid│                                                    │        │
+│               ╰────────────────────────────────────────────────────╯        │
+```
+
+- **Matching is orderless's:** words separated by spaces match in any order, each as
+  literal text or a regular expression. An affix at a word's start or end picks one style:
+  `!` must not match, `,` initials (`,sbk` for `save-buffers-kill-terminal`), `=` literal
+  only, `^` at the start, `~` the letters in order, `&` the annotation. Case counts once the
+  input has an upper-case letter. What matched is highlighted.
+- **The order is vertico's:** the prompt's history first, then shorter, then alphabetical,
+  with an exact match of the input on top. Typing never moves a candidate.
+- **Each row** has the candidate, its shortest key after it, and a summary at the right end:
+  for commands, the docstring's first line (marginalia-style). A narrow row cuts the summary
+  first, then drops it, then the key, then cuts the name.
+- **Keys:** `C-n`/`C-p` and the arrows move (stopping at the ends), `M-<`/`M->` go to the
+  first and last, `C-v`/`M-v` by a page, `TAB` puts the selected candidate in the answer,
+  and `RET` gives the selected candidate, or says `No match`.
+- **`M-x`** lists every command but those that read their key or belong to a keymap not active
+  beneath it, runs the one taken with the prefix argument typed before `M-x` (its label says
+  it, `C-u M-x`), and puts the one run last first, so `M-x RET` runs it again.
+- A short frame gives up candidate rows first, down to one, then the padding.
+- Beside a buffer that may hold secrets, a prompt neither reads nor records history, so its
+  order says nothing of earlier answers.
 - **Preview inside the popup.** For commands with a preview, such as buffer
   switching, ripgrep search and line search, the popup splits: candidates on
   the left, a preview of the selected candidate on the right. Commands
   without a preview, such as `M-x`, use a single-column popup.
 - The preview is read-only, and it only renders already-open buffers or
   files the trust model allows reading.
+
+### Finding files (`C-x C-f`, `C-x C-w`)
+
+[ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md):
+
+- The centred float, `Find file:` (or `Write file:`), starting at the buffer's directory, the home
+  directory as `~/`. A worker lists directories; the count shows `…` until it answers.
+- Segments before the last are prefixes, and the last one matches as in `M-x`: `~/P/S/o` reaches
+  `~/Projects/SideProjects/oso`. `~/` or `/` typed after a `/` starts over, the text before drawn dim.
+  Names starting with `.` show only when the last segment starts with `.`.
+- A row is the name, `/` after a directory, then its mode, size and age, and `→ target` for a link.
+- `TAB` puts the selected path in the answer. `RET` enters a directory and opens a file, or the
+  typed path when nothing matches (`(New file)`). `M-RET`, or `C-p` from the first row, takes the text
+  as typed.
+- A file already open shows its buffer. A file of 2 GiB or more asks
+  `big.iso is 3.2 GiB, all held in memory; open it? (y or n)`.
+- `C-x C-w` writes the buffer under a new path, asking before it writes over a file, and the buffer
+  then visits it.
+
+### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
+
+[ADR 0088](adr/0088-switching-and-killing-buffers.md):
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ 1/4 Switch to buffer: █                                    ┃
+┃▌todo.md  *  2k  Te…▐┃# Todo                                 ┃
+┃ notes.md    9k  Te… ┃- budget for Q3                        ┃
+┃ *Messages*  1k  Me… ┃▯ hiring: two engineers                ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+- `C-x b` lists buffers, the most recent first and the current one last, so `RET` goes back to the
+  previous one. A row is the name, `*` when modified, the size, the mode and the path. A name that
+  matches nothing creates a buffer.
+- The float keeps its size: the list takes the left 2/5, the preview the rest, showing the selected
+  buffer from where the window last was in it. A buffer that may hold secrets is never previewed: the
+  preview says `may hold secrets`. A narrow frame drops the preview.
+- A window comes back to a buffer where it left it: cursors, marks and scroll.
+- Two files with one name show as `notes.md<work>` and `notes.md<home>`.
+- `C-x k` reads a buffer, the current first, and asks before killing a modified one. `*Messages*`,
+  `*Emergency Copies*` and `*Agent*` are kept. The window then shows the most recent other buffer.
+- `M-,` and `M-/` go to the previous and next buffer in the window's order, skipping internal ones.
+- `C-.` lists the mark ring, with the buffer around the selected mark in the preview.
 
 ## Menus
 
@@ -89,7 +180,7 @@ with hydra-posframe today.
 - The minibuffer no longer lives there, so the line is for messages only, and for
   what is being typed: `C-x-` or `C-u 5-`, which comes ahead of any message.
 - Every message is also appended to the `*Messages*` buffer, which `C-h e` shows, and until
-  `C-x b` (M2-19) leaves. What a command says while a secret buffer is shown stays out of
+  `C-x b` leaves. What a command says while a secret buffer is shown stays out of
   `*Messages*` and the log, and goes from the line once the window moves on. An
   undefined key and "Quit" reach only the line
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
@@ -116,7 +207,7 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - `r` shows the text, and `r` again there puts it in the file's buffer as one undo step. Nothing is
   written until `C-x C-s`, and the copy goes once that has reached the disk.
 - `d` says what it does, and `d` again deletes that copy for good. Held down, a letter here answers once.
-- A copy of a file not open needs `oso PATH`, or later `C-x C-f`. Its row gives the path.
+- A copy of a file not open needs `oso PATH` or `C-x C-f`, which starts at the row's path.
 
 ## Modeline
 
@@ -125,7 +216,8 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - M2 contents:
   - a warning when the file contains bidirectional control characters
   - a warning when the file changed on disk while the buffer has unsaved
-    changes
+    changes, or when the file is gone from disk
+    ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md))
   - a warning when an emergency copy of the file waits for an answer
   - buffer name and modified marker
   - loading progress, while a file is loading
@@ -149,6 +241,17 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - After a large jump or scroll, the cursor position flashes briefly
   (beacon-style).
 
+## Themes
+
+[ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md):
+
+- Three themes: `dark` (near-black, the default), `light`, and `dusk` (dark grey).
+- `M-x load-theme` picks one through a completion. `<f5>` (`toggle-theme`) switches between
+  `dark` and `light`, a pair that configuration will be able to name (M3).
+- The choice is remembered across starts. oso does not follow the OS's dark or light appearance.
+- A switch redraws once. In every theme, text that is read keeps 7:1 contrast and secondary
+  labels 4.5:1, and a question's label has a colour no buffer text has.
+
 ## Mark and region
 
 As Emacs with `transient-mark-mode` and `shift-select-mode`
@@ -157,7 +260,7 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 - The region is shown only while it is active: from `C-SPC` (or `C-@`), `C-x C-x` or `C-x h`, or a
   motion with Shift, until an edit, `C-g`, `C-SPC C-SPC` or another buffer in the window. A region
   from a motion with Shift ends with the next motion without it.
-- It is a background colour only, a muted blue-grey until the theme: text keeps its own colour,
+- It is a background colour only, the theme's `region`: text keeps its own colour,
   and boxes, the cursor and a preedit's underline are drawn over it. A row whose line break is in
   the region is filled to the window's right edge.
 - `C-u C-SPC` and `C-,` go back through the mark ring, 16 marks. `M-<` and `M->` set the mark where
@@ -168,9 +271,18 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 
 ## isearch
 
-- All matches in view are highlighted, and the current match is emphasized.
-- The match count ("3/17") is shown, anzu-style.
-- The search string is shown in the echo area.
+- `C-s` and `C-r` search for the literal string as it is typed, with smart case: case matters
+  once the string has an uppercase letter, and `M-c` turns that around for the search
+  ([ADR 0082](adr/0082-isearch.md)).
+- All matches in view are highlighted in a muted amber, and the current match in a strong one.
+- The search string is shown in the echo area, with the count anzu-style: `I-search: foo [3/17]`,
+  `[?/…]` while a worker counts, and `[searching…]` while it looks for a far match.
+- `C-s`/`C-r` go on to the next match, and round the end after `Failing I-search`. `DEL` goes back
+  a step, `C-w` adds the word after the match, `C-y` the newest kill, `M-p`/`M-n` go through the
+  search history, and `RET` ends the search there and pushes where it began onto the mark ring.
+- `C-g` first takes away a failing part, then goes back where the search began. Any other key
+  ends the search and runs.
+- Only the primary cursor searches; the others stay.
 
 ## Input method (IME)
 

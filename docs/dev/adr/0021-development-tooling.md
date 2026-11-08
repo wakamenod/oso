@@ -1,6 +1,6 @@
 # 0021. Development tooling
 
-- Status: Accepted
+- Status: Accepted, amended by 0043 and 0080
 - Date: 2026-11-03
 
 ## Context

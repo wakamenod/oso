@@ -1,6 +1,7 @@
 //! An exit agreed to while saves run: whether to go, keep waiting, or take it back
-//! (ADR 0059). The state and every decision are here, with no window, and the app only acts
-//! on what they say.
+//! (ADR 0059); and the end of the session, which waits a few seconds for saves and is never
+//! refused (ADR 0077, ADR 0084). The state and every decision are here, with no window, and
+//! the app only acts on what they say.
 //!
 //! Must not depend on: `app`, winit or the GPU.
 
@@ -17,6 +18,11 @@ use oso_core::editor::Editor;
 /// save that hangs past it (a stuck network file system) cannot keep it for good.
 const FINISH_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// How long the end of the session waits for running saves, then lets it go: far below what
+/// macOS allows an app, so that oso never holds up a logout for long (ADR 0077). A save not
+/// done by then has an emergency copy of its buffer.
+const SESSION_END_WAIT: Duration = Duration::from_secs(5);
+
 /// What an exit under way does next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AfterSave {
@@ -29,7 +35,7 @@ pub enum AfterSave {
 }
 
 /// What this instance has agreed to lose, should it end now. An end nobody agreed to is the
-/// OS's (Dock quit, logout), or a panic, and the text it would lose gets an emergency copy
+/// OS's (a logout, or on winit a Dock quit too), or a panic, and the text it would lose gets an emergency copy
 /// (ADR 0062).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agreement {
@@ -99,6 +105,8 @@ pub struct Leaving {
     gone: bool,
     /// Where the agreement is kept for the panic hook and the end of the event loop.
     cell: AgreementCell,
+    /// The session is ending, and waits for running saves until then (ADR 0084).
+    session_end: Option<Instant>,
 }
 
 impl Leaving {
@@ -148,6 +156,63 @@ impl Leaving {
         });
         self.update_cell();
         Some(deadline)
+    }
+
+    /// The session is ending: a logout, a restart or a shutdown, which is never refused.
+    /// `None` to let it go now, or when to stop waiting for the saves running. Nothing is
+    /// agreed to, so what is at risk gets copies when the process ends.
+    #[cfg_attr(
+        all(not(test), not(all(target_os = "macos", feature = "native-window"))),
+        expect(
+            dead_code,
+            reason = "only oso's own macOS layer asks the app whether to end"
+        )
+    )]
+    pub fn begin_session_end(&mut self, editor: &Editor, now: Instant) -> Option<Instant> {
+        if !self.any_worth_waiting_for(editor) {
+            return None;
+        }
+        // Another request while one waits does not extend the wait.
+        let fresh = now + SESSION_END_WAIT;
+        let deadline = self.session_end.map_or(fresh, |held| held.min(fresh));
+        self.session_end = Some(deadline);
+        Some(deadline)
+    }
+
+    /// Ends the wait of the end of the session if it waits no longer, as its saves have ended
+    /// or its time is up. Returns whether it did.
+    pub fn take_session_end_if_ready(&mut self, editor: &Editor, now: Instant) -> bool {
+        let Some(deadline) = self.session_end else {
+            return false;
+        };
+        let ready = now >= deadline || !self.any_worth_waiting_for(editor);
+        if ready {
+            self.session_end = None;
+        }
+        ready
+    }
+
+    /// When the app must look again: the earlier of an exit's deadline and the end of the
+    /// session's, or `None` with neither waiting. One deadline for both, so that neither
+    /// wait outlasts its bound because the other set the wake.
+    pub fn next_wake(&self) -> Option<Instant> {
+        let exit = self.under_way.as_ref().map(|under_way| under_way.deadline);
+        match (exit, self.session_end) {
+            (Some(exit), Some(session)) => Some(exit.min(session)),
+            (exit, session) => exit.or(session),
+        }
+    }
+
+    /// Whether the end of the session waits for saves.
+    #[cfg(test)]
+    fn session_end_waits(&self) -> bool {
+        self.session_end.is_some()
+    }
+
+    /// Ends the wait of the end of the session, as the app goes anyway. Returns whether one
+    /// waited.
+    pub fn take_session_end(&mut self) -> bool {
+        self.session_end.take().is_some()
     }
 
     /// A save has ended, and its report has been taken in. `None` if no exit is under way.
@@ -242,6 +307,58 @@ mod tests {
             .unwrap();
         assert!(!matches!(editor.start_save(), Err(SaveRefused::Unmodified)));
         (editor, id)
+    }
+
+    #[test]
+    fn the_end_of_the_session_waits_for_saves_a_short_while_and_agrees_to_nothing() {
+        let now = Instant::now();
+        let mut leaving = Leaving::default();
+        let idle = Editor::with_buffer(Buffer::from_text("t", "x"));
+        assert_eq!(
+            leaving.begin_session_end(&idle, now),
+            None,
+            "nothing to wait for"
+        );
+        let (editor, _) = saving();
+        let deadline = leaving.begin_session_end(&editor, now).unwrap();
+        assert_eq!(deadline, now + SESSION_END_WAIT);
+        assert!(leaving.session_end_waits());
+        assert_eq!(leaving.cell.get(), Agreement::Nothing, "copies at the end");
+        assert!(
+            !leaving.take_session_end_if_ready(&editor, now),
+            "the save runs"
+        );
+        assert!(
+            leaving.take_session_end_if_ready(&editor, deadline),
+            "the time is up"
+        );
+        assert!(!leaving.session_end_waits());
+        assert!(
+            !leaving.take_session_end_if_ready(&editor, deadline),
+            "once"
+        );
+        // Its saves ending lets it go at once.
+        leaving.begin_session_end(&editor, now).unwrap();
+        assert!(
+            leaving.take_session_end_if_ready(&idle, now),
+            "no save runs any more"
+        );
+        leaving.begin_session_end(&editor, now).unwrap();
+        assert!(leaving.take_session_end(), "the app goes by itself");
+        assert!(!leaving.take_session_end() && !leaving.session_end_waits());
+        // A second request while one waits keeps the first one's bound.
+        let first = leaving.begin_session_end(&editor, now).unwrap();
+        let later = now + Duration::from_secs(3);
+        assert_eq!(leaving.begin_session_end(&editor, later), Some(first));
+        assert!(leaving.take_session_end());
+        // One wake for both waits: the earlier.
+        assert_eq!(leaving.next_wake(), None);
+        let exit = leaving.begin(&editor, false, now).unwrap();
+        let session = leaving.begin_session_end(&editor, now).unwrap();
+        assert!(session < exit);
+        assert_eq!(leaving.next_wake(), Some(session));
+        assert!(leaving.take_session_end());
+        assert_eq!(leaving.next_wake(), Some(exit));
     }
 
     #[test]

@@ -1,5 +1,92 @@
 pub mod oso_platform
+pub mod oso_platform::clipboard
+pub enum oso_platform::clipboard::Contents
+pub oso_platform::clipboard::Contents::NoAnswer
+pub oso_platform::clipboard::Contents::Nothing
+pub oso_platform::clipboard::Contents::Own
+pub oso_platform::clipboard::Contents::Text
+pub oso_platform::clipboard::Contents::Text::concealed: bool
+pub oso_platform::clipboard::Contents::Text::fingerprint: oso_platform::clipboard::Fingerprint
+pub oso_platform::clipboard::Contents::Text::text: alloc::string::String
+pub oso_platform::clipboard::Contents::TooLarge
+impl core::clone::Clone for oso_platform::clipboard::Contents
+pub fn oso_platform::clipboard::Contents::clone(&self) -> oso_platform::clipboard::Contents
+impl core::cmp::Eq for oso_platform::clipboard::Contents
+impl core::cmp::PartialEq for oso_platform::clipboard::Contents
+pub fn oso_platform::clipboard::Contents::eq(&self, &oso_platform::clipboard::Contents) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::Contents
+pub fn oso_platform::clipboard::Contents::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::Contents
+pub enum oso_platform::clipboard::Event
+pub oso_platform::clipboard::Event::NotAnswering
+pub oso_platform::clipboard::Event::Read(oso_platform::clipboard::Contents)
+pub oso_platform::clipboard::Event::Written
+pub oso_platform::clipboard::Event::Written::fingerprint: oso_platform::clipboard::Fingerprint
+pub oso_platform::clipboard::Event::Written::id: u64
+impl core::fmt::Debug for oso_platform::clipboard::Event
+pub fn oso_platform::clipboard::Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_platform::clipboard::Source
+pub oso_platform::clipboard::Source::Memory
+pub oso_platform::clipboard::Source::System
+impl core::clone::Clone for oso_platform::clipboard::Source
+pub fn oso_platform::clipboard::Source::clone(&self) -> oso_platform::clipboard::Source
+impl core::cmp::Eq for oso_platform::clipboard::Source
+impl core::cmp::PartialEq for oso_platform::clipboard::Source
+pub fn oso_platform::clipboard::Source::eq(&self, &oso_platform::clipboard::Source) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::Source
+pub fn oso_platform::clipboard::Source::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::clipboard::Source
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::Source
+pub struct oso_platform::clipboard::Clipboard
+impl oso_platform::clipboard::Clipboard
+pub fn oso_platform::clipboard::Clipboard::memory(&self) -> core::option::Option<&oso_platform::clipboard::MemoryClipboard>
+pub fn oso_platform::clipboard::Clipboard::read(&self)
+pub fn oso_platform::clipboard::Clipboard::start(oso_platform::clipboard::Source, usize, impl core::ops::function::Fn(oso_platform::clipboard::Event) + core::marker::Send + 'static) -> std::io::error::Result<Self>
+pub fn oso_platform::clipboard::Clipboard::write(&self, u64, bool, oso_platform::clipboard::MakeText)
+impl core::fmt::Debug for oso_platform::clipboard::Clipboard
+pub fn oso_platform::clipboard::Clipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for oso_platform::clipboard::Clipboard
+pub fn oso_platform::clipboard::Clipboard::drop(&mut self)
+pub struct oso_platform::clipboard::Fingerprint
+pub oso_platform::clipboard::Fingerprint::hash: u64
+pub oso_platform::clipboard::Fingerprint::len: usize
+impl core::clone::Clone for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::clone(&self) -> oso_platform::clipboard::Fingerprint
+impl core::cmp::Eq for oso_platform::clipboard::Fingerprint
+impl core::cmp::PartialEq for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::eq(&self, &oso_platform::clipboard::Fingerprint) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_platform::clipboard::Fingerprint
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::Fingerprint
+pub struct oso_platform::clipboard::MemoryClipboard(_)
+impl oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::get(&self) -> core::option::Option<(alloc::string::String, bool)>
+pub fn oso_platform::clipboard::MemoryClipboard::set(&self, alloc::string::String, bool)
+impl core::clone::Clone for oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::clone(&self) -> oso_platform::clipboard::MemoryClipboard
+impl core::default::Default for oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::default() -> oso_platform::clipboard::MemoryClipboard
+impl core::fmt::Debug for oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_platform::clipboard::GIVE_UP: core::time::Duration
+pub const oso_platform::clipboard::READ_TIMEOUT: core::time::Duration
+pub type oso_platform::clipboard::MakeText = alloc::boxed::Box<(dyn core::ops::function::FnOnce() -> alloc::string::String + core::marker::Send)>
 pub mod oso_platform::control
+pub enum oso_platform::control::Socket
+pub oso_platform::control::Socket::Agent
+pub oso_platform::control::Socket::Dev
+impl core::clone::Clone for oso_platform::control::Socket
+pub fn oso_platform::control::Socket::clone(&self) -> oso_platform::control::Socket
+impl core::cmp::Eq for oso_platform::control::Socket
+impl core::cmp::PartialEq for oso_platform::control::Socket
+pub fn oso_platform::control::Socket::eq(&self, &oso_platform::control::Socket) -> bool
+impl core::fmt::Debug for oso_platform::control::Socket
+pub fn oso_platform::control::Socket::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::control::Socket
+impl core::marker::StructuralPartialEq for oso_platform::control::Socket
 pub struct oso_platform::control::CleanupGuard
 impl core::clone::Clone for oso_platform::control::CleanupGuard
 pub fn oso_platform::control::CleanupGuard::clone(&self) -> oso_platform::control::CleanupGuard
@@ -10,8 +97,8 @@ pub fn oso_platform::control::CleanupGuard::drop(&mut self)
 pub struct oso_platform::control::ControlDir
 impl oso_platform::control::ControlDir
 pub fn oso_platform::control::ControlDir::at(impl core::convert::Into<std::path::PathBuf>) -> std::io::error::Result<Self>
-pub fn oso_platform::control::ControlDir::bind(&self) -> std::io::error::Result<oso_platform::control::ControlListener>
-pub fn oso_platform::control::ControlDir::connect(&self, core::option::Option<u32>) -> std::io::error::Result<(u32, oso_platform::control::ControlStream)>
+pub fn oso_platform::control::ControlDir::connect(&self, oso_platform::control::Socket, core::option::Option<u32>) -> std::io::error::Result<(u32, oso_platform::control::ControlStream)>
+pub fn oso_platform::control::ControlDir::listen(&self, oso_platform::control::Socket) -> std::io::error::Result<oso_platform::control::ControlListener>
 pub fn oso_platform::control::ControlDir::open() -> std::io::error::Result<Self>
 pub fn oso_platform::control::ControlDir::open_existing() -> std::io::error::Result<Self>
 pub fn oso_platform::control::ControlDir::path(&self) -> &std::path::Path
@@ -30,6 +117,7 @@ impl core::fmt::Debug for oso_platform::control::ControlListener
 pub fn oso_platform::control::ControlListener::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_platform::control::ControlStream(_)
 impl oso_platform::control::ControlStream
+pub fn oso_platform::control::ControlStream::peer(&self) -> oso_platform::control::Peer
 pub fn oso_platform::control::ControlStream::set_read_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::set_write_timeout(&self, core::option::Option<core::time::Duration>) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::try_clone(&self) -> std::io::error::Result<Self>
@@ -40,6 +128,33 @@ pub fn oso_platform::control::ControlStream::read(&mut self, &mut [u8]) -> std::
 impl std::io::Write for oso_platform::control::ControlStream
 pub fn oso_platform::control::ControlStream::flush(&mut self) -> std::io::error::Result<()>
 pub fn oso_platform::control::ControlStream::write(&mut self, &[u8]) -> std::io::error::Result<usize>
+pub struct oso_platform::control::Peer
+pub oso_platform::control::Peer::parent: core::option::Option<oso_platform::control::PeerProcess>
+pub oso_platform::control::Peer::process: core::option::Option<oso_platform::control::PeerProcess>
+pub oso_platform::control::Peer::runs_this_program: bool
+impl core::clone::Clone for oso_platform::control::Peer
+pub fn oso_platform::control::Peer::clone(&self) -> oso_platform::control::Peer
+impl core::cmp::Eq for oso_platform::control::Peer
+impl core::cmp::PartialEq for oso_platform::control::Peer
+pub fn oso_platform::control::Peer::eq(&self, &oso_platform::control::Peer) -> bool
+impl core::default::Default for oso_platform::control::Peer
+pub fn oso_platform::control::Peer::default() -> oso_platform::control::Peer
+impl core::fmt::Debug for oso_platform::control::Peer
+pub fn oso_platform::control::Peer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::control::Peer
+pub struct oso_platform::control::PeerProcess
+impl oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::name(&self) -> core::option::Option<&str>
+pub fn oso_platform::control::PeerProcess::new(u32, core::option::Option<&str>) -> Self
+pub const fn oso_platform::control::PeerProcess::pid(&self) -> u32
+impl core::clone::Clone for oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::clone(&self) -> oso_platform::control::PeerProcess
+impl core::cmp::Eq for oso_platform::control::PeerProcess
+impl core::cmp::PartialEq for oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::eq(&self, &oso_platform::control::PeerProcess) -> bool
+impl core::fmt::Debug for oso_platform::control::PeerProcess
+pub fn oso_platform::control::PeerProcess::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::control::PeerProcess
 pub mod oso_platform::file_meta
 pub struct oso_platform::file_meta::AccessList
 impl oso_platform::file_meta::AccessList
@@ -72,6 +187,7 @@ impl core::marker::StructuralPartialEq for oso_platform::file_meta::Quarantine
 pub fn oso_platform::file_meta::clear_access_list_at(&std::path::Path) -> std::io::error::Result<()>
 pub fn oso_platform::file_meta::create_private(&std::path::Path) -> std::io::error::Result<std::fs::File>
 pub fn oso_platform::file_meta::open_for_writing(&std::path::Path) -> std::io::error::Result<std::fs::File>
+pub fn oso_platform::file_meta::path_of_opened(&std::fs::File) -> std::io::error::Result<core::option::Option<std::path::PathBuf>>
 pub fn oso_platform::file_meta::seal(&std::fs::File) -> std::io::error::Result<()>
 pub mod oso_platform::privacy
 pub struct oso_platform::privacy::PrivateDir
@@ -293,6 +409,7 @@ pub fn oso_platform::text::load(&oso_platform::text::FontRequest<'_>, f64) -> co
 pub mod oso_platform::window
 pub enum oso_platform::window::Event<'a>
 pub oso_platform::window::Event::CloseRequested
+pub oso_platform::window::Event::Focused
 pub oso_platform::window::Event::Ime(oso_platform::window::ImeEvent)
 pub oso_platform::window::Event::Key(oso_platform::window::KeyInput<'a>)
 pub oso_platform::window::Event::ModifiersChanged(oso_platform::window::Held)
@@ -308,6 +425,31 @@ pub enum oso_platform::window::ImeEvent
 pub oso_platform::window::ImeEvent::Commit(alloc::string::String)
 pub oso_platform::window::ImeEvent::Disabled
 pub oso_platform::window::ImeEvent::Preedit(alloc::string::String, core::option::Option<core::ops::range::Range<usize>>)
+pub enum oso_platform::window::QuitAnswer
+pub oso_platform::window::QuitAnswer::Cancel
+pub oso_platform::window::QuitAnswer::Later
+pub oso_platform::window::QuitAnswer::Now
+impl core::clone::Clone for oso_platform::window::QuitAnswer
+pub fn oso_platform::window::QuitAnswer::clone(&self) -> oso_platform::window::QuitAnswer
+impl core::cmp::Eq for oso_platform::window::QuitAnswer
+impl core::cmp::PartialEq for oso_platform::window::QuitAnswer
+pub fn oso_platform::window::QuitAnswer::eq(&self, &oso_platform::window::QuitAnswer) -> bool
+impl core::fmt::Debug for oso_platform::window::QuitAnswer
+pub fn oso_platform::window::QuitAnswer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::QuitAnswer
+impl core::marker::StructuralPartialEq for oso_platform::window::QuitAnswer
+pub enum oso_platform::window::QuitReason
+pub oso_platform::window::QuitReason::Person
+pub oso_platform::window::QuitReason::SessionEnd
+impl core::clone::Clone for oso_platform::window::QuitReason
+pub fn oso_platform::window::QuitReason::clone(&self) -> oso_platform::window::QuitReason
+impl core::cmp::Eq for oso_platform::window::QuitReason
+impl core::cmp::PartialEq for oso_platform::window::QuitReason
+pub fn oso_platform::window::QuitReason::eq(&self, &oso_platform::window::QuitReason) -> bool
+impl core::fmt::Debug for oso_platform::window::QuitReason
+pub fn oso_platform::window::QuitReason::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::QuitReason
+impl core::marker::StructuralPartialEq for oso_platform::window::QuitReason
 pub enum oso_platform::window::SystemKey<'a>
 pub oso_platform::window::SystemKey::Character(&'a str)
 pub oso_platform::window::SystemKey::Dead

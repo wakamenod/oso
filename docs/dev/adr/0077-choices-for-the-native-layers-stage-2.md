@@ -1,6 +1,6 @@
 # 0077. Choices for the rest of the native window layer's stage 2
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -9,7 +9,7 @@
 layer. Its stage 2, the macOS layer behind `native-window`, landed in parts, and
 `open-questions.md` lists what it still owes before the layer becomes the default on macOS.
 Ten choices were left open there, and the author made them on 2026-11-08 through the
-coordinator.
+coordinator. The author accepted this on 2026-11-08, through the coordinator.
 
 ## Decision
 
@@ -81,6 +81,17 @@ the window layer what the answers need after each event that changes it (the cur
 where the composition's characters are, and the cursor's line), and the layer keeps them and
 answers from them, with no call into the handler while the input method asks. No OS call
 is made for them: they stay in oso's process until the input method asks.
+
+So two sentences of ADR 0070 change:
+
+- "What the backend holds is geometry and ranges, never text of a buffer" no longer holds:
+  the layer holds the excerpt of the cursor's line, at most 4000 bytes, and answers from it.
+  It holds one only while the IME is on, drops it when the IME goes off and after a panic in
+  the handler, and no `Debug` prints it.
+- "Every query checks the selected buffer when it comes" becomes: what the layer holds is
+  checked when the app gives it, after every event, and nothing is answered while the IME is
+  off. A query while the handler runs gets what the previous event left, which was given for
+  a buffer that gave one.
 
 ## Alternatives considered
 

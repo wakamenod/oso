@@ -1,15 +1,16 @@
 //! OS abstractions (ADR 0003, ADR 0004): the text system backends, the window layer's
 //! events (ADR 0070), what keeps text private to its user, what decides who may reach a
-//! file beyond its mode and, in dev builds, the control socket transport and process
-//! spawning.
+//! file beyond its mode, the control sockets' transport (ADR 0085) and, in dev builds,
+//! process spawning.
 //!
 //! Must not depend on: any workspace crate (`oso-core`, `oso-render`, `oso`),
 //! wgpu or winit.
 //!
-//! IME, clipboard, filesystem and PTY arrive later. `oso_platform::process` is
+//! `clipboard` reads and writes the OS clipboard off the UI thread (ADR 0074). IME,
+//! filesystem and PTY arrive later. `oso_platform::process` is
 //! the only place allowed to spawn child processes (ADR 0010).
 
-#[cfg(feature = "dev")]
+pub mod clipboard;
 pub mod control;
 pub mod file_meta;
 pub mod privacy;

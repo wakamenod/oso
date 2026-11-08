@@ -69,7 +69,9 @@ underline with `-`, and the segment being converted with `=`
 
 Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
-([ADR 0071](adr/0071-mark-and-region.md)).
+([ADR 0071](adr/0071-mark-and-region.md)). The same line marks the current isearch match
+with `#` and the other matches in view with `~`, from `Editor::search_cells`
+([ADR 0082](adr/0082-isearch.md)).
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `#`
@@ -117,8 +119,11 @@ Some tests check the repository rather than behavior:
 - `crates/oso/tests/workspace_lints.rs`: every crate uses the workspace
   lints.
 - `crates/oso/tests/architecture`: dependency direction, confined crates,
-  file sizes, `static` items, module headers and conflict markers
-  ([ADR 0038](adr/0038-architecture-guardrails.md),
+  file sizes, `static` items, module headers, conflict markers, and where the
+  control directory may be made, listened on, cleaned or written to: only the
+  dev tooling, until the agent channel's start command joins it
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md),
+  [ADR 0038](adr/0038-architecture-guardrails.md),
   [ADR 0039](adr/0039-architecture-guardrail-mechanics.md),
   [ADR 0041](adr/0041-module-responsibility-headers.md),
   [ADR 0042](adr/0042-statics-snapshots-and-render-errors.md)).
@@ -248,14 +253,14 @@ what you type goes into their buffers, which can fail a flow.
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
 | screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
-| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions, `take-timings`, `*Messages*`, the echo area and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
+| secret files | path judgment to every way out: `get-state` with no positions and nothing an edit or a save changes, `get-text`, `screenshot`, `check-handover` and `export-state` refused for one reason, `take-timings`, `*Messages*`, the echo area and the log, also through a symlink and after a motion and an edit, and `show-buffer` allows them again |
 | modeline and echo area | a key that changes only the echo area to a frame; the bidi warning; `*Messages*` holds no restart, and takes no typing |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
-| emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit, to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
-| exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. What makes it ask again is tested through the `Dispatcher` |
+| emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit (on oso's own layer a quit Apple event with a logout reason), to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
+| exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. On oso's own macOS layer a person's quit, as another app sends it, asks the same question, `n` stays and `y` goes with nothing written (ADR 0084). What makes it ask again is tested through the `Dispatcher` |
 | prompts | `M-g g` reads a line in a float and goes there, `C-g` runs nothing, the IME off in a prompt and on after it, the exit question on `n` and `y`, a passphrase withheld from `get-state`, screenshots and the log, and a restart held while a prompt is open (ADR 0072) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
@@ -294,6 +299,11 @@ macOS. The glyphs come from a fake text system, so they assert the same on both,
 failure on Linux is real. There are no stored images to compare. Once M2-16 draws floats,
 a flow can take over.
 
+**Themes** ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)): a unit test checks
+the contrast of every face's pairs in every theme, with no GPU. A pixel test keeps each theme's
+text gamma curve, and a sample frame for each theme is drawn off screen as PNGs for the author
+to choose colours from.
+
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
 [ADR 0032](adr/0032-control-socket-transport.md)):
@@ -313,6 +323,14 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). While one is
   shown, `modeline` and `echo` are left out
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+- `get-state` also gives `kill_ring`: the number of entries and the newest one's pieces,
+  at most 16 of 1 KiB each, leaving out entries killed from a buffer that may hold secrets,
+  and null while one is shown; and `clipboard.waiting`, while a yank waits for the
+  clipboard ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)).
+- `clipboard` reads the clipboard in memory, or with `text` (and `concealed`) sets it as
+  another app would. It works only in an instance started with `--clipboard memory`, which
+  the harness always passes, so no flow touches the person's clipboard. Text marked
+  concealed reads as null.
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
@@ -321,7 +339,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)). `--emergency-dir DIR`, as a dev build's first argument, sends the copies elsewhere, and the harness always passes it.
 - Secret-pattern buffers give no text, no screenshot and no positions
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
-  [ADR 0051](adr/0051-m2-plan-decisions.md)). Any file
+  [ADR 0051](adr/0051-m2-plan-decisions.md)). While one is shown, `get-state` gives no
+  `modified`, `saving` or size of such buffers, and no restart is handed over. Keys in progress,
+  a composition and prompts open then stay out of `get-state` and `screenshot` until they end
+  ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)). Any file
   counts as secret until its path is resolved, so wait for `loading` to become
   null before reading it.
 - `export-state` and `import-state` hand the state to a new instance, and `exit`
@@ -335,9 +356,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   directory, never committed) can be driven this way.
 - `take-timings` reads key latency, startup and load times for benchmarks. It records no
   key if a secret-pattern buffer is shown just before or after it or when its frame is
-  presented, and no frames while one is shown, but the first frame and the first load's
-  times. A file counts as secret until it is judged
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  presented, and no frames while one is shown, but the first frame. A file counts as secret
+  until it is judged ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). The load
+  times are of the first file judged ordinary, and its first screen counts only if no such
+  buffer is shown then ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - `screenshot` writes a PNG of the current frame and returns its path.
 
 The transport and protocol themselves are tested without a window or GPU
@@ -380,6 +402,7 @@ OS and architecture. Nothing is built or installed there.
 | `type_p50_ms`, `type_p99_ms`, `del_p99_ms` | the same while typing there (ASCII, Japanese, an emoji and line breaks), and while `DEL` removes it | 5, 400 keys each |
 | `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; reported only (ADR 0069) | 5, 400 reports each |
 | `prompt_type_p99_ms` | digits typed into `goto-line`'s open prompt to the frames that draw them, there; reported only (ADR 0072) | 5, 400 keys each |
+| `mx_type_p99_ms` | a letter and `DEL` typed in turn into `M-x` listing every command, to the frames that draw them; reported only (ADR 0076) | 5, 400 keys each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |
@@ -413,22 +436,26 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every pull request and
 every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 
 - `just ci` on Linux, macOS and Windows. `check`, `lint` and `test` cover
-  the dev features too (`--all-features`).
+  the dev features too (`--all-features`). The macOS job also runs
+  `just public-api-macos-check`, below, so that a push starts one macOS job.
 - `just release-safety` on Linux: release builds contain no dev-only
   features, crates or code ([ADR 0032](adr/0032-control-socket-transport.md))
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
 - `just public-api-check` on Linux: the public API matches
   `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
-  `just public-api-macos-check` on macOS for `oso-platform`'s macOS API, with the native
-  window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
+  `just public-api-macos-check` in the macOS `just ci` job for `oso-platform`'s macOS API,
+  with the native window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue
 - the performance workflow (`perf.yml`), on every pull request and every push
   to `main` that changes more than `docs/`: results in the job summary and in
   JSON artifacts, compared with the last result on `main`
-  ([ADR 0046](adr/0046-performance-regression-checks.md))
+  ([ADR 0046](adr/0046-performance-regression-checks.md)). Pull requests run the
+  benchmarks on Linux only; a change to the input, render or load paths is
+  measured with `just perf-remote`, or with the workflow started by hand, which
+  includes macOS ([ADR 0081](adr/0081-macos-benchmarks-off-pull-requests.md))
 - the end-to-end workflow (`e2e.yml`), on pull requests and pushes to `main` that
   change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe, and on
   macOS, the one runner that checks text pixels

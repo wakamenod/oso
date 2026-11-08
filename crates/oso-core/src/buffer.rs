@@ -31,10 +31,12 @@ mod baseline;
 mod internal;
 mod mode;
 mod recovery;
+mod reload;
+pub(crate) use reload::Noticed;
 mod splice;
 
 pub use crate::secret::Verdict;
-pub use baseline::{Baseline, FileStamp};
+pub use baseline::{Baseline, DiskState, FileStamp};
 pub use mode::Mode;
 use splice::{SpliceText, apply, normalized, offset_edit};
 
@@ -171,6 +173,13 @@ pub struct Buffer {
     changed_on_disk: bool,
     /// The regular file that save found, which a save the person agrees to may replace.
     save_over: Option<FileStamp>,
+    /// The file was found gone, or no longer a file, and nothing has written it since.
+    gone_from_disk: bool,
+    /// What was last seen of the file that differs from the baseline, and what came of it, so
+    /// that each thing seen is acted on once (ADR 0083).
+    disk_acted: Option<(DiskState, reload::Noticed)>,
+    /// The file could not be read again since it changed, and a new look tries again.
+    reload_failed: bool,
     /// The editor keeps this buffer for itself.
     internal: bool,
     /// An internal buffer that takes typing, as a prompt's does (ADR 0072).
@@ -194,6 +203,9 @@ pub struct Buffer {
     /// Whether the text may hold secrets (ADR 0044, ADR 0051). Withheld from the moment
     /// a file is visited until the host knows better.
     verdict: Verdict,
+    /// A kill that counts as secret was yanked into it (ADR 0074). Nothing that judges the
+    /// text clears this: [`Buffer::verdict`] combines the two.
+    yanked_secret: bool,
     /// The state of the content now.
     content: ContentId,
     /// The state the file on disk has.
@@ -222,6 +234,9 @@ impl Buffer {
             baseline: None,
             changed_on_disk: false,
             save_over: None,
+            gone_from_disk: false,
+            disk_acted: None,
+            reload_failed: false,
             internal: false,
             takes_typing: false,
             no_history: false,
@@ -233,6 +248,7 @@ impl Buffer {
             loading: None,
             revision: 0,
             verdict: Verdict::Ordinary,
+            yanked_secret: false,
             content: ContentId(0),
             saved: ContentId(0),
             next_content: 1,
@@ -298,16 +314,31 @@ impl Buffer {
         self.verdict = secret::judge_unresolved(self.path.as_deref(), seen);
     }
 
+    /// Counts the text as secret from now on, as a kill that counts as secret was yanked
+    /// into it, for dev tooling and the emergency save alike. Whatever judges the text later
+    /// keeps it so, and a passphrase stays a passphrase. Returns whether a buffer that was
+    /// not withheld now is.
+    pub(crate) fn treat_as_secret(&mut self) -> bool {
+        let was_withheld = self.verdict().is_withheld();
+        self.yanked_secret = true;
+        !was_withheld
+    }
+
     /// Whether the text may hold secrets, and why.
     pub fn verdict(&self) -> Verdict {
-        self.verdict
+        match self.verdict {
+            // These say more than a yank does, and a passphrase's rules are its own.
+            Verdict::SecretName | Verdict::Passphrase => self.verdict,
+            _ if self.yanked_secret => Verdict::Yanked,
+            verdict => verdict,
+        }
     }
 
     /// Whether the file may hold secrets (ADR 0028, ADR 0044). A file's text
     /// must not leave the editor through dev tooling while this is true. An
     /// emergency save asks [`Verdict::may_be_copied`] instead (ADR 0051).
     pub fn is_secret(&self) -> bool {
-        self.verdict.is_withheld()
+        self.verdict().is_withheld()
     }
 
     /// A number that changes whenever the content does, so that caches of
@@ -346,34 +377,6 @@ impl Buffer {
             baseline.file = Some(stamp);
         }
         self.note_written(stamp);
-    }
-
-    /// Whether a save found the file changed since this buffer read it or wrote it.
-    pub(crate) fn changed_on_disk(&self) -> bool {
-        self.changed_on_disk
-    }
-
-    /// Records whether a save found the file changed. A file that has not changed has
-    /// nothing to save over.
-    pub(crate) fn set_changed_on_disk(&mut self, changed: bool) {
-        self.changed_on_disk = changed;
-        if !changed {
-            self.save_over = None;
-        }
-    }
-
-    /// The regular file a save found changed on disk, which a save the person agrees to
-    /// may replace, if it is still that file (ADR 0072).
-    pub(crate) fn save_over(&self) -> Option<FileStamp> {
-        self.save_over.filter(|_| self.changed_on_disk)
-    }
-
-    pub(crate) fn set_save_over(&mut self, found: FileStamp) {
-        self.save_over = Some(found);
-    }
-
-    pub(crate) fn forget_save_over(&mut self) {
-        self.save_over = None;
     }
 
     /// Whether a save of this buffer is running. Until it ends, the disk may hold

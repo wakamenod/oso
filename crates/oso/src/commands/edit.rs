@@ -1,5 +1,6 @@
 //! Commands that change text: typing, deleting and undoing (ADR 0030, ADR 0051,
-//! ADR 0056, ADR 0058).
+//! ADR 0056, ADR 0058). With the region shown, typing replaces it and deleting a
+//! character deletes it (`delete-selection-mode`, ADR 0074).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -12,10 +13,9 @@
 use std::borrow::Cow;
 
 use oso_core::buffer::{EditError, Replacement};
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot, TabWidth};
 use oso_core::motion::{self, Edge, WalkBudget};
-use oso_core::word;
 
 use super::budget_left;
 
@@ -33,68 +33,64 @@ const MAX_CROSSINGS: usize = 256;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "self-insert-command",
-        doc: "Insert the typed character at every cursor, N times.\n\nSingle characters typed in a row undo together, up to 20 of them. A count over 1, text of several characters, or an input method's commit, is an undo step of its own. A negative N signals an error.",
-        args: ArgSpec::Count,
+        doc: "Insert the typed character at every cursor, N times, in place of the region if it shows.\n\nSingle characters typed in a row undo together, up to 20 of them. A count over 1, text of several characters, or an input method's commit, is an undo step of its own. A negative N signals an error.",
+        args: ArgSpec::Key,
+        reach: Reach::Person,
         run: self_insert_command,
     },
     Command {
         name: "insert-full-width-space",
         doc: "Insert a full-width space (U+3000) at every cursor, N times.\n\n`SPC` inserts a half-width one, also with a Japanese input source. It undoes with the typing around it, as one typed character does. A negative N signals an error.",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: insert_full_width_space,
     },
     Command {
         name: "newline",
         doc: "Insert a line break at every cursor, N times.\n\nThe line break is the one the file uses, so `\\r\\n` in a CRLF file. Each is an undo step of its own. A negative N signals an error.",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: newline,
     },
     Command {
         name: "delete-backward-char",
-        doc: "Delete the N characters before every cursor (after it if N is negative).\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters before it deletes nothing and signals \"Beginning of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
+        doc: "Delete the N characters before every cursor (after it if N is negative), or the region if it shows.\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters before it deletes nothing and signals \"Beginning of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: delete_backward_char,
     },
     Command {
         name: "delete-char",
-        doc: "Delete the N characters after every cursor (before it if N is negative).\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters after it deletes nothing and signals \"End of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
+        doc: "Delete the N characters after every cursor (before it if N is negative), or the region if it shows.\n\nCharacters are counted as in `forward-char`. A cursor with fewer than N characters after it deletes nothing and signals \"End of buffer\"; other cursors still delete. So does one a count would read too much for, signaling \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: delete_char,
-    },
-    Command {
-        name: "kill-word",
-        doc: "Delete from every cursor to the end of the next word, N times (backward if N is negative).\n\nWords are as in `forward-word`. What a command can delete stops at the buffer's edge, with no signal. Until the kill ring arrives, the text does not go to it.",
-        args: ArgSpec::Count,
-        run: kill_word,
-    },
-    Command {
-        name: "backward-kill-word",
-        doc: "Delete from every cursor to the start of the previous word, N times (forward if N is negative).\n\nSee `kill-word`.",
-        args: ArgSpec::Count,
-        run: backward_kill_word,
     },
     Command {
         name: "tab-to-tab-stop",
         doc: "Insert spaces at every cursor, up to the next tab stop.\n\nTab stops are every `tab-width` cells. Each cursor goes to its own next stop. Indenting by mode comes with modes.",
         args: ArgSpec::None,
+        reach: Reach::Change,
         run: tab_to_tab_stop,
     },
     Command {
         name: "undo",
         doc: "Undo the last N changes to the buffer (redo them if N is negative).\n\nThe cursors go back to where they were. With nothing more to undo, signal \"No further undo information\". After 256 changes, stop and signal \"Count too large\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: undo,
     },
     Command {
         name: "undo-redo",
         doc: "Redo the last N undone changes (undo if N is negative).\n\nAny edit after an undo discards what could be redone (ADR 0030). With nothing more to redo, signal \"No further redo information\".",
         args: ArgSpec::Count,
+        reach: Reach::Change,
         run: undo_redo,
     },
 ];
 
-/// Inserts `text` at every cursor of the selected window, `count` times. Asks
-/// for a redraw if that changes anything.
+/// Inserts `text` at every cursor of the selected window, `count` times, in place of
+/// the region if it shows. Asks for a redraw if that changes anything.
 fn insert_at_cursors(ctx: &mut Ctx<'_>, text: &str, count: isize) -> Result<(), CommandError> {
     let times = usize::try_from(count)
         .map_err(|_| CommandError::new(format!("Negative repetition argument {count}")))?;
@@ -116,11 +112,16 @@ fn insert_at_cursors(ctx: &mut Ctx<'_>, text: &str, count: isize) -> Result<(), 
     } else {
         Cow::Owned(text.repeat(times))
     };
+    let replaces = window.selections.mark_active().is_active();
     let edits: Vec<Replacement<'_>> = window
         .selections
         .iter()
         .map(|selection| Replacement {
-            range: selection.cursor..selection.cursor,
+            range: if replaces {
+                selection.range()
+            } else {
+                selection.cursor..selection.cursor
+            },
             text: &text,
         })
         .collect();
@@ -169,6 +170,14 @@ fn delete_clusters(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     if let Some(reason) = buffer.read_only() {
         return Err(EditError::ReadOnly(reason).into());
     }
+    // An empty region is no region here, as Emacs's `use-empty-active-region` has it.
+    let set = &window.selections;
+    if n.unsigned_abs() == 1
+        && set.mark_active().is_active()
+        && set.iter().any(|selection| !selection.range().is_empty())
+    {
+        return delete_regions(ctx);
+    }
     let display = buffer.display();
     let len = motion::buffer_end(&display);
     let mut budget = WalkBudget::new();
@@ -212,49 +221,30 @@ fn delete_clusters(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     }
 }
 
+/// Deletes the region at every cursor, as Emacs's `delete-active-region` does, with no
+/// kill.
+fn delete_regions(ctx: &mut Ctx<'_>) -> Result<(), CommandError> {
+    let window = ctx.editor.window();
+    let edits: Vec<Replacement<'_>> = window
+        .selections
+        .iter()
+        .map(|selection| Replacement {
+            range: selection.range(),
+            text: "",
+        })
+        .collect();
+    let buffer = window.buffer();
+    ctx.editor.apply_edits(buffer, &edits)?;
+    ctx.request_redraw();
+    Ok(())
+}
+
 fn delete_backward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     delete_clusters(ctx, args.count().saturating_neg())
 }
 
 fn delete_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     delete_clusters(ctx, args.count())
-}
-
-/// Deletes from every cursor of the selected window across `n` words, backward if
-/// `n` is negative, in one edit. The buffer's edge stops it with no signal, as in
-/// Emacs. A cursor the budget runs out on deletes nothing, and the command signals
-/// after the others have deleted. This is where the kill ring comes in (M2-14).
-fn delete_words(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
-    let (window, buffer) = ctx.editor.current();
-    if let Some(reason) = buffer.read_only() {
-        return Err(EditError::ReadOnly(reason).into());
-    }
-    let display = buffer.display();
-    let mut budget = WalkBudget::new();
-    let mut edits = Vec::with_capacity(window.selections.len());
-    for selection in window.selections.iter() {
-        let to = word::move_words(&display, selection.cursor, n, &mut budget);
-        if !budget.is_spent() && to != selection.cursor {
-            edits.push(Replacement {
-                range: selection.cursor.min(to)..selection.cursor.max(to),
-                text: "",
-            });
-        }
-    }
-    if !edits.is_empty() {
-        let buffer = window.buffer();
-        ctx.editor.apply_edits(buffer, &edits)?;
-        ctx.request_redraw();
-    }
-    budget_left(budget)
-}
-
-fn kill_word(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    delete_words(ctx, args.count())
-}
-
-fn backward_kill_word(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
-    delete_words(ctx, args.count().saturating_neg())
 }
 
 fn tab_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

@@ -183,7 +183,8 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 - **M2-13** (after M2-6): mark and region, drawn as rectangles in the window's pane
   ([ADR 0071](adr/0071-mark-and-region.md)).
 - **M2-14** (after M2-13): kill ring, with `M-d` and `M-DEL` as kills, `C-w`, `M-w`, `C-k`, `C-y`, typing over a
-  region, per-cursor kills and the OS clipboard.
+  region, per-cursor kills and the OS clipboard, on macOS first
+  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)).
 - **M2-15** (after M2-2, M2-7, M2-13 and M2-14): `oso dev` carries unsaved text, and
   sends build errors to the echo area
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
@@ -193,28 +194,48 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 - **M2-17** (after M2-16): completion: the orderless matcher, 18 candidate rows,
   annotations, history and `M-x`.
 - **M2-18** (after M2-8 and M2-17): `C-x C-f` with path-segment completion on a
-  worker thread, `C-x C-w`, and asking before opening files of 2 GiB or more.
+  worker thread, `C-x C-w`, asking before opening files of 2 GiB or more, and opening
+  that never blocks on a special file
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - **M2-19** (after M2-17): `C-x b` with in-popup preview, `kill-buffer`, distinct
-  names for files with one name, and `M-,`/`M-/`.
+  names for files with one name, `M-,`/`M-/`, a window's place in each buffer, and `C-.`
+  ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - **M2-20** (after M2-7 and M2-13): isearch (`C-s`/`C-r`) with smart case, match
   highlighting and a count from the background.
 - **M2-21** (after M2-14, M2-17 and M2-20): multiple-cursor keys, and `M-y` from the
   kill ring ([ADR 0007](adr/0007-multi-cursor.md)).
 - **M2-22** (after M2-8 and M2-16): reloading files changed on disk
   ([ADR 0029](adr/0029-file-changes-on-disk.md)).
-- **M2-23** (after M2-13, and after the work in the text pass merges): the dark and
-  light theme with the contrast check, text gamma, and gaps between invisible boxes
-  ([ADR 0027](adr/0027-theme.md)).
+- **M2-23** (after M2-13, M2-17 and M2-20, and after the work in the text pass merges):
+  three built-in themes, `dark`, `light` and `dusk`, switched at run time with `load-theme`
+  and `<f5>` and remembered across starts, with the contrast check for every theme, text
+  gamma, and gaps between invisible boxes ([ADR 0027](adr/0027-theme.md),
+  [ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - **M2-24** (after M2-23): visual aids: whitespace, current line, cursor flash and
   line numbers.
 - **M2-25** (after M2-9 and M2-24): soft wrap, with the WrapMap
   ([ADR 0006](adr/0006-display-model.md)).
+
+**The agent channel, pulled forward from M4** ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)),
+alongside the steps above, after M2-16:
+
+- **AC-1**: a reach on every command, and the agent channel in release builds: `run`, `open`,
+  `state`, `text`, `commands` and `cancel`, `ArgSpec::Text` and `insert`, the connection question,
+  the `Agent` segment and `*Agent*`, and the change to `just release-safety`.
+- **AC-2** (after AC-1): `oso mcp`, the stdio bridge, with the tools `state`, `text`, `commands`,
+  `look`, `change` and `open`.
+- Each later step gives its commands a reach, such as `C-x C-f`, `C-x b` and window splits.
 
 ### M3 — Coding
 
 - Loading the TOML configuration, with a user key layer above the global keymap
   ([ADR 0019](adr/0019-configuration.md),
   [ADR 0051](adr/0051-m2-plan-decisions.md)).
+  A setting starts the agent channel at launch
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- Whatever opening or saving starts, such as a format on save, waits in a buffer the agent
+  channel opened or saved until the person acts there
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Tree-sitter highlighting, starting with Rust, Markdown and TOML.
 - Window splits, indentation, project trust model.
 - Project file finding and asynchronous ripgrep search.
@@ -235,7 +256,7 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
   ([ADR 0015](adr/0015-terminal.md)).
 - Claude Code integration ([ADR 0031](adr/0031-claude-code-integration.md)):
   the official `claude` TUI in a terminal view, hooks for session identity
-  and state, the `oso mcp` bridge for review and worktree tools, session
+  and state, review and worktree tools on the `oso mcp` bridge, session
   list, notifications, worktree sessions, and restore via `--resume`.
 
 ### After M4

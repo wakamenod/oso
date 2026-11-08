@@ -1,4 +1,5 @@
-# Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046).
+# Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046,
+# ADR 0081).
 # Results go to the job summary and to JSON artifacts. Pushes to main only
 # report: their results become the baseline, so a regression accepted on
 # purpose does not fail every later pull request. A change to docs alone has
@@ -12,6 +13,8 @@ on:
     paths-ignore: ["docs/**"]
   pull_request:
     paths-ignore: ["docs/**"]
+  # Runs a branch's macOS benchmarks, which pull requests skip (ADR 0081).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,7 +33,10 @@ jobs:
       fail-fast: false
       matrix:
         # Not Windows: the control socket does not support it yet (ADR 0032).
-        os: [ubuntu-latest, macos-latest]
+        # Not macOS on pull requests: its jobs wait for a free runner, and
+        # pull requests are measured on a Mac with `just perf-remote` instead
+        # (ADR 0081).
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
@@ -38,17 +44,15 @@ jobs:
       # To read the baseline: the artifacts of earlier runs on main.
       actions: read
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
       # Linux has no display or GPU: Xvfb and lavapipe, Mesa's software Vulkan
       # driver. It draws no text yet (ADR 0036).
       - name: Install a virtual display and lavapipe
@@ -80,7 +84,7 @@ jobs:
             exit 0
           fi
           exit "$status"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: actions/upload-artifact@v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: perf-${{ runner.os }}
@@ -105,17 +109,15 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
       - run: just build-time target/perf/build-time.json
       - name: Fetch the baseline
         env:
@@ -133,7 +135,7 @@ jobs:
             exit 0
           fi
           exit "$status"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - uses: actions/upload-artifact@v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: build-time-${{ runner.os }}

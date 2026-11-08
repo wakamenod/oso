@@ -47,6 +47,10 @@ pub enum Verdict {
     SecretName,
     /// What a person types at a prompt for a passphrase (ADR 0072).
     Passphrase,
+    /// Text from a kill that counts as secret was yanked into it (ADR 0051, ADR 0074).
+    /// Judging its path does not change it; the file opened again in a new buffer is
+    /// judged anew.
+    Yanked,
 }
 
 impl Verdict {
@@ -54,6 +58,20 @@ impl Verdict {
     /// ordinary is.
     pub const fn is_withheld(self) -> bool {
         !matches!(self, Self::Ordinary)
+    }
+
+    /// Whether a kill of the text may go to the kill ring and the clipboard (ADR 0074). A
+    /// passphrase's may not (ADR 0072). Every verdict is named, so a new one decides this
+    /// where it is added.
+    pub const fn may_be_killed(self) -> bool {
+        match self {
+            Self::Unjudged
+            | Self::Ordinary
+            | Self::Unresolved
+            | Self::SecretName
+            | Self::Yanked => true,
+            Self::Passphrase => false,
+        }
     }
 
     /// Whether an emergency copy may hold the text (ADR 0051). An unresolved path is
@@ -118,11 +136,24 @@ pub(crate) fn judge_unresolved(opened: Option<&Path>, seen: &[PathBuf]) -> Verdi
     }
 }
 
+/// The verdict that withholds more, as a name that matches says more than not knowing, and
+/// a secret kill yanked in is never copied either (ADR 0074).
+pub(crate) fn stricter(one: Verdict, other: Verdict) -> Verdict {
+    match (one, other) {
+        (Verdict::SecretName, _) | (_, Verdict::SecretName) => Verdict::SecretName,
+        (Verdict::Yanked, _) | (_, Verdict::Yanked) => Verdict::Yanked,
+        (Verdict::Ordinary, other) => other,
+        (one, _) => one,
+    }
+}
+
 /// The verdict on a copy of a file, from the paths its metadata names and the least the
 /// caller knows of it: what the copy says of itself, and the verdict of the buffer it matched.
 pub(crate) fn judge_copy(paths: &[PathBuf], at_least: Verdict) -> Verdict {
     if at_least == Verdict::SecretName || paths.iter().any(|path| matches_pattern(path)) {
         Verdict::SecretName
+    } else if at_least == Verdict::Yanked {
+        Verdict::Yanked
     } else if at_least == Verdict::Ordinary {
         Verdict::Ordinary
     } else {
@@ -136,9 +167,26 @@ fn any_matches(opened: &Path, others: &[PathBuf]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Verdict, judge, judge_unresolved, matches_pattern};
+    use super::{Verdict, judge, judge_copy, judge_unresolved, matches_pattern};
     use proptest::prelude::*;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn a_yanked_secret_is_withheld_never_copied_and_kept_by_a_copy() {
+        assert!(Verdict::Yanked.is_withheld());
+        assert!(!Verdict::Yanked.may_be_copied());
+        assert!(
+            Verdict::Yanked.may_be_killed(),
+            "it goes to the ring as a secret entry"
+        );
+        assert!(
+            !Verdict::Passphrase.may_be_killed(),
+            "a passphrase goes nowhere"
+        );
+        assert_eq!(judge_copy(&[], Verdict::Yanked), Verdict::Yanked);
+        let env = [PathBuf::from("/p/.env")];
+        assert_eq!(judge_copy(&env, Verdict::Yanked), Verdict::SecretName);
+    }
 
     /// Whether dev tooling withholds the file: `None` means it could not be resolved.
     fn is_secret(opened: &Path, resolved: Option<&[PathBuf]>) -> bool {

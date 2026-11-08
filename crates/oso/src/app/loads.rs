@@ -39,6 +39,7 @@ impl App {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
+        self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
         let spawned = loader::spawn(buffer, path, move |buffer| {
@@ -67,6 +68,11 @@ impl App {
     /// frame if it needs one.
     pub(super) fn load_updated(&mut self, buffer: BufferId) {
         let load = self.loads.iter().position(|l| l.handle.buffer() == buffer);
+        if load.is_none() {
+            // A file read again, which `reloads` runs.
+            self.reload_updated(buffer);
+            return;
+        }
         if let Some(index) = load
             && let Some(update) = self.loads[index].handle.take()
         {
@@ -144,7 +150,10 @@ impl App {
                 let done = snapshot.done();
                 buffer.apply_load(*snapshot);
                 let load = &mut self.loads[index];
-                if first {
+                // How long a file that may hold secrets takes says something of its text, so
+                // its load is neither logged nor timed (ADR 0078). It is judged by now.
+                let timed = !buffer.is_secret();
+                if first && timed {
                     load.first_screen = Some(load.started);
                     #[cfg(feature = "dev")]
                     self.timings.load_first_content(load.started);
@@ -152,7 +161,13 @@ impl App {
                 if done {
                     no_baseline = buffer.baseline().is_none() && !buffer.is_internal();
                     self.scan_for_copies |= !buffer.is_internal();
-                    log::debug!("{:?} loaded in {:?}", buffer.name(), load.started.elapsed());
+                    if timed {
+                        let (name, bytes) = (buffer.name(), buffer.text().len());
+                        log::debug!(
+                            "{name:?} loaded, {bytes} bytes, in {:?}",
+                            load.started.elapsed()
+                        );
+                    }
                     #[cfg(feature = "dev")]
                     self.timings.load_done(load.started);
                 }
@@ -168,6 +183,8 @@ impl App {
                 self.loads.swap_remove(index);
                 shown
             }
+            // Only a reload sends one, and `reloads` takes it.
+            LoadUpdate::Reloaded(_) => false,
             LoadUpdate::Failed(e) => {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);

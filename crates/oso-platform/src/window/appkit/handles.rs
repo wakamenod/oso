@@ -43,6 +43,15 @@ impl Control {
         self.state.exit.get()
     }
 
+    /// The app's answer to an end it held with `QuitAnswer::Later`: yes ends the process, as
+    /// for `QuitAnswer::Now`, once the handler returns. With no end held, nothing happens.
+    pub fn answer_quit(&self, yes: bool) {
+        self.state
+            .requests
+            .borrow_mut()
+            .push(Request::AnswerQuit(yes));
+    }
+
     /// From now on, the loop sleeps while no event comes.
     pub fn sleep_when_idle(&self) {
         self.state.deadline.set(None);
@@ -238,13 +247,13 @@ impl Window {
     }
 
     /// Whether the view gives the input method a context now, which it does only while the
-    /// IME is on, for the dev socket's check.
+    /// IME is on, and whether AppKit's current context is that one, for the dev socket's check.
     #[cfg(feature = "dev")]
-    pub fn gives_input_context(&self) -> bool {
+    pub fn input_context(&self) -> (bool, bool) {
         self.state
             .window
             .get()
-            .is_some_and(|(_, view, _)| view.gives_input_context())
+            .map_or((false, false), |(_, view, _)| view.input_context_state())
     }
 }
 

@@ -71,6 +71,9 @@ impl Loop<'_> {
         self.0.exit();
     }
 
+    /// winit never asks the app whether to end, so it holds no end to answer (ADR 0084).
+    pub(super) fn answer_quit(&self, _yes: bool) {}
+
     /// Whether [`Loop::exit`] was called.
     pub(super) fn exiting(&self) -> bool {
         self.0.exiting()
@@ -183,7 +186,7 @@ impl Window {
 
     /// winit keeps the input context to itself, so the dev socket reports none.
     #[cfg(feature = "dev")]
-    pub(super) fn gives_input_context(&self) -> Option<bool> {
+    pub(super) fn input_context(&self) -> Option<(bool, bool)> {
         None
     }
 
@@ -283,6 +286,7 @@ fn translate(event: WindowEvent) -> Event<'static> {
             Event::ScaleFactorChanged(scale_factor)
         }
         WindowEvent::Occluded(occluded) => Event::Occluded(occluded),
+        WindowEvent::Focused(true) => Event::Focused,
         WindowEvent::RedrawRequested => Event::RedrawRequested,
         WindowEvent::MouseWheel { delta, .. } => Event::Wheel(wheel(delta)),
         WindowEvent::ModifiersChanged(modifiers) => {
@@ -474,6 +478,10 @@ mod tests {
         assert_eq!(wheel(pixels), Wheel::Pixels { x: 3.0, y: 4.0 });
         assert!(matches!(
             translate(WindowEvent::Focused(true)),
+            Event::Focused
+        ));
+        assert!(matches!(
+            translate(WindowEvent::Focused(false)),
             Event::Other
         ));
     }

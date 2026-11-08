@@ -25,32 +25,43 @@ fn keeps_state_true(event: &Event<'_>) -> bool {
 impl App {
     /// A thread sent the event loop something.
     pub(super) fn handle_user_event(&mut self, event_loop: &Loop<'_>, event: UserEvent) {
+        self.begin_logging();
         match event {
             UserEvent::Load(buffer) => {
                 self.load_updated(buffer);
             }
             UserEvent::Save(report) => self.save_ended(event_loop, report),
+            UserEvent::Watch => self.watch_reported(),
             UserEvent::NoEmergencyCopies(problem) => {
                 // Only this level reaches a terminal with no `RUST_LOG`.
                 log::error!("{}", problem.escape_debug());
                 self.editor.message(problem);
             }
             UserEvent::Copies(event) => self.copies_event(event),
+            UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
+            UserEvent::Search(report) => self.isearch_reported(report),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }
         self.after_event(event_loop);
+        self.note_logging();
     }
 
     /// The event loop is about to wait for the next events.
     pub(super) fn before_waiting(&mut self, event_loop: &Loop<'_>) {
+        self.begin_logging();
         self.check_leaving(event_loop);
         self.scan_if_a_file_has_loaded();
+        self.check_disk();
+        // A load may have grown the buffer under isearch.
+        self.start_searches();
         self.ask_for_a_frame_if_status_changed();
+        self.note_logging();
     }
 
     /// An event from the window.
     pub(super) fn handle_window_event(&mut self, event_loop: &Loop<'_>, event: Event<'_>) {
+        self.begin_logging();
         // An exit only sets a flag, and the loop still delivers what is queued. Input
         // handled now, by any path, would be lost with the process. But a leave can be
         // taken back, so what the window's state depends on still counts.
@@ -71,6 +82,9 @@ impl App {
             // ---- Visible again: frames skipped while occluded need a redraw ----
             Event::Occluded(false) => self.request_redraw(),
 
+            // ---- In front again: another program may have changed open files ----
+            Event::Focused => self.window_focused(),
+
             // ---- Redraw ----
             Event::RedrawRequested => self.draw_frame(),
 
@@ -89,6 +103,7 @@ impl App {
             Event::Occluded(true) | Event::Other => {}
         }
         self.after_event(event_loop);
+        self.note_logging();
     }
 }
 

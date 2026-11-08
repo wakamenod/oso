@@ -1,13 +1,13 @@
-//! What a file or directory holds beyond its mode that decides who may reach it, and opening a
-//! file with what could not be done with `std`. This is the file-system module ADR 0062 expected
-//! (ADR 0065, ADR 0067). That means access lists, on macOS and POSIX ones on Linux, and macOS's
-//! quarantine flag. Other systems are decided later.
+//! What a file or directory holds beyond its mode that decides who may reach it, opening a
+//! file with what could not be done with `std`, and where an open file is. This is the file-system
+//! module ADR 0062 expected (ADR 0044, ADR 0065, ADR 0067). That means access lists, on macOS and
+//! POSIX ones on Linux, and macOS's quarantine flag. Other systems are decided later.
 //!
 //! Must not depend on: `control`, `privacy`, `process` or `text`.
 
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -231,6 +231,19 @@ pub fn open_for_writing(path: &Path) -> io::Result<File> {
 /// checked. The list is gone from the file if it could be removed, so the file can be, too.
 pub fn seal(file: &File) -> io::Result<()> {
     backend::seal(file)
+}
+
+/// Where the open `file` is, as the system names it now: the file itself, whatever a path that led
+/// to it leads to since. On macOS that is `F_GETPATH`'s answer, which for a file no longer in any
+/// directory may be the path it had, or an error. On Linux it is the link `/proc` keeps, and `None`
+/// without `/proc` or for a file no longer in any directory. Elsewhere it is always `None`. It
+/// touches the disk, so it belongs off the UI thread.
+///
+/// # Errors
+///
+/// If the system could name it but did not.
+pub fn path_of_opened(file: &File) -> io::Result<Option<PathBuf>> {
+    backend::path_of_opened(file)
 }
 
 #[cfg(all(test, unix))]

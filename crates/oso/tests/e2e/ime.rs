@@ -196,6 +196,13 @@ fn no_input_context_is_given_while_the_ime_is_off() {
         false,
         "no context in a buffer that may hold secrets",
     );
+    // A request through the socket is no event AppKit dispatched, and for a buffer that may
+    // hold secrets the window layer has AppKit read the context again at once; other flips
+    // wait for AppKit's update after the next event.
+    let current = if native { json!(false) } else { Value::Null };
+    app.wait_for("AppKit's current context gone at once", |state| {
+        state["ime"]["current_input_context"] == current
+    });
     app.show_buffer(&notes);
     given(&mut app, true, "a context back from it");
 }

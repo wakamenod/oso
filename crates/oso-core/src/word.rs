@@ -293,6 +293,16 @@ fn kind_before_marks(
     Kind::NOT_WORD
 }
 
+/// Whether a word is at `offset`: the cluster there is a word's, as [`forward_word`]
+/// reads it.
+pub(crate) fn word_at(display: &DisplaySnapshot, offset: usize) -> bool {
+    let point = display.offset_to_display_point(offset);
+    display
+        .clusters(point)
+        .next()
+        .is_some_and(|cluster| Kind::of(&cluster).is_word())
+}
+
 /// Where the first word that ends after `offset` ends: past what is not a word, and
 /// on to the word's end. The end of the buffer if there is none. It stops short if
 /// the stop or the command has read all it may.

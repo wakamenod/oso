@@ -23,8 +23,9 @@ const WHEEL_ROWS: f64 = 3.0;
 /// cell is about half as wide as it is high.
 const WHEEL_COLUMNS: f64 = 6.0;
 
-/// Whether `key` from the window must not reach the innermost prompt, `innermost`: a question
-/// a control socket request asked, among `remote`. `C-g` still closes it.
+/// Whether `key` from the window must not reach the innermost prompt, `innermost`: a question,
+/// or a prompt that completes, that a control socket request opened, among `remote`. `C-g`
+/// still closes it.
 #[cfg(feature = "dev")]
 fn held_from_the_window(
     remote: &[oso_core::minibuffer::PromptId],
@@ -96,6 +97,8 @@ impl App {
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
+        // Before anything more is logged, for a key that brought a secret buffer into view.
+        self.note_logging();
         log::trace!("key handled in {:?}", started.elapsed());
         #[cfg(feature = "dev")]
         self.timings.key_handled(
@@ -114,6 +117,7 @@ impl App {
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.insert_text(&mut self.editor, text);
+        self.note_logging();
         #[cfg(feature = "dev")]
         self.timings.key_handled(
             started,

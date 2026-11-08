@@ -3,8 +3,8 @@
 //! Must not depend on: `keymap`, key presses or the concrete commands, which
 //! the tip crate registers.
 //!
-//! A [`Command`] is a name, a docstring, an argument spec and a plain
-//! function over host-owned state: `fn(&mut Ctx, Args) -> Result<(),
+//! A [`Command`] is a name, a docstring, an argument spec, a [`Reach`] and a
+//! plain function over host-owned state: `fn(&mut Ctx, Args) -> Result<(),
 //! CommandError>`. The host owns a [`Registry`] and the [`Editor`], and
 //! lends the editor to each command through a [`Ctx`]. Commands keep no
 //! state of their own, which keeps them testable and restartable.
@@ -22,6 +22,7 @@ use std::panic::{self, AssertUnwindSafe};
 
 use crate::buffer::EditError;
 use crate::editor::Editor;
+use crate::kill::FromClipboard;
 
 /// The function behind a command.
 pub type CommandFn = fn(&mut Ctx<'_>, Args) -> Result<(), CommandError>;
@@ -36,8 +37,18 @@ pub struct Command {
     pub doc: &'static str,
     /// Which arguments the command takes.
     pub args: ArgSpec,
+    /// How far the agent channel may reach it (ADR 0085). It has no default, so that each
+    /// command decides.
+    pub reach: Reach,
     /// The function that runs it.
     pub run: CommandFn,
+}
+
+impl Command {
+    /// The first line of its docstring: a one-sentence summary.
+    pub fn summary(&self) -> &'static str {
+        self.doc.lines().next().unwrap_or_default()
+    }
 }
 
 impl fmt::Debug for Command {
@@ -45,8 +56,26 @@ impl fmt::Debug for Command {
         f.debug_struct("Command")
             .field("name", &self.name)
             .field("args", &self.args)
+            .field("reach", &self.reach)
             .finish_non_exhaustive()
     }
+}
+
+/// How far the agent channel may reach a command (ADR 0085). The agent channel enforces it.
+/// Keys, `M-x` and the dev control socket's `run-command`, which trusts the same user
+/// (ADR 0044), reach every command whatever it says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// Moves, marks, shows or opens, and changes no buffer text and no file. Copying to the
+    /// kill ring is one: from the channel it never reaches the OS clipboard.
+    Look,
+    /// Edits buffer text or saves.
+    Change,
+    /// Needs a person at the keyboard, and the channel refuses it. Either it must stay the
+    /// person's (exiting, answering a prompt, reading the clipboard, a passphrase, anything
+    /// that spawns a process, trusts a project, or shows what a buffer that may hold secrets
+    /// withholds), or it reads a key, which the channel replaces with a count or text.
+    Person,
 }
 
 /// Which arguments a command takes. It documents the command
@@ -69,6 +98,30 @@ pub enum ArgSpec {
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`], and must not keep it.
     Passphrase { prompt: &'static str },
+    /// A command's name, read in a prompt that says `prompt` and completes over the
+    /// registry, kept in the history named `history` (ADR 0076). The dispatcher runs that
+    /// command in its place, with its prefix argument, as `M-x` does.
+    Command {
+        prompt: &'static str,
+        history: &'static str,
+    },
+    /// The key that ran it, read with [`Ctx::input`] or [`Ctx::key_char`], and a numeric
+    /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
+    /// (ADR 0076).
+    Key,
+    /// A numeric prefix argument, and with none or only `C-u`, what the OS clipboard
+    /// holds, read with [`Ctx::clipboard`]. The dispatcher reads the clipboard first, off
+    /// the UI thread, and runs the command once it has the answer, as `yank` needs
+    /// (ADR 0074).
+    CountAndClipboard,
+}
+
+impl ArgSpec {
+    /// Whether a command with this spec, given `prefix`, waits for the clipboard.
+    pub const fn reads_clipboard(self, prefix: Option<Prefix>) -> bool {
+        matches!(self, Self::CountAndClipboard)
+            && matches!(prefix, None | Some(Prefix::Universal(_)))
+    }
 }
 
 /// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher
@@ -236,6 +289,8 @@ pub struct Invocation<'a> {
     pub confirmed: bool,
     /// Its key had Shift, which its binding has not (Emacs's shift translation).
     pub shifted: bool,
+    /// What the OS clipboard held, for a command that waited for it.
+    pub clipboard: Option<&'a FromClipboard>,
 }
 
 impl fmt::Debug for Invocation<'_> {
@@ -316,6 +371,12 @@ impl<'a> Ctx<'a> {
     /// not, as `S-<right>` runs `forward-char`. A motion then selects (ADR 0071).
     pub fn shifted(&self) -> bool {
         self.invocation.shifted
+    }
+
+    /// What the OS clipboard held, for a command whose [`ArgSpec`] reads it. `None` when
+    /// it was not read: another spec, a numeric prefix, or a caller with no clipboard.
+    pub fn clipboard(&self) -> Option<&'a FromClipboard> {
+        self.invocation.clipboard
     }
 
     /// Leaves `prefix` for the next command, in place of the one this command got.
@@ -534,7 +595,7 @@ fn is_command_name(name: &str) -> bool {
 mod tests {
     use super::{
         ArgSpec, Args, Command, CommandError, CommandId, Ctx, Effects, ExecuteError, Invocation,
-        Prefix, RegisterError, Registry,
+        Prefix, Reach, RegisterError, Registry,
     };
     use crate::editor::Editor;
     use crate::window::Scroll;
@@ -574,6 +635,7 @@ mod tests {
             name,
             doc: "A test command.",
             args: ArgSpec::Count,
+            reach: Reach::Look,
             run,
         }
     }

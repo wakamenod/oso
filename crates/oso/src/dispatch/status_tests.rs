@@ -198,6 +198,7 @@ fn a_panic_around_a_secret_reaches_the_messages_naming_only_the_command() {
         name: "just-panic",
         doc: "Panic, to test the command boundary.",
         args: ArgSpec::None,
+        reach: oso_core::command::Reach::Look,
         run: panics,
     };
     registry.register(command).unwrap();

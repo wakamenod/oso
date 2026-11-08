@@ -150,7 +150,10 @@ mod tests {
         let internal = Buffer::internal("*Messages*");
         assert_eq!(internal.verdict(), Verdict::Ordinary);
         none(&Editor::with_buffer(internal), "internal");
-        let question = Kind::Question { yes: "exit" };
+        let question = Kind::Question {
+            yes: "exit",
+            verbs: ["exit", "stay"],
+        };
         editor.open_prompt("Exit? ", question).unwrap();
         none(&editor, "a question over an ordinary buffer");
         let mut editor = Editor::with_buffer(Buffer::from_text("t", "one"));

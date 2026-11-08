@@ -140,7 +140,7 @@ one layer:
 | Layer owner | Examples | Notes |
 |---|---|---|
 | Syntax | tree-sitter highlights | computed in the background, swapped atomically |
-| Search | isearch matches | |
+| Search | isearch matches | built in M2-20 as rectangles of the view's cells, worked out each frame ([ADR 0082](adr/0082-isearch.md)) |
 | Diagnostics | LSP errors and warnings | underline styles and gutter signs |
 | Modes | dired file lines, git sections and hunks | carry typed data |
 | Selections | regions of every cursor | built in M2-13 as rectangles of the frame's cells, not as a layer ([ADR 0071](adr/0071-mark-and-region.md)) |
@@ -165,9 +165,11 @@ one layer:
   placement is decided per feature.
 - `oso_core::frame` lays out a frame in whole cells: the window's text area and
   modeline, and the echo area. `frame::float_regions` places a float over them, outside the
-  layout: a prompt's, a row below the top at the center, whose window goes after the tiled
+  layout: a prompt's, attached to the top edge at the center, whose window goes after the tiled
   ones and is the selected one while it is open
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). `Editor` holds the layout,
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
+  [ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)). Its panel, field and key
+  chips are rounded boxes the renderer draws in pixels around those cells. `Editor` holds the layout,
   and a window's `ViewSize` is its text area, so scrolling and the cursor stop above
   the reserved rows ([ADR 0057](adr/0057-frame-layout.md)).
 - `Editor::status_into` says what the modeline and the echo area read, and the app draws

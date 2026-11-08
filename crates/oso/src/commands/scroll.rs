@@ -4,7 +4,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Prefix, Reach};
 use oso_core::window::{self, Recenter};
 
 /// The scrolling commands.
@@ -13,18 +13,21 @@ pub const COMMANDS: &[Command] = &[
         name: "scroll-up-command",
         doc: "Scroll the text up by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (down if N is negative), and with `M--` alone a screen down. Point moves to the top line if it would leave the window. When the end of the buffer cannot scroll further up, signal \"End of buffer\".",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: scroll_up_command,
     },
     Command {
         name: "scroll-down-command",
         doc: "Scroll the text down by a screen, keeping 2 lines of context.\n\nWith a numeric argument N, scroll N lines (up if N is negative), and with `M--` alone a screen up. Point moves to the bottom line if it would leave the window. At the start of the buffer, signal \"Beginning of buffer\".",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: scroll_down_command,
     },
     Command {
         name: "recenter-top-bottom",
         doc: "Scroll so that point's line is in the middle of the window; repeated, at the top, then the bottom, then round again.\n\nWith a numeric argument N, put it on line N of the window, counting from the bottom if N is negative. With a plain `C-u`, in the middle.",
         args: ArgSpec::Count,
+        reach: Reach::Look,
         run: recenter_top_bottom,
     },
 ];

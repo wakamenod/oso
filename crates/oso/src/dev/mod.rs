@@ -22,11 +22,12 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::thread;
 
-use oso_platform::control::{CleanupGuard, ControlDir};
+use oso_platform::clipboard::Source;
+use oso_platform::control::{CleanupGuard, ControlDir, Socket};
 use oso_render::Capture;
 use serde_json::json;
 
-pub use protocol::{ImeReport, Reply, UiOp};
+pub use protocol::{ClipboardOp, ImeReport, Reply, UiOp};
 pub use server::UiRequest;
 pub use state::{ImeFacts, get_state, get_text, ime_state, screenshot_allowed, show_buffer};
 pub use timing::{HandledKey, SecretWatch, Timings};
@@ -44,6 +45,21 @@ pub fn take_emergency_dir(mut args: Vec<OsString>) -> (Vec<OsString>, Option<Pat
     let directory = PathBuf::from(args.remove(1));
     args.remove(0);
     (args, Some(directory))
+}
+
+/// The option that gives the editor a clipboard in memory, so that the end-to-end flows
+/// never touch the person's (ADR 0074). Only a dev build knows it.
+const CLIPBOARD_OPTION: &str = "--clipboard";
+
+/// Takes `--clipboard memory` from the front of `args`, if it is there, and returns the
+/// rest with the clipboard to use: the system's without it. Any other value stays, and is
+/// an unknown option.
+pub fn take_clipboard_option(mut args: Vec<OsString>) -> (Vec<OsString>, Source) {
+    if args.len() < 2 || args[0] != CLIPBOARD_OPTION || args[1] != "memory" {
+        return (args, Source::System);
+    }
+    args.drain(..2);
+    (args, Source::Memory)
 }
 
 /// Appears in every binary built with the `dev` feature, and in no other.
@@ -68,7 +84,7 @@ where
     let since = std::time::Instant::now();
     let started = (|| {
         let dir = ControlDir::open()?;
-        let listener = dir.bind()?;
+        let listener = dir.listen(Socket::Dev)?;
         let socket = listener.socket_path();
         let cleanup = listener.cleanup_guard();
         server::spawn(listener, send)?;

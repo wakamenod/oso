@@ -28,6 +28,9 @@ use crate::window::Window;
 const BIDI_WARNING: &str = "[bidi controls] ";
 /// Says that the file changed under unsaved edits (ADR 0029).
 const DISK_WARNING: &str = "[changed on disk] ";
+/// Says that the file is gone from disk, or no longer a file, while the buffer holds its text
+/// (ADR 0083).
+const GONE_WARNING: &str = "[deleted on disk] ";
 /// What the modeline says in place of a position, in a buffer judged to hold secrets, or
 /// that may.
 const NO_POSITION: &str = "secret";
@@ -147,7 +150,7 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             }
             out.push_str(GAP);
         }
-        Verdict::Unresolved | Verdict::SecretName | Verdict::Passphrase => {
+        Verdict::Unresolved | Verdict::SecretName | Verdict::Passphrase | Verdict::Yanked => {
             out.push_str(NO_POSITION);
             out.push_str(GAP);
         }
@@ -167,7 +170,9 @@ impl Editor {
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
         }
-        if buffer.changed_on_disk() && buffer.is_modified() {
+        if buffer.gone_from_disk() {
+            status.warnings.push_str(GONE_WARNING);
+        } else if buffer.changed_on_disk() && (buffer.is_modified() || buffer.reload_failed()) {
             status.warnings.push_str(DISK_WARNING);
         }
         if buffer.copy_waits() {
@@ -189,6 +194,10 @@ impl Editor {
 
         status.echo.clear();
         status.echo.push_str(self.echo_text());
+        // isearch's line, until a message takes its place for a key (ADR 0082).
+        if status.echo.is_empty() {
+            self.write_isearch_line(&mut status.echo);
+        }
         status.warnings_on_echo_row = self.frame.window.modeline.rows == 0;
         status.messages_in_view =
             (window.buffer() == self.messages_buffer).then(|| buffer.revision());
@@ -380,10 +389,7 @@ mod tests {
 
     #[test]
     fn a_buffer_that_may_hold_secrets_says_no_position_and_no_cursors() {
-        let path = PathBuf::from("/tmp/.env");
-        let mut buffer = Buffer::visiting(path.clone());
-        buffer.judge_secret(Some(&[path]));
-        let mut editor = Editor::with_buffer(buffer);
+        let mut editor = Editor::with_buffer(super::super::test_buffers::secret_buffer());
         editor.set_view_size(ViewSize::new(10, 80));
         let id = editor.window().buffer();
         let mut builder = Builder::new(None, crate::display_map::TabWidth::default());

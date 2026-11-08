@@ -17,10 +17,80 @@ const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
 const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
 const MODELINE: [f32; 4] = [0.16, 0.16, 0.21, 1.0];
 const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
-const FLOAT: [f32; 4] = [0.11, 0.11, 0.15, 1.0];
-const FLOAT_BORDER: [f32; 4] = [0.42, 0.42, 0.50, 1.0];
-const PROMPT: [f32; 4] = [0.55, 0.72, 1.0, 1.0];
+// A float's panel (ADR 0075): a fill only a little lighter than the text's, a hairline of
+// white at low alpha, a dim label, a field on the text's background with an accent outline,
+// and key chips.
+const FLOAT: [f32; 4] = [0.063, 0.0666, 0.0999, 1.0];
+const FLOAT_HAIRLINE: [f32; 4] = [1.0, 1.0, 1.0, 0.035];
+// The label 5.3:1 on the fill and the key 5.6:1 on its chip, against ADR 0027's 4.5:1 at
+// least, and a cool tint apart from the text's.
+const PROMPT: [f32; 4] = [0.52, 0.57, 0.74, 1.0];
+const FIELD_OUTLINE: [f32; 4] = [0.159, 0.2384, 0.5089, 1.0];
+const KEY: [f32; 4] = [0.0908, 0.0953, 0.1413, 1.0];
+const KEY_TEXT: [f32; 4] = [0.73, 0.77, 0.88, 1.0];
 const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
+// A completion's list (ADR 0076), on the text's background: the selected row a medium blue bar,
+// what matched in a warm accent, bindings in a light blue, annotations a dim blue-grey, and the
+// count and label in a teal accent. Every one at least 4.5:1 on the background and on the
+// selected row, which the tests check, until M2-23's theme.
+const SELECTED: [f32; 4] = [0.028, 0.058, 0.212, 1.0];
+const COMPLETION_MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
+const ANNOTATION: [f32; 4] = [0.423, 0.479, 0.730, 1.0];
+const BINDING: [f32; 4] = [0.078, 0.546, 1.0, 1.0];
+const COMPLETION_PROMPT: [f32; 4] = [0.114, 0.680, 0.429, 1.0];
+// isearch's matches (ADR 0082): a muted amber for the others in view, and a strong one for
+// the current match, behind text that keeps its colour, until the themes (M2-23). The text
+// stays 4.6:1 on the strong one and 8:1 on the muted one, against ADR 0027's 4.5:1.
+const MATCH: [f32; 4] = [0.12, 0.05, 0.005, 1.0];
+const CURRENT_MATCH: [f32; 4] = [0.32, 0.12, 0.004, 1.0];
+
+/// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height
+/// over 16) and the shadow's color and strength (ADR 0075). It is read every frame, as the
+/// faces are, so the theme (M2-23) can switch it at run time: a light theme wants a lighter,
+/// smaller shadow and a dark hairline.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PanelStyle {
+    pub(crate) radius: f32,
+    /// Outside the fill, in [`Face::FloatBorder`].
+    pub(crate) hairline: f32,
+    /// Linear RGB and its strength, straight alpha.
+    pub(crate) shadow: [f32; 4],
+    pub(crate) shadow_down: f32,
+    pub(crate) shadow_sigma: f32,
+    /// How far a field reaches past its cells, across and up and down.
+    pub(crate) field_reach: [f32; 2],
+    pub(crate) field_radius: f32,
+    pub(crate) field_outline: f32,
+    /// How far a key's chip stays inside its cells, across and up and down.
+    pub(crate) key_inset: [f32; 2],
+    pub(crate) key_radius: f32,
+    /// How far the selected candidate's box reaches past its row's cells, across.
+    pub(crate) selected_reach: f32,
+    pub(crate) selected_radius: f32,
+    /// The border of a panel that has one, such as a completion's (ADR 0076), in place of the
+    /// hairline: its width, and its color in linear RGB, a muted slate a little lighter than the
+    /// text's background, which such a panel is filled with.
+    pub(crate) border_width: f32,
+    pub(crate) border: [f32; 4],
+}
+
+/// The panel's style until the theme.
+pub(crate) const PANEL: PanelStyle = PanelStyle {
+    radius: 8.0,
+    hairline: 1.0,
+    shadow: [0.0024, 0.0027, 0.0044, 0.55],
+    shadow_down: 10.0,
+    shadow_sigma: 14.0,
+    field_reach: [6.0, 4.0],
+    field_radius: 5.0,
+    field_outline: 1.0,
+    key_inset: [1.0, 2.0],
+    key_radius: 4.0,
+    selected_reach: 6.0,
+    selected_radius: 4.0,
+    border_width: 5.0,
+    border: [0.08, 0.085, 0.13, 1.0],
+};
 
 /// What a piece of the screen means. The renderer turns it into colors, and
 /// the theme (M2-23) will map it to its palette.
@@ -45,39 +115,81 @@ pub enum Face {
     Preedit,
     /// A float's text, on its own background (ADR 0072).
     Float,
-    /// A float's border.
+    /// The hairline around a float's panel (ADR 0075).
     FloatBorder,
-    /// What a prompt says before its answer, on the float's background.
+    /// What a prompt says before its answer, dim on the float's background.
     Prompt,
+    /// An input field in a float: the text's background, and its outline in the foreground
+    /// (ADR 0075).
+    Field,
+    /// A key's chip, such as a question's `y`, and the key on it.
+    Key,
     /// The region between a mark and its cursor (ADR 0071). Only its background
     /// is drawn, behind the text, which keeps its own face.
     Region,
+    /// The selected candidate's row in a float: its box's background, behind the text, which
+    /// keeps its own faces (ADR 0076).
+    CompletionSelected,
+    /// What the input matched in a candidate.
+    CompletionMatch,
+    /// What is said of a candidate at the end of its row, and a list's count.
+    CompletionAnnotation,
+    /// A key sequence after a candidate, such as a command's binding.
+    CompletionBinding,
+    /// A completion's count and label, at the start of its answer's row.
+    CompletionPrompt,
+    /// An isearch match in view, drawn as the region is (ADR 0082).
+    SearchMatch,
+    /// The current isearch match, which stands out from the others.
+    SearchCurrent,
 }
 
 impl Face {
     /// The color of coverage glyphs.
     pub(crate) fn foreground(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Modeline | Self::Preedit | Self::Float | Self::Region => FOREGROUND,
+            Self::Text
+            | Self::Modeline
+            | Self::Preedit
+            | Self::Float
+            | Self::Region
+            | Self::CompletionSelected
+            | Self::SearchMatch
+            | Self::SearchCurrent => FOREGROUND,
+            Self::CompletionMatch => COMPLETION_MATCH,
+            Self::CompletionAnnotation => ANNOTATION,
+            Self::CompletionBinding => BINDING,
+            Self::CompletionPrompt => COMPLETION_PROMPT,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
-            Self::FloatBorder => FLOAT_BORDER,
+            Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Prompt => PROMPT,
+            Self::Field => FIELD_OUTLINE,
+            Self::Key => KEY_TEXT,
         }
     }
 
     /// The color of rectangles.
     pub(crate) fn background(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Escape | Self::Warning => BACKGROUND,
+            Self::Text | Self::Escape | Self::Warning | Self::Field => BACKGROUND,
             Self::Boxed => ESCAPE_BOX,
             Self::Cursor => CURSOR,
             Self::Modeline => MODELINE,
             Self::Preedit => FOREGROUND,
             Self::Float | Self::Prompt => FLOAT,
-            Self::FloatBorder => FLOAT_BORDER,
+            // A completion's float is filled with the text's background (ADR 0076).
+            Self::CompletionMatch
+            | Self::CompletionAnnotation
+            | Self::CompletionBinding
+            | Self::CompletionPrompt => BACKGROUND,
+            Self::CompletionSelected => SELECTED,
+            Self::FloatBorder => FLOAT_HAIRLINE,
+            Self::Key => KEY,
             Self::Region => REGION,
+            Self::SearchMatch => MATCH,
+            Self::SearchCurrent => CURRENT_MATCH,
         }
     }
 
@@ -98,17 +210,17 @@ impl Face {
 pub struct PaneId(pub u32);
 
 /// How far forward a pane is. A higher layer hides what is under it. Panes in
-/// one layer must not overlap: they are drawn together, all their rectangles
-/// and then all their text.
+/// one layer must not overlap: they are drawn together, all their rectangles,
+/// then all their rounded boxes, then all their text.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Layer(pub u8);
 
 impl Layer {
     /// The regions of the frame's layout, which never overlap (ADR 0057).
     pub const TILED: Self = Self(0);
-    /// A float's background and border, over the tiled regions (ADR 0072).
+    /// A float's panel, over the tiled regions (ADR 0072, ADR 0075).
     pub const FLOAT: Self = Self(16);
-    /// What a float shows, inside its border.
+    /// What a float shows, over its panel.
     pub const FLOAT_CONTENT: Self = Self(17);
 }
 
@@ -159,9 +271,11 @@ pub struct TextView<'a> {
     /// What an input method is composing, spliced into the cursor's row at the
     /// cursor and pushing the rest of it (ADR 0069).
     pub preedit: Option<&'a Preedit>,
-    /// The frame's cells the regions between marks and cursors take, behind the text
-    /// and its boxes, as `frame::region_cells` gives them (ADR 0071).
-    pub region_cells: &'a [CellRect],
+    /// The frame's cells filled behind the text and its boxes, each list in its face's
+    /// background, back to front: isearch's matches (ADR 0082), then the regions between
+    /// marks and cursors (ADR 0071), as `Editor::isearch_cells` and `frame::region_cells`
+    /// give them.
+    pub fills: &'a [(Face, &'a [CellRect])],
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its
@@ -195,12 +309,37 @@ pub struct Masked<'a> {
     pub cursor: usize,
 }
 
+/// A float's panel (ADR 0075), drawn in pixels around cells, with its bottom corners rounded,
+/// a hairline in [`Face::FloatBorder`] and a soft shadow, all cut to its pane's region. On the
+/// frame's top row it also covers the margin above, up to the surface's edge, where its
+/// corners stay square.
+pub struct Panel<'a> {
+    /// The cells it covers, in [`Face::Float`].
+    pub cells: CellRect,
+    /// Cells drawn as an input field, a little larger than they are, in [`Face::Field`]: its
+    /// fill in the background and its outline in the foreground.
+    pub field: Option<CellRect>,
+    /// The cells the field may reach into past its own, such as the padding around them. Its
+    /// box, outline included, is cut to them.
+    pub field_room: CellRect,
+    /// Cells drawn as key chips, such as ` y ` and ` n `, in [`Face::Key`].
+    pub keys: &'a [CellRect],
+    /// A row of cells drawn as the selected candidate's box, a little wider than they are,
+    /// in [`Face::CompletionSelected`] (ADR 0076).
+    pub selected: Option<CellRect>,
+    /// A completion's float (ADR 0076): filled with the text's background and framed by a
+    /// border in place of the hairline, with square corners and no shadow, and its selected row
+    /// a bar across the whole panel.
+    pub border: bool,
+}
+
 /// A region of the frame and what it shows. Nothing of it is drawn outside the
 /// region, and nothing of what is under it shows through its background. The
 /// exceptions are the frame's top row, whose glyphs keep the band above their row
 /// in the top margin (ADR 0052), and a tiled pane of one row of [`PaneContent::Lines`], whose
 /// glyphs keep it on the row above, over what that row shows (ADR 0063). A pane in
-/// front on the top row does not cover the margin (ADR 0061).
+/// front on the top row does not cover the margin (ADR 0061), but for a float's
+/// [`Panel`], which covers it up to the surface's edge (ADR 0075).
 ///
 /// A frame's list needs no order between layers. Inside a layer, later panes come
 /// first if a frame runs out of room for glyphs or rectangles, so what must always
@@ -213,9 +352,8 @@ pub struct Pane<'a> {
     /// Filled in behind the content, in this face's background. `None` leaves
     /// what is under the pane, so a pane above others needs one to hide them.
     pub background: Option<Face>,
-    /// A line along the inside of the region's edges, in this face's background, as a
-    /// float has (ADR 0072).
-    pub border: Option<Face>,
+    /// A float's panel, drawn over the background and under the content (ADR 0075).
+    pub panel: Option<Panel<'a>>,
     /// The bands its glyphs keep past its region.
     pub bands: Bands,
     pub content: PaneContent<'a>,
@@ -230,6 +368,36 @@ mod tests {
         assert_eq!(Face::Cursor.of_run(CellStyle::Text), Face::Cursor);
         assert_eq!(Face::Cursor.of_run(CellStyle::Escape), Face::Escape);
         assert_eq!(Face::Cursor.of_run(CellStyle::Boxed), Face::Boxed);
+    }
+
+    /// WCAG's contrast ratio of two linear colors.
+    fn contrast(a: [f32; 4], b: [f32; 4]) -> f32 {
+        let luminance = |c: [f32; 4]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let (a, b) = (luminance(a) + 0.05, luminance(b) + 0.05);
+        a.max(b) / a.min(b)
+    }
+
+    #[test]
+    fn a_lists_text_reads_on_the_fill_and_on_the_selected_row() {
+        // ADR 0027's floor; M2-23 raises what it can to 7:1.
+        for face in [
+            Face::Text,
+            Face::CompletionMatch,
+            Face::CompletionAnnotation,
+            Face::CompletionBinding,
+        ] {
+            for behind in [Face::Text, Face::CompletionSelected] {
+                let ratio = contrast(face.foreground(), behind.background());
+                assert!(ratio >= 4.5, "{face:?} on {behind:?}: {ratio:.2}");
+            }
+        }
+        let ratio = contrast(Face::CompletionPrompt.foreground(), Face::Text.background());
+        assert!(ratio >= 4.5, "the count and label: {ratio:.2}");
+        // The selected row stands apart from the background.
+        assert_ne!(
+            Face::CompletionSelected.background(),
+            Face::Text.background()
+        );
     }
 
     #[test]

@@ -24,16 +24,16 @@ use super::App;
 use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
-/// cannot type (ADR 0069), or a prompt is selected (ADR 0072). Isearch and menus add their
-/// own reasons here.
-fn wants_ime(buffer: &Buffer, reads_keys: bool, in_prompt: bool) -> bool {
+/// cannot type (ADR 0069), or a prompt is selected (ADR 0072) or isearch is on (ADR 0082),
+/// which `reads_input` says. Menus add their own reasons here.
+fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
     // Letters answer among the copies (ADR 0064).
     let answers = buffer.mode().shows_copies();
     // So that a letter fails at once, and not after a whole composition.
     let refuses = buffer.read_only().is_some();
     // As macOS password fields do.
     let secret = buffer.is_secret();
-    !(answers || refuses || secret || reads_keys || in_prompt)
+    !(answers || refuses || secret || reads_keys || reads_input)
 }
 
 /// What to allow the IME as now, if that changes. Turning it off during a composition
@@ -95,6 +95,8 @@ impl App {
     /// started by the next key opens its candidate window there, and where each character of
     /// a composition is drawn.
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
+        // What follows logs, and the event may have brought a secret buffer into view.
+        self.note_logging();
         if self.composing() && self.editor.current().1.is_secret() {
             self.end_composition();
             // The window's input method too, so that nothing of it is committed later.
@@ -151,11 +153,11 @@ impl App {
 
     /// Whether oso wants the IME on now ([`wants_ime`]).
     pub(super) fn ime_wanted(&self) -> bool {
-        let in_prompt = self.editor.prompt().is_some();
+        let reads_input = self.editor.prompt().is_some() || self.editor.isearch().is_some();
         wants_ime(
             self.editor.current().1,
             self.dispatcher.reads_keys(),
-            in_prompt,
+            reads_input,
         )
     }
 
@@ -210,6 +212,7 @@ impl App {
     fn commit(&mut self, event_loop: &Loop<'_>, text: &str) -> bool {
         log::trace!("commit");
         let effects = self.dispatcher.commit_text(&mut self.editor, text);
+        self.note_logging();
         self.apply(event_loop, effects);
         effects.redraw
     }
@@ -323,7 +326,7 @@ mod tests {
         assert!(!wants_ime(&unjudged, false, false), "may hold secrets");
         assert!(
             !wants_ime(&file, false, true),
-            "a prompt reads keys and digits"
+            "a prompt or isearch reads keys and digits"
         );
     }
 

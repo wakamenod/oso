@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use oso_platform::control::{ControlDir, ControlStream};
+use oso_platform::control::{ControlDir, ControlStream, Socket};
 use oso_platform::process::{Executable, Sink, Spawn, spawn};
 use serde_json::{Value, json};
 
@@ -84,11 +84,14 @@ pub struct App {
 impl App {
     /// Starts an instance, visiting `file` if given, running in `cwd`, and
     /// connects to its socket. Its emergency copies go in `cwd`, whatever happens to
-    /// it, and never among the real ones.
+    /// it, and never among the real ones, and its clipboard is in memory.
     pub fn start(file: Option<&Path>, cwd: &Path) -> Self {
         let mut args: Vec<OsString> = vec![
             "--emergency-dir".into(),
             emergency_dir(cwd).into_os_string(),
+            // Never the person's clipboard (ADR 0074).
+            "--clipboard".into(),
+            "memory".into(),
         ];
         args.extend(
             file.iter()
@@ -123,6 +126,64 @@ impl App {
     /// The instance's process ID.
     pub fn pid(&self) -> u32 {
         self.process.child.id()
+    }
+
+    /// Asks this instance, and only it, to quit as another app or the Dock does: `terminate`, a
+    /// quit Apple event with no reason, which oso's own layer takes as a person's (ADR 0084).
+    /// Returns whether osascript sent it.
+    #[cfg(target_os = "macos")]
+    pub fn ask_to_quit(&self) -> bool {
+        let script = format!("{}\napp.terminate;", self.this_instance_script());
+        run_osascript(&script)
+    }
+
+    /// JavaScript for Automation that sets `app` to this instance's `NSRunningApplication`, and
+    /// `pid` to its process ID, or throws unless the app there runs the binary this test
+    /// launched, so that a script that goes on can reach no other app.
+    #[cfg(target_os = "macos")]
+    fn this_instance_script(&self) -> String {
+        let pid = self.pid();
+        assert!(
+            pid > 0 && pid != std::process::id(),
+            "not a child's process ID: {pid}"
+        );
+        let binary = fs::canonicalize(env!("CARGO_BIN_EXE_oso")).expect("the binary is there");
+        let expected = serde_json::Value::from(binary.to_str().expect("a path in UTF-8"));
+        format!(
+            "ObjC.import('AppKit');
+            const pid = {pid};
+            const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(pid);
+            const resolved = (url) => url.URLByResolvingSymlinksInPath.path.js;
+            const launched = resolved($.NSURL.fileURLWithPath({expected}));
+            if (app.isNil() || resolved(app.executableURL) !== launched) {{
+                throw new Error('not the instance this test launched');
+            }}"
+        )
+    }
+
+    /// Asks this instance, and only it, to quit as the end of the session does: a quit Apple
+    /// event with a logout reason (`keyAEQuitReason`), which oso never refuses (ADR 0084).
+    /// The event goes to this instance's process ID, after osascript has checked that the
+    /// app there runs the binary this test launched ([`App::this_instance_script`]), so that
+    /// it can never reach the login window or another app, where a logout reason could end
+    /// the session. Returns whether
+    /// osascript sent it.
+    #[cfg(target_os = "macos")]
+    pub fn ask_to_quit_for_logout(&self) -> bool {
+        // 'aevt' 'quit' to `pid` alone, with the reason 'why?' = 'logo' as an attribute, as
+        // the system sends it, and no reply awaited.
+        let script = format!(
+            "{}
+            const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier(pid);
+            const quit = $.NSAppleEventDescriptor
+                .appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
+                    0x61657674, 0x71756974, target, -1, 0);
+            quit.setAttributeDescriptorForKeyword(
+                $.NSAppleEventDescriptor.descriptorWithTypeCode(0x6c6f676f), 0x7768793f);
+            quit.sendEventWithOptionsTimeoutError(1, 10, null);",
+            self.this_instance_script()
+        );
+        run_osascript(&script)
     }
 
     /// Where the instance's socket is while it runs.
@@ -315,7 +376,7 @@ impl App {
     pub fn race(&mut self, first: &Value, second: &Value) -> (String, String) {
         let (_, other) = self
             .dir
-            .connect(Some(self.pid()))
+            .connect(Socket::Dev, Some(self.pid()))
             .expect("cannot make a second connection");
         other
             .set_read_timeout(Some(TIMEOUT))
@@ -415,7 +476,7 @@ impl Process {
             );
             // The directory may not exist yet, on a first run.
             if let Ok(dir) = ControlDir::open_existing()
-                && let Ok((_, stream)) = dir.connect(Some(pid))
+                && let Ok((_, stream)) = dir.connect(Socket::Dev, Some(pid))
             {
                 return (dir, stream);
             }
@@ -550,14 +611,10 @@ impl Drop for Scratch {
     }
 }
 
-/// Asks the app with process ID `pid` to quit, as the Dock's Quit does, and says whether
-/// the request could be sent.
+/// Runs `script` as JavaScript for Automation. Returns whether it ran.
 #[cfg(target_os = "macos")]
-pub fn ask_to_quit(pid: u32) -> bool {
+fn run_osascript(script: &str) -> bool {
     let osascript = Executable::from_path("osascript", None).expect("osascript is on PATH");
-    let script = format!(
-        "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate"
-    );
     let args = ["-l".into(), "JavaScript".into(), "-e".into(), script.into()];
     let status = spawn(&Spawn {
         executable: &osascript,

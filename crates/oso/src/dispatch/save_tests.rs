@@ -414,7 +414,7 @@ fn a_file_changed_on_disk_is_saved_over_once_agreed() {
     send(&mut dispatcher, &mut editor, "C-x C-s");
     assert_eq!(
         question(&editor),
-        Some("notes.txt changed on disk since it was read; save over it? (y or n)")
+        Some("Save over notes.txt? It changed on disk since it was read. (y or n)")
     );
     send(&mut dispatcher, &mut editor, "n");
     assert_eq!(fs::read(&path).unwrap(), b"another program\n", "n keeps it");
@@ -444,3 +444,39 @@ fn a_file_changed_again_after_the_question_is_kept_and_asked_about_again() {
 }
 
 mod leaving;
+
+#[test]
+fn revert_asks_before_it_discards_edits() {
+    let scratch = Scratch::new("dispatch-revert");
+    let path = scratch.file("notes.txt", b"old\n");
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
+    let id = editor.window().buffer();
+    send(&mut dispatcher, &mut editor, "C-x x g");
+    let read = editor.current().1.content_id();
+    assert_eq!(
+        editor.take_revert_requests(),
+        vec![(id, read)],
+        "nothing to lose"
+    );
+
+    send(&mut dispatcher, &mut editor, "x C-x x g");
+    assert!(editor.prompt().is_some());
+    send(&mut dispatcher, &mut editor, "n");
+    assert!(editor.take_revert_requests().is_empty());
+    assert_eq!(text(&editor), "xold\n");
+
+    send(&mut dispatcher, &mut editor, "C-x x g y");
+    let edited = editor.current().1.content_id();
+    assert_eq!(editor.take_revert_requests(), vec![(id, edited)]);
+}
+
+#[test]
+fn revert_needs_a_file() {
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
+    send(&mut dispatcher, &mut editor, "C-x x g");
+    assert!(editor.take_revert_requests().is_empty());
+    assert_eq!(
+        last_message(&editor),
+        "Buffer does not seem to be associated with any file"
+    );
+}

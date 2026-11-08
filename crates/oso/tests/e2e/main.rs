@@ -9,12 +9,16 @@
 // The control socket supports only Unix for now (ADR 0032).
 #![cfg(unix)]
 
+mod complete;
 mod harness;
 mod ime;
+mod isearch;
+mod kill;
 mod mark;
 mod png;
 mod prompts;
 mod recovery;
+mod reload;
 #[cfg(all(target_os = "macos", feature = "native-window"))]
 mod secure;
 
@@ -71,15 +75,27 @@ fn assert_no_secret(line: &str, what: &str) {
     assert!(!line.contains(FAKE_SECRET), "{what} quotes the secret");
 }
 
-/// The top-level fields that differ between two states, by name, so that a
-/// message can say which without quoting their values.
-fn changed_fields<'a>(before: &'a Value, after: &Value) -> Vec<&'a str> {
+/// The fields that differ between two states, by name, an object's own fields by
+/// `name.field`, so that a message can say which without quoting their values.
+fn changed_fields(before: &Value, after: &Value) -> Vec<String> {
     let fields = before.as_object().expect("a state is an object");
-    fields
-        .iter()
-        .filter(|(name, value)| after.get(name.as_str()) != Some(*value))
-        .map(|(name, _)| name.as_str())
-        .collect()
+    let mut changed = Vec::new();
+    for (name, value) in fields {
+        let now = after.get(name.as_str());
+        if now == Some(value) {
+            continue;
+        }
+        // An object's own fields, one level down, so that a failure says which one moved.
+        match (value.as_object(), now.and_then(Value::as_object)) {
+            (Some(was), Some(is)) => changed.extend(
+                was.iter()
+                    .filter(|(field, inner)| is.get(field.as_str()) != Some(*inner))
+                    .map(|(field, _)| format!("{name}.{field}")),
+            ),
+            _ => changed.push(name.clone()),
+        }
+    }
+    changed
 }
 
 /// Whether this runs on CI, where no real input reaches the windows.
@@ -191,30 +207,69 @@ fn a_file_with_invalid_bytes_opens_read_only() {
     assert_visible_row(&state, 1, "next");
 }
 
-/// Checks that an instance showing a secret file gives away none of it.
+/// Checks that an instance showing a secret file gives away none of it, and hands nothing
+/// over while it shows one.
 #[track_caller]
 fn assert_withheld(app: &mut App) {
     let state = assert_text_withheld(app);
+    let buffer = &state["result"]["buffer"];
+    for field in ["modified", "saving", "bytes", "lines", "invalid_bytes"] {
+        assert!(buffer[field].is_null(), "get-state gave its {field}");
+    }
+    assert_refused_while_shown(app);
+}
+
+/// Checks that, with another buffer shown, `export-state` hands a secret buffer over by its
+/// path, quoting none of it, and with no window on it to give a position.
+#[track_caller]
+fn assert_handed_over_unshown(app: &mut App, path: &Value) {
     let line = app
         .exchange("export-state", None)
         .unwrap_or_else(|e| panic!("{e}"));
     assert_no_secret(&line, "export-state");
     let exported: Value = serde_json::from_str(&line).expect("a JSON response");
-    let path = &state["result"]["buffer"]["path"];
-    let buffers = exported["result"]["buffers"].as_array();
+    let buffers = exported["result"]["buffers"].as_array().expect("buffers");
+    let index = buffers.iter().position(|buffer| buffer["path"] == *path);
+    let index = index.expect("export-state did not hand over the secret buffer by its path");
+    let windows = exported["result"]["windows"].as_array().expect("windows");
+    let id = &buffers[index]["id"];
     assert!(
-        buffers.is_some_and(|buffers| buffers.iter().any(|buffer| buffer["path"] == *path)),
-        "export-state did not hand over the secret buffer by its path",
+        windows.iter().all(|window| window["buffer"] != *id),
+        "export-state put a window on the secret buffer",
     );
-    let window = &exported["result"]["windows"][0];
-    assert_eq!(
-        (
-            window["selections"][0]["cursor"].as_u64(),
-            &window["scroll"]
-        ),
-        (Some(0), &json!({ "top": 0, "left": 0 })),
-        "export-state gave a position in the secret buffer",
-    );
+}
+
+/// Checks that, with another buffer shown, a restart is refused for a modified secret buffer by
+/// its name, quoting none of it.
+#[track_caller]
+fn assert_refused_by_name(app: &mut App, name: &str) {
+    for method in ["check-handover", "export-state"] {
+        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_no_secret(&line, method);
+        let response: Value = serde_json::from_str(&line).expect("a JSON response");
+        let message = response["error"]["message"].as_str();
+        assert!(
+            message.is_some_and(|message| message.contains(name)),
+            "{method} did not refuse by name: {message:?}",
+        );
+    }
+}
+
+/// Checks that a restart is refused for the one reason a shown secret buffer gives, which
+/// says nothing of that buffer.
+#[track_caller]
+fn assert_refused_while_shown(app: &mut App) {
+    for method in ["check-handover", "export-state"] {
+        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_no_secret(&line, method);
+        let response: Value = serde_json::from_str(&line).expect("a JSON response");
+        let message = response["error"]["message"].as_str();
+        assert_eq!(
+            message,
+            Some("cannot hand over while a buffer that may hold secrets is shown"),
+            "{method}",
+        );
+    }
 }
 
 /// Checks that no request gives the shown buffer's text or pixels. Returns the
@@ -336,9 +391,11 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     app.open_file(&env);
     let state = app.wait_until_ready();
     let env_id = state["buffer"]["id"].clone();
+    let env_path = state["buffer"]["path"].clone();
     assert_withheld(&mut app);
     app.show_buffer(&plain_id);
     assert_readable(&mut app, "plain text");
+    assert_handed_over_unshown(&mut app, &env_path);
     app.show_buffer(&env_id);
     assert_withheld(&mut app);
     // A motion gives no position away, by either way of asking.
@@ -378,23 +435,13 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     );
     app.show_buffer(&env_id);
 
-    // An edit does not make it readable, and a restart names it and quotes nothing.
+    // An edit does not make it readable, and a restart is refused as before it.
     app.send_keys("a");
-    let state = assert_text_withheld(&mut app);
-    assert!(
-        state["result"]["buffer"]["bytes"].is_null(),
-        "get-state gave an edited secret buffer's size",
-    );
-    for method in ["check-handover", "export-state"] {
-        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
-        assert_no_secret(&line, method);
-        let response: Value = serde_json::from_str(&line).expect("a JSON response");
-        let message = response["error"]["message"].as_str();
-        assert!(
-            message.is_some_and(|message| message.contains(".env")),
-            "{method} did not refuse by name: {message:?}",
-        );
-    }
+    assert_withheld(&mut app);
+    // Once it is off the screen, the edit holds a restart, by name.
+    app.show_buffer(&plain_id);
+    assert_refused_by_name(&mut app, ".env");
+    app.show_buffer(&env_id);
     // A character typed by mistake after a prefix stays out of the log.
     app.send_keys("C-x Ж");
     assert_failure_stays_on_the_screen(&mut app, &plain_id);
@@ -1009,7 +1056,8 @@ fn a_refused_directory_is_said_at_startup_and_a_panic_then_writes_nothing() {
     assert!(!log.contains(FAKE_TEXT), "the log quotes the text");
 }
 
-/// What the Dock's Quit and a logout send: a real `applicationWillTerminate`.
+/// What the end of the session sends, and on winit any request to end: a real
+/// `applicationWillTerminate`, after which copies of what is at risk are written.
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
@@ -1018,11 +1066,50 @@ fn the_system_asking_the_app_to_quit_writes_the_copies() {
     let mut app = App::start(None, scratch.path());
     app.wait_until_ready();
     app.send_keys(&typing(FAKE_TEXT));
-    assert!(harness::ask_to_quit(app.pid()), "osascript could not ask");
+    // On oso's own layer only the end of the session goes past a modified buffer unasked; a
+    // quit with no reason is a person's, and asks first (ADR 0084).
+    let asked = if cfg!(feature = "native-window") {
+        app.ask_to_quit_for_logout()
+    } else {
+        app.ask_to_quit()
+    };
+    assert!(asked, "osascript could not ask");
     assert!(app.wait_for_exit().success());
     let copies = read_copies(&emergency_dir(scratch.path()));
     assert_eq!(copies.len(), 1);
     assert_eq!(copy_with(&copies, "why exit"), FAKE_TEXT.as_bytes());
+}
+
+/// A Dock quit, or another app's with no reason, is guarded as `C-x C-c` is on oso's own layer
+/// (ADR 0084): the exit question opens, `n` stays, and `y` goes with nothing written, as the
+/// person agreed.
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_persons_quit_asks_the_exit_question() {
+    let scratch = Scratch::new("quit-asks");
+    let mut app = App::start(None, scratch.path());
+    app.wait_until_ready();
+    app.send_keys(&typing(FAKE_TEXT));
+    let question = |state: &Value| {
+        state["prompts"][0]["prompt"] == "1 modified buffer; exit without saving? (y or n)"
+    };
+    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.wait_for("the exit question", question);
+    app.send_keys("n");
+    let state = app.wait_for("the question answered", |state| {
+        state["prompts"] == json!([])
+    });
+    assert_eq!(state["buffer"]["modified"], true, "still here");
+    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.wait_for("the exit question again", question);
+    // It may exit before answering.
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "y" })));
+    assert_eq!(app.wait_for_exit().code(), Some(0));
+    assert!(
+        read_copies(&emergency_dir(scratch.path())).is_empty(),
+        "agreed: none written"
+    );
 }
 
 #[test]
@@ -1034,7 +1121,13 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     let mut bystander = App::start(Some(&file), scratch.path());
     bystander.wait_until_ready();
     bystander.send_keys("C-n C-n");
-    let before = bystander.state();
+    // The input method is told the cursor's cell only once a frame has been presented, which
+    // a slow runner's first instance may not have reached yet. The next event would give it,
+    // as the inner instance's window takes and gives back the focus, so the state compared
+    // is the one that has it.
+    let before = bystander.wait_for("the cursor's cell for the input method", |state| {
+        !state["ime"]["area"].is_null()
+    });
     let shot = bystander.call("screenshot", None);
     let shot = shot["path"].as_str().unwrap().to_owned();
 
@@ -1066,7 +1159,7 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     // screen for anyone to scroll. CI has no such input, so there nothing may
     // change. `App::start` checks that sockets lead to the right instance.
     let mut changed = changed_fields(&before, &bystander.state());
-    changed.retain(|field| on_ci() || *field == "buffers");
+    changed.retain(|field| on_ci() || field == "buffers");
     assert!(
         changed.is_empty(),
         "the other instance's {changed:?} changed",

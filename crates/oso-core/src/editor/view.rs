@@ -148,6 +148,30 @@ impl Editor {
         frame::region_cells(text, scroll, &display, &window.selections, preedit, out);
     }
 
+    /// The cells of the innermost prompt's answer that its regions take, into `out`, which
+    /// is emptied first, and none while they are hidden or no prompt is open (ADR 0076). No
+    /// input method composes in a prompt, so no preedit pushes them.
+    pub fn prompt_region_cells(&self, out: &mut Vec<CellRect>) {
+        out.clear();
+        let (Some(_), Some(layout)) = (self.prompt(), self.prompt_layout()) else {
+            return;
+        };
+        let window = &self.windows[self.selected];
+        if !window.selections.mark_active().is_active() {
+            return;
+        }
+        let display = self.shown(window).display();
+        let scroll = window.scroll();
+        frame::region_cells(
+            layout.input,
+            scroll,
+            &display,
+            &window.selections,
+            None,
+            out,
+        );
+    }
+
     /// What an input method is composing, if anything (ADR 0069).
     pub fn preedit(&self) -> Option<&Preedit> {
         self.preedit.as_ref()
@@ -157,7 +181,17 @@ impl Editor {
     /// it. A preedit with no text is none. Returns whether the view moved.
     pub fn set_preedit(&mut self, preedit: Option<Preedit>) -> bool {
         self.preedit = preedit.filter(|preedit| !preedit.text().is_empty());
+        if self.preedit.is_none() {
+            self.preedit_withheld = false;
+        }
+        self.note_secret_shown();
         self.follow_cursor()
+    }
+
+    /// Whether the composition was open while a buffer that may hold secrets was shown, so the
+    /// control socket leaves it out until it ends.
+    pub fn preedit_withheld(&self) -> bool {
+        self.preedit_withheld
     }
 
     /// Scrolls the selected window by the fewest rows and columns that show

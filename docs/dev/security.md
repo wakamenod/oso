@@ -79,7 +79,11 @@ network features.
   `disallowed_methods` bans `std::process::Command::new` (and its async
   counterparts) everywhere else, and `cargo-deny` bans process-spawning
   helper crates. Clippy `disallowed_types` bans `std::net` sockets, and
-  Unix domain sockets outside the dev control socket. The one exception is the
+  Unix domain sockets outside `oso-platform::control`, which carries the dev control
+  socket and the agent channel. That transport is in every build, and an architecture
+  check lets only the dev tooling, and the agent channel once it starts, listen on it,
+  clean it or write to it ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The one
+  exception is the
   benchmark harness, which never ships
   ([ADR 0046](adr/0046-performance-regression-checks.md)).
 - Executables resolve from absolute paths in user config, or from `PATH` with
@@ -170,7 +174,11 @@ and below the row, and a label's glyphs keep their own cells
   the input method from there, as it would through the clipboard
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
-- The kill ring syncs with the OS clipboard but is never persisted. Core
+- The kill ring syncs with the OS clipboard but is never persisted. oso reads the
+  clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
+  goes there marked concealed for clipboard managers, never shows over the socket, and
+  makes the buffer it is yanked into secret, also after a round trip through another app
+  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
@@ -193,6 +201,11 @@ and below the row, and a label's glyphs keep their own cells
   quote the text. A kill or a power cut during a save, or leaving past the 10 minutes it
   may hold an exit, can leave the temporary file behind, `0600` or by then the file's own
   mode, with the text in it, also a secret buffer's.
+- A file changed on disk is read again as it was first read: opened, followed through its
+  links and judged from the file that was opened. A reload never makes a buffer's verdict less
+  strict, as undo can bring back what was read under the old one. Neither a load nor a
+  reload logs a file's size. The watcher only looks at visited paths and never opens a file
+  ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
 - Dev state handoff for hot reload goes process-to-process in memory, never
   through files. Dev screenshots are the only dev-only files; see
   [Development](#development-t9).
@@ -205,11 +218,40 @@ and below the row, and a label's glyphs keep their own cells
 
 ### Agent integration (T7, T9)
 
-- Claude Code runs as its official TUI in a terminal view
-  ([ADR 0031](adr/0031-claude-code-integration.md)).
-- Its MCP tools reach oso only through the `oso mcp` stdio bridge and a Unix
-  socket with a peer user check; no TCP port is opened. Tools follow the
-  trust model, and there is no code-execution tool.
+- Claude Code runs as its official TUI in a terminal view (M4,
+  [ADR 0031](adr/0031-claude-code-integration.md)).
+- Its MCP tools reach oso only through the `oso mcp` stdio bridge and the agent channel, a Unix
+  socket with a peer user check; no TCP port is opened. There is no code-execution tool, and
+  no way to write a file that could run code later without the person's yes: the channel opens
+  only files that exist, saves without asking only buffers the person visited, and never saves
+  oso's configuration or trust ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is
+  an agent steered by text it read, and other processes of the same user:
+  - The channel is off until the person runs `agent-channel-start`, and each new connection
+    asks the person, from the keyboard only, naming the process that connects. A refusal holds
+    off new connections for 60 s. The modeline shows `Agent` while it is on, and `*Agent*`
+    lists each request without its text.
+  - It runs registered commands only, by name, with arguments checked against their spec, and
+    no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
+    `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
+    copies, passphrases, and later trusting a project, spawning processes, secret buffers and
+    secure input. A channel action never starts a process by itself: what opening or saving
+    would start waits until the person acts in that buffer (M3 onward).
+  - It runs nothing while a buffer that may hold secrets is shown, while the person is in a
+    prompt, a key sequence or a composition, within 1 s of the person's last key, or while a
+    question it opened is open. It does not open a path that matches the secret patterns, and
+    shows a file it opened only once it is judged ordinary. Its state withholds what
+    `get-state` withholds, and never has keys in progress, prompt input, the kill ring or the
+    clipboard.
+  - A question it opens starts with `Agent:`, is answered by the person, and takes no answer
+    until 500 ms pass with no key. Its kills never reach the OS clipboard, and its text enters
+    no prompt history.
+  - Screenshots, the restart handoff, timings and hot reload stay dev-only.
+  - An agent it lets in reads any file oso can read, except files that may hold secrets, and
+    edits the files oso has open. Any save of a buffer the person did not visit asks the person.
+    `C-x C-f`, `C-x C-w` and `kill-buffer` are the person's only. The channel switches buffers by
+    name, but never to one that may hold secrets
+    ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
+    [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - Hooks are installed only by an explicit command that shows the settings
   change first.
 
@@ -217,7 +259,12 @@ and below the row, and a label's glyphs keep their own cells
 
 - Files load in the background, and the UI stays responsive on huge files and
   long lines. Only regular files are opened, so a pipe or a device cannot
-  block or feed the loader forever. Rendering shapes only the visible
+  block or feed the loader forever. Opening never blocks on a special file: the
+  loader opens without waiting and checks the open file
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+  Directories for `C-x C-f` are listed on worker threads, at most 4, bounded to
+  100,000 names each, and no listed file is opened. A file of 2 GiB or more asks
+  before it is read, as running out of memory aborts with no emergency save. Rendering shapes only the visible
   columns of a row, and rasterizes a bounded number of new glyphs per frame
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Parsing runs in the background with cancellation and timeouts.
@@ -264,7 +311,8 @@ and below the row, and a label's glyphs keep their own cells
   generation that guards `exit` is not reported while a file holds edits
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - Dev builds trust the same user: any process running as the same user can
-  run any command through the socket. Release builds contain none of this.
+  run any command through the socket. Release builds contain none of this, only the agent
+  channel above, with its own socket and fewer methods.
   This is reviewed when commands that spawn processes arrive (M3 onward)
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). A sandboxed
   client of the same user is trusted too, so giving it the socket gives it what
@@ -289,10 +337,19 @@ and below the row, and a label's glyphs keep their own cells
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved
   its path ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+- While a secret-pattern buffer is shown, `get-state` gives no `modified`, `saving` or size of
+  such buffers, and `check-handover`, `export-state` and an `exit` with a generation are refused
+  for one reason, whatever the buffers hold. `invalid_bytes` is null for such a buffer. Keys in
+  progress, a composition and the prompts that were around one stay out of `get-state` and
+  `screenshot` until they end, also once it is gone, and those prompts' answers enter no
+  history. A restart does not show such a buffer again from behind an internal one
+  ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)).
 - `take-timings` records no key if a secret-pattern buffer is shown just before or after
   it or when its frame is presented, and no frames while one is shown, but the first
-  frame and the first load's times
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  frame ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). It times no load of
+  such a buffer, and no first screen drawn while one is shown. While one is shown, the log
+  keeps warnings and errors only, from every crate
+  ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - Responses are safe to print: DEL, C1 controls, bidi controls and invisible
   characters from a file go out as `\uXXXX`
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
@@ -314,9 +371,11 @@ and below the row, and a label's glyphs keep their own cells
   Claude Code pre-commit hook, and a full-history gitleaks scan in CI. Both
   scans ignore `gitleaks:allow` comments, and CI rejects gitleaks allowlist
   files.
-- CI actions are pinned by commit SHA, the workflow token is read-only, and
-  checkout does not persist credentials
-  ([ADR 0021](adr/0021-development-tooling.md)).
+- CI actions are pinned to commits by the workflow lockfile, which GitHub requires
+  of every workflow, the workflow token is read-only, and checkout does not persist
+  credentials ([ADR 0021](adr/0021-development-tooling.md),
+  [ADR 0080](adr/0080-workflow-dependency-lockfile.md)). Tools a step downloads are
+  checked against pinned checksums.
 
 ## What must never be committed
 

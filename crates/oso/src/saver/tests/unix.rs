@@ -440,3 +440,17 @@ fn a_name_that_is_not_utf8_saves_where_the_system_allows_one() {
     assert_eq!(fs::read(&path).unwrap(), b"new\n");
     assert_eq!(fs::read_dir(scratch.path()).unwrap().count(), 1);
 }
+
+#[test]
+fn another_file_of_the_same_time_and_size_renamed_in_is_a_conflict() {
+    let scratch = Scratch::new("swapped");
+    let path = scratch.file("notes.txt", b"old\n");
+    let job = job(&path, "new\n");
+    let modified = fs::metadata(&path).unwrap().modified().unwrap();
+    let other = scratch.file("other.txt", b"odd\n");
+    let file = fs::OpenOptions::new().write(true).open(&other).unwrap();
+    file.set_modified(modified).unwrap();
+    fs::rename(&other, &path).unwrap();
+    assert_conflict(&run(job));
+    assert_eq!(fs::read(&path).unwrap(), b"odd\n");
+}

@@ -10,7 +10,6 @@
 
 use std::fmt::Write;
 
-use oso_core::buffer::Mode;
 #[cfg(any(test, feature = "dev"))]
 use oso_core::command::ArgSpec;
 use oso_core::command::{
@@ -19,12 +18,19 @@ use oso_core::command::{
 use oso_core::editor::Editor;
 use oso_core::key::Key;
 use oso_core::key::KeyPress;
-use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
+#[cfg(any(test, feature = "dev"))]
+use oso_core::keymap::Layers;
+use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
 
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod clipboard;
+mod extended;
+mod keymaps;
 mod prompts;
+
+use keymaps::Keymaps;
 
 /// Whether a command's edits may join the undo step before, if it asks.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -40,6 +46,9 @@ pub struct Dispatcher {
     /// Every keymap, held apart from the resolver, so that working out which are active
     /// borrows only them.
     keymaps: Keymaps,
+    /// The commands that run in a search rather than end it, for `run-command` (ADR 0082).
+    #[cfg(any(test, feature = "dev"))]
+    isearch_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -52,6 +61,11 @@ pub struct Dispatcher {
     last: Option<(CommandId, usize)>,
     /// Keeps the emergency save up to date, in the running app (ADR 0062).
     publisher: Option<Publisher>,
+    /// A command waiting for the OS clipboard, and the input held meanwhile (ADR 0074).
+    waiting: Option<clipboard::Waiting>,
+    /// The input being handled came through the dev socket, which never reads the system
+    /// clipboard. It travels with what waits or is held.
+    from_socket: bool,
 }
 
 impl Dispatcher {
@@ -66,14 +80,22 @@ impl Dispatcher {
     pub fn with(registry: Registry, global: Keymap) -> Self {
         let (digits, minus) = bindings::prefix_keymaps(&registry);
         let (list, copy) = bindings::recovery_keymaps(&registry);
-        let (minibuffer, question) = bindings::prompt_keymaps(&registry);
+        let [minibuffer, question, completing] = bindings::prompt_keymaps(&registry);
+        let isearch = bindings::isearch_keymap(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let isearch_commands = bindings::isearch_commands(&registry);
         Self {
             keymaps: Keymaps {
                 global,
                 prefix: [digits, minus],
                 copy: [list, copy],
-                prompt: [minibuffer, question],
+                minibuffer,
+                question,
+                completing,
+                isearch,
             },
+            #[cfg(any(test, feature = "dev"))]
+            isearch_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -81,6 +103,8 @@ impl Dispatcher {
             prefix: None,
             last: None,
             publisher: None,
+            waiting: None,
+            from_socket: false,
         }
     }
 
@@ -227,6 +251,12 @@ impl Dispatcher {
         name: &str,
         arg: Option<isize>,
     ) -> (Effects, Result<(), String>) {
+        if self.waits_for_clipboard() {
+            return (
+                Effects::default(),
+                Err("a yank is waiting for the clipboard".into()),
+            );
+        }
         self.as_input(editor, |this, editor| this.run_named(editor, name, arg))
     }
 
@@ -259,6 +289,18 @@ impl Dispatcher {
                 Err("a passphrase prompt is open; only keyboard-quit runs".into()),
             );
         }
+        // Whether a command found a match would say something of an answer withheld beside a
+        // buffer that may hold secrets (ADR 0076).
+        let completing = editor
+            .prompts()
+            .iter()
+            .any(|prompt| prompt.candidates().is_some());
+        if completing && editor.around_secret() && name != "keyboard-quit" {
+            return (
+                Effects::default(),
+                Err("a prompt that completes is open beside a secret buffer; only keyboard-quit runs".into()),
+            );
+        }
         // The socket never opens a prompt that waits for a person: it gives the answer.
         let answer;
         let mut invocation = Invocation::default();
@@ -276,8 +318,12 @@ impl Dispatcher {
                 let refused = format!("{name} reads a passphrase in a prompt, through send-keys");
                 return (Effects::default(), Err(refused));
             }
+            (ArgSpec::Command { .. }, _) => {
+                let refused = format!("{name} reads a command's name; run the command itself");
+                return (Effects::default(), Err(refused));
+            }
             (_, None) => Args::with_prefix(self.prefix.take()),
-            (ArgSpec::Count, Some(n)) => {
+            (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Some(n)) => {
                 self.prefix = None;
                 Args::numeric(n)
             }
@@ -285,8 +331,17 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
-        let (effects, result) = self.execute(editor, id, args, invocation, Step::MayJoin);
-        let effects = effects.union(self.after_prompts(editor));
+        // A command isearch's keys do not run ends a search first, as a key would
+        // (ADR 0082).
+        let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();
+        // A yank waits for the clipboard as it does from a key, and replies at once.
+        let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
+            self.run_or_read(editor, id, args, invocation)
+        } else {
+            self.execute(editor, id, args, invocation, Step::MayJoin)
+        };
+        let mut effects = effects.union(self.after_prompts(editor));
+        effects.redraw |= ended_search;
         (effects, result.map_err(|e| e.to_string()))
     }
 
@@ -295,6 +350,9 @@ impl Dispatcher {
     /// and one undo step. A pending prefix makes it an undefined key sequence.
     /// A key that types several characters comes through here.
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        if self.hold_text(text, false) {
+            return Effects::default();
+        }
         self.as_input(editor, |this, editor| {
             this.run_text(editor, text, Step::MayJoin)
         })
@@ -303,12 +361,18 @@ impl Dispatcher {
     /// Starts an input method's composition, which counts as a key: keys never reach
     /// oso during one (ADR 0069).
     pub fn begin_composition(&mut self, editor: &mut Editor) {
+        if self.hold_composition() {
+            return;
+        }
         self.as_input(editor, |_, _| ());
     }
 
     /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
     /// always as an undo step of its own, even of one character (ADR 0069).
     pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
+        if self.hold_text(text, true) {
+            return Effects::default();
+        }
         self.as_input(editor, |this, editor| {
             this.run_text(editor, text, Step::Apart)
         })
@@ -332,7 +396,7 @@ impl Dispatcher {
             // The text stays out of it, as it does from a log.
             editor.echo(format!("{keys} is undefined"));
             self.resolver.reset();
-            self.forget_keys();
+            self.forget_keys(editor);
             return Effects::default();
         }
         let reading = self.keymaps.reading();
@@ -356,9 +420,10 @@ impl Dispatcher {
 
     /// An undefined or cancelled key sequence drops the prefix argument and ends a
     /// run of one command.
-    fn forget_keys(&mut self) {
+    fn forget_keys(&mut self, editor: &mut Editor) {
         self.prefix = None;
         self.last = None;
+        editor.forget_kills();
     }
 
     /// Runs one command, invoked as `invocation` says but for its repeats, which are
@@ -400,6 +465,7 @@ impl Dispatcher {
         let result = self.registry.execute(id, &mut ctx, args);
         drop(boundary);
         let mut effects = ctx.effects();
+        editor.note_command_ended(effects.prefix.is_some());
         self.prefix = effects.prefix.take();
         match &result {
             Ok(()) => editor.end_undo_group(),
@@ -414,6 +480,8 @@ impl Dispatcher {
             }
         }
         editor.end_command();
+        // What the command typed in a prompt that completes is matched once, now (ADR 0076).
+        editor.match_completion();
         if let Err(error @ ExecuteError::Panicked { .. }) = &result {
             // This names the command and nothing else (ADR 0028).
             editor.message(error.to_string());
@@ -437,6 +505,9 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        if self.hold_key(key) {
+            return Effects::default();
+        }
         self.as_input(editor, |this, editor| this.resolve_key(editor, key))
     }
 
@@ -450,6 +521,16 @@ impl Dispatcher {
             Resolution::Pending => {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
                 return Effects::default();
+            }
+            Resolution::Unbound(keys) if editor.isearch().is_some() && keys.len() == 1 => {
+                // It ends the search where it is, and then does what it would have
+                // (ADR 0082). isearch binds no prefix, so this is the key alone.
+                editor.isearch_exit();
+                let ran = self.resolve_key(editor, key);
+                return ran.union(Effects {
+                    redraw: true,
+                    ..Effects::default()
+                });
             }
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
@@ -468,13 +549,13 @@ impl Dispatcher {
                 } else {
                     editor.echo(format!("{} is undefined", display_keys(keys)));
                 }
-                self.forget_keys();
+                self.forget_keys(editor);
                 return Effects::default();
             }
             Resolution::Cancelled => {
                 log::debug!("Quit");
                 editor.echo("Quit");
-                self.forget_keys();
+                self.forget_keys(editor);
                 return Effects::default();
             }
         };
@@ -498,62 +579,8 @@ impl Dispatcher {
     }
 }
 
-/// Every keymap a dispatcher holds.
-struct Keymaps {
-    global: Keymap,
-    /// Active while the prefix argument reads digits, and a minus sign. They come
-    /// first among the minor modes, as what is being typed is for them.
-    prefix: [Keymap; 2],
-    /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
-    copy: [Keymap; 2],
-    /// The keys of a prompt that reads an answer, above the global ones, and of a
-    /// question, in place of them (ADR 0072).
-    prompt: [Keymap; 2],
-}
-
-impl Keymaps {
-    /// The prefix argument's keymaps, as [`Keymaps::active`] takes them.
-    fn reading(&self) -> [&Keymap; 2] {
-        [&self.prefix[0], &self.prefix[1]]
-    }
-
-    /// The keymaps active now. A question's keys take the global keymap's place, so that
-    /// no other key reaches a command, and a prompt's go above it (ADR 0072). `reading`
-    /// holds the keymaps of a prefix argument.
-    fn active<'a>(
-        &'a self,
-        reading: &'a [&'a Keymap; 2],
-        prefix: Option<Prefix>,
-        editor: &Editor,
-    ) -> Layers<'a> {
-        if editor
-            .prompt()
-            .is_some_and(|prompt| prompt.kind().is_question())
-        {
-            return Layers::global(&self.prompt[1]);
-        }
-        let minor: &[&Keymap] = match prefix {
-            Some(prefix) if prefix.reads_minus() => reading,
-            Some(prefix) if prefix.reads_digits() => &reading[..1],
-            _ => &[],
-        };
-        let major = if editor.prompt().is_some() {
-            Some(&self.prompt[0])
-        } else {
-            match editor.current().1.mode() {
-                Mode::Fundamental => None,
-                Mode::CopyList => Some(&self.copy[0]),
-                Mode::CopyView => Some(&self.copy[1]),
-            }
-        };
-        Layers {
-            minor,
-            major,
-            ..Layers::global(&self.global)
-        }
-    }
-}
-
+#[cfg(test)]
+mod complete_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
@@ -562,6 +589,10 @@ mod emergency_tests;
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
+#[cfg(test)]
+mod isearch_tests;
+#[cfg(test)]
+mod kill_tests;
 #[cfg(test)]
 mod mark_tests;
 #[cfg(test)]
@@ -844,12 +875,14 @@ mod tests {
             name: "show-secret",
             doc: "Show a secret buffer, as `C-x b` will.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, true),
         };
         let plain_command = Command {
             name: "show-plain",
             doc: "Show an ordinary buffer, as `C-x b` will.",
             args: ArgSpec::None,
+            reach: oso_core::command::Reach::Look,
             run: |ctx, _| show_where(ctx, false),
         };
         registry
@@ -904,6 +937,7 @@ mod tests {
                 name: "explode",
                 doc: "Panic, to test the command boundary.",
                 args: ArgSpec::None,
+                reach: oso_core::command::Reach::Look,
                 run: explode,
             })
             .unwrap();
@@ -969,6 +1003,7 @@ mod tests {
                 name: "explode",
                 doc: "Panics.",
                 args: ArgSpec::None,
+                reach: oso_core::command::Reach::Look,
                 run: explode,
             })
             .unwrap();
