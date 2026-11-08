@@ -1,4 +1,79 @@
 pub mod oso_platform
+pub mod oso_platform::clipboard
+pub enum oso_platform::clipboard::Contents
+pub oso_platform::clipboard::Contents::NoAnswer
+pub oso_platform::clipboard::Contents::Nothing
+pub oso_platform::clipboard::Contents::Own
+pub oso_platform::clipboard::Contents::Text
+pub oso_platform::clipboard::Contents::Text::concealed: bool
+pub oso_platform::clipboard::Contents::Text::fingerprint: oso_platform::clipboard::Fingerprint
+pub oso_platform::clipboard::Contents::Text::text: alloc::string::String
+pub oso_platform::clipboard::Contents::TooLarge
+impl core::clone::Clone for oso_platform::clipboard::Contents
+pub fn oso_platform::clipboard::Contents::clone(&self) -> oso_platform::clipboard::Contents
+impl core::cmp::Eq for oso_platform::clipboard::Contents
+impl core::cmp::PartialEq for oso_platform::clipboard::Contents
+pub fn oso_platform::clipboard::Contents::eq(&self, &oso_platform::clipboard::Contents) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::Contents
+pub fn oso_platform::clipboard::Contents::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::Contents
+pub enum oso_platform::clipboard::Event
+pub oso_platform::clipboard::Event::NotAnswering
+pub oso_platform::clipboard::Event::Read(oso_platform::clipboard::Contents)
+pub oso_platform::clipboard::Event::Written
+pub oso_platform::clipboard::Event::Written::fingerprint: oso_platform::clipboard::Fingerprint
+pub oso_platform::clipboard::Event::Written::id: u64
+impl core::fmt::Debug for oso_platform::clipboard::Event
+pub fn oso_platform::clipboard::Event::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_platform::clipboard::Source
+pub oso_platform::clipboard::Source::Memory
+pub oso_platform::clipboard::Source::System
+impl core::clone::Clone for oso_platform::clipboard::Source
+pub fn oso_platform::clipboard::Source::clone(&self) -> oso_platform::clipboard::Source
+impl core::cmp::Eq for oso_platform::clipboard::Source
+impl core::cmp::PartialEq for oso_platform::clipboard::Source
+pub fn oso_platform::clipboard::Source::eq(&self, &oso_platform::clipboard::Source) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::Source
+pub fn oso_platform::clipboard::Source::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::clipboard::Source
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::Source
+pub struct oso_platform::clipboard::Clipboard
+impl oso_platform::clipboard::Clipboard
+pub fn oso_platform::clipboard::Clipboard::memory(&self) -> core::option::Option<&oso_platform::clipboard::MemoryClipboard>
+pub fn oso_platform::clipboard::Clipboard::read(&self)
+pub fn oso_platform::clipboard::Clipboard::start(oso_platform::clipboard::Source, usize, impl core::ops::function::Fn(oso_platform::clipboard::Event) + core::marker::Send + 'static) -> std::io::error::Result<Self>
+pub fn oso_platform::clipboard::Clipboard::write(&self, u64, bool, oso_platform::clipboard::MakeText)
+impl core::fmt::Debug for oso_platform::clipboard::Clipboard
+pub fn oso_platform::clipboard::Clipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for oso_platform::clipboard::Clipboard
+pub fn oso_platform::clipboard::Clipboard::drop(&mut self)
+pub struct oso_platform::clipboard::Fingerprint
+pub oso_platform::clipboard::Fingerprint::hash: u64
+pub oso_platform::clipboard::Fingerprint::len: usize
+impl core::clone::Clone for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::clone(&self) -> oso_platform::clipboard::Fingerprint
+impl core::cmp::Eq for oso_platform::clipboard::Fingerprint
+impl core::cmp::PartialEq for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::eq(&self, &oso_platform::clipboard::Fingerprint) -> bool
+impl core::fmt::Debug for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_platform::clipboard::Fingerprint
+pub fn oso_platform::clipboard::Fingerprint::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_platform::clipboard::Fingerprint
+impl core::marker::StructuralPartialEq for oso_platform::clipboard::Fingerprint
+pub struct oso_platform::clipboard::MemoryClipboard(_)
+impl oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::get(&self) -> core::option::Option<(alloc::string::String, bool)>
+pub fn oso_platform::clipboard::MemoryClipboard::set(&self, alloc::string::String, bool)
+impl core::clone::Clone for oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::clone(&self) -> oso_platform::clipboard::MemoryClipboard
+impl core::default::Default for oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::default() -> oso_platform::clipboard::MemoryClipboard
+impl core::fmt::Debug for oso_platform::clipboard::MemoryClipboard
+pub fn oso_platform::clipboard::MemoryClipboard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_platform::clipboard::GIVE_UP: core::time::Duration
+pub const oso_platform::clipboard::READ_TIMEOUT: core::time::Duration
+pub type oso_platform::clipboard::MakeText = alloc::boxed::Box<(dyn core::ops::function::FnOnce() -> alloc::string::String + core::marker::Send)>
 pub mod oso_platform::control
 pub struct oso_platform::control::CleanupGuard
 impl core::clone::Clone for oso_platform::control::CleanupGuard

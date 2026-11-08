@@ -188,6 +188,25 @@ fn a_modified_file_is_refused_by_name_without_its_text() {
 }
 
 #[test]
+fn a_saved_file_a_secret_kill_was_yanked_into_is_refused() {
+    let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
+    let fingerprint = oso_core::kill::Fingerprint { len: 3, hash: 1 };
+    editor.take_from_clipboard(oso_core::rope::Rope::from("KEY"), true, fingerprint);
+    editor.yank(0, false).unwrap();
+    let id = editor.window().buffer();
+    let saved = editor.current().1.content_id();
+    editor.buffer_mut(id).unwrap().mark_saved(saved);
+    assert!(editor.current().1.is_secret() && !editor.current().1.is_modified());
+    for message in [
+        export(&editor, &[], None, None).unwrap_err(),
+        check(&editor).unwrap_err(),
+    ] {
+        assert!(message.contains("notes.txt"), "{message}");
+        assert!(!message.contains("KEY"), "{message}");
+    }
+}
+
+#[test]
 fn a_modified_secret_file_is_refused_the_same_way() {
     let mut editor = visiting(&absolute("/p/.env"), "SECRET-VALUE\n");
     assert!(editor.current().1.is_secret());
