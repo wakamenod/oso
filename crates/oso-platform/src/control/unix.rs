@@ -1,12 +1,14 @@
-//! The control socket on Unix: a Unix domain socket in a `0700` directory.
+//! The control sockets on Unix: Unix domain sockets in a `0700` directory.
 //!
 //! Must not depend on: `text` or the protocol spoken over the socket.
 
 // The only place allowed to open local sockets (clippy.toml).
 #![expect(
     clippy::disallowed_types,
-    reason = "the dev control socket is the one user of Unix domain sockets"
+    reason = "the control sockets are the one user of Unix domain sockets"
 )]
+
+mod peer;
 
 use std::ffi::OsString;
 use std::fs::{self, DirBuilder, OpenOptions, Permissions};
@@ -17,7 +19,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use super::{is_plain_name, owner_pid, socket_pid};
+use super::{Peer, Socket, is_plain_name, owner_pid, socket_of};
 use crate::file_meta::seal;
 use crate::privacy::{
     euid, itself_problem, list_problem, parent_is_safe, whole_parent_list_problem,
@@ -108,42 +110,42 @@ impl ControlDir {
         &self.path
     }
 
-    /// Listens on `<pid>.sock` for this process. Files left by an earlier
-    /// process with the same ID are removed first; other stale files are
-    /// left to [`Self::remove_stale`], which may block.
-    pub fn bind(&self) -> io::Result<ControlListener> {
+    /// Listens on `socket` for this process. For the dev socket, files left by
+    /// an earlier process with the same ID are removed first; for the agent
+    /// channel, only its own socket. Other stale files are left to
+    /// [`Self::remove_stale`], which may block.
+    pub fn listen(&self, socket: Socket) -> io::Result<ControlListener> {
         let pid = std::process::id();
-        drop(CleanupGuard {
+        let cleanup = CleanupGuard {
             dir: self.path.clone(),
             pid,
-        });
-        let socket = self.path.join(format!("{pid}.sock"));
-        let listener =
-            UnixListener::bind(&socket).map_err(|e| with_path(e, "cannot bind", &socket))?;
+            only: (socket == Socket::Agent).then(|| socket.file_name(pid)),
+        };
+        drop(cleanup.clone());
+        let path = self.path.join(socket.file_name(pid));
+        let listener = UnixListener::bind(&path).map_err(|e| with_path(e, "cannot bind", &path))?;
         // The directory already keeps other users out; this is a second wall.
-        fs::set_permissions(&socket, Permissions::from_mode(0o600))?;
+        fs::set_permissions(&path, Permissions::from_mode(0o600))?;
         Ok(ControlListener {
             listener,
-            cleanup: CleanupGuard {
-                dir: self.path.clone(),
-                pid,
-            },
+            socket,
+            cleanup,
         })
     }
 
-    /// Connects to the instance with process ID `pid`, or to the only
-    /// running instance if `pid` is `None`. Returns the instance's process
-    /// ID and the stream.
-    pub fn connect(&self, pid: Option<u32>) -> io::Result<(u32, ControlStream)> {
+    /// Connects to `socket` of the instance with process ID `pid`, or of the
+    /// only instance that has one if `pid` is `None`. Returns the instance's
+    /// process ID and the stream.
+    pub fn connect(&self, socket: Socket, pid: Option<u32>) -> io::Result<(u32, ControlStream)> {
         if let Some(pid) = pid {
-            let socket = self.path.join(format!("{pid}.sock"));
-            let stream = UnixStream::connect(&socket)
-                .map_err(|e| with_path(e, "cannot connect to", &socket))?;
+            let path = self.path.join(socket.file_name(pid));
+            let stream =
+                UnixStream::connect(&path).map_err(|e| with_path(e, "cannot connect to", &path))?;
             return Ok((pid, ControlStream::verified(stream)?));
         }
         let mut live = Vec::new();
-        for pid in self.socket_pids()? {
-            if let Ok(stream) = UnixStream::connect(self.path.join(format!("{pid}.sock"))) {
+        for pid in self.socket_pids(socket)? {
+            if let Ok(stream) = UnixStream::connect(self.path.join(socket.file_name(pid))) {
                 live.push((pid, stream));
             }
         }
@@ -154,15 +156,13 @@ impl ControlDir {
             }
             0 => Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!(
-                    "no running oso dev instance found in {}",
-                    self.path.display()
-                ),
+                format!("no {} found in {}", socket.what(), self.path.display()),
             )),
             _ => {
                 let pids: Vec<String> = live.iter().map(|(pid, _)| pid.to_string()).collect();
                 Err(io::Error::other(format!(
-                    "several oso dev instances are running (pids {}); choose one with --pid",
+                    "found more than one {} (pids {}); choose one with --pid",
+                    socket.what(),
                     pids.join(", ")
                 )))
             }
@@ -195,12 +195,13 @@ impl ControlDir {
         Ok(path)
     }
 
-    /// The process IDs of the sockets in the directory, in ascending order.
-    fn socket_pids(&self) -> io::Result<Vec<u32>> {
+    /// The process IDs of the directory's sockets of this kind, in ascending order.
+    fn socket_pids(&self, socket: Socket) -> io::Result<Vec<u32>> {
         let mut pids: Vec<u32> = self
             .file_names()?
             .iter()
-            .filter_map(|name| socket_pid(name))
+            .filter_map(|name| socket_of(name))
+            .filter_map(|(pid, kind)| (kind == socket).then_some(pid))
             .collect();
         pids.sort_unstable();
         Ok(pids)
@@ -213,9 +214,10 @@ impl ControlDir {
             .collect())
     }
 
-    /// Removes the files of other instances that are gone: their sockets
-    /// refuse connections, or they have no socket at all. This process's
-    /// files are kept. Errors are ignored; a file that cannot be removed does
+    /// Removes the files of other instances that are gone: each of their
+    /// sockets refuses connections, or they have no socket at all. This
+    /// process's files are kept. A probe connects and sends nothing, which the
+    /// agent channel takes as no request (ADR 0085). Errors are ignored; a file that cannot be removed does
     /// no harm.
     ///
     /// Probing a socket may block (on Linux, while a stopped instance's
@@ -230,10 +232,11 @@ impl ControlDir {
         };
         let live: Vec<u32> = names
             .iter()
-            .filter_map(|name| socket_pid(name))
-            .filter(|&pid| {
-                pid == own_pid || UnixStream::connect(self.path.join(format!("{pid}.sock"))).is_ok()
+            .filter_map(|name| socket_of(name).map(|(pid, _)| (pid, name)))
+            .filter(|&(pid, name)| {
+                pid == own_pid || UnixStream::connect(self.path.join(name)).is_ok()
             })
+            .map(|(pid, _)| pid)
             .collect();
         for name in &names {
             if let Some(pid) = owner_pid(name)
@@ -285,13 +288,16 @@ fn with_path(e: io::Error, what: &str, path: &Path) -> io::Error {
 #[derive(Debug)]
 pub struct ControlListener {
     listener: UnixListener,
+    socket: Socket,
     cleanup: CleanupGuard,
 }
 
 impl ControlListener {
     /// The socket's path.
     pub fn socket_path(&self) -> PathBuf {
-        self.cleanup.dir.join(format!("{}.sock", self.cleanup.pid))
+        self.cleanup
+            .dir
+            .join(self.socket.file_name(self.cleanup.pid))
     }
 
     /// Waits for the next connection. A peer running as another user is
@@ -301,24 +307,30 @@ impl ControlListener {
         ControlStream::verified(stream)
     }
 
-    /// A guard that removes the socket and the files this process wrote
-    /// when dropped. The listener itself may live on a thread that never
-    /// returns, so the owner of the guard decides when to clean up.
+    /// A guard that removes the socket when dropped, and for the dev socket
+    /// the files this process wrote too. The listener itself may live on a
+    /// thread that never returns, so the owner of the guard decides when to
+    /// clean up.
     pub fn cleanup_guard(&self) -> CleanupGuard {
         self.cleanup.clone()
     }
 }
 
 /// Removes this process's socket and files from the control directory when
-/// dropped.
+/// dropped: all of them, or only the one file it names.
 #[derive(Debug, Clone)]
 pub struct CleanupGuard {
     dir: PathBuf,
     pid: u32,
+    only: Option<String>,
 }
 
 impl Drop for CleanupGuard {
     fn drop(&mut self) {
+        if let Some(name) = &self.only {
+            let _ = fs::remove_file(self.dir.join(name));
+            return;
+        }
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return;
         };
@@ -340,6 +352,11 @@ impl ControlStream {
     fn verified(stream: UnixStream) -> io::Result<Self> {
         check_peer(peer_owner(&stream)?, euid())?;
         Ok(Self(stream))
+    }
+
+    /// The process at the other end, as the system reports it.
+    pub fn peer(&self) -> Peer {
+        peer::of(&self.0)
     }
 
     /// Another handle to the same connection.
@@ -398,6 +415,12 @@ fn check_peer(peer: u32, own: u32) -> io::Result<()> {
 /// The user that owns the process at the other end of `stream`.
 #[cfg(any(target_os = "linux", target_os = "android"))]
 fn peer_owner(stream: &UnixStream) -> io::Result<u32> {
+    peer_cred(stream).map(|cred| cred.uid)
+}
+
+/// The credentials of the process at the other end of `stream`.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn peer_cred(stream: &UnixStream) -> io::Result<libc::ucred> {
     let fd = stream.as_raw_fd();
     let mut cred = libc::ucred {
         pid: 0,
@@ -424,7 +447,7 @@ fn peer_owner(stream: &UnixStream) -> io::Result<u32> {
     if usize::try_from(len).ok() != Some(size) {
         return Err(io::Error::other("SO_PEERCRED returned a short ucred"));
     }
-    Ok(cred.uid)
+    Ok(cred)
 }
 
 /// The user that owns the process at the other end of `stream`.
@@ -470,7 +493,7 @@ fn peer_owner(_stream: &UnixStream) -> io::Result<u32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ControlDir, ControlStream, check_peer, default_path, euid, peer_owner};
+    use super::{ControlDir, ControlStream, Socket, check_peer, default_path, euid, peer_owner};
     use std::ffi::OsString;
     use std::fs::{self, Permissions};
     use std::io::{BufRead, BufReader, ErrorKind, Write};
@@ -683,7 +706,7 @@ mod tests {
         fs::write(&target, b"keep").unwrap();
         let own = dir.path().join(format!("{}.sock", std::process::id()));
         std::os::unix::fs::symlink(&target, &own).unwrap();
-        let listener = dir.bind().unwrap();
+        let listener = dir.listen(Socket::Dev).unwrap();
         assert!(fs::symlink_metadata(&own).unwrap().file_type().is_socket());
         assert_eq!(fs::read(&target).unwrap(), b"keep");
         drop(listener);
@@ -693,11 +716,11 @@ mod tests {
     fn binds_a_private_socket_and_accepts_the_same_user() {
         let scratch = Scratch::new();
         let dir = ControlDir::at(scratch.join("c")).unwrap();
-        let listener = dir.bind().unwrap();
+        let listener = dir.listen(Socket::Dev).unwrap();
         let socket = listener.socket_path();
         assert_eq!(mode(&socket), 0o600);
 
-        let (pid, mut client) = dir.connect(None).unwrap();
+        let (pid, mut client) = dir.connect(Socket::Dev, None).unwrap();
         assert_eq!(pid, std::process::id());
         let server = listener.accept().unwrap();
         client.write_all(b"ping\n").unwrap();
@@ -717,7 +740,7 @@ mod tests {
     fn connect_reports_no_instance() {
         let scratch = Scratch::new();
         let dir = ControlDir::at(scratch.join("c")).unwrap();
-        let err = dir.connect(None).unwrap_err();
+        let err = dir.connect(Socket::Dev, None).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound);
     }
 
@@ -725,11 +748,11 @@ mod tests {
     fn connect_asks_for_a_pid_when_several_run() {
         let scratch = Scratch::new();
         let dir = ControlDir::at(scratch.join("c")).unwrap();
-        let _ours = dir.bind().unwrap();
+        let _ours = dir.listen(Socket::Dev).unwrap();
         let _other = UnixListener::bind(dir.path().join("1.sock")).unwrap();
-        let err = dir.connect(None).unwrap_err();
+        let err = dir.connect(Socket::Dev, None).unwrap_err();
         assert!(err.to_string().contains("--pid"), "{err}");
-        assert_eq!(dir.connect(Some(1)).unwrap().0, 1);
+        assert_eq!(dir.connect(Socket::Dev, Some(1)).unwrap().0, 1);
     }
 
     #[test]
@@ -746,7 +769,7 @@ mod tests {
         fs::write(dir.path().join("9-screenshot-1.png"), b"").unwrap();
         fs::write(dir.path().join("notes.txt"), b"").unwrap();
 
-        let _listener = dir.bind().unwrap();
+        let _listener = dir.listen(Socket::Dev).unwrap();
         dir.remove_stale();
         let mut names = dir.file_names().unwrap();
         names.sort();
@@ -766,13 +789,77 @@ mod tests {
     fn cleanup_removes_only_our_files() {
         let scratch = Scratch::new();
         let dir = ControlDir::at(scratch.join("c")).unwrap();
-        let listener = dir.bind().unwrap();
+        let listener = dir.listen(Socket::Dev).unwrap();
         let shot = dir.write_private_file("screenshot-1.png", b"png").unwrap();
         fs::write(dir.path().join("9-screenshot-1.png"), b"").unwrap();
         drop(listener.cleanup_guard());
         assert!(!shot.exists());
         assert!(!listener.socket_path().exists());
         assert!(dir.path().join("9-screenshot-1.png").exists());
+    }
+
+    #[test]
+    fn the_agent_socket_is_private_and_found_on_its_own() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        let _dev = dir.listen(Socket::Dev).unwrap();
+        let err = dir.connect(Socket::Agent, None).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+        assert!(err.to_string().contains("agent channel"), "{err}");
+
+        let agent = dir.listen(Socket::Agent).unwrap();
+        let socket = agent.socket_path();
+        assert_eq!(
+            socket.file_name().unwrap(),
+            format!("{}-agent.sock", std::process::id()).as_str()
+        );
+        assert_eq!(mode(&socket), 0o600);
+        let (pid, _client) = dir.connect(Socket::Agent, None).unwrap();
+        assert_eq!(pid, std::process::id());
+        assert!(agent.accept().is_ok());
+    }
+
+    #[test]
+    fn the_agent_sockets_guard_removes_only_that_socket() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        let dev = dir.listen(Socket::Dev).unwrap();
+        let shot = dir.write_private_file("screenshot-1.png", b"png").unwrap();
+        let agent = dir.listen(Socket::Agent).unwrap();
+        drop(agent.cleanup_guard());
+        assert!(!agent.socket_path().exists());
+        assert!(dev.socket_path().exists());
+        assert!(shot.exists());
+        // Listening again replaces a socket left behind, and leaves the rest.
+        drop(UnixListener::bind(agent.socket_path()).unwrap());
+        let again = dir.listen(Socket::Agent).unwrap();
+        assert!(again.socket_path().exists());
+        assert!(dev.socket_path().exists());
+        assert!(shot.exists());
+    }
+
+    #[test]
+    fn an_agent_socket_alone_keeps_an_instance_alive() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        // A release instance with the channel on has only its agent socket.
+        let live = UnixListener::bind(dir.path().join("9-agent.sock")).unwrap();
+        fs::write(dir.path().join("9-notes"), b"").unwrap();
+        drop(UnixListener::bind(dir.path().join("7-agent.sock")).unwrap());
+        dir.remove_stale();
+        let mut names = dir.file_names().unwrap();
+        names.sort();
+        assert_eq!(names, ["9-agent.sock", "9-notes"]);
+        drop(live);
+    }
+
+    #[test]
+    fn a_peer_is_named_by_the_system() {
+        let (a, _b) = ControlStream::pair().unwrap();
+        let peer = a.peer();
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            assert_eq!(peer.process.unwrap().pid, std::process::id());
+        }
     }
 
     #[test]
