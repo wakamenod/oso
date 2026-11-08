@@ -38,7 +38,8 @@ The author chose, through the coordinator, on 2026-11-08, the option described f
 [Alternatives considered](#alternatives-considered): the cell grid with chrome in pixels, the drawing in
 a second pipeline, the public API below, the hairline in points, the chips with verbs, the order for
 small frames, and the color tokens. They also accepted that row 0 of the text is hidden while a float is
-open. From screenshots of three variants taken in the app, they then picked the values marked
+open, and, after the reviews, that a label too tall for a short float keeps its first rows and that
+the save-over question puts the file's name last. From screenshots of three variants taken in the app, they then picked the values marked
 **(picked)**: the middle one, the mock-up's, with a lighter key chip.
 
 ### Where it sits
@@ -126,10 +127,10 @@ open. From screenshots of three variants taken in the app, they then picked the 
   key as before.
 - `get-state`'s `prompt` keeps the label as asked, `(y or n)` included, so the socket and the flows
   read what they read today.
-- **A question puts its own words before a name from a file:** saving over a changed file asks
-  `Changed on disk since it was read; save over notes.md?`, not ADR 0072's
-  `notes.md changed on disk since it was read; save over it?`, so a float too small for the whole label
-  keeps what the question is, and a crafted name cannot push it out of view.
+- **A question puts its own words before a name from a file (chosen):** saving over a changed file
+  asks `Changed on disk since it was read; save over notes.md?`, not ADR 0072's
+  `notes.md changed on disk since it was read; save over it?`, so that the question's opening always
+  shows.
 
 ### Small frames (chosen)
 
@@ -139,10 +140,9 @@ It gives up, in this order, and is never taller than the text area:
 1. the bottom padding row: the panel ends at the text area's bottom, and the field keeps to the
    answer's row there;
 2. the gap row: the field shrinks to the answer's row;
-3. the label's last rows, keeping its first, the last of them cut with `…`, so that a nested prompt's
-   `[2]` and what the label says first stay in view. ADR 0072 kept the last row for its `(y or n)`,
-   which the keys' row now holds, and the author's choice was put that way; the security review
-   moved it to the first, which the coordinator was told;
+3. the label's last rows, keeping its first, the last of them cut with `…` (chosen), so that the
+   question's opening and its depth, `[2]`, always show. ADR 0072 kept the last row for its
+   `(y or n)`, which the keys' row now holds;
 4. at `t = 1`, ADR 0072's one-row form: the label's first row and then the answer, or the keys' chips
    with no verbs, on one row, on the panel with no field. The label stops before the keys, even for a
    cluster wider than its room.
@@ -252,7 +252,7 @@ float adds no work there:
   the shadow darkens below the panel and fades; nothing of it passes the region's bottom; the field's
   outline and fill; a chip under its letter.
 - `oso-core`: the rows of `float_regions` and `minibuffer::layout` at every `t` above, and the keys
-  always whole and never under the label or a message, also with crafted file names in a question,
+  always whole and never under the label or a message, also with odd file names in a question,
   from frames of no rows up. The app draws a float in frames of 0 to 3 rows.
 - Text-grid snapshots change: the float starts on row 0, the label has its own row, and the keys show
   as `[y] exit  [n] stay`.

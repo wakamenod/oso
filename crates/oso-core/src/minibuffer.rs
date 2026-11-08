@@ -736,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn a_crafted_name_never_hides_the_keys_or_the_questions_first_words() {
+    fn an_odd_file_name_never_hides_the_keys_or_the_questions_opening() {
         let names = [
             format!("x {}", "x".repeat(36)),
             "全角".repeat(10),
