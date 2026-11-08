@@ -205,7 +205,9 @@ item notes when it must be settled.
   the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
   runs must still reach `exiting`; whether frames keep up during a live resize, now that the
   view also draws when AppKit displays its layer; `open_window` and `request_attention` queued as the other requests are;
-  and the author's checks at the keyboard
+  startup and `open_from_launch_ms` measured again with more runs, where the native layer's
+  medians sat a few milliseconds above winit's within overlapping ranges; and the author's
+  checks at the keyboard
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
