@@ -372,26 +372,32 @@ impl State {
         self.ime.get().allowed()
     }
 
-    /// Changes what secure input depends on, and enables or disables it if that changes
-    /// whether it is held.
-    fn update_secure(
-        &self,
-        change: impl FnOnce(&mut gate::SecureInput) -> Option<gate::SecureStep>,
-    ) {
+    /// Changes what secure input depends on, then makes the calls that asks for. The state is
+    /// stored before each call, so that a notice coming during one reads it as it will be.
+    fn update_secure(&self, change: impl FnOnce(&mut gate::SecureInput)) {
         let mut secure = self.secure.get();
-        match change(&mut secure) {
-            Some(gate::SecureStep::Enable) => {
-                if !secure::enable() {
-                    log::warn!("the system refused secure input");
-                    secure.refused();
-                }
-            }
-            Some(gate::SecureStep::Disable) if !secure::disable() => {
-                log::warn!("the system refused to release secure input");
-            }
-            Some(gate::SecureStep::Disable) | None => {}
-        }
+        change(&mut secure);
         self.secure.set(secure);
+        // At most an owed release, then the call the change asks for.
+        for _ in 0..2 {
+            let mut secure = self.secure.get();
+            let Some(step) = secure.next() else {
+                return;
+            };
+            secure.made(step, true);
+            self.secure.set(secure);
+            let accepted = match step {
+                gate::SecureStep::Enable => secure::enable(),
+                gate::SecureStep::Disable => secure::disable(),
+            };
+            if !accepted {
+                log::warn!("the system refused a change of secure input");
+                let mut secure = self.secure.get();
+                secure.made(step, false);
+                self.secure.set(secure);
+                return;
+            }
+        }
     }
 
     fn update_ime(&self, change: impl FnOnce(&mut gate::ImeGate)) {

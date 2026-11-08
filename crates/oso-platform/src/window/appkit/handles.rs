@@ -186,6 +186,7 @@ impl Window {
 
     /// Whether secure input is wanted, whether this layer holds it, and whether the system
     /// has it on, for the dev socket's check.
+    #[cfg(feature = "dev")]
     pub fn secure_input(&self) -> (bool, bool, bool) {
         let secure = self.state.secure.get();
         (secure.wanted(), secure.held(), super::secure::is_enabled())

@@ -36,17 +36,22 @@ impl ImeGate {
 }
 
 /// Secure input: held while the app wants it, oso is the active app and its window has the
-/// keyboard (ADR 0073). Each change says whether to enable or disable it, so that exactly one
-/// enable is held at a time and every one is released.
+/// keyboard (ADR 0073). It says which call to make next, so that exactly one enable is held at
+/// a time, a release the system refused is made again before any enable, and nothing enables
+/// it once the loop has ended.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct SecureInput {
     wanted: bool,
     active: bool,
     key: bool,
+    /// The loop has ended, or the handler panicked: never held again.
+    ended: bool,
     held: bool,
+    /// A disable the system refused, to be made again first.
+    owed: bool,
 }
 
-/// What a change asks of the system.
+/// A call to the system.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SecureStep {
     Enable,
@@ -62,45 +67,45 @@ impl SecureInput {
         self.wanted
     }
 
-    pub(super) fn set_wanted(&mut self, wanted: bool) -> Option<SecureStep> {
+    pub(super) fn set_wanted(&mut self, wanted: bool) {
         self.wanted = wanted;
-        self.settle()
     }
 
-    pub(super) fn set_active(&mut self, active: bool) -> Option<SecureStep> {
+    pub(super) fn set_active(&mut self, active: bool) {
         self.active = active;
-        self.settle()
     }
 
-    pub(super) fn set_key(&mut self, key: bool) -> Option<SecureStep> {
+    pub(super) fn set_key(&mut self, key: bool) {
         self.key = key;
-        self.settle()
     }
 
     /// The loop is ending, or the handler panicked: released, and never held again.
-    pub(super) fn release(&mut self) -> Option<SecureStep> {
-        self.wanted = false;
-        self.active = false;
-        self.key = false;
-        self.settle()
+    pub(super) fn release(&mut self) {
+        self.ended = true;
     }
 
-    /// The system refused to enable it: not held.
-    pub(super) fn refused(&mut self) {
-        self.held = false;
-    }
-
-    fn settle(&mut self) -> Option<SecureStep> {
-        let hold = self.wanted && self.active && self.key;
-        if hold == self.held {
-            return None;
+    /// The call to make now, if any.
+    pub(super) fn next(self) -> Option<SecureStep> {
+        if self.owed {
+            return Some(SecureStep::Disable);
         }
-        self.held = hold;
-        Some(if hold {
-            SecureStep::Enable
-        } else {
-            SecureStep::Disable
-        })
+        let hold = self.wanted && self.active && self.key && !self.ended;
+        match (hold, self.held) {
+            (true, false) => Some(SecureStep::Enable),
+            (false, true) => Some(SecureStep::Disable),
+            _ => None,
+        }
+    }
+
+    /// `step` was made, and the system did or did not accept it.
+    pub(super) fn made(&mut self, step: SecureStep, accepted: bool) {
+        match step {
+            SecureStep::Enable => self.held = accepted,
+            SecureStep::Disable => {
+                self.held = false;
+                self.owed = !accepted;
+            }
+        }
     }
 }
 
@@ -141,17 +146,34 @@ mod tests {
         );
     }
 
+    /// Makes every call `secure` asks for, as the system accepting them would, and counts the
+    /// enables it holds.
+    fn settle(secure: &mut SecureInput, held: &mut i32, accept: bool) {
+        for _ in 0..2 {
+            let Some(step) = secure.next() else {
+                return;
+            };
+            secure.made(step, accept);
+            if accept {
+                *held += if step == SecureStep::Enable { 1 } else { -1 };
+            }
+        }
+    }
+
     #[test]
     fn secure_input_is_held_only_while_wanted_active_and_key() {
         for wanted in [false, true] {
             for active in [false, true] {
                 for key in [false, true] {
                     let mut secure = SecureInput::default();
+                    let mut held = 0;
                     secure.set_wanted(wanted);
                     secure.set_active(active);
                     secure.set_key(key);
+                    settle(&mut secure, &mut held, true);
                     let should = wanted && active && key;
                     assert_eq!(secure.held(), should, "{wanted} {active} {key}");
+                    assert_eq!(held, i32::from(should));
                 }
             }
         }
@@ -160,28 +182,81 @@ mod tests {
     #[test]
     fn enables_and_disables_pair_up_whatever_the_order() {
         let mut secure = SecureInput::default();
-        let count = |step: Option<SecureStep>| match step {
-            Some(SecureStep::Enable) => 1,
-            Some(SecureStep::Disable) => -1,
-            None => 0,
+        let mut held = 0;
+        let mut change = |secure: &mut SecureInput, f: fn(&mut SecureInput)| {
+            f(secure);
+            settle(secure, &mut held, true);
+            held
         };
-        let mut held = count(secure.set_active(true));
-        held += count(secure.set_key(true));
-        held += count(secure.set_wanted(true));
-        assert_eq!(held, 1);
-        held += count(secure.set_wanted(true));
-        held += count(secure.set_key(true));
-        assert_eq!(held, 1, "no second enable");
-        held += count(secure.set_active(false));
-        assert_eq!(held, 0, "the app went behind");
-        held += count(secure.set_active(true));
-        assert_eq!(held, 1);
-        held += count(secure.set_wanted(false));
-        assert_eq!(held, 0, "another buffer selected");
-        held += count(secure.set_wanted(true));
-        held += count(secure.release());
+        change(&mut secure, |s| s.set_active(true));
+        change(&mut secure, |s| s.set_key(true));
+        assert_eq!(change(&mut secure, |s| s.set_wanted(true)), 1);
+        assert_eq!(
+            change(&mut secure, |s| s.set_key(true)),
+            1,
+            "no second enable"
+        );
+        assert_eq!(
+            change(&mut secure, |s| s.set_active(false)),
+            0,
+            "went behind"
+        );
+        assert_eq!(change(&mut secure, |s| s.set_active(true)), 1);
+        assert_eq!(
+            change(&mut secure, |s| s.set_wanted(false)),
+            0,
+            "another buffer"
+        );
+    }
+
+    #[test]
+    fn nothing_holds_it_again_once_released() {
+        let mut secure = SecureInput::default();
+        let mut held = 0;
+        secure.set_wanted(true);
+        secure.set_active(true);
+        secure.set_key(true);
+        settle(&mut secure, &mut held, true);
+        secure.release();
+        settle(&mut secure, &mut held, true);
         assert_eq!(held, 0, "released at the end");
-        held += count(secure.set_wanted(true));
-        assert_eq!(held, 0, "not again once released, as the loop ended");
+        secure.set_active(false);
+        secure.set_active(true);
+        secure.set_key(true);
+        secure.set_wanted(true);
+        settle(&mut secure, &mut held, true);
+        assert_eq!((held, secure.held()), (0, false), "not again after the end");
+    }
+
+    #[test]
+    fn a_refused_release_is_made_again_before_any_enable() {
+        let mut secure = SecureInput::default();
+        secure.set_wanted(true);
+        secure.set_active(true);
+        secure.set_key(true);
+        assert_eq!(secure.next(), Some(SecureStep::Enable));
+        secure.made(SecureStep::Enable, true);
+        secure.set_wanted(false);
+        assert_eq!(secure.next(), Some(SecureStep::Disable));
+        secure.made(SecureStep::Disable, false);
+        secure.set_wanted(true);
+        assert_eq!(
+            secure.next(),
+            Some(SecureStep::Disable),
+            "the owed release first"
+        );
+        secure.made(SecureStep::Disable, true);
+        assert_eq!(secure.next(), Some(SecureStep::Enable), "then held again");
+    }
+
+    #[test]
+    fn a_refused_enable_is_not_held_and_is_tried_again() {
+        let mut secure = SecureInput::default();
+        secure.set_wanted(true);
+        secure.set_active(true);
+        secure.set_key(true);
+        secure.made(SecureStep::Enable, false);
+        assert!(!secure.held());
+        assert_eq!(secure.next(), Some(SecureStep::Enable));
     }
 }

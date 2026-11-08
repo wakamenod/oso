@@ -9,6 +9,7 @@
 unsafe extern "C" {
     fn EnableSecureEventInput() -> i32;
     fn DisableSecureEventInput() -> i32;
+    #[cfg(feature = "dev")]
     fn IsSecureEventInputEnabled() -> u8;
 }
 
@@ -26,6 +27,7 @@ pub(super) fn disable() -> bool {
 }
 
 /// Whether the system has secure input on, for the dev socket's check only.
+#[cfg(feature = "dev")]
 pub(super) fn is_enabled() -> bool {
     // SAFETY: a Carbon call with no arguments, which only reads.
     unsafe { IsSecureEventInputEnabled() != 0 }

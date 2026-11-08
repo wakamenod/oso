@@ -122,8 +122,8 @@ impl App {
             area: self.ime_area(),
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
-        // Whether secure input is wanted, held and on (ADR 0073). It says nothing the socket
-        // does not already: a buffer that may hold secrets is reported as withheld.
+        // Whether secure input is wanted, held and on in the system (ADR 0073): nothing a process
+        // of the same user cannot read already (ADR 0044).
         let secure = self
             .view
             .as_ref()

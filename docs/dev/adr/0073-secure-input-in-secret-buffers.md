@@ -36,7 +36,8 @@ own after the native layer's first one.
   another buffer is selected, the window hides for an exit, the loop ends, or the app quits.
 - **Exactly one enable is held at a time.** The window layer keeps one flag, "held", and
   calls `EnableSecureEventInput` only when it turns true and `DisableSecureEventInput` only
-  when it turns false. Nothing else in oso calls them.
+  when it turns false. A release the system refuses is made again before any enable, and once
+  the loop has ended nothing enables it again. Nothing else in oso calls them.
 - **Before the loop ends,** in `exiting` and in `applicationWillTerminate:`, a held enable is
   released. After a panic in the handler is caught on the main thread, it is released
   before the loop stops. The panic hook itself does not call it, as it may run on any
@@ -79,8 +80,9 @@ own after the native layer's first one.
 - **Unit:** the rule's table, every combination of the four booleans, with no real calls, and
   a sequence that shows enables and disables always pair.
 - **Socket:** `get-state` gains `secure_input`: `wanted`, `held` by the window layer, and
-  `system`, from `IsSecureEventInputEnabled`; null on winit. It adds nothing the socket does
-  not say already: a buffer that may hold secrets is reported as withheld. An e2e flow under
+  `system`, from `IsSecureEventInputEnabled`; null on winit, and only in dev builds. It says
+  nothing a process of the same user cannot read already
+  ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)). An e2e flow under
   `native-window` (`just e2e-native`) opens a file with a secret name and checks that it is
   wanted, then neither wanted nor held after another buffer is selected. Whether it is held
   depends on oso being in front with the keyboard, which a test run does not control.
