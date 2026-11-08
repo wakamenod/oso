@@ -1,6 +1,6 @@
 # 0087. Finding files, writing under a new name, and large files
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -13,7 +13,7 @@ What is fixed already:
 
 - [ADR 0030](0030-m2-editing-commands.md): `C-x C-f` completes by path segment, as Emacs's
   `partial-completion` style does: `~/P/S/o` expands segment by segment.
-- [ADR 0076](0076-completion-and-m-x.md) (Proposed): the orderless matcher, its order (history,
+- [ADR 0076](0076-completion-and-m-x.md): the orderless matcher, its order (history,
   then length, then alphabetical), the centred float of 18 candidate rows and the answer's row,
   the keys `C-n`, `C-p`, `TAB`, `RET` and `M-RET`, and the worker path past 5000 candidates, with a
   generation per input and an `Arc<[Candidate]>` snapshot, which M2-18 builds.
@@ -39,6 +39,8 @@ The loader checks that a path is a regular file and then opens it. A path swappe
 file between the two blocks the loading thread (not the UI), which `open-questions.md` records.
 
 ## Decision
+
+The author accepted this ADR on 2026-11-09, through the coordinator.
 
 The author chose these on 2026-11-08, through the coordinator: the first option of each question
 under [Questions](#questions), which the text below describes. The author also approved, in
