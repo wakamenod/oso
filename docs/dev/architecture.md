@@ -530,9 +530,15 @@ Full details are in [`security.md`](security.md).
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
     `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
-    `commands`, `run` and `cancel`, over the JSON Lines framing in `channel::wire`, which the
-    dev socket shares, and no dev method. `open`, `text` and `insert` come next (AC-1b-3),
-    and `oso mcp` after them (AC-2).
+    `commands`, `run`, `cancel`, `open` and `text`, over the JSON Lines framing in
+    `channel::wire`, which the dev socket shares, and no dev method. `oso mcp` comes next
+    (AC-2).
+  - `open` visits a file that exists, unshown, through `app/agent/open.rs`, and shows it at
+    its line once the loader has judged it ordinary and read it; one judged otherwise is
+    dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
+    the channel opened is marked, and `save-buffer` run for the agent asks the person before
+    saving it. `ArgSpec::Text` and `insert` take text; `dispatch::args` maps a given argument
+    for the dev socket and the channel alike.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
     command inside `Editor::for_agent`, so the prompts it opens are the agent's.

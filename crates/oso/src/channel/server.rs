@@ -473,6 +473,13 @@ where
         Method::Version => return success(&request.id, version()),
         Method::Ui(op) => op,
     };
+    // Only a file that is there opens: the channel starts no new file (ADR 0085). Looked at
+    // here, as the UI thread never waits on the file system.
+    if let Op::Open { path, .. } = &op
+        && !std::fs::metadata(path).is_ok_and(|meta| meta.is_file())
+    {
+        return failure(&request.id, "no file is at that path");
+    }
     let (reply, replied) = mpsc::channel();
     let asked = Request {
         connection,

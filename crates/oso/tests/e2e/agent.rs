@@ -278,3 +278,79 @@ fn a_question_the_agent_caused_waits_for_the_person() {
         "nothing saved over it"
     );
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
+    let scratch = Scratch::new("agent-open");
+    let notes = scratch.write("notes.txt", b"one\n");
+    let other = scratch.write("other.txt", b"first\nsecond\nthird\n");
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let link = scratch.symlink("plain.txt", &env);
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+    let open = |agent: &mut Agent, path: &std::path::Path, line: Option<u64>| {
+        agent.call("open", Some(json!({ "path": path, "line": line })))
+    };
+
+    let missing = scratch.path().join("missing.txt");
+    assert!(
+        open(&mut agent, &missing, None)
+            .unwrap_err()
+            .contains("no file")
+    );
+    assert!(
+        open(&mut agent, &env, None)
+            .unwrap_err()
+            .contains("may hold secrets")
+    );
+    let linked = open(&mut agent, &link, None).unwrap_err();
+    assert!(linked.contains("stays closed"), "{linked}");
+    assert!(!missing.exists(), "the channel starts no new file");
+
+    let opened = open(&mut agent, &other, Some(2)).unwrap();
+    assert_eq!(opened["name"], "other.txt");
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "other.txt");
+    assert_eq!(state["cursor"]["row"], 1, "at its line");
+    let names: Vec<_> = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["name"].clone())
+        .collect();
+    assert!(
+        !names.contains(&json!("plain.txt")),
+        "the linked secret was dropped: {names:?}"
+    );
+    let text = agent
+        .call("text", Some(json!({ "buffer": opened["buffer"] })))
+        .unwrap();
+    assert_eq!(text["rows"], json!(["first", "second", "third", ""]));
+
+    agent.run("insert", None, "change").unwrap_err();
+    let inserted = agent.call(
+        "run",
+        Some(json!({ "name": "insert", "arg": "new ", "reach": "change" })),
+    );
+    assert!(inserted.is_ok(), "{inserted:?}");
+    let waiting = agent.run("save-buffer", None, "change").unwrap();
+    let waiting = waiting["waiting"].as_str().unwrap();
+    assert!(
+        waiting.contains("Agent: Save other.txt, which the agent opened?"),
+        "{waiting}"
+    );
+    assert_eq!(
+        std::fs::read(&other).unwrap(),
+        b"first\nsecond\nthird\n",
+        "not yet"
+    );
+    thread::sleep(QUIET);
+    app.send_keys("y");
+    app.wait_for("the save", |state| state["buffer"]["modified"] == false);
+    assert_eq!(
+        std::fs::read(&other).unwrap(),
+        b"first\nnew second\nthird\n"
+    );
+}

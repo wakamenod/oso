@@ -11,7 +11,14 @@
 //!   command; `arg` is optional, a count or a number, or text for a command that reads text,
 //!   and `reach` must be the command's.
 //! - `cancel`: closes a question the channel caused.
+//! - `open`: `{"path": "/abs/notes.md", "line": 40}` visits a file that exists, shown once it
+//!   is judged ordinary; `line` is optional.
+//! - `text`: `{"buffer": 3, "start_row": 0, "rows": 200}` gives whole rows of a buffer, or
+//!   `{"region": true}` the selected window's region.
 
+use std::path::PathBuf;
+
+use oso_core::buffer::Buffer;
 use oso_core::command::Reach;
 use serde_json::{Map, Value};
 
@@ -26,10 +33,19 @@ const MAX_COMMAND_NAME: usize = 256;
 /// The longest text `run` passes on, in bytes (ADR 0085).
 pub const MAX_TEXT_ARG: usize = 64 * 1024;
 
+/// The longest path `open` takes, in bytes.
+pub const MAX_PATH: usize = 4096;
+
+/// The rows `text` gives when not asked for a number, and the most it gives.
+pub const DEFAULT_ROWS: usize = 200;
+pub const MAX_ROWS: usize = 2000;
+
 /// The methods, and the ones the dev socket has, which the channel must never answer. A
 /// unit test checks that no name is in both.
 #[cfg(test)]
-pub const METHODS: [&str; 5] = ["version", "state", "commands", "run", "cancel"];
+pub const METHODS: [&str; 7] = [
+    "version", "state", "commands", "run", "cancel", "open", "text",
+];
 
 /// A parsed request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +77,24 @@ pub enum Op {
         reach: Reach,
     },
     Cancel,
+    Open {
+        path: PathBuf,
+        line: Option<usize>,
+    },
+    Text(TextOf),
+}
+
+/// What `text` reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextOf {
+    /// Whole rows of a buffer, by id.
+    Rows {
+        buffer: u64,
+        start_row: usize,
+        rows: usize,
+    },
+    /// The selected window's region.
+    Region,
 }
 
 /// An argument given with `run`. Its `Debug` gives a text's length only.
@@ -101,6 +135,8 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "commands" => none(&parts.params).map(|()| Method::Ui(Op::Commands))?,
         "cancel" => none(&parts.params).map(|()| Method::Ui(Op::Cancel))?,
         "run" => Method::Ui(parse_run(&parts.params).map_err(bad)?),
+        "open" => Method::Ui(parse_open(&parts.params).map_err(bad)?),
+        "text" => Method::Ui(Op::Text(parse_text(&parts.params).map_err(bad)?)),
         _ => return Err(parts.unknown()),
     };
     Ok(Request { id, method })
@@ -161,6 +197,73 @@ fn parse_run(params: &Map<String, Value>) -> Result<Op, String> {
     })
 }
 
+/// The parameters of `open`. The path must be absolute, so that nothing depends on where
+/// the editor runs, and its name must not say it may hold secrets.
+fn parse_open(params: &Map<String, Value>) -> Result<Op, String> {
+    only(params, "open", &["path", "line"])?;
+    let Some(Value::String(path)) = params.get("path") else {
+        return Err("open needs a string parameter \"path\"".into());
+    };
+    if path.len() > MAX_PATH {
+        return Err(format!("a path is at most {MAX_PATH} bytes"));
+    }
+    let path = PathBuf::from(path);
+    if !path.is_absolute() {
+        return Err("open needs an absolute path".into());
+    }
+    if Buffer::name_may_hold_secrets(&path) {
+        return Err("the path's name says it may hold secrets; ask the person".into());
+    }
+    let line = match params.get("line") {
+        None | Some(Value::Null) => None,
+        Some(line) => Some(
+            line.as_u64()
+                .filter(|&line| line >= 1)
+                .and_then(|line| usize::try_from(line).ok())
+                .ok_or("open's \"line\" must be a whole number of at least 1")?,
+        ),
+    };
+    Ok(Op::Open { path, line })
+}
+
+/// The parameters of `text`.
+fn parse_text(params: &Map<String, Value>) -> Result<TextOf, String> {
+    only(params, "text", &["buffer", "start_row", "rows", "region"])?;
+    if params.get("region") == Some(&Value::Bool(true)) {
+        if params.len() > 1 {
+            return Err("text with \"region\" takes nothing else".into());
+        }
+        return Ok(TextOf::Region);
+    }
+    let size = |name: &str, default: Option<usize>| match params.get(name) {
+        None if default.is_some() => Ok(default.unwrap_or_default()),
+        Some(value) => value
+            .as_u64()
+            .and_then(|n| usize::try_from(n).ok())
+            .ok_or(format!("text's {name:?} must be a whole number")),
+        None => Err(format!(
+            "text needs a parameter {name:?}, or \"region\": true"
+        )),
+    };
+    let rows = size("rows", Some(DEFAULT_ROWS))?;
+    if rows > MAX_ROWS {
+        return Err(format!("text gives at most {MAX_ROWS} rows"));
+    }
+    Ok(TextOf::Rows {
+        buffer: size("buffer", None)? as u64,
+        start_row: size("start_row", Some(0))?,
+        rows,
+    })
+}
+
+/// Refuses a parameter of `method` other than `names`.
+fn only(params: &Map<String, Value>, method: &str, names: &[&str]) -> Result<(), String> {
+    match params.keys().find(|name| !names.contains(&name.as_str())) {
+        Some(other) => Err(format!("{method} takes no parameter {:?}", short(other))),
+        None => Ok(()),
+    }
+}
+
 /// A parameter name a client sent, cut short to echo.
 fn short(name: &str) -> String {
     name.chars().take(32).collect()
@@ -168,8 +271,11 @@ fn short(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Arg, MAX_TEXT_ARG, METHODS, Method, Op, parse};
+    use super::{
+        Arg, DEFAULT_ROWS, MAX_PATH, MAX_ROWS, MAX_TEXT_ARG, METHODS, Method, Op, TextOf, parse,
+    };
     use oso_core::command::Reach;
+    use serde_json::Value;
     use serde_json::json;
 
     fn op(line: &str) -> Op {
@@ -257,6 +363,46 @@ mod tests {
         assert!(!format!("{parsed:?}").contains("secret-ish"));
         let long = json!({ "method": "run", "params": { "name": "insert", "arg": "a".repeat(MAX_TEXT_ARG + 1), "reach": "change" } });
         assert!(error(&long.to_string()).contains("at most"));
+    }
+
+    #[test]
+    fn open_takes_an_absolute_path_whose_name_is_ordinary() {
+        let open = |params: Value| json!({ "method": "open", "params": params }).to_string();
+        assert_eq!(
+            op(&open(json!({ "path": "/tmp/notes.md", "line": 40 }))),
+            Op::Open {
+                path: "/tmp/notes.md".into(),
+                line: Some(40)
+            }
+        );
+        assert!(error(&open(json!({ "path": "notes.md" }))).contains("absolute"));
+        assert!(error(&open(json!({ "path": "/home/a/.env" }))).contains("may hold secrets"));
+        assert!(
+            error(&open(json!({ "path": "/home/a/.ssh/config" }))).contains("may hold secrets")
+        );
+        assert!(error(&open(json!({ "path": "/a", "line": 0 }))).contains("at least 1"));
+        let long = format!("/{}", "a".repeat(MAX_PATH));
+        assert!(error(&open(json!({ "path": long }))).contains("at most"));
+    }
+
+    #[test]
+    fn text_gives_rows_of_a_buffer_or_the_region() {
+        let text = |params: Value| json!({ "method": "text", "params": params }).to_string();
+        assert_eq!(
+            op(&text(json!({ "buffer": 3 }))),
+            Op::Text(TextOf::Rows {
+                buffer: 3,
+                start_row: 0,
+                rows: DEFAULT_ROWS
+            })
+        );
+        assert_eq!(
+            op(&text(json!({ "region": true }))),
+            Op::Text(TextOf::Region)
+        );
+        assert!(error(&text(json!({}))).contains("\"buffer\""));
+        assert!(error(&text(json!({ "buffer": 1, "rows": MAX_ROWS + 1 }))).contains("at most"));
+        assert!(error(&text(json!({ "region": true, "buffer": 1 }))).contains("nothing else"));
     }
 
     /// The channel answers none of the dev socket's methods, whatever the build.

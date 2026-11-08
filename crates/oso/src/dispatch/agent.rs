@@ -58,7 +58,10 @@ impl Dispatcher {
         if self.waits_for_clipboard() {
             return refused("a yank is waiting for the clipboard".into());
         }
+        // A count repeats the command's work; a number, such as a line, is only a value.
+        let repeats = !matches!(command.args, oso_core::command::ArgSpec::Number { .. });
         if let Given::Count(n) = given
+            && repeats
             && n.unsigned_abs() > MAX_REMOTE_COUNT.unsigned_abs()
         {
             return refused(format!("{name}'s argument is beyond ±{MAX_REMOTE_COUNT}"));
@@ -229,6 +232,58 @@ mod tests {
         assert!(refused(Given::Count(3)).contains("needs text"));
         editor.undo().unwrap();
         assert_eq!(editor.current().1.text().to_string(), "ab");
+    }
+
+    /// Asks once, and again when its question is answered `y`.
+    fn ask_again(
+        ctx: &mut oso_core::command::Ctx<'_>,
+        _: oso_core::command::Args,
+    ) -> Result<(), oso_core::command::CommandError> {
+        let question = if ctx.confirmed() { "Again?" } else { "First?" };
+        ctx.editor
+            .ask(question, "ask-again")
+            .map_err(|e| oso_core::command::CommandError::new(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn what_the_persons_yes_to_the_agents_question_opens_is_the_agents() {
+        use oso_core::command::{ArgSpec, Command, Registry};
+        let mut registry = Registry::new();
+        registry
+            .register(Command {
+                name: "ask-again",
+                doc: "Ask, and ask again.",
+                args: ArgSpec::None,
+                reach: Reach::Look,
+                run: ask_again,
+            })
+            .unwrap();
+        let mut dispatcher = Dispatcher::with(registry, oso_core::keymap::Keymap::default());
+        let mut editor = editor("");
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "ask-again", Given::Nothing, Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        assert!(
+            editor
+                .prompt()
+                .unwrap()
+                .label()
+                .starts_with("Agent: First?")
+        );
+        // The person answers, outside anything the agent runs.
+        editor.answer_question(true).unwrap();
+        dispatcher.after_prompts(&mut editor);
+        let again = editor.prompt().unwrap();
+        assert!(again.from_agent(), "{}", again.label());
+        assert!(again.label().starts_with("Agent: Again?"));
+        // A person's own question stays the person's.
+        editor.answer_question(false).unwrap();
+        editor.ask("Mine?", "ask-again").unwrap();
+        editor.answer_question(true).unwrap();
+        dispatcher.after_prompts(&mut editor);
+        assert!(!editor.prompt().unwrap().from_agent());
     }
 
     #[test]

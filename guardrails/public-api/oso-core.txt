@@ -132,6 +132,10 @@ pub fn oso_core::buffer::Buffer::set_own_spelling(&mut self, std::path::PathBuf)
 pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::decode::LineEnding, bool)
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
+impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::mark_opened_by_agent(&mut self)
+pub fn oso_core::buffer::Buffer::name_may_hold_secrets(&std::path::Path) -> bool
+pub fn oso_core::buffer::Buffer::opened_by_agent(&self) -> bool
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId
 pub const fn oso_core::buffer::BufferId::get(self) -> u64
@@ -944,9 +948,11 @@ pub fn oso_core::editor::Editor::allow_agent(&mut self)
 pub fn oso_core::editor::Editor::ask_for_agent(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::for_agent<R>(&mut self, impl core::ops::function::FnOnce(&mut Self) -> R) -> R
 pub fn oso_core::editor::Editor::request_agent_channel(&mut self, bool)
+pub fn oso_core::editor::Editor::runs_for_agent(&self) -> bool
 pub fn oso_core::editor::Editor::set_agent_channel(&mut self, oso_core::editor::AgentChannel)
 pub fn oso_core::editor::Editor::take_agent_allowed(&mut self) -> bool
 pub fn oso_core::editor::Editor::take_agent_channel_request(&mut self) -> core::option::Option<bool>
+pub fn oso_core::editor::Editor::take_agents_answer(&mut self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask(&mut self, impl core::convert::Into<alloc::string::String>, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>

@@ -159,6 +159,8 @@ mod tests {
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
+            // The person's yes to the agent's question about saving.
+            "save-buffer-the-agent-opened",
             // Keys: the channel passes a count or text instead.
             "digit-argument",
             "negative-argument",

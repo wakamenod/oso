@@ -184,8 +184,10 @@ impl Editor {
         let Some(Kind::Question { yes: command, .. }) = self.prompt().map(Prompt::kind) else {
             return Err(PromptError::NoPrompt);
         };
+        let agents = self.prompt().is_some_and(Prompt::from_agent);
         self.close_innermost();
         if yes {
+            self.note_agents_answer(agents);
             self.outcome = Some(Outcome::Run(command));
         } else {
             self.reset_exit_guard();
