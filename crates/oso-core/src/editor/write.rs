@@ -107,6 +107,10 @@ impl Editor {
             return;
         };
         let withheld = buffer.verdict().is_withheld();
+        let old = buffer
+            .path()
+            .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
+        let new = crate::buffer::file_base(&path);
         buffer.set_saving(false);
         buffer.set_path(path);
         buffer.set_baseline(Baseline {
@@ -121,7 +125,10 @@ impl Editor {
         if buffer.is_modified() {
             self.reset_exit_guard();
         }
-        self.name_files();
+        // The buffers named like the old file may take a shorter name, and those like the new
+        // one a longer one.
+        self.name_files_like(&old);
+        self.name_files_like(&new);
     }
 }
 
