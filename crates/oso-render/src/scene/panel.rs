@@ -54,52 +54,24 @@ pub(super) fn boxes(
     } else {
         fit_shadow(style, pt, fill, clip)
     };
+    let frame = panel
+        .border
+        .then(|| border_box(fill, hairline, outline, clip))
+        .flatten();
+    let outline_width = if panel.border { 0.0 } else { hairline };
     let body = Rounded {
         rect: corners(fill),
         radii: [top, top, radius, radius],
         fill: background,
         outline,
         shadow,
-        params: [hairline, down, sigma, 0.0],
+        params: [outline_width, down, sigma, 0.0],
         bounds: [0.0; 4],
     }
     .cut(3.0 * sigma + hairline + 1.0, down, clip);
     let field = panel
         .field
-        .filter(|field| field.rows > 0 && field.columns > 0)
-        .and_then(|field| {
-            let outline = whole(style.field_outline, pt);
-            let [across, up] = style.field_reach.map(|reach| (reach * pt).round());
-            // The box, its outline included, reaches past the answer's cells only into the
-            // room the layout gives it.
-            let room = grid.rect(panel.field_room);
-            let cells = grid.rect(field);
-            let outer = cut(
-                PixelRect {
-                    x: cells.x - across,
-                    y: cells.y - up,
-                    width: cells.width + 2.0 * across,
-                    height: cells.height + 2.0 * up,
-                },
-                room,
-            )?;
-            let inside = PixelRect {
-                x: outer.x + outline,
-                y: outer.y + outline,
-                width: (outer.width - 2.0 * outline).max(0.0),
-                height: (outer.height - 2.0 * outline).max(0.0),
-            };
-            Rounded {
-                rect: corners(inside),
-                radii: [style.field_radius * pt; 4],
-                fill: Face::Field.background(),
-                outline: Face::Field.foreground(),
-                shadow: [0.0; 4],
-                params: [outline, 0.0, 0.0, 0.0],
-                bounds: [0.0; 4],
-            }
-            .cut(outline + 1.0, 0.0, clip)
-        });
+        .and_then(|field| field_box(field, panel.field_room, &grid, pt, style, clip));
     let keys = panel
         .keys
         .iter()
@@ -107,7 +79,74 @@ pub(super) fn boxes(
     let selected = panel
         .selected
         .and_then(|row| selected_box(row, panel.border, &grid, pt, style, fill, clip));
-    body.into_iter().chain(field).chain(selected).chain(keys)
+    frame
+        .into_iter()
+        .chain(body)
+        .chain(field)
+        .chain(selected)
+        .chain(keys)
+}
+
+/// A border of `width` pixels in `color` around `fill`: a square box behind it, as an outline
+/// drawn outside the fill rounds its outer corners (ADR 0076).
+fn border_box(fill: PixelRect, width: f32, color: [f32; 4], clip: PixelRect) -> Option<Rounded> {
+    Rounded {
+        rect: [
+            fill.x - width,
+            fill.y - width,
+            fill.width + 2.0 * width,
+            fill.height + 2.0 * width,
+        ],
+        radii: [0.0; 4],
+        fill: color,
+        outline: [0.0; 4],
+        shadow: [0.0; 4],
+        params: [0.0; 4],
+        bounds: [0.0; 4],
+    }
+    .cut(1.0, 0.0, clip)
+}
+
+/// The answer's `field`, reaching past its cells only into `room`, cut to `clip` (ADR 0075).
+fn field_box(
+    field: CellRect,
+    room: CellRect,
+    grid: &PixelGrid,
+    pt: f32,
+    style: &PanelStyle,
+    clip: PixelRect,
+) -> Option<Rounded> {
+    if field.rows == 0 || field.columns == 0 {
+        return None;
+    }
+    let outline = whole(style.field_outline, pt);
+    let [across, up] = style.field_reach.map(|reach| (reach * pt).round());
+    let cells = grid.rect(field);
+    let outer = cut(
+        PixelRect {
+            x: cells.x - across,
+            y: cells.y - up,
+            width: cells.width + 2.0 * across,
+            height: cells.height + 2.0 * up,
+        },
+        grid.rect(room),
+    )?;
+    let inside = PixelRect {
+        x: outer.x + outline,
+        y: outer.y + outline,
+        width: (outer.width - 2.0 * outline).max(0.0),
+        height: (outer.height - 2.0 * outline).max(0.0),
+    };
+    Rounded {
+        rect: corners(inside),
+        radii: [style.field_radius * pt; 4],
+        fill: Face::Field.background(),
+        outline: Face::Field.foreground(),
+        shadow: [0.0; 4],
+        params: [outline, 0.0, 0.0, 0.0],
+        bounds: [0.0; 4],
+    }
+    .cut(outline + 1.0, 0.0, clip)
 }
 
 /// A key's chip inside its `cells`, cut to `clip` (ADR 0075).

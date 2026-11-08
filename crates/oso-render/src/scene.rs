@@ -948,16 +948,18 @@ mod tests {
         let mut scene = Scene::new(LIMITS);
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rounded = scene.rounded();
-        let panel = rounded[0];
-        assert_eq!(panel.outline, PANEL.border);
-        // 5 points of a 20 px cell: 6.25 px, in whole pixels.
-        assert_eq!(panel.params[0], 6.0);
-        // Square, on the text's background, with no shadow.
+        // The border is a square box behind the panel, 5 points of a 20 px cell: 6.25 px, in
+        // whole pixels, past it on every side.
+        let (frame, panel) = (rounded[0], rounded[1]);
+        assert_eq!((frame.fill, frame.radii), (PANEL.border, [0.0; 4]));
+        assert_eq!(frame.rect[0], panel.rect[0] - 6.0);
+        assert_eq!(frame.rect[2], panel.rect[2] + 12.0);
+        // Square, on the text's background, with no shadow and no outline of its own.
         assert_eq!(panel.radii, [0.0; 4]);
         assert_eq!(panel.fill, Face::Text.background());
-        assert_eq!(panel.shadow[3], 0.0);
+        assert_eq!((panel.shadow[3], panel.params[0]), (0.0, 0.0));
         // The selected row is a bar across the whole panel.
-        let bar = rounded[1];
+        let bar = rounded[2];
         assert_eq!(bar.fill, Face::Selected.background());
         assert_eq!((bar.rect[0], bar.rect[2]), (panel.rect[0], panel.rect[2]));
         assert_eq!(bar.radii, [0.0; 4]);
