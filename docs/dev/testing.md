@@ -62,6 +62,7 @@ Below a row that needs it, a line between `:` marks its cells:
 | `<>` | the two cells of a wide cluster |
 | `~` | a cell of an escape (`^M`, `\xFF`) |
 | `#` | a cell of a boxed character: invisible (`U+202E`), or past a display cluster's limits (`U+0301`) |
+| `]` | a boxed character's last cell, so that two boxes side by side read as two ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)) |
 
 Below the row with an input method's preedit, a line between `_` marks its
 underline with `-`, and the segment being converted with `=`
@@ -74,8 +75,8 @@ with `#` and the other matches in view with `~`, from `Editor::search_cells`
 ([ADR 0082](adr/0082-isearch.md)).
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
-Text that reads like an escape has no mark, which is how the two differ. `#`
-does not show where one box ends and the next begins. The
+Text that reads like an escape has no mark, which is how the two differ. `]`
+shows where one box ends and the next begins, as the renderer's 1-pixel gap does. The
 padding before the closing `│` shows the row's width whatever font the diff is
 read in.
 

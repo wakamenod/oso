@@ -158,6 +158,9 @@ pub struct RenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     painter: Painter,
+    /// The built-in themes, and which one is drawn (ADR 0089).
+    themes: Vec<Theme>,
+    theme: usize,
     /// Shapes and rasterizes text; see `oso_platform::text`.
     text_system: Box<dyn TextSystem>,
     /// Frames in a row that failed to draw; see `count_failed_frame`.
@@ -250,7 +253,14 @@ impl RenderState {
         );
 
         // 6. Initialize the shape and text renderers.
-        let painter = Painter::new(&device, surface_format, width as f32, height as f32);
+        let themes = themes();
+        let painter = Painter::new(
+            &device,
+            surface_format,
+            width as f32,
+            height as f32,
+            themes[0],
+        );
 
         Self {
             target,
@@ -260,6 +270,8 @@ impl RenderState {
             queue,
             config,
             painter,
+            themes,
+            theme: 0,
             text_system,
             failed_frames: 0,
             presented: 0,
@@ -280,6 +292,25 @@ impl RenderState {
         self.text_system = text_system;
         self.painter.invalidate();
         Redraw::Needed
+    }
+
+    /// The built-in themes, the default first.
+    pub fn themes(&self) -> &[Theme] {
+        &self.themes
+    }
+
+    /// Draws from the next frame on in the theme at `index` of [`Self::themes`]. Nothing is
+    /// shaped or rasterized again, so a switch costs one frame (ADR 0089). An index past the
+    /// list changes nothing.
+    pub fn set_theme(&mut self, index: usize) -> Redraw {
+        match self.themes.get(index) {
+            Some(theme) if index != self.theme => {
+                self.painter.set_theme(&self.queue, *theme);
+                self.theme = index;
+                Redraw::Needed
+            }
+            _ => Redraw::NotNeeded,
+        }
     }
 
     /// Where the frame's cells are on the surface.

@@ -9,91 +9,7 @@ use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::frame::CellRect;
 use oso_core::window::Scroll;
 
-// Colors in linear RGB, until the theme of ADR 0027.
-const BACKGROUND: [f32; 4] = [0.05, 0.05, 0.07, 1.0];
-const FOREGROUND: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
-const CURSOR: [f32; 4] = [0.90, 0.90, 0.92, 1.0];
-const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
-const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
-const MODELINE: [f32; 4] = [0.16, 0.16, 0.21, 1.0];
-const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
-// A float's panel (ADR 0075): a fill only a little lighter than the text's, a hairline of
-// white at low alpha, a dim label, a field on the text's background with an accent outline,
-// and key chips.
-const FLOAT: [f32; 4] = [0.063, 0.0666, 0.0999, 1.0];
-const FLOAT_HAIRLINE: [f32; 4] = [1.0, 1.0, 1.0, 0.035];
-// The label 5.3:1 on the fill and the key 5.6:1 on its chip, against ADR 0027's 4.5:1 at
-// least, and a cool tint apart from the text's.
-const PROMPT: [f32; 4] = [0.52, 0.57, 0.74, 1.0];
-const FIELD_OUTLINE: [f32; 4] = [0.159, 0.2384, 0.5089, 1.0];
-const KEY: [f32; 4] = [0.0908, 0.0953, 0.1413, 1.0];
-const KEY_TEXT: [f32; 4] = [0.73, 0.77, 0.88, 1.0];
-const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
-// A completion's list (ADR 0076), on the text's background: the selected row a medium blue bar,
-// what matched in a warm accent, bindings in a light blue, annotations a dim blue-grey, and the
-// count and label in a teal accent. Every one at least 4.5:1 on the background and on the
-// selected row, which the tests check, until M2-23's theme.
-const SELECTED: [f32; 4] = [0.028, 0.058, 0.212, 1.0];
-const COMPLETION_MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
-const ANNOTATION: [f32; 4] = [0.423, 0.479, 0.730, 1.0];
-const BINDING: [f32; 4] = [0.078, 0.546, 1.0, 1.0];
-const COMPLETION_PROMPT: [f32; 4] = [0.114, 0.680, 0.429, 1.0];
-// isearch's matches (ADR 0082): a muted amber for the others in view, and a strong one for
-// the current match, behind text that keeps its colour, until the themes (M2-23). The text
-// stays 4.6:1 on the strong one and 8:1 on the muted one, against ADR 0027's 4.5:1.
-const MATCH: [f32; 4] = [0.12, 0.05, 0.005, 1.0];
-const CURRENT_MATCH: [f32; 4] = [0.32, 0.12, 0.004, 1.0];
-
-/// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height
-/// over 16) and the shadow's color and strength (ADR 0075). It is read every frame, as the
-/// faces are, so the theme (M2-23) can switch it at run time: a light theme wants a lighter,
-/// smaller shadow and a dark hairline.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct PanelStyle {
-    pub(crate) radius: f32,
-    /// Outside the fill, in [`Face::FloatBorder`].
-    pub(crate) hairline: f32,
-    /// Linear RGB and its strength, straight alpha.
-    pub(crate) shadow: [f32; 4],
-    pub(crate) shadow_down: f32,
-    pub(crate) shadow_sigma: f32,
-    /// How far a field reaches past its cells, across and up and down.
-    pub(crate) field_reach: [f32; 2],
-    pub(crate) field_radius: f32,
-    pub(crate) field_outline: f32,
-    /// How far a key's chip stays inside its cells, across and up and down.
-    pub(crate) key_inset: [f32; 2],
-    pub(crate) key_radius: f32,
-    /// How far the selected candidate's box reaches past its row's cells, across.
-    pub(crate) selected_reach: f32,
-    pub(crate) selected_radius: f32,
-    /// The border of a panel that has one, such as a completion's (ADR 0076), in place of the
-    /// hairline: its width, and its color in linear RGB, a muted slate a little lighter than the
-    /// text's background, which such a panel is filled with.
-    pub(crate) border_width: f32,
-    pub(crate) border: [f32; 4],
-}
-
-/// The panel's style until the theme.
-pub(crate) const PANEL: PanelStyle = PanelStyle {
-    radius: 8.0,
-    hairline: 1.0,
-    shadow: [0.0024, 0.0027, 0.0044, 0.55],
-    shadow_down: 10.0,
-    shadow_sigma: 14.0,
-    field_reach: [6.0, 4.0],
-    field_radius: 5.0,
-    field_outline: 1.0,
-    key_inset: [1.0, 2.0],
-    key_radius: 4.0,
-    selected_reach: 6.0,
-    selected_radius: 4.0,
-    border_width: 5.0,
-    border: [0.08, 0.085, 0.13, 1.0],
-};
-
-/// What a piece of the screen means. The renderer turns it into colors, and
-/// the theme (M2-23) will map it to its palette.
+/// What a piece of the screen means. The current theme gives it its colours (ADR 0089).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Face {
     /// Text, on the background behind everything else.
@@ -119,6 +35,8 @@ pub enum Face {
     FloatBorder,
     /// What a prompt says before its answer, dim on the float's background.
     Prompt,
+    /// What a question asks, in a colour no buffer text is drawn in (ADR 0089).
+    Question,
     /// An input field in a float: the text's background, and its outline in the foreground
     /// (ADR 0075).
     Field,
@@ -145,54 +63,6 @@ pub enum Face {
 }
 
 impl Face {
-    /// The color of coverage glyphs.
-    pub(crate) fn foreground(self) -> [f32; 4] {
-        match self {
-            Self::Text
-            | Self::Modeline
-            | Self::Preedit
-            | Self::Float
-            | Self::Region
-            | Self::CompletionSelected
-            | Self::SearchMatch
-            | Self::SearchCurrent => FOREGROUND,
-            Self::CompletionMatch => COMPLETION_MATCH,
-            Self::CompletionAnnotation => ANNOTATION,
-            Self::CompletionBinding => BINDING,
-            Self::CompletionPrompt => COMPLETION_PROMPT,
-            Self::Escape | Self::Boxed => ESCAPE,
-            Self::Cursor => BACKGROUND,
-            Self::Warning => WARNING,
-            Self::FloatBorder => FLOAT_HAIRLINE,
-            Self::Prompt => PROMPT,
-            Self::Field => FIELD_OUTLINE,
-            Self::Key => KEY_TEXT,
-        }
-    }
-
-    /// The color of rectangles.
-    pub(crate) fn background(self) -> [f32; 4] {
-        match self {
-            Self::Text | Self::Escape | Self::Warning | Self::Field => BACKGROUND,
-            Self::Boxed => ESCAPE_BOX,
-            Self::Cursor => CURSOR,
-            Self::Modeline => MODELINE,
-            Self::Preedit => FOREGROUND,
-            Self::Float | Self::Prompt => FLOAT,
-            // A completion's float is filled with the text's background (ADR 0076).
-            Self::CompletionMatch
-            | Self::CompletionAnnotation
-            | Self::CompletionBinding
-            | Self::CompletionPrompt => BACKGROUND,
-            Self::CompletionSelected => SELECTED,
-            Self::FloatBorder => FLOAT_HAIRLINE,
-            Self::Key => KEY,
-            Self::Region => REGION,
-            Self::SearchMatch => MATCH,
-            Self::SearchCurrent => CURRENT_MATCH,
-        }
-    }
-
     /// The face of a run in `style` within text of this face. An escape looks
     /// like an escape wherever it is.
     pub(crate) fn of_run(self, style: CellStyle) -> Self {
@@ -368,36 +238,6 @@ mod tests {
         assert_eq!(Face::Cursor.of_run(CellStyle::Text), Face::Cursor);
         assert_eq!(Face::Cursor.of_run(CellStyle::Escape), Face::Escape);
         assert_eq!(Face::Cursor.of_run(CellStyle::Boxed), Face::Boxed);
-    }
-
-    /// WCAG's contrast ratio of two linear colors.
-    fn contrast(a: [f32; 4], b: [f32; 4]) -> f32 {
-        let luminance = |c: [f32; 4]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-        let (a, b) = (luminance(a) + 0.05, luminance(b) + 0.05);
-        a.max(b) / a.min(b)
-    }
-
-    #[test]
-    fn a_lists_text_reads_on_the_fill_and_on_the_selected_row() {
-        // ADR 0027's floor; M2-23 raises what it can to 7:1.
-        for face in [
-            Face::Text,
-            Face::CompletionMatch,
-            Face::CompletionAnnotation,
-            Face::CompletionBinding,
-        ] {
-            for behind in [Face::Text, Face::CompletionSelected] {
-                let ratio = contrast(face.foreground(), behind.background());
-                assert!(ratio >= 4.5, "{face:?} on {behind:?}: {ratio:.2}");
-            }
-        }
-        let ratio = contrast(Face::CompletionPrompt.foreground(), Face::Text.background());
-        assert!(ratio >= 4.5, "the count and label: {ratio:.2}");
-        // The selected row stands apart from the background.
-        assert_ne!(
-            Face::CompletionSelected.background(),
-            Face::Text.background()
-        );
     }
 
     #[test]

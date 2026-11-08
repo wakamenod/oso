@@ -1,16 +1,11 @@
 //! The built-in themes (ADR 0027, ADR 0089): each a palette of named colours, the faces mapped
-//! to those names, a float's panel style and the terms of its text gamma. Also the measures
+//! to those names, a float's panel style and the strength of its text gamma. Also the measures
 //! the contrast tests check them by.
 //!
 //! Must not depend on: `atlas`, `grid`, `rows`, `scene`, `shape`, `text` or the GPU. It reads
 //! the faces, and the renderer reads it.
 
-#![allow(
-    dead_code,
-    reason = "a prototype: the scene takes the theme once M2-17 and M2-20 merge"
-)]
-
-use crate::pane::{Face, PANEL, PanelStyle};
+use crate::pane::Face;
 
 /// Whether a theme is drawn on a dark background or a light one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,7 +16,7 @@ pub enum Kind {
 
 /// A colour as a theme's source writes it: sRGB, and an alpha that is straight and linear.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Color {
+struct Color {
     rgb: u32,
     alpha: f32,
 }
@@ -56,14 +51,77 @@ enum Name {
     BgEscape,
     BgMatch,
     BgCurrent,
+    BgSelected,
     FgMain,
     FgPrompt,
     FgKey,
     Escape,
     Warning,
     FieldOutline,
+    /// A completion's matched characters.
+    Gold,
+    /// What is said of a candidate.
+    Slate,
+    /// A candidate's key binding.
+    Azure,
+    /// A completion's count and label.
+    Teal,
     Hairline,
+    Border,
     Shadow,
+}
+
+/// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
+/// over 16), and the shadow's and border's colours (ADR 0075, ADR 0076). A light theme wants a
+/// lighter, smaller shadow.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PanelStyle {
+    pub(crate) radius: f32,
+    /// Outside the fill, in [`Face::FloatBorder`].
+    pub(crate) hairline: f32,
+    /// Linear RGB and its strength, straight alpha.
+    pub(crate) shadow: [f32; 4],
+    pub(crate) shadow_down: f32,
+    pub(crate) shadow_sigma: f32,
+    /// How far a field reaches past its cells, across and up and down.
+    pub(crate) field_reach: [f32; 2],
+    pub(crate) field_radius: f32,
+    pub(crate) field_outline: f32,
+    /// How far a key's chip stays inside its cells, across and up and down.
+    pub(crate) key_inset: [f32; 2],
+    pub(crate) key_radius: f32,
+    /// How far the selected candidate's box reaches past its row's cells, across.
+    pub(crate) selected_reach: f32,
+    pub(crate) selected_radius: f32,
+    /// The border of a panel that has one, such as a completion's (ADR 0076), in place of the
+    /// hairline: its width, and its colour in linear RGB.
+    pub(crate) border_width: f32,
+    pub(crate) border: [f32; 4],
+}
+
+/// The panel's sizes, which every theme shares so far. Its colours come from the palette.
+const SIZES: PanelStyle = PanelStyle {
+    radius: 8.0,
+    hairline: 1.0,
+    shadow: [0.0; 4],
+    shadow_down: 10.0,
+    shadow_sigma: 14.0,
+    field_reach: [6.0, 4.0],
+    field_radius: 5.0,
+    field_outline: 1.0,
+    key_inset: [1.0, 2.0],
+    key_radius: 4.0,
+    selected_reach: 6.0,
+    selected_radius: 4.0,
+    border_width: 5.0,
+    border: [0.0; 4],
+};
+
+/// How a theme corrects text's coverage (ADR 0089): `strength` 0 blends coverage in linear
+/// light as it is, and 1 gives what blending in sRGB, as the OS draws text, gives.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TextGamma {
+    pub(crate) strength: f32,
 }
 
 /// What a theme is made of, before it is resolved into linear colours.
@@ -75,24 +133,14 @@ struct Source {
     text: TextGamma,
 }
 
-/// How a theme corrects text's coverage (ADR 0089): `strength` 0 blends coverage in linear
-/// light as it is, and 1 gives what blending in sRGB, as the OS draws text, gives.
+/// A theme, resolved: every face's colours in linear RGB. It is small and holds nothing on the
+/// heap, so the renderer keeps a copy of the current one.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct TextGamma {
-    pub(crate) strength: f32,
-}
-
-impl TextGamma {
-    /// Text as the OS draws it.
-    pub(crate) const NATIVE: Self = Self { strength: 1.0 };
-}
-
-/// A theme, resolved: every face's colours in linear RGB.
 pub struct Theme {
     name: &'static str,
     kind: Kind,
-    foreground: Vec<[f32; 4]>,
-    background: Vec<[f32; 4]>,
+    foreground: [[f32; 4]; FACES.len()],
+    background: [[f32; 4]; FACES.len()],
     panel: PanelStyle,
     text: TextGamma,
 }
@@ -125,27 +173,44 @@ impl Theme {
         self.text
     }
 
+    /// The theme with its text corrected by `text`, for tests.
+    #[cfg(test)]
+    pub(crate) fn with_text(self, text: TextGamma) -> Self {
+        Self { text, ..self }
+    }
+
+    /// The theme with every face's colours swapped, foreground for background, for tests.
+    #[cfg(test)]
+    pub(crate) fn swapped(self) -> Self {
+        Self {
+            foreground: self.background,
+            background: self.foreground,
+            ..self
+        }
+    }
+
     fn resolve(source: &Source) -> Self {
         let colors = |pick: fn((Name, Name)) -> Name| {
-            FACES
-                .iter()
-                .map(|&face| (source.palette)(pick((source.faces)(face))).linear())
-                .collect()
+            FACES.map(|face| (source.palette)(pick((source.faces)(face))).linear())
         };
-        let shadow = (source.palette)(Name::Shadow).linear();
+        let palette = |name| (source.palette)(name).linear();
         Self {
             name: source.name,
             kind: source.kind,
             foreground: colors(|(fg, _)| fg),
             background: colors(|(_, bg)| bg),
-            panel: PanelStyle { shadow, ..PANEL },
+            panel: PanelStyle {
+                shadow: palette(Name::Shadow),
+                border: palette(Name::Border),
+                ..SIZES
+            },
             text: source.text,
         }
     }
 }
 
-/// Every face, in the order of its variant, so that a theme keeps a table of them.
-const FACES: [Face; 15] = [
+/// Every face, in the order of [`index`], so that a theme keeps a table of them.
+const FACES: [Face; 21] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -156,9 +221,15 @@ const FACES: [Face; 15] = [
     Face::Float,
     Face::FloatBorder,
     Face::Prompt,
+    Face::Question,
     Face::Field,
     Face::Key,
     Face::Region,
+    Face::CompletionSelected,
+    Face::CompletionMatch,
+    Face::CompletionAnnotation,
+    Face::CompletionBinding,
+    Face::CompletionPrompt,
     Face::SearchMatch,
     Face::SearchCurrent,
 ];
@@ -177,11 +248,17 @@ const fn index(face: Face) -> usize {
         Face::Float => 7,
         Face::FloatBorder => 8,
         Face::Prompt => 9,
-        Face::Field => 10,
-        Face::Key => 11,
-        Face::Region => 12,
-        Face::SearchMatch => 13,
-        Face::SearchCurrent => 14,
+        Face::Question => 10,
+        Face::Field => 11,
+        Face::Key => 12,
+        Face::Region => 13,
+        Face::CompletionSelected => 14,
+        Face::CompletionMatch => 15,
+        Face::CompletionAnnotation => 16,
+        Face::CompletionBinding => 17,
+        Face::CompletionPrompt => 18,
+        Face::SearchMatch => 19,
+        Face::SearchCurrent => 20,
     }
 }
 
@@ -200,15 +277,24 @@ fn faces(face: Face) -> (Name, Name) {
         Face::Float => (FgMain, BgFloat),
         Face::FloatBorder => (Hairline, Hairline),
         Face::Prompt => (FgPrompt, BgFloat),
+        // Until the colours are picked, a question's words take the prompt's colour, which no
+        // buffer text is drawn in.
+        Face::Question => (FgPrompt, BgFloat),
         Face::Field => (FieldOutline, BgMain),
         Face::Key => (FgKey, BgKey),
         Face::Region => (FgMain, BgRegion),
+        // A completion's float is filled with the text's background (ADR 0076).
+        Face::CompletionSelected => (FgMain, BgSelected),
+        Face::CompletionMatch => (Gold, BgMain),
+        Face::CompletionAnnotation => (Slate, BgMain),
+        Face::CompletionBinding => (Azure, BgMain),
+        Face::CompletionPrompt => (Teal, BgMain),
         Face::SearchMatch => (FgMain, BgMatch),
         Face::SearchCurrent => (FgMain, BgCurrent),
     }
 }
 
-/// The M2 steps' dark grey, with the float's colours as ADR 0075 picked them.
+/// The M2 steps' dark grey, with the float's colours as ADR 0075 and ADR 0076 picked them.
 fn dusk(name: Name) -> Color {
     use Name::*;
     match name {
@@ -220,13 +306,19 @@ fn dusk(name: Name) -> Color {
         BgEscape => rgb(0x81593f),
         BgMatch => rgb(0x613f10),
         BgCurrent => rgb(0x99610d),
+        BgSelected => rgb(0x2f447f),
         FgMain => rgb(0xf3f3f6),
         FgPrompt => rgb(0xbfc7df),
         FgKey => rgb(0xdee3f1),
         Escape => rgb(0xedb37c),
         Warning => rgb(0xffdd6f),
         FieldOutline => rgb(0x6f86bd),
+        Gold => rgb(0xffce7c),
+        Slate => rgb(0xaeb8de),
+        Azure => rgb(0x4fc3ff),
+        Teal => rgb(0x5fd7af),
         Hairline => rgba(0xffffff, 0.035),
+        Border => rgb(0x505265),
         Shadow => rgba(0x08090e, 0.55),
     }
 }
@@ -236,7 +328,8 @@ const SOURCES: [Source; 1] = [Source {
     kind: Kind::Dark,
     palette: dusk,
     faces,
-    text: TextGamma::NATIVE,
+    // Off until its strength is picked beside the OS's text.
+    text: TextGamma { strength: 0.0 },
 }];
 
 /// The built-in themes, the default first, in linear colours. The renderer makes them once and
@@ -255,6 +348,7 @@ fn decode(value: f32) -> f32 {
 }
 
 /// A linear value in sRGB.
+#[cfg(test)]
 fn encode(value: f32) -> f32 {
     if value <= 0.003_130_8 {
         value * 12.92
@@ -270,7 +364,8 @@ pub(crate) fn luminance(color: [f32; 4]) -> f32 {
 
 /// The coverage that, blended in linear light, gives what `coverage` blended in sRGB gives,
 /// for text of luminance `ink` on a background of luminance `paper`, at `gamma`'s strength.
-/// The text shader does the same (`text.wgsl`).
+/// The text shader does the same (`text.wgsl`), and the tests compare the two.
+#[cfg(test)]
 pub(crate) fn corrected_coverage(coverage: f32, ink: f32, paper: f32, gamma: TextGamma) -> f32 {
     if (ink - paper).abs() < 1e-3 {
         return coverage;
@@ -319,26 +414,35 @@ mod tests {
     fn pairs(face: Face) -> &'static [(Face, f32)] {
         const READ: f32 = 7.0;
         const LABEL: f32 = 4.5;
+        const LIST: [Face; 2] = [Face::Text, Face::CompletionSelected];
         match face {
             Face::Text => &[
                 (Face::Text, READ),
                 (Face::Region, READ),
                 (Face::SearchMatch, READ),
                 (Face::SearchCurrent, READ),
+                (Face::CompletionSelected, READ),
             ],
             Face::Cursor => &[(Face::Cursor, READ)],
             Face::Modeline => &[(Face::Modeline, READ)],
             Face::Float => &[(Face::Float, READ)],
+            Face::Question => &[(Face::Float, READ)],
             Face::Warning => &[(Face::Text, READ), (Face::Modeline, LABEL)],
+            Face::CompletionMatch => &[(LIST[0], READ), (LIST[1], READ)],
             Face::Escape => &[(Face::Text, LABEL)],
             Face::Boxed => &[(Face::Boxed, LABEL)],
             Face::Prompt => &[(Face::Float, LABEL)],
             Face::Key => &[(Face::Key, LABEL)],
+            Face::CompletionAnnotation | Face::CompletionBinding => {
+                &[(LIST[0], LABEL), (LIST[1], LABEL)]
+            }
+            Face::CompletionPrompt => &[(Face::Text, LABEL)],
             // Drawn as fills or lines, checked as such below.
             Face::Preedit
             | Face::FloatBorder
             | Face::Field
             | Face::Region
+            | Face::CompletionSelected
             | Face::SearchMatch
             | Face::SearchCurrent => &[],
         }
@@ -353,21 +457,55 @@ mod tests {
 
     #[test]
     fn dusk_keeps_the_colours_of_the_m2_steps() {
+        // The constants `pane.rs` drew with before the themes, in linear RGB.
+        let (bg, fg) = ([0.05, 0.05, 0.07, 1.0], [0.90, 0.90, 0.92, 1.0]);
+        let float = [0.063, 0.0666, 0.0999, 1.0];
+        let before = [
+            (Face::Text, fg, bg),
+            (Face::Escape, [0.85, 0.45, 0.20, 1.0], bg),
+            (
+                Face::Boxed,
+                [0.85, 0.45, 0.20, 1.0],
+                [0.22, 0.10, 0.05, 1.0],
+            ),
+            (Face::Cursor, bg, fg),
+            (Face::Modeline, fg, [0.16, 0.16, 0.21, 1.0]),
+            (Face::Warning, [1.0, 0.72, 0.16, 1.0], bg),
+            (Face::Preedit, fg, fg),
+            (Face::Float, fg, float),
+            (
+                Face::FloatBorder,
+                [1.0, 1.0, 1.0, 0.035],
+                [1.0, 1.0, 1.0, 0.035],
+            ),
+            (Face::Prompt, [0.52, 0.57, 0.74, 1.0], float),
+            (Face::Field, [0.159, 0.2384, 0.5089, 1.0], bg),
+            (
+                Face::Key,
+                [0.73, 0.77, 0.88, 1.0],
+                [0.0908, 0.0953, 0.1413, 1.0],
+            ),
+            (Face::Region, fg, [0.06, 0.10, 0.20, 1.0]),
+            (Face::CompletionSelected, fg, [0.028, 0.058, 0.212, 1.0]),
+            (Face::CompletionMatch, [1.0, 0.62, 0.20, 1.0], bg),
+            (Face::CompletionAnnotation, [0.423, 0.479, 0.730, 1.0], bg),
+            (Face::CompletionBinding, [0.078, 0.546, 1.0, 1.0], bg),
+            (Face::CompletionPrompt, [0.114, 0.680, 0.429, 1.0], bg),
+            (Face::SearchMatch, fg, [0.12, 0.05, 0.005, 1.0]),
+            (Face::SearchCurrent, fg, [0.32, 0.12, 0.004, 1.0]),
+        ];
         let themes = themes();
         let dusk = &themes[0];
         assert_eq!(dusk.name(), "dusk");
-        for face in FACES {
-            for (got, want) in [
-                (dusk.foreground(face), face.foreground()),
-                (dusk.background(face), face.background()),
-            ] {
-                let off = got.iter().zip(want).map(|(a, b)| (a - b).abs());
-                assert!(
-                    off.fold(0.0, f32::max) < 0.004,
-                    "{face:?}: {got:?}, {want:?}"
-                );
-            }
+        let close = |got: [f32; 4], want: [f32; 4]| {
+            got.iter().zip(want).all(|(a, b)| (a - b).abs() < 0.004)
+        };
+        for (face, fg, bg) in before {
+            assert!(close(dusk.foreground(face), fg), "{face:?}'s foreground");
+            assert!(close(dusk.background(face), bg), "{face:?}'s background");
         }
+        assert!(close(dusk.panel().shadow, [0.0024, 0.0027, 0.0044, 0.55]));
+        assert!(close(dusk.panel().border, [0.08, 0.085, 0.13, 1.0]));
     }
 
     /// Every pair below its floor in every theme, as `theme: face on behind (ratio < floor)`.
@@ -391,9 +529,9 @@ mod tests {
     }
 
     #[test]
-    fn dusk_misses_the_floors_where_the_author_has_yet_to_pick() {
-        // The prototype's record of where today's colours fall short. Picking the colours
-        // empties this, and the test then asserts no pair is short.
+    fn only_dusks_colours_still_to_be_picked_miss_their_floors() {
+        // ADR 0089: where dusk's colours of the M2 steps miss a floor, the author picks the
+        // nearest ones that pass. Picking them empties this list.
         assert_eq!(
             short_pairs(),
             [
@@ -402,6 +540,8 @@ mod tests {
                 "dusk: Boxed on Boxed (3.30 < 4.5)",
                 "dusk: Modeline on Modeline (4.46 < 7)",
                 "dusk: Warning on Modeline (3.72 < 4.5)",
+                "dusk: Question on Float (5.26 < 7)",
+                "dusk: CompletionMatch on CompletionSelected (6.38 < 7)",
             ]
         );
     }
@@ -414,6 +554,7 @@ mod tests {
                 Face::Region,
                 Face::SearchMatch,
                 Face::SearchCurrent,
+                Face::CompletionSelected,
                 Face::Modeline,
                 Face::Float,
                 Face::Key,
@@ -421,7 +562,17 @@ mod tests {
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(paper)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
-                assert!(distance(theme.background(face), paper) >= 0.02);
+            }
+        }
+    }
+
+    #[test]
+    fn a_questions_words_are_in_no_colour_buffer_text_is_drawn_in() {
+        for theme in &themes() {
+            let question = theme.foreground(Face::Question);
+            for face in [Face::Text, Face::Escape, Face::Boxed, Face::Warning] {
+                let apart = distance(question, theme.foreground(face));
+                assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
             }
         }
     }
@@ -437,8 +588,8 @@ mod tests {
             apart(Face::SearchMatch, Face::Region),
         ]
         .map(|d| format!("{d:.3}"));
-        // The author found the two search fills too close. Picking the colours sets the
-        // minimum distance from this.
+        // The author found the two search fills too close, both amber, though they are this
+        // far apart. Picking the colours sets the rule from this.
         assert_eq!(report, ["0.148", "0.153"]);
     }
 

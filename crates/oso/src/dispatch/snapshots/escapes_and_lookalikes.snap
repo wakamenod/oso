@@ -6,6 +6,6 @@ keys: none
 │^M \xFF U+202E      │
 :^                   :
 │^M \xFF U+202E      │
-:~~ ~~~~ ######      :
+:~~ ~~~~ #####]      :
 =[bidi controls] %% t=
 "                    "

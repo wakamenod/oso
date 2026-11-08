@@ -436,6 +436,7 @@ fn draw_row(
             if cluster.column >= view.end {
                 return ControlFlow::Break(());
             }
+            let mut boxed_end = None;
             cluster.for_each_run(|run| {
                 let start = run.column.max(view.start);
                 let end = (run.column + run.cells).min(view.end);
@@ -444,7 +445,14 @@ fn draw_row(
                     draw_run(&run, start, cells, &mut text);
                     drawn = end;
                 }
+                if run.style == CellStyle::Boxed {
+                    boxed_end = Some(run.column + run.cells);
+                }
             });
+            // A box's last cell, so that two side by side read as two (ADR 0089).
+            if let Some(last) = boxed_end.filter(|end| view.contains(&(end - 1))) {
+                marks[last - 1 - view.start] = ']';
+            }
             ControlFlow::Continue(())
         },
     );

@@ -4,24 +4,24 @@ description: "text: a\\u{202e}b\\n"
 ---
 frame rows: 4
 │aU+202Eb                                │
-:^######                                 :
+:^#####]                                 :
 │                                        │
 =[bidi controls] -- test  1:0  Fundamenta=
 "Wrote test                              "
 
 frame rows: 3
 │aU+202Eb                                │
-:^######                                 :
+:^#####]                                 :
 =[bidi controls] -- test  1:0  Fundamenta=
 "Wrote test                              "
 
 frame rows: 2
 │aU+202Eb                                │
-:^######                                 :
+:^#####]                                 :
 "[bidi controls] Wrote test              "
 
 frame rows: 1
 │aU+202Eb                                │
-:^######                                 :
+:^#####]                                 :
 
 frame rows: 0

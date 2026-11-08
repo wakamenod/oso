@@ -25,7 +25,7 @@ use crate::atlas::{AtlasGlyph, GlyphAtlas};
 use crate::grid::PlacedGlyph;
 use crate::pane::{Bands, Face};
 use crate::shape::Uniforms;
-use crate::theme::{TextGamma, luminance};
+use crate::theme::{TextGamma, Theme, luminance};
 
 /// Columns shaped beyond the visible ones on each side, and the step the
 /// shaped window moves by.
@@ -71,6 +71,11 @@ impl GlyphInstance {
     #[cfg(test)]
     pub(crate) fn uv(&self) -> [f32; 2] {
         self.uv
+    }
+
+    #[cfg(test)]
+    pub(crate) fn color(&self) -> [f32; 4] {
+        self.color
     }
 
     const ATTRIBUTES: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
@@ -268,6 +273,7 @@ impl Layout {
         row: usize,
         glyph: &PlacedGlyph,
         entry: &AtlasGlyph,
+        theme: &Theme,
     ) -> Option<GlyphInstance> {
         let CellMetrics {
             width,
@@ -307,12 +313,12 @@ impl Layout {
             position: [x + cut_x, y + cut_y],
             size: [w, h],
             uv: [entry.uv[0] as f32 + cut_x, entry.uv[1] as f32 + cut_y],
-            color: face.foreground(),
+            color: theme.foreground(face),
             kind: match entry.format {
                 GlyphFormat::Coverage => 0,
                 GlyphFormat::Color => 1,
             },
-            paper: luminance(face.background()),
+            paper: luminance(theme.background(face)),
         })
     }
 }
@@ -354,9 +360,10 @@ impl TextRenderer {
         format: wgpu::TextureFormat,
         width: f32,
         height: f32,
+        gamma: TextGamma,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("text.wgsl"));
-        let uniform_buffer = Self::uniform_buffer(device, width, height);
+        let uniform_buffer = Self::uniform_buffer(device, width, height, gamma);
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -458,11 +465,16 @@ impl TextRenderer {
         })
     }
 
-    /// The projection for a surface of `width` by `height`, and text as the OS draws it.
-    fn uniform_buffer(device: &wgpu::Device, width: f32, height: f32) -> wgpu::Buffer {
+    /// The projection for a surface of `width` by `height`, and text corrected by `gamma`.
+    fn uniform_buffer(
+        device: &wgpu::Device,
+        width: f32,
+        height: f32,
+        gamma: TextGamma,
+    ) -> wgpu::Buffer {
         let uniforms = TextUniforms {
             ortho: Uniforms::new(width, height),
-            gamma: TextUniforms::gamma(TextGamma::NATIVE),
+            gamma: TextUniforms::gamma(gamma),
         };
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Text Uniform Buffer"),
@@ -487,10 +499,6 @@ impl TextRenderer {
     }
 
     /// Corrects text's coverage with `gamma` from the next frame on (ADR 0089).
-    #[expect(
-        dead_code,
-        reason = "the app switches themes once M2-23's commands land"
-    )]
     pub(crate) fn set_gamma(&self, queue: &wgpu::Queue, gamma: TextGamma) {
         let offset = std::mem::size_of::<Uniforms>() as wgpu::BufferAddress;
         let gamma = TextUniforms::gamma(gamma);
@@ -554,8 +562,12 @@ mod tests {
         descent: 4.0,
     };
 
+    fn theme() -> Theme {
+        crate::theme::themes()[0]
+    }
+
     fn color(face: Face) -> [f32; 4] {
-        face.foreground()
+        theme().foreground(face)
     }
 
     /// A pane of 20 x 5 cells at the top left of the frame.
@@ -615,7 +627,7 @@ mod tests {
 
     #[test]
     fn glyph_sits_on_the_baseline() {
-        let q = layout().quad(0, &glyph(1, 1), &entry()).unwrap();
+        let q = layout().quad(0, &glyph(1, 1), &entry(), &theme()).unwrap();
         // Cell (0, 1) is at (18, 8); the baseline is 16 px down, and the
         // bitmap's top is 12 px above it.
         assert_eq!(q.position, [19.0, 12.0]);
@@ -627,8 +639,8 @@ mod tests {
     #[test]
     fn full_width_glyph_after_it_starts_two_cells_later() {
         let l = layout();
-        let wide = l.quad(0, &glyph(0, 2), &entry()).unwrap();
-        let next = l.quad(0, &glyph(2, 1), &entry()).unwrap();
+        let wide = l.quad(0, &glyph(0, 2), &entry(), &theme()).unwrap();
+        let next = l.quad(0, &glyph(2, 1), &entry(), &theme()).unwrap();
         assert_eq!(next.position[0] - wide.position[0], 2.0 * l.metrics.width);
     }
 
@@ -636,21 +648,36 @@ mod tests {
     fn glyphs_under_the_cursor_box_use_the_cursor_color() {
         let (under, text) = (color(Face::Cursor), color(Face::Text));
         let mut l = layout();
-        assert_eq!(l.quad(0, &glyph(3, 1), &entry()).unwrap().color, under);
-        assert_eq!(l.quad(0, &glyph(2, 1), &entry()).unwrap().color, text);
-        assert_eq!(l.quad(1, &glyph(3, 1), &entry()).unwrap().color, text);
+        assert_eq!(
+            l.quad(0, &glyph(3, 1), &entry(), &theme()).unwrap().color,
+            under
+        );
+        assert_eq!(
+            l.quad(0, &glyph(2, 1), &entry(), &theme()).unwrap().color,
+            text
+        );
+        assert_eq!(
+            l.quad(1, &glyph(3, 1), &entry(), &theme()).unwrap().color,
+            text
+        );
         // A full-width glyph in columns 2 and 3 is under a cursor at 3.
-        assert_eq!(l.quad(0, &glyph(2, 2), &entry()).unwrap().color, under);
+        assert_eq!(
+            l.quad(0, &glyph(2, 2), &entry(), &theme()).unwrap().color,
+            under
+        );
         // A cursor on a 4-cell escape covers all of its label.
         l.cursor = (DisplayPoint::new(0, 4), 4);
         let escape = PlacedGlyph {
             face: Face::Escape,
             ..glyph(7, 1)
         };
-        assert_eq!(l.quad(0, &escape, &entry()).unwrap().color, under);
-        assert_eq!(l.quad(0, &glyph(8, 1), &entry()).unwrap().color, text);
+        assert_eq!(l.quad(0, &escape, &entry(), &theme()).unwrap().color, under);
+        assert_eq!(
+            l.quad(0, &glyph(8, 1), &entry(), &theme()).unwrap().color,
+            text
+        );
         l.cursor = (DisplayPoint::new(5, 0), 1);
-        let label = l.quad(0, &escape, &entry()).unwrap();
+        let label = l.quad(0, &escape, &entry(), &theme()).unwrap();
         assert_eq!(label.color, color(Face::Escape));
     }
 
@@ -660,14 +687,20 @@ mod tests {
             format: GlyphFormat::Color,
             ..entry()
         };
-        assert_eq!(layout().quad(0, &glyph(0, 2), &color).unwrap().kind, 1);
+        assert_eq!(
+            layout()
+                .quad(0, &glyph(0, 2), &color, &theme())
+                .unwrap()
+                .kind,
+            1
+        );
     }
 
     #[test]
     fn off_screen_glyphs_are_skipped() {
         let l = layout();
-        assert!(l.quad(0, &glyph(100, 1), &entry()).is_none());
-        assert!(l.quad(10, &glyph(0, 1), &entry()).is_none());
+        assert!(l.quad(0, &glyph(100, 1), &entry(), &theme()).is_none());
+        assert!(l.quad(10, &glyph(0, 1), &entry(), &theme()).is_none());
     }
 
     /// A bitmap of `size` at `left` from the pen and `top` above the baseline.
@@ -684,7 +717,7 @@ mod tests {
     fn a_glyph_wider_than_its_cell_is_cut_on_both_sides() {
         // Cell (0, 1) spans x 18..28. The bitmap spans x 8..38.
         let q = layout()
-            .quad(0, &glyph(1, 1), &bitmap(-10, 12, [30, 12]))
+            .quad(0, &glyph(1, 1), &bitmap(-10, 12, [30, 12]), &theme())
             .unwrap();
         assert_eq!(q.position, [18.0, 12.0]);
         assert_eq!(q.size, [10.0, 12.0]);
@@ -696,12 +729,16 @@ mod tests {
     fn a_glyph_keeps_all_the_cells_of_its_cluster() {
         let l = layout();
         // A full-width glyph that fills its two cells exactly.
-        let wide = l.quad(0, &glyph(1, 2), &bitmap(0, 12, [20, 12])).unwrap();
+        let wide = l
+            .quad(0, &glyph(1, 2), &bitmap(0, 12, [20, 12]), &theme())
+            .unwrap();
         assert_eq!(wide.position, [18.0, 12.0]);
         assert_eq!(wide.size, [20.0, 12.0]);
         assert_eq!(wide.uv, [5.0, 7.0]);
         // A ligature over three clusters is cut only at the end of the third.
-        let ligature = l.quad(0, &glyph(1, 3), &bitmap(0, 12, [35, 12])).unwrap();
+        let ligature = l
+            .quad(0, &glyph(1, 3), &bitmap(0, 12, [35, 12]), &theme())
+            .unwrap();
         assert_eq!(ligature.size, [30.0, 12.0]);
     }
 
@@ -710,7 +747,7 @@ mod tests {
         // Row 1 starts at y 28, with its baseline at 44 and a descent of 4.
         // The bitmap's top is 30 px above the baseline, at y 14.
         let q = layout()
-            .quad(1, &glyph(1, 1), &bitmap(0, 30, [8, 30]))
+            .quad(1, &glyph(1, 1), &bitmap(0, 30, [8, 30]), &theme())
             .unwrap();
         assert_eq!(q.position, [18.0, 24.0], "4 px above the row");
         assert_eq!(q.size, [8.0, 20.0]);
@@ -722,7 +759,7 @@ mod tests {
         // Row 1 ends at y 48. The bitmap starts 2 px above the baseline, at
         // y 42, and is 20 px tall.
         let q = layout()
-            .quad(1, &glyph(1, 1), &bitmap(0, 2, [8, 20]))
+            .quad(1, &glyph(1, 1), &bitmap(0, 2, [8, 20]), &theme())
             .unwrap();
         assert_eq!(q.position, [18.0, 42.0]);
         assert_eq!(q.size, [8.0, 8.0], "2 px below the row");
@@ -747,7 +784,9 @@ mod tests {
         let l = Layout::new(metrics, cells, Scroll::default());
         // Row 1 spans y 48..88, with its baseline at 81. The bitmap starts at
         // y 79 and is 30 px tall, so it is kept down to y 92.
-        let q = l.quad(1, &glyph(1, 1), &bitmap(0, 2, [8, 30])).unwrap();
+        let q = l
+            .quad(1, &glyph(1, 1), &bitmap(0, 2, [8, 30]), &theme())
+            .unwrap();
         assert_eq!(q.position, [28.0, 79.0]);
         assert_eq!(q.size, [8.0, 13.0]);
     }
@@ -756,17 +795,29 @@ mod tests {
     fn a_glyph_entirely_outside_its_cells_is_not_drawn() {
         let l = layout();
         // Left and right of cell (0, 1), which spans x 18..28.
-        assert!(l.quad(0, &glyph(1, 1), &bitmap(-8, 12, [8, 12])).is_none());
-        assert!(l.quad(0, &glyph(1, 1), &bitmap(10, 12, [8, 12])).is_none());
+        assert!(
+            l.quad(0, &glyph(1, 1), &bitmap(-8, 12, [8, 12]), &theme())
+                .is_none()
+        );
+        assert!(
+            l.quad(0, &glyph(1, 1), &bitmap(10, 12, [8, 12]), &theme())
+                .is_none()
+        );
         // Row 1 keeps y 24..50: this ends at y 24, and this starts at y 50.
-        assert!(l.quad(1, &glyph(1, 1), &bitmap(0, 24, [8, 4])).is_none());
-        assert!(l.quad(1, &glyph(1, 1), &bitmap(0, -6, [8, 4])).is_none());
+        assert!(
+            l.quad(1, &glyph(1, 1), &bitmap(0, 24, [8, 4]), &theme())
+                .is_none()
+        );
+        assert!(
+            l.quad(1, &glyph(1, 1), &bitmap(0, -6, [8, 4]), &theme())
+                .is_none()
+        );
     }
 
     #[test]
     fn a_cut_glyph_under_the_cursor_box_keeps_the_cursor_color() {
         let q = layout()
-            .quad(0, &glyph(3, 1), &bitmap(-4, 12, [20, 12]))
+            .quad(0, &glyph(3, 1), &bitmap(-4, 12, [20, 12]), &theme())
             .unwrap();
         assert_eq!(q.size, [10.0, 12.0]);
         assert_eq!(q.color, color(Face::Cursor));
@@ -778,7 +829,7 @@ mod tests {
         l.scroll = Scroll { top: 10, left: 20 };
         // Cell (11, 21) spans x 18..28 and y 28..48.
         let q = l
-            .quad(11, &glyph(21, 1), &bitmap(-5, 12, [20, 12]))
+            .quad(11, &glyph(21, 1), &bitmap(-5, 12, [20, 12]), &theme())
             .unwrap();
         assert_eq!(q.position, [18.0, 32.0]);
         assert_eq!(q.size, [10.0, 12.0]);
@@ -791,10 +842,15 @@ mod tests {
         l.scroll.left = 20;
         // Cell (0, 19) would span x -2..8, all of it in the margin, even if
         // its bitmap reaches past the cell.
-        assert!(l.quad(0, &glyph(19, 1), &entry()).is_none());
-        assert!(l.quad(0, &glyph(19, 1), &bitmap(0, 12, [30, 12])).is_none());
+        assert!(l.quad(0, &glyph(19, 1), &entry(), &theme()).is_none());
+        assert!(
+            l.quad(0, &glyph(19, 1), &bitmap(0, 12, [30, 12]), &theme())
+                .is_none()
+        );
         // A full-width cluster cut by the edge keeps the half in view.
-        let q = l.quad(0, &glyph(19, 2), &bitmap(0, 12, [20, 12])).unwrap();
+        let q = l
+            .quad(0, &glyph(19, 2), &bitmap(0, 12, [20, 12]), &theme())
+            .unwrap();
         assert_eq!(q.position, [8.0, 12.0]);
         assert_eq!(q.size, [10.0, 12.0]);
         assert_eq!(q.uv, [15.0, 7.0]);
@@ -804,8 +860,10 @@ mod tests {
     fn a_partly_shown_column_on_the_right_is_not_drawn() {
         let l = layout();
         // The region ends at x 208, after column 19, wherever the surface does.
-        assert!(l.quad(0, &glyph(20, 1), &entry()).is_none());
-        let wide = l.quad(0, &glyph(19, 2), &bitmap(0, 12, [20, 12])).unwrap();
+        assert!(l.quad(0, &glyph(20, 1), &entry(), &theme()).is_none());
+        let wide = l
+            .quad(0, &glyph(19, 2), &bitmap(0, 12, [20, 12]), &theme())
+            .unwrap();
         assert_eq!(wide.size, [10.0, 12.0], "the half in the region");
     }
 
@@ -813,11 +871,15 @@ mod tests {
     fn the_bands_stop_at_the_edges_of_the_pane() {
         let l = layout();
         // Below row 4 is the next region: it ends at y 108, not 110.
-        let q = l.quad(4, &glyph(1, 1), &bitmap(0, 0, [8, 30])).unwrap();
+        let q = l
+            .quad(4, &glyph(1, 1), &bitmap(0, 0, [8, 30]), &theme())
+            .unwrap();
         assert_eq!(q.position, [18.0, 104.0]);
         assert_eq!(q.size, [8.0, 4.0]);
         // A row inside the pane keeps both bands.
-        let q = l.quad(1, &glyph(1, 1), &bitmap(0, 20, [8, 30])).unwrap();
+        let q = l
+            .quad(1, &glyph(1, 1), &bitmap(0, 20, [8, 30]), &theme())
+            .unwrap();
         assert_eq!(q.position, [18.0, 24.0]);
         assert_eq!(q.size, [8.0, 26.0]);
     }
@@ -826,7 +888,7 @@ mod tests {
     fn the_frames_top_row_keeps_its_band_in_the_margin() {
         // Row 0 starts at y 8. A bitmap from y 0 is kept from y 4, 4 px up.
         let q = layout()
-            .quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24]))
+            .quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24]), &theme())
             .unwrap();
         assert_eq!(q.position, [18.0, 4.0]);
         assert_eq!(q.size, [8.0, 24.0 - 4.0]);
@@ -851,7 +913,9 @@ mod tests {
         };
         let l = Layout::new(METRICS, cells, Scroll::default());
         // The pane spans y 68..88, with its baseline at 84: nothing above 68.
-        let q = l.quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24])).unwrap();
+        let q = l
+            .quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24]), &theme())
+            .unwrap();
         assert_eq!(q.position, [18.0, 68.0]);
         assert_eq!(q.size, [8.0, 16.0]);
         assert_eq!(q.uv, [5.0, 15.0]);
@@ -867,7 +931,9 @@ mod tests {
         };
         let l = Layout::new(METRICS, cells, Scroll::default()).with_band_above();
         // The pane spans y 68..88. A bitmap from y 60 is kept from y 64, 4 px up.
-        let q = l.quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24])).unwrap();
+        let q = l
+            .quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24]), &theme())
+            .unwrap();
         assert_eq!(q.position, [18.0, 64.0]);
         assert_eq!(q.size, [8.0, 20.0]);
         assert_eq!(q.uv, [5.0, 11.0]);
@@ -885,13 +951,16 @@ mod tests {
         };
         let l = Layout::new(METRICS, cells, Scroll::default());
         assert_eq!(l.display_cell(0, 0), [38.0, 48.0]);
-        let q = l.quad(0, &glyph(1, 1), &entry()).unwrap();
+        let q = l.quad(0, &glyph(1, 1), &entry(), &theme()).unwrap();
         assert_eq!(q.position, [49.0, 52.0]);
         assert!(
-            l.quad(0, &glyph(4, 1), &entry()).is_none(),
+            l.quad(0, &glyph(4, 1), &entry(), &theme()).is_none(),
             "past the region"
         );
-        assert!(l.quad(2, &glyph(0, 1), &entry()).is_none(), "below it");
+        assert!(
+            l.quad(2, &glyph(0, 1), &entry(), &theme()).is_none(),
+            "below it"
+        );
     }
 
     #[test]
@@ -922,8 +991,11 @@ mod tests {
             columns: 20,
         };
         let l = Layout::new(METRICS, cells, Scroll::default());
-        assert!(l.quad(0, &glyph(0, 1), &entry()).is_none());
-        assert!(l.quad(0, &glyph(0, 1), &bitmap(0, 24, [8, 24])).is_none());
+        assert!(l.quad(0, &glyph(0, 1), &entry(), &theme()).is_none());
+        assert!(
+            l.quad(0, &glyph(0, 1), &bitmap(0, 24, [8, 24]), &theme())
+                .is_none()
+        );
         assert!(l.display_cells(0, 0, 1).is_none());
     }
 
@@ -958,7 +1030,7 @@ mod tests {
             let to_y = (y0 + height as i32).min(cell_y + 22).min(108);
             let shows = from_x < to_x && from_y < to_y;
 
-            let quad = l.quad(row, &placed, &bitmap);
+            let quad = l.quad(row, &placed, &bitmap, &theme());
             proptest::prop_assert_eq!(quad.is_some(), shows);
             if let Some(q) = quad {
                 proptest::prop_assert_eq!(q.position, [from_x as f32, from_y as f32]);

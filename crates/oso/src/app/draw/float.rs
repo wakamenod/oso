@@ -95,10 +95,10 @@ impl<'a> Parts<'a> {
 
     /// The spans of its rows.
     pub(super) fn spans(&self) -> Spans<'_> {
-        // A question's label reads as the text does, a prompt's is dim beside its answer, and a
-        // completion's takes its count's accent.
+        // A question's label is in a colour no buffer text is drawn in (ADR 0089), a prompt's is
+        // dim beside its answer, and a completion's takes its count's accent.
         let face = if self.kind.is_question() {
-            Face::Float
+            Face::Question
         } else if self.list.is_some() {
             Face::CompletionPrompt
         } else {
