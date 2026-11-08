@@ -322,19 +322,40 @@ each:
 10. **`C-.` (`consult-mark`, ADR 0071):** (a) with M2-19, whose preview it needs; (b) now, without a
    preview.
 
-## Where this differs from accepted ADRs
+## Changes to accepted ADRs
 
-- [ADR 0034](0034-command-registry-and-keymaps.md): `ArgSpec` gains `Command`, which the dispatcher
-  answers by running the named command, and `Key`, for a command that reads the key that ran it; a
-  `Keymap` lists its bindings.
-- [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md): `TAB`, `C-n` and `C-p` gain their
-  completion meanings in a prompt that completes; `RET` there gives the selected candidate; the selected
-  row is a rounded box, not a background per row of `PaneContent::Lines`.
-- [ADR 0075](0075-a-float-as-a-panel-attached-to-the-top-edge.md): a prompt that completes floats at the
-  center of the frame, 62% of its width and as tall as its 18 candidate rows and its answer's row, with
-  no padding rows, its count, label and answer on one row and no field. Its panel is the text's
-  background in a 5-point border in place of the hairline, square, with no shadow. Every other prompt
-  keeps the panel on the top edge. `Panel` gains the selected row and the border.
+Each passage below stays in its ADR as written; what holds now follows it. When this ADR is accepted,
+the status of ADR 0034, ADR 0072 and ADR 0075 becomes `Accepted, amended by 0076`.
+
+- [ADR 0034](0034-command-registry-and-keymaps.md), "`ArgSpec` is `None` or `Count` and documents what
+  a command reads" (with ADR 0072's `Number` and `Passphrase`): `ArgSpec` also has `Command`, a
+  command's name read in a prompt that completes, which the dispatcher answers by running that
+  command with the prefix argument, and `Key`, for a command that reads the key that ran it, which
+  `M-x` leaves out. A `Keymap` lists its bindings (`Keymap::bindings`).
+- [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md), "`TAB` is unbound until M2-17 gives
+  it completion, and `C-n` and `C-p` move as in any one-row buffer until M2-17 gives them candidates":
+  in a prompt that completes, `TAB` puts the selected candidate in the answer, `C-n`, `C-p` and the
+  arrows move through the candidates, `M-<`, `M->`, `C-v` and `M-v` go to the ends and by pages, and
+  `RET` gives the selected candidate. In other prompts they stay as ADR 0072 says.
+- ADR 0072, "The selected candidate needs a background per row in `PaneContent::Lines`": the selected
+  candidate is a bar drawn in the float's panel (`Panel::selected`), so `PaneContent::Lines` keeps no
+  background per row.
+- ADR 0072, "A question a control socket request opened is answered over the socket": so is a prompt
+  that completes that a request opened.
+- [ADR 0075](0075-a-float-as-a-panel-attached-to-the-top-edge.md), "**Attached to the top edge.**" and
+  "**Width as before:** 60% of the columns": a prompt that completes floats at the center of the text
+  area, both ways, and takes 62% of its columns, at least 40, never closer than 2 to an edge. Every
+  other prompt stays on the top edge at 60%.
+- ADR 0075, "**The cells of a float that reads an answer**" (the label's rows, the gap, the answer and
+  the padding below) and its field: a prompt that completes has the answer's row and 18 candidate rows
+  right below it, with no padding rows, the count, the label and what is typed on the answer's row, in
+  that order, and no field.
+- ADR 0075, "**One shape per frame** ... a fill in `Face::Float`, its bottom corners rounded, a hairline
+  along its sides and bottom, and a shadow": a completion's panel is filled with the text's background,
+  framed by a 5-point border in `PanelStyle::border`, drawn as a square box behind it, with square
+  corners and no shadow (`Panel::border`).
+- ADR 0075, "**Small frames (chosen)**": a completion's float gives up candidate rows; the order there
+  holds for every other prompt.
 
 ## Consequences
 
