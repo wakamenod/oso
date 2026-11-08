@@ -221,6 +221,8 @@ impl Editor {
         if let Some(prompt) = self.close_innermost()
             && records
             && let Some(name) = prompt.kind.history()
+            // An empty name is no history, as `C-.`'s rows are the buffer's text (ADR 0088).
+            && !name.is_empty()
         {
             self.histories.record(name, text.trim());
         }

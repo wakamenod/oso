@@ -212,6 +212,8 @@ pub oso_core::command::ArgSpec::Command::prompt: &'static str
 pub oso_core::command::ArgSpec::Count
 pub oso_core::command::ArgSpec::CountAndClipboard
 pub oso_core::command::ArgSpec::Key
+pub oso_core::command::ArgSpec::Mark
+pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::None
 pub oso_core::command::ArgSpec::Number
 pub oso_core::command::ArgSpec::Number::history: &'static str
@@ -1159,6 +1161,9 @@ pub fn oso_core::editor::Editor::note_command_ended(&mut self, bool)
 pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option::Option<oso_core::editor::ClipboardWrite>
 pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
 pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch(&self) -> core::option::Option<&oso_core::editor::Isearch>
 pub fn oso_core::editor::Editor::isearch_add(&mut self, &str)

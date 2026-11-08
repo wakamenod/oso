@@ -135,3 +135,18 @@ fn the_buffer_keys_refuse_inside_a_prompt() {
     assert_eq!(prompt.label(), "Go to line: ");
     assert_eq!(prompt.message(), Some("Not in the minibuffer"));
 }
+
+#[test]
+fn c_dot_lists_the_marks_and_ret_goes_to_one() {
+    let (mut d, mut editor) = on_b();
+    send(&mut d, &mut editor, "C-.");
+    assert!(editor.prompt().is_none(), "no mark yet");
+    assert_eq!(echo(&editor), "No mark set in this buffer");
+    send(&mut d, &mut editor, "C-SPC C-SPC C-e");
+    send(&mut d, &mut editor, "C-.");
+    assert_eq!(editor.prompt().unwrap().label(), "Go to mark:");
+    assert_eq!(rows(&editor), ["1:0: bbb"]);
+    send(&mut d, &mut editor, "RET");
+    assert_eq!(editor.window().selections.primary().cursor, 0);
+    assert_eq!(editor.window().selections.primary().mark, Some(3));
+}

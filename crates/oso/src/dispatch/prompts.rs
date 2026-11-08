@@ -14,7 +14,7 @@ use oso_core::command::{
     ArgSpec, Args, BufferPurpose, CommandId, Effects, ExecuteError, Invocation, Prefix,
 };
 use oso_core::editor::{CompletionStyle, Editor};
-use oso_core::minibuffer::{Kind, Outcome, PromptId};
+use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
 
 use super::{Dispatcher, Step, buffers, extended};
 
@@ -88,6 +88,24 @@ impl Dispatcher {
                     purpose,
                 };
                 return self.read_buffer(editor, id, args.raw(), read);
+            }
+            Some(ArgSpec::Mark { prompt }) => {
+                let effects = Effects {
+                    redraw: true,
+                    ..Effects::default()
+                };
+                match editor.open_mark_list(prompt) {
+                    Ok(prompt) => self.reading.push(Reading {
+                        id,
+                        prefix: args.raw(),
+                        prompt,
+                        passphrase: false,
+                        runs_answer: false,
+                    }),
+                    Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
+                    Err(error) => editor.prompt_says(error.to_string()),
+                }
+                return (effects, Ok(()));
             }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };

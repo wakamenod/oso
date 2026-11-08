@@ -167,6 +167,8 @@ mod tests {
             "emergency-copy-view",
             "recover-session",
             "revert-buffer",
+            // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
+            "consult-mark",
             // Killing a buffer, which can lose unsaved text (ADR 0088).
             "kill-buffer",
             "kill-buffer-anyway",

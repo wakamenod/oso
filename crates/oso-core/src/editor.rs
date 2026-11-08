@@ -41,6 +41,7 @@ mod copies;
 mod follow;
 mod isearch;
 mod kill;
+mod marks;
 mod messages;
 mod prompts;
 mod reload;
@@ -106,6 +107,8 @@ pub struct Editor {
     /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
     /// (ADR 0087).
     write_over_asked: Option<write::WriteOver>,
+    /// The marks the last `C-.` listed (ADR 0088).
+    mark_list: Option<marks::MarkList>,
     /// The home directory, which `~` stands for, as the host read it at startup.
     home: Option<std::path::PathBuf>,
     /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
@@ -185,6 +188,7 @@ impl Editor {
             command_left_secret: None,
             way_back: Vec::new(),
             home: None,
+            mark_list: None,
             write_over_asked: None,
             kill_asked: None,
             freed: Vec::new(),

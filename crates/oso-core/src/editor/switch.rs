@@ -192,6 +192,17 @@ impl Editor {
     /// the buffer that candidate names, from where the tiled window last was in it, or that
     /// it may hold secrets, which it never shows (ADR 0088).
     pub fn preview(&self) -> Option<Preview> {
+        // `C-.` previews the buffer it lists the marks of, which is shown already, so one that
+        // may hold secrets shows too: nothing new reaches the screen.
+        if let Some((id, cursor)) = self.selected_mark() {
+            let buffer = self.buffer(id)?;
+            let row = buffer.display().offset_to_display_point(cursor).row;
+            let rows = self
+                .prompt_layout()
+                .map_or(0, |layout| layout.regions.preview.rows);
+            let top = row.saturating_sub(rows / 2);
+            return Some(Preview::Buffer { id, top, cursor });
+        }
         let prompt = self.prompt()?;
         let candidates = prompt
             .candidates()

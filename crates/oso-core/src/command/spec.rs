@@ -40,6 +40,11 @@ pub enum ArgSpec {
         history: &'static str,
         purpose: BufferPurpose,
     },
+    /// A mark of the selected window's, read in a prompt that says `prompt` and completes over
+    /// the primary cursor's mark and its ring, with the buffer around the selected one beside
+    /// it, and no history (ADR 0088). The command reads the row with
+    /// [`Ctx::answer`](super::Ctx::answer).
+    Mark { prompt: &'static str },
     /// The key that ran it, read with [`Ctx::input`](super::Ctx::input) or [`Ctx::key_char`](super::Ctx::key_char), and a numeric
     /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
     /// (ADR 0076).

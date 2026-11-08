@@ -789,6 +789,18 @@ mod scenarios {
     }
 
     #[test]
+    fn c_dot_previews_the_text_around_each_mark() {
+        let text = "# Notes\n\nAgenda\n- budget\n- hiring\n";
+        let steps = [
+            "M-> C-SPC C-SPC M-< C-n C-n C-SPC C-SPC",
+            "C-.",
+            "C-n",
+            "RET",
+        ];
+        check_frame("marks_c_dot", text, (24, 100), &steps);
+    }
+
+    #[test]
     fn c_x_b_lists_buffers_with_what_they_are_and_c_p_selects_what_is_typed() {
         let steps = ["C-x b", "t e", "C-p", "C-g"];
         check_frame("buffers_c_x_b", "notes\n", (24, 100), &steps);
