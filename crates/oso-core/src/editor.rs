@@ -209,7 +209,8 @@ impl Editor {
             .map(|(id, buffer)| (*id, buffer))
     }
 
-    /// Shows `buffer` in the selected window, from its start. Does nothing
+    /// Shows `buffer` in the selected window, from its start, or in the window beneath an
+    /// open prompt, whose own window always shows its own buffer (ADR 0072). Does nothing
     /// for an id that does not exist.
     pub fn show(&mut self, buffer: BufferId) {
         if let Some(shown) = self.buffer(buffer) {
@@ -218,7 +219,8 @@ impl Editor {
                 self.way_back.clear();
             }
             self.window_moves_on();
-            self.windows[self.selected].show(buffer);
+            let index = self.tiled_index();
+            self.windows[index].show(buffer);
         }
     }
 

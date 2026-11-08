@@ -7,12 +7,29 @@ impl core::fmt::Debug for oso_render::CaptureError
 pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for oso_render::CaptureError
 pub fn oso_render::CaptureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub enum oso_render::CursorStyle
+pub oso_render::CursorStyle::Box
+pub oso_render::CursorStyle::Hollow
+impl core::clone::Clone for oso_render::CursorStyle
+pub fn oso_render::CursorStyle::clone(&self) -> oso_render::CursorStyle
+impl core::cmp::Eq for oso_render::CursorStyle
+impl core::cmp::PartialEq for oso_render::CursorStyle
+pub fn oso_render::CursorStyle::eq(&self, &oso_render::CursorStyle) -> bool
+impl core::default::Default for oso_render::CursorStyle
+pub fn oso_render::CursorStyle::default() -> oso_render::CursorStyle
+impl core::fmt::Debug for oso_render::CursorStyle
+pub fn oso_render::CursorStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::CursorStyle
+impl core::marker::StructuralPartialEq for oso_render::CursorStyle
 pub enum oso_render::Face
 pub oso_render::Face::Boxed
 pub oso_render::Face::Cursor
 pub oso_render::Face::Escape
+pub oso_render::Face::Float
+pub oso_render::Face::FloatBorder
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
+pub oso_render::Face::Prompt
 pub oso_render::Face::Text
 pub oso_render::Face::Warning
 impl core::clone::Clone for oso_render::Face
@@ -26,6 +43,7 @@ impl core::marker::Copy for oso_render::Face
 impl core::marker::StructuralPartialEq for oso_render::Face
 pub enum oso_render::PaneContent<'a>
 pub oso_render::PaneContent::Lines(&'a [&'a [oso_render::Span<'a>]])
+pub oso_render::PaneContent::Masked(oso_render::Masked<'a>)
 pub oso_render::PaneContent::Text(oso_render::TextView<'a>)
 pub enum oso_render::Redraw
 pub oso_render::Redraw::Needed
@@ -76,6 +94,8 @@ pub fn oso_render::Image::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 impl core::marker::StructuralPartialEq for oso_render::Image
 pub struct oso_render::Layer(pub u8)
 impl oso_render::Layer
+pub const oso_render::Layer::FLOAT: Self
+pub const oso_render::Layer::FLOAT_CONTENT: Self
 pub const oso_render::Layer::TILED: Self
 impl core::clone::Clone for oso_render::Layer
 pub fn oso_render::Layer::clone(&self) -> oso_render::Layer
@@ -90,8 +110,12 @@ impl core::fmt::Debug for oso_render::Layer
 pub fn oso_render::Layer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_render::Layer
 impl core::marker::StructuralPartialEq for oso_render::Layer
+pub struct oso_render::Masked<'a>
+pub oso_render::Masked::cursor: usize
+pub oso_render::Masked::text: &'a str
 pub struct oso_render::Pane<'a>
 pub oso_render::Pane::background: core::option::Option<oso_render::Face>
+pub oso_render::Pane::border: core::option::Option<oso_render::Face>
 pub oso_render::Pane::content: oso_render::PaneContent<'a>
 pub oso_render::Pane::id: oso_render::PaneId
 pub oso_render::Pane::layer: oso_render::Layer
@@ -127,6 +151,7 @@ pub oso_render::Span::text: &'a str
 pub struct oso_render::TextView<'a>
 pub oso_render::TextView::buffer: oso_core::buffer::BufferId
 pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
+pub oso_render::TextView::cursor_style: oso_render::CursorStyle
 pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64

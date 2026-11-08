@@ -37,7 +37,10 @@ tests; higher layers have few.
 The screen is rendered as a grid of characters and compared as text with
 `insta` ([ADR 0045](adr/0045-text-grid-snapshots.md)). They need no GPU, so
 they run on every OS in `just ci`, and both people and agents can read the
-diffs. Decorations and the minibuffer will show up once they exist.
+diffs. An open prompt's float comes after the frame: where it is, then its cells, with its
+ring as a box of `┌─┐` and the window's hollow cursor beneath it marked `o`
+([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). Decorations will show
+up once they exist.
 
 ```
 keys: C-f
@@ -246,7 +249,8 @@ what you type goes into their buffers, which can fail a flow.
 | exit | `C-x C-c` and `exit` end with status 0 and remove the socket |
 | save | keys to a file read from outside, with nothing left beside it, and the restart a modified buffer held then goes through to a new instance |
 | emergency save | a panic outside a command, a caught one, an end nobody agreed to, a confirmed exit and, on macOS, a real request to quit, to copies read from outside: the text exactly, the modes, no secret buffer, and no text in the log |
-| exit guard | `C-x C-c` refuses once with unsaved text, and repeating ends the process and leaves the file as it was; after a save it needs no repeat, and a save that fails after a confirmed exit keeps the instance and the text. What resets it is tested through the `Dispatcher` |
+| exit guard | `C-x C-c` asks with unsaved text, and `y` ends the process and leaves the file as it was; after a save it asks nothing, and a save that fails after a confirmed exit keeps the instance and the text. What makes it ask again is tested through the `Dispatcher` |
+| prompts | `M-g g` reads a line in a float and goes there, `C-g` runs nothing, the IME off in a prompt and on after it, the exit question on `n` and `y`, a passphrase withheld from `get-state`, screenshots and the log, and a restart held while a prompt is open (ADR 0072) |
 | cleanup | a failing test leaves no process, socket or scratch directory, and another instance's buffers stay; where `CI` is set, so does the rest of its state |
 
 **What it asserts differs by OS.** Linux has no text backend
@@ -358,6 +362,7 @@ JSON to `target/perf/perf.json`; `just perf OUT --quick` is for trying it out.
 | `key_p50_ms`, `key_p99_ms` | key received to first frame presented, on a screen of mixed text | 5, 400 keys each |
 | `type_p50_ms`, `type_p99_ms`, `del_p99_ms` | the same while typing there (ASCII, Japanese, an emoji and line breaks), and while `DEL` removes it | 5, 400 keys each |
 | `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; reported only (ADR 0069) | 5, 400 reports each |
+| `prompt_type_p99_ms` | digits typed into `goto-line`'s open prompt to the frames that draw them, there; reported only (ADR 0072) | 5, 400 keys each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |

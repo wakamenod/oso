@@ -170,7 +170,7 @@ impl fmt::Debug for Outcome {
 /// The answers given to each history, newest first, in memory only: never written to
 /// disk or carried through a restart (ADR 0013, ADR 0051).
 #[derive(Default)]
-pub struct Histories {
+pub(crate) struct Histories {
     pub(crate) lists: Vec<(&'static str, VecDeque<String>)>,
 }
 
@@ -196,7 +196,7 @@ impl Histories {
     }
 
     /// The answers of `name`, newest first.
-    pub fn entries(&self, name: &str) -> impl Iterator<Item = &str> {
+    pub(crate) fn entries(&self, name: &str) -> impl Iterator<Item = &str> {
         self.lists
             .iter()
             .filter(move |(other, _)| *other == name)

@@ -71,13 +71,6 @@ pub enum ArgSpec {
     Passphrase { prompt: &'static str },
 }
 
-impl ArgSpec {
-    /// Whether the dispatcher reads an answer in a prompt before running the command.
-    pub const fn reads_answer(self) -> bool {
-        matches!(self, Self::Number { .. } | Self::Passphrase { .. })
-    }
-}
-
 /// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher
 /// holds it between keys, and these rules are Emacs's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -59,11 +59,20 @@ item notes when it must be settled.
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
 - Later, before anyone uses oso on Windows: decide what a private directory and a save do about access lists there. It needs `windows-sys` as a direct
   dependency ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
-- By M2-16: a file changed on disk cannot be saved over, and nothing yet reloads it, so its
-  buffer stays modified until the prompt and M2-22 (or `C-x C-w`, M2-18) arrive. The same goes for
-  a buffer whose load could not tell where its file is. A file owned by
-  another user cannot be saved at all; decide whether the prompt should offer writing in place
-  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
+- A file changed on disk can be saved over once asked, but nothing yet reloads it (M2-22). A
+  buffer whose load could not tell where its file is still cannot be saved until `C-x C-w`
+  (M2-18), and a file owned by another user, or with hard links, cannot be saved at all; decide
+  whether a question should offer writing in place
+  ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md), [ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- By M4, with the first real passphrase prompt: a passphrase's rope chunks are freed without being
+  overwritten. Overwriting needs `zeroize` or a small `unsafe` outside `oso-core`
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- By M2-14: kills from a passphrase prompt reach neither the kill ring nor the OS clipboard, and a
+  yank into it works. By M3: keyboard macros do not record what is typed there
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- By M2-18: try at the keyboard whether かな reaches oso while the IME is off in a prompt, and decide
+  whether it turns the IME on for that prompt, for Japanese file names
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - The emergency save, small things to settle ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)):
   - `write_copy` drops what `unless_unsupported` returns, so its report says nothing when a file system cannot confirm a sync, as a save's message does.
   - A panic that cannot unwind under a command aborts without the copies, as the hook takes the first panic under a command to be caught.
@@ -141,10 +150,10 @@ item notes when it must be settled.
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
 - What panes below the frame's top row do with the band above their first row, which they
-  lose today: by M2-16 and M3. The modeline and the echo row keep it
+  lose today: by M3. The modeline and the echo row keep it
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), which `draw_pane` tells as
-  a tiled pane of `Lines` with one row for now. By M2-16, also what a float on the top row does about the top margin
-  ([ADR 0061](adr/0061-panes-clipping-and-layers.md)).
+  a tiled pane of `Lines` with one row for now, and what a float shows keeps both bands in its
+  padding, told by its layer ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - `C-h e` while a handed-over file loads ends the wait for its positions, so they are not restored
   (`handoff.rs`). Decide with M2-15, which carries more through a restart.
 - Identical messages are not merged in `*Messages*`, so holding a key that fails evicts its older rows in
@@ -155,8 +164,6 @@ item notes when it must be settled.
 - `Status::echo_warnings` depends on a flag that could come from `Editor::frame`, which its callers have.
 - `Status` is built twice for a key that redraws, in `draw_frame` and in `about_to_wait`
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
-- By M2-16: `Buffer::is_internal` also means read-only with no undo, and the minibuffer's buffer
-  is internal but takes typing. Split the two.
 - By M2-19: whether `C-x b` lists `*Messages*`, and whether `kill-buffer` may kill it, which today
   it leaves. `C-h e` going back and the `Place` behind it go then. How the modeline shows long names
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
@@ -171,8 +178,8 @@ item notes when it must be settled.
   ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:
   - The limit should be a pure function beside `window::wheel`, used by both.
-  - By M2-16 and M3: "taller" compares the selected window alone. A selected minibuffer, or
-    splits of different heights, need it per window.
+  - By M3: "taller" compares the tiled window alone, also beneath a prompt. Splits of
+    different heights need it per window.
   - Narrowing and widening do not do the same for `left`. With the cursor far to the right,
     a window made very narrow and wide again stays scrolled sideways, with shorter rows blank.
     Decide whether growing sideways follows the same rule.
@@ -203,8 +210,10 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-16, M2-20 and M3: the minibuffer, isearch and menus add their condition to
-  `wants_ime` in `app/ime.rs` ([ADR 0069](adr/0069-macos-input-method.md)).
+- By M2-20 and M3: isearch and menus add their condition to `wants_ime` in `app/ime.rs`, as
+  prompts have ([ADR 0069](adr/0069-macos-input-method.md)).
+- By M2-17: the selected candidate needs a background per row in `PaneContent::Lines`
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box

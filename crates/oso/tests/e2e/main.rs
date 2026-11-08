@@ -12,6 +12,7 @@
 mod harness;
 mod ime;
 mod png;
+mod prompts;
 mod recovery;
 
 use std::fmt::Write as _;
@@ -645,7 +646,7 @@ fn a_save_reaches_the_disk_and_lets_a_held_restart_through() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn the_quit_key_refuses_once_with_unsaved_text_and_a_save_needs_no_repeat() {
+fn the_quit_key_asks_with_unsaved_text_and_a_save_needs_no_answer() {
     let scratch = Scratch::new("exit-guard");
     let file = scratch.write("notes.txt", b"on disk\n");
     let mut app = App::start(Some(&file), scratch.path());
@@ -653,11 +654,13 @@ fn the_quit_key_refuses_once_with_unsaved_text_and_a_save_needs_no_repeat() {
     app.send_keys(UNSAVED_KEYS);
 
     app.send_keys("C-x C-c");
-    assert!(process_exists(app.pid()), "refused the first time");
-    assert_eq!(app.state()["buffer"]["modified"], true);
+    assert!(process_exists(app.pid()), "it asks first");
+    let state = app.state();
+    assert_eq!(state["buffer"]["modified"], true);
+    assert_eq!(state["prompts"][0]["kind"], "question");
 
     // It may exit before answering.
-    let _ = app.exchange("send-keys", Some(json!({ "keys": "C-x C-c" })));
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "y" })));
     assert_eq!(app.wait_for_exit().code(), Some(0));
     assert_eq!(
         std::fs::read(&file).expect("the file is there"),
@@ -678,10 +681,7 @@ fn the_quit_key_refuses_once_with_unsaved_text_and_a_save_needs_no_repeat() {
     // A save asked for just before a confirmed exit still lands, and whole.
     let mut app = App::start(Some(&file), scratch.path());
     app.wait_until_ready();
-    let _ = app.exchange(
-        "send-keys",
-        Some(json!({ "keys": "x C-x C-s C-x C-c C-x C-c" })),
-    );
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "x C-x C-s C-x C-c y" })));
     assert_eq!(app.wait_for_exit().code(), Some(0));
     let on_disk = std::fs::read_to_string(&file).expect("the file is there");
     assert!(on_disk.starts_with('x'), "the save did not land");
@@ -700,7 +700,7 @@ fn a_failed_save_after_a_confirmed_exit_keeps_the_instance_and_the_text() {
     app.wait_until_ready();
     std::fs::write(&file, b"another program\n").expect("the file changes on disk");
     // One batch on the UI thread, so the exit is confirmed before any report arrives.
-    let keys = format!("{UNSAVED_KEYS} C-x C-s C-x C-c C-x C-c");
+    let keys = format!("{UNSAVED_KEYS} C-x C-s C-x C-c y");
     app.send_keys(&keys);
     let state = loop {
         match app.try_call("get-state", None) {
@@ -942,8 +942,8 @@ fn an_end_nobody_agreed_to_writes_copies_and_a_confirmed_exit_writes_nothing() {
     app.wait_until_ready();
     app.send_keys(&typing(FAKE_TEXT));
     app.send_keys("C-x C-c");
-    assert_eq!(app.state()["buffer"]["modified"], true, "refused once");
-    let _ = app.exchange("send-keys", Some(json!({ "keys": "C-x C-c" })));
+    assert_eq!(app.state()["buffer"]["modified"], true, "it asks first");
+    let _ = app.exchange("send-keys", Some(json!({ "keys": "y" })));
     assert!(app.wait_for_exit().success());
     assert!(
         read_copies(&emergency_dir(scratch.path())).is_empty(),

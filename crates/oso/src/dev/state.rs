@@ -313,11 +313,11 @@ fn slice(text: &Rope, range: Range<usize>) -> String {
     text.chunks_in_range(range).collect()
 }
 
-/// Starts `get-text`: whole rows of the selected window's buffer, without
-/// their line breaks. An error if the buffer may hold secrets. Everything
+/// Starts `get-text`: whole rows of the tiled window's buffer, also beneath a prompt,
+/// without their line breaks. An error if the buffer may hold secrets. Everything
 /// else happens in [`TextJob::run`], off the UI thread.
 pub fn get_text(editor: &Editor, start_row: usize, rows: usize) -> Result<TextJob, String> {
-    let (window, buffer) = editor.current();
+    let (window, buffer) = editor.tiled();
     if buffer.is_secret() {
         return Err(WITHHELD.into());
     }

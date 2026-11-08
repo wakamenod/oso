@@ -37,7 +37,37 @@ in the background color, so no partly shown row or column is drawn
 
 ## Minibuffer and completion
 
-- The minibuffer floats at the **top center** of the frame.
+- The minibuffer floats at the **top center** of the frame, **one row below the top**, so the
+  window's first row stays in view above it
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
+- It has a **border and one cell of padding** on every side, and takes **60% of the frame's
+  columns**, at least 40 and never closer than 2 to an edge. It does not change while typing.
+
+```
+│# Meeting notes 2026-11-08                                      │
+│            ┌──────────────────────────────────────┐            │
+│Agenda      │ Go to line: 42█        [Past the end]│            │
+│- budget for└──────────────────────────────────────┘            │
+│▯ hiring: two engineers                                         │
+```
+
+- The answer is one row and scrolls sideways. A long label breaks after a space onto at most
+  three rows. A message from a key typed in the prompt shows at the end of its row, in
+  brackets, until the next key.
+- The window beneath keeps its text and modeline, and its cursor is drawn **hollow**. The
+  float may cover it, and the view does not move. The wheel scrolls it, and its cursors stay.
+- Keys: `RET` gives the answer, `C-g` closes the prompt, `M-p` and `M-n` walk its history,
+  and editing keys work as in any buffer. A history keeps 100 answers in memory, and an
+  answer given again moves to the front. A prompt opened while a buffer that may hold secrets
+  is shown keeps none.
+- A prompt can open from a prompt, 8 deep. Only the innermost shows, its depth first: `[2]`.
+- **Questions** show in the same float, ending in `(y or n)`. Only `y` and `n` answer; `SPC`,
+  `DEL` and `RET` do not, unlike in Emacs, and any other key says `Answer y or n`. A held
+  key answers once. `C-x C-c` and the close button ask before exiting with unsaved work, and
+  `C-x C-s` asks before saving over a file that changed on disk.
+- **A passphrase** shows one `*` per character, keeps no undo and enters no history.
+- `C-g` does one thing at a time: a pending prefix, then the region, then the innermost
+  prompt.
 - It shows **18 candidate rows** by default (configurable), with fuzzy
   matching (orderless-style) and annotations on the right (marginalia-style).
 - **Preview inside the popup.** For commands with a preview, such as buffer
