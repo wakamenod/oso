@@ -11,7 +11,7 @@ use oso_core::editor::Quit;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "keyboard-quit",
-        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, and then the innermost prompt or question closes, and runs nothing.",
+        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the region is hidden, then the innermost prompt or question closes, and runs nothing, and then isearch takes away a failing part, or else ends where it began.",
         args: ArgSpec::None,
         reach: Reach::Person,
         run: keyboard_quit,
@@ -26,8 +26,13 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    if ctx.editor.quit() != Quit::Nothing {
+    let quit = ctx.editor.quit();
+    if quit != Quit::Nothing {
         ctx.request_redraw();
+    }
+    // The search goes on, and its line stays (ADR 0082).
+    if quit == Quit::SearchStep {
+        return Ok(());
     }
     log::debug!("Quit");
     ctx.editor.echo("Quit");

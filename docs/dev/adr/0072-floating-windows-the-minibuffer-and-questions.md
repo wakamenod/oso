@@ -1,6 +1,6 @@
 # 0072. Floating windows, the minibuffer and questions
 
-- Status: Accepted, amended by 0085
+- Status: Accepted, amended by 0085 and 0076
 - Date: 2026-11-08
 
 ## Context

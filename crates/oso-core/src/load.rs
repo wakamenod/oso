@@ -12,6 +12,7 @@
 use crate::decode::{Decoded, Decoder, FileInfo};
 use crate::display_map::{DisplayMap, TabWidth};
 use crate::rope::Rope;
+use crate::sum_tree::Bias;
 
 /// How far a file has loaded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -127,6 +128,67 @@ impl Builder {
             done: self.done,
         }
     }
+}
+
+/// Where a file read again differs from the text before it (ADR 0083): bytes
+/// `start..old_end` of the old text became `start..new_end` of the new. Each end is on a
+/// character boundary in both texts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Change {
+    pub(crate) start: usize,
+    pub(crate) old_end: usize,
+    pub(crate) new_end: usize,
+}
+
+/// A file read again in full, with where it differs from the text it is to replace.
+#[derive(Clone)]
+pub struct Reloaded {
+    pub(crate) snapshot: LoadSnapshot,
+    /// `None` if the text is the same.
+    pub(crate) change: Option<Change>,
+}
+
+impl Reloaded {
+    /// Whether the text differs from the one it was compared with.
+    pub fn is_changed(&self) -> bool {
+        self.change.is_some()
+    }
+}
+
+impl LoadSnapshot {
+    /// Compares this whole text with `old`, which it is to replace. O(n), so a loading
+    /// thread does it, not the UI.
+    pub fn compared_with(self, old: &Rope) -> Reloaded {
+        let change = changed_span(old, &self.text);
+        Reloaded {
+            snapshot: self,
+            change,
+        }
+    }
+}
+
+/// The one span outside which `old` and `new` are the same, or `None` if they are equal.
+fn changed_span(old: &Rope, new: &Rope) -> Option<Change> {
+    let prefix = old.common_prefix(new);
+    if prefix == old.len() && prefix == new.len() {
+        return None;
+    }
+    // The bytes before `prefix` are the same, so a character starts at the same place in both;
+    // the one at `prefix` differs, and may be a character's middle in one of them.
+    let start = old
+        .clip_offset(prefix, Bias::Left)
+        .min(new.clip_offset(prefix, Bias::Left));
+    let limit = old.len().min(new.len()) - start;
+    let suffix = old.common_suffix(new, limit);
+    // The bytes from here on are the same, so a character starts at the same distance from
+    // the end in both.
+    let old_end = old.clip_offset(old.len() - suffix, Bias::Right);
+    let new_end = new.len() - (old.len() - old_end);
+    Some(Change {
+        start,
+        old_end,
+        new_end,
+    })
 }
 
 /// Decodes all of `bytes` at once, as a file of that content would load.
@@ -329,6 +391,69 @@ mod tests {
                     proptest::prop_assert_eq!(point, a.offset_to_display_point(cluster.offset));
                     proptest::prop_assert_eq!(point.column, cluster.column);
                     proptest::prop_assert_eq!(b.display_point_to_offset(point, Bias::Left), cluster.offset);
+                }
+            }
+        }
+    }
+
+    fn change(old: &str, new: &str) -> Option<Change> {
+        let snapshot = decode_all(new.as_bytes(), TabWidth::default());
+        snapshot.compared_with(&Rope::from(old)).change
+    }
+
+    #[test]
+    fn a_text_read_again_says_where_it_changed() {
+        assert_eq!(change("same\n", "same\n"), None);
+        assert_eq!(change("", ""), None);
+        let at = |start, old_end, new_end| {
+            Some(Change {
+                start,
+                old_end,
+                new_end,
+            })
+        };
+        assert_eq!(change("abcdef", "abXYef"), at(2, 4, 4));
+        assert_eq!(change("abc", "abcd"), at(3, 3, 4), "appended");
+        assert_eq!(change("abcd", "abc"), at(3, 4, 3), "cut");
+        assert_eq!(change("", "new"), at(0, 0, 3));
+        assert_eq!(change("old", ""), at(0, 3, 0));
+        // The shared part never counts twice: "aa" in "aaa" is one insertion.
+        assert_eq!(change("aa", "aaa"), at(2, 2, 3));
+    }
+
+    #[test]
+    fn a_change_starts_and_ends_on_characters() {
+        // é and è share their first byte, and their last bytes differ.
+        assert_eq!(
+            change("aé", "aè"),
+            Some(Change {
+                start: 1,
+                old_end: 3,
+                new_end: 3
+            })
+        );
+        // ü and ö share their first byte; the suffix "x" is the same.
+        assert_eq!(
+            change("üx", "öx"),
+            Some(Change {
+                start: 0,
+                old_end: 2,
+                new_end: 2
+            })
+        );
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn the_change_rebuilds_the_new_text(old in "[aé\\n🍣]{0,80}", new in "[aé\\n🍣]{0,80}") {
+            match change(&old, &new) {
+                None => proptest::prop_assert_eq!(&old, &new),
+                Some(c) => {
+                    proptest::prop_assert!(c.start <= c.old_end && c.start <= c.new_end);
+                    proptest::prop_assert!(old.is_char_boundary(c.start) && new.is_char_boundary(c.start));
+                    proptest::prop_assert!(old.is_char_boundary(c.old_end) && new.is_char_boundary(c.new_end));
+                    proptest::prop_assert_eq!(&old[..c.start], &new[..c.start]);
+                    proptest::prop_assert_eq!(&old[c.old_end..], &new[c.new_end..]);
                 }
             }
         }

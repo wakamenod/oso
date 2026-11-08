@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use oso_platform::control::{ControlDir, ControlStream};
+use oso_platform::control::{ControlDir, ControlStream, Socket};
 use oso_platform::process::{Executable, Sink, Spawn, spawn};
 use serde_json::{Value, json};
 
@@ -376,7 +376,7 @@ impl App {
     pub fn race(&mut self, first: &Value, second: &Value) -> (String, String) {
         let (_, other) = self
             .dir
-            .connect(Some(self.pid()))
+            .connect(Socket::Dev, Some(self.pid()))
             .expect("cannot make a second connection");
         other
             .set_read_timeout(Some(TIMEOUT))
@@ -476,7 +476,7 @@ impl Process {
             );
             // The directory may not exist yet, on a first run.
             if let Ok(dir) = ControlDir::open_existing()
-                && let Ok((_, stream)) = dir.connect(Some(pid))
+                && let Ok((_, stream)) = dir.connect(Socket::Dev, Some(pid))
             {
                 return (dir, stream);
             }

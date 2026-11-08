@@ -1,6 +1,6 @@
 # 0063. The modeline, the echo area and internal buffers
 
-- Status: Accepted
+- Status: Accepted, amended by 0088
 - Date: 2026-11-06
 
 ## Context

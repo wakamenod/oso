@@ -15,8 +15,8 @@
 //! it until the next key, as no text of it had arrived. What arrives behind keys in
 //! progress waits for them to end, since they show in its place.
 
-use super::Editor;
 use super::follow::{Selected, clip_selections};
+use super::{Editor, Isearch};
 use crate::buffer::{BufferId, Replacement};
 use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{Scroll, Window};
@@ -254,6 +254,9 @@ impl Editor {
             for prompt in &mut self.prompts {
                 prompt.around_secret = true;
             }
+            if let Some(isearch) = &mut self.isearch {
+                isearch.note_secret();
+            }
         }
     }
 
@@ -265,6 +268,7 @@ impl Editor {
         self.keys_withheld
             || self.preedit_withheld
             || self.prompts.iter().any(|prompt| prompt.around_secret)
+            || self.isearch.as_ref().is_some_and(Isearch::around_secret)
     }
 
     /// What the echo area shows.
