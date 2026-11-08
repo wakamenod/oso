@@ -21,12 +21,32 @@ const MAX_MATCHES_SHOWN: usize = 2048;
 /// The most text a frame searches for its highlights.
 const FRAME_BUDGET: usize = 256 * 1024;
 
+/// The cells of a frame's matches, and room for working them out, kept from frame to frame
+/// so that a frame allocates nothing once they have grown.
+#[derive(Debug, Default)]
+pub struct MatchCells {
+    /// The current match's cells.
+    pub current: Vec<CellRect>,
+    /// The other matches' cells.
+    pub others: Vec<CellRect>,
+    spans: Vec<Range<usize>>,
+    found: Vec<Range<usize>>,
+}
+
 impl Editor {
-    /// The cells the matches in view take in the tiled window's text area: the current one
-    /// into `current`, and the others into `others`, both emptied first.
-    pub fn isearch_cells(&self, current: &mut Vec<CellRect>, others: &mut Vec<CellRect>) {
+    /// The cells the matches in view take in the tiled window's text area, into `cells`,
+    /// emptied first.
+    pub fn isearch_cells(&self, cells: &mut MatchCells) {
+        let MatchCells {
+            current,
+            others,
+            spans,
+            found,
+        } = cells;
         current.clear();
         others.clear();
+        spans.clear();
+        found.clear();
         let Some(state) = &self.isearch else {
             return;
         };
@@ -47,7 +67,6 @@ impl Editor {
                 .min(display.row_count());
         let reach = query.max_bytes();
         // Each row's columns in view, widened, and joined where they meet.
-        let mut spans: Vec<Range<usize>> = Vec::with_capacity(area.rows);
         for row in rows {
             let offset = |column| {
                 display.display_point_to_offset(DisplayPoint::new(row, column), Bias::Left)
@@ -61,15 +80,14 @@ impl Editor {
                 _ => spans.push(start..end),
             }
         }
-        let mut found = Vec::new();
         let limits = (MAX_MATCHES_SHOWN, FRAME_BUDGET);
-        search::matches_in((text, invalid), query, &spans, limits, &mut found);
+        search::matches_in((text, invalid), query, spans, limits, found);
         // The current one alone, and the rest without what overlaps it.
         if let Some(range) = state.current.as_ref().filter(|_| !state.failing) {
             found.retain(|other| other.end <= range.start || other.start >= range.end);
             let one = std::slice::from_ref(range);
             frame::match_cells(area, scroll, &display, one, current);
         }
-        frame::match_cells(area, scroll, &display, &found, others);
+        frame::match_cells(area, scroll, &display, found, others);
     }
 }

@@ -172,6 +172,9 @@ impl Query {
 /// last characters were, so that a match says where it began.
 struct Matcher<'p> {
     pattern: &'p Pattern,
+    /// A match may begin inside the one before, so that none is passed over, as a search
+    /// that takes only some of them needs. Otherwise matches do not overlap.
+    overlapping: bool,
     matched: usize,
     /// The other end of each of the last characters fed, as a ring.
     ends: Vec<usize>,
@@ -183,9 +186,18 @@ impl<'p> Matcher<'p> {
     fn new(pattern: &'p Pattern) -> Self {
         Self {
             pattern,
+            overlapping: false,
             matched: 0,
             ends: vec![0; pattern.chars.len()],
             next: 0,
+        }
+    }
+
+    /// A matcher that finds every match, also those that begin inside another.
+    fn overlapping(pattern: &'p Pattern) -> Self {
+        Self {
+            overlapping: true,
+            ..Self::new(pattern)
         }
     }
 
@@ -195,8 +207,7 @@ impl<'p> Matcher<'p> {
     }
 
     /// Feeds the character `key` with `other_end`, the end it would give a match it starts.
-    /// Returns that end of the match it completes, if it does. The next match starts after
-    /// it, so matches do not overlap.
+    /// Returns that end of the match it completes, if it does.
     fn feed(&mut self, key: u32, other_end: usize) -> Option<usize> {
         let chars = &self.pattern.chars;
         let len = chars.len();
@@ -214,7 +225,11 @@ impl<'p> Matcher<'p> {
         if self.matched < len {
             return None;
         }
-        self.matched = 0;
+        self.matched = if self.overlapping {
+            self.pattern.fail[len - 1]
+        } else {
+            0
+        };
         // The ring is full, so the oldest is where the next goes.
         Some(self.ends[self.next])
     }
@@ -375,7 +390,8 @@ pub fn find_backward(
     limit: usize,
     stop: &dyn Fn() -> bool,
 ) -> Found {
-    let mut matcher = Matcher::new(&query.backward);
+    // One that ends too late to take must not hide one inside it that would do.
+    let mut matcher = Matcher::overlapping(&query.backward);
     let mut found = None;
     let stopped = walk_backward(
         (text, invalid),
@@ -727,6 +743,29 @@ mod tests {
             &mut out,
         );
         assert_eq!((out.len(), out.first()), (1, Some(&(6..10))));
+    }
+
+    #[test]
+    fn backward_with_a_start_limit_finds_a_match_inside_one_it_passes() {
+        for (text, string, before, start_at_most, expected) in [
+            // `é` is two bytes: the match at 6 grows to two characters and stays there.
+            ("éééééé", "éé", 12, 6, 6..10),
+            ("kkkk", "kk", 4, 1, 1..3),
+            ("日日日日", "日日日", 12, 3, 3..12),
+        ] {
+            let rope = Rope::from(text);
+            let q = query(string);
+            let found = find_backward(
+                &rope,
+                &InvalidBytes::new(),
+                &q,
+                before,
+                start_at_most,
+                usize::MAX,
+                &never,
+            );
+            assert_eq!(found, Found::Match(expected), "{text}");
+        }
     }
 
     #[test]

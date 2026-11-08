@@ -352,19 +352,19 @@ fn the_matches_in_view_are_cells_and_the_current_one_apart() {
     let mut editor = editor("ab\nxab ab\n");
     search(&mut editor, "ab");
     editor.isearch_repeat(false);
-    let (mut current, mut others) = (Vec::new(), Vec::new());
-    editor.isearch_cells(&mut current, &mut others);
+    let mut cells = super::MatchCells::default();
+    editor.isearch_cells(&mut cells);
     let cell = |row, column| CellRect {
         row,
         column,
         rows: 1,
         columns: 2,
     };
-    assert_eq!(current, [cell(1, 1)]);
-    assert_eq!(others, [cell(0, 0), cell(1, 4)]);
+    assert_eq!(cells.current, [cell(1, 1)]);
+    assert_eq!(cells.others, [cell(0, 0), cell(1, 4)]);
     editor.isearch_exit();
-    editor.isearch_cells(&mut current, &mut others);
-    assert!(current.is_empty() && others.is_empty());
+    editor.isearch_cells(&mut cells);
+    assert!(cells.current.is_empty() && cells.others.is_empty());
 }
 
 #[test]
@@ -509,4 +509,77 @@ fn a_load_holds_the_count_until_it_ends() {
     assert!(editor.isearch_follow_text());
     drain(&mut editor);
     assert_eq!(line(&editor), "I-search: ab [1/4]");
+}
+
+#[test]
+fn a_near_match_after_a_far_one_ends_the_wait_for_the_worker() {
+    let text = format!("foo fa{}Foo", "x".repeat(KEY_BUDGET * 2));
+    let mut editor = editor(&text);
+    editor.isearch_begin(false);
+    editor.isearch_add("F");
+    assert!(editor.isearch().unwrap().searching());
+    editor.isearch_toggle_case();
+    assert!(!editor.isearch().unwrap().searching());
+    assert_eq!(cursor(&editor), 1);
+    drain(&mut editor);
+    editor.isearch_repeat(false);
+    assert_eq!(
+        cursor(&editor),
+        5,
+        "the next f, as a repeat no longer waits"
+    );
+}
+
+#[test]
+fn delete_after_the_history_brings_the_string_back() {
+    let mut editor = editor("one two");
+    search(&mut editor, "two");
+    editor.isearch_exit();
+    editor.window_mut(0).0.selections = SelectionSet::new(0);
+    editor.isearch_begin(false);
+    editor.isearch_add("on");
+    editor.isearch_history(true);
+    assert_eq!(editor.isearch().unwrap().string(), "two");
+    editor.isearch_delete();
+    assert_eq!(editor.isearch().unwrap().string(), "on");
+    assert_eq!(cursor(&editor), 2);
+}
+
+#[test]
+fn a_repeat_the_worker_goes_on_with_survives_the_end_of_a_load() {
+    let mut builder = crate::load::Builder::new(None, Default::default());
+    let far = format!("ab {}ab", "x".repeat(KEY_BUDGET * 2));
+    builder.push(far.as_bytes());
+    let mut buffer = Buffer::new("loading");
+    buffer.apply_load(builder.snapshot());
+    let mut editor = Editor::with_buffer(buffer);
+    search(&mut editor, "ab");
+    assert_eq!(cursor(&editor), 2);
+    editor.isearch_repeat(false);
+    assert!(editor.isearch().unwrap().searching());
+    builder.push(b"!");
+    builder.finish();
+    let id = editor.window().buffer();
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .apply_load(builder.snapshot());
+    assert!(editor.isearch_follow_text());
+    drain(&mut editor);
+    assert_eq!(
+        cursor(&editor),
+        far.len(),
+        "the far match, not the one it repeated from"
+    );
+}
+
+#[test]
+fn an_overlapping_match_takes_the_index_of_the_counted_one_before_it() {
+    let mut editor = editor("aaa");
+    editor.window_mut(0).0.selections = SelectionSet::new(3);
+    editor.isearch_begin(true);
+    editor.isearch_add("aa");
+    drain(&mut editor);
+    assert_eq!(cursor(&editor), 1);
+    assert_eq!(line(&editor), "I-search backward: aa [1/1]");
 }

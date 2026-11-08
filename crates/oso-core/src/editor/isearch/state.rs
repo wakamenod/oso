@@ -11,7 +11,7 @@ use std::fmt::{self, Write};
 use std::ops::Range;
 
 use crate::buffer::BufferId;
-use crate::search::{self, MAX_QUERY_CHARS, Query};
+use crate::search::{self, Find, MAX_QUERY_CHARS, Query};
 use crate::selection::SelectionSet;
 use crate::window::Scroll;
 
@@ -41,6 +41,8 @@ pub(super) enum Asked {
 #[derive(Clone, Debug)]
 pub(super) struct Step {
     pub(super) len: usize,
+    /// The whole string, when the step replaced it rather than added to it.
+    pub(super) replaced: Option<String>,
     pub(super) backward: bool,
     pub(super) flipped: bool,
     pub(super) current: Option<Range<usize>>,
@@ -62,8 +64,9 @@ pub struct Isearch {
     pub(super) current: Option<Range<usize>>,
     pub(super) failing: bool,
     pub(super) wrapped: bool,
-    /// A worker goes on with the search, and asked as this.
-    pub(super) searching: Option<Asked>,
+    /// A worker goes on with the search, which was asked as this and began as this find, so
+    /// that a change to the text can ask it again.
+    pub(super) searching: Option<(Asked, Find)>,
     pub(super) tally: Option<Tally>,
     /// The buffer it searches, and the cursors, marks and view before it began, for `C-g`.
     pub(super) buffer: BufferId,
@@ -215,10 +218,20 @@ impl Isearch {
 
     /// Remembers where it is now, with the primary cursor at `cursor`, for `DEL`.
     pub(super) fn push_step(&mut self, cursor: usize) {
+        self.push(cursor, None);
+    }
+
+    /// As [`Isearch::push_step`], before the string is replaced, so `DEL` brings it back.
+    pub(super) fn push_replacing_step(&mut self, cursor: usize) {
+        self.push(cursor, Some(self.string.clone()));
+    }
+
+    fn push(&mut self, cursor: usize, replaced: Option<String>) {
         if self.steps.len() == MAX_STEPS {
             self.steps.pop_front();
         }
         self.steps.push_back(Step {
+            replaced,
             len: self.string.len(),
             backward: self.backward,
             flipped: self.flipped,

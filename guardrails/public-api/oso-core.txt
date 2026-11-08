@@ -983,7 +983,7 @@ pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::isearch_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::editor::Editor::isearch_cells(&self, &mut oso_core::editor::MatchCells)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
@@ -1018,6 +1018,13 @@ pub fn oso_core::editor::Isearch::string(&self) -> &str
 pub fn oso_core::editor::Isearch::wrapped(&self) -> bool
 impl core::fmt::Debug for oso_core::editor::Isearch
 pub fn oso_core::editor::Isearch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::MatchCells
+pub oso_core::editor::MatchCells::current: alloc::vec::Vec<oso_core::frame::CellRect>
+pub oso_core::editor::MatchCells::others: alloc::vec::Vec<oso_core::frame::CellRect>
+impl core::default::Default for oso_core::editor::MatchCells
+pub fn oso_core::editor::MatchCells::default() -> oso_core::editor::MatchCells
+impl core::fmt::Debug for oso_core::editor::MatchCells
+pub fn oso_core::editor::MatchCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::SaveJob
 pub oso_core::editor::SaveJob::baseline: core::option::Option<oso_core::buffer::Baseline>
 pub oso_core::editor::SaveJob::bom: bool

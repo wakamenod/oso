@@ -9,7 +9,7 @@
 
 use std::time::Instant;
 
-use oso_core::editor::{Editor, Status};
+use oso_core::editor::{Editor, MatchCells, Status};
 use oso_core::frame;
 use oso_render::{
     Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView,
@@ -26,8 +26,7 @@ mod float;
 #[derive(Default)]
 pub(super) struct Cells {
     region: Vec<frame::CellRect>,
-    matches: Vec<frame::CellRect>,
-    current_match: Vec<frame::CellRect>,
+    matches: MatchCells,
 }
 
 /// Calls `draw` with what the frame shows, for the renderer. The cells behind the text go
@@ -51,11 +50,11 @@ pub(super) fn with_panes<R>(
         span(&status.echo[..], Face::Text),
     ];
     editor.region_cells(&mut cells.region);
-    editor.isearch_cells(&mut cells.current_match, &mut cells.matches);
+    editor.isearch_cells(&mut cells.matches);
     // The current match first, so that it always has room, and the regions over the matches.
     let fills = [
-        (Face::CurrentMatch, &cells.current_match[..]),
-        (Face::Match, &cells.matches[..]),
+        (Face::CurrentMatch, &cells.matches.current[..]),
+        (Face::Match, &cells.matches.others[..]),
         (Face::Region, &cells.region[..]),
     ];
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);

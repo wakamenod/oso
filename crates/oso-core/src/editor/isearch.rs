@@ -27,6 +27,7 @@ mod cells;
 mod state;
 mod worker;
 
+pub use cells::MatchCells;
 pub use state::Isearch;
 pub(super) use state::Tally;
 
@@ -239,7 +240,7 @@ impl Editor {
         let Some(state) = &mut self.isearch else {
             return;
         };
-        state.push_step(cursor);
+        state.push_replacing_step(cursor);
         state.history = Some(index);
         state.string.clear();
         state.add(&entry);
@@ -416,6 +417,10 @@ impl Editor {
                 &never,
             ),
         };
+        if let Some(state) = &mut self.isearch {
+            // This search takes the place of any a worker went on with.
+            state.searching = None;
+        }
         match found {
             Found::Match(range) => self.isearch_matched(range, asked, false),
             Found::None => {
@@ -435,7 +440,7 @@ impl Editor {
                     },
                 };
                 if let Some(state) = &mut self.isearch {
-                    state.searching = Some(asked);
+                    state.searching = Some((asked, find));
                     state.tally = Some(Tally::Counting { moves: 0 });
                 }
                 self.isearch_count(Some(resumed));
@@ -492,7 +497,10 @@ impl Editor {
         let Some(state) = &mut self.isearch else {
             return;
         };
-        state.string.truncate(step.len);
+        match step.replaced {
+            Some(string) => state.string = string,
+            None => state.string.truncate(step.len),
+        }
         state.backward = step.backward;
         state.flipped = step.flipped;
         state.current = step.current;

@@ -191,8 +191,9 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let cursor = frame::cursor_rect(area, scroll, place, cells);
     let mut region = Vec::new();
     editor.region_cells(&mut region);
-    let (mut current, mut matches) = (Vec::new(), Vec::new());
-    editor.isearch_cells(&mut current, &mut matches);
+    let mut found = oso_core::editor::MatchCells::default();
+    editor.isearch_cells(&mut found);
+    let (current, matches) = (found.current, found.others);
     for index in 0..area.rows {
         let row = scroll.top + index;
         let cursor = cursor

@@ -12,6 +12,7 @@ use std::ops::Range;
 use std::sync::atomic::Ordering;
 
 use super::Tally;
+use super::state::Asked;
 use crate::editor::Editor;
 use crate::search::{Find, Report, SearchJob, SearchReport};
 
@@ -33,7 +34,7 @@ impl Editor {
         };
         match report.0 {
             Report::Found { generation, at } if generation == live => {
-                let Some(asked) = state.searching.take() else {
+                let Some((asked, _)) = state.searching.take() else {
                     return false;
                 };
                 match at {
@@ -103,7 +104,7 @@ impl Editor {
             return false;
         }
         state.revision = revision;
-        state.searching = None;
+        let pending = state.searching.take();
         let clip = |range: Option<Range<usize>>| {
             range
                 .map(|range| range.start.min(len)..range.end.min(len))
@@ -115,7 +116,25 @@ impl Editor {
             step.cursor = step.cursor.min(len);
             step.tally = None;
         }
-        self.isearch_typed();
+        match pending {
+            // A repeat a worker went on with is asked again, over the new text.
+            Some((asked @ Asked::Repeat { .. }, find)) => {
+                let find = match find {
+                    Find::Forward { from } => Find::Forward {
+                        from: from.min(len),
+                    },
+                    Find::Backward {
+                        before,
+                        start_at_most,
+                    } => Find::Backward {
+                        before: before.min(len),
+                        start_at_most: start_at_most.min(len),
+                    },
+                };
+                self.isearch_find(find, asked);
+            }
+            _ => self.isearch_typed(),
+        }
         true
     }
 

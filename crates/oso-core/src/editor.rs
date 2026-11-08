@@ -47,7 +47,7 @@ mod view;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use copies::RecoveryAction;
-pub use isearch::Isearch;
+pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;

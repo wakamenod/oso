@@ -41,12 +41,19 @@ coordinator.
   cost is linear in the text whatever the string, and a match may cross chunks. The U+FFFD of an
   invalid byte matches nothing; the invalid bytes are walked alongside the text, so each costs O(1).
   Searching forward from an offset finds the first match that starts there or after; searching
-  backward finds the last that ends there or before. A match may begin or end inside a display
-  cluster, as in Emacs, and the cursor then goes to the cluster's start. Only the worker's job and its
-  report reach the host, as `editor::SearchJob` and an opaque `editor::SearchReport`, as
-  `editor::SaveJob` does. In `guardrails/layers.txt` it sits beside `buffer` and `motion`, above
-  `load` and `display_map`, which its tests read text with. M3's query-replace and project search
-  decide what of it becomes public.
+  backward finds the last that ends there or before, and with a limit on its start, the last whose
+  start is within it, also one that begins inside a match it passes. A match may begin or end inside
+  a display cluster, as in Emacs, and the cursor then goes to the cluster's start. In
+  `guardrails/layers.txt` it sits beside `buffer` and `motion`, above `load` and `display_map`,
+  which its tests read text with. M3's query-replace and project search decide what of it becomes
+  public.
+- **What is public:** in `oso_core::editor`, `Isearch` (its string, direction, state, count and
+  whether it is around a secret, all read-only), `SearchJob` (`run` alone) and an opaque
+  `SearchReport`, as `SaveJob` is, `MatchCells` (the current match's cells and the others'), the
+  `Editor::isearch*` methods and `take_isearch_job`, and `Quit::SearchStep` and `Quit::Search`;
+  `frame::match_cells`; `SelectionSet::move_primary` and `push_primary_mark`. In `oso_render`,
+  `Face::Match` and `Face::CurrentMatch`, and `TextView::fills` in place of `region_cells`. Nothing
+  of `oso_core::search` itself.
 - **The string holds at most 1024 characters.** A yank into it is cut there, and copies no more of
   the kill than that, so that what a frame looks at around the view stays small.
 
@@ -62,7 +69,7 @@ coordinator.
   is, as `RET` does, and then runs as it would have (chosen), so `C-f`, `C-a`, `C-x` and `M-x` all
   work.
 - **`DEL` undoes the last isearch step,** the string and the place together, as Emacs's
-  `isearch-delete-char` does (chosen).
+  `isearch-delete-char` does (chosen), also a string `M-p` or `M-n` put in place of another.
 - **`C-s` and `C-r` with an empty string search for the last string** (`C-s C-s`). **`M-p` and `M-n`**
   go through a search history: in memory only, 100 entries, as the prompts' histories, and nothing
   enters it while a buffer that may hold secrets is shown, or from a search that began in one.
@@ -123,8 +130,8 @@ coordinator.
 
 - **A reload of a file changed on disk (M2-22) waits while isearch is on,** as it waits for a prompt.
 - **isearch remembers the buffer's revision,** for what changes it anyway. When the revision has
-  changed, what a worker reports is dropped, a search runs again from the cursor as typing does, and so
-  does the count. The places `C-g` and `DEL` go back to are clipped to the text. isearch stays on.
+  changed, what a worker reports is dropped, a search runs again from the cursor as typing does, or a
+  repeat the worker went on with is asked again, and so does the count. The places `C-g` and `DEL` go back to are clipped to the text. isearch stays on.
 - **A load still under way holds the count until it ends,** with `[?/…]`, rather than starting it
   again at each piece the load takes in.
 
@@ -146,8 +153,9 @@ coordinator.
 - isearch costs a key at most a bounded search and a frame a bounded scan of the view, whatever the
   buffer's size; a far match or a count over 1 GB takes seconds, off the UI thread.
 - A count over overlapping matches (`aa` in `aaaa`) counts them as a scan from the start does, and a
-  current match found from another place may fall between two counted ones: its index is then the
-  number of counted matches before it, plus one.
+  current match found from another place, as backward (`aa` in `aaa` from the end is 1..3), may fall
+  between two counted ones: its index is then the number of counted matches that start before it,
+  plus one, at most the total.
 - The highlights are worked out each frame while isearch is on, from the text in view: no layer and no
   anchors yet. The Search layer of `display-model.md` comes when a second producer needs one.
 - The string is not width- or char-folded, and there is no regex search until M3.
