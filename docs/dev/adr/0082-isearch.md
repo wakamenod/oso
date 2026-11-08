@@ -52,7 +52,7 @@ coordinator.
   `SearchReport`, as `SaveJob` is, `MatchCells` (the current match's cells and the others'), the
   `Editor::isearch*` methods and `take_isearch_job`, and `Quit::SearchStep` and `Quit::Search`;
   `frame::match_cells`; `SelectionSet::move_primary` and `push_primary_mark`. In `oso_render`,
-  `Face::Match` and `Face::CurrentMatch`, and `TextView::fills` in place of `region_cells`. Nothing
+  `Face::SearchMatch` and `Face::SearchCurrent`, and `TextView::fills` in place of `region_cells`. Nothing
   of `oso_core::search` itself.
 - **The string holds at most 1024 characters.** A yank into it is cut there, and copies no more of
   the kill than that, so that what a frame looks at around the view stays small.

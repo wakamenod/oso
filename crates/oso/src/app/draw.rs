@@ -53,8 +53,8 @@ pub(super) fn with_panes<R>(
     editor.isearch_cells(&mut cells.matches);
     // The current match first, so that it always has room, and the regions over the matches.
     let fills = [
-        (Face::CurrentMatch, &cells.matches.current[..]),
-        (Face::Match, &cells.matches.others[..]),
+        (Face::SearchCurrent, &cells.matches.current[..]),
+        (Face::SearchMatch, &cells.matches.others[..]),
         (Face::Region, &cells.region[..]),
     ];
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);

@@ -23,18 +23,18 @@ impl core::marker::Copy for oso_render::CursorStyle
 impl core::marker::StructuralPartialEq for oso_render::CursorStyle
 pub enum oso_render::Face
 pub oso_render::Face::Boxed
-pub oso_render::Face::CurrentMatch
 pub oso_render::Face::Cursor
 pub oso_render::Face::Escape
 pub oso_render::Face::Field
 pub oso_render::Face::Float
 pub oso_render::Face::FloatBorder
 pub oso_render::Face::Key
-pub oso_render::Face::Match
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
 pub oso_render::Face::Region
+pub oso_render::Face::SearchCurrent
+pub oso_render::Face::SearchMatch
 pub oso_render::Face::Text
 pub oso_render::Face::Warning
 impl core::clone::Clone for oso_render::Face

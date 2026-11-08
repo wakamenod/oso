@@ -107,9 +107,9 @@ pub enum Face {
     /// is drawn, behind the text, which keeps its own face.
     Region,
     /// An isearch match in view, drawn as the region is (ADR 0082).
-    Match,
+    SearchMatch,
     /// The current isearch match, which stands out from the others.
-    CurrentMatch,
+    SearchCurrent,
 }
 
 impl Face {
@@ -121,8 +121,8 @@ impl Face {
             | Self::Preedit
             | Self::Float
             | Self::Region
-            | Self::Match
-            | Self::CurrentMatch => FOREGROUND,
+            | Self::SearchMatch
+            | Self::SearchCurrent => FOREGROUND,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
@@ -145,8 +145,8 @@ impl Face {
             Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Key => KEY,
             Self::Region => REGION,
-            Self::Match => MATCH,
-            Self::CurrentMatch => CURRENT_MATCH,
+            Self::SearchMatch => MATCH,
+            Self::SearchCurrent => CURRENT_MATCH,
         }
     }
 
