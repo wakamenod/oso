@@ -13,25 +13,13 @@
 //! - The window system's reports arrive as [`ImeEvent`], from `shell`, and the calls go
 //!   through its window (ADR 0070), so nothing here knows winit.
 
-use std::ops::Range;
-
 use oso_core::buffer::Buffer;
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
+use oso_platform::window::ImeEvent;
 
 use super::App;
 use super::shell::Loop;
-
-/// What an input method reports, from the window system or from the dev socket's stand-in.
-pub(super) enum ImeEvent {
-    /// The text being composed, and the caret or the segment being converted, in
-    /// bytes. No text ends the composition with no commit.
-    Preedit(String, Option<Range<usize>>),
-    /// The text the composition gave, which comes after an empty preedit.
-    Commit(String),
-    /// The composition is over, whether oso asked for it or not.
-    Disabled,
-}
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
 /// cannot type (ADR 0069). The minibuffer, isearch and menus add their own reasons

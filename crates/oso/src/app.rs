@@ -29,10 +29,10 @@ mod shell;
 use crate::dev;
 use crate::dispatch::Dispatcher;
 use crate::emergency::{CopiesEvent, Emergency, Offer};
-use crate::keys::Held;
 use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
+use oso_platform::window::Held;
 use shell::Loop;
 pub use shell::{Waker, run};
 

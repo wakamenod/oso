@@ -33,7 +33,7 @@ decode key rope secret
 sum_tree
 
 [oso-platform]
-control process text
+control process text window
 privacy
 file_meta
 

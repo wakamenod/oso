@@ -1,48 +1,16 @@
 //! The event loop's handler: sends each event from the window and from other
 //! threads to the part of the app that deals with it. Events come in oso's own
-//! types, defined here, which `shell` builds from winit's (ADR 0070). Each callback of the
+//! types, `oso_platform::window`'s, which `shell` builds from winit's (ADR 0070). Each callback of the
 //! loop goes to one method of the app, here or in the concern it belongs to (`open_window`,
 //! `ending`), so a window layer only translates.
 //!
 //! Must not depend on: what a key does or how a frame is drawn. A new event adds
 //! an arm here, and its handling goes in a module beside this one.
 
-use super::ime::ImeEvent;
+use oso_platform::window::Event;
+
 use super::shell::Loop;
 use super::{App, UserEvent};
-use crate::keys::{Held, KeyInput};
-
-/// What the window reports, as the app sees it. No `Debug`, as a key or a preedit holds
-/// what the person types (ADR 0028).
-pub(super) enum Event<'a> {
-    CloseRequested,
-    /// The drawable area's new size, in physical pixels.
-    Resized {
-        width: u32,
-        height: u32,
-    },
-    /// The window moved to a display with another scale.
-    ScaleFactorChanged(f64),
-    /// Whether the window is hidden by others.
-    Occluded(bool),
-    RedrawRequested,
-    Wheel(Wheel),
-    ModifiersChanged(Held),
-    Key(KeyInput<'a>),
-    Ime(ImeEvent),
-    /// Anything the app does not handle.
-    Other,
-}
-
-/// How far the mouse wheel or the trackpad scrolled. Positive moves the content down and
-/// right.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum Wheel {
-    /// Notches of a wheel.
-    Lines { x: f32, y: f32 },
-    /// Physical pixels, from a trackpad.
-    Pixels { x: f64, y: f64 },
-}
 
 /// Whether `event` keeps what the app knows of the window true, rather than being input or a
 /// frame. Missing a change of modifiers would leave Control held after a leave is taken back,
@@ -126,8 +94,8 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{Event, keeps_state_true};
-    use crate::keys::Held;
+    use super::keeps_state_true;
+    use oso_platform::window::{Event, Held};
 
     #[test]
     fn only_what_keeps_the_windows_state_true_passes_while_leaving() {
