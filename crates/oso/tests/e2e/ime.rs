@@ -177,23 +177,27 @@ fn no_input_context_is_given_while_the_ime_is_off() {
     let notes = app.wait_until_ready()["buffer"]["id"].clone();
     // oso's own layer gives none while the IME is off, so no text service reads the view
     // then (ADR 0070); winit keeps its own, and the socket reports none.
+    // The window applies what the app asks once the app's handler returns, and a request of
+    // the socket may come in the same turn, so each is waited for.
     let native = cfg!(all(target_os = "macos", feature = "native-window"));
-    let context = |on: bool| if native { json!(on) } else { Value::Null };
-    let given = |app: &mut App| app.state()["ime"]["input_context"].clone();
-    assert_eq!(given(&mut app), context(true));
+    let given = |app: &mut App, on: bool, what: &str| {
+        let context = if native { json!(on) } else { Value::Null };
+        app.wait_for(what, |state| state["ime"]["input_context"] == context);
+    };
+    given(&mut app, true, "a context at first");
     app.send_keys("C-x");
-    assert_eq!(given(&mut app), context(false), "a prefix key");
+    given(&mut app, false, "no context after a prefix key");
     app.send_keys("C-g");
-    assert_eq!(given(&mut app), context(true));
+    given(&mut app, true, "a context again");
     app.open_file(&env);
     app.wait_until_ready();
-    assert_eq!(
-        given(&mut app),
-        context(false),
-        "a buffer that may hold secrets"
+    given(
+        &mut app,
+        false,
+        "no context in a buffer that may hold secrets",
     );
     app.show_buffer(&notes);
-    assert_eq!(given(&mut app), context(true));
+    given(&mut app, true, "a context back from it");
 }
 
 #[test]
