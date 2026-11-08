@@ -96,10 +96,12 @@ pull request for the author's approval.
   snapshot with the input's generation (ADR 0076). The UI takes a result only if its prompt is
   still open and its generation is the newest. Results arrive through the `Status` comparison
   (ADR 0063), as a load's progress does.
-- **A thread per directory listed, at most 4 alive at once.** A directory on a file system that
-  hangs stalls only its own thread; the count shows `…`, and moving to another directory starts
-  another. With 4 alive, a new listing waits for one to end. Listings are kept for the prompt's
-  life, keyed by directory, and dropped when it closes.
+- **One lister for the app, at most 4 threads alive at once, and one request in flight per
+  directory.** A directory on a file system that hangs stalls only its own thread, and its next
+  requests wait without holding up another directory's; the count shows `…`. A newer request for
+  a directory replaces one still waiting, so a late generation never waits behind the newest.
+  With 4 alive, a new listing waits for one to end. Listings are kept for the prompt's life,
+  keyed by directory, and a prompt that closes drops what it left waiting.
 - **Bounded:** 100,000 names per directory; past that, the rest are left out and the count says
   `+`. Matching follows ADR 0076: on the UI thread up to 5000 candidates, on a worker past that.
 - **Nothing is opened.** A listing reads names and their types, as `read_dir` gives them. The rows
