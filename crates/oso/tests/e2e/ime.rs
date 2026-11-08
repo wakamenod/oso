@@ -121,7 +121,7 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_turning_off_keeps_the_text() {
     app.send_keys("M-g g");
     let state = app.state();
     assert_eq!(state["ime"]["wanted"], false);
-    if cfg!(all(target_os = "macos", feature = "native-window")) {
+    if cfg!(target_os = "macos") {
         assert_eq!(state["ime"]["allowed"], false, "committed, then off");
         assert_eq!(state["ime"]["composing"], false);
         assert_eq!(state["prompts"][0]["text"], "か");

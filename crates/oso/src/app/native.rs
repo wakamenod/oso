@@ -1,5 +1,5 @@
-//! The native macOS window layer in place of winit (ADR 0070, stage 2), behind
-//! `native-window`: the same loop, window and waker as `shell` gives, over
+//! oso's own macOS window layer, in place of winit there since ADR 0070's stage 3: the same
+//! loop, window and waker as `shell` gives on Windows and Linux, over
 //! `oso_platform::window`'s, so the rest of the app does not know which one runs.
 //!
 //! Must not depend on: what an event does. Each one goes to the app's handler for it, and

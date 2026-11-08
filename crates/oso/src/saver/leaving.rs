@@ -162,7 +162,7 @@ impl Leaving {
     /// `None` to let it go now, or when to stop waiting for the saves running. Nothing is
     /// agreed to, so what is at risk gets copies when the process ends.
     #[cfg_attr(
-        all(not(test), not(all(target_os = "macos", feature = "native-window"))),
+        all(not(test), not(target_os = "macos")),
         expect(
             dead_code,
             reason = "only oso's own macOS layer asks the app whether to end"

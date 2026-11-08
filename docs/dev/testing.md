@@ -241,9 +241,8 @@ the build, and it is a reason to run `just test-time` on the Mac, which decides.
 `just e2e` starts real dev builds and drives them over the control socket
 ([ADR 0037](adr/0037-test-pyramid.md), layer 5;
 [ADR 0049](adr/0049-end-to-end-test-harness.md)). `just e2e 20` repeats the
-suite. `just e2e-native` runs the same flows on oso's own macOS window layer, as macOS CI
-does too, and `just perf-native` benchmarks it as `just perf` does winit's, until it is the
-default there ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). It runs on the author's Mac, on Linux CI with Xvfb and lavapipe, and on macOS
+suite. On macOS it runs on oso's own window layer, and on Linux on winit
+([ADR 0070](adr/0070-windowing-and-input-without-winit.md), stage 3). It runs on the author's Mac, on Linux CI with Xvfb and lavapipe, and on macOS
 CI, and it is not part of `just ci`, because windows open and take the focus. Leave
 the keyboard and mouse alone while it runs: real input reaches its windows too, and
 what you type goes into their buffers, which can fail a flow.
@@ -381,8 +380,7 @@ JSON to `target/perf/perf.json`; `just perf OUT --quick` is for trying it out.
 
 `just perf-remote BASE PAIRS FEATURES` runs the same harness on another Mac, named
 by the ssh host in `OSO_PERF_HOST`. It builds BASE (by default `origin/main`) and the
-working tree here, both with FEATURES (by default `dev`; `dev,native-window` for
-oso's own macOS window layer), copies the two binaries and the harness there, and runs them in
+working tree here, both with FEATURES (by default `dev`), copies the two binaries and the harness there, and runs them in
 alternating pairs, the base first, under `caffeinate -d`. The results and logs come
 back to `target/perf/remote/`, each pair is compared as `just perf-compare` does, and
 each run says how much the host swapped meanwhile. Nothing runs there but the

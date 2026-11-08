@@ -66,10 +66,12 @@ pub(super) enum SecureStep {
 }
 
 impl SecureInput {
+    #[cfg(any(test, feature = "dev"))]
     pub(super) fn held(self) -> bool {
         self.enables > 0
     }
 
+    #[cfg(feature = "dev")]
     pub(super) fn wanted(self) -> bool {
         self.wanted
     }

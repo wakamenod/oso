@@ -67,10 +67,10 @@ modules inside each crate, are listed in
 Only the tip crate uses winit, and in it only `app/shell.rs`: the rest of the app
 works on oso's own events, keys and window calls, `oso_platform::window`'s, so that a
 window layer of oso's own can replace winit there
-([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). On macOS that layer exists
-behind the `native-window` feature, off by default: `oso_platform::window` runs
-`NSApplication`'s loop with a view of its own, and `app/native.rs` gives the app the same
-loop, window and waker over it. The
+([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). On macOS that layer is the
+window system since stage 3: `oso_platform::window` runs `NSApplication`'s loop with a view
+of its own, and `app/native.rs` gives the app the same loop, window and waker over it.
+winit is built only for Windows and Linux. The
 tip crate owns the window and hands `oso-render` a `wgpu::DisplayAndWindowHandle` and the
 size in pixels; the renderer reports back when it needs a redraw instead of calling into
 the window.

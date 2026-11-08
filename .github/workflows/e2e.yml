@@ -1,5 +1,6 @@
 # End-to-end tests over the control socket (ADR 0037, ADR 0049): on Linux with
-# Xvfb and lavapipe, and on macOS, the one runner that draws text. Nothing here
+# Xvfb and lavapipe, and on macOS, the one runner that draws text, on oso's own window layer
+# (ADR 0070). Nothing here
 # reads a baseline or writes anything back, so the token stays read-only
 # (ADR 0021).
 name: E2E
@@ -56,10 +57,6 @@ jobs:
           else
             just e2e
           fi
-      # The same flows on oso's own window layer, until it is the default (ADR 0070).
-      - name: End-to-end tests on the native window layer
-        if: runner.os == 'macOS'
-        run: just e2e-native
       # Panes in real pixels (ADR 0061). The glyphs come from a fake text system,
       # so Linux asserts the same as macOS. No display is needed.
       - name: Pixel tests

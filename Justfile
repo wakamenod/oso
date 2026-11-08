@@ -15,8 +15,6 @@ api_macos_target := "aarch64-apple-darwin"
 # Benchmarks build with the dev feature, so they keep out of target/release,
 # where the release binary lives (ADR 0046).
 perf_target := "target/perf-build"
-# The same with oso's own macOS window layer (ADR 0070), apart so neither overwrites the other.
-perf_native_target := "target/perf-native"
 # `perf-remote` builds both sides here, apart from those, with the features asked for.
 perf_remote_target := "target/perf-remote"
 # The whole test run stays within this on the author's Mac (ADR 0037).
@@ -196,17 +194,6 @@ e2e runs="1":
             || { echo "e2e: run $run of {{runs}} failed"; exit 1; }
     done
 
-# The same flows on oso's own macOS window layer (ADR 0070), until it is the default there
-e2e-native runs="1":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    [[ "{{runs}}" =~ ^[0-9]+$ ]] || { echo "error: not a number of runs: {{runs}}"; exit 1; }
-    export RUST_LOG=oso=debug,wgpu=warn
-    for run in $(seq 1 {{runs}}); do
-        cargo test --locked -p oso --features dev,native-window --test e2e -- --ignored --test-threads=1 \
-            || { echo "e2e-native: run $run of {{runs}} failed"; exit 1; }
-    done
-
 # Draw panes on a real GPU and read the pixels (ADR 0061); needs no window and no text backend
 pixel-tests:
     cargo test --locked -p oso-render -- --ignored
@@ -220,12 +207,7 @@ perf out="target/perf/perf.json" *args="":
     cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --bin oso --example perf
     {{perf_target}}/release/examples/perf run --oso {{perf_target}}/release/oso --out "{{out}}" {{args}}
 
-# Benchmark oso's own macOS window layer (ADR 0070) as `perf` does winit's, to compare the two
-perf-native out="target/perf/perf-native.json" *args="":
-    cargo build --locked --release --target-dir {{perf_native_target}} -p oso --features dev,native-window --bin oso --example perf
-    {{perf_native_target}}/release/examples/perf run --oso {{perf_native_target}}/release/oso --out "{{out}}" {{args}}
-
-# Benchmark the working tree against BASE on the ssh host OSO_PERF_HOST, in PAIRS alternating pairs, both built with FEATURES (`dev,native-window` for ADR 0070's layer). It builds here and only runs there, so builds here may go on meanwhile
+# Benchmark the working tree against BASE on the ssh host OSO_PERF_HOST, in PAIRS alternating pairs, both built with FEATURES. It builds here and only runs there, so builds here may go on meanwhile
 perf-remote base="origin/main" pairs="3" features="dev" *args="":
     #!/usr/bin/env bash
     set -euo pipefail

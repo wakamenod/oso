@@ -30,7 +30,7 @@ unicode-width = { version = "0.2.3", default-features = false }
 # The objc2 family is already in the tree through wgpu's Metal backend.
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFString", "CFAttributedString", "CFDictionary", "CFArray", "CFCGTypes", "CFNumber", "CFRunLoop", "CFDate"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGContext", "CGBitmapContext", "CGColorSpace", "CGImage"] }
-# The native macOS window layer (ADR 0070), behind `oso-platform/native-window`. Only
+# oso's own macOS window layer (ADR 0070), the default there since stage 3. Only
 # objc2-app-kit is new to the tree; the rest come through wgpu's Metal backend already. The
 # clipboard (ADR 0074) uses objc2-app-kit's pasteboard on every macOS build.
 objc2 = { version = "0.6.4", default-features = false, features = ["std", "exception"] }

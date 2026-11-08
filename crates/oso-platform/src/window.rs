@@ -8,16 +8,16 @@
 //!
 //! None of the types that can hold what the person types has `Debug` (ADR 0028).
 //!
-//! With `native-window`, macOS gets oso's own layer in place of winit: `run` drives a
-//! `Handler` (ADR 0070, stage 2).
+//! On macOS, oso's own layer is the window system: `run` drives a `Handler` (ADR 0070,
+//! stage 3). Windows and Linux are on winit, in the tip crate, until stage 4.
 
 use std::ops::{BitOr, Range};
 
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 mod appkit;
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 mod utf16;
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 pub use appkit::{Control, RenderTarget, Waker, Window, run};
 
 /// What the window reports, as the app sees it.
@@ -174,7 +174,7 @@ pub enum QuitAnswer {
 /// What the app does with the native layer's events, one method per callback of the loop
 /// (ADR 0070). It is called on the main thread, never twice at once: what it asks of the window
 /// is done once it returns.
-#[cfg(all(target_os = "macos", feature = "native-window"))]
+#[cfg(target_os = "macos")]
 pub trait Handler<T> {
     /// The window may be opened now.
     fn resume(&mut self, control: &Control);
