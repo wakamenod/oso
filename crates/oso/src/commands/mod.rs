@@ -1,7 +1,8 @@
 //! The editor's commands (ADR 0034). Each is a plain function over the
-//! host-owned state in `Ctx`, registered with a docstring and an argument
-//! spec. Each feature has a module here with its own table of commands, and
-//! [`TABLES`] lists them. Default key bindings are in `bindings`.
+//! host-owned state in `Ctx`, registered with a docstring, an argument spec
+//! and a reach (ADR 0085). Each feature has a module here with its own table
+//! of commands, and [`TABLES`] lists them. Default key bindings are in
+//! `bindings`.
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -164,6 +165,30 @@ mod tests {
         expected.extend(["dev-panic", "dev-read-passphrase"]);
         expected.sort_unstable();
         assert_eq!(person, expected);
+    }
+
+    /// A `Look` command changes no buffer text, with a region and with a count either way
+    /// (ADR 0085). What it may do to the kill ring and the clipboard, the channel decides.
+    #[test]
+    fn look_commands_change_no_text() {
+        let registry = registry();
+        let looks = registry
+            .iter()
+            .filter(|(_, command)| command.reach == Reach::Look);
+        for (id, command) in looks {
+            for args in [Args::NONE, Args::numeric(3), Args::numeric(-3)] {
+                let mut editor = editor("one two three\nfour five\n  six\n");
+                assert_eq!(run(&mut editor, "set-mark-command", Args::NONE).0, Ok(()));
+                assert_eq!(run(&mut editor, "forward-word", Args::numeric(2)).0, Ok(()));
+                let before = editor.current().1.content_id();
+                let mut ctx = Ctx::new(&mut editor);
+                // Failing is fine here: a motion at the end, or a number with no answer.
+                let _ = registry.execute(id, &mut ctx, args);
+                let buffer = editor.current().1;
+                assert_eq!(buffer.content_id(), before, "{} {args:?}", command.name);
+                assert!(!buffer.is_modified(), "{} {args:?}", command.name);
+            }
+        }
     }
 
     /// What a command's argument or name says it needs settles its reach, whatever the list
