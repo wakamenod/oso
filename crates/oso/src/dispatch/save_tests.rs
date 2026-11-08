@@ -9,7 +9,7 @@ use std::path::Path;
 
 use oso_core::buffer::Buffer;
 use oso_core::command::Effects;
-use oso_core::editor::{Editor, ExitAction};
+use oso_core::editor::Editor;
 use oso_core::key::KeySequence;
 use oso_core::window::ViewSize;
 
@@ -264,8 +264,9 @@ fn a_conflict_keeps_the_file_and_the_edits_each_time_it_is_tried() {
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
     send(&mut dispatcher, &mut editor, "x");
     fs::write(&path, b"another program\n").unwrap();
-    for _ in 0..2 {
-        send(&mut dispatcher, &mut editor, "C-x C-s");
+    // The second save asks first, and the answer here is no.
+    for keys in ["C-x C-s", "C-x C-s n"] {
+        send(&mut dispatcher, &mut editor, keys);
         finish_saves(&mut editor);
         assert!(modified(&editor));
         assert_eq!(text(&editor), "xabc\n");
@@ -288,90 +289,70 @@ fn a_save_failure_says_why_and_leaves_the_buffer_modified() {
 
 const QUIT: &str = "C-x C-c";
 
+/// The question the innermost prompt asks, if it is one.
+fn question(editor: &Editor) -> Option<&str> {
+    editor
+        .prompt()
+        .filter(|prompt| prompt.kind().is_question())
+        .map(|prompt| prompt.label())
+}
+
 #[test]
 fn exit_goes_at_once_with_nothing_at_risk() {
     let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
     assert!(send(&mut dispatcher, &mut editor, QUIT).exit);
-    assert_eq!(editor.confirm_exit(ExitAction::CloseWindow), Ok(()));
+    assert!(editor.prompt().is_none());
 }
 
 #[test]
-fn exit_is_refused_once_with_a_modified_buffer_and_repeating_confirms() {
+fn exit_with_a_modified_buffer_asks_and_y_exits() {
     let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
     send(&mut dispatcher, &mut editor, "x");
     assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
     assert_eq!(
-        last_message(&editor),
-        "1 modified buffer; repeat to exit anyway"
+        question(&editor),
+        Some("1 modified buffer; exit without saving? (y or n)")
     );
-    assert!(send(&mut dispatcher, &mut editor, QUIT).exit);
+    assert!(send(&mut dispatcher, &mut editor, "y").exit);
 }
 
 #[test]
-fn any_other_key_resets_the_guard_but_the_quit_keys_prefix_does_not() {
-    let others = [
-        "C-f",       // a command
-        "C-g",       // a command that cancels
-        "a",         // text
-        "<f35>",     // unbound
-        "C-x <f35>", // unbound under the prefix
-        "C-x C-g",   // a cancelled prefix
-    ];
-    for other in others {
+fn n_or_c_g_stays_and_the_next_exit_asks_again() {
+    for answer in ["n", "C-g"] {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
         send(&mut dispatcher, &mut editor, "x");
-        assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
-        send(&mut dispatcher, &mut editor, other);
+        send(&mut dispatcher, &mut editor, QUIT);
+        assert!(!send(&mut dispatcher, &mut editor, answer).exit, "{answer}");
+        assert!(editor.prompt().is_none(), "{answer} closes the question");
         assert!(
             !send(&mut dispatcher, &mut editor, QUIT).exit,
-            "after {other}"
+            "after {answer}"
         );
-        assert!(
-            send(&mut dispatcher, &mut editor, QUIT).exit,
-            "after {other}"
-        );
+        assert!(question(&editor).is_some(), "it asks again after {answer}");
     }
 }
 
 #[test]
-fn a_command_that_fails_also_resets_the_guard() {
-    let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
-    send(&mut dispatcher, &mut editor, "x");
-    assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
-    // At the end of the buffer, so this signals.
-    send(&mut dispatcher, &mut editor, "C-f");
-    assert!(last_message(&editor).contains("End of buffer"));
-    assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
-    assert!(send(&mut dispatcher, &mut editor, QUIT).exit);
+fn only_y_and_n_answer_and_any_other_key_says_so() {
+    for other in ["SPC", "RET", "DEL", "a", "C-f", "C-x", "<f35>"] {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
+        send(&mut dispatcher, &mut editor, "x");
+        send(&mut dispatcher, &mut editor, QUIT);
+        assert!(!send(&mut dispatcher, &mut editor, other).exit, "{other}");
+        assert!(dispatcher.pending().is_empty(), "{other} leaves no prefix");
+        let prompt = editor.prompt().expect("still asking");
+        assert_eq!(prompt.message(), Some("Answer y or n"), "{other}");
+        assert_eq!(editor.current().1.text().len(), 0, "{other} typed nothing");
+    }
 }
 
 #[test]
-fn text_from_an_input_method_resets_the_guard() {
+fn text_from_an_input_method_answers_no_question() {
     let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
     send(&mut dispatcher, &mut editor, "x");
-    assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
-    dispatcher.insert_text(&mut editor, "日本語");
-    assert_eq!(editor.exit_attempt(), None);
-}
-
-#[test]
-fn the_close_button_and_the_quit_keys_do_not_confirm_each_other() {
-    let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
-    send(&mut dispatcher, &mut editor, "x");
-    assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
-    assert!(editor.confirm_exit(ExitAction::CloseWindow).is_err());
-    assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
-    assert!(send(&mut dispatcher, &mut editor, QUIT).exit);
-}
-
-#[test]
-fn a_key_after_the_close_button_resets_it() {
-    let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
-    send(&mut dispatcher, &mut editor, "x");
-    assert!(editor.confirm_exit(ExitAction::CloseWindow).is_err());
-    send(&mut dispatcher, &mut editor, "C-f");
-    assert!(editor.confirm_exit(ExitAction::CloseWindow).is_err());
-    assert_eq!(editor.confirm_exit(ExitAction::CloseWindow), Ok(()));
+    send(&mut dispatcher, &mut editor, QUIT);
+    assert!(!dispatcher.insert_text(&mut editor, "y").exit);
+    assert!(question(&editor).is_some());
 }
 
 #[test]
@@ -382,11 +363,11 @@ fn exit_counts_a_running_save_and_a_finished_one_lets_it_go() {
     send(&mut dispatcher, &mut editor, "x C-x C-s");
     assert!(!send(&mut dispatcher, &mut editor, QUIT).exit);
     assert_eq!(
-        last_message(&editor),
-        "1 modified buffer and 1 save running; repeat to exit anyway"
+        question(&editor),
+        Some("1 modified buffer and 1 save running; exit without saving? (y or n)")
     );
     finish_saves(&mut editor);
-    send(&mut dispatcher, &mut editor, "C-f");
+    send(&mut dispatcher, &mut editor, "C-g");
     assert!(
         send(&mut dispatcher, &mut editor, QUIT).exit,
         "nothing at risk"
@@ -394,7 +375,7 @@ fn exit_counts_a_running_save_and_a_finished_one_lets_it_go() {
 }
 
 #[test]
-fn a_save_that_fails_after_the_exit_was_refused_needs_a_new_refusal() {
+fn a_save_that_fails_while_the_question_waits_makes_it_ask_again() {
     let scratch = Scratch::new("dispatch-exit-failed");
     let path = scratch.file("notes.txt", b"abc\n");
     let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
@@ -403,22 +384,63 @@ fn a_save_that_fails_after_the_exit_was_refused_needs_a_new_refusal() {
     fs::write(&path, b"another program\n").unwrap();
     finish_saves(&mut editor);
     assert!(
-        !send(&mut dispatcher, &mut editor, QUIT).exit,
-        "it did not save"
+        !send(&mut dispatcher, &mut editor, "y").exit,
+        "it did not save, which the question never said"
     );
-    assert!(send(&mut dispatcher, &mut editor, QUIT).exit);
+    assert!(question(&editor).is_some());
+    assert!(send(&mut dispatcher, &mut editor, "y").exit);
 }
 
 #[test]
-fn run_command_reports_a_refused_exit() {
+fn run_command_asks_too_and_the_answer_exits() {
     let (mut dispatcher, mut editor) = (Dispatcher::new(), Editor::default());
     send(&mut dispatcher, &mut editor, "x");
     let (effects, result) = dispatcher.run_command(&mut editor, "save-buffers-kill-terminal", None);
     assert!(!effects.exit);
-    assert!(result.unwrap_err().contains("1 modified buffer"));
-    let (effects, result) = dispatcher.run_command(&mut editor, "save-buffers-kill-terminal", None);
-    assert!(effects.exit);
     assert_eq!(result, Ok(()));
+    assert!(question(&editor).is_some_and(|q| q.starts_with("1 modified buffer")));
+    assert!(send(&mut dispatcher, &mut editor, "y").exit);
+}
+
+#[test]
+fn a_file_changed_on_disk_is_saved_over_once_agreed() {
+    let scratch = Scratch::new("dispatch-save-over");
+    let path = scratch.file("notes.txt", b"abc\n");
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
+    send(&mut dispatcher, &mut editor, "x C-x C-s");
+    fs::write(&path, b"another program\n").unwrap();
+    finish_saves(&mut editor);
+    assert!(last_message(&editor).contains("C-x C-s asks to save over it"));
+    send(&mut dispatcher, &mut editor, "C-x C-s");
+    assert_eq!(
+        question(&editor),
+        Some("notes.txt changed on disk since it was read; save over it? (y or n)")
+    );
+    send(&mut dispatcher, &mut editor, "n");
+    assert_eq!(fs::read(&path).unwrap(), b"another program\n", "n keeps it");
+    send(&mut dispatcher, &mut editor, "C-x C-s y");
+    finish_saves(&mut editor);
+    assert_eq!(fs::read(&path).unwrap(), b"xabc\n");
+    assert!(!modified(&editor));
+}
+
+#[test]
+fn a_file_changed_again_after_the_question_is_kept_and_asked_about_again() {
+    let scratch = Scratch::new("dispatch-save-over-again");
+    let path = scratch.file("notes.txt", b"abc\n");
+    let (mut dispatcher, mut editor) = (Dispatcher::new(), visiting(&path));
+    send(&mut dispatcher, &mut editor, "x C-x C-s");
+    fs::write(&path, b"another program\n").unwrap();
+    finish_saves(&mut editor);
+    send(&mut dispatcher, &mut editor, "C-x C-s");
+    // The other program writes again, longer, before the answer.
+    fs::write(&path, b"another program, again\n").unwrap();
+    send(&mut dispatcher, &mut editor, "y");
+    finish_saves(&mut editor);
+    assert_eq!(fs::read(&path).unwrap(), b"another program, again\n");
+    assert!(modified(&editor));
+    send(&mut dispatcher, &mut editor, "C-x C-s");
+    assert!(question(&editor).is_some());
 }
 
 mod leaving;

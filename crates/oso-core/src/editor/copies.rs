@@ -94,8 +94,12 @@ impl Editor {
     }
 
     /// Shows the list of copies in the selected window. From any buffer showing copies, goes
-    /// back to where the window was.
+    /// back to where the window was. Does nothing while a prompt is open, as a prompt's
+    /// window always shows its own buffer (ADR 0072).
     pub fn toggle_copies(&mut self) {
+        if !self.prompts.is_empty() {
+            return;
+        }
         if self.current().1.mode().shows_copies() {
             self.leave_internal();
             return;
@@ -168,14 +172,16 @@ impl Editor {
             return;
         };
         let start = buffer.text().line_start(line);
-        let shows_it = self.window().buffer() == list;
+        // The tiled window shows the list, also beneath a prompt.
+        let tiled = self.tiled_index();
+        let shows_it = self.windows[tiled].buffer() == list;
         for window in &mut self.windows {
             if window.buffer() == list {
                 window.selections = SelectionSet::new(start);
             }
         }
         if shows_it {
-            self.follow_cursor();
+            self.follow_window(tiled);
         }
     }
 
@@ -183,7 +189,8 @@ impl Editor {
     /// the list it is on. A buffer line and not a display row, on purpose: a row of the list
     /// that wraps still means one copy.
     pub fn cursor_line(&self) -> usize {
-        let (window, buffer) = self.current();
+        // The window beneath a prompt, which shows the list, also while a prompt is open.
+        let (window, buffer) = self.tiled();
         let cursor = window.selections.primary().cursor;
         buffer.text().offset_to_point(cursor).row
     }

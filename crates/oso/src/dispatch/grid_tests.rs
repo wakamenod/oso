@@ -20,6 +20,11 @@
 //! being converted with `=` (ADR 0069). A line between `+` below a row marks with `*`
 //! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
 //! (ADR 0071).
+//!
+//! An open prompt's float comes after the frame, as the innermost prompt's cells from its
+//! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
+//! (ADR 0072). Beneath it, the window's hollow cursor is marked `o` in place of `^`. That
+//! the float hides what is under it is the renderer's, checked in its scene tests.
 
 use oso_core::buffer::Buffer;
 use std::ops::Range;
@@ -32,6 +37,7 @@ use oso_core::display_map::{
 use oso_core::editor::{Editor, Status};
 use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
+use oso_core::minibuffer::{self, Kind};
 use oso_core::motion;
 use oso_core::window::{Scroll, ViewSize};
 
@@ -54,16 +60,116 @@ fn text_grid(editor: &Editor) -> String {
     draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
     let echo = [status.echo_warnings(), &status.echo[..]];
     draw_spans(&echo, regions.echo, '"', &mut lines);
+    draw_float(editor, &mut lines);
     lines.join("\n")
 }
 
-/// The selected window's rows.
-fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
+/// The innermost prompt's float, if one is open: where it is, then its cells.
+fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
+    let (Some(prompt), Some(layout)) = (editor.prompt(), editor.prompt_layout()) else {
+        return;
+    };
+    let (outer, inner) = (layout.regions.outer, layout.regions.inner);
+    lines.push(format!(
+        "float at row {}, column {}: {} x {}",
+        outer.row, outer.column, outer.rows, outer.columns
+    ));
+    let framed = layout.regions.framed();
+    let edge = if framed { '│' } else { '|' };
+    if framed {
+        lines.push(format!("┌{}┐", "─".repeat(inner.columns)));
+    }
+    let question = prompt.kind().is_question();
+    for index in 0..inner.rows {
+        let row = inner.row + index;
+        let on_input = row == layout.input.row;
+        let label_end = match (on_input, question) {
+            (true, true) => layout.message.column,
+            (true, false) => layout.input.column,
+            (false, _) => inner.column + inner.columns,
+        };
+        // The answer's row holds the label's last row, as the renderer draws it.
+        let at = if on_input {
+            layout.label.len().saturating_sub(1)
+        } else {
+            index
+        };
+        let label = layout
+            .label
+            .get(at)
+            .map_or("", |range| &prompt.label()[range.clone()]);
+        let last = at + 1 == layout.label.len();
+        let cut = if last && layout.label_cut {
+            minibuffer::CUT
+        } else {
+            ""
+        };
+        let suffix = if last {
+            &prompt.label()[layout.suffix.clone()]
+        } else {
+            ""
+        };
+        let (mut text, mut marks) = spans_row(&[label, cut, suffix], label_end - inner.column);
+        if on_input {
+            let (input, input_marks) = draw_input(editor, layout.input);
+            text.push_str(&input);
+            marks.extend(input_marks);
+            if layout.message.columns > 0 {
+                let message = prompt.message().unwrap_or("");
+                let (message, cut) = minibuffer::fit_message(message, layout.message.columns);
+                let spans = [" [", message, cut, "]"];
+                let (said, said_marks) = spans_row(&spans, layout.message.columns);
+                text.push_str(&said);
+                marks.extend(said_marks);
+            }
+        }
+        lines.push(format!("{edge}{text}{edge}"));
+        if marks.iter().any(|&mark| mark != ' ') {
+            lines.push(format!(":{}:", marks.into_iter().collect::<String>()));
+        }
+    }
+    if framed {
+        lines.push(format!("└{}┘", "─".repeat(inner.columns)));
+    }
+}
+
+/// The answer's cells in `area`, as the renderer draws them: the prompt's window, or one `*`
+/// per character of a passphrase.
+fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
     let (window, buffer) = editor.current();
     let display = buffer.display();
     let scroll = window.scroll();
     let point = window.cursor_point(&display);
-    let preedit = editor.preedit();
+    if editor
+        .prompt()
+        .is_some_and(|prompt| prompt.kind() == Kind::Passphrase)
+    {
+        let cursor = window.selections.primary().cursor;
+        let (stars, column) = minibuffer::mask(buffer.text(), cursor, area.columns);
+        let mut marks = vec![' '; area.columns];
+        if let Some(mark) = marks.get_mut(column) {
+            *mark = '^';
+        }
+        let text = "*".repeat(stars) + &" ".repeat(area.columns - stars);
+        return (text, marks);
+    }
+    let (place, cells) = motion::cursor_box(&display, point, None);
+    let cursor = frame::cursor_rect(area, scroll, place, cells).map_or(0..0, |cells| {
+        let start = cells.column - area.column;
+        start..start + cells.columns
+    });
+    draw_row(&display, point.row, scroll, area.columns, cursor, None, '^')
+}
+
+/// The tiled window's rows. Beneath a prompt, its cursor is hollow and it shows no preedit.
+fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
+    let (window, buffer) = editor.tiled();
+    let beneath = editor.prompt().is_some();
+    let mark = if beneath { 'o' } else { '^' };
+    let display = buffer.display();
+    let scroll = window.scroll();
+    let point = window.cursor_point(&display);
+    let preedit = editor.preedit().filter(|_| !beneath);
     // The cursor box as the renderer draws it.
     let (place, cells) = motion::cursor_box(&display, point, preedit);
     let cursor = frame::cursor_rect(area, scroll, place, cells);
@@ -80,7 +186,7 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
         let spliced = preedit
             .filter(|_| row == point.row)
             .map(|preedit| (point.column, preedit));
-        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor, spliced);
+        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor, spliced, mark);
         lines.push(format!("│{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
@@ -126,7 +232,16 @@ fn draw_spans(spans: &[&str], area: CellRect, edge: char, lines: &mut Vec<String
     if area.rows == 0 {
         return;
     }
-    let columns = area.columns;
+    let (text, marks) = spans_row(spans, area.columns);
+    lines.push(format!("{edge}{text}{edge}"));
+    if marks.iter().any(|&mark| mark != ' ') {
+        let marks: String = marks.into_iter().collect();
+        lines.push(format!(":{marks}:"));
+    }
+}
+
+/// `spans`, one after the other, in a row of `columns` cells, and a mark for each.
+fn spans_row(spans: &[&str], columns: usize) -> (String, Vec<char>) {
     let mut text = String::new();
     let mut marks = vec![' '; columns];
     let mut drawn = 0;
@@ -144,16 +259,12 @@ fn draw_spans(spans: &[&str], area: CellRect, edge: char, lines: &mut Vec<String
         }
     }
     text.extend(std::iter::repeat_n(' ', columns - drawn));
-    lines.push(format!("{edge}{text}{edge}"));
-    if marks.iter().any(|&mark| mark != ' ') {
-        let marks: String = marks.into_iter().collect();
-        lines.push(format!(":{marks}:"));
-    }
+    (text, marks)
 }
 
 /// The text of one row of `columns` cells and a mark for each of them. `cursor`
-/// holds the cells under the cursor box, counted from the row's left edge. A
-/// `preedit` goes in at its column.
+/// holds the cells under the cursor box, counted from the row's left edge, which get
+/// `mark`. A `preedit` goes in at its column.
 fn draw_row(
     display: &DisplaySnapshot,
     row: usize,
@@ -161,6 +272,7 @@ fn draw_row(
     columns: usize,
     cursor: Range<usize>,
     preedit: Option<(usize, &Preedit)>,
+    mark: char,
 ) -> (String, Vec<char>) {
     let view = scroll.left..scroll.left + columns;
     let mut text = String::new();
@@ -187,7 +299,7 @@ fn draw_row(
         },
     );
     text.extend(std::iter::repeat_n(' ', view.end - drawn));
-    marks[cursor].fill('^');
+    marks[cursor].fill(mark);
     (text, marks)
 }
 
@@ -392,6 +504,53 @@ mod scenarios {
         editor.scroll_view_sideways(1);
         frames.push(format!("sideways: 1, out of view\n{}", text_grid(&editor)));
         assert_frames("cursor_cut_at_the_left_edge", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn a_prompt_floats_a_row_below_the_top_and_its_answer_scrolls_sideways() {
+        let text = "# Notes\n\nAgenda\n- budget\n- hiring\n- office\n";
+        let steps = [
+            "M-g g",
+            "4 2",
+            "C-a C-b",
+            "C-e 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2",
+            "C-g",
+        ];
+        check_frame("prompt_goto_line", text, (10, 64), &steps);
+    }
+
+    #[test]
+    fn a_question_takes_the_whole_row_and_breaks_when_it_is_long() {
+        let text = "notes\n";
+        check_frame("prompt_question", text, (8, 64), &["x C-x C-c", "a"]);
+        check_frame("prompt_long_question", text, (8, 30), &["x C-x C-c"]);
+    }
+
+    #[test]
+    fn a_nested_prompt_shows_alone_with_its_depth() {
+        check_frame(
+            "prompt_nested",
+            "notes\n",
+            (8, 64),
+            &["x M-g g 4 C-x C-c", "C-g"],
+        );
+    }
+
+    #[test]
+    fn a_short_frame_gives_up_the_row_above_and_then_the_ring() {
+        check_frame("prompt_in_5_rows", "notes\n", (5, 64), &["M-g g 1"]);
+        check_frame("prompt_in_4_rows", "notes\n", (4, 64), &["M-g g 1"]);
+    }
+
+    #[cfg(feature = "dev")]
+    #[test]
+    fn a_passphrase_shows_one_star_per_character() {
+        check_frame(
+            "prompt_passphrase",
+            "notes\n",
+            (8, 64),
+            &["<f34> s e c r e t"],
+        );
     }
 
     #[test]

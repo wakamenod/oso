@@ -227,7 +227,8 @@ impl Offer {
             self.told_problem = true;
             editor.message(format!("Emergency copies are not offered: {problem}"));
         }
-        let shows_list = editor.current().1.mode() == Mode::CopyList;
+        // The window beneath a prompt shows the list, also while a prompt is open (ADR 0072).
+        let shows_list = editor.tiled().1.mode() == Mode::CopyList;
         // The cursor stays on its copy as the rows change, as a key acts on what is under it. So
         // does the one a window will come back to.
         let copy_on = |rows: &[Row], line: usize| {

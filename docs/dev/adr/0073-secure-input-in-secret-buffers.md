@@ -30,8 +30,9 @@ own after the native layer's first one.
 
 - **Secure input is on while all of these hold:** oso is the active app, its window has the
   keyboard, and the selected buffer may hold secrets (`Buffer::is_secret`, the same verdict
-  that turns the input method off in ADR 0069). The minibuffer's password prompt (M2-16)
-  adds its condition to the same function.
+  that turns the input method off in ADR 0069). A passphrase prompt
+  ([ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md)) is such a buffer, with
+  the verdict `Passphrase`, so typing one gets secure input with no condition of its own.
 - **It goes off** when any of them stops: the app deactivates, the window loses the keyboard,
   another buffer is selected, the window hides for an exit, the loop ends, or the app quits.
 - **One enable is held while it is wanted.** The window layer counts the enables the system

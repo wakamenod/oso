@@ -1,0 +1,16 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: notes\\n"
+---
+keys: M-g g 1
+│notes                                                           │
+:o                                                               :
+│                                                                │
+│                                                                │
+=-- test  1:0  Fundamental  UTF-8 LF                             =
+"                                                                "
+float at row 0, column 12: 3 x 40
+┌──────────────────────────────────────┐
+│Go to line: 1                         │
+:             ^                        :
+└──────────────────────────────────────┘

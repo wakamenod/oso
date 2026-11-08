@@ -9,8 +9,9 @@
 //! reports back with [`Editor::save_finished`] or [`Editor::save_failed`]. The queue
 //! is what lets tests run a save with no thread at all.
 //!
-//! [`Editor::confirm_exit`] is the guard on exiting with work at stake. M2-16's prompt
-//! replaces it.
+//! [`Editor::confirm_exit`] is the guard on exiting with work at stake: the exit command
+//! asks a question, and the answer runs it again, confirmed (ADR 0072). A buffer whose file
+//! changed on disk asks the same way before a save goes over it.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -52,6 +53,9 @@ pub enum SaveRefused {
     Unmodified,
     /// The buffer visits no file.
     NoFile,
+    /// A save found the file changed on disk since it was read. A save over it needs the
+    /// person to agree first (ADR 0072).
+    ChangedOnDisk,
 }
 
 impl fmt::Display for SaveRefused {
@@ -64,20 +68,13 @@ impl fmt::Display for SaveRefused {
             Self::AlreadySaving => "This buffer is already being saved; save again when it ends",
             Self::Unmodified => "(No changes need to be saved)",
             Self::NoFile => "Buffer has no file name",
+            Self::ChangedOnDisk => "The file changed on disk since it was read",
         })
     }
 }
 
-/// A way of exiting. Only repeating the same one confirms.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExitAction {
-    /// The exit command, by a key or by name.
-    Command,
-    /// The window's close button.
-    CloseWindow,
-}
-
-/// What an exit would put at risk, which is why it was refused this time.
+/// What an exit would put at risk, which is why it was refused this time. A question about
+/// exiting says this, and the answer then exits only if no more is at risk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExitRefused {
     /// Buffers that differ from their file, or have no file.
@@ -100,7 +97,7 @@ impl fmt::Display for ExitRefused {
         if saving > 0 {
             write!(f, "{saving} save{} running", plural(saving))?;
         }
-        f.write_str("; repeat to exit anyway")
+        Ok(())
     }
 }
 
@@ -148,15 +145,39 @@ impl Editor {
     ///
     /// Why the save did not start. Nothing changes.
     pub fn start_save(&mut self) -> Result<bool, SaveRefused> {
+        self.queue_save(false)
+    }
+
+    /// Starts saving as [`Editor::start_save`] does, over a file a save found changed on
+    /// disk, once the person has agreed. The save replaces it only if it is still the file
+    /// that save found, so a change made since is kept and asked about again.
+    ///
+    /// # Errors
+    ///
+    /// Why the save did not start. Nothing changes.
+    pub fn start_save_over(&mut self) -> Result<bool, SaveRefused> {
+        self.queue_save(true)
+    }
+
+    fn queue_save(&mut self, over: bool) -> Result<bool, SaveRefused> {
         let id = self.window().buffer();
         let buffer = self.current().1;
         if let Some(refused) = refusal(buffer) {
             return Err(refused);
         }
+        // An unmodified buffer has nothing to save over a file with: it writes only if the file
+        // has gone, and asks nothing.
+        let found = buffer.save_over().filter(|_| buffer.is_modified());
         // An unmodified buffer stays as it is unless the file has gone, which only the
         // host can tell, and then it holds what the file held.
         let only_if_gone = !buffer.is_modified();
         let line_break = missing_final_newline(buffer).filter(|_| !only_if_gone);
+        // `y` saves over the file of the buffer the question was asked of, and no other.
+        let asked = self.save_over_asked.take();
+        if found.is_some() && (!over || asked != Some(id)) {
+            self.save_over_asked = Some(id);
+            return Err(SaveRefused::ChangedOnDisk);
+        }
         if let Some(line_break) = line_break {
             self.insert_final_newline(id, line_break);
         }
@@ -169,7 +190,15 @@ impl Editor {
                 text: buffer.text().clone(),
                 bom: buffer.file_info().bom,
                 content: buffer.content_id(),
-                baseline: buffer.baseline().cloned(),
+                baseline: buffer.baseline().cloned().map(|mut baseline| {
+                    // The file found replaces only if it is still there as found. A file that
+                    // goes meanwhile gets back the mode it had when read, not the one found.
+                    if let Some(found) = found {
+                        let mode = baseline.file.map_or(found.mode, |read| read.mode);
+                        baseline.file = Some(FileStamp { mode, ..found });
+                    }
+                    baseline
+                }),
                 only_if_gone,
             };
             buffer.set_saving(true);
@@ -242,6 +271,9 @@ impl Editor {
     pub fn save_failed(&mut self, id: BufferId) {
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.set_saving(false);
+            // A save over a file needs the one this failure found, if it found one, and
+            // [`Editor::may_save_over`] says so after this.
+            buffer.forget_save_over();
         }
         self.reset_exit_guard();
     }
@@ -254,25 +286,40 @@ impl Editor {
         }
     }
 
-    /// Whether `action` may exit: at once if nothing is at risk, or if it is the
-    /// action refused last and no other key came since.
+    /// The save of `id` that found its file changed found this regular file there, which a
+    /// save the person agrees to may replace: [`Editor::start_save_over`].
+    pub fn may_save_over(&mut self, id: BufferId, found: FileStamp) {
+        if let Some(buffer) = self.buffer_mut(id) {
+            buffer.set_save_over(found);
+        }
+    }
+
+    /// Whether an exit may go: at once if nothing is at risk, or once `confirmed`, if the
+    /// person agreed to what was refused last and no more is at risk now. A save that failed
+    /// or left its buffer modified since forgets the refusal, so it is asked about again.
     ///
     /// # Errors
     ///
-    /// What is at risk, the first time. Repeating `action` then confirms.
-    pub fn confirm_exit(&mut self, action: ExitAction) -> Result<(), ExitRefused> {
+    /// What is at risk, for a question to say. Its answer confirms.
+    pub fn confirm_exit(&mut self, confirmed: bool) -> Result<(), ExitRefused> {
         let modified = self.buffers().filter(|(_, b)| b.is_modified()).count();
         let saving = self.buffers().filter(|(_, b)| b.is_saving()).count();
-        if modified + saving == 0 || self.exit_attempt == Some(action) {
+        // The person agreed to lose these buffers, and no other: a buffer modified since the
+        // question asks again, even if another's save landed meanwhile.
+        let at_risk: Vec<BufferId> = self
+            .buffers()
+            .filter(|(_, b)| b.is_modified() || b.is_saving())
+            .map(|(id, _)| id)
+            .collect();
+        let agreed = self
+            .exit_attempt
+            .as_ref()
+            .is_some_and(|asked| at_risk.iter().all(|id| asked.contains(id)));
+        if at_risk.is_empty() || (confirmed && agreed) {
             return Ok(());
         }
-        self.exit_attempt = Some(action);
+        self.exit_attempt = Some(at_risk);
         Err(ExitRefused { modified, saving })
-    }
-
-    /// The way of exiting that was last refused, if no other key came since.
-    pub fn exit_attempt(&self) -> Option<ExitAction> {
-        self.exit_attempt
     }
 
     /// Forgets a refused exit, so that the next one is refused again.

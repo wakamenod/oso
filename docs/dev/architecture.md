@@ -214,14 +214,15 @@ A panicking command is caught at the command boundary
 - The input method is winit's, reported through `app/shell.rs` and handled in `app/ime.rs`
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
-  prefix or prefix argument, a read-only buffer, one that may hold secrets, and the list of
-  emergency copies. Turning off waits for a composition to end
+  prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
+  emergency copies and a prompt. Turning off waits for a composition to end
   ([ADR 0069](adr/0069-macos-input-method.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of
   digits while a prefix argument is typed, and a major mode layer in the buffers that show
-  emergency copies.
+  emergency copies and in a prompt. A question's keys take the global layer's place, so
+  that no other key reaches a command.
 - `KeyResolver` keeps the pending prefix between key presses: `C-x` waits,
   `C-x C-c` runs, an unbound sequence is reported and clears the prefix,
   and `C-g` cancels a pending prefix.
@@ -363,7 +364,11 @@ text, so isearch, line search and copy work as in text buffers. See
 
 The minibuffer, menus (hydra/transient-style), completion popups and hover
 documentation are buffers shown in floating windows. Editing commands work
-inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md).
+inside them unchanged. See [ADR 0008](adr/0008-floating-ui.md). A command never
+waits for an answer: the dispatcher reads what its `ArgSpec` asks for in a prompt
+before running it, and a command that has to ask leaves a question whose `y` runs a
+command of its own, which checks again. `C-g` does one thing at a time, in
+`Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
 
 ### Background work
 
@@ -422,9 +427,11 @@ own directory, the file's owner, access list and mode, fsync, a check that the f
 where and what the buffer last read or wrote (its real location, modification time and
 size, the baseline on `Buffer`), rename, and fsync of the directory. A file changed by
 anything else is kept, and the buffer stays modified. A symbolic link stays a link, and hard links
-break. `C-x C-c` and the window's close button refuse once while a buffer is modified
-or a save runs, and a save still running at exit gets to finish. See
-[ADR 0059](adr/0059-safe-save-and-the-exit-guard.md).
+break. `C-x C-c` and the window's close button ask before exiting while a buffer is modified
+or a save runs, and a save still running at exit gets to finish. A save that found its file
+changed asks before going over it, and replaces it only if it is still what that save found. See
+[ADR 0059](adr/0059-safe-save-and-the-exit-guard.md) and
+[ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md).
 
 ## Security architecture (summary)
 

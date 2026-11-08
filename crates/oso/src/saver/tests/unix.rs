@@ -342,7 +342,7 @@ fn a_chmod_during_the_write_is_not_undone_by_the_rename() {
     let job = job(&path, "new\n");
     let prepared = prepare(&job).unwrap();
     set_mode(&path, 0o600);
-    assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict)));
+    assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict(_))));
     assert_eq!(mode(&path), 0o600);
     assert_eq!(fs::read(&path).unwrap(), b"old\n");
     assert_eq!(scratch.names(), ["notes.txt"]);

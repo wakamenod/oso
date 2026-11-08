@@ -54,6 +54,7 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn recover_session(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    super::not_in_prompt(ctx)?;
     ctx.editor.toggle_copies();
     ctx.editor.queue_recovery_action(RecoveryAction::Toggled);
     ctx.request_redraw();

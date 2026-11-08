@@ -19,6 +19,7 @@ pub mod frame;
 pub mod key;
 pub mod keymap;
 pub mod load;
+pub mod minibuffer;
 pub mod motion;
 pub mod rope;
 mod secret;

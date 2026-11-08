@@ -17,6 +17,9 @@ const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
 const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
 const MODELINE: [f32; 4] = [0.16, 0.16, 0.21, 1.0];
 const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
+const FLOAT: [f32; 4] = [0.11, 0.11, 0.15, 1.0];
+const FLOAT_BORDER: [f32; 4] = [0.42, 0.42, 0.50, 1.0];
+const PROMPT: [f32; 4] = [0.55, 0.72, 1.0, 1.0];
 const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
 
 /// What a piece of the screen means. The renderer turns it into colors, and
@@ -40,6 +43,12 @@ pub enum Face {
     /// Text an input method is composing, and its underline (ADR 0069). It is
     /// shaped apart from the text around it.
     Preedit,
+    /// A float's text, on its own background (ADR 0072).
+    Float,
+    /// A float's border.
+    FloatBorder,
+    /// What a prompt says before its answer, on the float's background.
+    Prompt,
     /// The region between a mark and its cursor (ADR 0071). Only its background
     /// is drawn, behind the text, which keeps its own face.
     Region,
@@ -49,10 +58,12 @@ impl Face {
     /// The color of coverage glyphs.
     pub(crate) fn foreground(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Modeline | Self::Preedit | Self::Region => FOREGROUND,
+            Self::Text | Self::Modeline | Self::Preedit | Self::Float | Self::Region => FOREGROUND,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
+            Self::FloatBorder => FLOAT_BORDER,
+            Self::Prompt => PROMPT,
         }
     }
 
@@ -64,6 +75,8 @@ impl Face {
             Self::Cursor => CURSOR,
             Self::Modeline => MODELINE,
             Self::Preedit => FOREGROUND,
+            Self::Float | Self::Prompt => FLOAT,
+            Self::FloatBorder => FLOAT_BORDER,
             Self::Region => REGION,
         }
     }
@@ -93,6 +106,39 @@ pub struct Layer(pub u8);
 impl Layer {
     /// The regions of the frame's layout, which never overlap (ADR 0057).
     pub const TILED: Self = Self(0);
+    /// A float's background and border, over the tiled regions (ADR 0072).
+    pub const FLOAT: Self = Self(16);
+    /// What a float shows, inside its border.
+    pub const FLOAT_CONTENT: Self = Self(17);
+}
+
+/// The bands of ADR 0052 a pane's glyphs keep past its region: above its first row and below
+/// its last. Only into cells nothing else draws on, such as a float's padding, so that a
+/// glyph never draws over another pane or outside its float (ADR 0072).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bands {
+    pub above: bool,
+    pub below: bool,
+}
+
+impl Bands {
+    /// None: a glyph stays in its pane, but for the rules of the frame's top row and of the
+    /// modeline and the echo row (ADR 0061, ADR 0063).
+    pub const NONE: Self = Self {
+        above: false,
+        below: false,
+    };
+}
+
+/// How a view's cursor is drawn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CursorStyle {
+    /// A filled box, with the glyphs on it in its color: the selected window's.
+    #[default]
+    Box,
+    /// The box's outline, over glyphs as they are: a window that is not selected, such as
+    /// the one beneath a prompt (ADR 0072).
+    Hollow,
 }
 
 /// A window's view of a buffer.
@@ -108,6 +154,8 @@ pub struct TextView<'a> {
     pub scroll: Scroll,
     /// The primary cursor. The box goes here, or where `preedit` puts it.
     pub cursor: DisplayPoint,
+    /// How the cursor is drawn.
+    pub cursor_style: CursorStyle,
     /// What an input method is composing, spliced into the cursor's row at the
     /// cursor and pushing the rest of it (ADR 0069).
     pub preedit: Option<&'a Preedit>,
@@ -134,6 +182,17 @@ pub enum PaneContent<'a> {
     /// was shaped every frame, so they carry no revision. Large and long-lived
     /// text belongs in a buffer.
     Lines(&'a [&'a [Span<'a>]]),
+    /// One row that stands for typed text without showing it, such as one `*` per
+    /// character of a passphrase (ADR 0072), with a cursor box.
+    Masked(Masked<'a>),
+}
+
+/// What [`PaneContent::Masked`] shows.
+pub struct Masked<'a> {
+    /// What is drawn from the pane's first column, in its place.
+    pub text: &'a str,
+    /// The column of the cursor box, from the pane's first.
+    pub cursor: usize,
 }
 
 /// A region of the frame and what it shows. Nothing of it is drawn outside the
@@ -154,6 +213,11 @@ pub struct Pane<'a> {
     /// Filled in behind the content, in this face's background. `None` leaves
     /// what is under the pane, so a pane above others needs one to hide them.
     pub background: Option<Face>,
+    /// A line along the inside of the region's edges, in this face's background, as a
+    /// float has (ADR 0072).
+    pub border: Option<Face>,
+    /// The bands its glyphs keep past its region.
+    pub bands: Bands,
     pub content: PaneContent<'a>,
 }
 
@@ -171,5 +235,6 @@ mod tests {
     #[test]
     fn layers_order_from_the_back() {
         assert!(Layer::TILED < Layer(1));
+        assert!(Layer::TILED < Layer::FLOAT && Layer::FLOAT < Layer::FLOAT_CONTENT);
     }
 }
