@@ -8,8 +8,8 @@
 M2-17 builds completion in the minibuffer: the orderless matcher, 18 candidate rows, annotations,
 history and `M-x` ([roadmap](../roadmap.md)). M2-18 (`C-x C-f`) and M2-19 (`C-x b`, with a preview)
 build on it, and so do M2-21's `M-y` from the kill ring, `C-.` (`consult-mark`, ADR 0071) and M3's
-consult-like commands. The author uses vertico, orderless, marginalia and consult in Emacs every day,
-so the defaults follow them.
+consult-like commands. The defaults follow Emacs's vertico, orderless, marginalia and consult, which
+ADR 0008 and `ui.md` already name as the model.
 
 What is fixed already:
 
@@ -45,11 +45,13 @@ the four `Face` variants, `Panel::selected`, and `get-state`'s `completion` fiel
 match and the selected row are picked from screenshots later, as ADR 0075's were. The ADR stays
 Proposed until the pull request.
 
-After seeing the first build in the app, the author changed question 4 (the float): a completion's
+After seeing builds in the app, the author changed question 4 (the float), twice: a completion's
 float sits at the center of the frame, 62% of its width, always as tall as 18 candidate rows and the
-answer's row, with a 5-point border. Questions and every other prompt keep ADR 0075's panel on the
-top edge. [The float](#the-float) describes that, and the rest of question 4's first answer no longer
-holds.
+answer's row; it is a plain list on the text's background in a 5-point border, with the count first
+on the answer's row, bindings in parentheses, annotations in one column and the selected row a bar
+across the panel. Questions and every other prompt keep ADR 0075's panel on the top edge.
+[The float](#the-float) describes that, and the rest of question 4's first answer no longer holds.
+The four faces of question 8 gain a fifth, for the count and the label.
 
 ### The matcher
 
@@ -121,48 +123,48 @@ on nothing of the editor, so M2-18's worker can run it on a snapshot.
 A completion's float, unlike every other prompt's:
 
 ```
-          ╭────────────────────────────────────────────────────────────╮
-          │                                                            │
-          │  M-x ╭ forw█ ─────────────────────────────────────╮  2/2   │ the answer's row
-          │                                                            │
-          │   forward-char C-f  Move point N characters forward (…     │
-          │  ▌forward-word M-f  Move point to the end of the next…▐    │ ← selected
-          │                                                            │ 18 rows, matching or not
-          │                                                            │
-          ╰────────────────────────────────────────────────────────────╯
+        ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ 2/2   M-x forw█                                            ┃ the answer's row
+        ┃ forward-char (C-f)  Move point N characters forward (back… ┃
+        ┃▌forward-word (M-f)  Move point to the end of the next wor…▐┃ ← selected, a bar
+        ┃                                                            ┃ 18 rows, matching or not
+        ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
 ```
 
 - **At the center of the frame's text area,** both ways, not on its top edge. Questions and the other
   prompts keep ADR 0075's panel on the top edge, which stands for the minibuffer; a question asked
   from inside `M-x` shows there, as the innermost prompt.
 - **62% of the text area's columns,** at least 40 and never closer than 2 to an edge, as ADR 0075's
-  floats are bounded.
-- **As tall as 18 candidate rows and the answer's row, from the moment it opens,** with a row of
-  padding above the answer, one between it and the list and one below the list. The float neither
-  grows nor shrinks with the matches: rows that nothing fills stay empty. The number is a constant,
+  floats are bounded, with a column of padding at each side.
+- **As tall as the answer's row and 18 candidate rows, from the moment it opens,** with no padding rows:
+  the list starts on the row after the answer's, and nothing follows it. The float neither grows nor
+  shrinks with the matches: rows that nothing fills stay empty. The number is a constant,
   `complete::ROWS`, until configuration (M3) sets it.
-- **One row for the label, the answer and the count:** the label first, cut with `…` to half the row
-  at most, then the answer in its field with a message at its end, then the count, `2/2`: the selected
-  candidate's place and the number of matches, in the annotations' dim face, as `vertico-count-format`
-  does. Its cells are kept for the widest count the list can show. No match shows `0/0`.
-- **A 5-point border** in place of ADR 0075's hairline, in a color a little darker than the fill
-  (`PanelStyle::border`, read every frame as the theme's other values are), with ADR 0075's rounded
-  corners, all four, and soft shadow. `Panel::border` asks for it.
-- **A row:** the candidate from the inner cells' first column, then its binding one cell after it in
-  the binding's face, then the annotation, ending at the right edge of the inner cells, in a dim face.
-- **When a row is narrow,** the annotation is cut first, with `…`, and goes below 8 cells; then the
-  binding goes; then the candidate is cut with `…` at the edge. The candidate is never cut before the
-  annotation and the binding have gone.
-- **The selected row** is a rounded box from ADR 0075's pipeline, in `Layer::FLOAT` under the text, one
-  row tall and 6 points wider than the inner cells on each side, inside the panel, radius 4 points, in
-  `Face::Selected`'s background. The text keeps its faces on it. So `PaneContent::Lines` needs no
-  background per row, and the open question about it closes. The candidates' rows are one pane of
-  `PaneContent::Lines` in `Layer::FLOAT_CONTENT`, which keeps no bands into the panel's padding but the
-  bottom one, so no glyph draws over another pane of the float (ADR 0072).
+- **The answer's row:** the count first, `2/2`: the selected candidate's place and the number of
+  matches, as `vertico-count-format` does, kept as wide as the widest count; then the label, cut with
+  `…` to a third of the row at most; then what is typed, with a message at its end. Both the count and
+  the label are in `Face::ListPrompt`, a teal accent. There is no field around the answer.
+- **A plain panel:** filled with the text's background, framed by a 5-point border in a muted slate a
+  little lighter than it (`PanelStyle::border`, read every frame as the theme's other values are),
+  with square corners and no shadow. `Panel::border` asks for it.
+- **A row:** the candidate from the inner cells' first column, in the text's color; its binding one
+  cell after it, in parentheses, `(C-x C-s)`, in `Face::Binding`, a light blue; then its annotation,
+  in `Face::Annotation`, a dim blue-grey.
+- **Annotations form a column:** they start at one column, two cells after the longest candidate and
+  binding among the rows shown, at most halfway across the row. A row whose own candidate and binding
+  reach past it starts its annotation two cells after them.
+- **When a row is narrow,** the annotation is cut first, with `…` at the row's end, and goes below 8
+  cells; then the binding goes; then the candidate is cut with `…` at the edge. The candidate is never
+  cut before the annotation and the binding have gone.
+- **The selected row** is a bar across the whole panel, inside the border, one row tall and square, in
+  `Face::Selected`'s background, a medium blue, drawn with ADR 0075's pipeline in `Layer::FLOAT` under
+  the text, which keeps its faces on it. So `PaneContent::Lines` needs no background per row, and the
+  open question about it closes. The candidates' rows are one pane of `PaneContent::Lines` in
+  `Layer::FLOAT_CONTENT`.
+- **Italic annotations wait for the text system:** it has one font today, so annotations are only
+  dimmed.
 - **The list scrolls** to keep the selected row in view, with no margin, as vertico does.
-- **A short frame gives up, in this order:** candidate rows down to one; the padding below them; the
-  padding above the answer; the padding between; the last candidate row. The float is never taller
-  than the text area.
+- **A short frame gives up candidate rows.** The float is never taller than the text area.
 
 ### Keys
 
@@ -235,11 +237,13 @@ layer in the minibuffer keymap's place:
   | `float.match.foreground` | `Match` | The characters a component matched. |
   | `float.annotation.foreground` | `Annotation` | The annotation and the count. |
   | `float.binding.foreground` | `Binding` | The binding after a candidate. |
+  | `float.list.prompt` | `ListPrompt` | The count and the label on the answer's row. |
 
 - **One match face for every component.** Orderless's four faces, one per component, wait for M2-23's
   theme, where the contrast of each is checked.
 - **Contrast:** a unit test in `oso-render` checks that every new pair is at least 4.5:1: the text, a
-  match, an annotation and a binding, on the float's fill and on the selected row. ADR 0027's 7:1 is the
+  match, an annotation and a binding, on the text's background and on the selected row, and the count
+  and label on the background. So the annotation's blue-grey is lighter than a dimmer one would be. ADR 0027's 7:1 is the
   aim, which M2-23 enforces. The defaults are picked from screenshots by the author, as ADR 0075's were.
 
 ### The region in an answer
@@ -254,11 +258,11 @@ layer in the minibuffer keymap's place:
   selection, the order and the narrowing), on the lowest line but one of `guardrails/layers.txt`, with
   the modules that use no other, as it uses only `std` and `regex`; `minibuffer::Kind::Complete
   { history }`, `PromptLayout::count`, and the placing of a completion's row and of a candidate's row
-  in `minibuffer/completion.rs` and `minibuffer/candidates.rs`; the float's cells in
+  in `minibuffer/completion.rs` and `minibuffer/candidates.rs` (`annotation_column`, `candidate_row`); the float's cells in
   `frame::completion_regions` and `FloatRegions::candidates`; `Editor`'s completion methods in
   `editor/completion.rs`; `ArgSpec::Command` and `ArgSpec::Key`; `Keymap::bindings`;
   `Command::summary`.
-- **`oso-render`:** the four faces, `Panel::selected` and `Panel::border`, and the border's width and
+- **`oso-render`:** the five faces, `Panel::selected` and `Panel::border`, and the border's width and
   color in `PanelStyle`.
 - **`oso`:** `execute-extended-command` and the completion commands in `commands/complete.rs`, their
   keys in `bindings/complete.rs`, the candidates read from the registry and keymaps in
@@ -328,18 +332,18 @@ each:
   row is a rounded box, not a background per row of `PaneContent::Lines`.
 - [ADR 0075](0075-a-float-as-a-panel-attached-to-the-top-edge.md): a prompt that completes floats at the
   center of the frame, 62% of its width and as tall as its 18 candidate rows and its answer's row, with
-  its label, answer and count on one row, and a 5-point border in place of the hairline, all corners
-  rounded. Every other prompt keeps the panel on the top edge. `Panel` gains the selected row and the
-  border.
+  no padding rows, its count, label and answer on one row and no field. Its panel is the text's
+  background in a 5-point border in place of the hairline, square, with no shadow. Every other prompt
+  keeps the panel on the top edge. `Panel` gains the selected row and the border.
 
 ## Consequences
 
 - `M-x` runs any command by name, with its prefix argument, and puts the last one first.
-- What the author types in vertico and orderless works the same: components in any order, `!`, `,` and
-  the others, `TAB`, `C-n`, `RET`.
+- What works in vertico and orderless works the same: components in any order, `!`, `,` and the
+  others, `TAB`, `C-n`, `RET`.
 - The order never moves while typing, and nothing is scored, so a typo shows no near miss: flex is one
   `~` away.
-- A prompt that completes covers 22 rows at the center of the text, whatever matches, and the text
+- A prompt that completes covers 19 rows at the center of the text, whatever matches, and the text
   above and below it stays in view.
 - M2-18 builds the worker path on the generation and snapshot fixed here, and M2-19 the preview beside
   the candidate rows.
@@ -349,15 +353,16 @@ each:
   completion methods (`open_completion`, `match_completion`, the moves, `insert_completion`,
   `candidate_rows`, `prompt_region_cells`), `ArgSpec::Command`, `ArgSpec::Key`, `Keymap::bindings` and
   `Command::summary`. The matcher's parsing and narrowing stay inside the crate, for M2-18's worker to
-  change. `oso-render`'s gains four `Face` variants, `Panel::selected` and `Panel::border`.
+  change. `oso-render`'s gains five `Face` variants, `Panel::selected` and `Panel::border`;
+  `oso-core`'s also `minibuffer::{annotation_column, BINDING_OPEN, BINDING_CLOSE}`.
 - M2-18's worker gives back matches, not where the list is scrolled to, which stays with the prompt.
 
 ## Alternatives considered
 
 - **`nucleo-matcher` or `fuzzy-matcher`:** ready and fast, but MPL-2.0 is refused by `deny.toml`
   (ADR 0051), and orderless needs little code.
-- **A score, as fzf's or flx's:** finds near misses first, but the order jumps with every key, and the
-  author's habit is vertico's stable order.
+- **A score, as fzf's or flx's:** finds near misses first, but the order jumps with every key, unlike
+  vertico's stable order.
 - **Every component tried as literal, initialism and flex at once:** more matches with no affix, but
   short components match most commands, and the list says less.
 - **Matching always on a worker:** one path, but a frame with the old list for every key of `M-x`, whose
@@ -375,5 +380,8 @@ each:
   keeps no state; the dispatcher already runs what a prompt's answer calls for.
 - **The count before the label, as vertico's:** familiar, but the end of the answer's row keeps it
   apart from what is typed.
-- **The field's accent color for the border:** stands out more, but a quiet border close to the fill
-  draws the eye to the list rather than the frame.
+- **The centered float with ADR 0075's look (the second build):** a lighter panel, rounded corners, a
+  shadow, padding rows, a field around the answer and the count at the end of its row. The author
+  preferred a plain list in a border, with the count first.
+- **Annotations aligned to the right edge:** each ends at the same column, but they start at ragged
+  columns, which is harder to scan than a column.

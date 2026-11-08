@@ -17,7 +17,7 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
 
-pub use candidates::{CandidateRow, candidate_row};
+pub use candidates::{BINDING_CLOSE, BINDING_OPEN, CandidateRow, annotation_column, candidate_row};
 pub(crate) use completion::completion_layout;
 use cut::rows_of;
 pub use cut::{cells_of, cut_to, fit_message};

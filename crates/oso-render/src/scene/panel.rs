@@ -34,18 +34,30 @@ pub(super) fn boxes(
     let clip = to_edge(grid.rect(region), region.row == 0);
     let attached = panel.cells.row == 0;
     let fill = to_edge(grid.rect(panel.cells), attached);
-    let radius = style.radius * pt;
+    // A completion's float is square, on the text's background, with a border and no shadow
+    // (ADR 0076).
+    let radius = if panel.border { 0.0 } else { style.radius * pt };
     let top = if attached { 0.0 } else { radius };
-    let (outline, hairline) = if panel.border {
-        (style.border, whole(style.border_width, pt))
+    let (outline, hairline, background) = if panel.border {
+        let width = whole(style.border_width, pt);
+        (style.border, width, Face::Text.background())
     } else {
-        (Face::FloatBorder.background(), whole(style.hairline, pt))
+        let width = whole(style.hairline, pt);
+        (
+            Face::FloatBorder.background(),
+            width,
+            Face::Float.background(),
+        )
     };
-    let (shadow, down, sigma) = fit_shadow(style, pt, fill, clip);
+    let (shadow, down, sigma) = if panel.border {
+        ([0.0; 4], 0.0, 0.0)
+    } else {
+        fit_shadow(style, pt, fill, clip)
+    };
     let body = Rounded {
         rect: corners(fill),
         radii: [top, top, radius, radius],
-        fill: Face::Float.background(),
+        fill: background,
         outline,
         shadow,
         params: [hairline, down, sigma, 0.0],
@@ -94,7 +106,7 @@ pub(super) fn boxes(
         .filter_map(move |key| key_chip(*key, &grid, pt, style, clip));
     let selected = panel
         .selected
-        .and_then(|row| selected_box(row, &grid, pt, style, fill, clip));
+        .and_then(|row| selected_box(row, panel.border, &grid, pt, style, fill, clip));
     body.into_iter().chain(field).chain(selected).chain(keys)
 }
 
@@ -129,9 +141,10 @@ fn key_chip(
 }
 
 /// The selected candidate's `row`, a little wider than its cells, kept inside the panel's
-/// `fill` and cut to `clip` (ADR 0076).
+/// `fill` and cut to `clip`, or, in a `bar` across the whole panel, square (ADR 0076).
 fn selected_box(
     row: CellRect,
+    bar: bool,
     grid: &PixelGrid,
     pt: f32,
     style: &PanelStyle,
@@ -141,7 +154,11 @@ fn selected_box(
     if row.rows == 0 || row.columns == 0 {
         return None;
     }
-    let across = (style.selected_reach * pt).round();
+    let across = if bar {
+        f32::INFINITY
+    } else {
+        (style.selected_reach * pt).round()
+    };
     let cells = grid.rect(row);
     let wide = cut(
         PixelRect {
@@ -151,9 +168,10 @@ fn selected_box(
         },
         fill,
     )?;
+    let radius = if bar { 0.0 } else { style.selected_radius * pt };
     Rounded {
         rect: corners(wide),
-        radii: [style.selected_radius * pt; 4],
+        radii: [radius; 4],
         fill: Face::Selected.background(),
         outline: [0.0; 4],
         shadow: [0.0; 4],

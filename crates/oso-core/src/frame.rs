@@ -168,25 +168,16 @@ pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
 const COMPLETION_HUNDREDTHS: usize = 62;
 
 /// Where a completion's float goes, centered in the window's text area in `frame` (ADR 0076):
-/// a row of padding, the answer's row, a row of padding, `candidates` rows and a row of
-/// padding, as tall whatever matches. It takes 62% of the columns, at least 40, and never
-/// comes closer than 2 to an edge. A small frame gives up candidate rows first, down to one,
-/// then the padding below them, above the answer and between, then the candidates. It is never
-/// taller than the text area.
+/// the answer's row and `candidates` rows right below it, with no padding rows, as tall
+/// whatever matches. It takes 62% of the columns, at least 40, and never comes closer than 2 to
+/// an edge, with a column of padding at each side. A small frame gives up candidate rows. It is
+/// never taller than the text area.
 pub(crate) fn completion_regions(frame: &FrameLayout, candidates: usize) -> FloatRegions {
     let text = frame.window.text;
     let columns = float_columns(text.columns, COMPLETION_HUNDREDTHS, 100);
-    let side = float_side(columns);
-    // Rows beyond the answer's and one candidate's, given up from the last.
-    let spare = text.rows.saturating_sub(2);
-    let shown = if text.rows >= 2 {
-        candidates.min(1 + spare.saturating_sub(3))
-    } else {
-        0
-    };
-    let [below, above, between] = [3, 2, 1].map(|need| shown > 0 && spare >= need);
-    let rows =
-        (usize::from(above) + 1 + usize::from(between) + shown + usize::from(below)).min(text.rows);
+    let side = usize::from(columns >= 5);
+    let shown = candidates.min(text.rows.saturating_sub(1));
+    let rows = (1 + shown).min(text.rows);
     let outer = CellRect {
         row: text.row + (text.rows - rows) / 2,
         column: text.column + (text.columns - columns) / 2,
@@ -194,20 +185,20 @@ pub(crate) fn completion_regions(frame: &FrameLayout, candidates: usize) -> Floa
         columns,
     };
     let inner = CellRect {
-        row: outer.row + usize::from(above),
-        column: outer.column + side,
         rows: usize::from(rows > 0),
+        column: outer.column + side,
         columns: columns - 2 * side,
+        ..outer
     };
     let candidates = CellRect {
-        row: inner.row + 1 + usize::from(between),
+        row: inner.row + 1,
         rows: shown,
         ..inner
     };
     FloatRegions {
         outer,
         inner,
-        gap: above,
+        gap: false,
         candidates,
     }
 }
@@ -479,32 +470,24 @@ mod tests {
     }
 
     #[test]
-    fn a_completion_is_centered_and_as_tall_whatever_matches() {
-        // 40 text rows: padding, the answer, padding, 18 rows and padding: 22, centered.
+    fn a_completion_is_centered_with_its_rows_right_below_the_answer() {
+        // 40 text rows: the answer and 18 rows, centered.
         let regions = completion_regions(&frame(42, 100), 18);
-        assert_eq!(regions.outer, rect(9, 19, 22, 62));
-        assert_eq!(regions.inner, rect(10, 21, 1, 58));
-        assert_eq!(regions.candidates, rect(12, 21, 18, 58));
-        assert!(regions.gap && regions.padded_below() && regions.candidates_padded());
+        assert_eq!(regions.outer, rect(10, 19, 19, 62));
+        assert_eq!(regions.inner, rect(10, 20, 1, 60));
+        assert_eq!(regions.candidates, rect(11, 20, 18, 60));
+        assert!(!regions.gap && !regions.padded_below() && !regions.candidates_padded());
     }
 
     #[test]
-    fn a_short_frame_gives_up_a_completions_rows_then_its_padding() {
+    fn a_short_frame_gives_up_a_completions_rows() {
         let shape = |rows: usize| {
             let regions = completion_regions(&frame(rows + 2, 100), 18);
-            let padding = [
-                regions.gap,
-                regions.padded_below(),
-                regions.candidates_padded(),
-            ];
-            (regions.outer.rows, regions.candidates.rows, padding)
+            (regions.outer.rows, regions.candidates.rows)
         };
-        assert_eq!(shape(10), (10, 6, [true, true, true]));
-        assert_eq!(shape(5), (5, 1, [true, true, true]));
-        assert_eq!(shape(4), (4, 1, [true, true, false]));
-        assert_eq!(shape(3), (3, 1, [false, true, false]));
-        assert_eq!(shape(2), (2, 1, [false, false, false]));
-        assert_eq!(shape(1), (1, 0, [false, false, false]));
+        assert_eq!(shape(10), (10, 9));
+        assert_eq!(shape(2), (2, 1));
+        assert_eq!(shape(1), (1, 0));
     }
 
     #[test]

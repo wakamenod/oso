@@ -98,7 +98,7 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
             };
             let text = rows.get(at).map_or("", |range| &label[range.clone()]);
             let (text, marks) = spans_row(&[text, cut], cells.columns);
-            parts.push((0, text, marks));
+            parts.push((cells.column - inner.column, text, marks));
         }
         if row == layout.input.row && layout.input.columns > 0 {
             let (text, marks) = draw_input(editor, layout.input);
@@ -174,13 +174,12 @@ fn draw_keys(
     }
 }
 
-/// A list's count, such as `3/57`, right-aligned in its cells, from the inner cells' left.
+/// A list's count, such as `3/57`, at the start of its cells, from the inner cells' left.
 fn draw_count(prompt: &Prompt, layout: &PromptLayout) -> Option<(usize, String, Vec<char>)> {
     let candidates = prompt.candidates()?;
     let place = candidates.selected().map_or(0, |place| place + 1);
     let count = format!("{place}/{}", candidates.len());
-    let pad = " ".repeat(layout.count.columns.saturating_sub(count.len()));
-    let (text, marks) = spans_row(&[&pad, &count], layout.count.columns);
+    let (text, marks) = spans_row(&[&count], layout.count.columns);
     Some((
         layout.count.column - layout.regions.inner.column,
         text,
@@ -216,7 +215,15 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
     }
     let outer = layout.regions.outer;
     let pad = " ".repeat((rows.column - outer.column).saturating_sub(1));
-    lines.push(format!("{edge}{}{edge}", " ".repeat(outer.columns)));
+    // A row of padding between the answer and the list, where the float has one.
+    let inner = layout.regions.inner;
+    if rows.row > inner.row + inner.rows {
+        lines.push(format!("{edge}{}{edge}", " ".repeat(outer.columns)));
+    }
+    let named = candidates
+        .shown(rows.rows)
+        .map(|(_, candidate)| (candidate.text(), candidate.binding()));
+    let column = minibuffer::annotation_column(named, rows.columns);
     let mut highlights = Vec::new();
     for index in 0..rows.rows {
         let place = candidates.top() + index;
@@ -229,7 +236,7 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
             candidate.binding(),
             candidate.annotation(),
         );
-        let row = minibuffer::candidate_row(text, binding, note, rows.columns);
+        let row = minibuffer::candidate_row(text, binding, note, rows.columns, column);
         let shown = &text[..row.text];
         let mut spans = vec![shown.to_owned()];
         let mut used = minibuffer::cells_of(shown);
@@ -238,8 +245,8 @@ fn draw_candidates(editor: &Editor, edge: char, lines: &mut Vec<String>) {
             used += 1;
         }
         if let Some(column) = row.binding {
-            spans.push(" ".repeat(column - used) + binding);
-            used = column + minibuffer::cells_of(binding);
+            spans.push(" ".repeat(column - used) + "(" + binding + ")");
+            used = column + minibuffer::cells_of(binding) + 2;
         }
         if let Some((column, bytes, cut)) = row.annotation {
             let cut = if cut { minibuffer::CUT } else { "" };

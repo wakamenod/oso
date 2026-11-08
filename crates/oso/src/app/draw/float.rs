@@ -64,29 +64,30 @@ impl<'a> Parts<'a> {
         })
     }
 
-    /// The spans of the candidate rows shown, and of the count, right-aligned in its cells.
+    /// The spans of the candidate rows shown, their annotations in one column, and of the
+    /// count.
     fn list_spans(&self) -> (Vec<Vec<Span<'_>>>, [Span<'_>; 2]) {
         let Some((candidates, count)) = &self.list else {
             return (Vec::new(), [blank(), blank()]);
         };
-        let pad = self.layout.count.columns.saturating_sub(count.len());
         let count = [
             Span {
-                text: spaces(pad),
-                face: Face::Annotation,
-            },
-            Span {
                 text: count,
-                face: Face::Annotation,
+                face: Face::ListPrompt,
             },
+            blank(),
         ];
         let shown = self.layout.regions.candidates;
+        let named = candidates
+            .shown(shown.rows)
+            .map(|(_, candidate)| (candidate.text(), candidate.binding()));
+        let column = minibuffer::annotation_column(named, shown.columns);
         let mut highlights = Vec::new();
         let rows = candidates
             .shown(shown.rows)
             .map(|(_, candidate)| {
                 candidates.query().highlights(candidate, &mut highlights);
-                candidate_spans(candidate, &highlights, shown.columns)
+                candidate_spans(candidate, &highlights, shown.columns, column)
             })
             .collect();
         (rows, count)
@@ -94,9 +95,12 @@ impl<'a> Parts<'a> {
 
     /// The spans of its rows.
     pub(super) fn spans(&self) -> Spans<'_> {
-        // A question's label reads as the text does, and a prompt's is dim beside its answer.
+        // A question's label reads as the text does, a prompt's is dim beside its answer, and a
+        // completion's takes its count's accent.
         let face = if self.kind.is_question() {
             Face::Float
+        } else if self.list.is_some() {
+            Face::ListPrompt
         } else {
             Face::Prompt
         };
@@ -192,14 +196,17 @@ fn blank<'a>() -> Span<'a> {
 }
 
 /// The spans of a candidate's row of `columns` cells: its text with what matched in
-/// [`Face::Match`], its key and its annotation, as `minibuffer::candidate_row` places them.
+/// [`Face::Match`], its binding in parentheses, and its annotation at `column`, as
+/// `minibuffer::candidate_row` places them.
 fn candidate_spans<'a>(
     candidate: &'a oso_core::complete::Candidate,
     highlights: &[Range<usize>],
     columns: usize,
+    column: usize,
 ) -> Vec<Span<'a>> {
     let text = candidate.text();
-    let row = minibuffer::candidate_row(text, candidate.binding(), candidate.annotation(), columns);
+    let (binding, annotation) = (candidate.binding(), candidate.annotation());
+    let row = minibuffer::candidate_row(text, binding, annotation, columns, column);
     let shown = &text[..row.text];
     let mut spans = Vec::with_capacity(2 * highlights.len() + 6);
     let mut at = 0;
@@ -235,11 +242,13 @@ fn candidate_spans<'a>(
             text: spaces(column.saturating_sub(used)),
             face: Face::Float,
         });
-        spans.push(Span {
-            text: candidate.binding(),
-            face: Face::Binding,
-        });
-        used = column + cells_of(candidate.binding());
+        for text in [minibuffer::BINDING_OPEN, binding, minibuffer::BINDING_CLOSE] {
+            spans.push(Span {
+                text,
+                face: Face::Binding,
+            });
+        }
+        used = column + cells_of(binding) + 2;
     }
     if let Some((column, bytes, cut)) = row.annotation {
         spans.push(Span {

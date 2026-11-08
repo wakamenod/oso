@@ -29,13 +29,15 @@ const FIELD_OUTLINE: [f32; 4] = [0.159, 0.2384, 0.5089, 1.0];
 const KEY: [f32; 4] = [0.0908, 0.0953, 0.1413, 1.0];
 const KEY_TEXT: [f32; 4] = [0.73, 0.77, 0.88, 1.0];
 const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
-// A float's list (ADR 0076): the selected row a little bluer than the fill, what matched in a
-// warm accent, annotations as dim as a label, and keys in a cool green. Every one at least
-// 4.5:1 on the fill and on the selected row, which the tests check, until M2-23's theme.
-const SELECTED: [f32; 4] = [0.06, 0.075, 0.18, 1.0];
+// A completion's list (ADR 0076), on the text's background: the selected row a medium blue bar,
+// what matched in a warm accent, bindings in a light blue, annotations a dim blue-grey, and the
+// count and label in a teal accent. Every one at least 4.5:1 on the background and on the
+// selected row, which the tests check, until M2-23's theme.
+const SELECTED: [f32; 4] = [0.028, 0.058, 0.212, 1.0];
 const MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
-const ANNOTATION: [f32; 4] = [0.52, 0.57, 0.74, 1.0];
-const BINDING: [f32; 4] = [0.45, 0.78, 0.70, 1.0];
+const ANNOTATION: [f32; 4] = [0.423, 0.479, 0.730, 1.0];
+const BINDING: [f32; 4] = [0.078, 0.546, 1.0, 1.0];
+const LIST_PROMPT: [f32; 4] = [0.114, 0.680, 0.429, 1.0];
 
 /// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height
 /// over 16) and the shadow's color and strength (ADR 0075). It is read every frame, as the
@@ -61,7 +63,8 @@ pub(crate) struct PanelStyle {
     pub(crate) selected_reach: f32,
     pub(crate) selected_radius: f32,
     /// The border of a panel that has one, such as a completion's (ADR 0076), in place of the
-    /// hairline: its width, and its color in linear RGB, a little darker than the fill.
+    /// hairline: its width, and its color in linear RGB, a muted slate a little lighter than the
+    /// text's background, which such a panel is filled with.
     pub(crate) border_width: f32,
     pub(crate) border: [f32; 4],
 }
@@ -81,7 +84,7 @@ pub(crate) const PANEL: PanelStyle = PanelStyle {
     selected_reach: 6.0,
     selected_radius: 4.0,
     border_width: 5.0,
-    border: [0.035, 0.037, 0.056, 1.0],
+    border: [0.08, 0.085, 0.13, 1.0],
 };
 
 /// What a piece of the screen means. The renderer turns it into colors, and
@@ -128,6 +131,8 @@ pub enum Face {
     Annotation,
     /// A key sequence after a candidate, such as a command's binding.
     Binding,
+    /// A completion's count and label, at the start of its answer's row.
+    ListPrompt,
 }
 
 impl Face {
@@ -143,6 +148,7 @@ impl Face {
             Self::Match => MATCH,
             Self::Annotation => ANNOTATION,
             Self::Binding => BINDING,
+            Self::ListPrompt => LIST_PROMPT,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
@@ -161,7 +167,9 @@ impl Face {
             Self::Cursor => CURSOR,
             Self::Modeline => MODELINE,
             Self::Preedit => FOREGROUND,
-            Self::Float | Self::Prompt | Self::Match | Self::Annotation | Self::Binding => FLOAT,
+            Self::Float | Self::Prompt => FLOAT,
+            // A completion's float is filled with the text's background (ADR 0076).
+            Self::Match | Self::Annotation | Self::Binding | Self::ListPrompt => BACKGROUND,
             Self::Selected => SELECTED,
             Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Key => KEY,
@@ -301,7 +309,9 @@ pub struct Panel<'a> {
     /// A row of cells drawn as the selected candidate's box, a little wider than they are,
     /// in [`Face::Selected`] (ADR 0076).
     pub selected: Option<CellRect>,
-    /// A border in place of the hairline, as a completion's float has (ADR 0076).
+    /// A completion's float (ADR 0076): filled with the text's background and framed by a
+    /// border in place of the hairline, with square corners and no shadow, and its selected row
+    /// a bar across the whole panel.
     pub border: bool,
 }
 
@@ -352,14 +362,16 @@ mod tests {
     #[test]
     fn a_lists_text_reads_on_the_fill_and_on_the_selected_row() {
         // ADR 0027's floor; M2-23 raises what it can to 7:1.
-        for face in [Face::Float, Face::Match, Face::Annotation, Face::Binding] {
-            for behind in [Face::Float, Face::Selected] {
+        for face in [Face::Text, Face::Match, Face::Annotation, Face::Binding] {
+            for behind in [Face::Text, Face::Selected] {
                 let ratio = contrast(face.foreground(), behind.background());
                 assert!(ratio >= 4.5, "{face:?} on {behind:?}: {ratio:.2}");
             }
         }
-        // The selected row stands apart from the fill, beyond its text's reach.
-        assert_ne!(Face::Selected.background(), Face::Float.background());
+        let ratio = contrast(Face::ListPrompt.foreground(), Face::Text.background());
+        assert!(ratio >= 4.5, "the count and label: {ratio:.2}");
+        // The selected row stands apart from the background.
+        assert_ne!(Face::Selected.background(), Face::Text.background());
     }
 
     #[test]

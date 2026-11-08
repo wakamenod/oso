@@ -940,19 +940,27 @@ mod tests {
                 field: None,
                 field_room: rect(0, 0, 0, 0),
                 keys: &[],
-                selected: None,
+                selected: Some(rect(4, 3, 1, 6)),
                 border: true,
             }),
             ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
         }];
         let mut scene = Scene::new(LIMITS);
         build(&mut scene, &panes, &mut FakeAtlas::default());
-        let panel = scene.rounded()[0];
+        let rounded = scene.rounded();
+        let panel = rounded[0];
         assert_eq!(panel.outline, PANEL.border);
         // 5 points of a 20 px cell: 6.25 px, in whole pixels.
         assert_eq!(panel.params[0], 6.0);
-        // Away from the top edge, every corner is rounded.
-        assert!(panel.radii.iter().all(|&radius| radius > 0.0));
+        // Square, on the text's background, with no shadow.
+        assert_eq!(panel.radii, [0.0; 4]);
+        assert_eq!(panel.fill, Face::Text.background());
+        assert_eq!(panel.shadow[3], 0.0);
+        // The selected row is a bar across the whole panel.
+        let bar = rounded[1];
+        assert_eq!(bar.fill, Face::Selected.background());
+        assert_eq!((bar.rect[0], bar.rect[2]), (panel.rect[0], panel.rect[2]));
+        assert_eq!(bar.radii, [0.0; 4]);
     }
 
     #[test]
