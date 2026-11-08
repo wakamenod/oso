@@ -37,7 +37,7 @@ pub(crate) fn distinct(files: &[&Path], taken: &[&str]) -> Vec<String> {
 }
 
 /// The file's own name, or the whole path for one with none, such as `/`.
-fn base(path: &Path) -> String {
+pub(crate) fn base(path: &Path) -> String {
     path.file_name().map_or_else(
         || path.to_string_lossy().into_owned(),
         |name| name.to_string_lossy().into_owned(),

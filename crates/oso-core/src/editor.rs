@@ -195,11 +195,11 @@ impl Editor {
     pub fn add_buffer(&mut self, buffer: Buffer) -> BufferId {
         let id = BufferId(self.next_id);
         self.next_id += 1;
-        let names_a_file = buffer.path().is_some();
+        let name = buffer
+            .path()
+            .map_or_else(|| buffer.name().to_owned(), crate::buffer::file_base);
         self.buffers.push((id, buffer));
-        if names_a_file {
-            self.name_files();
-        }
+        self.name_files_like(&name);
         id
     }
 
@@ -230,11 +230,7 @@ impl Editor {
     /// its start, or in the window beneath an open prompt, whose own window always shows its own
     /// buffer (ADR 0072). Does nothing for an id that does not exist.
     pub fn show(&mut self, buffer: BufferId) {
-        if let Some(shown) = self.buffer(buffer) {
-            // Off the internal buffers, so that where it came from no longer says anything.
-            if !shown.is_internal() {
-                self.way_back.clear();
-            }
+        if self.buffer(buffer).is_some() {
             self.window_moves_on();
             let index = self.tiled_index();
             self.window_shows(index, buffer);

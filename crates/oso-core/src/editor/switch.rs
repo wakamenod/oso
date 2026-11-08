@@ -33,6 +33,14 @@ impl Editor {
     /// window shows comes through here, so that what was around a buffer that may hold secrets,
     /// before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        // Onto one of the user's buffers, so that the way back through internal ones no longer
+        // says anything (ADR 0063).
+        let users = self
+            .buffer(buffer)
+            .is_some_and(|shown| !shown.is_internal());
+        if users && index == self.tiled_index() {
+            self.way_back.clear();
+        }
         self.note_secret_shown();
         if let Some(place) = self.windows[index].show(buffer) {
             self.restore_place(index, place);
@@ -170,10 +178,14 @@ impl Editor {
             if self.windows[index].buffer() != id {
                 continue;
             }
+            // One of the user's: an internal buffer is reached by its own key.
             let back = self.windows[index]
                 .places()
                 .map(|(other, _)| other)
-                .find(|other| self.buffer(*other).is_some());
+                .find(|other| {
+                    self.buffer(*other)
+                        .is_some_and(|buffer| !buffer.is_internal())
+                });
             let back = match back {
                 Some(back) => back,
                 None => self.scratch_other_than(id),
@@ -188,9 +200,12 @@ impl Editor {
         }
         if let Some(position) = self.buffers.iter().position(|(other, _)| *other == id) {
             let (_, buffer) = self.buffers.remove(position);
+            let name = buffer
+                .path()
+                .map_or_else(|| buffer.name().to_owned(), buffer::file_base);
             self.freed.push(buffer);
+            self.name_files_like(&name);
         }
-        self.name_files();
         if shown {
             self.note_secret_shown();
         }
@@ -219,25 +234,31 @@ impl Editor {
         }
     }
 
-    /// Names every buffer that visits a file so that no two share a name, and none takes the
-    /// name of a buffer with no file (ADR 0088).
-    pub(super) fn name_files(&mut self) {
+    /// Names the buffers whose file is called `name` so that no two share a name, and none
+    /// takes the name of a buffer with no file (ADR 0088). Only that group can change when a
+    /// buffer called `name` comes or goes, so this costs one pass over the buffers.
+    pub(super) fn name_files_like(&mut self, name: &str) {
         let taken: Vec<String> = self
             .buffers
             .iter()
-            .filter(|(_, buffer)| buffer.path().is_none())
+            .filter(|(_, buffer)| buffer.path().is_none() && buffer.name() == name)
             .map(|(_, buffer)| buffer.name().to_owned())
             .collect();
         let taken: Vec<&str> = taken.iter().map(String::as_str).collect();
-        let files: Vec<usize> = (0..self.buffers.len())
-            .filter(|index| self.buffers[*index].1.path().is_some())
+        let group: Vec<usize> = (0..self.buffers.len())
+            .filter(|index| {
+                self.buffers[*index]
+                    .1
+                    .path()
+                    .is_some_and(|path| buffer::file_base(path) == name)
+            })
             .collect();
-        let paths: Vec<&std::path::Path> = files
+        let paths: Vec<&std::path::Path> = group
             .iter()
             .filter_map(|index| self.buffers[*index].1.path())
             .collect();
         let names = buffer::distinct_names(&paths, &taken);
-        for (index, name) in files.into_iter().zip(names) {
+        for (index, name) in group.into_iter().zip(names) {
             self.buffers[index].1.set_name(name);
         }
     }

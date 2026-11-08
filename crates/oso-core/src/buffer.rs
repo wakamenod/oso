@@ -38,7 +38,7 @@ mod splice;
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, FileStamp};
 pub use mode::Mode;
-pub(crate) use names::distinct as distinct_names;
+pub(crate) use names::{base as file_base, distinct as distinct_names};
 use splice::{SpliceText, apply, normalized, offset_edit};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).

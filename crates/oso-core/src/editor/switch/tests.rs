@@ -198,3 +198,56 @@ fn a_secret_buffer_killed_off_the_screen_marks_what_was_around_it() {
     assert!(!editor.shows_secret());
     assert_eq!(shown(&editor), SCRATCH);
 }
+
+#[test]
+fn walking_off_an_internal_buffer_empties_the_way_back() {
+    let (mut editor, [a, b, _]) = three();
+    editor.show(b);
+    editor.show(a);
+    editor.toggle_messages();
+    editor.walk_buffers(-1).unwrap();
+    let on = editor.window().buffer();
+    assert!(!editor.current().1.is_internal());
+    assert_ne!(on, a, "not where the way back began");
+    editor.toggle_copies();
+    assert_eq!(
+        editor.place_behind_internal().map(|(id, _, _)| id),
+        Some(on)
+    );
+    editor.leave_all_internal();
+    assert_eq!(
+        editor.window().buffer(),
+        on,
+        "where the walk went, not before it"
+    );
+}
+
+#[test]
+fn a_killed_buffer_never_leaves_the_window_on_an_internal_one() {
+    let (mut editor, [a, _, _]) = three();
+    editor.show(a);
+    editor.toggle_messages();
+    editor.toggle_messages();
+    assert_eq!(editor.window().buffer(), a);
+    editor.kill_buffer(a);
+    assert!(!editor.current().1.is_internal(), "{}", shown(&editor));
+}
+
+#[test]
+fn showing_the_buffer_shown_changes_nothing_there() {
+    let (mut editor, [a, _, _]) = three();
+    editor.show(a);
+    editor.restore_positions(SelectionSet::new(4), Scroll { top: 1, left: 0 });
+    editor.show(a);
+    assert_eq!(cursor(&editor), 4);
+    assert_eq!(editor.window().scroll().top, 1);
+}
+
+#[test]
+fn a_buffer_with_no_file_named_as_a_file_puts_that_file_apart() {
+    let mut editor = Editor::default();
+    let file = editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/notes")));
+    assert_eq!(editor.buffer(file).unwrap().name(), "notes");
+    editor.add_buffer(Buffer::new("notes"));
+    assert_eq!(editor.buffer(file).unwrap().name(), "notes<tmp>");
+}
