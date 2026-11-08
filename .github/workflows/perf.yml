@@ -45,10 +45,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: ./.github/actions/install-just
       # Linux has no display or GPU: Xvfb and lavapipe, Mesa's software Vulkan
       # driver. It draws no text yet (ADR 0036).
       - name: Install a virtual display and lavapipe
@@ -112,10 +110,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: ./.github/actions/install-just
       - run: just build-time target/perf/build-time.json
       - name: Fetch the baseline
         env:

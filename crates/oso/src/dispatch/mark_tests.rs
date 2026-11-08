@@ -60,7 +60,11 @@ fn c_spc_sets_the_mark_and_shows_the_region_and_again_hides_it() {
 fn an_edit_c_g_and_undo_hide_the_region_and_keep_the_mark() {
     let (mut d, mut editor) = at("abc\n", &[1]);
     send(&mut d, &mut editor, "C-SPC C-f x");
-    assert_eq!(text(&editor), "abxc\n");
+    assert_eq!(
+        text(&editor),
+        "axc\n",
+        "typing replaces the region (ADR 0074)"
+    );
     assert_eq!(
         (mark(&editor), mark_active(&editor)),
         (Some(1), MarkActive::Inactive)
