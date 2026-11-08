@@ -346,9 +346,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   directory, never committed) can be driven this way.
 - `take-timings` reads key latency, startup and load times for benchmarks. It records no
   key if a secret-pattern buffer is shown just before or after it or when its frame is
-  presented, and no frames while one is shown, but the first frame and the first load's
-  times. A file counts as secret until it is judged
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  presented, and no frames while one is shown, but the first frame. A file counts as secret
+  until it is judged ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). The load
+  times are of the first file judged ordinary, and its first screen counts only if no such
+  buffer is shown then ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - `screenshot` writes a PNG of the current frame and returns its path.
 
 The transport and protocol themselves are tested without a window or GPU

@@ -61,7 +61,7 @@ fn main() {
         Err(message) => exit_with_usage(Some(&message)),
     };
 
-    env_logger::init();
+    let log_gate = app::LogGate::install();
     if let Err(e) = core_dumps {
         // Only this level reaches a terminal with no `RUST_LOG`.
         log::error!("cannot turn core dumps off: {e}");
@@ -74,7 +74,7 @@ fn main() {
             let waker = waker.clone();
             dev::start(move |request| waker.send(UserEvent::Control(request)))
         };
-        let mut app = App::new(waker, started, emergency, clipboard);
+        let mut app = App::new(waker, started, emergency, clipboard, log_gate);
         #[cfg(feature = "dev")]
         app.set_dev(dev);
         app.check_emergency_directory();
