@@ -432,10 +432,19 @@ fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pan
     }
 }
 
-/// The cells of the selected candidate's row, while it shows.
+/// The cells of the selected candidate's row, while it shows, or of the answer's row while what
+/// is typed is selected (ADR 0087, ADR 0088).
 fn selected_row(parts: &Parts<'_>) -> Option<CellRect> {
     let (candidates, _) = parts.list.as_ref()?;
     let rows = parts.layout.regions.candidates;
+    if candidates.on_input() {
+        let inner = parts.layout.regions.inner;
+        return Some(CellRect {
+            row: (inner.row + inner.rows).checked_sub(1)?,
+            rows: 1,
+            ..rows
+        });
+    }
     let place = candidates.selected()?.checked_sub(candidates.top())?;
     (place < rows.rows).then_some(CellRect {
         row: rows.row + place,

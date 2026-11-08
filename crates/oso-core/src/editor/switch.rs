@@ -130,6 +130,61 @@ impl Editor {
         ring
     }
 
+    /// The buffers a person goes between, the one the tiled window shows first, then those it
+    /// showed before, the most recent first, then the rest in the order they opened: every
+    /// buffer of the user's, `*Messages*` and the list of emergency copies once made. A prompt's
+    /// buffer and a copy being looked at are left out (ADR 0088).
+    pub fn buffers_by_recency(&self) -> Vec<BufferId> {
+        let window = &self.windows[self.tiled_index()];
+        let listed = |id: BufferId| {
+            self.buffer(id).is_some_and(|buffer| {
+                !buffer.is_internal()
+                    || id == self.messages_buffer
+                    || Some(id) == self.copies_buffer
+            })
+        };
+        let mut order = Vec::new();
+        let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
+        let all = self.buffers.iter().map(|(id, _)| *id);
+        for id in shown.chain(all) {
+            if listed(id) && !order.contains(&id) {
+                order.push(id);
+            }
+        }
+        order
+    }
+
+    /// The buffer a person may go to that is named `name`, as [`Editor::buffers_by_recency`]
+    /// lists them.
+    pub fn buffer_named(&self, name: &str) -> Option<BufferId> {
+        self.buffers_by_recency()
+            .into_iter()
+            .find(|id| self.buffer(*id).is_some_and(|buffer| buffer.name() == name))
+    }
+
+    /// Shows the buffer named `name`, making an empty one with no file if none is (ADR 0088).
+    /// An empty name shows nothing.
+    pub fn switch_to_named(&mut self, name: &str) {
+        if name.is_empty() {
+            return;
+        }
+        let id = match self.buffer_named(name) {
+            Some(id) => id,
+            None => self.add_buffer(Buffer::new(name)),
+        };
+        self.show(id);
+    }
+
+    /// The home directory, which `~` stands for, as the host read it once at startup.
+    pub fn home(&self) -> Option<&std::path::Path> {
+        self.home.as_deref()
+    }
+
+    /// Tells the editor the home directory, read once by the host at startup.
+    pub fn set_home(&mut self, home: Option<std::path::PathBuf>) {
+        self.home = home;
+    }
+
     /// Kills `id` as a person asked: a modified buffer only with `anyway`, after a question
     /// about that buffer, never while it saves, and never an internal one (ADR 0088).
     ///

@@ -722,6 +722,12 @@ mod scenarios {
         check_frame("complete_m_x", text, (30, 100), &steps);
     }
 
+    #[test]
+    fn c_x_b_lists_buffers_with_what_they_are_and_c_p_selects_what_is_typed() {
+        let steps = ["C-x b", "t e", "C-p", "C-g"];
+        check_frame("buffers_c_x_b", "notes\n", (24, 100), &steps);
+    }
+
     // A dev build lists its own commands too, so these run in a build without them.
     #[cfg(not(feature = "dev"))]
     #[test]

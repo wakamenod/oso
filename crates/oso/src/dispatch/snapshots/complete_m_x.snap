@@ -35,7 +35,7 @@ keys: M-x
 =-- test  1:0  Fundamental  UTF-8 LF                                                                 =
 "                                                                                                    "
 float at row 4, column 19: 19 x 62
-│ 1/47  M-x                                                    │
+│ 1/50  M-x                                                    │
 :           ^                                                  :
 │>undo (C-z)             Undo the last N changes to the buffe… │
 │ yank (C-y)             Insert the newest kill at every curs… │
@@ -46,6 +46,7 @@ float at row 4, column 19: 19 x 62
 │ next-line (C-n)        Move point N lines down (up if N is … │
 │ undo-redo (C-M-z)      Redo the last N undone changes (undo… │
 │ delete-char (C-d)      Delete the N characters after every … │
+│ kill-buffer (C-x k)    Kill a buffer, read with completion,… │
 │ next-buffer (M-/)      Go the other way from `previous-buff… │
 │ save-buffer (C-x C-s)  Save the buffer to its file, if it i… │
 │ forward-char (C-f)     Move point N characters forward (bac… │
@@ -54,7 +55,6 @@ float at row 4, column 19: 19 x 62
 │ backward-word (M-b)    Move point to the start of the previ… │
 │ end-of-buffer (M->)    Move point to the end of the buffer.  │
 │ keyboard-quit (C-g)    Cancel what is in progress, one thin… │
-│ previous-line (C-p)    Move point N lines up (down if N is … │
 
 keys: f o r w
 │# Notes                                                                                             │

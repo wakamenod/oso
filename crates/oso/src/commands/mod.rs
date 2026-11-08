@@ -148,6 +148,7 @@ mod tests {
             "answer-yes",
             "execute-extended-command",
             "exit-minibuffer",
+            "exit-minibuffer-input",
             "first-completion",
             "insert-completion",
             "last-completion",
@@ -166,6 +167,9 @@ mod tests {
             "emergency-copy-view",
             "recover-session",
             "revert-buffer",
+            // Killing a buffer, which can lose unsaved text (ADR 0088).
+            "kill-buffer",
+            "kill-buffer-anyway",
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",

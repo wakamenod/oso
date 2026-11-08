@@ -15,6 +15,17 @@ use crate::buffer::Replacement;
 use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES};
 use crate::minibuffer::{Kind, PromptError, PromptId};
 
+/// How a prompt that completes orders its candidates, and what it takes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CompletionStyle {
+    /// The candidates keep the order given, as buffers do, most recent first (ADR 0088),
+    /// instead of ADR 0076's history, then length, then alphabetical.
+    pub given_order: bool,
+    /// Any text is an answer, not only a candidate's: a buffer or a file that need not exist
+    /// yet (ADR 0087, ADR 0088).
+    pub takes_input: bool,
+}
+
 impl Editor {
     /// Opens a prompt that says `label` and completes over `items`, kept in the history
     /// `history`. They show in its order first, unless a buffer that may hold secrets is
@@ -29,16 +40,36 @@ impl Editor {
         history: &'static str,
         items: Arc<[Candidate]>,
     ) -> Result<PromptId, PromptError> {
+        self.open_completion_as(label, history, items, CompletionStyle::default())
+    }
+
+    /// Opens a prompt that completes, as [`Editor::open_completion`] does, in `style`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Editor::open_completion`].
+    pub fn open_completion_as(
+        &mut self,
+        label: impl Into<String>,
+        history: &'static str,
+        items: Arc<[Candidate]>,
+        style: CompletionStyle,
+    ) -> Result<PromptId, PromptError> {
         let id = self.open_prompt(label, Kind::Complete { history })?;
         let records = self
             .prompts
             .last()
             .is_some_and(|prompt| !prompt.around_secret);
-        let candidates = if records {
+        let mut candidates = if style.given_order {
+            Candidates::in_given_order(items)
+        } else if records {
             Candidates::new(items, self.histories.entries(history))
         } else {
             Candidates::new(items, [])
         };
+        if style.takes_input {
+            candidates.take_input();
+        }
         let revision = self.prompt_revision().unwrap_or_default();
         if let Some(prompt) = self.prompts.last_mut() {
             prompt.completion = Some((candidates, revision));

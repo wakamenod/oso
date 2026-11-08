@@ -202,6 +202,10 @@ impl<'a> core::clone::Clone for oso_core::buffer::Replacement<'a>
 pub fn oso_core::buffer::Replacement<'a>::clone(&self) -> oso_core::buffer::Replacement<'a>
 pub mod oso_core::command
 pub enum oso_core::command::ArgSpec
+pub oso_core::command::ArgSpec::Buffer
+pub oso_core::command::ArgSpec::Buffer::history: &'static str
+pub oso_core::command::ArgSpec::Buffer::prompt: &'static str
+pub oso_core::command::ArgSpec::Buffer::purpose: oso_core::command::BufferPurpose
 pub oso_core::command::ArgSpec::Command
 pub oso_core::command::ArgSpec::Command::history: &'static str
 pub oso_core::command::ArgSpec::Command::prompt: &'static str
@@ -225,6 +229,18 @@ impl core::fmt::Debug for oso_core::command::ArgSpec
 pub fn oso_core::command::ArgSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::command::ArgSpec
 impl core::marker::StructuralPartialEq for oso_core::command::ArgSpec
+pub enum oso_core::command::BufferPurpose
+pub oso_core::command::BufferPurpose::Kill
+pub oso_core::command::BufferPurpose::Switch
+impl core::clone::Clone for oso_core::command::BufferPurpose
+pub fn oso_core::command::BufferPurpose::clone(&self) -> oso_core::command::BufferPurpose
+impl core::cmp::Eq for oso_core::command::BufferPurpose
+impl core::cmp::PartialEq for oso_core::command::BufferPurpose
+pub fn oso_core::command::BufferPurpose::eq(&self, &oso_core::command::BufferPurpose) -> bool
+impl core::fmt::Debug for oso_core::command::BufferPurpose
+pub fn oso_core::command::BufferPurpose::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::command::BufferPurpose
+impl core::marker::StructuralPartialEq for oso_core::command::BufferPurpose
 pub enum oso_core::command::ExecuteError
 pub oso_core::command::ExecuteError::Failed
 pub oso_core::command::ExecuteError::Failed::command: &'static str
@@ -434,10 +450,12 @@ impl oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::get(&self, usize) -> core::option::Option<&oso_core::complete::Candidate>
 pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
 pub fn oso_core::complete::Candidates::len(&self) -> usize
+pub fn oso_core::complete::Candidates::on_input(&self) -> bool
 pub fn oso_core::complete::Candidates::query(&self) -> &oso_core::complete::Query
 pub fn oso_core::complete::Candidates::selected(&self) -> core::option::Option<usize>
 pub fn oso_core::complete::Candidates::selected_candidate(&self) -> core::option::Option<&oso_core::complete::Candidate>
 pub fn oso_core::complete::Candidates::shown(&self, usize) -> impl core::iter::traits::iterator::Iterator<Item = (usize, &oso_core::complete::Candidate)>
+pub fn oso_core::complete::Candidates::takes_input(&self) -> bool
 pub fn oso_core::complete::Candidates::top(&self) -> usize
 pub fn oso_core::complete::Candidates::total(&self) -> usize
 impl core::fmt::Debug for oso_core::complete::Candidates
@@ -974,6 +992,20 @@ impl oso_core::editor::ClipboardWrite
 pub fn oso_core::editor::ClipboardWrite::text(&self) -> alloc::string::String
 impl core::fmt::Debug for oso_core::editor::ClipboardWrite
 pub fn oso_core::editor::ClipboardWrite::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::CompletionStyle
+pub oso_core::editor::CompletionStyle::given_order: bool
+pub oso_core::editor::CompletionStyle::takes_input: bool
+impl core::clone::Clone for oso_core::editor::CompletionStyle
+pub fn oso_core::editor::CompletionStyle::clone(&self) -> oso_core::editor::CompletionStyle
+impl core::cmp::Eq for oso_core::editor::CompletionStyle
+impl core::cmp::PartialEq for oso_core::editor::CompletionStyle
+pub fn oso_core::editor::CompletionStyle::eq(&self, &oso_core::editor::CompletionStyle) -> bool
+impl core::default::Default for oso_core::editor::CompletionStyle
+pub fn oso_core::editor::CompletionStyle::default() -> oso_core::editor::CompletionStyle
+impl core::fmt::Debug for oso_core::editor::CompletionStyle
+pub fn oso_core::editor::CompletionStyle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::CompletionStyle
+impl core::marker::StructuralPartialEq for oso_core::editor::CompletionStyle
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
@@ -1024,6 +1056,7 @@ pub fn oso_core::editor::Editor::prompt_windows(&self) -> impl core::iter::trait
 pub fn oso_core::editor::Editor::prompts(&self) -> &[oso_core::minibuffer::Prompt]
 pub fn oso_core::editor::Editor::quit(&mut self) -> oso_core::editor::Quit
 pub fn oso_core::editor::Editor::submit_prompt(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::submit_typed(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::take_prompt_outcome(&mut self) -> core::option::Option<oso_core::minibuffer::Outcome>
 pub fn oso_core::editor::Editor::tiled(&self) -> (&oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::walk_history(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
@@ -1042,12 +1075,24 @@ pub fn oso_core::editor::Editor::place_behind_internal(&self) -> core::option::O
 pub fn oso_core::editor::Editor::set_keys_in_progress(&mut self, &str)
 pub fn oso_core::editor::Editor::toggle_messages(&mut self)
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::buffer_named(&self, &str) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::buffers_by_recency(&self) -> alloc::vec::Vec<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::home(&self) -> core::option::Option<&std::path::Path>
+pub fn oso_core::editor::Editor::kill_asked(&self) -> core::option::Option<oso_core::buffer::BufferId>
+pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::kill_by_person(&mut self, oso_core::buffer::BufferId, bool) -> core::result::Result<(), oso_core::editor::KillRefused>
+pub fn oso_core::editor::Editor::set_home(&mut self, core::option::Option<std::path::PathBuf>)
+pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str)
+pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
+pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::candidate_rows(&self) -> usize
 pub fn oso_core::editor::Editor::insert_completion(&mut self) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::keep_out_of_history(&mut self, oso_core::minibuffer::PromptId)
 pub fn oso_core::editor::Editor::match_completion(&mut self)
 pub fn oso_core::editor::Editor::move_completion(&mut self, isize) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_completion(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, alloc::sync::Arc<[oso_core::complete::Candidate]>) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::open_completion_as(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, alloc::sync::Arc<[oso_core::complete::Candidate]>, oso_core::editor::CompletionStyle) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::page_completion(&mut self, isize) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::select_completion_end(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
@@ -1113,12 +1158,6 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
 pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
-impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::kill_asked(&self) -> core::option::Option<oso_core::buffer::BufferId>
-pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::BufferId)
-pub fn oso_core::editor::Editor::kill_by_person(&mut self, oso_core::buffer::BufferId, bool) -> core::result::Result<(), oso_core::editor::KillRefused>
-pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
-pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::FileStamp, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>

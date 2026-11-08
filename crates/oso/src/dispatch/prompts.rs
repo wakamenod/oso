@@ -10,11 +10,13 @@
 //! drops what waited for it. A question's `y` runs the command it names, confirmed, which
 //! checks again what is true by then.
 
-use oso_core::command::{ArgSpec, Args, CommandId, Effects, ExecuteError, Invocation, Prefix};
-use oso_core::editor::Editor;
+use oso_core::command::{
+    ArgSpec, Args, BufferPurpose, CommandId, Effects, ExecuteError, Invocation, Prefix,
+};
+use oso_core::editor::{CompletionStyle, Editor};
 use oso_core::minibuffer::{Kind, Outcome, PromptId};
 
-use super::{Dispatcher, Step, extended};
+use super::{Dispatcher, Step, buffers, extended};
 
 /// A command waiting for the answer of the prompt `prompt`.
 pub(super) struct Reading {
@@ -75,6 +77,18 @@ impl Dispatcher {
                 return (Effects::default(), Ok(()));
             }
             Some(ArgSpec::Command { prompt, history }) => (prompt, Kind::Complete { history }),
+            Some(ArgSpec::Buffer {
+                prompt,
+                history,
+                purpose,
+            }) => {
+                let read = ReadBuffer {
+                    prompt,
+                    history,
+                    purpose,
+                };
+                return self.read_buffer(editor, id, args.raw(), read);
+            }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;
@@ -102,6 +116,43 @@ impl Dispatcher {
             redraw: true,
             ..Effects::default()
         };
+        (effects, Ok(()))
+    }
+
+    /// Opens the prompt that reads a buffer for the command `id`, unless a prompt is selected,
+    /// whose window always shows its own buffer, so these refuse there before asking anything
+    /// (ADR 0072, ADR 0088).
+    fn read_buffer(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        read: ReadBuffer,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let effects = Effects {
+            redraw: true,
+            ..Effects::default()
+        };
+        if editor.prompt().is_some() {
+            editor.prompt_says("Not in the minibuffer");
+            return (effects, Ok(()));
+        }
+        // The buffers, most recent first; showing takes any name.
+        let style = CompletionStyle {
+            given_order: true,
+            takes_input: read.purpose == BufferPurpose::Switch,
+        };
+        let items = buffers::candidates(editor, read.purpose);
+        match editor.open_completion_as(read.prompt, read.history, items, style) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+            }),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
         (effects, Ok(()))
     }
 
@@ -218,4 +269,11 @@ impl Dispatcher {
                 .any(|prompt| prompt.id() == reading.prompt)
         });
     }
+}
+
+/// What `ArgSpec::Buffer` asks for.
+struct ReadBuffer {
+    prompt: &'static str,
+    history: &'static str,
+    purpose: BufferPurpose,
 }

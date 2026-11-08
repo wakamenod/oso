@@ -17,4 +17,5 @@ pub const COMPLETION: &[(&str, &str)] = &[
     ("C-v", "scroll-completions-up"),
     ("M-v", "scroll-completions-down"),
     ("TAB", "insert-completion"),
+    ("M-RET", "exit-minibuffer-input"),
 ];
