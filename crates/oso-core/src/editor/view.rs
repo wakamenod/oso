@@ -85,7 +85,11 @@ impl Editor {
     /// `out`, which is emptied first, and none while they are hidden (ADR 0071). A
     /// preedit pushes them as it pushes the text.
     pub fn region_cells(&self, out: &mut Vec<CellRect>) {
+        out.clear();
         let (window, buffer) = self.current();
+        if !window.selections.mark_active().is_active() {
+            return;
+        }
         let display = buffer.display();
         let preedit =
             (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
