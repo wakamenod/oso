@@ -113,12 +113,12 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_a_composition_is_kept() {
         assert!(allowed(&mut app), "after {keys} {back}");
     }
 
-    // A prompt turns it off. Only a request can bring one during a composition, as the OS
-    // keeps the keys then. On winit, which cannot commit, that waits for the composition to
-    // end; oso's own layer commits it where typing goes, here the prompt, then turns the IME
-    // off (ADR 0077).
+    // A prompt turns it off. Only the socket can open one during a composition, as the OS
+    // keeps the keys then; both keys come in one request, and the IME is decided after it.
+    // On winit, which cannot commit, that waits for the composition to end; oso's own layer
+    // commits it where typing goes, here the prompt, then turns the IME off (ADR 0077).
     ime(&mut app, json!({ "preedit": "か" })).unwrap();
-    app.run_command("goto-line", None).unwrap();
+    app.send_keys("M-g g");
     let state = app.state();
     assert_eq!(state["ime"]["wanted"], false);
     if cfg!(all(target_os = "macos", feature = "native-window")) {
