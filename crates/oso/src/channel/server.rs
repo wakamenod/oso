@@ -536,5 +536,6 @@ mod limits;
 
 use limits::{Gate, Rate, Slot, gate};
 
-#[cfg(test)]
+// The tests need a socket, which only Unix has (ADR 0032).
+#[cfg(all(test, unix))]
 mod tests;
