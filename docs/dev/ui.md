@@ -2,7 +2,8 @@
 
 This document describes the screen layout and visual behavior that M2
 builds. The decision record is [ADR 0026](adr/0026-m2-ui-layout.md); the
-theme is in [ADR 0027](adr/0027-theme.md). UI for later features is designed
+themes are in [ADR 0027](adr/0027-theme.md) and
+[ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md). UI for later features is designed
 before each feature is built.
 
 ## Layout
@@ -196,6 +197,17 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - After a large jump or scroll, the cursor position flashes briefly
   (beacon-style).
 
+## Themes
+
+[ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md):
+
+- Three themes: `dark` (near-black, the default), `light`, and `dusk` (dark grey).
+- `M-x load-theme` picks one through a completion. `<f5>` (`toggle-theme`) switches between
+  `dark` and `light`, a pair that configuration will be able to name (M3).
+- The choice is remembered across starts. oso does not follow the OS's dark or light appearance.
+- A switch redraws once. In every theme, text that is read keeps 7:1 contrast and secondary
+  labels 4.5:1, and a question's label has a colour no buffer text has.
+
 ## Mark and region
 
 As Emacs with `transient-mark-mode` and `shift-select-mode`
@@ -204,7 +216,7 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 - The region is shown only while it is active: from `C-SPC` (or `C-@`), `C-x C-x` or `C-x h`, or a
   motion with Shift, until an edit, `C-g`, `C-SPC C-SPC` or another buffer in the window. A region
   from a motion with Shift ends with the next motion without it.
-- It is a background colour only, a muted blue-grey until the theme: text keeps its own colour,
+- It is a background colour only, the theme's `region`: text keeps its own colour,
   and boxes, the cursor and a preedit's underline are drawn over it. A row whose line break is in
   the region is filled to the window's right edge.
 - `C-u C-SPC` and `C-,` go back through the mark ring, 16 marks. `M-<` and `M->` set the mark where

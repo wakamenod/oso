@@ -203,9 +203,11 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
   kill ring ([ADR 0007](adr/0007-multi-cursor.md)).
 - **M2-22** (after M2-8 and M2-16): reloading files changed on disk
   ([ADR 0029](adr/0029-file-changes-on-disk.md)).
-- **M2-23** (after M2-13, and after the work in the text pass merges): the dark and
-  light theme with the contrast check, text gamma, and gaps between invisible boxes
-  ([ADR 0027](adr/0027-theme.md)).
+- **M2-23** (after M2-13, M2-17 and M2-20, and after the work in the text pass merges):
+  three built-in themes, `dark`, `light` and `dusk`, switched at run time with `load-theme`
+  and `<f5>` and remembered across starts, with the contrast check for every theme, text
+  gamma, and gaps between invisible boxes ([ADR 0027](adr/0027-theme.md),
+  [ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - **M2-24** (after M2-23): visual aids: whitespace, current line, cursor flash and
   line numbers.
 - **M2-25** (after M2-9 and M2-24): soft wrap, with the WrapMap
