@@ -59,7 +59,12 @@ fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> VertexOutpu
     out.color = instance.color;
     out.kind = instance.kind;
     let ink = dot(instance.color.rgb, vec3<f32>(0.2126, 0.7152, 0.0722));
-    out.gamma = vec4<f32>(ink, instance.paper, encode(ink), encode(instance.paper));
+    out.gamma = vec4<f32>(ink, instance.paper, 0.0, 0.0);
+    // Nothing to encode while the correction is off.
+    if uniforms.gamma.x > 0.0 {
+        out.gamma.z = encode(ink);
+        out.gamma.w = encode(instance.paper);
+    }
     return out;
 }
 

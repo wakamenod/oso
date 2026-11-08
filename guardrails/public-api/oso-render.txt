@@ -204,7 +204,7 @@ pub fn oso_render::RenderState::presented_frames(&self) -> u64
 pub fn oso_render::RenderState::render(&mut self, &[oso_render::Pane<'_>], &dyn core::ops::function::Fn() -> (u32, u32)) -> core::result::Result<oso_render::Redraw, oso_render::RenderError>
 pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redraw
 pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
-pub fn oso_render::RenderState::set_theme(&mut self, usize) -> oso_render::Redraw
+pub fn oso_render::RenderState::set_theme(&mut self, &str) -> core::option::Option<oso_render::Redraw>
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
 impl oso_render::RenderState
 pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo

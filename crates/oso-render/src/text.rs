@@ -324,7 +324,6 @@ impl Layout {
     }
 }
 
-/// Draws glyph quads.
 /// CPU-side mirror of the WGSL `Uniforms` struct: the projection, and the theme's text gamma.
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
@@ -340,6 +339,7 @@ impl TextUniforms {
     }
 }
 
+/// Draws glyph quads.
 pub(crate) struct TextRenderer {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,

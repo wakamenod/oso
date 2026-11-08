@@ -435,7 +435,17 @@ pub(crate) mod tests {
             Face::Question => &[(Face::Float, READ)],
             Face::Warning => &[(Face::Text, READ), (Face::Modeline, LABEL)],
             Face::CompletionMatch => &[(LIST[0], READ), (LIST[1], READ)],
-            Face::Escape => &[(Face::Text, LABEL)],
+            // An escape's label sits wherever text can: on every fill behind buffer text, in a
+            // modeline's name and on a float.
+            Face::Escape => &[
+                (Face::Text, LABEL),
+                (Face::Region, LABEL),
+                (Face::SearchMatch, LABEL),
+                (Face::SearchCurrent, LABEL),
+                (Face::CompletionSelected, LABEL),
+                (Face::Modeline, LABEL),
+                (Face::Float, LABEL),
+            ],
             Face::Boxed => &[(Face::Boxed, LABEL)],
             Face::Prompt => &[(Face::Float, LABEL)],
             Face::Key => &[(Face::Key, LABEL)],
@@ -568,6 +578,9 @@ pub(crate) mod tests {
             [
                 "dusk: Text on Region (6.38 < 7)",
                 "dusk: Text on SearchCurrent (4.66 < 7)",
+                "dusk: Escape on Region (3.81 < 4.5)",
+                "dusk: Escape on SearchCurrent (2.79 < 4.5)",
+                "dusk: Escape on Modeline (2.67 < 4.5)",
                 "dusk: Boxed on Boxed (3.30 < 4.5)",
                 "dusk: Modeline on Modeline (4.46 < 7)",
                 "dusk: Warning on Modeline (3.72 < 4.5)",
@@ -578,22 +591,34 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn fills_stand_apart_from_the_background() {
+    fn fills_stand_apart_from_what_they_sit_on() {
         for theme in &themes() {
-            let paper = theme.background(Face::Text);
-            for face in [
-                Face::Region,
-                Face::SearchMatch,
-                Face::SearchCurrent,
-                Face::CompletionSelected,
-                Face::Modeline,
-                Face::Float,
-                Face::Key,
-                Face::Boxed,
+            let behind_text = theme.background(Face::Text);
+            let float = theme.background(Face::Float);
+            for (face, behind) in [
+                (Face::Region, behind_text),
+                (Face::SearchMatch, behind_text),
+                (Face::SearchCurrent, behind_text),
+                (Face::CompletionSelected, behind_text),
+                (Face::Modeline, behind_text),
+                (Face::Float, behind_text),
+                (Face::Boxed, behind_text),
+                // A key's chip and an input field sit on a float's fill.
+                (Face::Key, float),
+                (Face::Field, float),
             ] {
-                let step = (oklab(theme.background(face))[0] - oklab(paper)[0]).abs();
+                let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
             }
+        }
+    }
+
+    #[test]
+    fn what_a_completion_matched_stands_apart_from_the_rest_of_its_text() {
+        for theme in &themes() {
+            let matched = theme.foreground(Face::CompletionMatch);
+            let apart = distance(matched, theme.foreground(Face::Text));
+            assert!(apart >= 0.05, "{}: {apart:.3}", theme.name());
         }
     }
 
