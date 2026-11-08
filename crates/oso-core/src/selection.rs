@@ -100,6 +100,17 @@ pub struct MarkRing {
 }
 
 impl MarkRing {
+    /// A ring of `marks`, the newest first, as far as there is room, for one carried from
+    /// another instance (ADR 0090).
+    pub fn from_newest(marks: impl IntoIterator<Item = usize>) -> Self {
+        let mut ring = Self::default();
+        for mark in marks.into_iter().take(MARK_RING_SIZE) {
+            ring.marks[ring.len] = mark;
+            ring.len += 1;
+        }
+        ring
+    }
+
     /// The marks, the newest first.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = usize> + '_ {
         self.marks[..self.len].iter().copied()
@@ -440,8 +451,8 @@ impl SelectionSet {
     }
 
     /// This set with `ring` in place of its own, for an undo, which puts back
-    /// cursors and marks but not the ring.
-    pub(crate) fn with_ring(&self, ring: MarkRing) -> Self {
+    /// cursors and marks but not the ring, and for a ring carried from another instance.
+    pub fn with_ring(&self, ring: MarkRing) -> Self {
         Self {
             ring,
             ..self.clone()
@@ -570,6 +581,17 @@ fn merge(last: Selection, next: Selection, keep_next: bool) -> Selection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ring_from_marks_keeps_their_order_and_its_size() {
+        let ring = MarkRing::from_newest([5, 2, 9]);
+        assert_eq!(ring.iter().collect::<Vec<_>>(), [5, 2, 9]);
+        let full = MarkRing::from_newest(0..MARK_RING_SIZE + 4);
+        assert_eq!(full.iter().len(), MARK_RING_SIZE);
+        assert_eq!(full.iter().next(), Some(0));
+        let set = SelectionSet::new(1).with_ring(ring);
+        assert_eq!(set.mark_ring(), &ring);
+    }
 
     #[test]
     fn a_set_knows_its_primary_and_is_never_empty() {

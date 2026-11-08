@@ -206,3 +206,21 @@ fn a_command_that_gets_a_passphrase_says_nothing_to_the_log() {
     let kept = editor.buffer(id).unwrap().text().to_string();
     assert!(!kept.contains("Wrong passphrase"));
 }
+
+#[test]
+fn a_carried_history_goes_behind_what_is_there_and_keeps_its_bounds() {
+    let mut editor = editor(3);
+    editor.histories.record("line", "7");
+    let long = "9".repeat(crate::minibuffer::MAX_ENTRY_BYTES + 1);
+    let carried = ["3", "7", "", &long, "2"].map(String::from);
+    editor.carry_history("line", carried);
+    let (name, entries) = editor.histories().next().unwrap();
+    assert_eq!(name, "line");
+    assert_eq!(entries.collect::<Vec<_>>(), ["7", "3", "2"]);
+    let many = (0..crate::minibuffer::HISTORY_LENGTH + 5).map(|n| n.to_string());
+    editor.carry_history("other", many);
+    assert_eq!(
+        editor.histories.entries("other").count(),
+        crate::minibuffer::HISTORY_LENGTH
+    );
+}

@@ -292,6 +292,28 @@ impl Editor {
         (!buffer.is_internal()).then_some((place.buffer, &place.selections, place.scroll))
     }
 
+    /// Puts `selections` and `scroll` in the place the selected window goes back to through
+    /// the internal buffers, if it is on one and that place shows `buffer`, for positions a
+    /// state handoff brought that waited for their file (ADR 0090). Returns whether it did.
+    pub fn restore_place_behind_internal(
+        &mut self,
+        buffer: BufferId,
+        selections: SelectionSet,
+        scroll: Scroll,
+    ) -> bool {
+        if !self.current().1.is_internal() {
+            return false;
+        }
+        match self.way_back.first_mut() {
+            Some(place) if place.buffer == buffer => {
+                place.selections = selections;
+                place.scroll = scroll;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Shows the internal buffer `id`, to come back from later. If the window has already come
     /// through it, this goes back to it, so that going between two of them cannot grow the way.
     pub(super) fn go_to_internal(&mut self, id: BufferId) {

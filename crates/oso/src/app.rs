@@ -20,6 +20,8 @@ mod control;
 mod copies;
 mod draw;
 mod events;
+#[cfg(feature = "dev")]
+mod handover;
 mod ime;
 mod input;
 mod loads;
@@ -119,6 +121,15 @@ pub struct App {
     /// loaded.
     #[cfg(feature = "dev")]
     restore: Option<dev::handoff::Restore>,
+    /// How many states this instance has exported, which names the latest.
+    #[cfg(feature = "dev")]
+    exports: u64,
+    /// The texts the latest export carries, for `export-text`.
+    #[cfg(feature = "dev")]
+    exported: Option<dev::handoff::carry::Exported>,
+    /// The texts `import-text` has brought for the import that follows.
+    #[cfg(feature = "dev")]
+    staging: dev::handoff::carry::Staging,
 }
 
 impl App {
@@ -164,6 +175,12 @@ impl App {
             remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
             restore: None,
+            #[cfg(feature = "dev")]
+            exports: 0,
+            #[cfg(feature = "dev")]
+            exported: None,
+            #[cfg(feature = "dev")]
+            staging: dev::handoff::carry::Staging::default(),
         }
     }
 

@@ -17,6 +17,7 @@ use oso_core::key::{KeyPress, KeySequence};
 use serde_json::{Map, Value, json};
 use std::fmt::Write as _;
 
+use super::handoff::carry::CarriedPiece;
 use super::handoff::{self, State};
 
 /// The protocol version reported by `version`. Bump it on incompatible
@@ -54,6 +55,9 @@ const MAX_COMMAND_ARG: isize = 10_000;
 /// unanswered, after which it may yet exit.
 pub const EXIT_REFUSED: &str = "exit refused";
 
+/// The longest message `dev-message` takes.
+pub const MAX_DEV_MESSAGE: usize = 1024;
+
 /// The UI's answer to a request: a JSON result or an error message.
 pub type Reply = Result<Value, String>;
 
@@ -88,6 +92,17 @@ pub enum UiOp {
     ExportState,
     /// Take over from the instance that exported this state.
     ImportState(Box<State>),
+    /// Give the piece of an item of the latest export from `offset` (ADR 0090).
+    ExportText {
+        export: u64,
+        item: usize,
+        offset: usize,
+    },
+    /// Stage a piece of an item for the import that follows.
+    ImportText(CarriedPiece),
+    /// Say this in the echo area and `*Messages*`: what `oso dev` has to tell, such as
+    /// build errors.
+    DevMessage(String),
     /// Exit: without asking, or only if the generation is still this one.
     Exit { generation: Option<u64> },
     /// Performance samples for benchmarks (ADR 0025).
@@ -241,6 +256,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "ime" => UiOp::Ime(parse_ime(params).map_err(|m| bad(&id, m))?),
         "clipboard" => UiOp::Clipboard(parse_clipboard(params).map_err(|m| bad(&id, m))?),
         "export-state" => UiOp::ExportState,
+        "export-text" | "import-text" | "dev-message" => {
+            parse_for_oso_dev(method, params).map_err(|m| bad(&id, m))?
+        }
         "import-state" => {
             let state = params
                 .get("state")
@@ -250,18 +268,65 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
         "exit" => UiOp::Exit {
             generation: parse_generation(&request, params).map_err(|m| bad(&id, m))?,
         },
-        other => {
-            let mut shown: String = other.chars().take(MAX_ECHO).collect();
-            if shown.len() < other.len() {
-                shown.push('…');
-            }
-            return Err(bad(&id, format!("unknown method {shown:?}")));
-        }
+        other => return Err(bad(&id, unknown(other))),
     };
     Ok(Request {
         id,
         method: Method::Ui(op),
     })
+}
+
+/// Why `method` is refused, quoting only its start.
+fn unknown(method: &str) -> String {
+    let mut shown: String = method.chars().take(MAX_ECHO).collect();
+    if shown.len() < method.len() {
+        shown.push('…');
+    }
+    format!("unknown method {shown:?}")
+}
+
+/// The methods only `oso dev` sends: those that carry text through a restart, and
+/// `dev-message` (ADR 0090).
+fn parse_for_oso_dev(method: &str, params: &Map<String, Value>) -> Result<UiOp, String> {
+    match method {
+        "export-text" => parse_export_text(params),
+        "import-text" => parse_import_text(params),
+        _ => parse_dev_message(params),
+    }
+}
+
+/// The parameters of `export-text`.
+fn parse_export_text(params: &Map<String, Value>) -> Result<UiOp, String> {
+    Ok(UiOp::ExportText {
+        export: parse_size(params, "export-text", "export")? as u64,
+        item: parse_size(params, "export-text", "item")?,
+        offset: parse_size(params, "export-text", "offset")?,
+    })
+}
+
+/// The parameters of `import-text`.
+fn parse_import_text(params: &Map<String, Value>) -> Result<UiOp, String> {
+    let Some(Value::String(text)) = params.get("text") else {
+        return Err("import-text needs a string parameter \"text\"".into());
+    };
+    Ok(UiOp::ImportText(CarriedPiece {
+        export: parse_size(params, "import-text", "export")? as u64,
+        item: parse_size(params, "import-text", "item")?,
+        offset: parse_size(params, "import-text", "offset")?,
+        text: text.clone(),
+    }))
+}
+
+/// The `text` parameter of `dev-message`.
+fn parse_dev_message(params: &Map<String, Value>) -> Result<UiOp, String> {
+    match params.get("text") {
+        Some(Value::String(text)) if text.len() <= MAX_DEV_MESSAGE => {
+            Ok(UiOp::DevMessage(text.clone()))
+        }
+        _ => Err(format!(
+            "dev-message needs a string parameter \"text\" of at most {MAX_DEV_MESSAGE} bytes"
+        )),
+    }
 }
 
 /// The `keys` parameter of `send-keys`, in Emacs notation.
@@ -432,7 +497,6 @@ pub fn failure(id: &Value, message: &str) -> String {
 /// These never occur outside a JSON string, and an escape there means the
 /// same character, so the line parses to the same value.
 fn escape_unsafe(line: String) -> String {
-    let is_unsafe = |c: char| matches!(c, '\u{7f}'..='\u{9f}') || is_invisible(c);
     if !line.contains(is_unsafe) {
         return line;
     }
@@ -448,6 +512,24 @@ fn escape_unsafe(line: String) -> String {
         }
     }
     escaped
+}
+
+/// What [`escape_unsafe`] writes as `\uXXXX`.
+fn is_unsafe(c: char) -> bool {
+    matches!(c, '\u{7f}'..='\u{9f}') || is_invisible(c)
+}
+
+/// At most the bytes `text` takes as a JSON string in a line of this protocol, its quotes
+/// left out: a request or a response that carries it, escapes and all, is no longer.
+pub fn escaped_len(text: &str) -> usize {
+    text.chars()
+        .map(|c| match c {
+            '"' | '\\' => 2,
+            c if c < ' ' => 6,
+            c if is_unsafe(c) => 6 * c.len_utf16(),
+            c => c.len_utf8(),
+        })
+        .sum()
 }
 
 /// The result in a response line, or its error message. Anything else is an
@@ -774,6 +856,10 @@ mod tests {
             "selected": 0,
             "pending_keys": "",
             "frame": null,
+            "export": 1,
+            "items": [],
+            "kills": [],
+            "histories": [],
         });
         let line = request(1, "import-state", Some(json!({ "state": state })));
         assert!(matches!(
@@ -795,6 +881,66 @@ mod tests {
             parsed(r#"{"method": "check-handover"}"#).method,
             Method::Ui(UiOp::CheckHandover)
         );
+    }
+
+    #[test]
+    fn parses_the_methods_that_carry_text_and_messages() {
+        let line =
+            |method: &str, params: &str| format!(r#"{{"method": "{method}", "params": {params}}}"#);
+        assert_eq!(
+            parsed(&line(
+                "export-text",
+                r#"{"export": 2, "item": 1, "offset": 5}"#
+            ))
+            .method,
+            Method::Ui(UiOp::ExportText {
+                export: 2,
+                item: 1,
+                offset: 5
+            })
+        );
+        let Method::Ui(UiOp::ImportText(piece)) = parsed(&line(
+            "import-text",
+            r#"{"export": 2, "item": 0, "offset": 0, "text": "é\n"}"#,
+        ))
+        .method
+        else {
+            panic!("not import-text");
+        };
+        assert_eq!(
+            (piece.export, piece.item, piece.text.as_str()),
+            (2, 0, "é\n")
+        );
+        assert!(
+            error(&line(
+                "import-text",
+                r#"{"export": 2, "item": 0, "offset": 0}"#
+            ))
+            .1
+            .contains("\"text\"")
+        );
+        assert!(
+            error(&line(
+                "export-text",
+                r#"{"export": 2, "item": -1, "offset": 0}"#
+            ))
+            .1
+            .contains("item")
+        );
+        assert_eq!(
+            parsed(&line("dev-message", r#"{"text": "oso dev: build failed"}"#)).method,
+            Method::Ui(UiOp::DevMessage("oso dev: build failed".into()))
+        );
+        let long = json!({ "text": "x".repeat(super::MAX_DEV_MESSAGE + 1) }).to_string();
+        assert!(error(&line("dev-message", &long)).1.contains("at most"));
+    }
+
+    #[test]
+    fn a_text_takes_no_more_than_its_escaped_length_in_a_line() {
+        let text = "a\"\\\u{1}\n\u{85}\u{202e}é\u{e0041}😀";
+        let line = success(&json!(1), json!({ "text": text }));
+        let quoted = line.len() - r#"{"id":1,"result":{"text":""}}"#.len();
+        assert!(quoted <= super::escaped_len(text), "{line}");
     }
 
     #[test]

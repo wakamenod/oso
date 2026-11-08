@@ -28,6 +28,7 @@ pub use crate::undo::ContentId;
 use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
 mod baseline;
+mod carried;
 mod internal;
 mod mode;
 mod recovery;
@@ -35,6 +36,7 @@ mod splice;
 
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, FileStamp};
+pub use carried::FileFacts;
 pub use mode::Mode;
 use splice::{SpliceText, apply, normalized, offset_edit};
 

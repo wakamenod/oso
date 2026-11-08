@@ -93,6 +93,11 @@ impl Piece {
         self.len == 0
     }
 
+    /// Its text, as the ropes it is made of, which share chunks with what it was killed from.
+    pub fn parts(&self) -> &[Rope] {
+        &self.parts
+    }
+
     /// Its text, in chunks.
     pub fn chunks(&self) -> impl Iterator<Item = &str> + '_ {
         self.parts.iter().flat_map(Rope::chunks)

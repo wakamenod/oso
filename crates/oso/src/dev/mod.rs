@@ -6,6 +6,7 @@
 //! Must not depend on: `app`, `dispatch` or winit; the caller passes in the
 //! `send` function that hands requests to the UI thread.
 
+mod build_errors;
 pub mod ctl;
 pub mod handoff;
 mod png;

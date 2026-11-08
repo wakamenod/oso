@@ -63,6 +63,35 @@ impl App {
         }
     }
 
+    /// Adds a buffer for `path` holding `text`, carried unsaved from another instance, and
+    /// starts judging the path, which reads nothing of the file (ADR 0090). Until then it
+    /// counts as a file not judged yet. If the thread cannot start, it stays so, and keeps
+    /// its text.
+    #[cfg(feature = "dev")]
+    pub(super) fn visit_carried(
+        &mut self,
+        path: PathBuf,
+        text: oso_core::load::LoadSnapshot,
+        facts: oso_core::buffer::FileFacts,
+    ) -> BufferId {
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_carried(text, facts);
+        let buffer = self.editor.add_buffer(buffer);
+        let waker = self.waker.clone();
+        let started = Instant::now();
+        match loader::spawn_judging(buffer, path, move |buffer| {
+            waker.send(UserEvent::Load(buffer))
+        }) {
+            Ok(handle) => self.loads.push(Load {
+                handle,
+                started,
+                first_screen: None,
+            }),
+            Err(e) => log::warn!("cannot start judging a carried buffer: {e}"),
+        }
+        buffer
+    }
+
     /// A loading thread has an update for `buffer`: takes it in, and asks for a
     /// frame if it needs one.
     pub(super) fn load_updated(&mut self, buffer: BufferId) {
@@ -167,6 +196,12 @@ impl App {
                 }
                 let window = self.editor.tiled().0;
                 shown && window::reaches(window.scroll().top, window.size(), old_rows - 1)
+            }
+            // The buffer holds carried text, and only its verdict was missing.
+            #[cfg(feature = "dev")]
+            LoadUpdate::Judged => {
+                self.loads.swap_remove(index);
+                shown
             }
             LoadUpdate::Failed(LoadError::NotFound) => {
                 // As Emacs does: a new file, empty until saved.

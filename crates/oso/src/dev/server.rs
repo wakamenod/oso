@@ -298,9 +298,13 @@ mod tests {
             UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
             UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),
             UiOp::ShowBuffer(buffer) => Ok(json!({ "buffer": buffer })),
-            UiOp::Panic | UiOp::EndUnasked | UiOp::Ime(_) | UiOp::Clipboard(_) => {
-                Err("not in this fake".to_owned())
-            }
+            UiOp::Panic
+            | UiOp::EndUnasked
+            | UiOp::Ime(_)
+            | UiOp::Clipboard(_)
+            | UiOp::ExportText { .. }
+            | UiOp::ImportText(_)
+            | UiOp::DevMessage(_) => Err("not in this fake".to_owned()),
             UiOp::CheckHandover | UiOp::ExportState | UiOp::ImportState(_) | UiOp::Exit { .. } => {
                 Ok(json!({}))
             }

@@ -107,12 +107,11 @@ impl App {
                 self.take_screenshot(reply);
                 return None;
             }
-            dev::UiOp::ExportState => handoff::export(
-                &self.editor,
-                self.dispatcher.pending(),
-                self.frame(),
-                self.restore.as_ref(),
-            ),
+            dev::UiOp::ExportState => self.export_state(),
+            op @ (dev::UiOp::ExportText { .. } | dev::UiOp::ImportText(_)) => {
+                return self.carry_text(op, reply);
+            }
+            dev::UiOp::DevMessage(text) => self.dev_message(text),
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
@@ -290,7 +289,7 @@ impl App {
     }
 
     /// The OS window's place and size, if there is a window.
-    fn frame(&self) -> Option<handoff::Frame> {
+    pub(super) fn frame(&self) -> Option<handoff::Frame> {
         let window = &self.view.as_ref()?.window;
         let (width, height) = window.inner_size();
         Some(handoff::Frame {
@@ -298,66 +297,6 @@ impl App {
             width,
             height,
         })
-    }
-
-    /// Takes over from the instance that exported `state`: opens its files
-    /// again, each judged anew, and moves the window. A reply means every file
-    /// has begun to load, which is what lets the old instance exit. Refused
-    /// without changing anything if this instance has opened something already
-    /// or has been edited.
-    fn import_state(&mut self, state: handoff::State) -> dev::Reply {
-        handoff::import_allowed(&self.editor)?;
-        let scratch = self.editor.window().buffer();
-        let mut shown = scratch;
-        for (index, path) in state.buffers.into_iter().enumerate() {
-            let buffer = match path {
-                Some(path) => self
-                    .visit(path)
-                    .ok_or("a file could not begin to load, so the old instance should stay")?,
-                None => scratch,
-            };
-            if index == state.shown {
-                shown = buffer;
-            }
-        }
-        self.editor.show(shown);
-        // The size first, so that positions are restored against it. A system that applies
-        // it at once says what it came to, with no `Resized`. Most apply it later, so the
-        // view takes the size asked for now, and a `Resized` event corrects this if the
-        // window ends up another size.
-        if let (Some(view), Some(frame)) = (&mut self.view, state.frame) {
-            if let Some((x, y)) = frame.position {
-                view.window.set_outer_position(x, y);
-            }
-            let (width, height) = view
-                .window
-                .request_inner_size(frame.width, frame.height)
-                .unwrap_or((frame.width, frame.height));
-            self.resize(width, height);
-        }
-        self.restore = Some(handoff::Restore {
-            buffer: shown,
-            selections: state.selections,
-            scroll: state.scroll,
-        });
-        self.try_restore_positions();
-        self.dispatcher
-            .restore_pending(&mut self.editor, &state.pending_keys);
-        self.request_redraw();
-        Ok(json!({ "buffers": self.editor.buffers().count() }))
-    }
-
-    /// Applies positions from a handoff if their file has loaded far enough.
-    /// Returns whether this is over: restored, or the window has moved on.
-    pub(super) fn try_restore_positions(&mut self) -> bool {
-        let done = self
-            .restore
-            .as_ref()
-            .is_some_and(|restore| restore.try_apply(&mut self.editor));
-        if done {
-            self.restore = None;
-        }
-        done
     }
 }
 

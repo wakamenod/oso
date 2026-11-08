@@ -3,7 +3,9 @@
 //! Must not depend on: a window or the file system; a state is a plain value.
 
 use super::tests::{absolute, visiting};
-use super::{Restore, check, exit_allowed, export, generation, import_allowed, parse};
+use super::{
+    Restore, check, exit_allowed, export_value as export, generation, import_allowed, parse,
+};
 use oso_core::buffer::{Buffer, Replacement};
 use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
@@ -38,7 +40,7 @@ fn a_window_on_messages_hands_over_where_it_goes_back_to() {
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert_eq!(
-        parsed.buffers[parsed.shown],
+        parsed.paths()[parsed.shown],
         Some(PathBuf::from(absolute("/p/a.txt")))
     );
     assert_eq!(parsed.selections, at);
@@ -60,7 +62,7 @@ fn a_window_on_the_emergency_copies_hands_over_where_it_goes_back_to() {
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert_eq!(
-        parsed.buffers[parsed.shown],
+        parsed.paths()[parsed.shown],
         Some(PathBuf::from(absolute("/p/a.txt")))
     );
     assert_eq!(parsed.selections, at);
@@ -77,7 +79,7 @@ fn a_window_on_messages_with_nothing_behind_it_comes_back_on_scratch() {
     editor.kill_buffer(file);
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
-    assert_eq!(parsed.buffers[parsed.shown], None, "*scratch*");
+    assert_eq!(parsed.paths()[parsed.shown], None, "*scratch*");
     assert_eq!(parsed.selections, SelectionSet::default());
     assert_eq!(parsed.scroll, Scroll::default());
 }
@@ -108,11 +110,12 @@ fn a_secret_behind_messages_is_handed_over_unshown_with_no_position() {
     let state = export(&editor, &[], None, None).unwrap();
     let parsed = parse(&state).unwrap();
     assert_eq!(
-        parsed.buffers[parsed.shown], None,
+        parsed.paths()[parsed.shown],
+        None,
         "the window comes back on *scratch*"
     );
     assert!(
-        parsed.buffers.contains(&Some(path)),
+        parsed.paths().contains(&Some(path)),
         "it can still be reached"
     );
     assert_eq!(parsed.selections, SelectionSet::default());
@@ -125,7 +128,7 @@ fn a_secret_behind_messages_is_handed_over_unshown_with_no_position() {
 }
 
 #[test]
-fn a_modified_file_behind_messages_still_holds_the_handover() {
+fn a_modified_file_behind_messages_is_carried() {
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
     let id = editor.window().buffer();
     let edit = Replacement {
@@ -134,8 +137,10 @@ fn a_modified_file_behind_messages_still_holds_the_handover() {
     };
     editor.apply_edits(id, &[edit]).unwrap();
     editor.toggle_messages();
-    assert!(check(&editor).is_err());
-    assert!(export(&editor, &[], None, None).is_err());
+    assert!(check(&editor).is_ok());
+    let state = export(&editor, &[], None, None).unwrap();
+    let parsed = parse(&state).unwrap();
+    assert!(parsed.buffers[parsed.shown].carried.is_some());
 }
 
 #[test]
