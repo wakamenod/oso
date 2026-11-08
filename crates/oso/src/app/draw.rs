@@ -30,9 +30,16 @@ pub(super) fn with_panes<R>(
     draw: impl FnOnce(&[Pane<'_>]) -> R,
 ) -> R {
     let span = |text, face| Span { text, face };
-    // Warnings first, so that nothing can push them off the row. A name and the rest are
-    // shaped apart, so that neither changes how the other reads.
+    // Warnings first, so that nothing can push them off the row, after `Agent` while the
+    // agent channel is on: dim, and bright while an agent is connected (ADR 0085). A name and
+    // the rest are shaped apart, so that neither changes how the other reads.
+    let agent = if status.agent_connected {
+        Face::Warning
+    } else {
+        Face::Prompt
+    };
     let modeline = [
+        span(status.agent, agent),
         span(&status.warnings[..], Face::Warning),
         span(&status.name[..], Face::Modeline),
         span(&status.state[..], Face::Modeline),
@@ -267,6 +274,7 @@ impl App {
 mod tests {
     use super::*;
     use oso_core::buffer::Buffer;
+    use oso_core::editor::AgentChannel;
     use oso_core::frame::{self, FrameSize};
     use oso_core::minibuffer::Kind;
 
@@ -325,12 +333,37 @@ mod tests {
         assert_eq!(panes[1].1, Some(Face::Modeline));
         assert_eq!(panes[2].1, None, "the echo area has none (ADR 0057)");
         let modeline = &panes[1].2;
-        assert_eq!(modeline[0], ("[bidi controls] ".to_owned(), Face::Warning));
-        assert_eq!(modeline[1], ("-- a.txt  ".to_owned(), Face::Modeline));
-        assert_eq!(modeline[2].1, Face::Modeline);
+        // `Agent` comes first while the agent channel is on, and is empty here (ADR 0085).
+        assert_eq!(modeline[0], (String::new(), Face::Prompt));
+        assert_eq!(modeline[1], ("[bidi controls] ".to_owned(), Face::Warning));
+        assert_eq!(modeline[2], ("-- a.txt  ".to_owned(), Face::Modeline));
+        assert_eq!(modeline[3].1, Face::Modeline);
         let echo = &panes[2].2;
         assert_eq!(echo[0], (String::new(), Face::Warning), "not said twice");
         assert_eq!(echo[1], ("Saved".to_owned(), Face::Text));
+    }
+
+    #[test]
+    fn the_agent_channel_shows_dim_and_bright_while_an_agent_is_connected() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", ""));
+        editor.set_frame_size(FrameSize {
+            rows: 24,
+            columns: 80,
+        });
+        let first = |editor: &Editor| {
+            let mut status = Status::default();
+            editor.status_into(&mut status);
+            with_panes(editor, &status, &mut Vec::new(), |panes| {
+                match &panes[1].content {
+                    PaneContent::Lines(lines) => (lines[0][0].text.to_owned(), lines[0][0].face),
+                    PaneContent::Text(_) | PaneContent::Masked(_) => panic!("a modeline has lines"),
+                }
+            })
+        };
+        editor.set_agent_channel(AgentChannel::On);
+        assert_eq!(first(&editor), ("Agent  ".to_owned(), Face::Prompt));
+        editor.set_agent_channel(AgentChannel::Connected);
+        assert_eq!(first(&editor), ("Agent  ".to_owned(), Face::Warning));
     }
 
     #[test]

@@ -57,6 +57,7 @@ impl App {
     /// Handles a report of the input method, from the window system or the dev socket.
     /// Returns whether it asked for a frame.
     pub(super) fn ime_event(&mut self, event_loop: &Loop<'_>, event: ImeEvent) -> bool {
+        self.person_typed();
         match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
@@ -93,6 +94,7 @@ impl App {
         self.sync_ime(event_loop);
         self.sync_secure_input();
         self.give_cursor_area();
+        self.sync_agent();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a
@@ -117,7 +119,7 @@ impl App {
     }
 
     /// Whether a composition is open.
-    fn composing(&self) -> bool {
+    pub(super) fn composing(&self) -> bool {
         self.editor.preedit().is_some()
     }
 

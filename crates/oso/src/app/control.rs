@@ -54,6 +54,14 @@ impl App {
         reply: std::sync::mpsc::Sender<dev::Reply>,
     ) -> Option<(std::sync::mpsc::Sender<dev::Reply>, dev::Reply)> {
         let result = match op {
+            // Keys from the dev socket stand in for the person's (ADR 0085).
+            dev::UiOp::SendKeys(keys)
+                if keys
+                    .first()
+                    .is_some_and(|&key| self.agent_question_holds(key)) =>
+            {
+                Err("a question the agent caused takes no answer yet".into())
+            }
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();

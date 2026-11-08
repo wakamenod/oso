@@ -33,6 +33,7 @@ use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 use follow::Selected;
 
+mod agent;
 mod copies;
 mod follow;
 mod kill;
@@ -42,6 +43,7 @@ mod save;
 mod status;
 mod view;
 
+pub use agent::{AGENT_LABEL, AGENT_LOG, AgentChannel, MAX_AGENT_LOG};
 pub use copies::RecoveryAction;
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
@@ -131,6 +133,8 @@ pub struct Editor {
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
+    /// What the editor knows of the agent channel (ADR 0085).
+    agent: agent::Agent,
 }
 
 impl Default for Editor {
@@ -171,6 +175,7 @@ impl Editor {
             passphrase_command: false,
             save_over_asked: None,
             kills: kill::Kills::default(),
+            agent: agent::Agent::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));

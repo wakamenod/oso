@@ -356,13 +356,20 @@ impl Editor {
     /// message is one row. Cursors at the end stay at the end, and the view follows the
     /// selected window's.
     fn add_to_messages_buffer(&mut self, shown: &str) {
-        let id = self.messages_buffer;
+        self.add_row(self.messages_buffer, shown, MAX_MESSAGES);
+    }
+
+    /// Adds `row`, which has no line break, to the internal buffer `id`, and takes the oldest
+    /// row out once it holds `max`. Cursors at the end stay at the end, and the view follows
+    /// the selected window's.
+    pub(super) fn add_row(&mut self, id: BufferId, row: &str, max: usize) {
+        let shown = row;
         let Some(buffer) = self.buffer(id) else {
             return;
         };
         let end = buffer.text().len();
-        // The last line is the empty one after the newest message.
-        let full = buffer.text().line_count() > MAX_MESSAGES;
+        // The last line is the empty one after the newest row.
+        let full = buffer.text().line_count() > max;
         let oldest = if full { buffer.text().line_start(1) } else { 0 };
         let line = format!("{shown}\n");
         let edits = [

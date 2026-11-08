@@ -7,6 +7,7 @@
 
 mod app;
 mod bindings;
+mod channel;
 mod commands;
 #[cfg(feature = "dev")]
 mod dev;

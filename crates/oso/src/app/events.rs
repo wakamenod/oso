@@ -40,6 +40,7 @@ impl App {
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
+            UserEvent::Agent(request) => self.handle_agent(event_loop, request),
         }
         self.after_event(event_loop);
         self.note_logging();

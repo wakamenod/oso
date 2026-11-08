@@ -137,7 +137,8 @@ release-safety:
     # so it cannot pass vacuously. The release side checks what `just
     # release` builds: the whole workspace, with features unified.
     set -euo pipefail
-    dev_crates="serde_json miniz_oxide"
+    # serde_json ships for the agent channel (ADR 0085).
+    dev_crates="miniz_oxide"
     markers="oso-dev-control-socket oso-dev-process-spawn"
     tree() {
         cargo tree --locked --workspace --target all -e normal,build --prefix none \

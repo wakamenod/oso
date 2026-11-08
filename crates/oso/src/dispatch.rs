@@ -24,6 +24,7 @@ use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod agent;
 mod clipboard;
 mod prompts;
 

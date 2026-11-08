@@ -69,6 +69,7 @@ impl Editor {
             around_secret,
             walk: None,
             typed: None,
+            from_agent: false,
         });
         self.relayout_prompt();
         Ok(id)

@@ -56,3 +56,4 @@ bindings
 emergency
 saver
 commands dev keys loader text
+channel

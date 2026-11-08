@@ -7,6 +7,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+mod agent;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
@@ -32,6 +33,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    agent::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
@@ -136,6 +138,10 @@ mod tests {
             .collect();
         person.sort_unstable();
         let mut expected = vec![
+            // Who may drive the editor.
+            "agent-channel-allow",
+            "agent-channel-start",
+            "agent-channel-stop",
             // Answering a prompt.
             "answer-no",
             "answer-yes",

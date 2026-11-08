@@ -6,15 +6,16 @@
 //!
 //! - Only the allowed places name `ControlDir` at all, so no alias, type alias or qualified
 //!   path reaches its constructors from elsewhere, and none imports `control` by glob.
-//! - Of those, only the dev tooling uses `listen`, `remove_stale` or `write_private_file`, in a
+//! - Of those, only the dev tooling and the agent channel use `listen`, `remove_stale` or `write_private_file`, in a
 //!   call, a path or a function pointer. The test harnesses only connect.
 //! - The transport defines them, and only its tests use them.
 
 use crate::lexer::{Tok, Token, test_item_lines, tokenize};
 
-/// The places that may listen, clean and write: the dev tooling, behind the `dev` feature.
-/// Adding one needs an ADR; the agent channel joins with its start command (ADR 0085).
-pub const ALLOWED: [&str; 1] = ["crates/oso/src/dev/"];
+/// The places that may listen, clean and write: the dev tooling, behind the `dev` feature,
+/// and the agent channel, which listens only once the person runs its start command
+/// (ADR 0085). Adding one needs an ADR.
+pub const ALLOWED: [&str; 2] = ["crates/oso/src/dev/", "crates/oso/src/channel/"];
 
 /// The places that may also name `ControlDir`, to connect: the end-to-end harness and the
 /// benchmark harness, which drive a dev build and never ship.
@@ -167,6 +168,9 @@ mod tests {
     #[test]
     fn a_walk_that_misses_the_allowed_places_is_a_problem() {
         let found = problems(&[("crates/oso/src/app.rs".to_owned(), String::new())]);
-        assert_eq!(found, ["the walk saw no use in crates/oso/src/dev/"]);
+        assert_eq!(
+            found,
+            ["the walk saw no use in crates/oso/src/dev/, crates/oso/src/channel/"]
+        );
     }
 }
