@@ -77,7 +77,7 @@ old one's status.
 | 0068 | [Cut clusters, short pieces, the cursor box and lines by direction](0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md) | Accepted |
 | 0069 | [The macOS input method](0069-macos-input-method.md) | Accepted |
 | 0070 | [Windowing and input without winit](0070-windowing-and-input-without-winit.md) | Accepted |
-| 0071 | [The mark and the region](0071-mark-and-region.md) | Proposed |
+| 0071 | [The mark and the region](0071-mark-and-region.md) | Accepted |
 
 ## Template
 

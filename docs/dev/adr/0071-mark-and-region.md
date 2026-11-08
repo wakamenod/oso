@@ -1,6 +1,6 @@
 # 0071. The mark and the region
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -25,8 +25,10 @@ background colour only (modus-themes, `bg-only`).
 ## Decision
 
 The author chose each item under "Behaviour", "How it looks", "Several cursors" and "The
-control socket" on 2026-11-08, from options put to them, all as recommended, and the region's
-tint from screenshots. The rest are defaults they accepted with them.
+control socket" on 2026-11-08, from eleven questions put to them with options, each as
+recommended, and the region's tint (A, the muted blue-grey) from screenshots of three. The rest
+are defaults they accepted with them. They accepted this ADR, with the change to `get-state` and
+the public API, on 2026-11-08.
 
 ### Behaviour
 
