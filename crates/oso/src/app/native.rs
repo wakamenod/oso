@@ -49,7 +49,7 @@ impl Loop<'_> {
 
     /// Whether [`Loop::exit`] was called.
     pub(super) fn exiting(&self) -> bool {
-        self.0.exiting()
+        self.0.exit_requested()
     }
 
     /// From now on, the loop sleeps while no event comes. This only says how it waits; it
@@ -126,11 +126,17 @@ impl Window {
     /// this event, and a `Resized` says what it came to, so this gives no size.
     #[cfg(feature = "dev")]
     pub(super) fn request_inner_size(&self, width: u32, height: u32) -> Option<(u32, u32)> {
-        self.0.request_inner_size(width, height)
+        self.0.request_inner_size(width, height);
+        None
     }
 
     pub(super) fn set_ime_allowed(&self, allowed: bool) {
         self.0.set_ime_allowed(allowed);
+    }
+
+    /// Drops the composition the input method holds, with no commit.
+    pub(super) fn discard_composition(&self) {
+        self.0.discard_composition();
     }
 
     /// Tells the input method where the cursor's cell is, for its candidate window. The

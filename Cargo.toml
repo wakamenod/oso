@@ -33,7 +33,7 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
 # The native macOS window layer (ADR 0070), behind `oso-platform/native-window`. Only
 # objc2-app-kit is new to the tree; the rest come through wgpu's Metal backend already.
 objc2 = { version = "0.6.4", default-features = false, features = ["std"] }
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSString", "NSAttributedString", "NSArray", "NSGeometry", "NSRange", "NSNotification", "NSAppleEventDescriptor", "NSAppleEventManager", "NSUserDefaults", "NSDictionary", "NSValue", "NSObject", "NSThread"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSString", "NSAttributedString", "NSArray", "NSGeometry", "NSRange", "NSNotification", "NSUserDefaults", "NSDictionary", "NSValue", "NSObject"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "objc2-core-foundation", "NSWindowRestoration", "NSApplication", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSTextInputClient", "NSTextInputContext", "NSScreen", "NSGraphics", "NSRunningApplication", "NSAttributedString", "NSGraphicsContext"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "CALayer", "CAMetalLayer"] }
 raw-window-handle = { version = "0.6.2", default-features = false }

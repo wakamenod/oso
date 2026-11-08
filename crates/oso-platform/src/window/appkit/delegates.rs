@@ -85,8 +85,7 @@ define_class!(
 
         #[unsafe(method(windowDidResize:))]
         fn did_resize(&self, _notification: &NSNotification) {
-            let state = self.ivars().state;
-            state.deliver(Delivery::Window(state.resized_event()));
+            self.ivars().state.report_size();
         }
 
         #[unsafe(method(windowDidChangeOcclusionState:))]

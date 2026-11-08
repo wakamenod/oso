@@ -1,10 +1,8 @@
 //! What an AppKit key event says, as `window`'s types: the named keys by their virtual key
-//! code, the modifiers held, and ranges the input method gives in UTF-16 as UTF-8 bytes.
+//! code and the modifiers held, and where a key or the input method's text goes (ADR 0070).
 //! Plain functions, tested without a window.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
-
-use std::ops::Range;
 
 use objc2_app_kit::NSEventModifierFlags;
 
@@ -36,6 +34,49 @@ pub(super) fn named(code: u16) -> Option<SystemNamed> {
     })
 }
 
+/// Where a key goes, decided before the input method sees it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Route {
+    /// To oso as a key press.
+    Oso,
+    /// Commit the text being composed, then to oso.
+    CommitThenOso,
+    /// Drop the text being composed; the key goes nowhere.
+    Discard,
+    /// Drop the text being composed, then to oso.
+    DiscardThenOso,
+    /// To the input method, which may give it back.
+    InputMethod,
+}
+
+/// Where a key goes with `held`, whether text is `marked`, whether oso has the input method
+/// `allowed`, and whether the key is `g` on the layout.
+///
+/// - The input method off: the key is oso's, and text marked meanwhile is dropped, so none
+///   lives on in a buffer where it is off.
+/// - Text marked: Option or Command commits it and runs, `C-g` alone drops it, and any other
+///   key goes to the input method.
+/// - Nothing marked: Control, Command or Option makes the key oso's.
+pub(super) fn route(held: Held, marked: bool, allowed: bool, is_g: bool) -> Route {
+    let option_or_command = held.contains(Held::ALT) || held.contains(Held::LOGO);
+    match (allowed, marked) {
+        (false, true) => Route::DiscardThenOso,
+        (false, false) => Route::Oso,
+        (true, true) if option_or_command => Route::CommitThenOso,
+        (true, true) if held == Held::CONTROL && is_g => Route::Discard,
+        (true, true) => Route::InputMethod,
+        (true, false) if option_or_command || held.contains(Held::CONTROL) => Route::Oso,
+        (true, false) => Route::InputMethod,
+    }
+}
+
+/// Whether the view takes text or marked text the input method sends with no key of oso's in
+/// hand: only while the input method is on, and not just after oso dropped a composition, as
+/// a reply to that may come late. A key clears that.
+pub(super) fn takes_text(allowed: bool, muted: bool) -> bool {
+    allowed && !muted
+}
+
 /// The number of a function key, F1 to F20, by its virtual key code.
 fn function_number(code: u16) -> Option<u8> {
     const CODES: [u16; 20] = [
@@ -60,32 +101,9 @@ pub(super) fn held(flags: NSEventModifierFlags) -> Held {
     .fold(Held::NONE, |all, (_, held)| all | held)
 }
 
-/// The UTF-8 byte range of `text` that a range of UTF-16 code units names, cut to the text
-/// and to character boundaries. An input method sends these, and another process's numbers
-/// are not trusted.
-pub(super) fn utf8_range(text: &str, utf16: Range<usize>) -> Range<usize> {
-    let byte_at = |units: usize| {
-        let mut counted = 0;
-        for (byte, c) in text.char_indices() {
-            if counted >= units {
-                return byte;
-            }
-            counted += c.len_utf16();
-        }
-        text.len()
-    };
-    let start = byte_at(utf16.start);
-    start..byte_at(utf16.end).max(start)
-}
-
-/// How many UTF-16 code units `text` has, as AppKit counts ranges.
-pub(super) fn utf16_len(text: &str) -> usize {
-    text.chars().map(char::len_utf16).sum()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{held, named, utf8_range, utf16_len};
+    use super::{Route, held, named, route, takes_text};
     use crate::window::{Held, SystemNamed};
     use objc2_app_kit::NSEventModifierFlags as F;
 
@@ -110,18 +128,57 @@ mod tests {
     }
 
     #[test]
-    fn utf16_ranges_become_byte_ranges_on_boundaries() {
-        assert_eq!(utf8_range("かな", 1..2), 3..6);
-        assert_eq!(utf8_range("かな", 2..2), 6..6, "the caret at the end");
-        assert_eq!(utf8_range("a😀b", 1..3), 1..5, "a surrogate pair");
+    fn keys_go_to_oso_unless_the_input_method_is_on_and_wants_them() {
+        let (none, control, option) = (Held::NONE, Held::CONTROL, Held::ALT);
+        assert_eq!(route(none, false, true, false), Route::InputMethod);
+        assert_eq!(route(control, false, true, false), Route::Oso);
         assert_eq!(
-            utf8_range("a😀b", 2..3),
-            5..5,
-            "inside a pair, cut to a boundary"
+            route(option, false, true, false),
+            Route::Oso,
+            "Option is Super"
         );
-        assert_eq!(utf8_range("ab", 5..9), 2..2, "past the end");
-        let (start, end) = (2, 1);
-        assert_eq!(utf8_range("ab", start..end), 2..2, "reversed");
-        assert_eq!(utf16_len("a😀か"), 4);
+        assert_eq!(route(Held::LOGO, false, true, false), Route::Oso);
+        assert_eq!(
+            route(none, false, false, false),
+            Route::Oso,
+            "the IME is off"
+        );
+    }
+
+    #[test]
+    fn text_being_composed_is_committed_dropped_or_kept() {
+        let (none, control) = (Held::NONE, Held::CONTROL);
+        assert_eq!(route(Held::ALT, true, true, false), Route::CommitThenOso);
+        assert_eq!(route(Held::LOGO, true, true, false), Route::CommitThenOso);
+        assert_eq!(route(control, true, true, true), Route::Discard, "C-g");
+        let control_shift = control | Held::SHIFT;
+        assert_eq!(
+            route(control_shift, true, true, true),
+            Route::InputMethod,
+            "C-S-g"
+        );
+        assert_eq!(
+            route(control, true, true, false),
+            Route::InputMethod,
+            "other C-"
+        );
+        assert_eq!(route(none, true, true, false), Route::InputMethod);
+        assert_eq!(
+            route(none, true, false, false),
+            Route::DiscardThenOso,
+            "IME off"
+        );
+        assert_eq!(route(control, true, false, true), Route::DiscardThenOso);
+    }
+
+    #[test]
+    fn text_with_no_key_is_taken_only_while_the_ime_is_on_and_not_just_dropped() {
+        assert!(takes_text(true, false));
+        assert!(
+            !takes_text(false, false),
+            "the IME is off, as in a secret buffer"
+        );
+        assert!(!takes_text(true, true), "a late reply to a drop");
+        assert!(!takes_text(false, true));
     }
 }

@@ -1,6 +1,6 @@
 //! Translation of the window system's key events into [`KeyPress`], from
-//! `oso_platform::window`'s [`KeyInput`], which `app::shell` builds from winit's
-//! (ADR 0070).
+//! `oso_platform::window`'s [`KeyInput`], which winit's adapter (`app::shell`) or the
+//! native layer builds (ADR 0070).
 //!
 //! Must not depend on: `commands`, `dispatch` or editor state; it only
 //! translates.
@@ -181,6 +181,8 @@ mod tests {
 
     #[test]
     fn control_characters_fall_back_to_the_base_key() {
+        // The key the native layer takes as `C-g` during a composition (ADR 0070).
+        assert_eq!(translate(ch("\u{7}"), ch("g"), CONTROL), press("C-g"));
         assert_eq!(translate(ch("\u{18}"), ch("x"), CONTROL), press("C-x"));
         assert_eq!(translate(ch("x"), ch("x"), CONTROL), press("C-x"));
         assert_eq!(

@@ -5,6 +5,7 @@
 //!
 //! Must not depend on: the view or the window; each hook only calls back into the state.
 
+use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::Arc;
@@ -44,6 +45,8 @@ impl Wake {
 pub(super) struct Hooks {
     pub(super) wake: Arc<Wake>,
     timer: CFRetained<CFRunLoopTimer>,
+    /// The deadline the timer was last set for, once it has been set.
+    deadline: Cell<Option<Option<Instant>>>,
     /// Kept so that the observer lives as long as the hooks.
     _observer: CFRetained<CFRunLoopObserver>,
 }
@@ -123,12 +126,17 @@ impl Hooks {
         Self {
             wake: Arc::new(Wake { source, main }),
             timer,
+            deadline: Cell::new(None),
             _observer: observer,
         }
     }
 
     /// Sets when the loop wakes with no event: at `deadline`, or never.
     pub(super) fn wake_at(&self, deadline: Option<Instant>) {
+        // Before most waits it has not changed, and moving the timer is not free.
+        if self.deadline.replace(Some(deadline)) == Some(deadline) {
+            return;
+        }
         let date = match deadline {
             Some(deadline) => {
                 let wait = deadline.saturating_duration_since(Instant::now());
@@ -149,7 +157,9 @@ fn far_future() -> f64 {
 ///
 /// # Safety
 ///
-/// `info` must be the `&'static State` the hooks were installed with.
+/// `info` must be the `&'static State` the hooks were installed with, and the call must come
+/// on the main thread, as `State` is not `Sync`: the hooks are added to the main run loop
+/// only, which calls them there.
 unsafe fn state(info: *mut c_void) -> &'static State {
     // SAFETY: the caller says it is a `&'static State`.
     unsafe { &*info.cast::<State>() }

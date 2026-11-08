@@ -1,8 +1,8 @@
 //! The event loop's handler: sends each event from the window and from other
 //! threads to the part of the app that deals with it. Events come in oso's own
-//! types, `oso_platform::window`'s, which `shell` builds from winit's (ADR 0070). Each callback of the
-//! loop goes to one method of the app, here or in the concern it belongs to (`open_window`,
-//! `ending`), so a window layer only translates.
+//! types, `oso_platform::window`'s, from winit's adapter or the native layer (ADR 0070).
+//! Each callback of the loop goes to one method of the app, here or in the concern it
+//! belongs to (`open_window`, `ending`), so a window layer only translates.
 //!
 //! Must not depend on: what a key does or how a frame is drawn. A new event adds
 //! an arm here, and its handling goes in a module beside this one.

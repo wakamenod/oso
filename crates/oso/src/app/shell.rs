@@ -160,6 +160,10 @@ impl Window {
         self.0.set_ime_allowed(allowed);
     }
 
+    /// Drops the composition the input method holds, with no commit. winit has no call for
+    /// it; it drops the composition when the IME goes off, which follows (ADR 0069).
+    pub(super) fn discard_composition(&self) {}
+
     /// Tells the input method where the cursor's cell is, for its candidate window.
     pub(super) fn set_ime_cursor_area(&self, area: PixelRect) {
         self.0.set_ime_cursor_area(

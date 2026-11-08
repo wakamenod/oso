@@ -35,8 +35,8 @@ crates/
 │                   keymaps, config; no GPU, #![forbid(unsafe_code)]
 ├── oso-render/     wgpu pipeline, glyph atlas
 └── oso-platform/   OS abstractions: the text-system trait and its
-                    shaping/rasterizing backends, clipboard,
-                    filesystem and paths, process spawning, PTY
+                    shaping/rasterizing backends, the window layer,
+                    clipboard, filesystem and paths, process spawning, PTY
 ```
 
 Commands live in the tip crate because it changes most often and rebuilds

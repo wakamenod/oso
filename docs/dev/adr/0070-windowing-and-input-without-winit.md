@@ -83,7 +83,8 @@ counts as agreed, and the fuller account of who reads the cursor's line.
 ### Events and the loop
 
 - **oso runs its own loop on each system,** through one entry point,
-  `window::run(handler)`, which returns when the loop ends, but on macOS when the app
+  `window::run(start)`, where `start` makes the handler given the waker other threads reach it
+  through. It returns when the loop ends, but on macOS when the app
   terminates, where AppKit ends the process after `applicationWillTerminate:`:
   - macOS: `NSApplication.run` with oso's own application delegate, a run loop observer for
     the moment before the loop waits, and a run loop source that other threads signal, both in

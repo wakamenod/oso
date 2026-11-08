@@ -12,38 +12,32 @@
 //!   resumes it. The panic hook has written what is at risk by then (ADR 0062).
 
 mod delegates;
+mod handles;
 mod keys;
 mod runloop;
 mod view;
 
 use std::any::Any;
 use std::cell::{Cell, OnceCell, RefCell};
-use std::ffi::c_void;
 use std::panic::{self, AssertUnwindSafe};
-use std::ptr::NonNull;
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver};
 use std::time::Instant;
 
-use objc2::MainThreadOnly;
-use objc2::rc::Retained;
+use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSEvent,
-    NSEventModifierFlags, NSEventType, NSRequestUserAttentionType, NSScreen, NSWindow,
-    NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventModifierFlags, NSEventType,
+    NSScreen, NSWindow,
 };
 use objc2_foundation::{
-    MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSRect, NSSize, NSString, NSUserDefaults,
-};
-use raw_window_handle::{
-    AppKitDisplayHandle, AppKitWindowHandle, DisplayHandle, HandleError, HasDisplayHandle,
-    HasWindowHandle, RawDisplayHandle, RawWindowHandle, WindowHandle,
+    MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
 };
 
 use super::{CursorArea, Event, Handler};
 use delegates::{AppDelegate, WindowDelegate};
-use runloop::{Hooks, Wake};
+pub use handles::{Control, RenderTarget, Waker, Window};
+use runloop::Hooks;
 use view::OsoView;
 
 /// The window's first size, in points, as winit's default.
@@ -76,6 +70,11 @@ pub fn run<T: 'static, H: Handler<T> + 'static>(start: impl FnOnce(Waker<T>) -> 
         panic::resume_unwind(payload);
     }
     state.exiting();
+    // A panic in `exiting` itself: nothing of the handler runs again, its drops included.
+    if let Some(payload) = state.panic.take() {
+        std::mem::forget(state.dispatch.borrow_mut().take());
+        panic::resume_unwind(payload);
+    }
     drop(state.dispatch.borrow_mut().take());
 }
 
@@ -97,7 +96,7 @@ enum Delivery<'a> {
     Resume,
     Window(Event<'a>),
     /// Other threads sent something; the adapter takes all of it.
-    Users,
+    UserEvents,
     BeforeWaiting,
     Exiting,
 }
@@ -117,7 +116,7 @@ impl<T, H: Handler<T>> Dispatch for Adapter<T, H> {
         match delivery {
             Delivery::Resume => self.handler.resume(control),
             Delivery::Window(event) => self.handler.window_event(control, event),
-            Delivery::Users => {
+            Delivery::UserEvents => {
                 while let Ok(event) = self.receiver.try_recv() {
                     self.handler.user_event(control, event);
                 }
@@ -135,6 +134,7 @@ enum Request {
     OuterPosition(i32, i32),
     InnerSize(u32, u32),
     ImeAllowed(bool),
+    DiscardComposition,
 }
 
 /// An event that came while the handler ran. Only those that keep what the app knows of the
@@ -143,7 +143,7 @@ enum Pending {
     Resized,
     ScaleFactorChanged,
     Occluded(bool),
-    ModifiersCleared,
+    ModifiersChanged(super::Held),
     CloseRequested,
 }
 
@@ -160,10 +160,15 @@ struct State {
     requests: RefCell<Vec<Request>>,
     pending: RefCell<Vec<Pending>>,
     redraw: Cell<bool>,
+    /// Other threads sent something while the handler ran.
+    users_waiting: Cell<bool>,
     exit: Cell<bool>,
     exited: Cell<bool>,
     deadline: Cell<Option<Instant>>,
     ime_allowed: Cell<bool>,
+    /// The size and the scale the handler was last told, so that it hears only changes.
+    reported_size: Cell<(u32, u32)>,
+    reported_scale: Cell<f64>,
     /// The cursor's cell the app last gave, for the input method's candidate window.
     ime_area: Cell<Option<CursorArea>>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
@@ -179,10 +184,13 @@ impl State {
             requests: RefCell::new(Vec::new()),
             pending: RefCell::new(Vec::new()),
             redraw: Cell::new(false),
+            users_waiting: Cell::new(false),
             exit: Cell::new(false),
             exited: Cell::new(false),
             deadline: Cell::new(None),
             ime_allowed: Cell::new(false),
+            reported_size: Cell::new((0, 0)),
+            reported_scale: Cell::new(0.0),
             ime_area: Cell::new(None),
             panic: RefCell::new(None),
         }
@@ -202,7 +210,10 @@ impl State {
             return;
         };
         let control = Control { state: self };
-        let result = panic::catch_unwind(AssertUnwindSafe(|| handler.deliver(&control, delivery)));
+        // A pool of its own, so that what a frame or an event autoreleases goes at once.
+        let result = autoreleasepool(|_| {
+            panic::catch_unwind(AssertUnwindSafe(|| handler.deliver(&control, delivery)))
+        });
         drop(dispatch);
         if let Err(payload) = result {
             *self.panic.borrow_mut() = Some(payload);
@@ -218,10 +229,15 @@ impl State {
             Delivery::Window(Event::Resized { .. }) => Pending::Resized,
             Delivery::Window(Event::ScaleFactorChanged(_)) => Pending::ScaleFactorChanged,
             Delivery::Window(Event::Occluded(occluded)) => Pending::Occluded(occluded),
-            Delivery::Window(Event::ModifiersChanged(_)) => Pending::ModifiersCleared,
+            Delivery::Window(Event::ModifiersChanged(held)) => Pending::ModifiersChanged(held),
             Delivery::Window(Event::CloseRequested) => Pending::CloseRequested,
             Delivery::Window(Event::RedrawRequested) => {
                 self.redraw.set(true);
+                return;
+            }
+            // They wait in the channel; the source is signalled again once the handler returns.
+            Delivery::UserEvents => {
+                self.users_waiting.set(true);
                 return;
             }
             _ => {
@@ -243,12 +259,17 @@ impl State {
         for event in pending {
             let event = match event {
                 Pending::Resized => self.resized_event(),
-                Pending::ScaleFactorChanged => self.scale_event(),
+                Pending::ScaleFactorChanged => Event::ScaleFactorChanged(self.scale_factor()),
                 Pending::Occluded(occluded) => Event::Occluded(occluded),
-                Pending::ModifiersCleared => Event::ModifiersChanged(super::Held::NONE),
+                Pending::ModifiersChanged(held) => Event::ModifiersChanged(held),
                 Pending::CloseRequested => Event::CloseRequested,
             };
             self.deliver(Delivery::Window(event));
+        }
+        if self.users_waiting.take()
+            && let Some(hooks) = self.hooks.get()
+        {
+            hooks.wake.signal();
         }
         if self.exit.get() {
             self.stop();
@@ -279,9 +300,11 @@ impl State {
                     // As winit does: the composition is dropped. Committing it instead is
                     // the next step of ADR 0070, with the app's side of it.
                     view.discard_marked();
+                    self.ime_area.set(None);
                 }
                 self.ime_allowed.set(allowed);
             }
+            Request::DiscardComposition => view.discard_marked(),
         }
     }
 
@@ -317,12 +340,16 @@ impl State {
 
     /// Other threads sent something.
     fn users_sent(&'static self) {
-        self.deliver(Delivery::Users);
+        self.deliver(Delivery::UserEvents);
     }
 
     /// The loop is about to wait: the handler hears it, then a frame is drawn if one was asked
     /// for, and the timer is set for the deadline.
     fn before_waiting(&'static self) {
+        // A run loop nested in the handler: the wait after the handler returns comes later.
+        if self.dispatch.try_borrow().is_err() {
+            return;
+        }
         self.deliver(Delivery::BeforeWaiting);
         if self.redraw.take() && self.window.get().is_some() {
             self.deliver(Delivery::Window(Event::RedrawRequested));
@@ -342,8 +369,29 @@ impl State {
         Event::Resized { width, height }
     }
 
-    fn scale_event(&self) -> Event<'static> {
-        Event::ScaleFactorChanged(self.scale_factor())
+    /// Tells the handler the drawable area's size, if it differs from the last it was told.
+    fn report_size(&'static self) {
+        // Nothing to report while the window is being made: the handler reads it once made.
+        if self.window.get().is_none() {
+            return;
+        }
+        let size = self.inner_size();
+        if self.reported_size.replace(size) != size {
+            self.deliver(Delivery::Window(self.resized_event()));
+        }
+    }
+
+    /// Tells the handler the scale, and the size it gives, if the scale differs from the last
+    /// it was told. AppKit says the backing changed also when a window is set up.
+    fn report_scale(&'static self) {
+        if self.window.get().is_none() {
+            return;
+        }
+        let scale = self.scale_factor();
+        if self.reported_scale.replace(scale) != scale {
+            self.deliver(Delivery::Window(Event::ScaleFactorChanged(scale)));
+        }
+        self.report_size();
     }
 
     fn inner_size(&self) -> (u32, u32) {
@@ -368,226 +416,13 @@ impl State {
     clippy::cast_sign_loss,
     reason = "a window's size is far inside u32, and never negative"
 )]
-fn pixels(length: f64) -> u32 {
+pub(super) fn pixels(length: f64) -> u32 {
     length.round().max(0.0) as u32
 }
 
 /// The height of the screen with the menu bar, in points, which places are measured from.
-fn primary_screen_height(mtm: MainThreadMarker) -> f64 {
+pub(super) fn primary_screen_height(mtm: MainThreadMarker) -> f64 {
     NSScreen::screens(mtm)
         .firstObject()
         .map_or(0.0, |screen| screen.frame().size.height)
-}
-
-/// The running loop, lent to the handler with each call.
-pub struct Control {
-    state: &'static State,
-}
-
-impl Control {
-    /// Ends the loop once the handler returns.
-    pub fn exit(&self) {
-        self.state.exit.set(true);
-    }
-
-    /// Whether [`Control::exit`] was called.
-    pub fn exiting(&self) -> bool {
-        self.state.exit.get()
-    }
-
-    /// From now on, the loop sleeps while no event comes.
-    pub fn sleep_when_idle(&self) {
-        self.state.deadline.set(None);
-    }
-
-    /// From now on, the loop also wakes when `deadline` passes, with no event.
-    pub fn wake_at(&self, deadline: Instant) {
-        self.state.deadline.set(Some(deadline));
-    }
-
-    /// Opens the window, titled `title`. There is one; a second call gives the same.
-    pub fn open_window(&self, title: &str) -> Window {
-        let state = self.state;
-        state.window.get_or_init(|| {
-            let mtm = state.mtm;
-            let frame = NSRect::new(NSPoint::new(0.0, 0.0), FIRST_SIZE);
-            let style = NSWindowStyleMask::Titled
-                | NSWindowStyleMask::Closable
-                | NSWindowStyleMask::Miniaturizable
-                | NSWindowStyleMask::Resizable;
-            // SAFETY: the window is not released when closed (below), as one made outside a
-            // window controller must not be.
-            let window = unsafe {
-                NSWindow::initWithContentRect_styleMask_backing_defer(
-                    NSWindow::alloc(mtm),
-                    frame,
-                    style,
-                    NSBackingStoreType::Buffered,
-                    false,
-                )
-            };
-            // SAFETY: the state keeps the window for the rest of the process.
-            unsafe { window.setReleasedWhenClosed(false) };
-            window.setTitle(&NSString::from_str(title));
-            window.setRestorable(false);
-            let view = OsoView::new(mtm, state, frame);
-            window.setContentView(Some(&view));
-            window.makeFirstResponder(Some(&view));
-            window.center();
-            window.makeKeyAndOrderFront(None);
-            let delegate = WindowDelegate::new(mtm, state);
-            window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-            (window, view, delegate)
-        });
-        Window { state }
-    }
-}
-
-/// The OS window, on the main thread. Sizes and places are physical pixels.
-pub struct Window {
-    state: &'static State,
-}
-
-impl Window {
-    /// What the renderer draws into, which may go to another thread.
-    pub fn render_target(&self) -> RenderTarget {
-        let view = self.state.window.get().map(|(_, view, _)| view);
-        RenderTarget {
-            ns_view: view.map(|view| NonNull::from(&**view).cast()),
-        }
-    }
-
-    /// The drawable area's size.
-    pub fn inner_size(&self) -> (u32, u32) {
-        self.state.inner_size()
-    }
-
-    pub fn scale_factor(&self) -> f64 {
-        self.state.scale_factor()
-    }
-
-    /// Asks for a frame, drawn before the loop next waits.
-    pub fn request_redraw(&self) {
-        self.state.redraw.set(true);
-    }
-
-    pub fn set_visible(&self, visible: bool) {
-        self.state
-            .requests
-            .borrow_mut()
-            .push(Request::Visible(visible));
-    }
-
-    /// Asks for the person's attention, without taking the keyboard from another app.
-    pub fn request_attention(&self) {
-        NSApplication::sharedApplication(self.state.mtm)
-            .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
-    }
-
-    /// Where the window's frame is, from the top left of the screen with the menu bar.
-    pub fn outer_position(&self) -> Option<(i32, i32)> {
-        let (window, _, _) = self.state.window.get()?;
-        let scale = window.backingScaleFactor();
-        let frame = window.frame();
-        let top = primary_screen_height(self.state.mtm) - (frame.origin.y + frame.size.height);
-        Some((whole(frame.origin.x * scale), whole(top * scale)))
-    }
-
-    pub fn set_outer_position(&self, x: i32, y: i32) {
-        self.state
-            .requests
-            .borrow_mut()
-            .push(Request::OuterPosition(x, y));
-    }
-
-    /// Asks for a drawable area of `width` x `height`. It is applied once the handler returns,
-    /// and a [`Event::Resized`] says what it came to, so this gives no size.
-    pub fn request_inner_size(&self, width: u32, height: u32) -> Option<(u32, u32)> {
-        self.state
-            .requests
-            .borrow_mut()
-            .push(Request::InnerSize(width, height));
-        None
-    }
-
-    pub fn set_ime_allowed(&self, allowed: bool) {
-        self.state
-            .requests
-            .borrow_mut()
-            .push(Request::ImeAllowed(allowed));
-    }
-
-    /// Where the cursor's cell is, for the input method's candidate window. Only kept: the
-    /// input method asks for it when it needs it.
-    pub fn set_ime_cursor_area(&self, area: CursorArea) {
-        self.state.ime_area.set(Some(area));
-    }
-}
-
-/// A place in pixels, as a whole number.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "a place on the screen is far inside i32"
-)]
-fn whole(length: f64) -> i32 {
-    length.round() as i32
-}
-
-/// The window's view as a handle for wgpu, which takes it as `Send` and `Sync`. It is a
-/// pointer only, used on the main thread.
-pub struct RenderTarget {
-    ns_view: Option<NonNull<c_void>>,
-}
-
-// SAFETY: the target holds a pointer and nothing else. raw-window-handle's AppKit handle may
-// be used only on the main thread, and `window_handle` refuses to give it elsewhere. The view
-// lives for the rest of the process, in the state.
-unsafe impl Send for RenderTarget {}
-// SAFETY: as for `Send`.
-unsafe impl Sync for RenderTarget {}
-
-impl HasWindowHandle for RenderTarget {
-    fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
-        if MainThreadMarker::new().is_none() {
-            return Err(HandleError::Unavailable);
-        }
-        let ns_view = self.ns_view.ok_or(HandleError::Unavailable)?;
-        let raw = RawWindowHandle::AppKit(AppKitWindowHandle::new(ns_view));
-        // SAFETY: the view lives for the rest of the process, so as long as the handle.
-        Ok(unsafe { WindowHandle::borrow_raw(raw) })
-    }
-}
-
-impl HasDisplayHandle for RenderTarget {
-    fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
-        let raw = RawDisplayHandle::AppKit(AppKitDisplayHandle::new());
-        // SAFETY: AppKit's display handle holds nothing.
-        Ok(unsafe { DisplayHandle::borrow_raw(raw) })
-    }
-}
-
-/// Wakes the event loop from another thread with a user event.
-pub struct Waker<T> {
-    sender: Sender<T>,
-    wake: Arc<Wake>,
-}
-
-impl<T> Clone for Waker<T> {
-    fn clone(&self) -> Self {
-        Self {
-            sender: self.sender.clone(),
-            wake: Arc::clone(&self.wake),
-        }
-    }
-}
-
-impl<T> Waker<T> {
-    /// Sends `event` to the main thread. `false` once the event loop is gone.
-    pub fn send(&self, event: T) -> bool {
-        let sent = self.sender.send(event).is_ok();
-        if sent {
-            self.wake.signal();
-        }
-        sent
-    }
 }

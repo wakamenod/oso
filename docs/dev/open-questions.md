@@ -193,10 +193,22 @@ item notes when it must be settled.
   after a frame that the cursor moved with nothing composing, and set the bound a logout
   waits for running saves, below what macOS allows
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- From ADR 0070's stage 1: `keys::Held` names the modifiers as the window system does,
-  beside `oso_core::key::Modifiers`, and `keys.rs` maps one to the other. Revisit when the
-  types move to `oso_platform::window` at stage 2. That only `app/shell.rs` names winit is
-  said in the tip crate's `AGENTS.md` and not checked by the guard tests
+- `oso_platform::window::Held` names the modifiers as the window system does, beside
+  `oso_core::key::Modifiers`, and `keys.rs` maps one to the other, as `oso-platform` cannot
+  name `oso-core`'s. That only `app/shell.rs` names winit is said in the tip crate's
+  `AGENTS.md` and not checked by the guard tests
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
+- What ADR 0070's stage 2 still owes before the native layer is the default on macOS:
+  committing a composition when the IME turns off, with the app's side of it; the input
+  method asking for the rectangle of the range it names, so the candidate window follows the
+  segment; no input context while the IME is off; the cursor's line for the input method;
+  the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
+  runs must still reach `exiting`; Objective-C exceptions caught, which needs `objc2`'s
+  `exception` feature and so a new crate, `objc2-exception-helper`, for approval; frames during
+  a live resize, which are drawn only before the loop waits; `open_window`
+  and `request_attention` queued as the other requests are; the macOS API in an API
+  snapshot of its own, as `just public-api` takes Linux's; a way to run `just e2e` and
+  `just perf` with `native-window`; and the author's checks at the keyboard
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb

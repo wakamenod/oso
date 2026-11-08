@@ -8,6 +8,8 @@
 //!   method, so Option-a is `s-a` whatever the input source.
 //! - With text marked, Option or Command commits it, then the key runs, and `C-g` drops it,
 //!   so no key loses composed text. Other keys go to the input method.
+//! - While oso has the input method off, as in a buffer that may hold secrets, no text and no
+//!   marked text from it is taken, and text marked meanwhile is dropped at the next key.
 //! - A key press comes only from the event `keyDown:` handles. Text from anything else, such
 //!   as Dictation or the Character Viewer, is a commit, never a key.
 
@@ -23,7 +25,9 @@ use objc2_foundation::{
 };
 use objc2_quartz_core::{CALayer, CAMetalLayer};
 
-use super::{Delivery, State, keys};
+use super::keys::{self, Route};
+use super::{Delivery, State};
+use crate::window::utf16;
 use crate::window::{Event, Held, ImeEvent, KeyInput, SystemKey, Wheel};
 
 /// The key `keyDown:` is handling while the input method has it, and whether the input
@@ -41,9 +45,10 @@ pub(super) struct Ivars {
     handling: RefCell<Option<Handling>>,
     /// The modifiers last reported to the handler.
     held: Cell<Held>,
-    /// The input method is being told to drop its text, which oso has committed or dropped
-    /// already: what it sends back meanwhile is not taken again.
-    quiet: Cell<bool>,
+    /// oso has committed or dropped the text being composed, and told the input method to drop
+    /// its own: what it sends with no key in hand is not taken until the next key, as a reply
+    /// may come late.
+    muted: Cell<bool>,
 }
 
 define_class!(
@@ -82,9 +87,7 @@ define_class!(
             if let Some(layer) = self.layer() {
                 layer.setContentsScale(self.scale());
             }
-            let state = self.ivars().state;
-            state.deliver(Delivery::Window(state.scale_event()));
-            state.deliver(Delivery::Window(state.resized_event()));
+            self.ivars().state.report_scale();
         }
 
         #[unsafe(method(keyDown:))]
@@ -129,7 +132,7 @@ define_class!(
     unsafe impl NSTextInputClient for OsoView {
         #[unsafe(method(insertText:replacementRange:))]
         fn insert_text(&self, string: &AnyObject, _replacement: NSRange) {
-            if self.ivars().quiet.get() {
+            if !self.in_key() && !self.takes_text() {
                 return;
             }
             let text = text_of(string);
@@ -141,7 +144,7 @@ define_class!(
             }
             let mut handling = self.ivars().handling.borrow_mut();
             if let Some(handling) = handling.as_mut()
-                && text.chars().count() == 1
+                && text.chars().nth(1).is_none()
             {
                 // The key's own character: it goes to oso as the key it is.
                 handling.to_oso = true;
@@ -166,7 +169,7 @@ define_class!(
 
         #[unsafe(method(setMarkedText:selectedRange:replacementRange:))]
         fn set_marked_text(&self, string: &AnyObject, selected: NSRange, _replacement: NSRange) {
-            if self.ivars().quiet.get() {
+            if !self.in_key() && !self.takes_text() {
                 return;
             }
             let text = text_of(string);
@@ -176,15 +179,18 @@ define_class!(
                 return;
             }
             let units = selected.location..selected.location.saturating_add(selected.length);
-            let range = keys::utf8_range(&text, units);
+            let range = utf16::utf8_range(&text, units);
             self.ivars().selected.set(selected);
-            *self.ivars().marked.borrow_mut() = text.clone();
+            let mut marked = self.ivars().marked.borrow_mut();
+            marked.clear();
+            marked.push_str(&text);
+            drop(marked);
             self.ime(ImeEvent::Preedit(text, Some(range)));
         }
 
         #[unsafe(method(unmarkText))]
         fn unmark_text(&self) {
-            if !self.ivars().quiet.get() {
+            if self.in_key() || self.takes_text() {
                 self.commit_marked();
             }
         }
@@ -204,7 +210,7 @@ define_class!(
             if marked.is_empty() {
                 NSRange::new(not_found(), 0)
             } else {
-                NSRange::new(0, keys::utf16_len(&marked))
+                NSRange::new(0, utf16::utf16_len(&marked))
             }
         }
 
@@ -230,7 +236,12 @@ define_class!(
 
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
         fn first_rect(&self, _range: NSRange, _actual: NSRangePointer) -> NSRect {
-            self.cursor_rect_on_screen()
+            // While the input method is off, as in a buffer that may hold secrets, no place.
+            if self.ivars().state.ime_allowed.get() {
+                self.cursor_rect_on_screen()
+            } else {
+                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
+            }
         }
 
         #[unsafe(method(characterIndexForPoint:))]
@@ -252,7 +263,7 @@ impl OsoView {
             selected: Cell::new(NSRange::new(0, 0)),
             handling: RefCell::new(None),
             held: Cell::new(Held::NONE),
-            quiet: Cell::new(false),
+            muted: Cell::new(false),
         });
         // SAFETY: `initWithFrame:` is NSView's initializer, with this signature.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
@@ -287,40 +298,60 @@ impl OsoView {
 
     /// Decides where a key goes: to oso, or to the input method first.
     fn route_key(&self, event: &NSEvent) {
+        self.ivars().muted.set(false);
         let held = keys::held(event.modifierFlags());
         self.note_modifiers(held);
-        let state = self.ivars().state;
         let marked = !self.ivars().marked.borrow().is_empty();
-        let chord = held.contains(Held::CONTROL) || held.contains(Held::LOGO);
-        let option = held.contains(Held::ALT);
-        if marked {
-            if option || held.contains(Held::LOGO) {
+        let allowed = self.ivars().state.ime_allowed.get();
+        let is_g = marked && held == Held::CONTROL && is_g(event);
+        match keys::route(held, marked, allowed, is_g) {
+            Route::Oso => self.deliver_key(event),
+            Route::CommitThenOso => {
                 self.commit_marked();
                 self.deliver_key(event);
-                return;
             }
-            if held.contains(Held::CONTROL) && is_g(event) {
-                // `C-g`, Emacs's quit, drops the composition as `ESC` does.
+            // `C-g`, Emacs's quit, drops the composition as `ESC` does.
+            Route::Discard => self.discard_marked(),
+            Route::DiscardThenOso => {
                 self.discard_marked();
-                return;
+                self.deliver_key(event);
             }
-        } else if chord || option || !state.ime_allowed.get() {
-            self.deliver_key(event);
-            return;
+            Route::InputMethod => {
+                *self.ivars().handling.borrow_mut() = Some(Handling { to_oso: false });
+                self.interpretKeyEvents(&NSArray::from_slice(&[event]));
+                let handling = self.ivars().handling.take();
+                if handling.is_some_and(|handling| handling.to_oso) {
+                    self.deliver_key(event);
+                }
+            }
         }
-        *self.ivars().handling.borrow_mut() = Some(Handling { to_oso: false });
-        self.interpretKeyEvents(&NSArray::from_slice(&[event]));
-        let handling = self.ivars().handling.take();
-        if handling.is_some_and(|handling| handling.to_oso) {
-            self.deliver_key(event);
-        }
+    }
+
+    /// Whether the input method is answering a key `keyDown:` gave it.
+    fn in_key(&self) -> bool {
+        self.ivars().handling.borrow().is_some()
+    }
+
+    /// Whether text the input method sends with no key in hand is taken now.
+    fn takes_text(&self) -> bool {
+        keys::takes_text(
+            self.ivars().state.ime_allowed.get(),
+            self.ivars().muted.get(),
+        )
     }
 
     /// Gives the handler the key `event` is, by the names oso uses.
     fn deliver_key(&self, event: &NSEvent) {
         let named = keys::named(event.keyCode());
-        let characters = event.characters();
-        let base = event.charactersByApplyingModifiers(NSEventModifierFlags::empty());
+        // A named key needs neither text, and a layout's translation is not free.
+        let (characters, base) = if named.is_some() {
+            (None, None)
+        } else {
+            (
+                event.characters(),
+                event.charactersByApplyingModifiers(NSEventModifierFlags::empty()),
+            )
+        };
         autoreleasepool(|pool| {
             let input = KeyInput {
                 key: system_key(named, characters.as_deref(), pool),
@@ -347,18 +378,18 @@ impl OsoView {
 
     /// Drops the text being composed, with no commit.
     pub(super) fn discard_marked(&self) {
-        let had = !self.ivars().marked.take().is_empty();
-        self.drop_input_context_text();
-        if had {
-            self.ime(ImeEvent::Preedit(String::new(), None));
+        // Nothing marked, as when the IME goes off for a prefix key: no call to the OS.
+        if self.ivars().marked.take().is_empty() {
+            return;
         }
+        self.drop_input_context_text();
+        self.ime(ImeEvent::Preedit(String::new(), None));
     }
 
     fn drop_input_context_text(&self) {
+        self.ivars().muted.set(true);
         if let Some(context) = self.inputContext() {
-            self.ivars().quiet.set(true);
             context.discardMarkedText();
-            self.ivars().quiet.set(false);
         }
     }
 
@@ -392,7 +423,8 @@ fn system_key<'p>(
 ) -> SystemKey<'p> {
     match (named, text) {
         (Some(named), _) => SystemKey::Named(named),
-        // SAFETY: the string outlives the pool, and the key does not.
+        // SAFETY: `pool` is the innermost autorelease pool here, as `deliver_key` makes it, and
+        // NSString's text does not change while it is borrowed; the key lives inside the pool.
         (None, Some(text)) => match unsafe { text.to_str(pool) } {
             "" => SystemKey::Dead,
             text => SystemKey::Character(text),

@@ -2,8 +2,8 @@
 //! keys, the modifiers held and the input method's reports. They carry no OS type, so the
 //! tip crate's winit adapter and the native layers build the same ones.
 //!
-//! Must not depend on: `text`, `control` or `process`, and no OS binding; the backends
-//! that turn an OS's events into these sit beside it.
+//! Must not depend on: `text`, `control` or `process`. The types here use no OS binding;
+//! the backends below them, one submodule per system, do.
 //!
 //! None of the types that can hold what the person types has `Debug` (ADR 0028).
 //!
@@ -14,6 +14,8 @@ use std::ops::{BitOr, Range};
 
 #[cfg(all(target_os = "macos", feature = "native-window"))]
 mod appkit;
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+mod utf16;
 #[cfg(all(target_os = "macos", feature = "native-window"))]
 pub use appkit::{Control, RenderTarget, Waker, Window, run};
 

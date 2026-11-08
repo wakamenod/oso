@@ -10,8 +10,8 @@
 //! - Turning the IME off waits while a composition is open, as the OS keeps a
 //!   composition it was turned off in, and the next key would bring it back.
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
-//! - The window system's reports arrive as [`ImeEvent`], from `shell`, and the calls go
-//!   through its window (ADR 0070), so nothing here knows winit.
+//! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
+//!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
 
 use oso_core::buffer::Buffer;
 use oso_core::display_map::Preedit;
@@ -82,6 +82,10 @@ impl App {
     pub(super) fn after_event(&mut self) {
         if self.composing() && self.editor.current().1.is_secret() {
             self.end_composition();
+            // The window's input method too, so that nothing of it is committed later.
+            if let Some(view) = &self.view {
+                view.window.discard_composition();
+            }
         }
         self.sync_ime();
         self.give_cursor_area();
