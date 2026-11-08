@@ -11,6 +11,7 @@
 
 mod buffers;
 mod complete;
+mod files;
 mod harness;
 mod ime;
 mod isearch;
