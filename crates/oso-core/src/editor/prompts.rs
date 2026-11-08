@@ -156,6 +156,21 @@ impl Editor {
     /// with nothing matching, which the prompt then says, staying open. A prompt that
     /// completes gives its selected candidate (ADR 0076).
     pub fn submit_prompt(&mut self) -> Result<(), PromptError> {
+        self.submit(false)
+    }
+
+    /// Gives what is typed in the innermost prompt, whatever candidate is selected, as `M-RET`
+    /// does in a prompt that takes any text (`vertico-exit-input`). Elsewhere it is
+    /// [`Editor::submit_prompt`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Editor::submit_prompt`].
+    pub fn submit_typed(&mut self) -> Result<(), PromptError> {
+        self.submit(true)
+    }
+
+    fn submit(&mut self, typed: bool) -> Result<(), PromptError> {
         let completes = matches!(self.prompt().map(Prompt::kind), Some(Kind::Complete { .. }));
         // What was typed last is matched first.
         self.match_completion();
@@ -164,13 +179,21 @@ impl Editor {
         let unchosen = self.prompt().is_some_and(|prompt| {
             prompt.around_secret && prompt.candidates().is_some_and(Candidates::defaulted)
         });
-        if completes && unchosen {
+        if completes && unchosen && !typed {
             self.prompt_says("Type a name, or move to one");
             return Err(PromptError::Invalid);
         }
-        let selected = if completes {
+        let (takes_input, on_input) = self
+            .prompt()
+            .and_then(Prompt::candidates)
+            .map_or((false, false), |candidates| {
+                (candidates.takes_input(), candidates.on_input())
+            });
+        let selected = if completes && !on_input && !(typed && takes_input) {
             match self.selected_completion() {
                 Ok(text) => Some(text),
+                // A prompt that takes any text gives what is typed (ADR 0087, ADR 0088).
+                Err(PromptError::Invalid) if takes_input => None,
                 Err(PromptError::Invalid) => {
                     self.prompt_says("No match");
                     return Err(PromptError::Invalid);
@@ -198,6 +221,8 @@ impl Editor {
         if let Some(prompt) = self.close_innermost()
             && records
             && let Some(name) = prompt.kind.history()
+            // An empty name is no history, as `C-.`'s rows are the buffer's text (ADR 0088).
+            && !name.is_empty()
         {
             self.histories.record(name, text.trim());
         }
@@ -317,6 +342,7 @@ impl Editor {
                     &prompt.label,
                     message,
                     candidates.total(),
+                    candidates.previews(),
                 ),
                 None => minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message),
             }

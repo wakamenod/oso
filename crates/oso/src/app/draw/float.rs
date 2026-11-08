@@ -11,16 +11,17 @@
 
 use std::ops::Range;
 
-use oso_core::complete::Candidates;
-use oso_core::editor::Editor;
+use oso_core::complete::{self, Candidates};
+use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
 use oso_core::minibuffer::{self, Kind, PromptLayout, cells_of};
+use oso_core::window::Scroll;
 use oso_render::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
 
 /// The most panes a float takes.
-pub(super) const MAX_PANES: usize = 7;
+pub(super) const MAX_PANES: usize = 9;
 
 /// What the innermost prompt shows, worked out for one frame.
 pub(super) struct Parts<'a> {
@@ -124,12 +125,22 @@ impl<'a> Parts<'a> {
             face: Face::Float,
         });
         let (candidates, count) = self.list_spans();
+        let divider = [Span {
+            text: DIVIDER,
+            face: Face::CompletionAnnotation,
+        }];
+        let withheld = [Span {
+            text: WITHHELD,
+            face: Face::CompletionAnnotation,
+        }];
         Spans {
             label,
             message,
             keys: self.keys(),
             candidates,
             count,
+            divider,
+            withheld,
             region: &self.region,
         }
     }
@@ -284,9 +295,19 @@ pub(super) struct Spans<'a> {
     keys: [Span<'a>; 12],
     candidates: Vec<Vec<Span<'a>>>,
     count: [Span<'a>; 2],
+    /// The column between the candidates and a preview.
+    divider: [Span<'a>; 1],
+    /// What a preview says in place of a buffer that may hold secrets.
+    withheld: [Span<'a>; 1],
     /// The cells of a region in the answer.
     region: &'a [CellRect],
 }
+
+/// The column between the candidates and a preview, one cell a row.
+const DIVIDER: &str = "│";
+
+/// What a preview shows of a buffer that may hold secrets, or one not judged yet (ADR 0088).
+const WITHHELD: &str = "may hold secrets";
 
 impl<'a> Spans<'a> {
     /// The rows as the panes take them.
@@ -297,6 +318,8 @@ impl<'a> Spans<'a> {
             keys: [&self.keys],
             candidates: self.candidates.iter().map(|row| &row[..]).collect(),
             count: [&self.count],
+            divider: vec![&self.divider[..]; complete::ROWS],
+            withheld: [&self.withheld],
             fills: [(Face::Region, self.region)],
         }
     }
@@ -309,6 +332,9 @@ pub(super) struct Lines<'a> {
     keys: [&'a [Span<'a>]; 1],
     candidates: Vec<&'a [Span<'a>]>,
     count: [&'a [Span<'a>]; 1],
+    /// The divider's rows, one for each candidate row there can be.
+    divider: Vec<&'a [Span<'a>]>,
+    withheld: [&'a [Span<'a>]; 1],
     /// What the answer's pane fills behind its text: its region (ADR 0076).
     fills: [(Face, &'a [CellRect]); 1],
 }
@@ -396,6 +422,7 @@ pub(super) fn panes<'a>(
         ));
     }
     list_panes(parts, lines, list);
+    preview_panes(editor, parts, lines, list);
 }
 
 /// Adds a list's panes to `list`: its count, and its candidates' rows, which keep the padding
@@ -432,10 +459,83 @@ fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pan
     }
 }
 
-/// The cells of the selected candidate's row, while it shows.
+/// The base of a preview pane's id: each previewed buffer's pane has its own, so that the rows
+/// shaped for it are kept while that buffer stays selected (ADR 0088).
+const PREVIEW_PANES: u32 = 1 << 20;
+
+/// Adds a preview's panes to `list`: the column that divides it from the candidates, and the
+/// selected buffer from where its window was, read-only with its cursor hollow, or what is
+/// said of a buffer that may hold secrets in its place (ADR 0088).
+fn preview_panes<'a>(
+    editor: &'a Editor,
+    parts: &'a Parts<'a>,
+    lines: &'a Lines<'a>,
+    list: &mut Vec<Pane<'a>>,
+) {
+    let regions = parts.layout.regions;
+    let preview = regions.preview;
+    if parts.list.is_none() || preview.rows == 0 || preview.columns == 0 {
+        return;
+    }
+    let pane = |id, region, content| Pane {
+        id: PaneId(id),
+        region,
+        layer: Layer::FLOAT_CONTENT,
+        background: None,
+        panel: None,
+        bands: Bands::NONE,
+        content,
+    };
+    let divider = CellRect {
+        column: preview.column - 1,
+        columns: 1,
+        ..preview
+    };
+    let rows = &lines.divider[..preview.rows.min(lines.divider.len())];
+    list.push(pane(10, divider, PaneContent::Lines(rows)));
+    let content = match editor.preview() {
+        None => return,
+        Some(Preview::Withheld) => pane(11, preview, PaneContent::Lines(&lines.withheld)),
+        Some(Preview::Buffer { id, top, cursor }) => {
+            let Some(buffer) = editor.buffer(id) else {
+                return;
+            };
+            let display = buffer.display();
+            let cursor = display.offset_to_display_point(cursor);
+            let view = TextView {
+                display,
+                buffer: id,
+                revision: buffer.revision(),
+                scroll: Scroll { top, left: 0 },
+                cursor,
+                cursor_style: CursorStyle::Hollow,
+                preedit: None,
+                fills: &[],
+            };
+            let number = u32::try_from(id.get()).unwrap_or(u32::MAX);
+            pane(
+                PREVIEW_PANES.saturating_add(number),
+                preview,
+                PaneContent::Text(view),
+            )
+        }
+    };
+    list.push(content);
+}
+
+/// The cells of the selected candidate's row, while it shows, or of the answer's row while what
+/// is typed is selected (ADR 0087, ADR 0088).
 fn selected_row(parts: &Parts<'_>) -> Option<CellRect> {
     let (candidates, _) = parts.list.as_ref()?;
     let rows = parts.layout.regions.candidates;
+    if candidates.on_input() {
+        let inner = parts.layout.regions.inner;
+        return Some(CellRect {
+            row: (inner.row + inner.rows).checked_sub(1)?,
+            rows: 1,
+            ..rows
+        });
+    }
     let place = candidates.selected()?.checked_sub(candidates.top())?;
     (place < rows.rows).then_some(CellRect {
         row: rows.row + place,

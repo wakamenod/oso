@@ -43,7 +43,25 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Look,
         run: mark_whole_buffer,
     },
+    Command {
+        name: "consult-mark",
+        doc: "Go to a mark, picked from the mark and its ring with the text around each beside the list.\n\nOne cursor goes there, with the region hidden, and the mark goes where it was.",
+        args: ArgSpec::Mark {
+            prompt: "Go to mark:",
+        },
+        reach: Reach::Person,
+        run: consult_mark,
+    },
 ];
+
+fn consult_mark(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let answer = ctx.answer().unwrap_or_default();
+    ctx.editor
+        .go_to_listed_mark(answer)
+        .map_err(|_| CommandError::new(NO_MARK))?;
+    ctx.request_redraw();
+    Ok(())
+}
 
 /// The signal for a command that needs the primary cursor's mark.
 const NO_MARK: &str = "No mark set in this buffer";
