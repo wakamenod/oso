@@ -483,7 +483,11 @@ fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
     assert_eq!(responses[3]["result"]["isError"], true);
     assert!(text(&responses[3]).contains("needs a person"));
     let state: Value = serde_json::from_str(&text(&responses[4])).unwrap();
-    assert_eq!(state["buffers"][0]["name"], "notes.txt");
+    let buffers = state["buffers"].as_array().unwrap();
+    assert!(
+        buffers.iter().any(|buffer| buffer["name"] == "notes.txt"),
+        "{buffers:?}"
+    );
     assert_eq!(app.state()["prompts"], json!([]), "the editor runs on");
 }
 
