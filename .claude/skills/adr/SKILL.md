@@ -14,7 +14,7 @@ gets a new ADR that supersedes the old one.
 1. **Find the next number.** List `docs/dev/adr/` and take the highest
    `NNNN-*.md` plus one, zero-padded to four digits.
 2. **Check for conflicts.** Read the ADRs the decision touches. If it changes
-   an accepted decision, the new ADR supersedes it (see step 5).
+   an accepted decision, the new ADR supersedes or amends it (see step 5).
 3. **Write `docs/dev/adr/NNNN-short-title.md`** from the template in
    `docs/dev/adr/README.md`:
    - Status: `Proposed`. Date: today, `YYYY-MM-DD`.
@@ -27,8 +27,11 @@ gets a new ADR that supersedes the old one.
    the ADRs from their files.
 5. **Update related docs** so they agree with the decision: design docs in
    `docs/dev/`, `AGENTS.md` (keep it short), `REVIEW.md`. If the ADR
-   supersedes another, set the old one's status to `Superseded by NNNN` in
-   its file. Do not change anything else in the old ADR.
+   supersedes another, set the old one's status to `Superseded by NNNN`. If
+   it changes only part of one, give it a `Changes to accepted ADRs` section
+   naming each passage it changes, and set the old one's status to
+   `Accepted, amended by NNNN` once this ADR is accepted. Do not change
+   anything else in the old ADR.
 6. **Update `docs/dev/open-questions.md`:** remove items the ADR settles, and
    add new open items it raises under the milestone they block.
 7. **Ask for approval.** ADRs are a human gate (ADR 0018). Summarize the
