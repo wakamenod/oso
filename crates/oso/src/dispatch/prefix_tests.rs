@@ -223,29 +223,25 @@ fn modified() -> (super::Dispatcher, oso_core::editor::Editor) {
 }
 
 #[test]
-fn a_prefix_key_between_two_exits_resets_the_guard_and_the_exit_is_refused_again() {
-    for between in ["C-u", "M-5", "M--", "C-u 3", "C-u C-g"] {
+fn a_prefix_does_not_answer_the_exit_question() {
+    for before in ["C-u", "M-5", "M--", "C-u 3"] {
         let (mut d, mut editor) = modified();
-        assert!(!send(&mut d, &mut editor, "C-x C-c").exit, "{between}");
-        send(&mut d, &mut editor, between);
-        assert!(!send(&mut d, &mut editor, "C-x C-c").exit, "{between}");
-        assert!(send(&mut d, &mut editor, "C-x C-c").exit, "{between}");
+        assert!(!send(&mut d, &mut editor, "C-x C-c").exit, "{before}");
+        assert!(!send(&mut d, &mut editor, before).exit, "{before}");
+        assert!(send(&mut d, &mut editor, "y").exit, "{before}");
     }
 }
 
 #[test]
-fn a_prefix_given_to_an_exit_changes_nothing_about_the_guard() {
+fn a_prefix_given_to_an_exit_changes_nothing_about_the_question() {
     let (mut d, mut editor) = modified();
     assert!(!send(&mut d, &mut editor, "C-u C-x C-c").exit);
-    assert!(
-        send(&mut d, &mut editor, "C-x C-c").exit,
-        "repeated at once"
-    );
+    assert!(send(&mut d, &mut editor, "y").exit);
 }
 
 #[test]
 fn a_refused_exit_leaves_no_prefix_for_the_next_key() {
     let (mut d, mut editor) = modified();
-    send(&mut d, &mut editor, "C-u C-x C-c x");
+    send(&mut d, &mut editor, "C-u C-x C-c n x");
     assert_eq!(text(&editor), "ax", "one x, not four");
 }

@@ -147,7 +147,7 @@ fn push_state(out: &mut String, window: &Window, buffer: &Buffer) {
             }
             out.push_str(GAP);
         }
-        Verdict::Unresolved | Verdict::SecretName | Verdict::Yanked => {
+        Verdict::Unresolved | Verdict::SecretName | Verdict::Passphrase | Verdict::Yanked => {
             out.push_str(NO_POSITION);
             out.push_str(GAP);
         }
@@ -161,7 +161,8 @@ impl Editor {
     /// Fills in what the modeline and the echo area say now, reusing `status`'s
     /// strings. The selected window's, while there is one tiled window (M3).
     pub fn status_into(&self, status: &mut Status) {
-        let (window, buffer) = self.current();
+        // A prompt has no modeline: it speaks of the window beneath (ADR 0072).
+        let (window, buffer) = self.tiled();
         status.warnings.clear();
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);

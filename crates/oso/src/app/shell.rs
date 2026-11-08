@@ -20,10 +20,9 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::keyboard::{self, ModifiersState};
 use winit::window::{UserAttentionType, WindowId};
 
-use super::events::{Event, Wheel};
-use super::ime::ImeEvent;
+use oso_platform::window::{Event, Held, ImeEvent, KeyInput, SystemKey, SystemNamed, Wheel};
+
 use super::{App, UserEvent};
-use crate::keys::{self, Held, KeyInput, SystemKey, SystemNamed};
 
 /// Runs the event loop until it ends. `start` makes the app, given the waker other threads
 /// reach it through, before the window opens. `started` is when the process started.
@@ -161,6 +160,10 @@ impl Window {
         self.0.set_ime_allowed(allowed);
     }
 
+    /// Drops the composition the input method holds, with no commit. winit has no call for
+    /// it; it drops the composition when the IME goes off, which follows (ADR 0069).
+    pub(super) fn discard_composition(&self) {}
+
     /// Tells the input method where the cursor's cell is, for its candidate window.
     pub(super) fn set_ime_cursor_area(&self, area: PixelRect) {
         self.0.set_ime_cursor_area(
@@ -205,7 +208,7 @@ impl ApplicationHandler<UserEvent> for App {
                 event,
                 is_synthetic,
                 ..
-            } if keys::is_real_press(event.state == ElementState::Pressed, *is_synthetic) => {
+            } if is_real_press(event.state == ElementState::Pressed, *is_synthetic) => {
                 let base = key_without_modifiers(event);
                 let input = KeyInput {
                     key: key(&event.logical_key),
@@ -217,6 +220,14 @@ impl ApplicationHandler<UserEvent> for App {
             _ => self.handle_window_event(&event_loop, translate(event)),
         }
     }
+}
+
+/// Whether a key event is a press the user made now: `pressed`, and not `synthetic`. On
+/// X11 and Windows, winit generates presses for keys already held when the window gains
+/// focus, and one of those would run a command or type text nobody asked for. Only these
+/// become a [`KeyInput`].
+fn is_real_press(pressed: bool, synthetic: bool) -> bool {
+    pressed && !synthetic
 }
 
 /// winit's window event as oso's. A real key press, which borrows from the event, is built
@@ -363,13 +374,19 @@ fn function_number(key: keyboard::NamedKey) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{held, key, translate, translate_ime, wheel};
-    use crate::app::events::{Event, Wheel};
-    use crate::app::ime::ImeEvent;
-    use crate::keys::{Held, SystemKey, SystemNamed};
+    use super::{held, is_real_press, key, translate, translate_ime, wheel};
+    use oso_platform::window::{Event, Held, ImeEvent, SystemKey, SystemNamed, Wheel};
     use winit::dpi::{PhysicalPosition, PhysicalSize};
     use winit::event::{Ime, MouseScrollDelta, WindowEvent};
     use winit::keyboard::{self, ModifiersState, NamedKey, NativeKey};
+
+    #[test]
+    fn only_a_real_press_counts() {
+        assert!(is_real_press(true, false));
+        assert!(!is_real_press(true, true), "held at focus");
+        assert!(!is_real_press(false, false));
+        assert!(!is_real_press(false, true));
+    }
 
     #[test]
     fn keys_keep_their_names_and_text() {
@@ -381,10 +398,10 @@ mod tests {
         assert!(names(NamedKey::F35, SystemNamed::Function(35)));
         assert!(unnamed(NamedKey::Shift), "a lone modifier is no key");
         let character = keyboard::Key::Character("لا".into());
-        assert_eq!(key(&character), SystemKey::Character("لا"));
-        assert_eq!(key(&keyboard::Key::Dead(Some('`'))), SystemKey::Dead);
+        assert!(key(&character) == SystemKey::Character("لا"));
+        assert!(key(&keyboard::Key::Dead(Some('`'))) == SystemKey::Dead);
         let unknown = keyboard::Key::Unidentified(NativeKey::Unidentified);
-        assert_eq!(key(&unknown), SystemKey::Unidentified);
+        assert!(key(&unknown) == SystemKey::Unidentified);
     }
 
     #[test]

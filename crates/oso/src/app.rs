@@ -24,16 +24,23 @@ mod ime;
 mod input;
 mod loads;
 mod saves;
+// The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
+// Both give the same loop, window and waker, under the one name.
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+mod native;
+#[cfg(not(all(target_os = "macos", feature = "native-window")))]
 mod shell;
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+use native as shell;
 
 #[cfg(feature = "dev")]
 use crate::dev;
 use crate::dispatch::Dispatcher;
 use crate::emergency::{CopiesEvent, Emergency, Offer};
-use crate::keys::Held;
 use crate::saver::{Leaving, SaveReport};
 use draw::View;
 use loads::Load;
+use oso_platform::window::Held;
 use shell::Loop;
 pub use shell::{Waker, run};
 
@@ -100,6 +107,9 @@ pub struct App {
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
     #[cfg(feature = "dev")]
     timings: dev::Timings,
+    /// Questions a control socket request opened, which keys from the window do not answer.
+    #[cfg(feature = "dev")]
+    remote_questions: Vec<oso_core::minibuffer::PromptId>,
     /// The input being handled came through the control socket, so a yank must not read
     /// the system clipboard (ADR 0074).
     #[cfg(feature = "dev")]
@@ -146,6 +156,8 @@ impl App {
             dev: None,
             #[cfg(feature = "dev")]
             timings: dev::Timings::new(started),
+            #[cfg(feature = "dev")]
+            remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
             socket_input: false,
             #[cfg(feature = "dev")]

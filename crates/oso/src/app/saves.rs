@@ -7,12 +7,10 @@
 
 use std::time::Instant;
 
-use oso_core::editor::ExitAction;
-
 use super::shell::Loop;
 use super::{App, UserEvent};
-use crate::keys::Held;
 use crate::saver::{self, AfterSave, SaveReport};
+use oso_platform::window::Held;
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
@@ -52,11 +50,14 @@ impl App {
         }
     }
 
-    /// The window's close button, guarded as `C-x C-c` is (ADR 0059).
+    /// The window's close button, guarded as `C-x C-c` is, through the same command
+    /// (ADR 0059, ADR 0072).
     pub(super) fn close_requested(&mut self, event_loop: &Loop<'_>) {
-        match self.editor.confirm_exit(ExitAction::CloseWindow) {
-            Ok(()) => self.leave(event_loop, false),
-            Err(refused) => self.editor.message(refused.to_string()),
+        let effects = self.dispatcher.close_requested(&mut self.editor);
+        if effects.exit {
+            self.leave(event_loop, false);
+        } else {
+            self.request_redraw();
         }
     }
 

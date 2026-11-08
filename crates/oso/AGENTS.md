@@ -6,13 +6,15 @@ often, so it must rebuild within 2 s.
 
 - May depend on every library crate; nothing depends on it. It is the only
   crate that may use winit, and only `src/app/shell.rs` names it: the rest works
-  on the events, keys and window calls that file gives (ADR 0070).
+  on the events, keys and window calls that file gives (ADR 0070). With
+  `native-window` on macOS, `src/app/native.rs` gives the same names over
+  `oso_platform::window`'s own layer instead, and `shell.rs` is not built.
 - Commands are plain functions registered with a docstring and argument
   spec (`add-command` skill). They keep no state of their own. Each feature has
   a module in `src/commands/` and, if it has default keys, one of the same name
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
-  the concerns: `shell` runs the window system, `events` routes, `input`, `ime`, `draw`,
+  the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`,
   `loads`, `saves`, `copies` and `clipboard` do the work, and `control` answers the dev socket.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing

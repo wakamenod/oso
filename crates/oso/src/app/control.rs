@@ -10,12 +10,15 @@ use std::time::Instant;
 
 use serde_json::json;
 
+use oso_core::editor::Editor;
+use oso_core::minibuffer::PromptId;
+
 use super::App;
 use super::draw::with_panes;
-use super::ime::ImeEvent;
 use super::shell::Loop;
 use crate::dev;
 use crate::dev::handoff;
+use oso_platform::window::ImeEvent;
 
 impl App {
     /// Answers a control socket request on the UI thread.
@@ -31,10 +34,12 @@ impl App {
             let _ = reply.send(Err("the editor is shutting down".into()));
             return;
         }
+        let newest = self.editor.prompts().last().map(|prompt| prompt.id());
         self.socket_input = true;
         let result = self.answer_control(event_loop, op, received, reply);
         self.socket_input = false;
         if let Some((reply, result)) = result {
+            self.note_remote_questions(newest);
             let _ = reply.send(result);
         }
     }
@@ -118,6 +123,18 @@ impl App {
             }
         };
         Some((reply, result))
+    }
+
+    /// Remembers the questions a request opened, those newer than `newest` was before it, so
+    /// that keys from the window cannot answer them: a person typing does not see a question
+    /// an agent asked appear under their fingers (ADR 0072). The window's `C-g` still closes
+    /// one.
+    fn note_remote_questions(&mut self, newest: Option<PromptId>) {
+        self.remote_questions
+            .extend(opened_questions(&self.editor, newest));
+        let prompts = self.editor.prompts();
+        self.remote_questions
+            .retain(|id| prompts.iter().any(|prompt| prompt.id() == *id));
     }
 
     /// Ends the process as the emergency save's flows need (ADR 0062): by a panic outside the
@@ -326,5 +343,36 @@ impl App {
             self.restore = None;
         }
         done
+    }
+}
+
+/// The open questions newer than `newest`, which every prompt open before a request was at
+/// most. Ids only grow, so a request that closes one prompt and opens another is told apart.
+fn opened_questions(editor: &Editor, newest: Option<PromptId>) -> Vec<PromptId> {
+    editor
+        .prompts()
+        .iter()
+        .filter(|prompt| prompt.kind().is_question() && newest.is_none_or(|id| prompt.id() > id))
+        .map(|prompt| prompt.id())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::opened_questions;
+    use oso_core::editor::Editor;
+    use oso_core::minibuffer::Kind;
+
+    #[test]
+    fn a_question_opened_where_a_prompt_closed_counts_as_opened() {
+        let mut editor = Editor::default();
+        let before = editor.ask("Asked by a key?", "keyboard-quit").unwrap();
+        let number = Kind::Number { history: None };
+        let prompt = editor.open_prompt("Go to line: ", number).unwrap();
+        // A request closes the prompt and opens a question: the count stays the same.
+        editor.quit();
+        let asked = editor.ask("Exit?", "keyboard-quit").unwrap();
+        assert_eq!(opened_questions(&editor, Some(prompt)), [asked]);
+        assert_eq!(opened_questions(&editor, None), [before, asked]);
     }
 }

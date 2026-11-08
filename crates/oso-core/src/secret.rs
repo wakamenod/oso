@@ -45,6 +45,8 @@ pub enum Verdict {
     Unresolved,
     /// A name on the path or where it leads matches a pattern.
     SecretName,
+    /// What a person types at a prompt for a passphrase (ADR 0072).
+    Passphrase,
     /// Text from a kill that counts as secret was yanked into it (ADR 0051, ADR 0074).
     /// Judging its path does not change it; the file opened again in a new buffer is
     /// judged anew.
@@ -58,9 +60,9 @@ impl Verdict {
         !matches!(self, Self::Ordinary)
     }
 
-    /// Whether a kill of the text may go to the kill ring and the clipboard (ADR 0074). Every
-    /// verdict is named, so a new one decides this where it is added: a passphrase prompt's
-    /// must not (ADR 0072).
+    /// Whether a kill of the text may go to the kill ring and the clipboard (ADR 0074). A
+    /// passphrase's may not (ADR 0072). Every verdict is named, so a new one decides this
+    /// where it is added.
     pub const fn may_be_killed(self) -> bool {
         match self {
             Self::Unjudged
@@ -68,6 +70,7 @@ impl Verdict {
             | Self::Unresolved
             | Self::SecretName
             | Self::Yanked => true,
+            Self::Passphrase => false,
         }
     }
 
@@ -164,6 +167,10 @@ mod tests {
         assert!(
             Verdict::Yanked.may_be_killed(),
             "it goes to the ring as a secret entry"
+        );
+        assert!(
+            !Verdict::Passphrase.may_be_killed(),
+            "a passphrase goes nowhere"
         );
         assert_eq!(judge_copy(&[], Verdict::Yanked), Verdict::Yanked);
         let env = [PathBuf::from("/p/.env")];

@@ -10,40 +10,28 @@
 //! - Turning the IME off waits while a composition is open, as the OS keeps a
 //!   composition it was turned off in, and the next key would bring it back.
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
-//! - The window system's reports arrive as [`ImeEvent`], from `shell`, and the calls go
-//!   through its window (ADR 0070), so nothing here knows winit.
-
-use std::ops::Range;
+//! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
+//!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
 
 use oso_core::buffer::Buffer;
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
+use oso_platform::window::ImeEvent;
 
 use super::App;
 use super::shell::Loop;
 
-/// What an input method reports, from the window system or from the dev socket's stand-in.
-pub(super) enum ImeEvent {
-    /// The text being composed, and the caret or the segment being converted, in
-    /// bytes. No text ends the composition with no commit.
-    Preedit(String, Option<Range<usize>>),
-    /// The text the composition gave, which comes after an empty preedit.
-    Commit(String),
-    /// The composition is over, whether oso asked for it or not.
-    Disabled,
-}
-
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
-/// cannot type (ADR 0069). The minibuffer, isearch and menus add their own reasons
-/// here.
-fn wants_ime(buffer: &Buffer, reads_keys: bool) -> bool {
+/// cannot type (ADR 0069), or a prompt is selected (ADR 0072). Isearch and menus add their
+/// own reasons here.
+fn wants_ime(buffer: &Buffer, reads_keys: bool, in_prompt: bool) -> bool {
     // Letters answer among the copies (ADR 0064).
     let answers = buffer.mode().shows_copies();
     // So that a letter fails at once, and not after a whole composition.
     let refuses = buffer.read_only().is_some();
     // As macOS password fields do.
     let secret = buffer.is_secret();
-    !(answers || refuses || secret || reads_keys)
+    !(answers || refuses || secret || reads_keys || in_prompt)
 }
 
 /// What to allow the IME as now, if that changes: turning it off waits while a
@@ -94,6 +82,10 @@ impl App {
     pub(super) fn after_event(&mut self) {
         if self.composing() && self.editor.current().1.is_secret() {
             self.end_composition();
+            // The window's input method too, so that nothing of it is committed later.
+            if let Some(view) = &self.view {
+                view.window.discard_composition();
+            }
         }
         self.sync_ime();
         self.give_cursor_area();
@@ -128,7 +120,12 @@ impl App {
 
     /// Whether oso wants the IME on now ([`wants_ime`]).
     pub(super) fn ime_wanted(&self) -> bool {
-        wants_ime(self.editor.current().1, self.dispatcher.reads_keys())
+        let in_prompt = self.editor.prompt().is_some();
+        wants_ime(
+            self.editor.current().1,
+            self.dispatcher.reads_keys(),
+            in_prompt,
+        )
     }
 
     /// Allows or forbids the IME as wanted, if that changed. Turning it off waits for
@@ -178,18 +175,22 @@ mod tests {
     #[test]
     fn the_ime_is_wanted_only_where_a_letter_types() {
         let file = Buffer::from_text("notes.txt", "");
-        assert!(wants_ime(&file, false));
+        assert!(wants_ime(&file, false, false));
         assert!(
-            !wants_ime(&file, true),
+            !wants_ime(&file, true, false),
             "a prefix key or argument reads keys"
         );
         assert!(
-            !wants_ime(&Buffer::from_bytes("bin", b"\xff"), false),
+            !wants_ime(&Buffer::from_bytes("bin", b"\xff"), false, false),
             "read-only"
         );
         let unjudged = Buffer::visiting(".env".into());
         assert!(unjudged.is_secret());
-        assert!(!wants_ime(&unjudged, false), "may hold secrets");
+        assert!(!wants_ime(&unjudged, false, false), "may hold secrets");
+        assert!(
+            !wants_ime(&file, false, true),
+            "a prompt reads keys and digits"
+        );
     }
 
     #[test]

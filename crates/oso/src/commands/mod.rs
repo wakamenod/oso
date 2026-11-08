@@ -12,6 +12,7 @@ mod edit;
 mod kill;
 mod mark;
 mod messages;
+mod minibuffer;
 mod motion;
 mod prefix;
 mod recovery;
@@ -21,7 +22,7 @@ mod session;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;
-use oso_core::command::{Command, CommandError, Registry};
+use oso_core::command::{Command, CommandError, Ctx, Registry};
 use oso_core::motion::{TOO_MUCH, WalkBudget};
 
 /// Every feature's commands. A new feature adds a module and one line here, in
@@ -36,6 +37,7 @@ const TABLES: &[&[Command]] = &[
     kill::COMMANDS,
     mark::COMMANDS,
     messages::COMMANDS,
+    minibuffer::COMMANDS,
     motion::COMMANDS,
     prefix::COMMANDS,
     recovery::COMMANDS,
@@ -43,6 +45,15 @@ const TABLES: &[&[Command]] = &[
     scroll::COMMANDS,
     session::COMMANDS,
 ];
+
+/// Refuses a command that would change which buffer a window shows, while a prompt is
+/// selected: its window always shows its own (ADR 0072).
+fn not_in_prompt(ctx: &Ctx<'_>) -> Result<(), CommandError> {
+    match ctx.editor.prompt() {
+        Some(_) => Err(CommandError::new("Not in the minibuffer")),
+        None => Ok(()),
+    }
+}
 
 /// The signal for a command whose budget ran out, after it did what it could.
 fn budget_left(budget: WalkBudget) -> Result<(), CommandError> {

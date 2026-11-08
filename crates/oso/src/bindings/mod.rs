@@ -8,6 +8,7 @@ mod edit;
 mod kill;
 mod mark;
 mod messages;
+mod minibuffer;
 mod motion;
 mod prefix;
 mod recovery;
@@ -28,6 +29,8 @@ const TABLES: &[&[(&str, &str)]] = &[
     kill::BINDINGS,
     mark::BINDINGS,
     messages::BINDINGS,
+    #[cfg(feature = "dev")]
+    minibuffer::DEV,
     motion::BINDINGS,
     prefix::BINDINGS,
     recovery::BINDINGS,
@@ -58,6 +61,14 @@ pub fn global_keymap(registry: &Registry) -> Keymap {
 pub fn prefix_keymaps(registry: &Registry) -> (Keymap, Keymap) {
     let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
     (keymap(prefix::DIGITS), keymap(prefix::MINUS))
+}
+
+/// The keymaps of a prompt that reads an answer, above the global one, and of a question, in
+/// place of it (ADR 0072). Empty for a registry without their commands, as in tests that bring
+/// their own.
+pub fn prompt_keymaps(registry: &Registry) -> (Keymap, Keymap) {
+    let keymap = |table| Keymap::from_table(registry, table).unwrap_or_default();
+    (keymap(minibuffer::MINIBUFFER), keymap(minibuffer::QUESTION))
 }
 
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global

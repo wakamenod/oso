@@ -73,6 +73,9 @@ pub fn export(
     frame: Option<Frame>,
     restore: Option<&Restore>,
 ) -> Reply {
+    if editor.prompt().is_some() {
+        return Err(PROMPTING.into());
+    }
     let mut buffers = Vec::new();
     for (id, buffer) in editor.buffers() {
         buffers.push(buffer_state(id, buffer)?);
@@ -204,12 +207,19 @@ pub fn check(editor: &Editor) -> Reply {
     if editor.preedit().is_some() {
         return Err(COMPOSING.into());
     }
+    if editor.prompt().is_some() {
+        return Err(PROMPTING.into());
+    }
     Ok(json!({ "generation": generation(editor) }))
 }
 
 /// Why a restart waits for a composition to end: its text is in no buffer, so a new
 /// instance would lose it (ADR 0069).
 const COMPOSING: &str = "cannot hand over: a composition is open";
+
+/// Why a restart waits for every prompt to close: it is no unsaved work, but a new
+/// instance would take it away from the person mid-answer (ADR 0072).
+const PROMPTING: &str = "cannot hand over: a prompt is open";
 
 /// Names what an instance holds that a file does not: which buffers exist, and
 /// the content of each modified one. It is not a counter, as undoing an edit
@@ -241,6 +251,7 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
         Some(_) if editor.preedit().is_some() => {
             Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
+        Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),

@@ -204,7 +204,7 @@ fn an_end_nobody_agreed_to_is_offered_and_a_confirmed_exit_keeps_it_for_next_tim
     assert_eq!(app.state()["buffer"]["modified"], true);
     // Leaving with the recovered text unsaved, having agreed to lose it.
     app.send_keys("C-x C-c");
-    let _ = app.exchange("send-keys", Some(serde_json::json!({ "keys": "C-x C-c" })));
+    let _ = app.exchange("send-keys", Some(serde_json::json!({ "keys": "y" })));
     assert!(app.wait_for_exit().success());
     drop(app);
     assert_eq!(read_copies(&directory).len(), 1, "it is offered again");

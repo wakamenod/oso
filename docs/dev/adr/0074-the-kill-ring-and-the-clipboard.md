@@ -200,8 +200,8 @@ the commands' details below as written with them. The ADR stays Proposed until t
 - **A kill from a buffer that may hold secrets** (any verdict but `Ordinary`) is a secret entry.
 - **A kill from a passphrase prompt** (`Verdict::Passphrase`, ADR 0072) reaches neither the ring
   nor the clipboard, as ADR 0072 asks; it deletes, and a yank into the prompt works.
-  `Verdict::may_be_killed` names every verdict, so the passphrase's decides this where M2-16
-  adds it.
+  `Verdict::may_be_killed` is false for it, and names every verdict, so a new one decides this
+  where it is added.
 - **What the clipboard gets for it: the text, marked concealed** (chosen). On macOS the item also
   carries `org.nspasteboard.ConcealedType` (and `TransientType`), which clipboard managers that
   follow nspasteboard.org skip; on Windows `ExcludeClipboardContentFromMonitorProcessing` and
@@ -262,8 +262,9 @@ This is a human gate ([`REVIEW.md`](../../../REVIEW.md)).
 - `guardrails/layers.txt`: `kill` in `[oso-core]` beside `undo`, below `editor`; `clipboard` in
   `[oso-platform]` on the top line, beside `window` from stage 2.
 - `oso::dispatch::clipboard`, a private module, holds the waiting command and the held input.
-  ADR 0072 keeps a command waiting for a prompt the same way; when both are on `main`, they share
-  one waiting state, with what it waits for, rather than two,
+  ADR 0072's `run_or_read` decides that a yank waits, as it decides what a command reads in a
+  prompt, so one place says what a command waits for. A prompt takes the keys while it waits;
+  the clipboard holds them,
   and `--clipboard memory` is a dev build's option, after `--emergency-dir` if both are given.
 
 ### Where this differs from accepted ADRs

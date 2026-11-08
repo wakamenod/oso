@@ -23,7 +23,7 @@ use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
-use crate::pane::{Face, Layer, Pane, PaneContent, PaneId, Span, TextView};
+use crate::pane::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
 use crate::rows::{Rows, ShapedRow};
 use crate::shape::Rect;
 use crate::text::{GlyphInstance, Layout};
@@ -274,13 +274,23 @@ fn draw_pane<G: GlyphSource>(
     // none of them can take its place.
     let cursor = match &pane.content {
         PaneContent::Text(view) => cursor_cells(view, pane.region),
+        PaneContent::Masked(masked) => masked_cursor(masked, pane.region),
         PaneContent::Lines(_) => None,
     };
-    // So are a preedit's two underlines.
-    let held = usize::from(cursor.is_some()) + preedit_lines(pane);
+    let hollow = matches!(&pane.content, PaneContent::Text(view) if view.cursor_style == CursorStyle::Hollow);
+    // So are a preedit's two underlines, and a hollow box's four sides.
+    let held = cursor.map_or(0, |_| if hollow { 4 } else { 1 }) + preedit_lines(pane);
     draws.held += held;
     if let Some(face) = pane.background {
         draws.fill(unscrolled.frame_cells(pane.region), face);
+    }
+    if let Some(face) = pane.border {
+        let width = 2.0 * line_width(metrics);
+        if let Some(rect) = unscrolled.frame_cells(pane.region) {
+            for side in outline(rect, width) {
+                draws.fill(Some(side), face);
+            }
+        }
     }
     match &pane.content {
         PaneContent::Text(view) => {
@@ -288,8 +298,8 @@ fn draw_pane<G: GlyphSource>(
             for cells in view.region_cells {
                 draws.fill(unscrolled.frame_cells(*cells), Face::Region);
             }
-            let mut layout = Layout::new(metrics, pane.region, view.scroll);
-            if let Some(cells) = cursor {
+            let mut layout = Layout::new(metrics, pane.region, view.scroll).with_bands(pane.bands);
+            if let Some(cells) = cursor.filter(|_| !hollow) {
                 // Glyphs take the box's color only where the box is.
                 layout = layout.with_cursor(view.cursor.row, cells);
             }
@@ -297,20 +307,101 @@ fn draw_pane<G: GlyphSource>(
             draws.held -= held;
             underline_preedit(draws, view, &layout, metrics);
             if let Some(cells) = cursor {
-                draws.fill(layout.frame_cells(cells), Face::Cursor);
+                fill_cursor(draws, &layout, cells, hollow, metrics);
             }
         }
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
-            // A modeline or an echo area. Other panes are M2-16's and M3's to decide.
+            // A modeline or an echo area. Other panes keep what their `bands` say.
             let layout = if pane.layer == Layer::TILED && rows_shown == 1 {
                 unscrolled.with_band_above()
             } else {
-                unscrolled
+                unscrolled.with_bands(pane.bands)
             };
             draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
+        PaneContent::Masked(masked) => {
+            let mut layout = unscrolled.with_bands(pane.bands);
+            if let Some(cells) = cursor {
+                layout = layout.with_cursor(0, cells);
+            }
+            let span = [Span {
+                text: masked.text,
+                face: Face::Float,
+            }];
+            let line: [&[Span<'_>]; 1] = [&span];
+            draw_lines(
+                draws,
+                &line,
+                &layout,
+                pane.region.rows.min(1),
+                rows,
+                system,
+                glyphs,
+            );
+            draws.held -= held;
+            if let Some(cells) = cursor {
+                fill_cursor(draws, &layout, cells, false, metrics);
+            }
+        }
     }
+}
+
+/// A thin line's width in whole pixels, as the metrics give the cell's height.
+fn line_width(metrics: CellMetrics) -> f32 {
+    (metrics.height / 16.0).round().max(1.0)
+}
+
+/// The four sides of `rect`, `width` thick, inside it.
+fn outline(rect: PixelRect, width: f32) -> [PixelRect; 4] {
+    let width = width.min(rect.width / 2.0).min(rect.height / 2.0);
+    [
+        PixelRect {
+            height: width,
+            ..rect
+        },
+        PixelRect {
+            y: rect.y + rect.height - width,
+            height: width,
+            ..rect
+        },
+        PixelRect { width, ..rect },
+        PixelRect {
+            x: rect.x + rect.width - width,
+            width,
+            ..rect
+        },
+    ]
+}
+
+/// Fills the cursor box over `cells`, or only its outline for a hollow one.
+fn fill_cursor(
+    draws: &mut Draws,
+    layout: &Layout,
+    cells: CellRect,
+    hollow: bool,
+    metrics: CellMetrics,
+) {
+    let Some(rect) = layout.frame_cells(cells) else {
+        return;
+    };
+    if hollow {
+        for side in outline(rect, line_width(metrics)) {
+            draws.fill(Some(side), Face::Cursor);
+        }
+    } else {
+        draws.fill(Some(rect), Face::Cursor);
+    }
+}
+
+/// The frame's cell under the cursor of `masked` in `region`, if it is in it.
+fn masked_cursor(masked: &Masked<'_>, region: CellRect) -> Option<CellRect> {
+    (region.rows > 0 && masked.cursor < region.columns).then(|| CellRect {
+        row: region.row,
+        column: region.column + masked.cursor,
+        rows: 1,
+        columns: 1,
+    })
 }
 
 /// The frame's cells under the cursor box of `view` in `region`, if it shows.
@@ -411,6 +502,7 @@ fn draw_lines<G: GlyphSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pane::Bands;
     use crate::rows::tests::Recorder;
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::display_map::DisplayPoint;
@@ -486,6 +578,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
             region_cells: &[],
         })
@@ -497,6 +590,8 @@ mod tests {
             region,
             layer: Layer(layer),
             background: None,
+            border: None,
+            bands: Bands::NONE,
             content,
         }
     }
@@ -580,6 +675,7 @@ mod tests {
                     revision: 1,
                     scroll: Scroll { top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
+                    cursor_style: CursorStyle::Box,
                     preedit: None,
                     region_cells: &[],
                 })
@@ -652,6 +748,7 @@ mod tests {
             revision: 1,
             scroll: Scroll { top: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
             region_cells: &[],
         });
@@ -723,6 +820,124 @@ mod tests {
     }
 
     #[test]
+    fn a_border_is_a_line_along_the_inside_of_the_region() {
+        let panes = [Pane {
+            background: Some(Face::Float),
+            border: Some(Face::FloatBorder),
+            bands: Bands::NONE,
+            ..pane(0, rect(1, 1, 3, 4), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects = scene.rects();
+        assert_eq!(rects.len(), 5, "the background and four sides");
+        assert_eq!(rects[0].color, Face::Float.background());
+        let sides: Vec<_> = rects[1..].iter().map(|r| (r.position, r.size)).collect();
+        // Cells are 10 x 20 px from (8, 8); the line is twice a thin one, 2 px here.
+        assert_eq!(
+            sides,
+            [
+                ([18.0, 28.0], [40.0, 2.0]),
+                ([18.0, 86.0], [40.0, 2.0]),
+                ([18.0, 28.0], [2.0, 60.0]),
+                ([56.0, 28.0], [2.0, 60.0]),
+            ]
+        );
+        assert!(
+            rects[1..]
+                .iter()
+                .all(|r| r.color == Face::FloatBorder.background())
+        );
+    }
+
+    #[test]
+    fn a_hollow_cursor_is_an_outline_over_glyphs_as_they_are() {
+        let buffer = Buffer::from_text("t", "abc");
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(0, 1),
+            cursor_style: CursorStyle::Hollow,
+            preedit: None,
+            region_cells: &[],
+        });
+        let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects = scene.rects();
+        assert_eq!(rects.len(), 4);
+        assert!(rects.iter().all(|r| r.color == Face::Cursor.background()));
+        assert_eq!(
+            (rects[0].position, rects[0].size),
+            ([18.0, 8.0], [10.0, 1.0])
+        );
+        assert_eq!(
+            (rects[2].position, rects[2].size),
+            ([18.0, 8.0], [1.0, 20.0])
+        );
+        assert_eq!(scene.quads().len(), 3, "every glyph still shows");
+    }
+
+    #[test]
+    fn a_masked_row_draws_what_stands_for_the_text_and_a_cursor_box() {
+        let content = PaneContent::Masked(Masked {
+            text: "***",
+            cursor: 3,
+        });
+        let panes = [pane(0, rect(0, 0, 1, 5), 17, content)];
+        let mut scene = Scene::new(LIMITS);
+        let system = build(&mut scene, &panes, &mut FakeAtlas::default());
+        assert_eq!(scene.quads().len(), 3);
+        assert!(
+            system
+                .shaped
+                .iter()
+                .all(|text| text.chars().all(|c| c == '*'))
+        );
+        let last = scene.rects().last().unwrap();
+        assert_eq!(last.color, Face::Cursor.background());
+        assert_eq!((last.position, last.size), ([38.0, 8.0], [10.0, 20.0]));
+    }
+
+    #[test]
+    fn a_pane_keeps_only_the_bands_it_is_given() {
+        let line = line("A");
+        let lines: [&[Span<'_>]; 1] = [&line];
+        // Bits above and below the row: [top, bottom] of the one quad, by the bands kept.
+        let mut reach = Vec::new();
+        for bands in [
+            Bands::NONE,
+            Bands {
+                above: true,
+                below: false,
+            },
+            Bands {
+                above: true,
+                below: true,
+            },
+        ] {
+            let panes = [Pane {
+                bands,
+                ..pane(0, rect(2, 0, 1, 4), 17, PaneContent::Lines(&lines))
+            }];
+            let mut atlas = FakeAtlas {
+                bitmap: Some(([8, 40], 1, 22)),
+                ..FakeAtlas::default()
+            };
+            let mut scene = Scene::new(LIMITS);
+            build(&mut scene, &panes, &mut atlas);
+            let quad = &scene.quads()[0];
+            reach.push([quad.position()[1], quad.position()[1] + quad.size()[1]]);
+        }
+        // The row spans y 48 to 68; nothing past it without a band, in any layer.
+        assert_eq!(reach[0], [48.0, 68.0], "{reach:?}");
+        assert!(reach[1][0] < 48.0 && reach[1][1] == 68.0, "{reach:?}");
+        assert!(reach[2][0] < 48.0 && reach[2][1] > 68.0, "{reach:?}");
+    }
+
+    #[test]
     fn the_cursor_box_goes_over_the_boxes_and_stays_in_the_pane() {
         let buffer = Buffer::from_text("t", "\u{202e}abc");
         let content = PaneContent::Text(TextView {
@@ -731,6 +946,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
             region_cells: &[],
         });
@@ -756,6 +972,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1, 1),
+            cursor_style: CursorStyle::Box,
             preedit: None,
             region_cells: &region,
         });
@@ -793,6 +1010,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
+            cursor_style: CursorStyle::Box,
             preedit: Some(&preedit),
             region_cells: &[],
         });
@@ -832,6 +1050,7 @@ mod tests {
                 revision: 1,
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(1000, 0),
+                cursor_style: CursorStyle::Box,
                 preedit: None,
                 region_cells: &[],
             })
@@ -991,6 +1210,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
             region_cells: &[],
         });

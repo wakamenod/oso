@@ -5,7 +5,8 @@
 //! answer.
 //!
 //! A command whose spec reads the clipboard, `yank`, does not run when its keys
-//! resolve. The dispatcher keeps it with its arguments, the host reads the clipboard off
+//! resolve: `run_or_read` keeps it here, as it keeps one that reads a prompt's answer
+//! (ADR 0072), with its arguments, the host reads the clipboard off
 //! the UI thread, and the command runs through the same `execute` once the answer
 //! comes, so undo and the messages see one command. Keys, text and commits that arrive
 //! meanwhile are held in order, and handled once it has run, so typing after `C-y` lands
@@ -44,21 +45,15 @@ pub(super) struct Waiting {
 }
 
 impl Dispatcher {
-    /// Keeps the command `id` waiting for the clipboard, if its spec reads it with
-    /// `args` and it has no answer yet. Returns whether it waits.
+    /// Keeps the command `id` waiting for the clipboard, with its arguments and what it
+    /// knows of its key. `run_or_read` decides that it waits, as it decides what a
+    /// command reads in a prompt (ADR 0072).
     pub(super) fn wait_for_clipboard(
         &mut self,
         id: CommandId,
         args: Args,
         invocation: &Invocation<'_>,
-    ) -> bool {
-        let reads = self
-            .registry
-            .get(id)
-            .is_some_and(|command| command.args.reads_clipboard(args.raw()));
-        if !reads || invocation.clipboard.is_some() {
-            return false;
-        }
+    ) {
         self.waiting = Some(Waiting {
             id,
             args,
@@ -67,7 +62,6 @@ impl Dispatcher {
             asked: false,
             held: VecDeque::new(),
         });
-        true
     }
 
     /// Whether a command waits for the clipboard.

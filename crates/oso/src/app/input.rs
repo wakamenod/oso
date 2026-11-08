@@ -8,13 +8,13 @@ use std::time::Instant;
 
 use oso_core::buffer::Mode;
 use oso_core::key::KeyPress;
+use oso_platform::window::{Held, KeyInput, Wheel};
 
 use super::App;
-use super::events::Wheel;
 use super::shell::Loop;
 #[cfg(feature = "dev")]
 use crate::dev;
-use crate::keys::{self, Held, KeyInput};
+use crate::keys;
 
 /// Rows one notch of a mouse wheel scrolls.
 const WHEEL_ROWS: f64 = 3.0;
@@ -23,12 +23,24 @@ const WHEEL_ROWS: f64 = 3.0;
 /// cell is about half as wide as it is high.
 const WHEEL_COLUMNS: f64 = 6.0;
 
-/// Whether `key` in a buffer of `mode` is an answer to a question and not something to repeat.
-/// Where a letter answers, holding it must not go on through the rows, and some answers delete.
-/// The app also drops the repeats of a press this was true of, as an answer can move the window
-/// to a file, where the same letter would type.
-fn answers_once(mode: Mode, key: KeyPress) -> bool {
-    mode.shows_copies() && key.text().is_some()
+/// Whether `key` from the window must not reach the innermost prompt, `innermost`: a question
+/// a control socket request asked, among `remote`. `C-g` still closes it.
+#[cfg(feature = "dev")]
+fn held_from_the_window(
+    remote: &[oso_core::minibuffer::PromptId],
+    innermost: Option<oso_core::minibuffer::PromptId>,
+    key: KeyPress,
+) -> bool {
+    key != oso_core::keymap::CANCEL && innermost.is_some_and(|id| remote.contains(&id))
+}
+
+/// Whether `key` in a buffer of `mode`, or in a question, is an answer and not something to
+/// repeat. Where a letter answers, holding it must not go on through the rows, and some answers
+/// delete. The app also drops the repeats of a press this was true of, as an answer can move the
+/// window to a file, where the same letter would type, and a held `y` must answer once
+/// (ADR 0072).
+fn answers_once(mode: Mode, question: bool, key: KeyPress) -> bool {
+    (mode.shows_copies() || question) && key.text().is_some()
 }
 
 impl App {
@@ -41,17 +53,39 @@ impl App {
     pub(super) fn handle_key_event(&mut self, event_loop: &Loop<'_>, input: &KeyInput<'_>) {
         if let Some(key) = keys::from_event(input, self.modifiers) {
             let mode = self.editor.current().1.mode();
+            let question = self
+                .editor
+                .prompt()
+                .is_some_and(|prompt| prompt.kind().is_question());
             if input.repeat {
-                if self.answering == Some(key) || answers_once(mode, key) {
+                if self.answering == Some(key) || answers_once(mode, question, key) {
                     return;
                 }
             } else {
-                self.answering = answers_once(mode, key).then_some(key);
+                self.answering = answers_once(mode, question, key).then_some(key);
+            }
+            #[cfg(feature = "dev")]
+            if self.asked_remotely(key) {
+                return;
             }
             self.handle_key(event_loop, key);
         } else if let Some(text) = keys::typed_text(input, self.modifiers) {
             self.handle_text(event_loop, text);
         }
+    }
+
+    /// Whether the innermost prompt is a question a control socket request asked, which `key`
+    /// from the window must not answer. It says so, and only `C-g` goes through (ADR 0072).
+    #[cfg(feature = "dev")]
+    fn asked_remotely(&mut self, key: KeyPress) -> bool {
+        let innermost = self.editor.prompt().map(|prompt| prompt.id());
+        if !held_from_the_window(&self.remote_questions, innermost, key) {
+            return false;
+        }
+        self.editor
+            .prompt_says("Asked over the control socket: answer there, or C-g");
+        self.request_redraw();
+        true
     }
 
     /// Handles one key press from the window, through the keymaps and the
@@ -129,12 +163,39 @@ mod tests {
         keys.0[0]
     }
 
+    #[cfg(feature = "dev")]
+    #[test]
+    fn a_question_the_socket_asked_takes_only_c_g_from_the_window() {
+        use super::held_from_the_window;
+        let mut editor = oso_core::editor::Editor::default();
+        let asked = editor.ask("Exit?", "keyboard-quit").unwrap();
+        let mine = editor.ask("Again?", "keyboard-quit").unwrap();
+        assert!(held_from_the_window(&[asked], Some(asked), key("y")));
+        assert!(held_from_the_window(&[asked], Some(asked), key("n")));
+        assert!(!held_from_the_window(&[asked], Some(asked), key("C-g")));
+        assert!(
+            !held_from_the_window(&[asked], Some(mine), key("y")),
+            "asked by a key"
+        );
+        assert!(!held_from_the_window(&[asked], None, key("y")));
+    }
+
     #[test]
     fn only_a_letter_among_the_copies_answers_once() {
-        assert!(answers_once(Mode::CopyList, key("d")));
-        assert!(answers_once(Mode::CopyView, key("r")));
-        assert!(!answers_once(Mode::CopyList, key("C-n")), "motion repeats");
-        assert!(!answers_once(Mode::CopyList, key("<down>")));
-        assert!(!answers_once(Mode::Fundamental, key("d")), "typing repeats");
+        assert!(answers_once(Mode::CopyList, false, key("d")));
+        assert!(answers_once(Mode::CopyView, false, key("r")));
+        assert!(
+            !answers_once(Mode::CopyList, false, key("C-n")),
+            "motion repeats"
+        );
+        assert!(!answers_once(Mode::CopyList, false, key("<down>")));
+        assert!(
+            !answers_once(Mode::Fundamental, false, key("d")),
+            "typing repeats"
+        );
+        assert!(
+            answers_once(Mode::Fundamental, true, key("y")),
+            "a question"
+        );
     }
 }
