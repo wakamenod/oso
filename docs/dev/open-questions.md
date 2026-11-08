@@ -201,29 +201,28 @@ item notes when it must be settled.
 - At ADR 0070's stage 2, on macOS: a native view answers `firstRectForCharacterRange`
   when the input method asks, so the cursor area no longer needs giving on every key that
   moves the cursor (about 0.1 ms a key at p99 in `just perf` at M2-12), and the candidate
-  window can follow the segment being converted. Measure whether the OS must still be told
-  after a frame that the cursor moved with nothing composing, and set the bound a logout
-  waits for running saves, below what macOS allows
-  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
+  window can follow the segment being converted
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
+  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - `oso_platform::window::Held` names the modifiers as the window system does, beside
   `oso_core::key::Modifiers`, and `keys.rs` maps one to the other, as `oso-platform` cannot
   name `oso-core`'s. That only `app/shell.rs` names winit is said in the tip crate's
   `AGENTS.md` and not checked by the guard tests
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- What ADR 0070's stage 2 still owes before the native layer is the default on macOS:
-  committing a composition when the IME turns off, with the app's side of it; the input
-  method asking for the rectangle of the range it names, so the candidate window follows the
-  segment; no input context while the IME is off; the cursor's line for the input method;
+- What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
+  the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
+  the input method asking for the rectangle of the range it names, so the candidate window
+  follows the segment; no input context while the IME is off; the cursor's line for the
+  input method;
   the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
   runs must still reach `exiting`; whether frames keep up during a live resize, now that the
   view also draws when AppKit displays its layer; `open_window` and `request_attention`
   queued as the other requests are;
   startup and `open_from_launch_ms` measured again with more runs, where the native layer's
-  medians sat a few milliseconds above winit's within overlapping ranges; `stop()` while
-  AppKit runs a live resize or a modal session, as the quit guard may; a `Waker` that keeps
-  saying it sent after a panic, as the channel's end is kept; and the author's checks at the
-  keyboard of what remains: a window covered by another app and uncovered drawing again with
-  no key, and each item above as it lands. The author checked at the keyboard on 2026-11-08
+  medians sat a few milliseconds above winit's within overlapping ranges; and the author's
+  checks at the keyboard of what remains: a window covered by another app and uncovered
+  drawing again with no key, a composition committed when the IME turns off, and each item
+  above as it lands. The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting

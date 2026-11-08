@@ -215,8 +215,10 @@ A panicking command is caught at the command boundary
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
-  emergency copies and a prompt. Turning off waits for a composition to end
-  ([ADR 0069](adr/0069-macos-input-method.md)).
+  emergency copies and a prompt. Turning off during a composition commits it first, where
+  typing goes then, on oso's own layer, and waits for it to end on winit, which cannot
+  commit one ([ADR 0069](adr/0069-macos-input-method.md),
+  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of

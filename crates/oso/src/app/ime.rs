@@ -7,8 +7,9 @@
 //!
 //! - oso keeps its own state and never reads it back from the events: `Disabled`
 //!   also comes unasked, when the input source changes.
-//! - Turning the IME off waits while a composition is open, as the OS keeps a
-//!   composition it was turned off in, and the next key would bring it back.
+//! - Turning the IME off during a composition commits it first, where typing goes then, on
+//!   oso's own window layer (ADR 0077). winit cannot commit one, and the OS keeps a
+//!   composition it was turned off in, so there it waits for the composition to end.
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
 //! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
 //!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
@@ -19,7 +20,7 @@ use oso_core::frame::PixelRect;
 use oso_platform::window::ImeEvent;
 
 use super::App;
-use super::shell::Loop;
+use super::shell::{COMMITS_WHEN_TURNED_OFF, Loop};
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
 /// cannot type (ADR 0069), or a prompt is selected (ADR 0072). Isearch and menus add their
@@ -34,10 +35,11 @@ fn wants_ime(buffer: &Buffer, reads_keys: bool, in_prompt: bool) -> bool {
     !(answers || refuses || secret || reads_keys || in_prompt)
 }
 
-/// What to allow the IME as now, if that changes: turning it off waits while a
-/// composition is open.
-fn next_allowed(allowed: bool, wanted: bool, composing: bool) -> Option<bool> {
-    (wanted != allowed && (wanted || !composing)).then_some(wanted)
+/// What to allow the IME as now, if that changes. Turning it off during a composition
+/// commits it first where the window layer `commits` (ADR 0077), and otherwise waits for the
+/// composition to end, as winit keeps it (ADR 0069).
+fn next_allowed(allowed: bool, wanted: bool, composing: bool, commits: bool) -> Option<bool> {
+    (wanted != allowed && (wanted || !composing || commits)).then_some(wanted)
 }
 
 /// What oso has told the OS about the input method.
@@ -79,7 +81,7 @@ impl App {
     /// may hold secrets is selected, whatever selected it, then the IME is allowed as
     /// wanted, and the OS gets the cursor's cell if it changed, so that a composition
     /// started by the next key opens its candidate window there.
-    pub(super) fn after_event(&mut self) {
+    pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
         if self.composing() && self.editor.current().1.is_secret() {
             self.end_composition();
             // The window's input method too, so that nothing of it is committed later.
@@ -87,7 +89,7 @@ impl App {
                 view.window.discard_composition();
             }
         }
-        self.sync_ime();
+        self.sync_ime(event_loop);
         self.sync_secure_input();
         self.give_cursor_area();
     }
@@ -140,16 +142,48 @@ impl App {
         )
     }
 
-    /// Allows or forbids the IME as wanted, if that changed. Turning it off waits for
-    /// a composition to end.
-    pub(super) fn sync_ime(&mut self) {
-        let next = next_allowed(self.ime.allowed, self.ime_wanted(), self.composing());
-        let (Some(wanted), Some(view)) = (next, &self.view) else {
+    /// Allows or forbids the IME as wanted, if that changed. Turning it off during a
+    /// composition commits it first on oso's own window layer, and waits for it to end on
+    /// winit's (ADR 0077).
+    pub(super) fn sync_ime(&mut self, event_loop: &Loop<'_>) {
+        let composing = self.composing();
+        let next = next_allowed(
+            self.ime.allowed,
+            self.ime_wanted(),
+            composing,
+            COMMITS_WHEN_TURNED_OFF,
+        );
+        let Some(wanted) = next else {
+            return;
+        };
+        if !wanted && composing {
+            self.commit_before_turning_off(event_loop);
+        }
+        let Some(view) = &self.view else {
             return;
         };
         view.window.set_ime_allowed(wanted);
         self.ime.allowed = wanted;
         log::debug!("IME allowed: {wanted}");
+    }
+
+    /// Commits the composition as it is shown, where typing goes now (ADR 0077), and has the
+    /// window's input method drop its own, so that it is not committed twice.
+    fn commit_before_turning_off(&mut self, event_loop: &Loop<'_>) {
+        let Some(text) = self
+            .editor
+            .preedit()
+            .map(|preedit| preedit.text().to_owned())
+        else {
+            return;
+        };
+        self.end_composition();
+        if let Some(view) = &self.view {
+            view.window.discard_composition();
+        }
+        log::trace!("commit");
+        let effects = self.dispatcher.commit_text(&mut self.editor, &text);
+        self.apply(event_loop, effects);
     }
 
     /// Gives the OS the primary cursor's cell, for its candidate window, if it moved
@@ -207,11 +241,18 @@ mod tests {
 
     #[test]
     fn turning_off_waits_for_the_composition_and_turning_on_does_not() {
-        assert_eq!(next_allowed(true, false, false), Some(false));
-        assert_eq!(next_allowed(true, false, true), None, "waits");
-        assert_eq!(next_allowed(false, true, true), Some(true));
-        assert_eq!(next_allowed(false, true, false), Some(true));
-        assert_eq!(next_allowed(true, true, true), None);
-        assert_eq!(next_allowed(false, false, false), None);
+        for commits in [false, true] {
+            assert_eq!(next_allowed(true, false, false, commits), Some(false));
+            assert_eq!(next_allowed(false, true, true, commits), Some(true));
+            assert_eq!(next_allowed(false, true, false, commits), Some(true));
+            assert_eq!(next_allowed(true, true, true, commits), None);
+            assert_eq!(next_allowed(false, false, false, commits), None);
+        }
+        assert_eq!(next_allowed(true, false, true, false), None, "winit waits");
+        assert_eq!(
+            next_allowed(true, false, true, true),
+            Some(false),
+            "the native layer commits, then turns it off"
+        );
     }
 }

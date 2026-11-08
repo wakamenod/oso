@@ -92,7 +92,7 @@ fn a_preedit_draws_in_the_window_and_a_commit_is_one_undo_step() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn the_ime_is_off_where_keys_are_read_as_keys_and_waits_for_a_composition() {
+fn the_ime_is_off_where_keys_are_read_as_keys_and_a_composition_is_kept() {
     let scratch = Scratch::new("ime-off");
     let file = scratch.write("notes.txt", b"abc\n");
     let binary = scratch.write("data.bin", b"\xff\xfe\n");
@@ -113,19 +113,30 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_waits_for_a_composition() {
         assert!(allowed(&mut app), "after {keys} {back}");
     }
 
-    // A prefix key turns it off, but only once the composition ends. Only a request
-    // can bring one during a composition, as the OS keeps the keys then.
+    // A prompt turns it off. Only a request can bring one during a composition, as the OS
+    // keeps the keys then. On winit, which cannot commit, that waits for the composition to
+    // end; oso's own layer commits it where typing goes, here the prompt, then turns the IME
+    // off (ADR 0077).
     ime(&mut app, json!({ "preedit": "か" })).unwrap();
-    app.send_keys("C-x");
+    app.run_command("goto-line", None).unwrap();
     let state = app.state();
     assert_eq!(state["ime"]["wanted"], false);
-    assert_eq!(
-        state["ime"]["allowed"], true,
-        "the OS would keep the composition"
-    );
-    ime(&mut app, json!({ "clear": true })).unwrap();
-    assert!(!allowed(&mut app));
+    if cfg!(all(target_os = "macos", feature = "native-window")) {
+        assert_eq!(state["ime"]["allowed"], false, "committed, then off");
+        assert_eq!(state["ime"]["composing"], false);
+        assert_eq!(state["prompts"][0]["text"], "か");
+    } else {
+        assert_eq!(
+            state["ime"]["allowed"], true,
+            "the OS would keep the composition"
+        );
+        ime(&mut app, json!({ "clear": true })).unwrap();
+        assert!(!allowed(&mut app));
+    }
     app.send_keys("C-g");
+    let state = app.state();
+    assert_eq!(state["prompts"], json!([]));
+    assert_visible_row(&state, 0, "abc");
     assert!(allowed(&mut app));
 
     // A file that refuses text has it off.

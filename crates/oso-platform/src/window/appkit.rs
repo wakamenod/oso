@@ -67,7 +67,9 @@ pub fn run<T: 'static, H: Handler<T> + 'static>(start: impl FnOnce(Waker<T>) -> 
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
 
-    // The loop stopped: the handler asked to exit, or panicked.
+    // The loop stopped: the handler asked to exit, or panicked. Nothing sent from now on is
+    // taken, whatever stopped it.
+    hooks.wake.close();
     if let Some(payload) = state.panic.take() {
         panic::resume_unwind(payload);
     }
@@ -325,8 +327,8 @@ impl State {
                 // The state first, so that it holds whatever the input method does next.
                 self.update_ime(|ime| ime.set_allowed(allowed));
                 if !allowed {
-                    // As winit does: the composition is dropped. Committing it instead is
-                    // the next step of ADR 0070, with the app's side of it.
+                    // The app has committed a composition before it turns the IME off
+                    // (ADR 0077), so whatever the input method still holds is dropped.
                     view.discard_marked();
                 }
             }
@@ -338,6 +340,16 @@ impl State {
     /// once.
     fn stop(&self) {
         let app = NSApplication::sharedApplication(self.mtm);
+        // No more user events reach a handler that will not run again.
+        if let Some(hooks) = self.hooks.get() {
+            hooks.wake.close();
+        }
+        // `stop:` ends the innermost loop, which in a modal session is the session's. That
+        // ends first, so the stop reaches the app's own loop. A live resize's tracking loop
+        // ends on its own, and the event posted below waits for the app's loop.
+        if app.modalWindow().is_some() {
+            app.abortModal();
+        }
         app.stop(None);
         let event = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
             NSEventType::ApplicationDefined,
