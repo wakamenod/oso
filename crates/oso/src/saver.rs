@@ -46,18 +46,21 @@ use std::time::SystemTime;
 
 use oso_core::buffer::{Baseline, BufferId, ContentId, FileStamp};
 use oso_core::decode::BOM;
-use oso_core::editor::{Editor, SaveJob, SaveRefused};
+use oso_core::editor::SaveJob;
 use oso_platform::file_meta::{self, AccessList, Quarantine};
 
 use crate::loader::{location, parent, stamp_of};
 
 mod attributes;
+mod elsewhere;
 mod leaving;
+mod report;
 
 #[cfg(all(test, unix))]
 use attributes::kept_mode;
 use attributes::{Made, attributes_moved, keep_mode, keep_owner};
 pub use leaving::{AfterSave, Agreement, AgreementCell, Leaving};
+pub use report::apply;
 
 /// How much is written at a time, so that a 1 GB file takes a thousand writes and not
 /// a million.
@@ -114,6 +117,8 @@ pub struct Written {
     unsynced: Option<Unsynced>,
     /// The file is in place, but its quarantine flag could not be kept.
     quarantine_lost: Option<io::Error>,
+    /// The text went to a new place, which the buffer now visits (`C-x C-w`).
+    moved: Option<elsewhere::Moved>,
 }
 
 /// What the disk did not confirm.
@@ -134,6 +139,8 @@ pub struct SaveReport {
     path: PathBuf,
     /// `Ok(None)` if there was nothing to write.
     outcome: Result<Option<Written>, SaveError>,
+    /// The text was to go to a new place, not where the buffer's file was (`C-x C-w`).
+    elsewhere: bool,
 }
 
 impl SaveReport {
@@ -159,6 +166,7 @@ impl SaveReport {
             buffer,
             path,
             outcome: Err(SaveError::Io(error)),
+            elsewhere: false,
         }
     }
 }
@@ -194,90 +202,16 @@ fn run_with(
     // never frees what only the snapshot still held.
     SaveReport {
         buffer: job.buffer,
+        elsewhere: job.elsewhere.is_some(),
         path: job.path,
         outcome,
     }
 }
 
-/// Takes a report in: updates the buffer, and says how it went. Never quotes text.
-pub fn apply(editor: &mut Editor, report: SaveReport) {
-    let SaveReport {
-        buffer,
-        path,
-        outcome,
-    } = report;
-    let path = path.display();
-    let message = match outcome {
-        Ok(None) => {
-            editor.save_unneeded(buffer);
-            SaveRefused::Unmodified.to_string()
-        }
-        Ok(Some(written)) => {
-            editor.save_finished(buffer, written.content, written.stamp);
-            let lost = written.quarantine_lost.map(|e| {
-                format!(
-                    "Wrote the file, but its quarantine flag could not be kept, so macOS may not check it when opened: {e}: {path}"
-                )
-            });
-            // What the disk did not confirm is worth more, so it stays on the echo row.
-            match (written.unsynced, lost) {
-                (None, Some(lost)) => lost,
-                (unsynced, lost) => {
-                    if let Some(lost) = lost {
-                        editor.message(lost);
-                    }
-                    written_message(unsynced, &path)
-                }
-            }
-        }
-        Err(error) => {
-            editor.save_failed(buffer);
-            if matches!(error, SaveError::Conflict(_) | SaveError::Elsewhere) {
-                editor.file_changed_on_disk(buffer);
-            }
-            let mut asks = "";
-            if let SaveError::Conflict(Some(found)) = error {
-                editor.may_save_over(buffer, found);
-                asks = ". C-x C-s asks to save over it";
-            }
-            match error {
-                SaveError::Conflict(_) => format!(
-                    "Not saved: the file changed on disk since it was read, and was kept{asks}: {path}"
-                ),
-                SaveError::Elsewhere => format!(
-                    "Not saved: the path now leads somewhere other than when it was read, and nothing was written: {path}"
-                ),
-                SaveError::UnknownLocation => format!(
-                    "Not saved: where the path leads could not be told when it was read, so no place is safe: {path}"
-                ),
-                SaveError::AccessList(e) => format!(
-                    "Not saved: its access list could not be kept, and the file is as it was: {e}: {path}"
-                ),
-                SaveError::ListForbidsReplacing(e) => format!(
-                    "Not saved: the rename was refused, and its access list denies someone deleting it: {e}: {path}"
-                ),
-                SaveError::Io(e) => format!("Not saved: {e}: {path}"),
-                SaveError::Panicked => format!("Not saved: the save failed: {path}"),
-            }
-        }
-    };
-    editor.message(message);
-}
-
-/// What a save that wrote the file says of itself.
-fn written_message(unsynced: Option<Unsynced>, path: &std::path::Display<'_>) -> String {
-    match unsynced {
-        None => format!("Wrote {path}"),
-        Some(Unsynced::File(e)) => format!(
-            "Wrote the file, but the file system cannot confirm the text reached the disk. A power cut could lose it, and any file it replaced: {e}: {path}"
-        ),
-        Some(Unsynced::Directory(e)) => format!(
-            "Wrote the file, but the disk did not confirm the rename. A power cut could bring back what was there: {e}: {path}"
-        ),
-    }
-}
-
 fn write(job: &SaveJob) -> Result<Option<Written>, SaveError> {
+    if let Some(over) = job.elsewhere {
+        return elsewhere::write(job, over);
+    }
     if job.only_if_gone && !file_is_gone(job)? {
         return Ok(None);
     }
@@ -433,6 +367,7 @@ impl Prepared {
                 .map(Unsynced::File)
                 .or(directory.map(Unsynced::Directory)),
             quarantine_lost: self.quarantine_lost,
+            moved: None,
         })
     }
 }

@@ -42,12 +42,13 @@ mod save;
 mod status;
 mod switch;
 mod view;
+mod write;
 
 pub use copies::RecoveryAction;
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
-pub use save::{ExitRefused, SaveJob, SaveRefused};
+pub use save::{Elsewhere, ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::KillRefused;
 
@@ -92,6 +93,9 @@ pub struct Editor {
     /// The buffers the selected window was on before each internal buffer it has gone to, the
     /// first first. Where it was in each is in the window's places (ADR 0088).
     way_back: Vec<BufferId>,
+    /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
+    /// (ADR 0087).
+    write_over_asked: Option<write::WriteOver>,
     /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
     kill_asked: Option<BufferId>,
     /// What killed buffers held, for the host to free off the UI thread.
@@ -160,6 +164,7 @@ impl Editor {
             messages_buffer: BufferId(0),
             command_left_secret: None,
             way_back: Vec::new(),
+            write_over_asked: None,
             kill_asked: None,
             freed: Vec::new(),
             copies_buffer: None,
