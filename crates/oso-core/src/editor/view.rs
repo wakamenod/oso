@@ -83,6 +83,46 @@ impl Editor {
         Some(grid.rect(cell))
     }
 
+    /// Where the composition is drawn, for the input method (ADR 0077): the rectangle of its
+    /// first cell as the window now scrolls, in physical pixels, and into `out`, emptied
+    /// first, the x of each of its characters from that cell's left, then of its end, each
+    /// kept inside the text area. `None`, with `out` empty, with no composition, one whose row
+    /// is out of view, or one too long to place.
+    pub fn preedit_layout(&self, grid: PixelGrid, out: &mut Vec<f32>) -> Option<PixelRect> {
+        out.clear();
+        let preedit = self.preedit.as_ref()?;
+        let (window, buffer) = self.current();
+        let point = window.cursor_point(&buffer.display());
+        let region = match self.prompt_layout() {
+            Some(layout) => layout.input,
+            None => self.frame.window.text,
+        };
+        let scroll = window.scroll();
+        let row = point
+            .row
+            .checked_sub(scroll.top)
+            .filter(|&row| row < region.rows)?;
+        // Left of the text area when its start is scrolled off.
+        let column = region.column as i64 + point.column as i64 - scroll.left as i64;
+        let [x, y] = grid.cell((region.row + row) as i64, column);
+        preedit.char_positions(grid.cell_width(), out);
+        if out.is_empty() {
+            return None;
+        }
+        let [left, _] = grid.cell(0, region.column as i64);
+        let [right, _] = grid.cell(0, (region.column + region.columns) as i64);
+        for position in out.iter_mut() {
+            *position = position.clamp(left - x, right - x);
+        }
+        let cell = grid.rect(CellRect {
+            row: 0,
+            column: 0,
+            rows: 1,
+            columns: 1,
+        });
+        Some(PixelRect { x, y, ..cell })
+    }
+
     /// Hides the selected window's regions and keeps its marks, as `C-g` does, first
     /// in the chain of what it cancels (ADR 0030, ADR 0071). Returns whether a region
     /// was shown, so that a caller can stop there and ask for a frame.

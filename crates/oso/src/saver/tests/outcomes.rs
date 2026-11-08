@@ -65,11 +65,13 @@ fn what_the_disk_did_not_confirm_is_said_as_it_is_and_counts_as_written() {
         let report = SaveReport {
             buffer: job.buffer,
             path: path.clone(),
+            elsewhere: false,
             outcome: Ok(Some(super::super::Written {
                 content: job.content,
                 stamp: stamp_of(&fs::metadata(&path).unwrap()).unwrap(),
                 unsynced: Some(unsynced),
                 quarantine_lost: None,
+                moved: None,
             })),
         };
         let message = applied(&mut editor, report);
@@ -89,11 +91,13 @@ fn a_quarantine_flag_that_was_lost_is_said_and_the_save_counts() {
     let report = SaveReport {
         buffer: job.buffer,
         path: path.clone(),
+        elsewhere: false,
         outcome: Ok(Some(super::super::Written {
             content: job.content,
             stamp: stamp_of(&fs::metadata(&path).unwrap()).unwrap(),
             unsynced: None,
             quarantine_lost: Some(std::io::Error::other("no such right")),
+            moved: None,
         })),
     };
     let message = applied(&mut editor, report);
@@ -124,6 +128,7 @@ fn what_a_list_stops_is_said_by_path_with_the_reason_first_and_quotes_no_text() 
         let report = SaveReport {
             buffer: job.buffer,
             path: path.clone(),
+            elsewhere: false,
             outcome: Err(error),
         };
         let message = applied(&mut editor, report);
