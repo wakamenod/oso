@@ -31,7 +31,7 @@
 //! ([`spawn_reload`]). [`Watcher`] notices the change (ADR 0083).
 //!
 //! Loading only reads the file. Nothing in it is run or interpreted
-//! (security.md, T1).
+//! (security.md, T1). Nothing logged says how large a file is, as it may hold secrets.
 
 use std::fs::{File, Metadata};
 use std::io::{self, Read};
@@ -211,7 +211,7 @@ where
 /// Starts reading `path` again into `buffer`, whose text is `old`, on a background thread, as
 /// its file changed on disk (ADR 0083). The path is followed and judged, and the baseline taken,
 /// as for [`spawn`], and the whole text comes in one [`LoadUpdate::Reloaded`], compared with
-/// `old` there. `wake` is as for [`spawn`]. Nothing of the file's size reaches the log.
+/// `old` there. `wake` is as for [`spawn`].
 pub fn spawn_reload<W>(
     buffer: BufferId,
     path: PathBuf,
@@ -488,11 +488,7 @@ fn read_into(
     let read = read_all(file, total, shared, |builder| {
         if sent.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL) {
             if sent.is_none() {
-                log::debug!(
-                    "first {} bytes decoded in {:?}",
-                    builder.len(),
-                    started.elapsed()
-                );
+                log::debug!("first piece decoded in {:?}", started.elapsed());
             }
             if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
                 return false;
@@ -507,7 +503,7 @@ fn read_into(
     if grew {
         log::info!("the file grew while loading; the rest is not shown");
     }
-    log::debug!("loaded {} bytes in {:?}", builder.len(), started.elapsed());
+    log::debug!("read in {:?}", started.elapsed());
     send(LoadUpdate::Snapshot(Box::new(builder.snapshot())));
     Ok(())
 }

@@ -187,8 +187,8 @@ and below the row, and a label's glyphs keep their own cells
   mode, with the text in it, also a secret buffer's.
 - A file changed on disk is read again as it was first read: opened, followed through its
   links and judged from the file that was opened. A reload never makes a buffer's verdict less
-  strict, as undo can bring back what was read under the old one, and logs nothing of the
-  file's size. The watcher only looks at visited paths and never opens a file
+  strict, as undo can bring back what was read under the old one. Neither a load nor a
+  reload logs a file's size. The watcher only looks at visited paths and never opens a file
   ([ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
 - Dev state handoff for hot reload goes process-to-process in memory, never
   through files. Dev screenshots are the only dev-only files; see
