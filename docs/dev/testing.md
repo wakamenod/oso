@@ -358,6 +358,17 @@ socket. Windows open and take the focus, and a hidden window fails the run.
 Files are generated in a temporary directory and never committed. It writes
 JSON to `target/perf/perf.json`; `just perf OUT --quick` is for trying it out.
 
+`just perf-remote BASE PAIRS FEATURES` runs the same harness on another Mac, named
+by the ssh host in `OSO_PERF_HOST`. It builds BASE (by default `origin/main`) and the
+working tree here, both with FEATURES (by default `dev`; `dev,native-window` for
+oso's own macOS window layer), copies the two binaries and the harness there, and runs them in
+alternating pairs, the base first, under `caffeinate -d`. The results and logs come
+back to `target/perf/remote/`, each pair is compared as `just perf-compare` does, and
+each run says how much the host swapped meanwhile. Nothing runs there but the
+benchmark, so builds and tests may go on here during it. The host needs a logged-in
+session with a display kept awake, and runs what is built here, so it has the same
+OS and architecture. Nothing is built or installed there.
+
 | Metric | What it measures | Runs |
 |---|---|---|
 | `startup_ms` | just before the process starts, to its first presented frame | 9, plus a first launch reported alone |
