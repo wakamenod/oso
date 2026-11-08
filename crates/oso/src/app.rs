@@ -14,6 +14,7 @@ use oso_core::command::Effects;
 use oso_core::editor::{Editor, Status};
 use oso_core::window::WheelRemainder;
 
+mod clipboard;
 #[cfg(feature = "dev")]
 mod control;
 mod copies;
@@ -56,6 +57,8 @@ pub enum UserEvent {
     NoEmergencyCopies(String),
     /// A thread working on the emergency copies on offer has something to say (ADR 0064).
     Copies(CopiesEvent),
+    /// The clipboard's threads wrote or read (ADR 0074).
+    Clipboard(clipboard::ClipboardEvent),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -99,6 +102,8 @@ pub struct App {
     next_status: Status,
     /// What oso has told the OS about the input method (ADR 0069).
     ime: ime::ImeState,
+    /// The OS clipboard's threads, or none if they could not start (ADR 0074).
+    clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -117,13 +122,21 @@ pub struct App {
 }
 
 impl App {
-    /// An app with no window yet, showing `*scratch*`. Loading threads
-    /// report through `waker`, and `log_gate` is the installed logger's.
-    pub fn new(waker: Waker, started: Instant, emergency: Emergency, log_gate: LogGate) -> Self {
+    /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
+    /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
+    /// installed logger's.
+    pub fn new(
+        waker: Waker,
+        started: Instant,
+        emergency: Emergency,
+        source: oso_platform::clipboard::Source,
+        log_gate: LogGate,
+    ) -> Self {
         let mut dispatcher = Dispatcher::new();
         dispatcher.set_publisher(emergency.publisher());
         let leaving = Leaving::with_cell(emergency.agreement_cell());
         let offer = emergency.offer();
+        let clipboard = clipboard::start(source, waker.clone());
         Self {
             view: None,
             editor: Editor::default(),
@@ -141,6 +154,7 @@ impl App {
             status: Status::default(),
             next_status: Status::default(),
             ime: ime::ImeState::default(),
+            clipboard,
             log_gate,
             #[cfg(feature = "dev")]
             dev: None,
@@ -161,6 +175,7 @@ impl App {
 
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
+        let effects = effects.union(self.sync_clipboard());
         self.start_saves();
         self.answer_about_copies();
         if effects.redraw {

@@ -158,7 +158,11 @@ and below the row, and a label's glyphs keep their own cells
   stay with oso. The window layer holds one enable at a time and releases it when any of that
   stops, when the loop ends and after a panic in the handler
   ([ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
-- The kill ring syncs with the OS clipboard but is never persisted. Core
+- The kill ring syncs with the OS clipboard but is never persisted. oso reads the
+  clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
+  goes there marked concealed for clipboard managers, never shows over the socket, and
+  makes the buffer it is yanked into secret, also after a round trip through another app
+  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).

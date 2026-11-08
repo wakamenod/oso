@@ -50,6 +50,11 @@ fn main() {
     let (args, emergency_directory) = dev::take_emergency_dir(args);
     #[cfg(not(feature = "dev"))]
     let emergency_directory = None;
+    #[cfg(feature = "dev")]
+    let (args, clipboard) = dev::take_clipboard_option(args);
+    // A release build always uses the system's (ADR 0074).
+    #[cfg(not(feature = "dev"))]
+    let clipboard = oso_platform::clipboard::Source::System;
     let file = match parse_args(args) {
         Ok(Invocation::Help) => exit_with_usage(None),
         Ok(Invocation::Open(file)) => file,
@@ -69,7 +74,7 @@ fn main() {
             let waker = waker.clone();
             dev::start(move |request| waker.send(UserEvent::Control(request)))
         };
-        let mut app = App::new(waker, started, emergency, log_gate);
+        let mut app = App::new(waker, started, emergency, clipboard, log_gate);
         #[cfg(feature = "dev")]
         app.set_dev(dev);
         app.check_emergency_directory();

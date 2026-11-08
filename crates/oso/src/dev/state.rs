@@ -108,7 +108,59 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         state["modeline"] = json!(status.modeline());
         state["echo"] = json!(status.echo);
     }
+    state["kill_ring"] = kill_ring_state(editor);
     state
+}
+
+/// The most pieces of the newest entry `get-state` shows, and the most bytes of each.
+const SHOWN_PIECES: usize = 16;
+const SHOWN_PIECE_BYTES: usize = 1024;
+
+/// The `kill_ring` field of `get-state`: how many entries there are, and the newest one's
+/// pieces, cut short. Secret entries and text from other apps' copies are left out as if
+/// absent, and the whole field is null while a buffer that may hold secrets is shown
+/// (ADR 0074).
+fn kill_ring_state(editor: &Editor) -> Value {
+    if editor.shows_secret() {
+        return Value::Null;
+    }
+    let mut ordinary = editor
+        .kill_ring()
+        .iter()
+        .filter(|entry| !entry.is_secret() && !entry.came_from_clipboard());
+    let newest = ordinary.next().map(|entry| {
+        let pieces = entry.pieces();
+        let mut truncated = pieces.len() > SHOWN_PIECES;
+        let shown: Vec<String> = pieces
+            .iter()
+            .take(SHOWN_PIECES)
+            .map(|piece| {
+                truncated |= piece.len() > SHOWN_PIECE_BYTES;
+                piece_start(piece)
+            })
+            .collect();
+        json!({ "pieces": shown, "truncated": truncated })
+    });
+    json!({ "entries": usize::from(newest.is_some()) + ordinary.count(), "newest": newest })
+}
+
+/// The first [`SHOWN_PIECE_BYTES`] of `piece`, cut at a character's start.
+fn piece_start(piece: &oso_core::kill::Piece) -> String {
+    let mut text = String::new();
+    for chunk in piece.chunks() {
+        let room = SHOWN_PIECE_BYTES - text.len();
+        if chunk.len() <= room {
+            text.push_str(chunk);
+            continue;
+        }
+        let mut end = room;
+        while !chunk.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.push_str(&chunk[..end]);
+        break;
+    }
+    text
 }
 
 /// The open prompts, the outermost first: each one's depth, kind, label, answer so far, cursor
@@ -526,6 +578,7 @@ mod tests {
                     "mark_ring": [],
                 }],
                 "keys": { "pending": "" },
+                "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
                 "surface": { "width": 800, "height": 600 },
             })
@@ -793,6 +846,40 @@ mod tests {
         assert_eq!(shown["area"]["width"], 10.0);
         show_buffer(&mut editor, secret.get()).unwrap();
         assert_eq!(ime_state(&editor, &facts)["preedit"], json!(null));
+    }
+
+    #[test]
+    fn the_kill_ring_shows_its_newest_own_entry_cut_short_and_nothing_secret_or_copied() {
+        use super::{SHOWN_PIECE_BYTES, kill_ring_state};
+        use oso_core::kill::{Direction, Fingerprint};
+        let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
+        let scratch = editor.buffers().next().unwrap().0;
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let long = "é".repeat(SHOWN_PIECE_BYTES);
+        let typed = Replacement {
+            range: 0..0,
+            text: &long,
+        };
+        editor.apply_edits(scratch, &[typed]).unwrap();
+        let all = 0..long.len();
+        editor
+            .kill(std::iter::once(all), Direction::Forward, true)
+            .unwrap();
+        let copied = oso_core::rope::Rope::from("another app's copy");
+        editor.take_from_clipboard(copied, false, Fingerprint { len: 18, hash: 1 });
+        show_buffer(&mut editor, secret.get()).unwrap();
+        editor
+            .kill(std::iter::once(0..3), Direction::Forward, true)
+            .unwrap();
+        assert!(editor.kill_ring().get(0).unwrap().is_secret());
+        assert_eq!(kill_ring_state(&editor), json!(null), "while it is shown");
+
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let state = kill_ring_state(&editor);
+        assert_eq!(state["entries"], 1, "the secret one and the copy left out");
+        let piece = state["newest"]["pieces"][0].as_str().unwrap();
+        assert_eq!(piece.len(), SHOWN_PIECE_BYTES, "cut at a character's start");
+        assert_eq!(state["newest"]["truncated"], true);
     }
 
     #[test]

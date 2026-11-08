@@ -31,10 +31,13 @@ jobs:
           rustup toolchain install
           rustup component add llvm-tools
         continue-on-error: true
+      # just from the cache or its release through the API, checked (.github/actions).
+      - continue-on-error: true
+        uses: ./.github/actions/install-just
       - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         continue-on-error: true
         with:
-          tool: just@1.52.0,cargo-llvm-cov@0.9.1
+          tool: cargo-llvm-cov@0.9.1
           fallback: none
       - id: coverage
         run: just coverage target/coverage/summary.md

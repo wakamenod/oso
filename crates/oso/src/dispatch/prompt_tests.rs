@@ -306,6 +306,34 @@ mod passphrase {
     use super::*;
 
     #[test]
+    fn a_kill_in_a_passphrase_prompt_reaches_neither_the_ring_nor_the_clipboard() {
+        let (mut d, mut editor) = on(LINES);
+        send(&mut d, &mut editor, "<f34> h u n t e r C-a C-k");
+        assert_eq!(answer(&editor), "", "it deletes");
+        assert!(editor.kill_ring().is_empty());
+        assert!(editor.take_clipboard_write().is_none());
+    }
+
+    #[test]
+    fn a_secret_yanked_into_a_passphrase_prompt_and_killed_goes_nowhere() {
+        let (mut d, mut editor) = on(LINES);
+        let fingerprint = oso_core::kill::Fingerprint { len: 3, hash: 1 };
+        editor.take_from_clipboard(oso_core::rope::Rope::from("KEY"), true, fingerprint);
+        send(&mut d, &mut editor, "<f34> h u n t e r C-y");
+        assert!(d.take_clipboard_request().is_some());
+        d.clipboard_answered(&mut editor, &oso_core::kill::FromClipboard::Own);
+        assert_eq!(answer(&editor), "hunterKEY");
+        assert_eq!(
+            editor.current().1.verdict(),
+            oso_core::buffer::Verdict::Passphrase
+        );
+        send(&mut d, &mut editor, "C-a C-k");
+        assert_eq!(answer(&editor), "");
+        assert_eq!(editor.kill_ring().len(), 1, "only the entry it yanked");
+        assert!(editor.take_clipboard_write().is_none());
+    }
+
+    #[test]
     fn a_passphrase_counts_as_secret_keeps_no_undo_and_leaves_no_trace() {
         let (mut d, mut editor) = on(LINES);
         send(&mut d, &mut editor, "<f34> h u n t e r");
