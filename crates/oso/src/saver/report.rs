@@ -8,7 +8,7 @@ use std::path::Path;
 use oso_core::buffer::BufferId;
 use oso_core::editor::{Editor, SaveRefused};
 
-use super::{SaveError, SaveReport, Unsynced};
+use super::{SaveError, SaveReport, Unsynced, elsewhere};
 
 /// Takes a report in: updates the buffer, and says how it went. Never quotes text.
 pub fn apply(editor: &mut Editor, report: SaveReport) {
@@ -18,6 +18,14 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
         outcome,
         elsewhere,
     } = report;
+    // A write into a directory went to the buffer's file's name there, which the message names.
+    let path_buf = match &outcome {
+        Ok(Some(written)) => written
+            .moved
+            .as_ref()
+            .map_or(path_buf, |moved| moved.path.clone()),
+        _ => path_buf,
+    };
     let path = path_buf.display();
     let message = match outcome {
         Ok(None) => {
@@ -26,17 +34,7 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
         }
         Ok(Some(written)) => {
             match written.moved {
-                Some(moved) => {
-                    let judge = |buffer: &mut oso_core::buffer::Buffer| {
-                        moved.resolved.judge(buffer);
-                        if let Some(spelling) = moved.spelling {
-                            buffer.set_own_spelling(spelling);
-                        }
-                    };
-                    let (content, stamp) = (written.content, written.stamp);
-                    let to = path_buf.clone();
-                    editor.written_elsewhere(buffer, to, content, moved.location, stamp, judge);
-                }
+                Some(moved) => moved_to(editor, buffer, *moved, written.content, written.stamp),
                 None => editor.save_finished(buffer, written.content, written.stamp),
             }
             let lost = written.quarantine_lost.map(|e| {
@@ -84,6 +82,30 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
         }
     };
     editor.message(message);
+}
+
+/// A write to a new place put `content` there as `stamp`: the buffer now visits it, judged as
+/// a load judges a file (ADR 0087).
+fn moved_to(
+    editor: &mut Editor,
+    buffer: BufferId,
+    moved: elsewhere::Moved,
+    content: oso_core::buffer::ContentId,
+    stamp: oso_core::buffer::FileStamp,
+) {
+    let elsewhere::Moved {
+        resolved,
+        spelling,
+        location,
+        path,
+    } = moved;
+    let judge = |buffer: &mut oso_core::buffer::Buffer| {
+        resolved.judge(buffer);
+        if let Some(spelling) = spelling {
+            buffer.set_own_spelling(spelling);
+        }
+    };
+    editor.written_elsewhere(buffer, path, content, location, stamp, judge);
 }
 
 /// What a write to a new place that wrote nothing says, and the file found there that the

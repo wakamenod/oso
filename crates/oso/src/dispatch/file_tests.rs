@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use oso_core::buffer::{Buffer, FileStamp};
-use oso_core::complete::path::{Name, NameKind};
+use oso_core::complete::{Name, NameKind};
 use oso_core::editor::Editor;
 use oso_core::window::ViewSize;
 
@@ -50,7 +50,7 @@ fn serve(editor: &mut Editor, tree: &[(&str, &[(&str, NameKind)])]) {
                 .iter()
                 .find(|(path, _)| Path::new(path) == directory)
                 .and_then(|(_, entries)| names(entries));
-            editor.file_listed(directory, listed);
+            editor.file_listed(directory, listed, false);
         }
     }
 }

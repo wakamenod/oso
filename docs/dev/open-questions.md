@@ -79,6 +79,16 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `C-x C-f` matches its candidates on the UI thread, as ADR 0076's worker path past 5000 is not
+  built: the list is capped at 100,000, which takes about 20 ms a key to match at that size, and a
+  change of directory over 100,000 names about 26 ms to build. Move both to a worker
+  ([ADR 0076](adr/0076-completion-and-m-x.md),
+  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- A segment of `C-x C-f` that matches several directories lists each, which can reach an
+  automounted or cloud-synced folder the person did not name, and wait there. Decide whether
+  expansion stops at such mounts.
+- `C-x C-f` leaves out names that are not UTF-8, as a path made from a lossy copy of one would
+  name another file. Keep the name as the system gives it if they turn out to matter.
 - `C-x C-f` matches file names code point by code point, so a name stored decomposed (NFD), as older
   macOS volumes and zip archives keep them, does not match the composed form an input method types.
   Normalizing needs `unicode-normalization`, a dependency; decide once it is seen to matter

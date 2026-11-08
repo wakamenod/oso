@@ -184,10 +184,11 @@ fn draw_count(
 ) -> Option<(usize, String, Vec<char>)> {
     let candidates = prompt.candidates()?;
     let place = candidates.selected().map_or(0, |place| place + 1);
+    let more = if editor.files_cut() { "+" } else { "" };
     let count = if editor.files_pending() {
         "…/…".to_owned()
     } else {
-        format!("{place}/{}", candidates.len())
+        format!("{place}/{}{more}", candidates.len())
     };
     let (text, marks) = spans_row(&[&count], layout.count.columns);
     Some((
