@@ -385,8 +385,9 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
         ime_p99.push(percentile(&samples, 99.0));
         let samples = prompting(&mut app, scale.keys, &mut rng)?;
         prompt_p99.push(percentile(&samples, 99.0));
-        let samples = extended_command(&mut app, scale.keys, &mut rng)?;
-        mx_p99.push(percentile(&samples, 99.0));
+        if let Some(samples) = extended_command(&mut app, scale.keys, &mut rng)? {
+            mx_p99.push(percentile(&samples, 99.0));
+        }
         app.stop();
     }
     report.add("key_p50_ms", p50);

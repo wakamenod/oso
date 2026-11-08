@@ -68,15 +68,20 @@ pub(super) fn prompting(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Ve
 /// Key press to presented frame while `M-x` lists every command and a letter is typed and
 /// taken back in turn, for `count` keys (made even) after a warm-up: every key matches the
 /// whole registry and draws the candidate rows again. Only reported. Fails unless each key
-/// drew a frame and the prompt ends empty, listing every command.
+/// drew a frame and the prompt ends empty, listing every command. A build with no `M-x`, such
+/// as a base from before it, measures nothing.
 pub(super) fn extended_command(
     app: &mut App,
     count: usize,
     rng: &mut Lcg,
-) -> Result<Vec<f64>, String> {
+) -> Result<Option<Vec<f64>>, String> {
     let count = count & !1;
     app.send_keys("M-x")?;
     settle(app)?;
+    let opened = app.call("get-state", None)?["prompts"][0]["kind"] == "complete";
+    if !opened {
+        return Ok(None);
+    }
     paced_keys(app, &LETTERS, LETTERS.len() * 2, rng)?;
     let samples = paced_keys(app, &LETTERS, count, rng)?;
     let state = app.call("get-state", None)?;
@@ -94,5 +99,5 @@ pub(super) fn extended_command(
     if samples.len() != count {
         return Err(format!("{count} keys in M-x drew {} frames", samples.len()));
     }
-    Ok(samples)
+    Ok(Some(samples))
 }
