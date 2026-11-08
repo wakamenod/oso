@@ -226,8 +226,11 @@ A panicking command is caught at the command boundary
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
-  emergency copies and a prompt. Turning off waits for a composition to end
-  ([ADR 0069](adr/0069-macos-input-method.md)).
+  emergency copies and a prompt. Turning off during a composition commits it first, where
+  typing goes then, on oso's own layer if it would go in as typed there
+  (`Dispatcher::types_text`), and otherwise waits for it to end, as always on winit, which
+  cannot commit one ([ADR 0069](adr/0069-macos-input-method.md),
+  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of
@@ -512,13 +515,18 @@ Full details are in [`security.md`](security.md).
   - Buffers that may hold secrets give no text and no pixels. The loading
     thread follows the path, and `Buffer::is_secret` holds the verdict, so
     the UI thread never touches the file system for this
-    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). While one is shown,
+    `get-state` leaves out what an edit or a save there changes and the keys and prompts around
+    it, and no restart is handed over
+    ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)).
   - `take-timings` reports key latency, startup and load times to benchmarks,
     and `open-file` visits a file with the window up, so that opening can be
     timed apart from startup
     ([ADR 0046](adr/0046-performance-regression-checks.md)). Keys and frames around a
     buffer that may hold secrets stay out of them
-    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)), and so do its loads. While
+    one is shown, the log keeps warnings and errors only
+    ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

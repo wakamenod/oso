@@ -422,7 +422,6 @@ fn read_into(
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
 ) -> Result<(), LoadError> {
-    let started = Instant::now();
     let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];
@@ -439,9 +438,6 @@ fn read_into(
         };
         builder.push(&piece[..read]);
         if sent.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL) {
-            if sent.is_none() {
-                log::debug!("first {read} bytes decoded in {:?}", started.elapsed());
-            }
             if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
                 return Ok(());
             }
@@ -456,7 +452,6 @@ fn read_into(
     {
         log::info!("the file grew while loading; the rest is not shown");
     }
-    log::debug!("loaded {} bytes in {:?}", builder.len(), started.elapsed());
     send(LoadUpdate::Snapshot(Box::new(builder.snapshot())));
     Ok(())
 }

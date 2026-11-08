@@ -248,7 +248,7 @@ what you type goes into their buffers, which can fail a flow.
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
 | screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
-| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions, `take-timings`, `*Messages*`, the echo area and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
+| secret files | path judgment to every way out: `get-state` with no positions and nothing an edit or a save changes, `get-text`, `screenshot`, `check-handover` and `export-state` refused for one reason, `take-timings`, `*Messages*`, the echo area and the log, also through a symlink and after a motion and an edit, and `show-buffer` allows them again |
 | modeline and echo area | a key that changes only the echo area to a frame; the bidi warning; `*Messages*` holds no restart, and takes no typing |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
@@ -329,7 +329,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)). `--emergency-dir DIR`, as a dev build's first argument, sends the copies elsewhere, and the harness always passes it.
 - Secret-pattern buffers give no text, no screenshot and no positions
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
-  [ADR 0051](adr/0051-m2-plan-decisions.md)). Any file
+  [ADR 0051](adr/0051-m2-plan-decisions.md)). While one is shown, `get-state` gives no
+  `modified`, `saving` or size of such buffers, and no restart is handed over. Keys in progress,
+  a composition and prompts open then stay out of `get-state` and `screenshot` until they end
+  ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)). Any file
   counts as secret until its path is resolved, so wait for `loading` to become
   null before reading it.
 - `export-state` and `import-state` hand the state to a new instance, and `exit`
@@ -343,9 +346,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   directory, never committed) can be driven this way.
 - `take-timings` reads key latency, startup and load times for benchmarks. It records no
   key if a secret-pattern buffer is shown just before or after it or when its frame is
-  presented, and no frames while one is shown, but the first frame and the first load's
-  times. A file counts as secret until it is judged
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  presented, and no frames while one is shown, but the first frame. A file counts as secret
+  until it is judged ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). The load
+  times are of the first file judged ordinary, and its first screen counts only if no such
+  buffer is shown then ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - `screenshot` writes a PNG of the current frame and returns its path.
 
 The transport and protocol themselves are tested without a window or GPU

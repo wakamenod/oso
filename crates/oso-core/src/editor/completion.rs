@@ -30,7 +30,10 @@ impl Editor {
         items: Arc<[Candidate]>,
     ) -> Result<PromptId, PromptError> {
         let id = self.open_prompt(label, Kind::Complete { history })?;
-        let records = self.prompts.last().is_some_and(|prompt| prompt.records);
+        let records = self
+            .prompts
+            .last()
+            .is_some_and(|prompt| !prompt.around_secret);
         let candidates = if records {
             Candidates::new(items, self.histories.entries(history))
         } else {

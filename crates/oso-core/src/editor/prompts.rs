@@ -50,7 +50,7 @@ impl Editor {
         if depth > 1 {
             label = format!("[{depth}] {label}");
         }
-        let records = !self.shows_secret();
+        let around_secret = self.shows_secret();
         let passphrase = kind == Kind::Passphrase;
         let buffer = self.add_buffer(Buffer::prompt(format!(" *Minibuf-{depth}*"), passphrase));
         let beneath = self.selected;
@@ -66,7 +66,7 @@ impl Editor {
             beneath,
             message: None,
             message_withheld: false,
-            records,
+            around_secret,
             walk: None,
             typed: None,
             completion: None,
@@ -174,7 +174,7 @@ impl Editor {
         }
         let id = prompt.id;
         // Also not if a buffer that may hold secrets came beneath it since it opened.
-        let records = prompt.records && !self.shows_secret();
+        let records = !prompt.around_secret && !self.shows_secret();
         if let Some(prompt) = self.close_innermost()
             && records
             && let Some(name) = prompt.kind.history()
@@ -223,7 +223,7 @@ impl Editor {
         let name = prompt
             .kind
             .history()
-            .filter(|_| prompt.records)
+            .filter(|_| !prompt.around_secret)
             .ok_or(PromptError::NoHistory)?;
         let next = match (prompt.walk, older) {
             (None, true) => Some(0),

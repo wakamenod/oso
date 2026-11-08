@@ -161,9 +161,9 @@ pub struct Prompt {
     /// That message was said by a command that got a passphrase, so the control socket
     /// leaves it out.
     pub(crate) message_withheld: bool,
-    /// Whether its answer may enter its history: not one opened while a buffer that may
-    /// hold secrets is shown.
-    pub(crate) records: bool,
+    /// It opened while a buffer that may hold secrets was shown, or one was shown beneath it
+    /// since, so its answer enters no history.
+    pub(crate) around_secret: bool,
     /// Where `M-p` and `M-n` have got to: the entry shown, 0 the newest.
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.
@@ -208,6 +208,13 @@ impl Prompt {
     /// Its candidates, for a prompt that completes (ADR 0076).
     pub fn candidates(&self) -> Option<&Candidates> {
         self.completion.as_ref().map(|(candidates, _)| candidates)
+    }
+
+    /// Whether it opened while a buffer that may hold secrets was shown, or one was shown
+    /// beneath it since. Its answer then enters no history, and the control socket leaves
+    /// out what it holds.
+    pub fn around_secret(&self) -> bool {
+        self.around_secret
     }
 }
 

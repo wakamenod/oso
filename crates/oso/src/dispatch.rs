@@ -127,6 +127,22 @@ impl Dispatcher {
                 .is_some_and(|prefix| prefix.reads_digits() || prefix.reads_minus())
     }
 
+    /// Whether text would go in as typed now: no prefix key or prefix argument waits, no
+    /// question is open, and what is active takes text. A commit the window layer makes
+    /// unasked waits otherwise, so that it neither takes a prefix argument nor is lost
+    /// (ADR 0077).
+    pub fn types_text(&self, editor: &Editor) -> bool {
+        let question = editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question());
+        if question || self.prefix.is_some() || !self.resolver.pending().is_empty() {
+            return false;
+        }
+        let reading = self.keymaps.reading();
+        let active = self.keymaps.active(&reading, self.prefix, editor);
+        active.text_command().is_some()
+    }
+
     /// Runs `work` as one input, as Emacs does a key: the echo area empties first,
     /// but for what waits behind keys in progress, and then shows the keys it left in
     /// progress (ADR 0063).
@@ -268,7 +284,7 @@ impl Dispatcher {
             .prompts()
             .iter()
             .any(|prompt| prompt.candidates().is_some());
-        if completing && editor.shows_secret() && name != "keyboard-quit" {
+        if completing && editor.around_secret() && name != "keyboard-quit" {
             return (
                 Effects::default(),
                 Err("a prompt that completes is open beside a secret buffer; only keyboard-quit runs".into()),

@@ -58,13 +58,17 @@ impl App {
                 let count = keys.len();
                 let started = Instant::now();
                 let timings = &mut self.timings;
+                let log_gate = &self.log_gate;
                 let mut watch = dev::SecretWatch::new(&self.editor);
                 let effects =
                     self.dispatcher
                         .handle_keys_with(&mut self.editor, keys, |editor, effects| {
+                            let withheld = watch.after_key(editor);
+                            // So that what the keys after it log, until the batch ends, is held too.
+                            log_gate.note(withheld);
                             let key = dev::HandledKey {
                                 redraw: effects.redraw,
-                                withheld: watch.after_key(editor),
+                                withheld,
                             };
                             timings.key_handled(received, key);
                         });
@@ -88,6 +92,7 @@ impl App {
             }
             dev::UiOp::RunCommand { name, arg } => {
                 let (effects, result) = self.dispatcher.run_command(&mut self.editor, &name, arg);
+                self.note_logging();
                 self.apply(event_loop, effects);
                 result.map(|()| json!({ "command": name }))
             }

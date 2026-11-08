@@ -97,6 +97,8 @@ impl App {
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
+        // Before anything more is logged, for a key that brought a secret buffer into view.
+        self.note_logging();
         log::trace!("key handled in {:?}", started.elapsed());
         #[cfg(feature = "dev")]
         self.timings.key_handled(
@@ -115,6 +117,7 @@ impl App {
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.insert_text(&mut self.editor, text);
+        self.note_logging();
         #[cfg(feature = "dev")]
         self.timings.key_handled(
             started,

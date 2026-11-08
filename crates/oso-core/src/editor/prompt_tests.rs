@@ -3,6 +3,7 @@
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
+use super::test_buffers::secret_buffer;
 use super::{Editor, Quit};
 use crate::buffer::{Buffer, Replacement};
 use crate::complete::Candidate;
@@ -157,9 +158,7 @@ fn a_passphrase_may_hold_secrets_and_keeps_no_undo() {
 
 #[test]
 fn an_answer_given_around_a_secret_enters_no_history() {
-    let path = std::path::PathBuf::from("/tmp/.env");
-    let mut buffer = Buffer::visiting(path.clone());
-    buffer.judge_secret(Some(&[path]));
+    let buffer = secret_buffer();
     let mut editor = Editor::with_buffer(buffer);
     editor.open_prompt("Go to line: ", NUMBER).unwrap();
     type_in_prompt(&mut editor, "2");
@@ -171,9 +170,7 @@ fn an_answer_given_around_a_secret_enters_no_history() {
 fn an_answer_given_once_a_secret_came_beneath_enters_no_history() {
     let mut editor = editor(3);
     editor.open_prompt("Go to line: ", NUMBER).unwrap();
-    let path = std::path::PathBuf::from("/tmp/.env");
-    let mut buffer = Buffer::visiting(path.clone());
-    buffer.judge_secret(Some(&[path]));
+    let buffer = secret_buffer();
     let secret = editor.add_buffer(buffer);
     editor.show(secret);
     assert_eq!(editor.tiled().0.buffer(), secret, "shown beneath");
@@ -244,6 +241,23 @@ fn completion_beside_a_secret_neither_reads_nor_records_its_history() {
         editor.histories.entries("command").collect::<Vec<_>>(),
         ["forward-char"]
     );
+}
+
+#[test]
+fn an_answer_given_after_a_secret_came_beneath_and_went_enters_no_history() {
+    let mut editor = editor(3);
+    let plain = editor.window().buffer();
+    editor.open_prompt("Go to line: ", NUMBER).unwrap();
+    assert!(!editor.prompt().unwrap().around_secret());
+    let buffer = secret_buffer();
+    let secret = editor.add_buffer(buffer);
+    editor.show(secret);
+    type_in_prompt(&mut editor, "2");
+    editor.show(plain);
+    assert!(!editor.shows_secret());
+    assert!(editor.prompt().unwrap().around_secret(), "it stays so");
+    editor.submit_prompt().unwrap();
+    assert_eq!(editor.histories.entries("line").count(), 0);
 }
 
 #[test]
