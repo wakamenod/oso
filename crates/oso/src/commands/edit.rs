@@ -34,7 +34,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "self-insert-command",
         doc: "Insert the typed character at every cursor, N times, in place of the region if it shows.\n\nSingle characters typed in a row undo together, up to 20 of them. A count over 1, text of several characters, or an input method's commit, is an undo step of its own. A negative N signals an error.",
-        args: ArgSpec::Count,
+        args: ArgSpec::Key,
         reach: Reach::Person,
         run: self_insert_command,
     },

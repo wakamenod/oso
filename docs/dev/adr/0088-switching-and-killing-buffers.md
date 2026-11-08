@@ -1,6 +1,6 @@
 # 0088. Switching and killing buffers
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -21,7 +21,7 @@ What is fixed already:
   mark ring, as it loses its cursors, and `C-.` (`consult-mark`) waits for completion.
 - [ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md): a command that changes which
   buffer a window shows refuses inside a prompt.
-- [ADR 0076](0076-completion-and-m-x.md) (Proposed): the centred float, 62% of the columns and 19
+- [ADR 0076](0076-completion-and-m-x.md): the centred float, 62% of the columns and 19
   rows, the matcher, the keys, and `C-.` with M2-19, whose preview it needs.
 - [ADR 0040](0040-buffers-loading-motion-and-scrolling.md): killing a shown buffer shows
   `*scratch*`, created again if needed.
@@ -35,6 +35,8 @@ What is fixed already:
   and killing a large buffer frees its trees on the UI thread.
 
 ## Decision
+
+The author accepted this ADR on 2026-11-09, through the coordinator.
 
 The author chose these on 2026-11-08, through the coordinator: the first option of each question
 under [Questions](#questions), which the text below describes. The new public items listed under

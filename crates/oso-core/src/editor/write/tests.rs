@@ -14,6 +14,7 @@ fn stamp(len: u64) -> FileStamp {
         modified: SystemTime::UNIX_EPOCH,
         len,
         mode: 0o644,
+        identity: None,
     }
 }
 

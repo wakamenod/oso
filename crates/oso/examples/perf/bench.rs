@@ -23,7 +23,7 @@ mod compose;
 mod edits;
 
 use compose::composing;
-use edits::{deleting, prompting};
+use edits::{deleting, extended_command, prompting};
 
 const MB: u64 = 1024 * 1024;
 const GB: u64 = 1024 * MB;
@@ -362,6 +362,7 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
     let (mut p50, mut p99, mut worst) = (Vec::new(), Vec::new(), Vec::new());
     let (mut type_p50, mut type_p99, mut type_worst) = (Vec::new(), Vec::new(), Vec::new());
     let (mut del_p99, mut ime_p99, mut prompt_p99) = (Vec::new(), Vec::new(), Vec::new());
+    let mut mx_p99 = Vec::new();
     for run in 0..scale.key_runs {
         let mut app = App::start(exe, Some(file))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
@@ -384,6 +385,9 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
         ime_p99.push(percentile(&samples, 99.0));
         let samples = prompting(&mut app, scale.keys, &mut rng)?;
         prompt_p99.push(percentile(&samples, 99.0));
+        if let Some(samples) = extended_command(&mut app, scale.keys, &mut rng)? {
+            mx_p99.push(percentile(&samples, 99.0));
+        }
         app.stop();
     }
     report.add("key_p50_ms", p50);
@@ -395,6 +399,7 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
     report.add("del_p99_ms", del_p99);
     report.add("ime_preedit_p99_ms", ime_p99);
     report.add("prompt_type_p99_ms", prompt_p99);
+    report.add("mx_type_p99_ms", mx_p99);
     Ok(())
 }
 

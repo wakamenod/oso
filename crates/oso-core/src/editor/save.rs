@@ -284,6 +284,7 @@ impl Editor {
         buffer.mark_saved(content);
         buffer.set_written(stamp);
         buffer.set_changed_on_disk(false);
+        buffer.set_gone_from_disk(false);
         if buffer.is_modified() {
             self.reset_exit_guard();
         }

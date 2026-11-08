@@ -154,6 +154,7 @@ enum Pending {
     Resized,
     ScaleFactorChanged,
     Occluded(bool),
+    Focused,
     ModifiersChanged(super::Held),
     CloseRequested,
 }
@@ -176,8 +177,9 @@ struct State {
     exit: Cell<bool>,
     exited: Cell<bool>,
     deadline: Cell<Option<Instant>>,
-    /// Whether oso has the IME on, and the cursor's cell the app last gave.
-    ime: Cell<gate::ImeGate>,
+    /// Whether oso has the IME on, the cursor's cell the app last gave, and where each
+    /// character of a composition is laid out.
+    ime: RefCell<gate::ImeGate>,
     /// The loop ended while the handler ran: it hears so once it returns.
     exit_waiting: Cell<bool>,
     /// Whether secure input is wanted, oso is active, its window has the keyboard, and it is
@@ -189,6 +191,8 @@ struct State {
     /// A frame skipped because the window was hidden, owed until it is visible.
     hidden_frame: Cell<gate::HiddenFrame>,
     panic: RefCell<Option<Box<dyn Any + Send>>>,
+    /// An event AppKit dispatched (a key, the modifiers, the wheel) is being handled.
+    in_event: Cell<bool>,
     /// The handler's answer to the last request to end, while it is being asked.
     quit_answer: Cell<Option<QuitAnswer>>,
     /// AppKit holds an end for the app's answer (`NSTerminateLater`).
@@ -209,16 +213,26 @@ impl State {
             exit: Cell::new(false),
             exited: Cell::new(false),
             deadline: Cell::new(None),
-            ime: Cell::new(gate::ImeGate::default()),
+            ime: RefCell::new(gate::ImeGate::default()),
             exit_waiting: Cell::new(false),
             secure: Cell::new(gate::SecureInput::default()),
             reported_size: Cell::new((0, 0)),
             reported_scale: Cell::new(0.0),
             hidden_frame: Cell::new(gate::HiddenFrame::default()),
             panic: RefCell::new(None),
+            in_event: Cell::new(false),
             quit_answer: Cell::new(None),
             quit_held: Cell::new(false),
         }
+    }
+
+    /// Runs `handle` for an event AppKit dispatched, after which it reads the view's input
+    /// context again by itself.
+    fn during_event<R>(&self, handle: impl FnOnce() -> R) -> R {
+        let outer = self.in_event.replace(true);
+        let result = handle();
+        self.in_event.set(outer);
+        result
     }
 
     /// Gives the handler `delivery`, then does what it asked. Nothing reaches a handler that
@@ -269,6 +283,7 @@ impl State {
             Delivery::Window(Event::Resized { .. }) => Pending::Resized,
             Delivery::Window(Event::ScaleFactorChanged(_)) => Pending::ScaleFactorChanged,
             Delivery::Window(Event::Occluded(occluded)) => Pending::Occluded(occluded),
+            Delivery::Window(Event::Focused) => Pending::Focused,
             Delivery::Window(Event::ModifiersChanged(held)) => Pending::ModifiersChanged(held),
             Delivery::Window(Event::CloseRequested) => Pending::CloseRequested,
             Delivery::Window(Event::RedrawRequested) => {
@@ -304,6 +319,7 @@ impl State {
                 Pending::Resized => self.resized_event(),
                 Pending::ScaleFactorChanged => Event::ScaleFactorChanged(self.scale_factor()),
                 Pending::Occluded(occluded) => Event::Occluded(occluded),
+                Pending::Focused => Event::Focused,
                 Pending::ModifiersChanged(held) => Event::ModifiersChanged(held),
                 Pending::CloseRequested => Event::CloseRequested,
             };
@@ -352,6 +368,11 @@ impl State {
                     // The app has committed a composition before it turns the IME off
                     // (ADR 0077), so whatever the input method still holds is dropped.
                     view.discard_marked();
+                }
+                // AppKit reads the view's input context again after the next event it handles.
+                let secret = self.secure.get().wanted();
+                if gate::reads_context_now(allowed, secret, self.in_event.get()) {
+                    NSApplication::sharedApplication(self.mtm).updateWindows();
                 }
             }
             Request::DiscardComposition => view.discard_marked(),
@@ -403,7 +424,7 @@ impl State {
     }
 
     fn ime_allowed(&self) -> bool {
-        self.ime.get().allowed()
+        self.ime.borrow().allowed()
     }
 
     /// Changes what secure input depends on, then makes the calls that asks for. The state
@@ -442,9 +463,7 @@ impl State {
     }
 
     fn update_ime(&self, change: impl FnOnce(&mut gate::ImeGate)) {
-        let mut ime = self.ime.get();
-        change(&mut ime);
-        self.ime.set(ime);
+        change(&mut self.ime.borrow_mut());
     }
 
     /// Other threads sent something.

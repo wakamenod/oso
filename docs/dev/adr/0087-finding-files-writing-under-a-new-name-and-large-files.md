@@ -1,6 +1,6 @@
 # 0087. Finding files, writing under a new name, and large files
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -13,7 +13,7 @@ What is fixed already:
 
 - [ADR 0030](0030-m2-editing-commands.md): `C-x C-f` completes by path segment, as Emacs's
   `partial-completion` style does: `~/P/S/o` expands segment by segment.
-- [ADR 0076](0076-completion-and-m-x.md) (Proposed): the orderless matcher, its order (history,
+- [ADR 0076](0076-completion-and-m-x.md): the orderless matcher, its order (history,
   then length, then alphabetical), the centred float of 18 candidate rows and the answer's row,
   the keys `C-n`, `C-p`, `TAB`, `RET` and `M-RET`, and the worker path past 5000 candidates, with a
   generation per input and an `Arc<[Candidate]>` snapshot, which M2-18 builds.
@@ -39,6 +39,8 @@ The loader checks that a path is a regular file and then opens it. A path swappe
 file between the two blocks the loading thread (not the UI), which `open-questions.md` records.
 
 ## Decision
+
+The author accepted this ADR on 2026-11-09, through the coordinator.
 
 The author chose these on 2026-11-08, through the coordinator: the first option of each question
 under [Questions](#questions), which the text below describes. The author also approved, in
@@ -94,10 +96,12 @@ pull request for the author's approval.
   snapshot with the input's generation (ADR 0076). The UI takes a result only if its prompt is
   still open and its generation is the newest. Results arrive through the `Status` comparison
   (ADR 0063), as a load's progress does.
-- **A thread per directory listed, at most 4 alive at once.** A directory on a file system that
-  hangs stalls only its own thread; the count shows `…`, and moving to another directory starts
-  another. With 4 alive, a new listing waits for one to end. Listings are kept for the prompt's
-  life, keyed by directory, and dropped when it closes.
+- **One lister for the app, at most 4 threads alive at once, and one request in flight per
+  directory.** A directory on a file system that hangs stalls only its own thread, and its next
+  requests wait without holding up another directory's; the count shows `…`. A newer request for
+  a directory replaces one still waiting, so a late generation never waits behind the newest.
+  With 4 alive, a new listing waits for one to end. Listings are kept for the prompt's life,
+  keyed by directory, and a prompt that closes drops what it left waiting.
 - **Bounded:** 100,000 names per directory; past that, the rest are left out and the count says
   `+`. Matching follows ADR 0076: on the UI thread up to 5000 candidates, on a worker past that.
 - **Nothing is opened.** A listing reads names and their types, as `read_dir` gives them. The rows

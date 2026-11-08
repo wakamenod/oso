@@ -23,7 +23,7 @@ pub const COMMANDS: &[Command] = &[
     Command {
         name: "digit-argument",
         doc: "Add the digit on the key that ran this to the numeric argument for the next command.\n\nOnce it has begun, plain digits add to it too. It has to come from a key.",
-        args: ArgSpec::Count,
+        args: ArgSpec::Key,
         reach: Reach::Person,
         run: digit_argument,
     },

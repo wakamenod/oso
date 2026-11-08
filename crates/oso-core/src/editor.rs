@@ -18,13 +18,14 @@
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
-//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], and kills and
-//! yanks in [`kill`].
+//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], kills and
+//! yanks in [`kill`], isearch in [`isearch`], and files read again after they changed on disk
+//! in [`reload`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
 
-use crate::buffer::{Buffer, BufferId, EditError, Replacement};
+use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
@@ -32,22 +33,30 @@ use crate::selection::SelectionSet;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
 use follow::Selected;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
+mod completion;
 mod copies;
 mod follow;
+mod isearch;
 mod kill;
 mod messages;
 mod prompts;
+mod reload;
 mod save;
 mod status;
 mod switch;
 mod view;
 mod write;
 
+pub use crate::search::{SearchJob, SearchReport};
 pub use copies::RecoveryAction;
+pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
+pub use reload::{Leftover, ReloadOutcome};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::KillRefused;
@@ -141,6 +150,14 @@ pub struct Editor {
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
+    /// The isearch under way in the selected window (ADR 0082).
+    isearch: Option<Isearch>,
+    /// The generation of the search job that may run, which a worker checks to stop.
+    search_live: Arc<AtomicU64>,
+    /// A job for a worker, until the host takes it.
+    search_job: Option<SearchJob>,
+    /// Buffers a person asked to read again from their files, for the host (ADR 0083).
+    reverts: Vec<(BufferId, ContentId)>,
 }
 
 impl Default for Editor {
@@ -184,6 +201,10 @@ impl Editor {
             passphrase_command: false,
             save_over_asked: None,
             kills: kill::Kills::default(),
+            isearch: None,
+            search_live: Arc::new(AtomicU64::new(0)),
+            search_job: None,
+            reverts: Vec::new(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -794,6 +815,56 @@ mod tests {
     }
 
     #[test]
+    fn the_composition_is_placed_where_it_is_drawn_after_a_sideways_scroll() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &"a".repeat(18)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        editor.current_mut().0.selections = SelectionSet::new(18);
+        editor.follow_cursor();
+        let grid = PixelGrid::new(10.0, 20.0);
+        let before = editor.cursor_area(grid).unwrap();
+        let mut positions = vec![1.0];
+        assert_eq!(
+            editor.preedit_layout(grid, &mut positions),
+            None,
+            "none composed"
+        );
+        assert!(positions.is_empty());
+        // Too wide to show beside the cursor box: the window scrolls sideways (ADR 0069).
+        editor.set_preedit(Some(Preedit::new("かかかかか".into(), None)));
+        let first = editor.preedit_layout(grid, &mut positions).unwrap();
+        let left = editor.window().scroll().left;
+        assert!(left > 0, "scrolled sideways");
+        assert_eq!(
+            first.x,
+            before.x - left as f32 * 10.0,
+            "moved with the text"
+        );
+        assert_eq!((first.y, first.height), (before.y, before.height));
+        let text = grid.rect(editor.frame.window.text);
+        assert_eq!(positions.len(), 6, "each character and the end");
+        for position in &positions {
+            let x = first.x + position;
+            assert!(
+                text.x <= x && x <= text.x + text.width,
+                "inside the text area"
+            );
+        }
+        assert!(positions.windows(2).all(|pair| pair[0] <= pair[1]));
+    }
+
+    #[test]
+    fn a_composition_whose_row_is_out_of_view_gets_no_place() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
+        editor.set_view_size(ViewSize::new(10, 20));
+        editor.set_preedit(Some(Preedit::new("か".into(), None)));
+        assert!(editor.scroll_view(30));
+        let mut positions = vec![1.0];
+        let grid = PixelGrid::new(10.0, 20.0);
+        assert_eq!(editor.preedit_layout(grid, &mut positions), None);
+        assert!(positions.is_empty());
+    }
+
+    #[test]
     fn the_wheel_leaves_the_cursor_where_a_composition_is() {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
         editor.set_view_size(ViewSize::new(10, 20));
@@ -923,9 +994,13 @@ mod tests {
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
+mod isearch_tests;
+#[cfg(test)]
 mod model_tests;
 #[cfg(test)]
 mod prompt_tests;
+#[cfg(test)]
+mod reload_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

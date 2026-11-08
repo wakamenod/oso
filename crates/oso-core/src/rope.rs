@@ -17,7 +17,6 @@
 //! Offsets past the end clamp to it, and offsets inside a UTF-8 character
 //! move back to its start. No method panics on any input.
 
-use std::borrow::Cow;
 use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
@@ -25,6 +24,11 @@ use std::sync::Arc;
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
+
+mod compare;
+mod lines;
+
+pub use lines::Lines;
 
 /// The most bytes in one chunk, so that with an `Arc`'s counts it fits 1 KB.
 #[cfg(not(test))]
@@ -720,65 +724,11 @@ impl<'a> Iterator for Chunks<'a> {
     }
 }
 
-/// Iterates over a rope's lines. See [`Rope::lines`].
-pub struct Lines<'a> {
-    chunks: Chunks<'a>,
-    /// The unread part of the current chunk.
-    rest: &'a str,
-    done: bool,
-}
-
-impl<'a> Iterator for Lines<'a> {
-    type Item = Cow<'a, str>;
-
-    fn next(&mut self) -> Option<Cow<'a, str>> {
-        if self.done {
-            return None;
-        }
-        let mut long: Option<String> = None;
-        loop {
-            if let Some(index) = self.rest.find('\n') {
-                let piece = &self.rest[..index];
-                self.rest = &self.rest[index + 1..];
-                let line = match long {
-                    None => Cow::Borrowed(piece),
-                    Some(mut line) => {
-                        line.push_str(piece);
-                        Cow::Owned(line)
-                    }
-                };
-                return Some(strip_cr(line));
-            }
-            if !self.rest.is_empty() {
-                long.get_or_insert_with(String::new).push_str(self.rest);
-            }
-            match self.chunks.next() {
-                Some(text) => self.rest = text,
-                None => {
-                    self.done = true;
-                    return Some(long.map_or(Cow::Borrowed(""), Cow::Owned));
-                }
-            }
-        }
-    }
-}
-
-fn strip_cr(line: Cow<'_, str>) -> Cow<'_, str> {
-    match line {
-        Cow::Borrowed(text) => Cow::Borrowed(text.strip_suffix('\r').unwrap_or(text)),
-        Cow::Owned(mut text) => {
-            if text.ends_with('\r') {
-                text.pop();
-            }
-            Cow::Owned(text)
-        }
-    }
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
     use proptest::prelude::*;
+    use std::borrow::Cow;
 
     /// Pieces of text that random tests are built from: ASCII, Japanese,
     /// emoji sequences, combining marks, tabs and every line ending.
