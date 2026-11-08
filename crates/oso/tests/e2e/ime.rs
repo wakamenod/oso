@@ -226,3 +226,54 @@ fn a_composition_waits_where_its_text_would_not_go_in_as_typed() {
     assert_visible_row(&state, 0, "xabc");
     assert_eq!(state["prompts"], json!([]));
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_input_method_gets_a_bounded_part_of_the_cursors_line_only() {
+    let scratch = Scratch::new("ime-line");
+    let mut long = "a".repeat(1_000_000);
+    long.push('\n');
+    let file = scratch.write("long.txt", long.as_bytes());
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    let long_id = app.wait_until_ready()["buffer"]["id"].clone();
+    // oso's own layer gives at most 2000 bytes each side of the cursor of an ordinary buffer
+    // while the IME is on, and the socket says how much, never what (ADR 0077); winit none.
+    let native = cfg!(all(target_os = "macos", feature = "native-window"));
+    let line = |app: &mut App| app.state()["ime"]["cursor_line"].clone();
+    app.run_command("forward-char", Some(500_000)).unwrap();
+    let given = app.wait_for("the cursor's line", |state| {
+        !native
+            || state["ime"]["cursor_line"]["cursor"]
+                .as_u64()
+                .is_some_and(|at| at > 1000)
+    });
+    if native {
+        let (len, at) = (
+            &given["ime"]["cursor_line"]["len"],
+            &given["ime"]["cursor_line"]["cursor"],
+        );
+        let (len, at) = (len.as_u64().unwrap(), at.as_u64().unwrap());
+        assert!(at <= 2000 && len - at <= 2000, "{len} {at}");
+        assert!(at >= 1990 && len - at >= 1990, "{len} {at}");
+    } else {
+        assert_eq!(line(&mut app), Value::Null);
+    }
+    app.send_keys("C-x");
+    app.wait_for("no line while the IME is off", |state| {
+        state["ime"]["cursor_line"] == Value::Null
+    });
+    app.send_keys("C-g");
+    app.open_file(&env);
+    app.wait_until_ready();
+    app.wait_for("no line from a buffer that may hold secrets", |state| {
+        state["ime"]["cursor_line"] == Value::Null
+    });
+    app.show_buffer(&long_id);
+    app.wait_for("the line again", |state| {
+        !native
+            || state["ime"]["cursor_line"]["len"]
+                .as_u64()
+                .is_some_and(|len| len > 1000)
+    });
+}

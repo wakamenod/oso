@@ -33,6 +33,7 @@ use crate::window::{ViewSize, Window};
 use follow::Selected;
 
 mod copies;
+mod excerpt;
 mod follow;
 mod messages;
 mod prompts;

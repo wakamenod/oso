@@ -923,6 +923,8 @@ pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::Fram
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self

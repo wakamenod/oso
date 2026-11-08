@@ -179,6 +179,19 @@ impl Window {
             laid_out.map(|(text, first, positions)| (text, cursor_area(first), positions));
         self.0.set_ime_preedit(laid_out);
     }
+
+    /// Gives the input method the cursor's line, and where the cursor is in it in bytes
+    /// (ADR 0077). Only kept, and read while the IME is on.
+    pub(super) fn set_ime_cursor_line(&self, line: Option<(&str, usize)>) {
+        self.0.set_ime_cursor_line(line);
+    }
+
+    /// How long the cursor's line the window holds is, and where the cursor is in it, for the
+    /// dev socket. No text.
+    #[cfg(feature = "dev")]
+    pub(super) fn ime_cursor_line(&self) -> Option<(usize, usize)> {
+        self.0.ime_cursor_line()
+    }
 }
 
 impl Handler<UserEvent> for App {

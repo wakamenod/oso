@@ -158,6 +158,14 @@ and below the row, and a label's glyphs keep their own cells
   stay with oso. The window layer holds one enable at a time and releases it when any of that
   stops, when the loop ends and after a panic in the handler
   ([ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
+- With oso's own macOS window layer, the input method's process, and the system's other text
+  services that read a view the same way, can read up to 2000 bytes of the cursor's line on
+  each side of the cursor while the IME is on, from a buffer whose verdict is `Ordinary`
+  only, and never from an internal buffer or a prompt. Writing Tools are off for the view,
+  and while the IME is off it gives no input context. The excerpt is never logged, and the
+  dev socket says only how long it is
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
+  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the

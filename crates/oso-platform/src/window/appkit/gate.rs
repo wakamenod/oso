@@ -22,6 +22,11 @@ pub(super) struct ImeGate {
     laid_out: String,
     first: Option<CursorArea>,
     positions: Vec<f32>,
+    /// The cursor's line as the app last gave it (ADR 0077), empty with none, where the
+    /// cursor is in it in bytes and in UTF-16 units, the input method's coordinates.
+    line: String,
+    line_cursor: usize,
+    line_units: usize,
 }
 
 impl ImeGate {
@@ -51,14 +56,55 @@ impl ImeGate {
         });
     }
 
+    /// The cursor's line, and where the cursor is in it in bytes, or none with `None`. A
+    /// cursor off the line's character boundaries goes to the one before it.
+    pub(super) fn set_cursor_line(&mut self, line: Option<(&str, usize)>) {
+        self.line.clear();
+        let (text, cursor) = line.unwrap_or_default();
+        self.line.push_str(text);
+        let mut cursor = cursor.min(text.len());
+        while !text.is_char_boundary(cursor) {
+            cursor -= 1;
+        }
+        self.line_cursor = cursor;
+        self.line_units = utf16::utf16_len(&text[..cursor]);
+    }
+
+    /// How long the cursor's line is, and where the cursor is in it, in bytes; none with no
+    /// line.
+    #[cfg(feature = "dev")]
+    pub(super) fn cursor_line(&self) -> Option<(usize, usize)> {
+        (!self.line.is_empty()).then_some((self.line.len(), self.line_cursor))
+    }
+
+    /// Where the cursor, and so a composition, starts in the input method's coordinates, in
+    /// UTF-16 units of the cursor's line before it.
+    pub(super) fn line_offset(&self) -> usize {
+        self.line_units
+    }
+
+    /// The text of `units` in the input method's coordinates, with the units it covers: the
+    /// cursor's line with the `marked` text at the cursor, cut to it. None while the IME is
+    /// off, or for a range that starts past it.
+    pub(super) fn text(&self, marked: &str, units: Range<usize>) -> Option<(String, Range<usize>)> {
+        if !self.allowed {
+            return None;
+        }
+        let (before, after) = self.line.split_at(self.line_cursor);
+        let document = [before, marked, after].concat();
+        let at = utf16::locate(&document, units);
+        (!at.past_end).then(|| (document[at.bytes].to_owned(), at.units))
+    }
+
     /// The cell to answer the input method with: none while the IME is off.
     pub(super) fn area(&self) -> Option<CursorArea> {
         if self.allowed { self.area } else { None }
     }
 
-    /// Where `units` of the `marked` text are, with the units that answer covers: none while
-    /// the IME is off. A range outside the composition, or a composition other than the one
-    /// the app laid out, gets the cell, which covers no units (ADR 0077).
+    /// Where `units` of the input method's coordinates are, the `marked` text starting at the
+    /// cursor, with the units that answer covers: none while the IME is off. A range outside
+    /// the composition, or a composition other than the one the app laid out, gets the cell,
+    /// which covers no units (ADR 0077).
     pub(super) fn rect(
         &self,
         marked: &str,
@@ -68,7 +114,15 @@ impl ImeGate {
         let Some(first) = self.first.filter(|_| self.laid_out == marked) else {
             return Some((area, None));
         };
-        let at = utf16::locate(marked, units);
+        // The composition starts at the cursor, after the part of its line before it.
+        let offset = self.line_units;
+        if units.start < offset {
+            return Some((area, None));
+        }
+        let at = utf16::locate(
+            marked,
+            units.start - offset..units.end.saturating_sub(offset),
+        );
         let (Some(&start), Some(&end)) = (
             self.positions.get(at.chars.start),
             self.positions.get(at.chars.end),
@@ -83,7 +137,8 @@ impl ImeGate {
             width: end - start,
             ..first
         };
-        Some((placed, Some(at.units)))
+        let covered = at.units.start + offset..at.units.end + offset;
+        Some((placed, Some(covered)))
     }
 }
 
@@ -319,6 +374,53 @@ mod tests {
         gate.set_allowed(true);
         gate.set_preedit(None);
         assert_eq!(gate.rect(text, 0..1), Some((CELL, None)), "none laid out");
+    }
+
+    #[test]
+    fn the_input_method_reads_the_cursors_line_with_the_composition_at_the_cursor() {
+        let mut gate = ImeGate::default();
+        gate.set_allowed(true);
+        gate.set_area(CELL);
+        gate.set_cursor_line(Some(("東京 都", 6)));
+        assert_eq!(gate.line_offset(), 2, "two units before the cursor");
+        let text = |gate: &ImeGate, marked, units| gate.text(marked, units).map(|(text, _)| text);
+        assert_eq!(text(&gate, "", 0..4), Some("東京 都".into()));
+        assert_eq!(text(&gate, "か", 1..5), Some("京か 都".into()));
+        assert_eq!(
+            gate.text("か", 2..99),
+            Some(("か 都".into(), 2..5)),
+            "cut to it"
+        );
+        assert_eq!(text(&gate, "", 5..6), None, "past it");
+        // A composition's rectangle counts from the cursor in these coordinates.
+        gate.set_preedit(Some(("か", CELL, &[0.0, 16.0])));
+        let placed = Some((
+            CursorArea {
+                width: 16.0,
+                ..CELL
+            },
+            Some(2..3),
+        ));
+        assert_eq!(gate.rect("か", 2..3), placed);
+        assert_eq!(
+            gate.rect("か", 0..1),
+            Some((CELL, None)),
+            "the line before it"
+        );
+        gate.set_allowed(false);
+        assert_eq!(text(&gate, "", 0..4), None, "off");
+        gate.set_allowed(true);
+        gate.set_cursor_line(None);
+        assert_eq!(
+            (gate.line_offset(), text(&gate, "", 0..9)),
+            (0, Some(String::new()))
+        );
+        gate.set_cursor_line(Some(("かな", 4)));
+        assert_eq!(
+            gate.line_offset(),
+            1,
+            "a cursor inside a character goes before it"
+        );
     }
 
     #[test]

@@ -15,7 +15,7 @@
 //! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
 //!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
 
-use oso_core::buffer::Buffer;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
 use oso_platform::window::ImeEvent;
@@ -58,6 +58,11 @@ pub(super) struct ImeState {
     positions: Vec<f32>,
     /// The next layout is worked out here, so that a key of a composition allocates nothing.
     scratch: Vec<f32>,
+    /// The cursor's line as last given (ADR 0077), and what it was worked out from: the
+    /// buffer, its revision, whether it may hold secrets, and the cursor. None while the IME is off. Never
+    /// logged.
+    line: String,
+    line_for: Option<(BufferId, u64, bool, usize)>,
 }
 
 impl App {
@@ -100,6 +105,7 @@ impl App {
         self.sync_secure_input();
         self.give_cursor_area();
         self.give_preedit_layout();
+        self.give_cursor_line();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a
@@ -257,6 +263,39 @@ impl App {
             std::mem::swap(&mut ime.positions, &mut positions);
         }
         ime.scratch = positions;
+    }
+
+    /// Gives the window the cursor's line, which the input method may read for reconversion
+    /// and better predictions (ADR 0070, ADR 0077): after an event in which the buffer, its
+    /// text or verdict, or the cursor changed, only while the IME is on, and only from a
+    /// buffer that gives one. None while the IME is off.
+    fn give_cursor_line(&mut self) {
+        let Some(view) = &self.view else {
+            return;
+        };
+        let line_for = self.ime.allowed.then(|| {
+            let (window, buffer) = self.editor.current();
+            let cursor = window.selections.primary().cursor;
+            (
+                window.buffer(),
+                buffer.revision(),
+                buffer.is_secret(),
+                cursor,
+            )
+        });
+        if line_for == self.ime.line_for {
+            return;
+        }
+        self.ime.line_for = line_for;
+        let cursor = match line_for {
+            Some(_) => self.editor.cursor_excerpt(&mut self.ime.line),
+            None => {
+                self.ime.line.clear();
+                None
+            }
+        };
+        let line = cursor.map(|cursor| (self.ime.line.as_str(), cursor));
+        view.window.set_ime_cursor_line(line);
     }
 }
 

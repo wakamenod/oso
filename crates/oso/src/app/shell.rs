@@ -198,6 +198,15 @@ impl Window {
     /// winit gives the input method one rectangle, the cursor area's, so where a composition
     /// is drawn goes nowhere (ADR 0077).
     pub(super) fn set_ime_preedit(&self, _laid_out: Option<(&str, PixelRect, &[f32])>) {}
+
+    /// winit gives the input method no text of a buffer (ADR 0070).
+    pub(super) fn set_ime_cursor_line(&self, _line: Option<(&str, usize)>) {}
+
+    /// winit holds no line, so the dev socket reports none.
+    #[cfg(feature = "dev")]
+    pub(super) fn ime_cursor_line(&self) -> Option<(usize, usize)> {
+        None
+    }
 }
 
 impl ApplicationHandler<UserEvent> for App {

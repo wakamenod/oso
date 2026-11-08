@@ -221,6 +221,19 @@ impl Window {
         self.state.update_ime(|ime| ime.set_preedit(laid_out));
     }
 
+    /// The cursor's line, and where the cursor is in it in bytes, or none with `None`, as the
+    /// input method may read it (ADR 0077). Only kept, and answered while the IME is on.
+    pub fn set_ime_cursor_line(&self, line: Option<(&str, usize)>) {
+        self.state.update_ime(|ime| ime.set_cursor_line(line));
+    }
+
+    /// How long the cursor's line the window holds is, and where the cursor is in it, in
+    /// bytes, for the dev socket's check. No text.
+    #[cfg(feature = "dev")]
+    pub fn ime_cursor_line(&self) -> Option<(usize, usize)> {
+        self.state.ime.borrow().cursor_line()
+    }
+
     /// Whether the view gives the input method a context now, which it does only while the
     /// IME is on, for the dev socket's check.
     #[cfg(feature = "dev")]

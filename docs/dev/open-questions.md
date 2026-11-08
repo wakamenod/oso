@@ -211,7 +211,7 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
   the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the cursor's line for the input method; the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
+  the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
   runs must still reach `exiting`; whether frames keep up during a live resize, now that the
   view also draws when AppKit displays its layer; `open_window` and `request_attention`
   queued as the other requests are;
@@ -220,15 +220,16 @@ item notes when it must be settled.
   checks at the keyboard of what remains: a window covered by another app and uncovered
   drawing again with no key, a composition committed when the IME turns off, the candidate
   window following the segment being converted, no text service reading the view while the
-  IME is off, no Writing Tools for it, and each item above as it lands. The author checked at the keyboard on 2026-11-08
+  IME is off, no Writing Tools for it, the input method's predictions with the cursor's
+  line, and each item above as it lands. The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
 - Reconversion: a replacement range outside the marked text is ignored for now, and the text
-  goes in at the cursor. Decide whether to apply one inside the excerpt last given, as ADR
-  0070 allows, once the cursor's line reaches the input method
+  goes in at the cursor, though the input method now reads the cursor's line. Decide whether
+  to apply one inside the excerpt last given, as ADR 0070 allows
   ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
