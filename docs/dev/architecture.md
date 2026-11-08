@@ -64,14 +64,17 @@ modules inside each crate, are listed in
 ([ADR 0038](adr/0038-architecture-guardrails.md),
 [ADR 0039](adr/0039-architecture-guardrail-mechanics.md)).
 
-Only the tip crate uses winit. It owns the window and hands `oso-render` a
-`wgpu::DisplayAndWindowHandle` and the size in pixels; the renderer reports
-back when it needs a redraw instead of calling into the window.
+Only the tip crate uses winit, and in it only `app/shell.rs`: the rest of the app
+works on oso's own events, keys and window calls, so that a window layer of oso's own
+can replace winit there ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). The
+tip crate owns the window and hands `oso-render` a `wgpu::DisplayAndWindowHandle` and the
+size in pixels; the renderer reports back when it needs a redraw instead of calling into
+the window.
 
 ## Layers
 
 ```
-OS events (winit)
+OS events (winit, through app/shell.rs)
    │
    ▼
 Input: key translation into oso_core::key::KeyPress
@@ -202,7 +205,8 @@ A panicking command is caught at the command boundary
   `Dispatcher::commit_text`, which keeps it an undo step of its own
   ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md),
   [ADR 0069](adr/0069-macos-input-method.md)).
-- The input method is winit's, in the tip crate (`app/ime.rs`). oso keeps its own state of
+- The input method is winit's, reported through `app/shell.rs` and handled in `app/ime.rs`
+  ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, and the list of
   emergency copies. Turning off waits for a composition to end
@@ -458,7 +462,7 @@ Full details are in [`security.md`](security.md).
     private `0700` directory, with a peer user check. Windows is not
     supported yet ([ADR 0032](adr/0032-control-socket-transport.md)).
   - Background threads read and parse requests. They reach the UI thread as
-    winit user events, and replies return over a channel. Keys from the
+    user events, through the app's `Waker`, and replies return over a channel. Keys from the
     socket take the same path as keys from the window.
   - `screenshot` renders the frame again offscreen (`oso-render`, `dev`
     feature). Readback, PNG encoding and the file write run on a background

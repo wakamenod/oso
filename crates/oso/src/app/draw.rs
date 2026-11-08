@@ -7,16 +7,14 @@
 //! ([`App::ask_for_a_frame_if_status_changed`]), so a failed command, a message from a
 //! save and a load's progress need no request of their own (ADR 0063).
 
-use std::sync::Arc;
 use std::time::Instant;
 
 use oso_core::editor::{Editor, Status};
 use oso_core::frame;
 use oso_render::{Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView};
-use winit::event_loop::ActiveEventLoop;
-use winit::window::Window;
 
 use super::App;
+use super::shell::{Loop, Window};
 use crate::text;
 
 /// Calls `draw` with what the frame shows, for the renderer.
@@ -83,7 +81,7 @@ fn panes<'a>(
 /// The window and its renderer. The tip crate owns the window; `oso-render`
 /// only draws into it and asks for redraws through [`Redraw`].
 pub(super) struct View {
-    pub(super) window: Arc<Window>,
+    pub(super) window: Window,
     pub(super) render_state: RenderState,
     /// When the window was requested, until the first frame is presented.
     started: Option<Instant>,
@@ -91,25 +89,12 @@ pub(super) struct View {
 
 impl View {
     /// Opens the window and sets up its renderer.
-    pub(super) fn open(event_loop: &ActiveEventLoop) -> Self {
+    pub(super) fn open(event_loop: &Loop<'_>) -> Self {
         let started = Instant::now();
-        let window_attributes = Window::default_attributes().with_title("oso Editor");
-        // Option stays Super with a Japanese input source too: winit then gives the input
-        // method the key without Option's character, and `s-a` arrives (ADR 0069).
-        #[cfg(target_os = "macos")]
-        let window_attributes = {
-            use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS};
-            window_attributes.with_option_as_alt(OptionAsAlt::Both)
-        };
-        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
-        let size = window.inner_size();
+        let window = event_loop.open_window();
+        let (width, height) = window.inner_size();
         let text_system = text::load(window.scale_factor());
-        let render_state = pollster::block_on(RenderState::new(
-            window.clone(),
-            size.width,
-            size.height,
-            text_system,
-        ));
+        let render_state = window.start_renderer(width, height, text_system);
         // Under `ControlFlow::Wait` nothing is drawn until requested, and
         // not every platform sends an initial resize or redraw.
         window.request_redraw();
@@ -130,7 +115,7 @@ impl View {
 
 impl App {
     /// Opens the window, unless it is open already.
-    pub(super) fn open_window(&mut self, event_loop: &ActiveEventLoop) {
+    pub(super) fn open_window(&mut self, event_loop: &Loop<'_>) {
         if self.view.is_none() {
             if let Some(started) = self.started {
                 log::debug!("resumed {:?} after start", started.elapsed());
@@ -195,10 +180,7 @@ impl App {
             return;
         };
         let window = &view.window;
-        let window_size = || {
-            let size = window.inner_size();
-            (size.width, size.height)
-        };
+        let window_size = || window.inner_size();
         self.editor.status_into(&mut self.status);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();

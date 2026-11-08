@@ -20,9 +20,10 @@ mod text;
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-use app::{App, UserEvent};
+use app::App;
+#[cfg(feature = "dev")]
+use app::UserEvent;
 use emergency::Emergency;
-use winit::event_loop::{ControlFlow, EventLoop};
 
 const USAGE: &str = "usage: oso [FILE]";
 
@@ -62,35 +63,23 @@ fn main() {
     }
     let emergency = Emergency::new(emergency_directory.or_else(emergency::default_directory));
     emergency.install_hook();
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    // Building AppKit's default menu delays the first frame by about 55 ms,
-    // and its Command shortcuts would clash with Command = Meta (ADR 0046).
-    #[cfg(target_os = "macos")]
-    {
-        use winit::platform::macos::EventLoopBuilderExtMacOS;
-        builder.with_default_menu(false);
-    }
-    let event_loop = builder.build().unwrap();
-    // Sleep until an event arrives; frames are drawn only on demand.
-    event_loop.set_control_flow(ControlFlow::Wait);
-    let proxy = event_loop.create_proxy();
-    log::debug!("event loop built {:?} after start", started.elapsed());
-
-    #[cfg(feature = "dev")]
-    let dev = {
-        let proxy = proxy.clone();
-        dev::start(move |request| proxy.send_event(UserEvent::Control(request)).is_ok())
-    };
-    let mut app = App::new(proxy, started, emergency);
-    #[cfg(feature = "dev")]
-    app.set_dev(dev);
-    app.check_emergency_directory();
-    // Loading starts before the window exists, so the file is read while
-    // the GPU starts up.
-    if let Some(file) = file {
-        app.open(file);
-    }
-    event_loop.run_app(&mut app).unwrap();
+    app::run(started, |waker| {
+        #[cfg(feature = "dev")]
+        let dev = {
+            let waker = waker.clone();
+            dev::start(move |request| waker.send(UserEvent::Control(request)))
+        };
+        let mut app = App::new(waker, started, emergency);
+        #[cfg(feature = "dev")]
+        app.set_dev(dev);
+        app.check_emergency_directory();
+        // Loading starts before the window exists, so the file is read while
+        // the GPU starts up.
+        if let Some(file) = file {
+            app.open(file);
+        }
+        app
+    });
 }
 
 /// Exits with an error: `oso ctl` and `oso dev` need a dev build.
