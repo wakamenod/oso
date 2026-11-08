@@ -116,6 +116,8 @@ pub(crate) struct Layout {
     cursor: (DisplayPoint, usize),
     /// Glyphs keep the band above the region, on the row above it.
     keeps_band_above: bool,
+    /// Glyphs keep the band below the region, on the row below it.
+    keeps_band_below: bool,
 }
 
 impl Layout {
@@ -130,6 +132,7 @@ impl Layout {
             scroll,
             cursor: (DisplayPoint::default(), 0),
             keeps_band_above: false,
+            keeps_band_below: false,
         }
     }
 
@@ -139,6 +142,15 @@ impl Layout {
         Self {
             keeps_band_above: true,
             ..self
+        }
+    }
+
+    /// The same with the band below too, for what a float shows inside its padding, which
+    /// nothing else draws on (ADR 0072).
+    pub(crate) fn with_bands(self) -> Self {
+        Self {
+            keeps_band_below: true,
+            ..self.with_band_above()
         }
     }
 
@@ -243,8 +255,9 @@ impl Layout {
     /// and `Ẳ`. Below the row it keeps half that, in whole pixels: marks
     /// under a descender end there (ADR 0052). All of this stops at the edges
     /// of the pane, but the frame's top row keeps its band in the top margin,
-    /// where no other pane draws (ADR 0061), and a tiled pane of one row that is no
-    /// buffer's keeps it on the row above (ADR 0063).
+    /// where no other pane draws (ADR 0061), a tiled pane of one row that is no
+    /// buffer's keeps it on the row above (ADR 0063), and what a float shows keeps both
+    /// in its padding (ADR 0072).
     pub(crate) fn quad(
         &self,
         row: usize,
@@ -267,12 +280,14 @@ impl Layout {
             cell_x.max(self.clip.x),
             right.min(self.clip.x + self.clip.width),
         )?;
-        let bottom = cell_y + height + (descent / 2.0).round();
+        let below = (descent / 2.0).round();
+        let bottom = cell_y + height + below;
+        let bottom_band = if self.keeps_band_below { below } else { 0.0 };
         let (cut_y, h) = clip_axis(
             y,
             entry.size[1] as f32,
             (cell_y - descent).max(self.clip.y - self.top_band()),
-            bottom.min(self.clip.y + self.clip.height),
+            bottom.min(self.clip.y + self.clip.height + bottom_band),
         )?;
         let (cursor, cursor_cells) = self.cursor;
         let under_cursor = row == cursor.row

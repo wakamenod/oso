@@ -45,6 +45,8 @@ pub enum Verdict {
     Unresolved,
     /// A name on the path or where it leads matches a pattern.
     SecretName,
+    /// What a person types at a prompt for a passphrase (ADR 0072).
+    Passphrase,
 }
 
 impl Verdict {

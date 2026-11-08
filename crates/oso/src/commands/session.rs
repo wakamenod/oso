@@ -5,36 +5,57 @@
 //! host-owned state and does not know its keys.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
-use oso_core::editor::ExitAction;
+use oso_core::editor::Quit;
 
 /// The session commands.
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "keyboard-quit",
-        doc: "Cancel what is in progress.\n\nCancelling a pending prefix key is handled by the key resolver.",
+        doc: "Cancel what is in progress, one thing at a time.\n\nA pending prefix key or prefix argument goes first, in the key resolver. Then the innermost prompt or question closes, and runs nothing.",
         args: ArgSpec::None,
         run: keyboard_quit,
     },
     Command {
         name: "save-buffers-kill-terminal",
-        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer or a save running, this refuses once and says how many. Repeating it at once confirms, and a save still running then gets to finish. Any other key resets it. Asking to save each buffer comes with prompts.",
+        doc: "Exit oso, if nothing is at risk.\n\nWith a modified buffer or a save running, this asks whether to exit without saving, and says how many. `y` exits, unless more is at risk by then, when it asks again, and a save still running then gets to finish.",
         args: ArgSpec::None,
         run: save_buffers_kill_terminal,
     },
 ];
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    // Deactivating the mark comes with marks.
+    if ctx.editor.quit() == Quit::Prompt {
+        ctx.request_redraw();
+    }
     log::debug!("Quit");
     ctx.editor.echo("Quit");
     Ok(())
 }
 
 fn save_buffers_kill_terminal(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    match ctx.editor.confirm_exit(ctx.confirmed()) {
+        Ok(()) => ctx.request_exit(),
+        Err(refused) => {
+            ask(
+                ctx,
+                format!("{refused}; exit without saving?"),
+                "save-buffers-kill-terminal",
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Asks `question`, whose `y` runs `command`, and shows it.
+pub(super) fn ask(
+    ctx: &mut Ctx<'_>,
+    question: String,
+    command: &'static str,
+) -> Result<(), CommandError> {
     ctx.editor
-        .confirm_exit(ExitAction::Command)
-        .map_err(|refused| CommandError::new(refused.to_string()))?;
-    ctx.request_exit();
+        .ask(question, command)
+        .map_err(|error| CommandError::new(error.to_string()))?;
+    ctx.request_redraw();
     Ok(())
 }
 
@@ -43,6 +64,7 @@ mod tests {
     use crate::commands::tests::{editor, run};
     use oso_core::buffer::Replacement;
     use oso_core::command::{Args, Effects};
+    use oso_core::minibuffer::Kind;
 
     #[test]
     fn keyboard_quit_changes_nothing() {
@@ -62,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn save_buffers_kill_terminal_refuses_once_with_a_modified_buffer() {
+    fn save_buffers_kill_terminal_asks_with_a_modified_buffer() {
         let mut editor = editor("");
         let id = editor.window().buffer();
         let edit = Replacement {
@@ -71,13 +93,33 @@ mod tests {
         };
         editor.apply_edits(id, &[edit]).unwrap();
         let (result, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
-        assert_eq!(
-            result,
-            Err("1 modified buffer; repeat to exit anyway".to_owned())
-        );
-        assert!(!effects.exit);
-        let (result, effects) = run(&mut editor, "save-buffers-kill-terminal", Args::NONE);
         assert_eq!(result, Ok(()));
-        assert!(effects.exit);
+        assert!(!effects.exit);
+        let prompt = editor.prompt().expect("a question");
+        assert_eq!(
+            prompt.label(),
+            "1 modified buffer; exit without saving? (y or n)"
+        );
+        assert_eq!(
+            prompt.kind(),
+            Kind::Question {
+                yes: "save-buffers-kill-terminal",
+                no: None
+            }
+        );
+    }
+
+    #[test]
+    fn keyboard_quit_closes_the_innermost_prompt_and_runs_nothing() {
+        let mut editor = editor("");
+        editor.ask("First?", "keyboard-quit").unwrap();
+        editor.ask("Second?", "keyboard-quit").unwrap();
+        assert_eq!(editor.prompt().unwrap().label(), "[2] Second? (y or n)");
+        let (_, effects) = run(&mut editor, "keyboard-quit", Args::NONE);
+        assert!(effects.redraw);
+        assert_eq!(editor.prompt().unwrap().label(), "First? (y or n)");
+        assert!(editor.take_prompt_outcome().is_none());
+        run(&mut editor, "keyboard-quit", Args::NONE).0.unwrap();
+        assert!(editor.prompt().is_none());
     }
 }

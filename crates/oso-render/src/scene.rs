@@ -23,7 +23,7 @@ use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
-use crate::pane::{Face, Layer, Pane, PaneContent, PaneId, Span, TextView};
+use crate::pane::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
 use crate::rows::{Rows, ShapedRow};
 use crate::shape::Rect;
 use crate::text::{GlyphInstance, Layout};
@@ -274,18 +274,33 @@ fn draw_pane<G: GlyphSource>(
     // none of them can take its place.
     let cursor = match &pane.content {
         PaneContent::Text(view) => cursor_cells(view, pane.region),
+        PaneContent::Masked(masked) => masked_cursor(masked, pane.region),
         PaneContent::Lines(_) => None,
     };
-    // So are a preedit's two underlines.
-    let held = usize::from(cursor.is_some()) + preedit_lines(pane);
+    let hollow = matches!(&pane.content, PaneContent::Text(view) if view.cursor_style == CursorStyle::Hollow);
+    // So are a preedit's two underlines, and a hollow box's four sides.
+    let held = cursor.map_or(0, |_| if hollow { 4 } else { 1 }) + preedit_lines(pane);
     draws.held += held;
     if let Some(face) = pane.background {
         draws.fill(unscrolled.frame_cells(pane.region), face);
     }
+    if let Some(face) = pane.border {
+        let width = 2.0 * line_width(metrics);
+        if let Some(rect) = unscrolled.frame_cells(pane.region) {
+            for side in outline(rect, width) {
+                draws.fill(Some(side), face);
+            }
+        }
+    }
+    // What a float shows keeps its bands in the float's padding.
+    let inside_float = pane.layer == Layer::FLOAT_CONTENT;
     match &pane.content {
         PaneContent::Text(view) => {
             let mut layout = Layout::new(metrics, pane.region, view.scroll);
-            if let Some(cells) = cursor {
+            if inside_float {
+                layout = layout.with_bands();
+            }
+            if let Some(cells) = cursor.filter(|_| !hollow) {
                 // Glyphs take the box's color only where the box is.
                 layout = layout.with_cursor(view.cursor.row, cells);
             }
@@ -293,20 +308,107 @@ fn draw_pane<G: GlyphSource>(
             draws.held -= held;
             underline_preedit(draws, view, &layout, metrics);
             if let Some(cells) = cursor {
-                draws.fill(layout.frame_cells(cells), Face::Cursor);
+                fill_cursor(draws, &layout, cells, hollow, metrics);
             }
         }
         PaneContent::Lines(lines) => {
             let rows_shown = pane.region.rows;
-            // A modeline or an echo area. Other panes are M2-16's and M3's to decide.
-            let layout = if pane.layer == Layer::TILED && rows_shown == 1 {
+            // A modeline or an echo area, and what a float shows. Other panes are M3's to
+            // decide.
+            let layout = if inside_float {
+                unscrolled.with_bands()
+            } else if pane.layer == Layer::TILED && rows_shown == 1 {
                 unscrolled.with_band_above()
             } else {
                 unscrolled
             };
             draw_lines(draws, lines, &layout, rows_shown, rows, system, glyphs);
         }
+        PaneContent::Masked(masked) => {
+            let mut layout = unscrolled;
+            if inside_float {
+                layout = layout.with_bands();
+            }
+            if let Some(cells) = cursor {
+                layout = layout.with_cursor(0, cells);
+            }
+            let span = [Span {
+                text: masked.text,
+                face: Face::Float,
+            }];
+            let line: [&[Span<'_>]; 1] = [&span];
+            draw_lines(
+                draws,
+                &line,
+                &layout,
+                pane.region.rows.min(1),
+                rows,
+                system,
+                glyphs,
+            );
+            draws.held -= held;
+            if let Some(cells) = cursor {
+                fill_cursor(draws, &layout, cells, false, metrics);
+            }
+        }
     }
+}
+
+/// A thin line's width in whole pixels, as the metrics give the cell's height.
+fn line_width(metrics: CellMetrics) -> f32 {
+    (metrics.height / 16.0).round().max(1.0)
+}
+
+/// The four sides of `rect`, `width` thick, inside it.
+fn outline(rect: PixelRect, width: f32) -> [PixelRect; 4] {
+    let width = width.min(rect.width / 2.0).min(rect.height / 2.0);
+    [
+        PixelRect {
+            height: width,
+            ..rect
+        },
+        PixelRect {
+            y: rect.y + rect.height - width,
+            height: width,
+            ..rect
+        },
+        PixelRect { width, ..rect },
+        PixelRect {
+            x: rect.x + rect.width - width,
+            width,
+            ..rect
+        },
+    ]
+}
+
+/// Fills the cursor box over `cells`, or only its outline for a hollow one.
+fn fill_cursor(
+    draws: &mut Draws,
+    layout: &Layout,
+    cells: CellRect,
+    hollow: bool,
+    metrics: CellMetrics,
+) {
+    let Some(rect) = layout.frame_cells(cells) else {
+        return;
+    };
+    if hollow {
+        for side in outline(rect, line_width(metrics)) {
+            draws.fill(Some(side), Face::Cursor);
+        }
+    } else {
+        draws.fill(Some(rect), Face::Cursor);
+    }
+}
+
+/// The frame's cell under the cursor of `masked` in `region`, if it is in it.
+fn masked_cursor(masked: &Masked<'_>, region: CellRect) -> Option<CellRect> {
+    (region.rows > 0 && masked.cursor < region.columns).then(|| CellRect {
+        row: region.row,
+        column: region.column + masked.cursor,
+        rows: 1,
+        columns: 1,
+    })
 }
 
 /// The frame's cells under the cursor box of `view` in `region`, if it shows.
@@ -482,6 +584,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
         })
     }
@@ -492,6 +595,7 @@ mod tests {
             region,
             layer: Layer(layer),
             background: None,
+            border: None,
             content,
         }
     }
@@ -575,6 +679,7 @@ mod tests {
                     revision: 1,
                     scroll: Scroll { top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
+                    cursor_style: CursorStyle::Box,
                     preedit: None,
                 })
             };
@@ -646,6 +751,7 @@ mod tests {
             revision: 1,
             scroll: Scroll { top: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
@@ -724,6 +830,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
@@ -750,6 +857,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
+            cursor_style: CursorStyle::Box,
             preedit: Some(&preedit),
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
@@ -788,6 +896,7 @@ mod tests {
                 revision: 1,
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(1000, 0),
+                cursor_style: CursorStyle::Box,
                 preedit: None,
             })
         };
@@ -946,6 +1055,7 @@ mod tests {
             revision: 1,
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
             preedit: None,
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];

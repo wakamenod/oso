@@ -11,11 +11,15 @@ use std::time::Instant;
 
 use oso_core::editor::{Editor, Status};
 use oso_core::frame;
-use oso_render::{Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView};
+use oso_render::{
+    CursorStyle, Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView,
+};
 
 use super::App;
 use super::shell::{Loop, Window};
 use crate::text;
+
+mod float;
 
 /// Calls `draw` with what the frame shows, for the renderer.
 pub(super) fn with_panes<R>(
@@ -35,17 +39,31 @@ pub(super) fn with_panes<R>(
         span(status.echo_warnings(), Face::Warning),
         span(&status.echo[..], Face::Text),
     ];
-    draw(&panes(editor, &[&modeline], &[&echo]))
+    let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
+    let tiled = panes(editor, &modeline, &echo);
+    let Some(parts) = float::Parts::of(editor) else {
+        return draw(&tiled);
+    };
+    // A prompt's float goes over the tiled panes.
+    let spans = parts.spans();
+    let lines = spans.lines();
+    let mut list = Vec::with_capacity(tiled.len() + float::MAX_PANES);
+    list.extend(tiled);
+    float::panes(editor, &parts, &lines, &mut list);
+    draw(&list)
 }
 
-/// The selected window, then the rows reserved below it. The later panes come first if
+/// The tiled window, then the rows reserved below it. The later panes come first if
 /// a frame runs out of room, so no amount of text can take their place (ADR 0061).
+/// Beneath a prompt, the window's cursor is hollow and it shows no preedit, as it is
+/// not selected (ADR 0072).
 fn panes<'a>(
     editor: &'a Editor,
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
-    let (window, buffer) = editor.current();
+    let (window, buffer) = editor.tiled();
+    let beneath = editor.prompt().is_some();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
     let frame = editor.frame();
@@ -55,13 +73,19 @@ fn panes<'a>(
         revision: buffer.revision(),
         scroll: window.scroll(),
         cursor,
-        preedit: editor.preedit(),
+        cursor_style: if beneath {
+            CursorStyle::Hollow
+        } else {
+            CursorStyle::Box
+        },
+        preedit: editor.preedit().filter(|_| !beneath),
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),
         region,
         layer: Layer::TILED,
         background,
+        border: None,
         content,
     };
     [
@@ -246,7 +270,7 @@ mod tests {
                 .iter()
                 .map(|pane| {
                     let spans = match &pane.content {
-                        PaneContent::Text(_) => Vec::new(),
+                        PaneContent::Text(_) | PaneContent::Masked(_) => Vec::new(),
                         PaneContent::Lines(lines) => lines[0]
                             .iter()
                             .map(|span| (span.text.to_owned(), span.face))

@@ -24,9 +24,10 @@ use std::thread;
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::editor::{Editor, Status};
-use oso_core::frame::PixelRect;
+use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
+use oso_core::minibuffer::{Kind, MAX_ENTRY_BYTES};
 use oso_core::motion;
 use oso_core::rope::Rope;
 use oso_core::selection::{Goal, Selection};
@@ -60,8 +61,11 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 /// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`
 /// are left out. Its other metadata stays, as [`buffer_state`] has it. While any window
 /// shows one, `modeline` and `echo` are left out too (ADR 0051, ADR 0063).
+///
+/// The window, its buffer and its text are the tiled window's, also beneath a prompt.
+/// `prompts` describes the open prompts, the outermost first (ADR 0072).
 pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
-    let (window, buffer) = editor.current();
+    let (window, buffer) = editor.tiled();
     let display = buffer.display();
     let size = window.size();
     let text = (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &display));
@@ -75,10 +79,12 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             .collect::<Vec<_>>(),
         "windows": editor
             .windows()
+            .take(editor.windows().len() - editor.prompts().len())
             .enumerate()
             .map(|(index, window)| window_state(editor, window, index))
             .collect::<Vec<_>>(),
         "keys": { "pending": display_keys(pending).to_string() },
+        "prompts": prompts_state(editor),
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
     if !buffer.is_secret() {
@@ -99,6 +105,70 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         state["echo"] = json!(status.echo);
     }
     state
+}
+
+/// The open prompts, the outermost first: each one's depth, kind, label, answer so far, cursor
+/// and message, and the innermost's region, which alone shows. While a buffer that may hold
+/// secrets is shown, a passphrase's prompt among them, the label, the answer, the cursor and
+/// the message are null, as a search string or a line number can say something of the text.
+fn prompts_state(editor: &Editor) -> Value {
+    let shown = !editor.shows_secret();
+    let layout = editor.prompt_layout();
+    let count = editor.prompts().len();
+    editor
+        .prompts()
+        .iter()
+        .enumerate()
+        .map(|(index, prompt)| {
+            let kind = match prompt.kind() {
+                Kind::Number { .. } => "number",
+                Kind::Passphrase => "passphrase",
+                Kind::Question { .. } => "question",
+            };
+            let buffer = editor.buffer(prompt.buffer()).filter(|_| shown);
+            let window = editor.windows().nth(editor.windows().len() - count + index);
+            let cursor = window
+                .filter(|_| shown)
+                .map(|window| window.selections.primary().cursor);
+            let region = layout
+                .as_ref()
+                .filter(|_| index + 1 == count)
+                .map(|layout| region_state(layout.regions.outer));
+            json!({
+                "depth": index + 1,
+                "kind": kind,
+                "prompt": shown.then(|| prompt.label()),
+                "text": buffer.map(|buffer| answer_text(buffer.text())),
+                "cursor": cursor,
+                "message": prompt.message().filter(|_| shown),
+                "region": region,
+            })
+        })
+        .collect()
+}
+
+/// What a prompt holds, cut on a character boundary to the longest answer a history keeps,
+/// since a yank can put a whole file there.
+fn answer_text(text: &oso_core::rope::Rope) -> String {
+    let mut out = String::new();
+    for chunk in text.chunks() {
+        let room = MAX_ENTRY_BYTES - out.len();
+        if chunk.len() > room {
+            out.push_str(&chunk[..chunk.floor_char_boundary(room)]);
+            break;
+        }
+        out.push_str(chunk);
+    }
+    out
+}
+
+fn region_state(region: CellRect) -> Value {
+    json!({
+        "row": region.row,
+        "column": region.column,
+        "rows": region.rows,
+        "columns": region.columns,
+    })
 }
 
 /// What the app has told the OS of the input method, for [`ime_state`].
@@ -440,6 +510,7 @@ mod tests {
                     "selections": [{ "cursor": 6, "row": 1, "column": 4, "goal": null }],
                 }],
                 "keys": { "pending": "" },
+                "prompts": [],
                 "surface": { "width": 800, "height": 600 },
             })
         );

@@ -24,8 +24,8 @@ fn finish_while_leaving(editor: &mut Editor, leaving: &mut Leaving) -> Vec<Optio
 
 /// Confirms the exit with the keys, as `App::leave` would be asked to.
 fn confirm_quit(dispatcher: &mut Dispatcher, editor: &mut Editor) {
-    assert!(!send(dispatcher, editor, QUIT).exit, "refused first");
-    assert!(send(dispatcher, editor, QUIT).exit, "then confirmed");
+    assert!(!send(dispatcher, editor, QUIT).exit, "asked first");
+    assert!(send(dispatcher, editor, "y").exit, "then confirmed");
 }
 
 #[test]

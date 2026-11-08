@@ -7,7 +7,8 @@
 //! area, its modeline, then the echo area. A frame too small for all of them
 //! gives up the modeline first and the echo area next, so the text keeps a row
 //! as long as there is one. The regions always add up to the frame, and never
-//! overlap. Floating windows, which go above them, arrive with M2-16.
+//! overlap. Floating windows go above them and may cover them: [`float_regions`]
+//! places one from the layout, which holds none (ADR 0072).
 //!
 //! [`PixelGrid`] says where those cells are on the surface. The grid starts at
 //! the top-left margin and holds whole cells only. The pixels left over at the
@@ -95,6 +96,70 @@ pub fn layout(size: FrameSize) -> FrameLayout {
         },
         echo: rows(window_rows, echo_rows),
     }
+}
+
+/// The cells a float takes over the frame (ADR 0072).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FloatRegions {
+    /// All of it, with the ring of border and padding.
+    pub outer: CellRect,
+    /// What it shows, inside the ring. The same as `outer` where the ring did not fit.
+    pub inner: CellRect,
+}
+
+impl FloatRegions {
+    /// Whether it has the ring, whose outer edge the border is drawn along.
+    pub fn framed(&self) -> bool {
+        self.inner != self.outer
+    }
+}
+
+/// The share of the frame's columns a float takes, in tenths, before its bounds.
+const FLOAT_TENTHS: usize = 6;
+
+/// The fewest columns a float takes, while the frame allows.
+const FLOAT_MIN_COLUMNS: usize = 40;
+
+/// The columns a float keeps from each edge of the frame.
+const FLOAT_EDGE: usize = 2;
+
+/// Where a float of `rows` rows of content goes, at the top center of the window's text
+/// area in `frame`, as the minibuffer does (ADR 0026, ADR 0072). It takes 60% of the
+/// columns, at least 40, and never comes closer than 2 to an edge. One row of the text
+/// stays in view above it, and a ring of one cell holds its border and padding. A small
+/// frame gives up the row above first, then the ring. It is never taller than the text
+/// area, so the modeline and the echo area stay in view.
+pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
+    let text = frame.window.text;
+    let room = text.columns.saturating_sub(2 * FLOAT_EDGE);
+    let columns = if room == 0 {
+        text.columns
+    } else {
+        (text.columns * FLOAT_TENTHS / 10)
+            .max(FLOAT_MIN_COLUMNS)
+            .min(room)
+    };
+    let rows = rows.max(1);
+    let (gap, ring) = if text.rows > rows + 2 && columns > 2 {
+        (1, 1)
+    } else if text.rows == rows + 2 && columns > 2 {
+        (0, 1)
+    } else {
+        (0, 0)
+    };
+    let outer = CellRect {
+        row: text.row + gap,
+        column: text.column + (text.columns - columns) / 2,
+        rows: (rows + 2 * ring).min(text.rows),
+        columns,
+    };
+    let inner = CellRect {
+        row: outer.row + ring,
+        column: outer.column + ring,
+        rows: outer.rows - 2 * ring,
+        columns: outer.columns - 2 * ring,
+    };
+    FloatRegions { outer, inner }
 }
 
 /// The cells of a cursor at `point`, whose cluster takes `cells` cells, in a
@@ -205,6 +270,36 @@ mod tests {
             rows,
             columns,
         }
+    }
+
+    #[test]
+    fn a_float_takes_three_fifths_of_the_columns_a_row_below_the_top() {
+        let layout = frame(30, 100);
+        let regions = float_regions(&layout, 1);
+        assert_eq!(regions.outer, rect(1, 20, 3, 60));
+        assert_eq!(regions.inner, rect(2, 21, 1, 58));
+        assert!(regions.framed());
+        assert_eq!(float_regions(&frame(30, 200), 1).outer, rect(1, 40, 3, 120));
+    }
+
+    #[test]
+    fn a_float_takes_forty_columns_while_the_frame_keeps_two_at_each_edge() {
+        assert_eq!(float_regions(&frame(30, 64), 1).outer, rect(1, 12, 3, 40));
+        assert_eq!(float_regions(&frame(30, 30), 1).outer, rect(1, 2, 3, 26));
+        assert_eq!(float_regions(&frame(30, 4), 1).outer.columns, 4);
+    }
+
+    #[test]
+    fn a_short_frame_gives_up_the_row_above_and_then_the_ring() {
+        // Three text rows hold the ring and one row of content, with no row above.
+        let regions = float_regions(&frame(5, 100), 1);
+        assert_eq!(regions.outer, rect(0, 20, 3, 60));
+        assert!(regions.framed());
+        let regions = float_regions(&frame(4, 100), 1);
+        assert_eq!(regions.outer, rect(0, 20, 1, 60));
+        assert!(!regions.framed());
+        // A frame of one row has the float over it.
+        assert_eq!(float_regions(&frame(1, 100), 1).outer, rect(0, 20, 1, 60));
     }
 
     #[test]
@@ -409,6 +504,23 @@ mod tests {
             for region in [text, modeline, echo] {
                 prop_assert_eq!((region.column, region.columns), (0, columns));
             }
+        }
+
+        /// A float stays inside the text area, its inner cells inside it, and leaves the
+        /// modeline and the echo area alone.
+        #[test]
+        fn prop_a_float_stays_in_the_text_area(
+            rows in 0usize..60, columns in 0usize..300, content in 0usize..30,
+        ) {
+            let layout = frame(rows, columns);
+            let text = layout.window.text;
+            let FloatRegions { outer, inner } = float_regions(&layout, content);
+            prop_assert!(outer.row >= text.row && outer.row + outer.rows <= text.row + text.rows);
+            prop_assert!(outer.column >= text.column);
+            prop_assert!(outer.column + outer.columns <= text.column + text.columns);
+            prop_assert!(inner.row >= outer.row && inner.column >= outer.column);
+            prop_assert!(inner.row + inner.rows <= outer.row + outer.rows);
+            prop_assert!(inner.column + inner.columns <= outer.column + outer.columns);
         }
 
         /// The cursor's cells are inside the text area, and are exactly the part of

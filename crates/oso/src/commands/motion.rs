@@ -19,6 +19,15 @@ use super::budget_left;
 /// The motion commands.
 pub const COMMANDS: &[Command] = &[
     Command {
+        name: "goto-line",
+        doc: "Move point to the start of line N, counting from 1.\n\nN is read in a prompt, or given as a numeric prefix argument. A line before the first goes to the first, and one past the last to the last. Every cursor goes there, and they become one.",
+        args: ArgSpec::Number {
+            prompt: "Go to line: ",
+            history: "goto-line",
+        },
+        run: goto_line,
+    },
+    Command {
         name: "forward-char",
         doc: "Move point N characters forward (backward if N is negative).\n\nA character is what the screen shows as one: a grapheme cluster such as `が` or an emoji sequence, a tab, a line break or an escape. At the end of the buffer, signal \"End of buffer\". A count that would read too much goes as far as it may and signals \"Count too large\".",
         args: ArgSpec::Count,
@@ -196,6 +205,27 @@ fn mwim_end(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 /// `n` tenths, clamped to 0 to 10.
 fn tenths(n: isize) -> usize {
     n.clamp(0, 10) as usize
+}
+
+fn goto_line(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    let line = match (ctx.answer(), args.prefix()) {
+        (Some(answer), _) => answer
+            .trim()
+            .parse::<i64>()
+            .map_err(|_| CommandError::new("Not a number"))?,
+        (None, Some(n)) => n as i64,
+        (None, None) => return Err(CommandError::new("goto-line needs a line number")),
+    };
+    let text = ctx.editor.current().1.text();
+    let last = text.line_count() - 1;
+    let row = usize::try_from(line.saturating_sub(1))
+        .unwrap_or(0)
+        .min(last);
+    let offset = text.line_start(row);
+    move_cursors(ctx, |_, s| {
+        *s = Selection::at(offset);
+        Ok(())
+    })
 }
 
 fn beginning_of_buffer(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {

@@ -18,7 +18,7 @@
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
-//! buffers that show emergency copies are in [`copies`].
+//! buffers that show emergency copies are in [`copies`], and prompts in [`prompts`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -26,6 +26,7 @@
 use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::{DisplaySnapshot, Preedit};
 use crate::frame::{self, FrameLayout, FrameSize};
+use crate::minibuffer::{Histories, Outcome, Prompt};
 use crate::motion;
 use crate::selection::{OffsetEdit, SelectionSet, new_text_ends};
 use crate::sum_tree::Bias;
@@ -34,13 +35,15 @@ use crate::window::{ViewSize, Window};
 
 mod copies;
 mod messages;
+mod prompts;
 mod save;
 mod status;
 mod view;
 
 pub use copies::RecoveryAction;
 pub use messages::row_text;
-pub use save::{ExitAction, ExitRefused, SaveJob, SaveRefused};
+pub use prompts::Quit;
+pub use save::{ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 
 /// The name of the buffer shown when no file is open.
@@ -122,11 +125,19 @@ pub struct Editor {
     keys_in_progress: String,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
-    /// The way of exiting that was last refused, until another key is pressed.
-    exit_attempt: Option<ExitAction>,
+    /// What the last refused exit put at risk, until a question about it is answered or a
+    /// save changes what is at risk.
+    exit_attempt: Option<ExitRefused>,
     /// What an input method is composing, shown at the selected window's primary
     /// cursor and in no buffer (ADR 0069).
     preedit: Option<Preedit>,
+    /// The open prompts, the outermost first. Their windows come after the tiled ones,
+    /// and the innermost's is selected (ADR 0072).
+    prompts: Vec<Prompt>,
+    /// The answers given to prompts, in memory only.
+    histories: Histories,
+    /// How the last prompt to end ended, until the dispatcher takes it.
+    outcome: Option<Outcome>,
 }
 
 impl Default for Editor {
@@ -157,6 +168,9 @@ impl Editor {
             save_jobs: Vec::new(),
             exit_attempt: None,
             preedit: None,
+            prompts: Vec::new(),
+            histories: Histories::default(),
+            outcome: None,
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -271,12 +285,17 @@ impl Editor {
     }
 
     /// The selected window, to change, and the buffer it shows.
+    pub fn current_mut(&mut self) -> (&mut Window, &Buffer) {
+        self.window_mut(self.selected)
+    }
+
+    /// The window at `index`, to change, and the buffer it shows.
     #[expect(
         clippy::expect_used,
         reason = "every window shows a buffer that exists: kill_buffer moves windows off a buffer before it goes"
     )]
-    pub fn current_mut(&mut self) -> (&mut Window, &Buffer) {
-        let window = &mut self.windows[self.selected];
+    fn window_mut(&mut self, index: usize) -> (&mut Window, &Buffer) {
+        let window = &mut self.windows[index];
         let id = window.buffer();
         let buffer = self
             .buffers

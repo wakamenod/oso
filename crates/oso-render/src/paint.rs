@@ -296,6 +296,7 @@ mod tests {
             },
             layer: Layer(layer),
             background,
+            border: None,
             content: PaneContent::Lines(lines),
         }
     }

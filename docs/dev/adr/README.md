@@ -77,6 +77,7 @@ old one's status.
 | 0068 | [Cut clusters, short pieces, the cursor box and lines by direction](0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md) | Accepted |
 | 0069 | [The macOS input method](0069-macos-input-method.md) | Accepted |
 | 0070 | [Windowing and input without winit](0070-windowing-and-input-without-winit.md) | Accepted |
+| 0072 | [Floating windows, the minibuffer and questions](0072-floating-windows-the-minibuffer-and-questions.md) | Proposed |
 
 ## Template
 

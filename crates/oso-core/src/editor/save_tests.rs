@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use super::{Editor, ExitAction, ExitRefused, SaveJob, SaveRefused};
+use super::{Editor, ExitRefused, SaveJob, SaveRefused};
 use crate::buffer::{Baseline, Buffer, FileStamp, ReadOnly, Replacement};
 use crate::decode::LineEnding;
 use crate::display_map::TabWidth;
@@ -317,13 +317,13 @@ fn a_line_break_after_a_lone_cr_leaves_the_cursor_at_a_cluster_start() {
 #[test]
 fn an_exit_with_nothing_at_risk_goes_at_once() {
     let mut editor = visiting(b"abc\n");
-    assert_eq!(editor.confirm_exit(ExitAction::Command), Ok(()));
-    assert_eq!(editor.confirm_exit(ExitAction::CloseWindow), Ok(()));
-    assert_eq!(editor.exit_attempt(), None);
+    assert_eq!(editor.confirm_exit(false), Ok(()));
+    assert_eq!(editor.confirm_exit(true), Ok(()));
+    assert_eq!(editor.exit_attempt, None);
 }
 
 #[test]
-fn an_exit_is_refused_once_for_each_action_and_counts_what_is_at_risk() {
+fn an_exit_is_refused_until_confirmed_and_counts_what_is_at_risk() {
     let mut editor = visiting(b"abc\n");
     insert(&mut editor, 0, "x");
     let scratch = editor.add_buffer(Buffer::new("other"));
@@ -335,17 +335,41 @@ fn an_exit_is_refused_once_for_each_action_and_counts_what_is_at_risk() {
         modified: 2,
         saving: 0,
     };
-    assert_eq!(editor.confirm_exit(ExitAction::Command), Err(refused));
-    assert_eq!(editor.exit_attempt(), Some(ExitAction::Command));
+    assert_eq!(editor.confirm_exit(false), Err(refused));
+    assert_eq!(editor.exit_attempt, Some(refused));
     assert_eq!(
-        editor.confirm_exit(ExitAction::CloseWindow),
+        editor.confirm_exit(false),
         Err(refused),
-        "another action does not confirm"
+        "asking again confirms nothing"
     );
-    assert_eq!(editor.confirm_exit(ExitAction::CloseWindow), Ok(()));
+    assert_eq!(editor.confirm_exit(true), Ok(()));
 
     editor.reset_exit_guard();
-    assert_eq!(editor.confirm_exit(ExitAction::CloseWindow), Err(refused));
+    assert_eq!(
+        editor.confirm_exit(true),
+        Err(refused),
+        "nothing was agreed to"
+    );
+}
+
+#[test]
+fn a_confirmed_exit_asks_again_when_more_is_at_risk() {
+    let mut editor = visiting(b"abc\n");
+    insert(&mut editor, 0, "x");
+    assert!(editor.confirm_exit(false).is_err());
+    let other = editor.add_buffer(Buffer::new("other"));
+    let first = editor.window().buffer();
+    editor.show(other);
+    insert(&mut editor, 0, "y");
+    editor.show(first);
+    assert_eq!(
+        editor.confirm_exit(true),
+        Err(ExitRefused {
+            modified: 2,
+            saving: 0
+        })
+    );
+    assert_eq!(editor.confirm_exit(true), Ok(()));
 }
 
 #[test]
@@ -357,7 +381,7 @@ fn a_running_save_counts_even_when_undo_left_the_buffer_unmodified() {
     editor.undo().unwrap();
     assert!(!editor.current().1.is_modified());
     assert_eq!(
-        editor.confirm_exit(ExitAction::Command),
+        editor.confirm_exit(false),
         Err(ExitRefused {
             modified: 0,
             saving: 1
@@ -369,14 +393,14 @@ fn a_running_save_counts_even_when_undo_left_the_buffer_unmodified() {
         "the disk now holds the edit"
     );
     assert_eq!(
-        editor.confirm_exit(ExitAction::Command),
+        editor.confirm_exit(true),
         Err(ExitRefused {
             modified: 1,
             saving: 0
         }),
-        "the refusal spoke of a save, and this is unsaved text it never mentioned"
+        "the question spoke of a save, and this is unsaved text it never mentioned"
     );
-    assert_eq!(editor.confirm_exit(ExitAction::Command), Ok(()));
+    assert_eq!(editor.confirm_exit(true), Ok(()));
 }
 
 #[test]
@@ -385,9 +409,9 @@ fn a_save_that_leaves_nothing_at_risk_lets_the_next_exit_go() {
     insert(&mut editor, 0, "x");
     editor.start_save().unwrap();
     let job = job(&mut editor);
-    assert!(editor.confirm_exit(ExitAction::Command).is_err());
+    assert!(editor.confirm_exit(false).is_err());
     editor.save_finished(job.buffer, job.content, stamp(5));
-    assert_eq!(editor.confirm_exit(ExitAction::CloseWindow), Ok(()));
+    assert_eq!(editor.confirm_exit(false), Ok(()));
 }
 
 #[test]
@@ -396,20 +420,48 @@ fn a_failed_save_takes_back_a_refusal_made_while_it_ran() {
     let id = editor.window().buffer();
     insert(&mut editor, 0, "x");
     editor.start_save().unwrap();
-    assert!(editor.confirm_exit(ExitAction::Command).is_err());
+    assert!(editor.confirm_exit(false).is_err());
     editor.save_failed(id);
-    assert!(editor.confirm_exit(ExitAction::Command).is_err());
-    assert_eq!(editor.confirm_exit(ExitAction::Command), Ok(()));
+    assert!(editor.confirm_exit(true).is_err());
+    assert_eq!(editor.confirm_exit(true), Ok(()));
 }
 
 #[test]
 fn a_refused_exit_says_how_many() {
     let message = |modified, saving| ExitRefused { modified, saving }.to_string();
-    assert_eq!(message(1, 0), "1 modified buffer; repeat to exit anyway");
-    assert_eq!(message(3, 0), "3 modified buffers; repeat to exit anyway");
-    assert_eq!(message(0, 1), "1 save running; repeat to exit anyway");
+    assert_eq!(message(1, 0), "1 modified buffer");
+    assert_eq!(message(3, 0), "3 modified buffers");
+    assert_eq!(message(0, 1), "1 save running");
+    assert_eq!(message(2, 2), "2 modified buffers and 2 saves running");
+}
+
+#[test]
+fn a_save_over_a_changed_file_needs_agreeing_and_goes_over_the_file_found() {
+    let mut editor = visiting(b"abc\n");
+    let id = editor.window().buffer();
+    let baseline = Baseline {
+        location: "/notes/a.txt".into(),
+        file: Some(stamp(4)),
+    };
+    editor.buffer_mut(id).unwrap().set_baseline(baseline);
+    insert(&mut editor, 0, "x");
+    editor.start_save().unwrap();
+    let _ = job(&mut editor);
+    editor.save_failed(id);
+    editor.file_changed_on_disk(id);
+    editor.may_save_over(id, stamp(9));
+    assert_eq!(editor.start_save(), Err(SaveRefused::ChangedOnDisk));
+    assert_eq!(editor.start_save_over(), Ok(false));
+    let job = job(&mut editor);
     assert_eq!(
-        message(2, 2),
-        "2 modified buffers and 2 saves running; repeat to exit anyway"
+        job.baseline.and_then(|baseline| baseline.file),
+        Some(stamp(9)),
+        "it replaces only the file that save found"
+    );
+    editor.save_finished(id, job.content, stamp(10));
+    assert_eq!(
+        editor.start_save(),
+        Ok(false),
+        "an ordinary save again, with nothing to go over"
     );
 }

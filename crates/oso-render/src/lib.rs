@@ -18,7 +18,7 @@ use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
 use paint::Painter;
-pub use pane::{Face, Layer, Pane, PaneContent, PaneId, Span, TextView};
+pub use pane::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
 
 use std::sync::Arc;
 

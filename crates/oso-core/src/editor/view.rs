@@ -19,13 +19,19 @@ impl Editor {
     pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
         self.frame = frame::layout(size);
         let view = self.frame.window.text.view_size();
-        let added = view.rows.saturating_sub(self.window().size().rows);
-        for window in &mut self.windows {
+        let tiled = self.tiled_index();
+        let added = view.rows.saturating_sub(self.windows[tiled].size().rows);
+        let count = self.tiled_count();
+        for window in &mut self.windows[..count] {
             window.set_size(view);
         }
+        // A prompt's window takes where its answer goes, and the window beneath it
+        // follows its own cursor too, as the frame changed under both.
+        self.fit_prompt_window();
+        let beneath = tiled != self.selected && self.follow_window(tiled);
         let followed = self.follow_cursor();
-        let filled = self.fill_below_last_row(added);
-        followed || filled
+        let filled = self.fill_below_last_row(tiled, added);
+        followed || filled || beneath
     }
 
     /// Pulls the selected window's top row back by at most `added` rows, and no
@@ -37,8 +43,8 @@ impl Editor {
     /// is on or below the old top, and when the top moves, the view still reaches
     /// the last row. Other cursors keep their places, so this does not use
     /// [`Window::set_top`]. Returns whether the view moved.
-    fn fill_below_last_row(&mut self, added: usize) -> bool {
-        let (window, buffer) = self.current_mut();
+    fn fill_below_last_row(&mut self, index: usize, added: usize) -> bool {
+        let (window, buffer) = self.window_mut(index);
         let scroll = window.scroll();
         let bottom = buffer
             .display()
@@ -68,7 +74,11 @@ impl Editor {
         let display = buffer.display();
         let point = window.cursor_point(&display);
         let cells = motion::cursor_cells(&display, point);
-        let cell = frame::cursor_rect(self.frame.window.text, window.scroll(), point, cells)?;
+        let region = match self.prompt_layout() {
+            Some(layout) => layout.input,
+            None => self.frame.window.text,
+        };
+        let cell = frame::cursor_rect(region, window.scroll(), point, cells)?;
         Some(grid.rect(cell))
     }
 
@@ -90,9 +100,19 @@ impl Editor {
     /// cursor box, or the box alone if both do not fit (ADR 0069). Returns whether
     /// the view moved.
     pub fn follow_cursor(&mut self) -> bool {
+        self.follow_window(self.selected)
+    }
+
+    /// Scrolls the window at `index` as [`Editor::follow_cursor`] does the selected one.
+    /// A preedit counts only in the selected window, where it shows.
+    fn follow_window(&mut self, index: usize) -> bool {
         // The window is borrowed from the whole editor, so the preedit steps out.
-        let preedit = self.preedit.take();
-        let (window, buffer) = self.current_mut();
+        let preedit = if index == self.selected {
+            self.preedit.take()
+        } else {
+            None
+        };
+        let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         let point = window.cursor_point(&display);
         let (cursor, cells) = motion::cursor_box(&display, point, preedit.as_ref());
@@ -105,7 +125,9 @@ impl Editor {
         let scroll = window::follow(window.scroll(), window.size(), point, cells);
         let moved = scroll != window.scroll();
         window.set_scroll(scroll);
-        self.preedit = preedit;
+        if preedit.is_some() {
+            self.preedit = preedit;
+        }
         moved
     }
 
@@ -123,9 +145,12 @@ impl Editor {
     /// the view move to its nearest row, as in Emacs, but not while a preedit is
     /// shown: the commit goes where the composition started, and the next command
     /// brings the view back (ADR 0069). Returns whether the view moved.
+    ///
+    /// While a prompt is open, this scrolls the window beneath it, and its cursors stay, so
+    /// that what the prompt's command acts on does not move (ADR 0072).
     pub fn scroll_view(&mut self, rows: isize) -> bool {
-        let composing = self.preedit.is_some();
-        let (window, buffer) = self.current_mut();
+        let composing = self.preedit.is_some() || !self.prompts.is_empty();
+        let (window, buffer) = self.window_mut(self.tiled_index());
         let display = buffer.display();
         let row_count = display.row_count();
         let scroll = window.scroll();
@@ -139,11 +164,11 @@ impl Editor {
 
     /// Scrolls the selected window's view by `columns` (toward the ends of lines
     /// if positive), for the mouse wheel and trackpad, as far as the rows in view
-    /// need. Cursors stay, even out of view, and the next command brings the view
+    /// need. While a prompt is open, this is the window beneath it. Cursors stay, even out of view, and the next command brings the view
     /// back. A short row may not reach the view at all, so no place in view would
     /// do. Returns whether the view moved.
     pub fn scroll_view_sideways(&mut self, columns: isize) -> bool {
-        let (window, buffer) = self.current_mut();
+        let (window, buffer) = self.window_mut(self.tiled_index());
         let display = buffer.display();
         let scroll = window.scroll();
         let size = window.size();

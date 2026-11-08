@@ -7,8 +7,6 @@
 
 use std::time::Instant;
 
-use oso_core::editor::ExitAction;
-
 use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::keys::Held;
@@ -52,11 +50,25 @@ impl App {
         }
     }
 
-    /// The window's close button, guarded as `C-x C-c` is (ADR 0059).
+    /// The window's close button, guarded as `C-x C-c` is: it asks the same question, and
+    /// pressed again while a question is open, it does nothing more (ADR 0059, ADR 0072).
     pub(super) fn close_requested(&mut self, event_loop: &Loop<'_>) {
-        match self.editor.confirm_exit(ExitAction::CloseWindow) {
+        if self
+            .editor
+            .prompt()
+            .is_some_and(|prompt| prompt.kind().is_question())
+        {
+            return;
+        }
+        match self.editor.confirm_exit(false) {
             Ok(()) => self.leave(event_loop, false),
-            Err(refused) => self.editor.message(refused.to_string()),
+            Err(refused) => {
+                let question = format!("{refused}; exit without saving?");
+                if let Err(error) = self.editor.ask(question, "save-buffers-kill-terminal") {
+                    self.editor.message(error.to_string());
+                }
+                self.request_redraw();
+            }
         }
     }
 

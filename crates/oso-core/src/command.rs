@@ -58,6 +58,24 @@ pub enum ArgSpec {
     /// A numeric prefix argument, read with [`Args::count`]: a repeat count
     /// that defaults to 1 and may be negative to reverse the direction.
     Count,
+    /// A whole number, read in a prompt that says `prompt` before the command runs, and
+    /// kept in the history named `history` (ADR 0072). A numeric prefix argument stands
+    /// for it, with no prompt. The command reads it with [`Ctx::answer`].
+    Number {
+        prompt: &'static str,
+        history: &'static str,
+    },
+    /// A passphrase, read in a prompt that says `prompt` and shows one `*` per character.
+    /// It enters no history, and its buffer may hold secrets. The command reads it with
+    /// [`Ctx::answer`], and must not keep it.
+    Passphrase { prompt: &'static str },
+}
+
+impl ArgSpec {
+    /// Whether the dispatcher reads an answer in a prompt before running the command.
+    pub const fn reads_answer(self) -> bool {
+        matches!(self, Self::Number { .. } | Self::Passphrase { .. })
+    }
 }
 
 /// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher
@@ -207,8 +225,9 @@ impl Effects {
     }
 }
 
-/// How a command was invoked, from what the caller knows.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// How a command was invoked, from what the caller knows. Its `Debug` leaves out the text
+/// and the answer, which may be a passphrase.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub struct Invocation<'a> {
     /// The text that invoked it: the character a key types, or text from an input
     /// method.
@@ -218,6 +237,19 @@ pub struct Invocation<'a> {
     pub key_char: Option<char>,
     /// How many times in a row this command has just run before now.
     pub repeats: usize,
+    /// What a prompt read for the command, as its [`ArgSpec`] asked (ADR 0072).
+    pub answer: Option<&'a str>,
+    /// It runs because the person answered `y` to a question it asked.
+    pub confirmed: bool,
+}
+
+impl fmt::Debug for Invocation<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Invocation")
+            .field("repeats", &self.repeats)
+            .field("confirmed", &self.confirmed)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What a command gets to work with: the host's editor state, how it was
@@ -263,6 +295,19 @@ impl<'a> Ctx<'a> {
     /// that does something else when repeated, as `C-l` does. It keeps no state.
     pub fn repeats(&self) -> usize {
         self.invocation.repeats
+    }
+
+    /// What a prompt read for the command, as its [`ArgSpec`] asked, or what `run-command`
+    /// gave in its place. `None` for a command that reads nothing.
+    pub fn answer(&self) -> Option<&'a str> {
+        self.invocation.answer
+    }
+
+    /// Whether the command runs because the person answered `y` to a question it asked
+    /// (ADR 0072). It checks again what is true now: the answer agrees only to what the
+    /// question said.
+    pub fn confirmed(&self) -> bool {
+        self.invocation.confirmed
     }
 
     /// Leaves `prefix` for the next command, in place of the one this command got.

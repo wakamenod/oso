@@ -76,8 +76,9 @@ pub(crate) const PRIVATE_MODE: u32 = 0o600;
 /// Why a save wrote nothing. The file on disk is as it was.
 #[derive(Debug)]
 pub enum SaveError {
-    /// The file on disk is not what the buffer last read or wrote (ADR 0029).
-    Conflict,
+    /// The file on disk is not what the buffer last read or wrote (ADR 0029). With the
+    /// regular file found there, which a save the person agrees to may go over (ADR 0072).
+    Conflict(Option<FileStamp>),
     /// The path no longer leads to where the buffer's file was: a link or a directory on
     /// it has changed. Nothing is written at the new place.
     Elsewhere,
@@ -231,12 +232,17 @@ pub fn apply(editor: &mut Editor, report: SaveReport) {
         }
         Err(error) => {
             editor.save_failed(buffer);
-            if matches!(error, SaveError::Conflict | SaveError::Elsewhere) {
+            if matches!(error, SaveError::Conflict(_) | SaveError::Elsewhere) {
                 editor.file_changed_on_disk(buffer);
             }
+            let mut asks = "";
+            if let SaveError::Conflict(Some(found)) = error {
+                editor.may_save_over(buffer, found);
+                asks = ". C-x C-s asks to save over it";
+            }
             match error {
-                SaveError::Conflict => format!(
-                    "Not saved: the file changed on disk since it was read, and was kept: {path}"
+                SaveError::Conflict(_) => format!(
+                    "Not saved: the file changed on disk since it was read, and was kept{asks}: {path}"
                 ),
                 SaveError::Elsewhere => format!(
                     "Not saved: the path now leads somewhere other than when it was read, and nothing was written: {path}"
@@ -399,13 +405,13 @@ impl Prepared {
         let baseline = baseline_of(job)?;
         let now = unchanged_file(&job.path, baseline)?;
         if attributes_moved(self.replaced.as_ref(), now.as_ref()) {
-            return Err(SaveError::Conflict);
+            return Err(SaveError::Conflict(None));
         }
         // The rename would undo a list changed during the write, as it would a `chmod`.
         if self.replaced.is_some() && now.is_some() {
             let list = AccessList::at(&baseline.location).map_err(SaveError::AccessList)?;
             if list != self.list {
-                return Err(SaveError::Conflict);
+                return Err(SaveError::Conflict(None));
             }
         }
         let forbidden = self.list.denies_deleting();
@@ -473,9 +479,9 @@ fn unchanged_file(path: &Path, baseline: &Baseline) -> Result<Option<Metadata>, 
     match fs::symlink_metadata(&baseline.location) {
         Ok(metadata) if metadata.is_file() => match baseline.file {
             Some(file) if file.same_content(stamp_of(&metadata)?) => Ok(Some(metadata)),
-            _ => Err(SaveError::Conflict),
+            _ => Err(SaveError::Conflict(Some(stamp_of(&metadata)?))),
         },
-        Ok(_) => Err(SaveError::Conflict),
+        Ok(_) => Err(SaveError::Conflict(None)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e.into()),
     }

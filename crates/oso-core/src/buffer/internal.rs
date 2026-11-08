@@ -3,17 +3,35 @@
 //!
 //! Must not depend on: `window`, `editor` or `command`.
 //!
-//! An internal buffer visits no file, a key cannot edit it, and it holds nothing
-//! that could be lost. So it is never modified, and only the editor changes it,
-//! with no undo history.
+//! An internal buffer visits no file and holds nothing that could be lost, so it is
+//! never handed over, saved or counted at an exit. Most are read-only to keys, and
+//! only the editor changes them, with no undo history. A prompt's buffer takes typing
+//! and undo like any other, and goes when its prompt closes (ADR 0072).
 
 use super::{Buffer, Replacement, StagedEdit, normalized};
+use crate::secret::Verdict;
 
 impl Buffer {
     /// An empty internal buffer.
     pub(crate) fn internal(name: impl Into<String>) -> Self {
         Self {
             internal: true,
+            ..Self::new(name)
+        }
+    }
+
+    /// An empty internal buffer for a prompt, which takes typing. One that reads a
+    /// passphrase may hold secrets and keeps no undo record (ADR 0072).
+    pub(crate) fn prompt(name: impl Into<String>, passphrase: bool) -> Self {
+        Self {
+            internal: true,
+            takes_typing: true,
+            no_history: passphrase,
+            verdict: if passphrase {
+                Verdict::Passphrase
+            } else {
+                Verdict::Ordinary
+            },
             ..Self::new(name)
         }
     }

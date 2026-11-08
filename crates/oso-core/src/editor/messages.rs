@@ -9,7 +9,8 @@
 //! is, since what it says can depend on the text, and one from a command that took such a
 //! buffer off the screen goes nowhere. The dispatcher marks where a command begins and ends.
 //!
-//! The echo area keeps its text until the next key. What was echoed around such a buffer,
+//! What a command run in a prompt says goes in the prompt instead of the echo area, as
+//! the person looks there (ADR 0072). The echo area keeps its text until the next key. What was echoed around such a buffer,
 //! or a file not yet judged, goes when the window moves on. A file judged ordinary keeps
 //! it until the next key, as no text of it had arrived. What arrives behind keys in
 //! progress waits for them to end, since they show in its place.
@@ -118,7 +119,7 @@ impl Editor {
         let text = capped(text.into());
         let shown = capped(log_text(&text));
         log::info!("{shown}");
-        self.echo = Some(Echo {
+        self.put_echo(Echo {
             text,
             goes_with_the_window: false,
         });
@@ -154,10 +155,20 @@ impl Editor {
     }
 
     fn set_echo(&mut self, text: impl Into<String>) {
-        self.echo = Some(Echo {
+        self.put_echo(Echo {
             text: capped(text.into()),
             goes_with_the_window: self.shows_secret(),
         });
+    }
+
+    /// Shows `echo` in the echo area, or in the innermost prompt if a command run there said
+    /// it, where the person is looking (ADR 0072).
+    fn put_echo(&mut self, echo: Echo) {
+        if self.message_goes_in_prompt() {
+            self.prompt_says(echo.text);
+        } else {
+            self.echo = Some(echo);
+        }
     }
 
     /// Empties the echo area if it still says `text`, for what said it was only until something
@@ -175,6 +186,7 @@ impl Editor {
         if self.keys_in_progress.is_empty() {
             self.echo = None;
         }
+        self.clear_prompt_message();
     }
 
     /// A window is about to stop showing its buffer: what was echoed around one that may hold
@@ -434,10 +446,7 @@ mod tests {
         assert!(buffer.is_internal());
         assert!(!buffer.is_modified());
         assert_eq!(buffer.read_only(), Some(ReadOnly::Internal));
-        assert_eq!(
-            editor.confirm_exit(crate::editor::ExitAction::Command),
-            Ok(())
-        );
+        assert_eq!(editor.confirm_exit(false), Ok(()));
     }
 
     #[test]

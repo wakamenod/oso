@@ -2,7 +2,8 @@
 //! command registry, wired together without a window so that key sequences
 //! can be tested as plain functions of the editor state. The prefix argument a
 //! command leaves waits here for the next one, next to the pending prefix keys
-//! (ADR 0034, ADR 0058).
+//! (ADR 0034, ADR 0058). A command's arguments are read in a prompt before it runs,
+//! in [`prompts`] (ADR 0072).
 //!
 //! Must not depend on: `app` or winit; key sequences stay testable without a
 //! window.
@@ -23,6 +24,8 @@ use oso_core::keymap::{KeyResolver, Keymap, Layers, Resolution, display_keys};
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod prompts;
+
 /// Whether a command's edits may join the undo step before, if it asks.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Step {
@@ -40,6 +43,11 @@ pub struct Dispatcher {
     prefix_keys: [Keymap; 2],
     /// The keys of the list of emergency copies, and of a buffer showing one (ADR 0064).
     copy_keys: [Keymap; 2],
+    /// The keys of a prompt that reads an answer, above the global ones, and of a
+    /// question, in place of them (ADR 0072).
+    prompt_keys: [Keymap; 2],
+    /// Commands waiting for a prompt's answer, the outermost first.
+    reading: Vec<prompts::Reading>,
     resolver: KeyResolver,
     /// The prefix argument for the next command.
     prefix: Option<Prefix>,
@@ -62,9 +70,12 @@ impl Dispatcher {
     pub fn with(registry: Registry, global: Keymap) -> Self {
         let (digits, minus) = bindings::prefix_keymaps(&registry);
         let (list, copy) = bindings::recovery_keymaps(&registry);
+        let (minibuffer, question) = bindings::prompt_keymaps(&registry);
         Self {
             prefix_keys: [digits, minus],
             copy_keys: [list, copy],
+            prompt_keys: [minibuffer, question],
+            reading: Vec::new(),
             registry,
             global,
             resolver: KeyResolver::new(),
@@ -221,7 +232,23 @@ impl Dispatcher {
                 Err(format!("no command named {name:?}")),
             );
         };
+        // The socket never opens a prompt that waits for a person: it gives the answer.
+        let answer;
+        let mut invocation = Invocation::default();
         let args = match (command.args, arg) {
+            (ArgSpec::Number { .. }, Some(n)) => {
+                self.prefix = None;
+                answer = n.to_string();
+                invocation.answer = Some(&answer);
+                Args::NONE
+            }
+            (ArgSpec::Number { .. }, None) => {
+                return (Effects::default(), Err(format!("{name} needs a number")));
+            }
+            (ArgSpec::Passphrase { .. }, _) => {
+                let refused = format!("{name} reads a passphrase in a prompt, through send-keys");
+                return (Effects::default(), Err(refused));
+            }
             (_, None) => Args::with_prefix(self.prefix.take()),
             (ArgSpec::Count, Some(n)) => {
                 self.prefix = None;
@@ -231,7 +258,8 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
-        let (effects, result) = self.execute(editor, id, args, "", None, Step::MayJoin);
+        let (effects, result) = self.execute(editor, id, args, invocation, Step::MayJoin);
+        let effects = effects.union(self.after_prompts(editor));
         (effects, result.map_err(|e| e.to_string()))
     }
 
@@ -240,7 +268,6 @@ impl Dispatcher {
     /// and one undo step. A pending prefix makes it an undefined key sequence.
     /// A key that types several characters comes through here.
     pub fn insert_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
-        editor.reset_exit_guard();
         self.as_input(editor, |this, editor| {
             this.run_text(editor, text, Step::MayJoin)
         })
@@ -249,14 +276,12 @@ impl Dispatcher {
     /// Starts an input method's composition, which counts as a key: keys never reach
     /// oso during one (ADR 0069).
     pub fn begin_composition(&mut self, editor: &mut Editor) {
-        editor.reset_exit_guard();
         self.as_input(editor, |_, _| ());
     }
 
     /// Inserts an input method's commit, as [`Dispatcher::insert_text`] does, but
     /// always as an undo step of its own, even of one character (ADR 0069).
     pub fn commit_text(&mut self, editor: &mut Editor, text: &str) -> Effects {
-        editor.reset_exit_guard();
         self.as_input(editor, |this, editor| {
             this.run_text(editor, text, Step::Apart)
         })
@@ -272,10 +297,18 @@ impl Dispatcher {
             self.forget_keys();
             return Effects::default();
         }
-        match Layers::global(&self.global).text_command() {
+        let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
+        let text_command =
+            active_layers(self.keymaps(), &reading, self.prefix, editor).text_command();
+        match text_command {
             Some(id) if !text.is_empty() => {
                 let args = Args::with_prefix(self.prefix.take());
-                self.execute(editor, id, args, text, None, step).0
+                let invocation = Invocation {
+                    input: text,
+                    ..Invocation::default()
+                };
+                let effects = self.execute(editor, id, args, invocation, step).0;
+                effects.union(self.after_prompts(editor))
             }
             _ => Effects::default(),
         }
@@ -295,7 +328,6 @@ impl Dispatcher {
     /// failure is not fatal (ADR 0014), and leaves a message, which stays out of the log
     /// around a secret buffer, as what it says can depend on the text. A panic names only the
     /// command, and is a bug to find, so it comes after the command is marked as ended.
-    /// A command that is not a refused exit, even one that fails, resets the exit guard.
     /// What a panicking command left is held back from the emergency save until a command
     /// ends normally, as the person has then seen it and gone on from it.
     fn execute(
@@ -303,8 +335,7 @@ impl Dispatcher {
         editor: &mut Editor,
         id: CommandId,
         args: Args,
-        input: &str,
-        key_char: Option<char>,
+        invocation: Invocation<'_>,
         step: Step,
     ) -> (Effects, Result<(), ExecuteError>) {
         let repeats = match self.last {
@@ -312,16 +343,14 @@ impl Dispatcher {
             _ => 0,
         };
         self.last = Some((id, repeats));
-        let exit_attempt = editor.exit_attempt();
         editor.begin_command();
         editor.begin_undo_group();
         if step == Step::Apart {
             editor.keep_undo_step_apart();
         }
         let invocation = Invocation {
-            input,
-            key_char,
             repeats,
+            ..invocation
         };
         let mut ctx = Ctx::invoked(editor, invocation);
         let boundary = self.publisher.as_ref().map(Publisher::enter_command);
@@ -348,9 +377,6 @@ impl Dispatcher {
             // What it changed may be visible.
             effects.redraw = true;
         }
-        if editor.exit_attempt() == exit_attempt {
-            editor.reset_exit_guard();
-        }
         effects.redraw |= editor.follow_cursor();
         if let Some(publisher) = &self.publisher {
             if matches!(result, Err(ExecuteError::Panicked { .. })) {
@@ -371,23 +397,22 @@ impl Dispatcher {
         self.as_input(editor, |this, editor| this.resolve_key(editor, key))
     }
 
+    fn keymaps(&self) -> Keymaps<'_> {
+        Keymaps {
+            global: &self.global,
+            copy: &self.copy_keys,
+            prompt: &self.prompt_keys,
+        }
+    }
+
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
         let reading = [&self.prefix_keys[0], &self.prefix_keys[1]];
-        let minor: &[&Keymap] = match self.prefix {
-            Some(prefix) if prefix.reads_minus() => &reading,
-            Some(prefix) if prefix.reads_digits() => &reading[..1],
-            _ => &[],
+        let keymaps = Keymaps {
+            global: &self.global,
+            copy: &self.copy_keys,
+            prompt: &self.prompt_keys,
         };
-        let major = match editor.current().1.mode() {
-            Mode::Fundamental => None,
-            Mode::CopyList => Some(&self.copy_keys[0]),
-            Mode::CopyView => Some(&self.copy_keys[1]),
-        };
-        let layers = Layers {
-            minor,
-            major,
-            ..Layers::global(&self.global)
-        };
+        let layers = active_layers(keymaps, &reading, self.prefix, editor);
         match self.resolver.feed(&layers, key) {
             Resolution::Command(id) => {
                 // The text comes from the key, so keys from the window and from
@@ -400,15 +425,19 @@ impl Dispatcher {
                     Key::Named(_) => None,
                 };
                 let args = Args::with_prefix(self.prefix.take());
-                self.execute(editor, id, args, input, key_char, Step::MayJoin)
-                    .0
+                let invocation = Invocation {
+                    input,
+                    key_char,
+                    ..Invocation::default()
+                };
+                let effects = self.run_or_read(editor, id, args, invocation).0;
+                effects.union(self.after_prompts(editor))
             }
             Resolution::Pending => {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
                 Effects::default()
             }
             Resolution::Unbound(keys) => {
-                editor.reset_exit_guard();
                 // A key that types a character may be text meant for the buffer,
                 // which stays out of the log (ADR 0028).
                 match keys.split_last() {
@@ -417,12 +446,18 @@ impl Dispatcher {
                     }
                     _ => log::debug!("{} is undefined", display_keys(keys)),
                 }
-                editor.echo(format!("{} is undefined", display_keys(keys)));
+                if editor
+                    .prompt()
+                    .is_some_and(|prompt| prompt.kind().is_question())
+                {
+                    editor.prompt_says("Answer y or n");
+                } else {
+                    editor.echo(format!("{} is undefined", display_keys(keys)));
+                }
                 self.forget_keys();
                 Effects::default()
             }
             Resolution::Cancelled => {
-                editor.reset_exit_guard();
                 log::debug!("Quit");
                 editor.echo("Quit");
                 self.forget_keys();
@@ -430,6 +465,50 @@ impl Dispatcher {
             }
         }
     }
+}
+
+/// The keymaps active now. A question's keys take the global keymap's place, so that
+/// no other key reaches a command, and a prompt's go above it (ADR 0072). `reading` holds
+/// the keymaps of a prefix argument.
+fn active_layers<'a>(
+    dispatcher: Keymaps<'a>,
+    reading: &'a [&'a Keymap; 2],
+    prefix: Option<Prefix>,
+    editor: &Editor,
+) -> Layers<'a> {
+    if editor
+        .prompt()
+        .is_some_and(|prompt| prompt.kind().is_question())
+    {
+        return Layers::global(&dispatcher.prompt[1]);
+    }
+    let minor: &[&Keymap] = match prefix {
+        Some(prefix) if prefix.reads_minus() => reading,
+        Some(prefix) if prefix.reads_digits() => &reading[..1],
+        _ => &[],
+    };
+    let major = if editor.prompt().is_some() {
+        Some(&dispatcher.prompt[0])
+    } else {
+        match editor.current().1.mode() {
+            Mode::Fundamental => None,
+            Mode::CopyList => Some(&dispatcher.copy[0]),
+            Mode::CopyView => Some(&dispatcher.copy[1]),
+        }
+    };
+    Layers {
+        minor,
+        major,
+        ..Layers::global(dispatcher.global)
+    }
+}
+
+/// The keymaps a dispatcher holds, borrowed apart from its resolver.
+#[derive(Clone, Copy)]
+struct Keymaps<'a> {
+    global: &'a Keymap,
+    copy: &'a [Keymap; 2],
+    prompt: &'a [Keymap; 2],
 }
 
 #[cfg(test)]
