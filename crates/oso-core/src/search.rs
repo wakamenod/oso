@@ -14,12 +14,15 @@
 
 use std::fmt;
 use std::ops::Range;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::decode::InvalidBytes;
 use crate::rope::Rope;
 use crate::sum_tree::Bias;
+
+mod job;
+
+pub(crate) use job::{Find, Report};
+pub use job::{SearchJob, SearchReport};
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
 /// frame looks at around the view stays small.
@@ -40,15 +43,36 @@ pub fn smart_case(string: &str) -> bool {
     string.chars().any(char::is_uppercase)
 }
 
-/// `c` folded to its lowercase, if that is one character.
+/// `c` folded to its lowercase, if that is one character. Kana, CJK and Hangul have no
+/// case, so they skip the tables.
 fn fold(c: char) -> u32 {
+    let code = u32::from(c);
     if c.is_ascii() {
         return u32::from(c.to_ascii_lowercase());
+    }
+    if matches!(code, 0x3040..=0x9FFF | 0xAC00..=0xD7A3) {
+        return code;
     }
     let mut lower = c.to_lowercase();
     match (lower.next(), lower.next()) {
         (Some(lower), None) => u32::from(lower),
-        _ => u32::from(c),
+        _ => code,
+    }
+}
+
+/// The most bytes a character of the text can take where the pattern has `key`: the
+/// character's own, but for a folded one, which any of several can fold to. Only the Kelvin
+/// sign folds to an ASCII letter (`k`), and a folded character outside ASCII is taken at
+/// four.
+fn reach(key: u32, case_sensitive: bool) -> usize {
+    let Some(c) = char::from_u32(key) else {
+        return 4;
+    };
+    match (case_sensitive, c) {
+        (true, c) => c.len_utf8(),
+        (false, 'k') => '\u{212A}'.len_utf8(),
+        (false, c) if c.is_ascii() => 1,
+        (false, _) => 4,
     }
 }
 
@@ -87,6 +111,7 @@ pub struct Query {
     /// The same characters, last first, for searching backward.
     backward: Pattern,
     case_sensitive: bool,
+    max_bytes: usize,
 }
 
 impl fmt::Debug for Query {
@@ -113,32 +138,29 @@ impl Query {
         if chars.is_empty() {
             return None;
         }
+        let max_bytes = chars.iter().map(|&key| reach(key, case_sensitive)).sum();
         let mut reversed = chars.clone();
         reversed.reverse();
         Some(Self {
             forward: Pattern::new(chars),
             backward: Pattern::new(reversed),
             case_sensitive,
+            max_bytes,
         })
     }
 
-    /// Whether case matters.
-    pub fn case_sensitive(&self) -> bool {
-        self.case_sensitive
-    }
-
-    /// The most bytes a match can take: four for each character, as a folded character can
-    /// stand for a longer one (`K` for the Kelvin sign).
+    /// The most bytes a match can take, as a folded character can stand for a longer one
+    /// (`k` for the Kelvin sign).
     pub fn max_bytes(&self) -> usize {
-        self.forward.chars.len().saturating_mul(4)
+        self.max_bytes
     }
 
-    /// What the character `c` at `offset` of the text reads as.
-    fn key(&self, c: char, offset: usize, invalid: &InvalidBytes) -> u32 {
-        if c == char::REPLACEMENT_CHARACTER && invalid.get(offset).is_some() {
-            return INVALID;
-        }
-        if self.case_sensitive {
+    /// What the character `c` of the text reads as, `invalid` if it is the U+FFFD of an
+    /// invalid byte.
+    fn key(&self, c: char, invalid: bool) -> u32 {
+        if invalid {
+            INVALID
+        } else if self.case_sensitive {
             u32::from(c)
         } else {
             fold(c)
@@ -153,7 +175,8 @@ struct Matcher<'p> {
     matched: usize,
     /// The other end of each of the last characters fed, as a ring.
     ends: Vec<usize>,
-    fed: usize,
+    /// Where the next goes in the ring.
+    next: usize,
 }
 
 impl<'p> Matcher<'p> {
@@ -162,8 +185,13 @@ impl<'p> Matcher<'p> {
             pattern,
             matched: 0,
             ends: vec![0; pattern.chars.len()],
-            fed: 0,
+            next: 0,
         }
+    }
+
+    /// Forgets a match under way, for text that does not follow on.
+    fn reset(&mut self) {
+        self.matched = 0;
     }
 
     /// Feeds the character `key` with `other_end`, the end it would give a match it starts.
@@ -172,8 +200,11 @@ impl<'p> Matcher<'p> {
     fn feed(&mut self, key: u32, other_end: usize) -> Option<usize> {
         let chars = &self.pattern.chars;
         let len = chars.len();
-        self.ends[self.fed % len] = other_end;
-        self.fed += 1;
+        self.ends[self.next] = other_end;
+        self.next += 1;
+        if self.next == len {
+            self.next = 0;
+        }
         while self.matched > 0 && chars[self.matched] != key {
             self.matched = self.pattern.fail[self.matched - 1];
         }
@@ -184,7 +215,8 @@ impl<'p> Matcher<'p> {
             return None;
         }
         self.matched = 0;
-        Some(self.ends[(self.fed - len) % len])
+        // The ring is full, so the oldest is where the next goes.
+        Some(self.ends[self.next])
     }
 }
 
@@ -201,17 +233,22 @@ pub enum Found {
     Stopped { resume: usize },
 }
 
-/// Feeds the characters of `range` to `on_char`, first to last, with their offset, until it
-/// returns false. Stops once `limit` bytes are read, or `stop` says so between blocks, and
-/// returns the offset it had reached then.
+/// Feeds the characters of `range` to `on_char`, first to last, with their offset and
+/// whether each is the U+FFFD of an invalid byte, until it returns false. Stops once
+/// `limit` bytes are read, or `stop` says so between blocks, and returns the offset it had
+/// reached then. The invalid bytes are walked alongside, so each costs O(1).
 fn walk_forward(
-    text: &Rope,
+    (text, invalid): (&Rope, &InvalidBytes),
     range: Range<usize>,
     limit: usize,
     stop: &dyn Fn() -> bool,
-    mut on_char: impl FnMut(char, usize) -> bool,
+    mut on_char: impl FnMut(char, usize, bool) -> bool,
 ) -> Option<usize> {
     let mut offset = text.clip_offset(range.start, Bias::Left);
+    let mut bad = invalid
+        .range(offset..range.end)
+        .map(|(at, _)| at)
+        .peekable();
     let (mut read, mut unchecked) = (0usize, 0usize);
     for chunk in text.chunks_in_range(offset..range.end) {
         if read >= limit {
@@ -224,7 +261,12 @@ fn walk_forward(
             }
         }
         for (index, c) in chunk.char_indices() {
-            if !on_char(c, offset + index) {
+            let at = offset + index;
+            let is_bad = c == char::REPLACEMENT_CHARACTER && {
+                while bad.next_if(|&next| next < at).is_some() {}
+                bad.peek() == Some(&at)
+            };
+            if !on_char(c, at, is_bad) {
                 return None;
             }
         }
@@ -238,16 +280,17 @@ fn walk_forward(
 /// Feeds the characters of `range` to `on_char` as [`walk_forward`] does, but last to first,
 /// and returns where it stopped as the lowest offset read.
 fn walk_backward(
-    text: &Rope,
+    (text, invalid): (&Rope, &InvalidBytes),
     range: Range<usize>,
     limit: usize,
     stop: &dyn Fn() -> bool,
-    mut on_char: impl FnMut(char, usize) -> bool,
+    mut on_char: impl FnMut(char, usize, bool) -> bool,
 ) -> Option<usize> {
     let start = text.clip_offset(range.start, Bias::Left);
     let mut high = text.clip_offset(range.end, Bias::Left).max(start);
     let mut read = 0usize;
     let mut chunks: Vec<&str> = Vec::new();
+    let mut bad: Vec<usize> = Vec::new();
     while high > start {
         if read >= limit || (read > 0 && stop()) {
             return Some(high);
@@ -255,11 +298,20 @@ fn walk_backward(
         let low = text.clip_offset(high.saturating_sub(BLOCK).max(start), Bias::Left);
         chunks.clear();
         chunks.extend(text.chunks_in_range(low..high));
+        bad.clear();
+        bad.extend(invalid.range(low..high).map(|(at, _)| at));
         let mut end = high;
         for chunk in chunks.iter().rev() {
             let base = end - chunk.len();
             for (index, c) in chunk.char_indices().rev() {
-                if !on_char(c, base + index) {
+                let at = base + index;
+                let is_bad = c == char::REPLACEMENT_CHARACTER && {
+                    while bad.last().is_some_and(|&last| last > at) {
+                        bad.pop();
+                    }
+                    bad.last() == Some(&at)
+                };
+                if !on_char(c, at, is_bad) {
                     return None;
                 }
             }
@@ -283,16 +335,20 @@ pub fn find_forward(
 ) -> Found {
     let mut matcher = Matcher::new(&query.forward);
     let mut found = None;
-    let stopped = walk_forward(text, from..text.len(), limit, stop, |c, offset| {
-        let key = query.key(c, offset, invalid);
-        match matcher.feed(key, offset) {
+    let range = from..text.len();
+    let stopped = walk_forward(
+        (text, invalid),
+        range,
+        limit,
+        stop,
+        |c, at, bad| match matcher.feed(query.key(c, bad), at) {
             Some(start) => {
-                found = Some(start..offset + c.len_utf8());
+                found = Some(start..at + c.len_utf8());
                 false
             }
             None => true,
-        }
-    });
+        },
+    );
     match (found, stopped) {
         (Some(range), _) => Found::Match(range),
         (None, Some(at)) => {
@@ -321,16 +377,19 @@ pub fn find_backward(
 ) -> Found {
     let mut matcher = Matcher::new(&query.backward);
     let mut found = None;
-    let stopped = walk_backward(text, 0..before, limit, stop, |c, offset| {
-        let key = query.key(c, offset, invalid);
-        match matcher.feed(key, offset + c.len_utf8()) {
-            Some(end) if offset <= start_at_most => {
-                found = Some(offset..end);
+    let stopped = walk_backward(
+        (text, invalid),
+        0..before,
+        limit,
+        stop,
+        |c, at, bad| match matcher.feed(query.key(c, bad), at + c.len_utf8()) {
+            Some(end) if at <= start_at_most => {
+                found = Some(at..end);
                 false
             }
             _ => true,
-        }
-    });
+        },
+    );
     match (found, stopped) {
         (Some(range), _) => Found::Match(range),
         (None, Some(at)) => {
@@ -343,28 +402,42 @@ pub fn find_backward(
     }
 }
 
-/// The matches of `query` in `range`, into `out`, in order and not overlapping, as a scan
-/// from its start finds them, at most `most` of them.
+/// The matches of `query` in each of `spans`, which are in order and apart, into `out`, in
+/// order and not overlapping, as a scan from each span's start finds them: at most `most`
+/// of them, reading at most about `limit` bytes in all.
 pub fn matches_in(
-    text: &Rope,
-    invalid: &InvalidBytes,
+    (text, invalid): (&Rope, &InvalidBytes),
     query: &Query,
-    range: Range<usize>,
-    most: usize,
+    spans: &[Range<usize>],
+    (most, limit): (usize, usize),
     out: &mut Vec<Range<usize>>,
 ) {
-    if most == 0 {
-        return;
-    }
     let mut matcher = Matcher::new(&query.forward);
-    walk_forward(text, range, usize::MAX, &|| false, |c, offset| {
-        let key = query.key(c, offset, invalid);
-        if let Some(start) = matcher.feed(key, offset) {
-            out.push(start..offset + c.len_utf8());
-            return out.len() < most;
+    let mut left = limit;
+    for span in spans {
+        if out.len() >= most || left == 0 {
+            return;
         }
-        true
-    });
+        matcher.reset();
+        let len = span.end.saturating_sub(span.start);
+        let stopped = walk_forward(
+            (text, invalid),
+            span.clone(),
+            left,
+            &|| false,
+            |c, at, bad| {
+                if let Some(start) = matcher.feed(query.key(c, bad), at) {
+                    out.push(start..at + c.len_utf8());
+                    return out.len() < most;
+                }
+                true
+            },
+        );
+        left = match stopped {
+            Some(_) => 0,
+            None => left.saturating_sub(len),
+        };
+    }
 }
 
 /// How many matches a text holds, and how many of them start before the current one.
@@ -388,9 +461,9 @@ pub fn count(
         total: 0,
         before: 0,
     };
-    let stopped = walk_forward(text, 0..text.len(), usize::MAX, stop, |c, offset| {
-        let key = query.key(c, offset, invalid);
-        if let Some(start) = matcher.feed(key, offset) {
+    let range = 0..text.len();
+    let stopped = walk_forward((text, invalid), range, usize::MAX, stop, |c, at, bad| {
+        if let Some(start) = matcher.feed(query.key(c, bad), at) {
             count.total += 1;
             if current.is_some_and(|current| start < current) {
                 count.before += 1;
@@ -401,144 +474,12 @@ pub fn count(
     stopped.is_none().then_some(count)
 }
 
-/// Where a worker goes on searching, as [`find_forward`] and [`find_backward`] take it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Find {
-    Forward { from: usize },
-    Backward { before: usize, start_at_most: usize },
-}
-
-/// What a worker found. `Debug` gives no offsets, as they can say something of a buffer
-/// that may hold secrets.
-#[derive(Clone, PartialEq, Eq)]
-pub enum SearchReport {
-    /// The search it went on with ended: at a match, or with none.
-    Found {
-        generation: u64,
-        at: Option<Range<usize>>,
-    },
-    /// It counted the matches, for the match that starts at `at`.
-    Counted {
-        generation: u64,
-        count: Count,
-        at: Option<usize>,
-    },
-}
-
-impl fmt::Debug for SearchReport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (kind, generation) = match self {
-            Self::Found { generation, .. } => ("Found", generation),
-            Self::Counted { generation, .. } => ("Counted", generation),
-        };
-        f.debug_struct(kind)
-            .field("generation", generation)
-            .finish_non_exhaustive()
-    }
-}
-
-/// Work for a thread, over an O(1) snapshot of a buffer's text: a search to go on with, if
-/// a key's budget ran out, and then a count. A newer job takes its place, and it stops
-/// within a block once its generation is no longer the live one.
-pub struct SearchJob {
-    text: Rope,
-    invalid: InvalidBytes,
-    query: Query,
-    find: Option<Find>,
-    /// Where the current match starts, if `find` does not say.
-    current: Option<usize>,
-    generation: u64,
-    live: Arc<AtomicU64>,
-}
-
-impl fmt::Debug for SearchJob {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // No text and no offsets (ADR 0044).
-        f.debug_struct("SearchJob")
-            .field("generation", &self.generation)
-            .field("finds", &self.find.is_some())
-            .finish_non_exhaustive()
-    }
-}
-
-impl SearchJob {
-    /// A job of `generation`, which runs while `live` holds it.
-    pub(crate) fn new(
-        (text, invalid): (Rope, InvalidBytes),
-        query: Query,
-        find: Option<Find>,
-        current: Option<usize>,
-        (generation, live): (u64, Arc<AtomicU64>),
-    ) -> Self {
-        Self {
-            text,
-            invalid,
-            query,
-            find,
-            current,
-            generation,
-            live,
-        }
-    }
-
-    /// The job's generation, which its reports carry.
-    pub fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    /// Whether a newer job has taken its place, or the search has ended.
-    pub fn superseded(&self) -> bool {
-        self.live.load(Ordering::Relaxed) != self.generation
-    }
-
-    /// Does the work, and reports each part as it ends, unless superseded first.
-    pub fn run(self, mut report: impl FnMut(SearchReport)) {
-        let stop = || self.superseded();
-        let (text, invalid, query) = (&self.text, &self.invalid, &self.query);
-        let mut current = self.current;
-        if let Some(find) = self.find {
-            let found = match find {
-                Find::Forward { from } => {
-                    find_forward(text, invalid, query, from, usize::MAX, &stop)
-                }
-                Find::Backward {
-                    before,
-                    start_at_most,
-                } => find_backward(
-                    text,
-                    invalid,
-                    query,
-                    before,
-                    start_at_most,
-                    usize::MAX,
-                    &stop,
-                ),
-            };
-            let at = match found {
-                Found::Match(range) => Some(range),
-                Found::None => None,
-                Found::Stopped { .. } => return,
-            };
-            current = at.as_ref().map(|range| range.start);
-            report(SearchReport::Found {
-                generation: self.generation,
-                at,
-            });
-        }
-        if let Some(count) = count(text, invalid, query, current, &stop) {
-            report(SearchReport::Counted {
-                generation: self.generation,
-                count,
-                at: current,
-            });
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
 
     fn never() -> bool {
         false
@@ -577,12 +518,13 @@ mod tests {
     fn all(text: &str, string: &str) -> Vec<Range<usize>> {
         let rope = Rope::from(text);
         let mut out = Vec::new();
+        let whole = 0..rope.len();
+        let limits = (usize::MAX, usize::MAX);
         matches_in(
-            &rope,
-            &InvalidBytes::new(),
+            (&rope, &InvalidBytes::new()),
             &query(string),
-            0..rope.len(),
-            usize::MAX,
+            std::slice::from_ref(&whole),
+            limits,
             &mut out,
         );
         out
@@ -713,18 +655,18 @@ mod tests {
         assert_eq!(
             reports,
             [
-                SearchReport::Found {
+                SearchReport(Report::Found {
                     generation: 3,
                     at: Some(4..5)
-                },
-                SearchReport::Counted {
+                }),
+                SearchReport(Report::Counted {
                     generation: 3,
                     count: Count {
                         total: 3,
                         before: 1
                     },
                     at: Some(4)
-                },
+                }),
             ]
         );
     }
@@ -748,6 +690,46 @@ mod tests {
     }
 
     #[test]
+    fn a_reach_holds_every_character_that_folds_to_it() {
+        for c in (0..=0x10FFFF).filter_map(char::from_u32) {
+            for sensitive in [false, true] {
+                let key = if sensitive { u32::from(c) } else { fold(c) };
+                assert!(c.len_utf8() <= reach(key, sensitive), "{:X}", u32::from(c));
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_bytes_match_nothing_backward_and_in_spans() {
+        let snapshot = crate::load::decode_all(
+            b"\xffb a\xEF\xBF\xBDb \xff\xffb",
+            crate::display_map::TabWidth::default(),
+        );
+        let (rope, invalid) = (snapshot.text(), snapshot.display.invalid_bytes());
+        let q = query("\u{FFFD}b");
+        let found = find_backward(
+            rope,
+            invalid,
+            &q,
+            rope.len(),
+            rope.len(),
+            usize::MAX,
+            &never,
+        );
+        assert_eq!(found, Found::Match(6..10));
+        let mut out = Vec::new();
+        let spans = [0..5, 5..rope.len()];
+        matches_in(
+            (rope, invalid),
+            &q,
+            &spans,
+            (usize::MAX, usize::MAX),
+            &mut out,
+        );
+        assert_eq!((out.len(), out.first()), (1, Some(&(6..10))));
+    }
+
+    #[test]
     fn debug_shows_no_text() {
         let q = query("hunter2");
         assert!(!format!("{q:?}").contains("hunter"));
@@ -756,7 +738,7 @@ mod tests {
     #[test]
     fn a_query_is_cut_to_its_most_characters() {
         let long = "a".repeat(MAX_QUERY_CHARS + 10);
-        assert_eq!(query(&long).max_bytes(), MAX_QUERY_CHARS * 4);
+        assert_eq!(query(&long).max_bytes(), MAX_QUERY_CHARS);
         assert!(Query::new("", false).is_none());
     }
 

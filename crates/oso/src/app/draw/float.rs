@@ -254,8 +254,6 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>) -> PaneContent<'a> {
         cursor_style: CursorStyle::Box,
         preedit: editor.preedit(),
         // A region in a prompt is not drawn yet (open-questions.md).
-        region_cells: &[],
-        matches: &[],
-        current_match: &[],
+        fills: &[],
     })
 }

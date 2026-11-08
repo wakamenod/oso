@@ -310,16 +310,11 @@ fn draw_pane<G: GlyphSource>(
     }
     match &pane.content {
         PaneContent::Text(view) => {
-            // Behind the boxes and the glyphs, so the text keeps its face. The current match
-            // first, so that it always has room, and the regions over the matches.
-            for cells in view.current_match {
-                draws.fill(unscrolled.frame_cells(*cells), Face::CurrentMatch);
-            }
-            for cells in view.matches {
-                draws.fill(unscrolled.frame_cells(*cells), Face::Match);
-            }
-            for cells in view.region_cells {
-                draws.fill(unscrolled.frame_cells(*cells), Face::Region);
+            // Behind the boxes and the glyphs, so the text keeps its face, back to front.
+            for &(face, cells) in view.fills {
+                for cells in cells {
+                    draws.fill(unscrolled.frame_cells(*cells), face);
+                }
             }
             let mut layout = Layout::new(metrics, pane.region, view.scroll).with_bands(pane.bands);
             if let Some(cells) = cursor.filter(|_| !hollow) {
@@ -603,9 +598,7 @@ mod tests {
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
-            matches: &[],
-            current_match: &[],
+            fills: &[],
         })
     }
 
@@ -702,9 +695,7 @@ mod tests {
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     cursor_style: CursorStyle::Box,
                     preedit: None,
-                    region_cells: &[],
-                    matches: &[],
-                    current_match: &[],
+                    fills: &[],
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -777,9 +768,7 @@ mod tests {
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
-            matches: &[],
-            current_match: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
@@ -959,9 +948,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Hollow,
             preedit: None,
-            region_cells: &[],
-            matches: &[],
-            current_match: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -1048,9 +1035,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
-            matches: &[],
-            current_match: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -1076,9 +1061,7 @@ mod tests {
             cursor: DisplayPoint::new(1, 1),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &region,
-            matches: &[],
-            current_match: &[],
+            fills: &[(Face::Region, &region)],
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
@@ -1116,9 +1099,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Box,
             preedit: Some(&preedit),
-            region_cells: &[],
-            matches: &[],
-            current_match: &[],
+            fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -1158,9 +1139,7 @@ mod tests {
                 cursor: DisplayPoint::new(1000, 0),
                 cursor_style: CursorStyle::Box,
                 preedit: None,
-                region_cells: &[],
-                matches: &[],
-                current_match: &[],
+                fills: &[],
             })
         };
         let panes = |first, second_id| {
@@ -1320,9 +1299,7 @@ mod tests {
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             preedit: None,
-            region_cells: &[],
-            matches: &[],
-            current_match: &[],
+            fills: &[],
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);

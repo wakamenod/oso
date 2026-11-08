@@ -6,6 +6,7 @@
 //! `Debug` prints none of the string, which can say something of a buffer that may hold
 //! secrets (ADR 0044).
 
+use std::collections::VecDeque;
 use std::fmt::{self, Write};
 use std::ops::Range;
 
@@ -15,11 +16,11 @@ use crate::selection::SelectionSet;
 use crate::window::Scroll;
 
 /// The most steps `DEL` can go back. The oldest go first.
-pub(super) const MAX_STEPS: usize = 4096;
+const MAX_STEPS: usize = 4096;
 
 /// What isearch knows of the count of matches.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tally {
+pub(in crate::editor) enum Tally {
     /// A worker is counting. `moves` says how many matches the current one has moved by
     /// since the match it counts for.
     Counting { moves: isize },
@@ -29,7 +30,7 @@ pub enum Tally {
 
 /// How a search was asked for, which says how the count follows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum How {
+pub(super) enum Asked {
     /// The string, the case or the text changed: the count starts again.
     Typed,
     /// A repeat, to the next match or, wrapping, round to the first.
@@ -49,7 +50,8 @@ pub(super) struct Step {
     pub(super) tally: Option<Tally>,
 }
 
-/// An isearch under way in the selected window.
+/// An isearch under way in the selected window. It ends when that window shows another
+/// buffer or a prompt opens over it.
 pub struct Isearch {
     pub(super) string: String,
     pub(super) backward: bool,
@@ -61,13 +63,14 @@ pub struct Isearch {
     pub(super) failing: bool,
     pub(super) wrapped: bool,
     /// A worker goes on with the search, and asked as this.
-    pub(super) searching: Option<How>,
+    pub(super) searching: Option<Asked>,
     pub(super) tally: Option<Tally>,
-    /// The buffer and the cursors, marks and view before it began, for `C-g`.
+    /// The buffer it searches, and the cursors, marks and view before it began, for `C-g`.
     pub(super) buffer: BufferId,
     pub(super) begin: (SelectionSet, Scroll),
+    /// The buffer's revision when it last searched.
     pub(super) revision: u64,
-    pub(super) steps: Vec<Step>,
+    pub(super) steps: VecDeque<Step>,
     /// It began, or went on, while a buffer that may hold secrets was shown.
     pub(super) around_secret: bool,
     /// Where `M-p` and `M-n` are in the history: 0 the newest.
@@ -86,6 +89,33 @@ impl fmt::Debug for Isearch {
 }
 
 impl Isearch {
+    /// A search of `buffer` from the place `begin` keeps, forward or `backward`.
+    pub(super) fn new(
+        buffer: BufferId,
+        begin: (SelectionSet, Scroll),
+        revision: u64,
+        backward: bool,
+        around_secret: bool,
+    ) -> Self {
+        Self {
+            string: String::new(),
+            backward,
+            flipped: false,
+            query: None,
+            current: None,
+            failing: false,
+            wrapped: false,
+            searching: None,
+            tally: None,
+            buffer,
+            begin,
+            revision,
+            steps: VecDeque::new(),
+            around_secret,
+            history: None,
+        }
+    }
+
     /// The search string.
     pub fn string(&self) -> &str {
         &self.string
@@ -116,8 +146,18 @@ impl Isearch {
         self.searching.is_some()
     }
 
+    /// Where the current match is among them and how many matches there are, once a worker
+    /// has counted them: from 1, or 0 with no current match.
+    pub fn count(&self) -> Option<(usize, usize)> {
+        match self.tally {
+            Some(Tally::Known { index, total }) => Some((index, total)),
+            _ => None,
+        }
+    }
+
     /// What is known of the count, `None` with no string.
-    pub fn tally(&self) -> Option<Tally> {
+    #[cfg(test)]
+    pub(in crate::editor) fn tally(&self) -> Option<Tally> {
         self.tally
     }
 
@@ -134,30 +174,32 @@ impl Isearch {
 
     /// The echo line: `I-search: foo [3/17]`, with Emacs's words before it.
     pub(super) fn write_line(&self, out: &mut String) {
-        let mut words: Vec<&str> = Vec::new();
+        let start = out.len();
+        let mut word = |word: &str| {
+            if out.len() > start {
+                out.push(' ');
+            }
+            out.push_str(word);
+        };
         if self.failing {
-            words.push("failing");
+            word("failing");
         }
         if self.wrapped {
-            words.push("wrapped");
+            word("wrapped");
         }
         if self.flipped {
-            words.push(if self.case_sensitive() {
+            word(if self.case_sensitive() {
                 "case-sensitive"
             } else {
                 "case-insensitive"
             });
         }
-        words.push("I-search");
+        word("I-search");
         if self.backward {
-            words.push("backward");
+            word("backward");
         }
-        let start = out.len();
-        out.push_str(&words.join(" "));
-        if let Some(first) = out[start..].chars().next() {
-            let upper: String = first.to_uppercase().collect();
-            out.replace_range(start..start + first.len_utf8(), &upper);
-        }
+        // Every word is ASCII.
+        out[start..=start].make_ascii_uppercase();
         out.push_str(": ");
         out.push_str(&self.string);
         if self.searching.is_some() {
@@ -171,8 +213,12 @@ impl Isearch {
         };
     }
 
-    pub(super) fn step(&self, cursor: usize) -> Step {
-        Step {
+    /// Remembers where it is now, with the primary cursor at `cursor`, for `DEL`.
+    pub(super) fn push_step(&mut self, cursor: usize) {
+        if self.steps.len() == MAX_STEPS {
+            self.steps.pop_front();
+        }
+        self.steps.push_back(Step {
             len: self.string.len(),
             backward: self.backward,
             flipped: self.flipped,
@@ -181,27 +227,23 @@ impl Isearch {
             wrapped: self.wrapped,
             cursor,
             tally: self.tally,
-        }
-    }
-
-    pub(super) fn push_step(&mut self, cursor: usize) {
-        if self.steps.len() == MAX_STEPS {
-            self.steps.remove(0);
-        }
-        let step = self.step(cursor);
-        self.steps.push(step);
+        });
     }
 
     pub(super) fn rebuild_query(&mut self) {
         self.query = Query::new(&self.string, self.case_sensitive());
     }
 
+    /// How many characters the string still has room for.
+    pub(super) fn room(&self) -> usize {
+        MAX_QUERY_CHARS.saturating_sub(self.string.chars().count())
+    }
+
     /// Adds `text` up to [`MAX_QUERY_CHARS`]. Returns whether any went in.
     pub(super) fn add(&mut self, text: &str) -> bool {
-        let room = MAX_QUERY_CHARS.saturating_sub(self.string.chars().count());
         let end = text
             .char_indices()
-            .nth(room)
+            .nth(self.room())
             .map_or(text.len(), |(at, _)| at);
         self.string.push_str(&text[..end]);
         end > 0

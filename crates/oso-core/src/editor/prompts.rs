@@ -24,8 +24,8 @@ pub enum Quit {
     /// It closed the innermost prompt, and ran nothing.
     Prompt,
     /// It took a failing part or a running search off isearch, back to the last string
-    /// that matched (ADR 0082).
-    SearchFailure,
+    /// that matched, and the search goes on (ADR 0082).
+    SearchStep,
     /// It ended isearch, and put the cursors and the view back as they were.
     Search,
     /// Nothing was in progress.
@@ -47,6 +47,8 @@ impl Editor {
         if self.prompts.len() >= MAX_DEPTH {
             return Err(PromptError::TooDeep);
         }
+        // A prompt over a search ends it, as a key it does not bind does (ADR 0082).
+        self.isearch_abandon();
         let depth = self.prompts.len() + 1;
         let mut label = label.into();
         if kind.is_question() {

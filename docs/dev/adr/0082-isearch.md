@@ -36,19 +36,28 @@ coordinator.
   lowercase is one character becomes it, and any other stays as it is. Width and characters are not
   folded: `Ａ` does not match `A`. **`M-c` turns case sensitivity around for the rest of this
   search,** and the echo line then says `Case-sensitive` or `Case-insensitive`.
-- **`oso_core::search`, a new public module, holds the matcher:** a query built from the string,
-  searched over a rope's chunks one character at a time with Knuth–Morris–Pratt, so the cost is
-  linear in the text whatever the string, and a match may cross chunks. The U+FFFD of an invalid
-  byte matches nothing. Searching forward from an offset finds the first match that starts there or
-  after; searching backward finds the last that ends there or before. A match may begin or end inside
-  a display cluster, as in Emacs, and the cursor then goes to the cluster's start.
-- **The string holds at most 1024 characters.** A yank into it that would pass that is cut there, so
-  that what a frame looks at around the view stays small.
+- **A new module, `oso_core::search`, holds the matcher, private to the crate:** a query built from
+  the string, searched over a rope's chunks one character at a time with Knuth–Morris–Pratt, so the
+  cost is linear in the text whatever the string, and a match may cross chunks. The U+FFFD of an
+  invalid byte matches nothing; the invalid bytes are walked alongside the text, so each costs O(1).
+  Searching forward from an offset finds the first match that starts there or after; searching
+  backward finds the last that ends there or before. A match may begin or end inside a display
+  cluster, as in Emacs, and the cursor then goes to the cluster's start. Only the worker's job and its
+  report reach the host, as `editor::SearchJob` and an opaque `editor::SearchReport`, as
+  `editor::SaveJob` does. In `guardrails/layers.txt` it sits beside `buffer` and `motion`, above
+  `load` and `display_map`, which its tests read text with. M3's query-replace and project search
+  decide what of it becomes public.
+- **The string holds at most 1024 characters.** A yank into it is cut there, and copies no more of
+  the kill than that, so that what a frame looks at around the view stays small.
 
 ### Keys
 
 - **isearch is a mode of the selected window, not a prompt (chosen),** and its line is on the echo
   row: `I-search: foo [3/17]`, with `Failing`, `Wrapped`, `backward` and the case words as in Emacs.
+- **It keeps to that window and its buffer.** When the window shows another buffer, the buffer is
+  killed, or a prompt opens over it (the exit question of the window's close button, say), the search
+  ends with nothing kept: no history, no mark, the cursors where they are. So nothing it searches or
+  moves can be another buffer's.
 - **Its keymap replaces the others while it is on.** A key it does not bind ends the search where it
   is, as `RET` does, and then runs as it would have (chosen), so `C-f`, `C-a`, `C-x` and `M-x` all
   work.
@@ -57,9 +66,11 @@ coordinator.
 - **`C-s` and `C-r` with an empty string search for the last string** (`C-s C-s`). **`M-p` and `M-n`**
   go through a search history: in memory only, 100 entries, as the prompts' histories, and nothing
   enters it while a buffer that may hold secrets is shown, or from a search that began in one.
-- **`C-w` adds the word after the match,** as Emacs's `isearch-yank-word-or-char` does, and **`C-y`
-  the newest kill-ring entry**, its pieces joined with newlines. `C-y` never waits for the OS clipboard
-  (ADR 0074): it takes what the ring holds. `M-y` waits for M2-21.
+- **`C-w` adds the word after the match,** as Emacs's `isearch-yank-word-or-char` does, or the
+  character there if no word is, and **`C-y` the newest kill-ring entry**, its pieces joined with
+  newlines. `C-y` never waits for the OS clipboard (ADR 0074): it takes what the ring holds. A kill
+  from a buffer that may hold secrets makes the searched buffer one, as a yank does (ADR 0074).
+  `M-y` waits for M2-21.
 - **The IME is off while isearch is on** (`wants_ime`), so a Japanese string cannot be typed. Migemo
   (M3) searches Japanese from romaji.
 
@@ -74,25 +85,29 @@ coordinator.
   and the text goes on, the rest is searched on a worker thread over an O(1) snapshot of the rope and
   of its invalid bytes, the line says `[searching…]`, and the cursor goes there when the answer comes,
   unless the string or the text has changed since. A newer search supersedes it, through a generation
-  number the worker checks every chunk.
+  number the worker checks every 64 KiB. One worker thread runs the newest job, and starts with the
+  first.
 - **The count is the worker's too (chosen):** one job per string and text counts every match, as a
   non-overlapping scan from the buffer's start finds them, and where the current one is among them.
-  The line says `[?/…]` meanwhile. A repeat that goes to the next match steps the index without a new
-  count; a wrap, or a change of string or case, starts one. There is no cap on the count: it costs only
-  time, off the UI thread.
+  The line says `[?/…]` meanwhile. A repeat steps the index without a new count, and a wrap takes it
+  to the first match (backward: the last); a change of string or case starts one. There is no cap on
+  the count: it costs only time, off the UI thread.
 - **Only the primary cursor searches and moves (chosen).** The others stay, and merge as usual if it
   meets them. M2-21 adds the key that puts a cursor on every match.
 
 ### Ending it
 
 - **`C-g` takes two steps, as ADR 0072 left for isearch (chosen):** with a failing part or a search
-  still running, the first takes it away, back to the last string that matched; otherwise it ends the
-  search and puts every cursor, its mark, the region and the view back as they were before it began.
-  It comes after the region and the innermost prompt in `Editor::quit`, so a region shown during the
-  search goes first.
-- **`RET`, or a key isearch does not bind, ends it where it is,** puts the string in the history,
-  pushes the place it began onto the primary cursor's mark ring and says `Mark saved where search
-  started`. The region stays as it was.
+  still running, the first takes it away, back to the last string that matched (`Quit::SearchStep`),
+  and says nothing, as the search goes on and its line stays; otherwise it ends the search and puts
+  every cursor, its mark, the region and the view back as they were before it began (`Quit::Search`),
+  and says `Quit`. It comes after the region and the innermost prompt in `Editor::quit`, so a region
+  shown during the search goes first.
+- **`RET`, or a key isearch does not bind, ends it where it is,** and puts the string in the history.
+  If the cursor moved and no region shows, it pushes the place it began onto the primary cursor's mark
+  ring and says `Mark saved where search started`, as Emacs does; around a buffer that may hold
+  secrets that goes to the echo area alone, since it says the search matched. `run-command` of a
+  command isearch's keymap does not hold ends it the same way, once the command's argument is checked.
 
 ### Highlighting
 
@@ -100,16 +115,18 @@ coordinator.
   current match in a strong amber, the others in view in a muted one, behind the text, which keeps its
   colour. Regions, boxes and the cursor draw over them. M2-23's themes take over the colours.
 - **Only what the view shows is searched for them,** each visible row's columns widened by the
-  string's longest possible length on both sides, so a frame's cost is bounded by the view and the
-  string, not the buffer.
+  string's longest possible length on both sides, within 256 KiB of text and 2048 matches a frame, so
+  a frame's cost is bounded by the view and the string, not the buffer. The renderer takes them, and
+  the region's cells, as one list of fills, back to front.
 
 ### A change to the text
 
 - **A reload of a file changed on disk (M2-22) waits while isearch is on,** as it waits for a prompt.
-- **isearch remembers the buffer's revision,** for what changes it anyway, such as a load still under
-  way. When the revision has changed, what a worker reports is dropped, a search runs again from the
-  cursor as typing does, and so does the count. The places `C-g` and `DEL` go back to are clipped to the
-  text. isearch stays on.
+- **isearch remembers the buffer's revision,** for what changes it anyway. When the revision has
+  changed, what a worker reports is dropped, a search runs again from the cursor as typing does, and so
+  does the count. The places `C-g` and `DEL` go back to are clipped to the text. isearch stays on.
+- **A load still under way holds the count until it ends,** with `[?/…]`, rather than starting it
+  again at each piece the load takes in.
 
 ### Secrets and the control socket
 
@@ -134,7 +151,7 @@ coordinator.
 - The highlights are worked out each frame while isearch is on, from the text in view: no layer and no
   anchors yet. The Search layer of `display-model.md` comes when a second producer needs one.
 - The string is not width- or char-folded, and there is no regex search until M3.
-- A loading buffer recounts as it grows, so its count shows `[?/…]` until the load ends.
+- A loading buffer's count shows `[?/…]` until the load ends.
 
 ## Alternatives considered
 

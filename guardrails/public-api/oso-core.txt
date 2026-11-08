@@ -796,7 +796,7 @@ pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
 pub oso_core::editor::Quit::Region
 pub oso_core::editor::Quit::Search
-pub oso_core::editor::Quit::SearchFailure
+pub oso_core::editor::Quit::SearchStep
 impl core::clone::Clone for oso_core::editor::Quit
 pub fn oso_core::editor::Quit::clone(&self) -> oso_core::editor::Quit
 impl core::cmp::Eq for oso_core::editor::Quit
@@ -842,21 +842,6 @@ impl core::fmt::Display for oso_core::editor::SaveRefused
 pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
-pub enum oso_core::editor::Tally
-pub oso_core::editor::Tally::Counting
-pub oso_core::editor::Tally::Counting::moves: isize
-pub oso_core::editor::Tally::Known
-pub oso_core::editor::Tally::Known::index: usize
-pub oso_core::editor::Tally::Known::total: usize
-impl core::clone::Clone for oso_core::editor::Tally
-pub fn oso_core::editor::Tally::clone(&self) -> oso_core::editor::Tally
-impl core::cmp::Eq for oso_core::editor::Tally
-impl core::cmp::PartialEq for oso_core::editor::Tally
-pub fn oso_core::editor::Tally::eq(&self, &oso_core::editor::Tally) -> bool
-impl core::fmt::Debug for oso_core::editor::Tally
-pub fn oso_core::editor::Tally::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::editor::Tally
-impl core::marker::StructuralPartialEq for oso_core::editor::Tally
 pub enum oso_core::editor::YankError
 pub oso_core::editor::YankError::Edit(oso_core::buffer::EditError)
 pub oso_core::editor::YankError::Empty
@@ -998,10 +983,11 @@ pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
-pub fn oso_core::editor::Editor::isearch_fresh(&mut self) -> bool
-pub fn oso_core::editor::Editor::search_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
-pub fn oso_core::editor::Editor::search_reported(&mut self, oso_core::search::SearchReport) -> bool
-pub fn oso_core::editor::Editor::take_search_job(&mut self) -> core::option::Option<oso_core::search::SearchJob>
+pub fn oso_core::editor::Editor::isearch_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
+pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
+pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Status)
 impl core::default::Default for oso_core::editor::Editor
@@ -1025,10 +1011,10 @@ impl oso_core::editor::Isearch
 pub fn oso_core::editor::Isearch::around_secret(&self) -> bool
 pub fn oso_core::editor::Isearch::backward(&self) -> bool
 pub fn oso_core::editor::Isearch::case_sensitive(&self) -> bool
+pub fn oso_core::editor::Isearch::count(&self) -> core::option::Option<(usize, usize)>
 pub fn oso_core::editor::Isearch::failing(&self) -> bool
 pub fn oso_core::editor::Isearch::searching(&self) -> bool
 pub fn oso_core::editor::Isearch::string(&self) -> &str
-pub fn oso_core::editor::Isearch::tally(&self) -> core::option::Option<oso_core::editor::Tally>
 pub fn oso_core::editor::Isearch::wrapped(&self) -> bool
 impl core::fmt::Debug for oso_core::editor::Isearch
 pub fn oso_core::editor::Isearch::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1040,6 +1026,20 @@ pub oso_core::editor::SaveJob::content: oso_core::buffer::ContentId
 pub oso_core::editor::SaveJob::only_if_gone: bool
 pub oso_core::editor::SaveJob::path: std::path::PathBuf
 pub oso_core::editor::SaveJob::text: oso_core::rope::Rope
+pub struct oso_core::editor::SearchJob
+impl oso_core::editor::SearchJob
+pub fn oso_core::editor::SearchJob::run(self, impl core::ops::function::FnMut(oso_core::editor::SearchReport))
+impl core::fmt::Debug for oso_core::editor::SearchJob
+pub fn oso_core::editor::SearchJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::SearchReport(_)
+impl core::clone::Clone for oso_core::editor::SearchReport
+pub fn oso_core::editor::SearchReport::clone(&self) -> oso_core::editor::SearchReport
+impl core::cmp::Eq for oso_core::editor::SearchReport
+impl core::cmp::PartialEq for oso_core::editor::SearchReport
+pub fn oso_core::editor::SearchReport::eq(&self, &oso_core::editor::SearchReport) -> bool
+impl core::fmt::Debug for oso_core::editor::SearchReport
+pub fn oso_core::editor::SearchReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::SearchReport
 pub struct oso_core::editor::Status
 pub oso_core::editor::Status::echo: alloc::string::String
 pub oso_core::editor::Status::name: alloc::string::String
@@ -1170,7 +1170,7 @@ impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
-pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub mod oso_core::key
 pub enum oso_core::key::Key
@@ -1810,86 +1810,6 @@ pub fn usize::from_summary(&S) -> Self
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
 pub const oso_core::rope::MAX_CHUNK_BYTES: usize
-pub mod oso_core::search
-pub enum oso_core::search::Find
-pub oso_core::search::Find::Backward
-pub oso_core::search::Find::Backward::before: usize
-pub oso_core::search::Find::Backward::start_at_most: usize
-pub oso_core::search::Find::Forward
-pub oso_core::search::Find::Forward::from: usize
-impl core::clone::Clone for oso_core::search::Find
-pub fn oso_core::search::Find::clone(&self) -> oso_core::search::Find
-impl core::cmp::Eq for oso_core::search::Find
-impl core::cmp::PartialEq for oso_core::search::Find
-pub fn oso_core::search::Find::eq(&self, &oso_core::search::Find) -> bool
-impl core::fmt::Debug for oso_core::search::Find
-pub fn oso_core::search::Find::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::search::Find
-impl core::marker::StructuralPartialEq for oso_core::search::Find
-pub enum oso_core::search::Found
-pub oso_core::search::Found::Match(core::ops::range::Range<usize>)
-pub oso_core::search::Found::None
-pub oso_core::search::Found::Stopped
-pub oso_core::search::Found::Stopped::resume: usize
-impl core::clone::Clone for oso_core::search::Found
-pub fn oso_core::search::Found::clone(&self) -> oso_core::search::Found
-impl core::cmp::Eq for oso_core::search::Found
-impl core::cmp::PartialEq for oso_core::search::Found
-pub fn oso_core::search::Found::eq(&self, &oso_core::search::Found) -> bool
-impl core::fmt::Debug for oso_core::search::Found
-pub fn oso_core::search::Found::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::search::Found
-pub enum oso_core::search::SearchReport
-pub oso_core::search::SearchReport::Counted
-pub oso_core::search::SearchReport::Counted::at: core::option::Option<usize>
-pub oso_core::search::SearchReport::Counted::count: oso_core::search::Count
-pub oso_core::search::SearchReport::Counted::generation: u64
-pub oso_core::search::SearchReport::Found
-pub oso_core::search::SearchReport::Found::at: core::option::Option<core::ops::range::Range<usize>>
-pub oso_core::search::SearchReport::Found::generation: u64
-impl core::clone::Clone for oso_core::search::SearchReport
-pub fn oso_core::search::SearchReport::clone(&self) -> oso_core::search::SearchReport
-impl core::cmp::Eq for oso_core::search::SearchReport
-impl core::cmp::PartialEq for oso_core::search::SearchReport
-pub fn oso_core::search::SearchReport::eq(&self, &oso_core::search::SearchReport) -> bool
-impl core::fmt::Debug for oso_core::search::SearchReport
-pub fn oso_core::search::SearchReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::StructuralPartialEq for oso_core::search::SearchReport
-pub struct oso_core::search::Count
-pub oso_core::search::Count::before: usize
-pub oso_core::search::Count::total: usize
-impl core::clone::Clone for oso_core::search::Count
-pub fn oso_core::search::Count::clone(&self) -> oso_core::search::Count
-impl core::cmp::Eq for oso_core::search::Count
-impl core::cmp::PartialEq for oso_core::search::Count
-pub fn oso_core::search::Count::eq(&self, &oso_core::search::Count) -> bool
-impl core::fmt::Debug for oso_core::search::Count
-pub fn oso_core::search::Count::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for oso_core::search::Count
-impl core::marker::StructuralPartialEq for oso_core::search::Count
-pub struct oso_core::search::Query
-impl oso_core::search::Query
-pub fn oso_core::search::Query::case_sensitive(&self) -> bool
-pub fn oso_core::search::Query::max_bytes(&self) -> usize
-pub fn oso_core::search::Query::new(&str, bool) -> core::option::Option<Self>
-impl core::clone::Clone for oso_core::search::Query
-pub fn oso_core::search::Query::clone(&self) -> oso_core::search::Query
-impl core::fmt::Debug for oso_core::search::Query
-pub fn oso_core::search::Query::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub struct oso_core::search::SearchJob
-impl oso_core::search::SearchJob
-pub fn oso_core::search::SearchJob::generation(&self) -> u64
-pub fn oso_core::search::SearchJob::run(self, impl core::ops::function::FnMut(oso_core::search::SearchReport))
-pub fn oso_core::search::SearchJob::superseded(&self) -> bool
-impl core::fmt::Debug for oso_core::search::SearchJob
-pub fn oso_core::search::SearchJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub const oso_core::search::KEY_BUDGET: usize
-pub const oso_core::search::MAX_QUERY_CHARS: usize
-pub fn oso_core::search::count(&oso_core::rope::Rope, &oso_core::decode::InvalidBytes, &oso_core::search::Query, core::option::Option<usize>, &dyn core::ops::function::Fn() -> bool) -> core::option::Option<oso_core::search::Count>
-pub fn oso_core::search::find_backward(&oso_core::rope::Rope, &oso_core::decode::InvalidBytes, &oso_core::search::Query, usize, usize, usize, &dyn core::ops::function::Fn() -> bool) -> oso_core::search::Found
-pub fn oso_core::search::find_forward(&oso_core::rope::Rope, &oso_core::decode::InvalidBytes, &oso_core::search::Query, usize, usize, &dyn core::ops::function::Fn() -> bool) -> oso_core::search::Found
-pub fn oso_core::search::matches_in(&oso_core::rope::Rope, &oso_core::decode::InvalidBytes, &oso_core::search::Query, core::ops::range::Range<usize>, usize, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
-pub fn oso_core::search::smart_case(&str) -> bool
 pub mod oso_core::selection
 pub enum oso_core::selection::Goal
 pub oso_core::selection::Goal::Column(usize)

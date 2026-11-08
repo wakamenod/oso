@@ -83,6 +83,20 @@ pub fn isearch_keymap(registry: &Registry) -> Keymap {
     keymap
 }
 
+/// The commands that run in a search rather than end it: those of its keymap, its text
+/// command, and the global ones that start a search, which repeat it once it is on.
+#[cfg(any(test, feature = "dev"))]
+pub fn isearch_commands(registry: &Registry) -> Vec<oso_core::command::CommandId> {
+    let names = isearch::ISEARCH
+        .iter()
+        .chain(isearch::BINDINGS)
+        .map(|&(_, name)| name);
+    names
+        .chain([isearch::TEXT_COMMAND])
+        .filter_map(|name| registry.lookup(name))
+        .collect()
+}
+
 /// The keymaps of the list of emergency copies and of a buffer showing one, above the global
 /// one (ADR 0064). Empty for a registry without their commands, as in tests that bring their
 /// own.
@@ -93,7 +107,10 @@ pub fn recovery_keymaps(registry: &Registry) -> (Keymap, Keymap) {
 
 #[cfg(test)]
 mod tests {
-    use super::{TABLES, global_keymap, prefix, prefix_keymaps, recovery, recovery_keymaps};
+    use super::{
+        TABLES, global_keymap, isearch, isearch_commands, isearch_keymap, prefix, prefix_keymaps,
+        recovery, recovery_keymaps,
+    };
     use crate::commands;
     use oso_core::key::KeySequence;
     use oso_core::keymap::{Binding, Keymap};
@@ -131,6 +148,19 @@ mod tests {
         let (digits, minus) = prefix_keymaps(&commands::registry());
         assert_eq!(digits.len(), prefix::DIGITS.len());
         assert_eq!(minus.len(), prefix::MINUS.len());
+    }
+
+    #[test]
+    fn the_isearch_keymap_binds_all_its_rows_and_types() {
+        let registry = commands::registry();
+        let keymap = isearch_keymap(&registry);
+        assert_eq!(keymap.len(), isearch::ISEARCH.len());
+        assert_eq!(
+            keymap.text_command(),
+            registry.lookup(isearch::TEXT_COMMAND)
+        );
+        let wanted = isearch::ISEARCH.len() + isearch::BINDINGS.len() + 1;
+        assert_eq!(isearch_commands(&registry).len(), wanted);
     }
 
     /// The benchmarks time a key that runs nothing, and `big_trip_max_ms` means

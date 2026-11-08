@@ -1,55 +1,48 @@
-//! isearch's worker and its frames (ADR 0082): the job a search leaves for a thread, what
-//! comes back from it, a search again when the text changed under it, and the cells the
-//! matches in view take.
+//! isearch's worker (ADR 0082): the job a search leaves for a thread, what comes back from
+//! it, and a search again when the text changed under it.
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window or threads. The host
 //! runs the job; this only makes it and takes in what it reports.
 //!
 //! A newer job supersedes the one before through a generation, which the worker checks
 //! every block of text, and whose reports are dropped here once it is not the live one.
+//! A report is also dropped once the search no longer keeps to the window it began in.
 
 use std::ops::Range;
 use std::sync::atomic::Ordering;
 
 use super::Tally;
-use crate::display_map::DisplayPoint;
 use crate::editor::Editor;
-use crate::frame::{self, CellRect};
-use crate::search::{self, Find, SearchJob, SearchReport};
-use crate::sum_tree::Bias;
-
-/// The most matches in view a frame highlights, so that their rectangles leave room for
-/// the rest of the frame.
-pub(super) const MAX_MATCHES_SHOWN: usize = 2048;
+use crate::search::{Find, Report, SearchJob, SearchReport};
 
 impl Editor {
     /// The job a worker is to do, once, for the host.
-    pub fn take_search_job(&mut self) -> Option<SearchJob> {
+    pub fn take_isearch_job(&mut self) -> Option<SearchJob> {
         self.search_job.take()
     }
 
     /// Takes in what a worker found, unless a newer job has taken its place. Returns whether
     /// what shows changed.
-    pub fn search_reported(&mut self, report: SearchReport) -> bool {
+    pub fn isearch_reported(&mut self, report: SearchReport) -> bool {
         let live = self.search_live.load(Ordering::Relaxed);
-        if self.isearch_fresh() {
+        if self.isearch_follow_text() {
             return true;
         }
         let Some(state) = &mut self.isearch else {
             return false;
         };
-        match report {
-            SearchReport::Found { generation, at } if generation == live => {
-                let Some(how) = state.searching.take() else {
+        match report.0 {
+            Report::Found { generation, at } if generation == live => {
+                let Some(asked) = state.searching.take() else {
                     return false;
                 };
                 match at {
-                    Some(range) => self.isearch_matched(range, how, true),
+                    Some(range) => self.isearch_matched(range, asked, true),
                     None => state.failing = true,
                 }
                 true
             }
-            SearchReport::Counted {
+            Report::Counted {
                 generation,
                 count,
                 at,
@@ -74,23 +67,39 @@ impl Editor {
         }
     }
 
-    /// Searches again if the text changed since isearch last looked. Returns whether it did.
-    /// The host calls this before it waits, so a load that grows the buffer is taken in.
-    pub fn isearch_fresh(&mut self) -> bool {
+    /// Keeps the search true to its window and its text: ends it if the selected window no
+    /// longer shows its buffer, or a prompt is open, and searches again if the text changed
+    /// since it last looked. While the buffer still loads, only the count waits for the
+    /// load to end, so a load's updates do not restart the search each time. Returns
+    /// whether what shows changed. The host calls this before it waits.
+    pub fn isearch_follow_text(&mut self) -> bool {
         let Some(state) = &self.isearch else {
             return false;
         };
-        let Some(buffer) = self.buffer(state.buffer) else {
-            // The buffer is gone, and the search with it.
-            self.isearch = None;
-            self.supersede_search();
+        let shown = self.prompts.is_empty() && self.window().buffer() == state.buffer;
+        let Some(buffer) = self.buffer(state.buffer).filter(|_| shown) else {
+            self.isearch_abandon();
             return true;
         };
-        let (revision, len) = (buffer.revision(), buffer.text().len());
+        let (revision, len, loading) = (
+            buffer.revision(),
+            buffer.text().len(),
+            buffer.loading().is_some(),
+        );
         let Some(state) = &mut self.isearch else {
             return false;
         };
         if revision == state.revision {
+            return false;
+        }
+        if loading {
+            // A count of a part would be wrong, and one per update never ends.
+            let counting = matches!(state.tally, Some(Tally::Counting { .. }));
+            if state.query.is_some() && !counting {
+                state.tally = Some(Tally::Counting { moves: 0 });
+                self.supersede_search();
+                return true;
+            }
             return false;
         }
         state.revision = revision;
@@ -143,65 +152,5 @@ impl Editor {
         let generation = self.search_live.load(Ordering::Relaxed).wrapping_add(1);
         self.search_live.store(generation, Ordering::Relaxed);
         generation
-    }
-
-    /// The cells the matches in view take in the tiled window's text area: the current one
-    /// into `current`, and the others into `others`, both emptied first. Only the rows in
-    /// view are searched, each widened by what the string can reach, so a frame costs as
-    /// much as the view and the string, not the buffer.
-    pub fn search_cells(&self, current: &mut Vec<CellRect>, others: &mut Vec<CellRect>) {
-        current.clear();
-        others.clear();
-        let Some(state) = &self.isearch else {
-            return;
-        };
-        let Some(query) = &state.query else {
-            return;
-        };
-        let (window, buffer) = self.tiled();
-        if window.buffer() != state.buffer {
-            return;
-        }
-        let display = buffer.display();
-        let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
-        let (area, scroll) = (self.frame.window.text, window.scroll());
-        let rows = scroll.top
-            ..scroll
-                .top
-                .saturating_add(area.rows)
-                .min(display.row_count());
-        let reach = query.max_bytes();
-        // Each row's columns in view, widened, and joined where they meet.
-        let mut spans: Vec<Range<usize>> = Vec::new();
-        for row in rows {
-            let offset = |column| {
-                display.display_point_to_offset(DisplayPoint::new(row, column), Bias::Left)
-            };
-            let start = offset(scroll.left).saturating_sub(reach);
-            let end = offset(scroll.left.saturating_add(area.columns)).saturating_add(reach);
-            match spans.last_mut() {
-                Some(last) if start <= last.end => last.end = last.end.max(end),
-                _ => spans.push(start..end.min(text.len())),
-            }
-        }
-        let shown = state.current.clone().filter(|_| !state.failing);
-        let mut found = Vec::new();
-        for span in spans {
-            let room = MAX_MATCHES_SHOWN.saturating_sub(found.len());
-            search::matches_in(text, invalid, query, span, room, &mut found);
-        }
-        // The current one alone, and the rest without what overlaps it.
-        if let Some(range) = &shown {
-            found.retain(|other| other.end <= range.start || other.start >= range.end);
-            frame::match_cells(
-                area,
-                scroll,
-                &display,
-                std::slice::from_ref(range),
-                None,
-                current,
-            );
-        }
-        frame::match_cells(area, scroll, &display, &found, None, others);
     }
 }

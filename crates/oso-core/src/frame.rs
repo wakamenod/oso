@@ -253,14 +253,14 @@ pub fn match_cells(
     scroll: Scroll,
     display: &DisplaySnapshot,
     ranges: &[Range<usize>],
-    preedit: Option<(DisplayPoint, usize)>,
     out: &mut Vec<CellRect>,
 ) {
+    // The input method is off in isearch, so no preedit pushes them (ADR 0069).
     let place = Place {
         text,
         scroll,
         display,
-        preedit,
+        preedit: None,
     };
     range_cells(place, ranges, Range::clone, out);
 }

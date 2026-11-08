@@ -20,7 +20,7 @@
 //! being converted with `=` (ADR 0069). A line between `+` below a row marks with `*`
 //! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
 //! (ADR 0071), and with `#` and `~` the current isearch match and the others in view,
-//! from `Editor::search_cells` (ADR 0082).
+//! from `Editor::isearch_cells` (ADR 0082).
 //!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
@@ -192,7 +192,7 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let mut region = Vec::new();
     editor.region_cells(&mut region);
     let (mut current, mut matches) = (Vec::new(), Vec::new());
-    editor.search_cells(&mut current, &mut matches);
+    editor.isearch_cells(&mut current, &mut matches);
     for index in 0..area.rows {
         let row = scroll.top + index;
         let cursor = cursor
@@ -400,11 +400,11 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
         }
         // isearch's count, as its worker would give it before the frame.
-        while let Some(job) = editor.take_search_job() {
+        while let Some(job) = editor.take_isearch_job() {
             let mut reports = Vec::new();
             job.run(|report| reports.push(report));
             for report in reports {
-                editor.search_reported(report);
+                editor.isearch_reported(report);
             }
         }
         let keys = if keys.is_empty() { "none" } else { keys };

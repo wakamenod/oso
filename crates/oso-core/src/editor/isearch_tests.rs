@@ -3,11 +3,12 @@
 //!
 //! Must not depend on: `command` or `keymap`; these run on the editor alone.
 
+use super::isearch::Tally;
 use super::test_buffers::secret_buffer;
-use super::{Editor, Quit, Status, Tally};
+use super::{Editor, Quit, Status};
 use crate::buffer::{Buffer, Replacement};
 use crate::frame::CellRect;
-use crate::search::KEY_BUDGET;
+use crate::search::{KEY_BUDGET, MAX_QUERY_CHARS};
 use crate::selection::{Selection, SelectionSet};
 use crate::window::ViewSize;
 
@@ -19,11 +20,11 @@ fn editor(text: &str) -> Editor {
 
 /// Runs the worker's job in place, as the host's thread would, and takes in its reports.
 fn drain(editor: &mut Editor) {
-    while let Some(job) = editor.take_search_job() {
+    while let Some(job) = editor.take_isearch_job() {
         let mut reports = Vec::new();
         job.run(|report| reports.push(report));
         for report in reports {
-            editor.search_reported(report);
+            editor.isearch_reported(report);
         }
     }
 }
@@ -92,7 +93,7 @@ fn repeats_step_the_count_fail_at_the_end_and_wrap() {
     editor.isearch_repeat(false);
     assert_eq!(cursor(&editor), 2);
     assert_eq!(line(&editor), "Wrapped I-search: ab [1/3]");
-    assert_eq!(editor.take_search_job().map(|job| job.generation()), None);
+    assert_eq!(editor.take_isearch_job().map(|job| job.generation()), None);
 }
 
 #[test]
@@ -152,7 +153,7 @@ fn c_g_takes_the_failing_part_then_ends_where_it_began() {
     editor.isearch_add("xy");
     drain(&mut editor);
     assert!(editor.isearch().unwrap().failing());
-    assert_eq!(editor.quit(), Quit::SearchFailure);
+    assert_eq!(editor.quit(), Quit::SearchStep);
     let state = editor.isearch().unwrap();
     assert_eq!(state.string(), "word");
     assert!(!state.failing());
@@ -242,8 +243,8 @@ fn c_g_stops_a_running_search() {
     search(&mut editor, "ab");
     editor.isearch_add("c");
     assert!(editor.isearch().unwrap().searching());
-    let job = editor.take_search_job().unwrap();
-    assert_eq!(editor.quit(), Quit::SearchFailure);
+    let job = editor.take_isearch_job().unwrap();
+    assert_eq!(editor.quit(), Quit::SearchStep);
     assert!(job.superseded());
     assert_eq!(editor.isearch().unwrap().string(), "ab");
     assert_eq!(cursor(&editor), 2);
@@ -254,12 +255,12 @@ fn a_stale_report_is_dropped() {
     let mut editor = editor("ab ab");
     editor.isearch_begin(false);
     editor.isearch_add("a");
-    let old = editor.take_search_job().unwrap();
+    let old = editor.take_isearch_job().unwrap();
     editor.isearch_add("b");
     let mut reports = Vec::new();
     old.run(|report| reports.push(report));
     for report in reports {
-        assert!(!editor.search_reported(report));
+        assert!(!editor.isearch_reported(report));
     }
     assert_eq!(
         editor.isearch().unwrap().tally(),
@@ -273,13 +274,13 @@ fn moves_while_counting_count_from_the_worker_s_answer() {
     search(&mut editor, "a");
     editor.isearch_delete();
     editor.isearch_add("a");
-    let job = editor.take_search_job().unwrap();
+    let job = editor.take_isearch_job().unwrap();
     editor.isearch_repeat(false);
     editor.isearch_repeat(false);
     let mut reports = Vec::new();
     job.run(|report| reports.push(report));
     for report in reports {
-        editor.search_reported(report);
+        editor.isearch_reported(report);
     }
     assert_eq!(line(&editor), "I-search: a [3/4]");
 }
@@ -295,10 +296,10 @@ fn a_change_to_the_text_searches_again() {
         text: "foo ",
     }];
     editor.apply_edits(id, &edit).unwrap();
-    assert!(editor.isearch_fresh());
+    assert!(editor.isearch_follow_text());
     drain(&mut editor);
     assert_eq!(line(&editor), "I-search: foo [2/2]");
-    assert!(!editor.isearch_fresh());
+    assert!(!editor.isearch_follow_text());
 }
 
 #[test]
@@ -352,7 +353,7 @@ fn the_matches_in_view_are_cells_and_the_current_one_apart() {
     search(&mut editor, "ab");
     editor.isearch_repeat(false);
     let (mut current, mut others) = (Vec::new(), Vec::new());
-    editor.search_cells(&mut current, &mut others);
+    editor.isearch_cells(&mut current, &mut others);
     let cell = |row, column| CellRect {
         row,
         column,
@@ -362,7 +363,7 @@ fn the_matches_in_view_are_cells_and_the_current_one_apart() {
     assert_eq!(current, [cell(1, 1)]);
     assert_eq!(others, [cell(0, 0), cell(1, 4)]);
     editor.isearch_exit();
-    editor.search_cells(&mut current, &mut others);
+    editor.isearch_cells(&mut current, &mut others);
     assert!(current.is_empty() && others.is_empty());
 }
 
@@ -392,4 +393,120 @@ fn a_prompt_has_no_isearch() {
         .unwrap();
     assert!(!editor.isearch_begin(false));
     assert!(editor.isearch().is_none());
+}
+
+#[test]
+fn showing_another_buffer_ends_the_search_and_its_worker() {
+    let text = format!("{}needle", "x".repeat(KEY_BUDGET * 2));
+    let mut editor = editor(&text);
+    editor.isearch_begin(false);
+    editor.isearch_add("needle");
+    let job = editor.take_isearch_job().unwrap();
+    let other = editor.add_buffer(Buffer::from_text("other", "plain"));
+    editor.show(other);
+    assert!(editor.isearch().is_none());
+    assert!(job.superseded());
+    let mut reports = Vec::new();
+    job.run(|report| reports.push(report));
+    assert!(reports.is_empty());
+    assert_eq!(cursor(&editor), 0);
+}
+
+#[test]
+fn a_prompt_over_a_search_ends_it() {
+    let mut editor = editor("abc abc");
+    search(&mut editor, "b");
+    let kind = crate::minibuffer::Kind::Number { history: None };
+    editor.open_prompt("Go to line: ", kind).unwrap();
+    assert!(editor.isearch().is_none());
+    assert!(!editor.isearch_follow_text());
+}
+
+#[test]
+fn a_secret_kill_in_the_string_makes_the_searched_buffer_secret() {
+    let mut key = secret_buffer();
+    key.apply_load(crate::load::decode_all(b"KEY=abc", Default::default()));
+    let mut editor = Editor::with_buffer(key);
+    let direction = crate::kill::Direction::Forward;
+    editor.kill(std::iter::once(4..7), direction, true).unwrap();
+    let plain = editor.add_buffer(Buffer::from_text("plain", "x abc"));
+    editor.show(plain);
+    assert!(!editor.current().1.is_secret());
+    editor.isearch_begin(false);
+    editor.isearch_yank_kill();
+    assert!(editor.current().1.is_secret());
+    assert!(editor.isearch().unwrap().around_secret());
+    editor.isearch_exit();
+    editor.isearch_begin(false);
+    editor.isearch_history(true);
+    assert_eq!(
+        editor.isearch().unwrap().string(),
+        "",
+        "kept out of the history"
+    );
+}
+
+#[test]
+fn a_yank_copies_no_more_of_a_kill_than_the_string_holds() {
+    let mut editor = editor("x");
+    let long = crate::rope::Rope::from("y".repeat(MAX_QUERY_CHARS * 8).as_str());
+    let pieces = vec![
+        crate::kill::Piece::from(long),
+        crate::kill::Piece::from(crate::rope::Rope::from("z")),
+    ];
+    editor.kills.ring.push(pieces, false);
+    editor.isearch_begin(false);
+    editor.isearch_add("ab");
+    editor.isearch_yank_kill();
+    assert_eq!(
+        editor.isearch().unwrap().string().chars().count(),
+        MAX_QUERY_CHARS
+    );
+}
+
+#[test]
+fn an_exit_around_a_secret_keeps_its_message_out_of_the_messages() {
+    let mut key = secret_buffer();
+    key.apply_load(crate::load::decode_all(b"KEY=abc", Default::default()));
+    let mut editor = Editor::with_buffer(key);
+    search(&mut editor, "abc");
+    editor.isearch_exit();
+    let messages = editor.buffer(editor.messages_buffer()).unwrap().text();
+    let kept: String = messages.chunks().collect();
+    assert!(!kept.contains("Mark saved"), "{kept}");
+    assert_eq!(line(&editor), "Mark saved where search started");
+}
+
+#[test]
+fn a_load_holds_the_count_until_it_ends() {
+    let mut builder = crate::load::Builder::new(None, Default::default());
+    builder.push(b"ab ab ");
+    let mut buffer = Buffer::new("loading");
+    buffer.apply_load(builder.snapshot());
+    let mut editor = Editor::with_buffer(buffer);
+    search(&mut editor, "ab");
+    assert_eq!(line(&editor), "I-search: ab [1/2]");
+    let id = editor.window().buffer();
+    builder.push(b"ab ");
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .apply_load(builder.snapshot());
+    assert!(editor.isearch_follow_text());
+    assert_eq!(line(&editor), "I-search: ab [?/…]");
+    assert!(editor.take_isearch_job().is_none(), "nothing counts a part");
+    builder.push(b"ab");
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .apply_load(builder.snapshot());
+    assert!(!editor.isearch_follow_text());
+    builder.finish();
+    editor
+        .buffer_mut(id)
+        .unwrap()
+        .apply_load(builder.snapshot());
+    assert!(editor.isearch_follow_text());
+    drain(&mut editor);
+    assert_eq!(line(&editor), "I-search: ab [1/4]");
 }

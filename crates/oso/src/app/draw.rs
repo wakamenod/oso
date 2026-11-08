@@ -51,9 +51,15 @@ pub(super) fn with_panes<R>(
         span(&status.echo[..], Face::Text),
     ];
     editor.region_cells(&mut cells.region);
-    editor.search_cells(&mut cells.current_match, &mut cells.matches);
+    editor.isearch_cells(&mut cells.current_match, &mut cells.matches);
+    // The current match first, so that it always has room, and the regions over the matches.
+    let fills = [
+        (Face::CurrentMatch, &cells.current_match[..]),
+        (Face::Match, &cells.matches[..]),
+        (Face::Region, &cells.region[..]),
+    ];
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
-    let tiled = panes(editor, cells, &modeline, &echo);
+    let tiled = panes(editor, &fills, &modeline, &echo);
     let Some(parts) = float::Parts::of(editor) else {
         return draw(&tiled);
     };
@@ -72,7 +78,7 @@ pub(super) fn with_panes<R>(
 /// not selected (ADR 0072).
 fn panes<'a>(
     editor: &'a Editor,
-    cells: &'a Cells,
+    fills: &'a [(Face, &'a [frame::CellRect])],
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -93,9 +99,7 @@ fn panes<'a>(
             CursorStyle::Box
         },
         preedit: editor.preedit().filter(|_| !beneath),
-        region_cells: &cells.region,
-        matches: &cells.matches,
-        current_match: &cells.current_match,
+        fills,
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),

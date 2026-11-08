@@ -37,7 +37,7 @@ impl App {
             }
             UserEvent::Copies(event) => self.copies_event(event),
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
-            UserEvent::Search(report) => self.search_reported(report),
+            UserEvent::Search(report) => self.isearch_reported(report),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
         }

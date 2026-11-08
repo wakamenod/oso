@@ -106,8 +106,9 @@ pub enum Face {
     /// The region between a mark and its cursor (ADR 0071). Only its background
     /// is drawn, behind the text, which keeps its own face.
     Region,
-    /// An isearch match in view, and the current one, drawn as the region is (ADR 0082).
+    /// An isearch match in view, drawn as the region is (ADR 0082).
     Match,
+    /// The current isearch match, which stands out from the others.
     CurrentMatch,
 }
 
@@ -227,13 +228,11 @@ pub struct TextView<'a> {
     /// What an input method is composing, spliced into the cursor's row at the
     /// cursor and pushing the rest of it (ADR 0069).
     pub preedit: Option<&'a Preedit>,
-    /// The frame's cells the regions between marks and cursors take, behind the text
-    /// and its boxes, as `frame::region_cells` gives them (ADR 0071).
-    pub region_cells: &'a [CellRect],
-    /// The cells of isearch's matches in view, behind the regions, and of its current
-    /// match, as `Editor::search_cells` gives them (ADR 0082).
-    pub matches: &'a [CellRect],
-    pub current_match: &'a [CellRect],
+    /// The frame's cells filled behind the text and its boxes, each list in its face's
+    /// background, back to front: isearch's matches (ADR 0082), then the regions between
+    /// marks and cursors (ADR 0071), as `Editor::isearch_cells` and `frame::region_cells`
+    /// give them.
+    pub fills: &'a [(Face, &'a [CellRect])],
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its

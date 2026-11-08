@@ -168,6 +168,13 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   when the command before also killed. It keeps 120 entries and 64 MiB, and a yank
   inserts at most 16 MiB. An entry killed from a buffer that may hold secrets is secret,
   and yanking it makes the target buffer secret (`Verdict::Yanked`).
+- **isearch** (`Editor::isearch`, [ADR 0082](adr/0082-isearch.md)) is a mode of the selected
+  window, with its own keymap in place of the others. The matcher (`oso_core::search`, private to
+  the crate) runs Knuth–Morris–Pratt over the rope's chunks. Each key searches 256 KiB on the UI
+  thread, and one worker thread of the host's (`app/searches.rs`) goes on with a far match and counts
+  the matches over an O(1) snapshot, superseded by the next job through a generation. A frame
+  searches only the rows in view for the highlights. A search ends when its window shows another
+  buffer or a prompt opens.
 - **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
   the system's clipboard, and one answers each read within 500 ms. The host hands it what
   a command killed, joined there with line breaks, and `yank` waits for its read through

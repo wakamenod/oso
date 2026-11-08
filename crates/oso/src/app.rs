@@ -59,7 +59,7 @@ pub enum UserEvent {
     /// The clipboard's threads wrote or read (ADR 0074).
     Clipboard(clipboard::ClipboardEvent),
     /// isearch's worker found or counted something (ADR 0082).
-    Search(oso_core::search::SearchReport),
+    Search(oso_core::editor::SearchReport),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -105,6 +105,8 @@ pub struct App {
     ime: ime::ImeState,
     /// The OS clipboard's threads, or none if they could not start (ADR 0074).
     clipboard: Option<oso_platform::clipboard::Clipboard>,
+    /// isearch's worker (ADR 0082).
+    searcher: searches::Searcher,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -151,6 +153,7 @@ impl App {
             next_status: Status::default(),
             ime: ime::ImeState::default(),
             clipboard,
+            searcher: searches::Searcher::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]

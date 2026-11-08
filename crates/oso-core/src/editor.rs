@@ -28,7 +28,6 @@ use crate::buffer::{Buffer, BufferId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
-use crate::search::SearchJob;
 use crate::selection::SelectionSet;
 use crate::undo::{Direction, Opening};
 use crate::window::{ViewSize, Window};
@@ -46,8 +45,9 @@ mod save;
 mod status;
 mod view;
 
+pub use crate::search::{SearchJob, SearchReport};
 pub use copies::RecoveryAction;
-pub use isearch::{Isearch, Tally};
+pub use isearch::Isearch;
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
@@ -242,6 +242,8 @@ impl Editor {
     /// through here, but a killed buffer's, so that what was around a buffer that may hold
     /// secrets, before or after it, is marked so.
     pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        // A search keeps to the buffer it began in (ADR 0082).
+        self.isearch_abandon();
         self.note_secret_shown();
         self.windows[index].show(buffer);
         self.note_secret_shown();
@@ -255,6 +257,7 @@ impl Editor {
         }
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
+            self.isearch_abandon();
             self.window_moves_on();
             // Before it goes, as what it was cannot be asked after.
             self.note_secret_shown();

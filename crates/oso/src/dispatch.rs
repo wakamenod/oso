@@ -44,6 +44,9 @@ pub struct Dispatcher {
     /// Every keymap, held apart from the resolver, so that working out which are active
     /// borrows only them.
     keymaps: Keymaps,
+    /// The commands that run in a search rather than end it, for `run-command` (ADR 0082).
+    #[cfg(any(test, feature = "dev"))]
+    isearch_commands: Vec<CommandId>,
     /// Commands waiting for a prompt's answer, the outermost first.
     reading: Vec<prompts::Reading>,
     /// The next command run gets a passphrase.
@@ -77,6 +80,8 @@ impl Dispatcher {
         let (list, copy) = bindings::recovery_keymaps(&registry);
         let (minibuffer, question) = bindings::prompt_keymaps(&registry);
         let isearch = bindings::isearch_keymap(&registry);
+        #[cfg(any(test, feature = "dev"))]
+        let isearch_commands = bindings::isearch_commands(&registry);
         Self {
             keymaps: Keymaps {
                 global,
@@ -85,6 +90,8 @@ impl Dispatcher {
                 prompt: [minibuffer, question],
                 isearch,
             },
+            #[cfg(any(test, feature = "dev"))]
+            isearch_commands,
             reading: Vec::new(),
             passphrase_next: false,
             registry,
@@ -278,12 +285,6 @@ impl Dispatcher {
                 Err("a passphrase prompt is open; only keyboard-quit runs".into()),
             );
         }
-        // A command isearch's keys do not run ends a search first, as a key would
-        // (ADR 0082).
-        let mut ended_search = false;
-        if !name.starts_with("isearch-") && name != "keyboard-quit" {
-            ended_search = editor.isearch_exit();
-        }
         // The socket never opens a prompt that waits for a person: it gives the answer.
         let answer;
         let mut invocation = Invocation::default();
@@ -310,6 +311,9 @@ impl Dispatcher {
                 return (Effects::default(), Err(format!("{name} takes no argument")));
             }
         };
+        // A command isearch's keys do not run ends a search first, as a key would
+        // (ADR 0082).
+        let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();
         // A yank waits for the clipboard as it does from a key, and replies at once.
         let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
             self.run_or_read(editor, id, args, invocation)

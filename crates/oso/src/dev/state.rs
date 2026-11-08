@@ -23,7 +23,7 @@ use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use oso_core::editor::{Editor, Isearch, Status, Tally};
+use oso_core::editor::{Editor, Isearch, Status};
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
@@ -132,10 +132,9 @@ fn isearch_state(editor: &Editor) -> Value {
     if editor.shows_secret() || search.around_secret() {
         return json!({ "active": true });
     }
-    let count = match search.tally() {
-        Some(Tally::Known { index, total }) => json!({ "index": index, "total": total }),
-        _ => Value::Null,
-    };
+    let count = search
+        .count()
+        .map(|(index, total)| json!({ "index": index, "total": total }));
     json!({
         "active": true,
         "string": search.string(),
