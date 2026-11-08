@@ -92,22 +92,26 @@ impl<'a> Parts<'a> {
             text,
             face: Face::Float,
         };
-        let keys = match verbs {
-            Some([yes, no]) => vec![
-                y,
-                verb(" "),
-                verb(yes),
-                gap(&"  "[..minibuffer::KEY_GAP]),
-                n,
-                verb(" "),
-                verb(no),
-            ],
-            None => vec![y, gap(" "), n],
+        let (keys, shown) = match verbs {
+            Some([yes, no]) => (
+                [
+                    y,
+                    verb(" "),
+                    verb(yes),
+                    gap(&"  "[..minibuffer::KEY_GAP]),
+                    n,
+                    verb(" "),
+                    verb(no),
+                ],
+                7,
+            ),
+            None => ([y, gap(" "), n, gap(""), gap(""), gap(""), gap("")], 3),
         };
         Spans {
             label,
             message,
             keys,
+            shown,
         }
     }
 }
@@ -116,7 +120,9 @@ impl<'a> Parts<'a> {
 pub(super) struct Spans<'a> {
     label: Vec<[Span<'a>; 2]>,
     message: [Span<'a>; 4],
-    keys: Vec<Span<'a>>,
+    keys: [Span<'a>; 7],
+    /// How many of `keys` show: 7 with the verbs, 3 without.
+    shown: usize,
 }
 
 impl<'a> Spans<'a> {
@@ -125,7 +131,7 @@ impl<'a> Spans<'a> {
         Lines {
             label: self.label.iter().map(|row| &row[..]).collect(),
             message: [&self.message],
-            keys: [&self.keys],
+            keys: [&self.keys[..self.shown]],
         }
     }
 }

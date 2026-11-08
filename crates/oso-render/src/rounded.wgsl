@@ -20,7 +20,8 @@ struct Instance {
     // The outline's color, drawn outside the box.
     @location(3) outline: vec4<f32>,
     @location(4) shadow: vec4<f32>,
-    // The outline's width, the shadow's offset down, its sigma, and the quad's margin.
+    // The outline's width, the shadow's offset down, its sigma, and the quad's margin past
+    // the box, to which the bottom adds the offset.
     @location(5) params: vec4<f32>,
     // Nothing is drawn outside this: x0, y0, x1, y1.
     @location(6) clip: vec4<f32>,
@@ -42,9 +43,14 @@ struct VertexOutput {
 fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> VertexOutput {
     // 0: (0, 0), 1: (1, 0), 2: (0, 1), 3: (1, 1)
     let corner = vec2<f32>(f32(index & 1u), f32(index >> 1u));
+    // The quad is cut to the clip here, on whole pixels, so no fragment falls outside it.
     let margin = instance.params.w;
+    let down = max(instance.params.y, 0.0);
     let low = max(instance.rect.xy - vec2<f32>(margin), instance.clip.xy);
-    let high = min(instance.rect.xy + instance.rect.zw + vec2<f32>(margin), instance.clip.zw);
+    let high = min(
+        instance.rect.xy + instance.rect.zw + vec2<f32>(margin, margin + down),
+        instance.clip.zw,
+    );
     let point = mix(low, max(low, high), corner);
     var out: VertexOutput;
     out.clip_position = uniforms.ortho * vec4<f32>(point, 0.0, 1.0);
@@ -110,9 +116,6 @@ fn shadow_at(p: vec2<f32>, half: vec2<f32>, sigma: f32, corner: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    if any(in.point < in.clip.xy) || any(in.point >= in.clip.zw) {
-        discard;
-    }
     let half = in.rect.zw * 0.5;
     let center = in.rect.xy + half;
     let d = rounded_box(in.point - center, half, in.radii);
@@ -125,7 +128,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let front = vec4<f32>(in.fill.rgb * fill + in.outline.rgb * line, fill + line);
     var back = 0.0;
     let sigma = in.params.z;
-    if in.shadow.a > 0.0 && sigma > 0.0 {
+    // Nothing of the shadow shows under an opaque front, which is most of a panel.
+    if in.shadow.a > 0.0 && sigma > 0.0 && front.a < 1.0 {
         let offset = vec2<f32>(0.0, in.params.y);
         let corner = max(max(in.radii.x, in.radii.y), max(in.radii.z, in.radii.w));
         back = in.shadow.a * shadow_at(in.point - center - offset, half, sigma, corner);

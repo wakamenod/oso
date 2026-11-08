@@ -151,8 +151,15 @@ inside the answer's cells.
   above the field.
 - **Cost per frame with a float open:** two to four instances (panel, field or two chips), at most 448
   bytes uploaded, and one more draw call in one layer. The panel's quad covers the panel and its shadow,
-  about 1900 x 250 physical pixels on a 2880 px wide window at scale 2: under 0.5 Mpx of a few dozen
-  ALU operations each, well under 0.1 ms of GPU time on an M1. Building them on the CPU is constant.
+  about 1900 x 250 physical pixels on a 2880 px wide window at scale 2, under 0.5 Mpx. The shadow is
+  about 200 operations a fragment, some 20 of them transcendental, and is skipped under the opaque
+  fill, about half the quad; only the bottom margin adds the shadow's offset. That is estimated well
+  under 0.1 ms of GPU time on an M1, to be measured with a GPU capture. The flat background and border
+  rectangles of ADR 0072 go, so the layer's draw calls do not grow. Building the boxes on the CPU is
+  constant, with no allocation.
+- **At startup** the second pipeline is compiled with the first, before the first frame: about 1 to 3
+  ms, which `just perf`'s `startup_ms` checks. If it shows, the pipeline is created after the first
+  frame, not on first use, which would move the stall into the key that opens a prompt.
 - **With no float open nothing changes:** the instance list is empty, nothing is uploaded and no draw
   is recorded. The flat rectangles keep their shader and vertices.
 - **Colors stay linear and blending premultiplied,** as the glyphs' are.
@@ -198,7 +205,7 @@ converted to linear constants in `pane.rs`:
 | `float.label` | `Prompt` | `#9c9eb0` |
 | `float.field.background` | `Text`'s background | the text area's |
 | `float.field.outline` | `Field` | `#6f86bd` |
-| `float.key.background` | `Key` | `#4d4f60` |
+| `float.key.background` | `Key` | `#55576a`: the mock-up's `#4d4f60` all but vanished on the fill in the app |
 | `float.key.foreground` | `Key` | `#c8cde0` |
 
 A question's label keeps the text's color, a prompt's label is dim, as in the mock-up. The keys'

@@ -62,7 +62,7 @@ pub(crate) struct Rounded {
     pub(crate) outline: [f32; 4],
     pub(crate) shadow: [f32; 4],
     /// The outline's width, the shadow's offset down, its sigma, and how far past the box
-    /// the quad reaches.
+    /// the quad reaches, with the offset added below.
     pub(crate) params: [f32; 4],
     /// Nothing is drawn outside this: left, top, right and bottom.
     pub(crate) clip: [f32; 4],
@@ -416,7 +416,7 @@ pub(crate) fn panel(
         fill: Face::Float.background(),
         outline: Face::FloatBorder.background(),
         shadow: style.shadow,
-        params: [hairline, down, sigma, 3.0 * sigma + down + hairline + 1.0],
+        params: [hairline, down, sigma, 3.0 * sigma + hairline + 1.0],
         clip,
     };
     let field = panel
