@@ -83,6 +83,9 @@ pub fn export(
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
+    if editor.isearch().is_some() {
+        return Err(SEARCHING.into());
+    }
     let mut buffers = Vec::new();
     for (id, buffer) in editor.buffers() {
         buffers.push(buffer_state(id, buffer)?);
@@ -232,6 +235,9 @@ pub fn check(editor: &Editor) -> Reply {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
+    if editor.isearch().is_some() {
+        return Err(SEARCHING.into());
+    }
     Ok(json!({ "generation": generation(editor) }))
 }
 
@@ -242,6 +248,10 @@ const COMPOSING: &str = "cannot hand over: a composition is open";
 /// Why a restart waits for every prompt to close: it is no unsaved work, but a new
 /// instance would take it away from the person mid-answer (ADR 0072).
 const PROMPTING: &str = "cannot hand over: a prompt is open";
+
+/// Why a restart waits for isearch to end: a new instance would take the search away
+/// mid-typing (ADR 0082).
+const SEARCHING: &str = "cannot hand over: a search is under way";
 
 /// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
 /// whatever that buffer holds.
@@ -289,6 +299,9 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
             Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
         Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
+        Some(_) if editor.isearch().is_some() => {
+            Err(format!("{EXIT_REFUSED}: a search is under way"))
+        }
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),

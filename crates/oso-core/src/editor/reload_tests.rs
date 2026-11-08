@@ -188,6 +188,19 @@ fn a_reload_waits_while_a_prompt_is_open() {
 }
 
 #[test]
+fn a_reload_waits_while_an_isearch_is_on() {
+    let (mut editor, id) = visiting("abc\n");
+    editor.isearch_begin(false);
+    editor.isearch_add("b");
+    assert!(editor.reload_waits());
+    assert_eq!(reload(&mut editor, id, "new\n"), ReloadOutcome::Later);
+    assert_eq!(text(&editor, id), "abc\n");
+    editor.isearch_exit();
+    assert!(!editor.reload_waits());
+    assert_eq!(reload(&mut editor, id, "new\n"), ReloadOutcome::Reloaded);
+}
+
+#[test]
 fn the_same_text_changes_nothing() {
     let (mut editor, id) = visiting("abc\n");
     let revision = editor.buffer(id).unwrap().revision();

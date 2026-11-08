@@ -10,6 +10,7 @@
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+mod isearch;
 mod kill;
 mod mark;
 mod messages;
@@ -35,6 +36,7 @@ const TABLES: &[&[Command]] = &[
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
+    isearch::COMMANDS,
     kill::COMMANDS,
     mark::COMMANDS,
     messages::COMMANDS,
@@ -161,6 +163,19 @@ mod tests {
             "universal-argument",
             // The OS clipboard.
             "yank",
+            // isearch, which reads keys (ADR 0082).
+            "isearch-backward",
+            "isearch-delete-char",
+            "isearch-exit",
+            "isearch-forward",
+            "isearch-printing-char",
+            "isearch-repeat-backward",
+            "isearch-repeat-forward",
+            "isearch-ring-advance",
+            "isearch-ring-retreat",
+            "isearch-toggle-case-fold",
+            "isearch-yank-kill",
+            "isearch-yank-word-or-char",
         ];
         #[cfg(feature = "dev")]
         expected.extend(["dev-panic", "dev-read-passphrase"]);

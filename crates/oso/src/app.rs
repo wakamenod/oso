@@ -26,6 +26,7 @@ mod loads;
 mod log_gate;
 mod reloads;
 mod saves;
+mod searches;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
 // Both give the same loop, window and waker, under the one name.
 #[cfg(all(target_os = "macos", feature = "native-window"))]
@@ -62,6 +63,8 @@ pub enum UserEvent {
     Copies(CopiesEvent),
     /// The clipboard's threads wrote or read (ADR 0074).
     Clipboard(clipboard::ClipboardEvent),
+    /// isearch's worker found or counted something (ADR 0082).
+    Search(oso_core::editor::SearchReport),
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -110,6 +113,8 @@ pub struct App {
     ime: ime::ImeState,
     /// The OS clipboard's threads, or none if they could not start (ADR 0074).
     clipboard: Option<oso_platform::clipboard::Clipboard>,
+    /// isearch's worker (ADR 0082).
+    searcher: searches::Searcher,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -163,6 +168,7 @@ impl App {
             next_status: Status::default(),
             ime: ime::ImeState::default(),
             clipboard,
+            searcher: searches::Searcher::default(),
             log_gate,
             #[cfg(feature = "dev")]
             dev: None,
@@ -185,6 +191,7 @@ impl App {
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
         self.start_saves();
+        self.start_searches();
         self.start_reverts();
         self.answer_about_copies();
         if effects.redraw {

@@ -79,9 +79,10 @@ impl Editor {
     }
 
     /// Whether a file read again must wait: while a prompt is open, as what it acts on must
-    /// not change under it (ADR 0072).
+    /// not change under it (ADR 0072), and while an isearch is on, which would have to search
+    /// it again from where it stands (ADR 0082).
     pub fn reload_waits(&self) -> bool {
-        !self.prompts.is_empty()
+        !self.prompts.is_empty() || self.isearch().is_some()
     }
 
     /// Judges the file of `id` again, as it is being read again: from where its path leads now
