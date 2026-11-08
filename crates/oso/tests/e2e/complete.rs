@@ -28,7 +28,7 @@ fn m_x_lists_the_commands_narrows_and_runs_the_one_taken() {
     assert_eq!(completion["selected"], 0);
     assert_eq!(state["ime"]["wanted"], false, "a prompt reads keys");
 
-    app.send_keys(&typing("char forward"));
+    app.send_keys(&format!("{} SPC {}", typing("char"), typing("forward")));
     let completion = app.state()["prompts"][0]["completion"].clone();
     assert_eq!(completion["rows"][0], "forward-char");
     app.send_keys("C-n C-p RET");
