@@ -78,35 +78,46 @@ impl Editor {
     }
 
     /// The buffer and the offset of the mark the innermost prompt's selected row names, while
-    /// that prompt is a `C-.` list.
+    /// that prompt is a `C-.` list of the buffer the tiled window shows.
     pub(super) fn selected_mark(&self) -> Option<(BufferId, usize)> {
         let list = self.mark_list.as_ref()?;
         let prompt = self.prompt().filter(|prompt| prompt.id() == list.prompt)?;
+        if self.tiled().0.buffer() != list.buffer {
+            return None;
+        }
         let row = prompt.candidates()?.selected_candidate()?.text();
         let offset = list.marks.iter().find(|(text, _)| text == row)?.1;
         Some((list.buffer, offset))
     }
 
-    /// Goes to the mark that the row `answer` of the last `C-.` list names, with one cursor and
-    /// the region hidden, and sets the mark where the cursor was, which puts the old mark in the
-    /// ring, as `C-u C-SPC` keeps where it came from.
+    /// Goes to the mark that the row `answer` of a `C-.` list names by its line and column,
+    /// clipped to the text as it is now, with one cursor and the region hidden, and sets the mark
+    /// where the cursor was, which puts the old mark in the ring, as `C-u C-SPC` keeps where it
+    /// came from.
     ///
     /// # Errors
     ///
-    /// [`PromptError::Invalid`] if no list named it, or its buffer is not shown now.
+    /// [`PromptError::Invalid`] if `answer` names no line and column.
     pub fn go_to_listed_mark(&mut self, answer: &str) -> Result<(), PromptError> {
-        let list = self.mark_list.take().ok_or(PromptError::Invalid)?;
-        let offset = list
-            .marks
-            .iter()
-            .find(|(text, _)| text == answer)
-            .ok_or(PromptError::Invalid)?
-            .1;
+        let mut parts = answer.splitn(3, ':');
+        let line: usize = parts
+            .next()
+            .and_then(|part| part.parse().ok())
+            .ok_or(PromptError::Invalid)?;
+        let column: usize = parts
+            .next()
+            .and_then(|part| part.parse().ok())
+            .ok_or(PromptError::Invalid)?;
         let (window, buffer) = self.current_mut();
-        if window.buffer() != list.buffer {
+        let text = buffer.text();
+        let row = line.checked_sub(1).ok_or(PromptError::Invalid)?;
+        if row > text.offset_to_point(text.len()).row {
             return Err(PromptError::Invalid);
         }
-        let offset = offset.min(buffer.text().len());
+        let start = text.line_start(row);
+        let offset = (start + column).min(text.line_end(row));
+        let display = buffer.display();
+        let offset = crate::motion::cluster_start(&display, offset);
         let selections = &mut window.selections;
         let from = selections.primary().cursor;
         selections.keep_primary();
@@ -115,6 +126,17 @@ impl Editor {
         selections.set_mark_active(crate::selection::MarkActive::Inactive);
         self.follow_cursor();
         Ok(())
+    }
+
+    /// Forgets a `C-.` list whose prompt `closed`.
+    pub(super) fn forget_marks(&mut self, closed: PromptId) {
+        if self
+            .mark_list
+            .as_ref()
+            .is_some_and(|list| list.prompt == closed)
+        {
+            self.mark_list = None;
+        }
     }
 }
 

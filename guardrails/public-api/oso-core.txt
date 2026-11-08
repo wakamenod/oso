@@ -450,6 +450,7 @@ pub fn oso_core::complete::Candidate::fmt(&self, &mut core::fmt::Formatter<'_>) 
 pub struct oso_core::complete::Candidates
 impl oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::get(&self, usize) -> core::option::Option<&oso_core::complete::Candidate>
+pub fn oso_core::complete::Candidates::in_order_given(&self) -> bool
 pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
 pub fn oso_core::complete::Candidates::len(&self) -> usize
 pub fn oso_core::complete::Candidates::on_input(&self) -> bool
@@ -1102,7 +1103,7 @@ pub fn oso_core::editor::Editor::kill_buffer(&mut self, oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::kill_by_person(&mut self, oso_core::buffer::BufferId, bool) -> core::result::Result<(), oso_core::editor::KillRefused>
 pub fn oso_core::editor::Editor::preview(&self) -> core::option::Option<oso_core::editor::Preview>
 pub fn oso_core::editor::Editor::set_home(&mut self, core::option::Option<std::path::PathBuf>)
-pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str)
+pub fn oso_core::editor::Editor::switch_to_named(&mut self, &str) -> core::result::Result<(), &'static str>
 pub fn oso_core::editor::Editor::take_freed(&mut self) -> alloc::vec::Vec<oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::walk_buffers(&mut self, isize) -> core::result::Result<(), &'static str>
 impl oso_core::editor::Editor

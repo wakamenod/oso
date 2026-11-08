@@ -284,3 +284,18 @@ fn a_preview_shows_the_selected_buffer_where_the_window_was_and_never_a_secret()
     assert_eq!(editor.preview(), Some(Preview::Withheld));
     assert!(!editor.shows_secret(), "nothing of it reached the screen");
 }
+
+#[test]
+fn a_new_buffers_name_is_bounded_and_holds_no_control_character() {
+    let mut editor = Editor::default();
+    assert_eq!(
+        editor.switch_to_named(&"x".repeat(256)),
+        Err("That name is too long")
+    );
+    assert_eq!(
+        editor.switch_to_named("a\nb"),
+        Err("A buffer's name holds no control characters")
+    );
+    assert_eq!(editor.switch_to_named("fine"), Ok(()));
+    assert_eq!(shown(&editor), "fine");
+}

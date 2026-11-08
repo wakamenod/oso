@@ -13,6 +13,9 @@ use crate::window::{Place, Walk};
 
 use super::SCRATCH;
 
+/// The longest name a new buffer may have, in bytes.
+pub const MAX_NAME_BYTES: usize = 255;
+
 /// What a prompt's preview shows (ADR 0088).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preview {
@@ -170,32 +173,51 @@ impl Editor {
     /// The buffer a person may go to that is named `name`, as [`Editor::buffers_by_recency`]
     /// lists them.
     pub fn buffer_named(&self, name: &str) -> Option<BufferId> {
-        self.buffers_by_recency()
-            .into_iter()
-            .find(|id| self.buffer(*id).is_some_and(|buffer| buffer.name() == name))
+        // Names are unique, so one pass finds it, whatever the order.
+        self.buffers
+            .iter()
+            .find(|(id, buffer)| {
+                buffer.name() == name
+                    && (!buffer.is_internal()
+                        || *id == self.messages_buffer
+                        || Some(*id) == self.copies_buffer)
+            })
+            .map(|(id, _)| *id)
     }
 
     /// Shows the buffer named `name`, making an empty one with no file if none is (ADR 0088).
     /// An empty name shows nothing.
-    pub fn switch_to_named(&mut self, name: &str) {
+    ///
+    /// # Errors
+    ///
+    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character.
+    pub fn switch_to_named(&mut self, name: &str) -> Result<(), &'static str> {
         if name.is_empty() {
-            return;
+            return Ok(());
         }
         let id = match self.buffer_named(name) {
             Some(id) => id,
+            None if name.len() > MAX_NAME_BYTES => return Err("That name is too long"),
+            None if name.chars().any(char::is_control) => {
+                return Err("A buffer's name holds no control characters");
+            }
             None => self.add_buffer(Buffer::new(name)),
         };
         self.show(id);
+        Ok(())
     }
 
     /// What the innermost prompt's preview shows, if it has one and a candidate is selected:
     /// the buffer that candidate names, from where the tiled window last was in it, or that
     /// it may hold secrets, which it never shows (ADR 0088).
     pub fn preview(&self) -> Option<Preview> {
-        // `C-.` previews the buffer it lists the marks of, which is shown already, so one that
-        // may hold secrets shows too: nothing new reaches the screen.
+        // `C-.` previews the buffer it lists the marks of, unless it may hold secrets, as any
+        // preview.
         if let Some((id, cursor)) = self.selected_mark() {
             let buffer = self.buffer(id)?;
+            if buffer.verdict().is_withheld() {
+                return Some(Preview::Withheld);
+            }
             let row = buffer.display().offset_to_display_point(cursor).row;
             let rows = self
                 .prompt_layout()
