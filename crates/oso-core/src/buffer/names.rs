@@ -49,10 +49,13 @@ fn dirs(path: &Path) -> Vec<String> {
     let Some(parent) = path.parent() else {
         return Vec::new();
     };
+    // Only names: a root, a drive or `..` tells no two files apart.
     parent
         .components()
-        .map(|part| part.as_os_str().to_string_lossy().into_owned())
-        .filter(|part| part != "/")
+        .filter_map(|part| match part {
+            std::path::Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            _ => None,
+        })
         .collect()
 }
 
