@@ -1,0 +1,35 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: notes\\n"
+---
+keys: x C-x C-c
+│xnotes                                                          │
+: o                                                              :
+│                                                                │
+│                                                                │
+│                                                                │
+│                                                                │
+│                                                                │
+=** test  1:1  Fundamental  UTF-8 LF                             =
+"                                                                "
+float at row 1, column 12: 4 x 40
+┌──────────────────────────────────────┐
+│1 modified buffer; exit without       │
+│saving? (y or n)                      │
+└──────────────────────────────────────┘
+
+keys: a
+│xnotes                                                          │
+: o                                                              :
+│                                                                │
+│                                                                │
+│                                                                │
+│                                                                │
+│                                                                │
+=** test  1:1  Fundamental  UTF-8 LF                             =
+"                                                                "
+float at row 1, column 12: 4 x 40
+┌──────────────────────────────────────┐
+│1 modified buffer; exit without       │
+│saving? (y or n)       [Answer y or n]│
+└──────────────────────────────────────┘

@@ -6,12 +6,30 @@
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx};
 
 /// The dev commands.
-pub const COMMANDS: &[Command] = &[Command {
-    name: "dev-panic",
-    doc: "Panic under the command boundary, quoting the buffer's text in the message.\n\nFor testing that the panic is caught, that nothing is saved, and that the text reaches no output.",
-    args: ArgSpec::None,
-    run: dev_panic,
-}];
+pub const COMMANDS: &[Command] = &[
+    Command {
+        name: "dev-panic",
+        doc: "Panic under the command boundary, quoting the buffer's text in the message.\n\nFor testing that the panic is caught, that nothing is saved, and that the text reaches no output.",
+        args: ArgSpec::None,
+        run: dev_panic,
+    },
+    Command {
+        name: "dev-read-passphrase",
+        doc: "Read a passphrase, and say only that one was read.\n\nFor testing that a passphrase prompt stays out of history, logs and the control socket (ADR 0072). Nothing uses what was typed.",
+        args: ArgSpec::Passphrase {
+            prompt: "Passphrase (dev): ",
+        },
+        run: dev_read_passphrase,
+    },
+];
+
+fn dev_read_passphrase(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    if ctx.answer().is_none() {
+        return Err(CommandError::new("No passphrase was read"));
+    }
+    ctx.editor.message("Read a passphrase");
+    Ok(())
+}
 
 fn dev_panic(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     panic!("a deliberate panic: {}", ctx.editor.current().1.text());

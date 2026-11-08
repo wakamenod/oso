@@ -137,7 +137,7 @@ mod tests {
     //! system, so these assert the same on an OS with no text backend.
 
     use super::*;
-    use crate::pane::{Layer, PaneContent, PaneId, Span};
+    use crate::pane::{Bands, Layer, PaneContent, PaneId, Span};
     use oso_core::frame::CellRect;
     use oso_platform::text::{CellMetrics, FontId, GlyphBitmap, GlyphFormat, GlyphId, ShapedGlyph};
 
@@ -296,6 +296,8 @@ mod tests {
             },
             layer: Layer(layer),
             background,
+            border: None,
+            bands: Bands::NONE,
             content: PaneContent::Lines(lines),
         }
     }

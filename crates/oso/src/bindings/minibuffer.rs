@@ -1,0 +1,24 @@
+//! Default key bindings of prompts (ADR 0033, ADR 0072).
+//!
+//! Must not depend on: `dispatch`, `app` or winit; bindings are data.
+
+/// The keys of a prompt that reads an answer, above the global keymap, so editing keys
+/// work in it unchanged.
+pub const MINIBUFFER: &[(&str, &str)] = &[
+    ("RET", "exit-minibuffer"),
+    ("C-g", "keyboard-quit"),
+    ("M-p", "previous-history-element"),
+    ("M-n", "next-history-element"),
+];
+
+/// The keys of a question, in place of the global keymap: no other key reaches a command.
+/// `SPC`, `DEL` and `RET` do not answer, unlike in Emacs, as prose types them most.
+pub const QUESTION: &[(&str, &str)] = &[
+    ("y", "answer-yes"),
+    ("n", "answer-no"),
+    ("C-g", "keyboard-quit"),
+];
+
+/// Keys only a dev build has, for the end-to-end flows.
+#[cfg(feature = "dev")]
+pub const DEV: &[(&str, &str)] = &[("<f34>", "dev-read-passphrase")];

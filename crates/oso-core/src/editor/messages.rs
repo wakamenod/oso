@@ -9,7 +9,8 @@
 //! is, since what it says can depend on the text, and one from a command that took such a
 //! buffer off the screen goes nowhere. The dispatcher marks where a command begins and ends.
 //!
-//! The echo area keeps its text until the next key. What was echoed around such a buffer,
+//! What a command run in a prompt says goes in the prompt instead of the echo area, as
+//! the person looks there (ADR 0072). The echo area keeps its text until the next key. What was echoed around such a buffer,
 //! or a file not yet judged, goes when the window moves on. A file judged ordinary keeps
 //! it until the next key, as no text of it had arrived. What arrives behind keys in
 //! progress waits for them to end, since they show in its place.
@@ -69,6 +70,9 @@ pub(super) struct Echo {
     /// It was said around a buffer that may hold secrets, or a file not yet judged, so it
     /// goes when the window moves on, for good.
     goes_with_the_window: bool,
+    /// It was said around such a buffer or by a command that got a passphrase, so the control
+    /// socket leaves it out.
+    withheld: bool,
 }
 
 /// Where a window was before it showed an internal buffer, to go back to. M2-19 removes this
@@ -110,7 +114,7 @@ impl Editor {
             if left_secret {
                 return;
             }
-            if self.shows_secret() {
+            if self.shows_secret() || self.passphrase_command {
                 self.set_echo(text);
                 return;
             }
@@ -118,14 +122,21 @@ impl Editor {
         let text = capped(text.into());
         let shown = capped(log_text(&text));
         log::info!("{shown}");
-        self.echo = Some(Echo {
+        self.put_echo(Echo {
             text,
             goes_with_the_window: false,
+            withheld: false,
         });
         // Last, so that the log and the echo area have it if this panics. Outside a command
         // that is a panic like any other: the hook writes the emergency copies, and the process
         // ends (ADR 0062). So nothing here may catch it. Inside one, the boundary catches it.
         self.add_to_messages_buffer(&shown);
+    }
+
+    /// Whether a command is running, between [`Editor::begin_command`] and
+    /// [`Editor::end_command`].
+    pub(super) fn in_command(&self) -> bool {
+        self.command_left_secret.is_some()
     }
 
     /// Marks that a command begins. Until [`Editor::end_command`], what it says is
@@ -139,6 +150,7 @@ impl Editor {
     /// a bug to find.
     pub fn end_command(&mut self) {
         self.command_left_secret = None;
+        self.passphrase_command = false;
     }
 
     /// Shows `text` in the echo area alone, for what must stay out of the log and
@@ -154,10 +166,28 @@ impl Editor {
     }
 
     fn set_echo(&mut self, text: impl Into<String>) {
-        self.echo = Some(Echo {
+        let secret = self.shows_secret() || self.passphrase_command;
+        self.put_echo(Echo {
             text: capped(text.into()),
             goes_with_the_window: self.shows_secret(),
+            withheld: secret,
         });
+    }
+
+    /// Whether the echo area's line was said by a command that got a passphrase, so the
+    /// control socket leaves it out (ADR 0072).
+    pub fn echo_withheld(&self) -> bool {
+        self.echo.as_ref().is_some_and(|echo| echo.withheld)
+    }
+
+    /// Shows `echo` in the echo area, or in the innermost prompt if a command run there said
+    /// it, where the person is looking (ADR 0072).
+    fn put_echo(&mut self, echo: Echo) {
+        if self.message_goes_in_prompt() {
+            self.say_in_prompt(echo.text, echo.withheld);
+        } else {
+            self.echo = Some(echo);
+        }
     }
 
     /// Empties the echo area if it still says `text`, for what said it was only until something
@@ -175,6 +205,7 @@ impl Editor {
         if self.keys_in_progress.is_empty() {
             self.echo = None;
         }
+        self.clear_prompt_message();
     }
 
     /// A window is about to stop showing its buffer: what was echoed around one that may hold
@@ -242,8 +273,12 @@ impl Editor {
     }
 
     /// Shows `*Messages*` in the selected window, with its last row in view. From
-    /// `*Messages*`, goes back to where the window was.
+    /// `*Messages*`, goes back to where the window was. Does nothing while a prompt is open,
+    /// as a prompt's window always shows its own buffer (ADR 0072).
     pub fn toggle_messages(&mut self) {
+        if !self.prompts.is_empty() {
+            return;
+        }
         if self.window().buffer() != self.messages_buffer {
             self.go_to_internal(self.messages_buffer);
             let (window, buffer) = self.current_mut();
@@ -267,7 +302,8 @@ impl Editor {
                 // it was keeps its goal, as `C-n` then has it to go on. The marks go where a
                 // cursor can be too, and the region stays hidden, as it does for another
                 // buffer (ADR 0071).
-                let display = self.current().1.display();
+                // The window `show` went to: the tiled one, also beneath a prompt (ADR 0072).
+                let display = self.tiled().1.display();
                 selections.set_mark_active(MarkActive::Inactive);
                 clip_selections(&mut selections, &display, &[], false);
                 self.restore_positions(selections, scroll);
@@ -430,10 +466,7 @@ mod tests {
         assert!(buffer.is_internal());
         assert!(!buffer.is_modified());
         assert_eq!(buffer.read_only(), Some(ReadOnly::Internal));
-        assert_eq!(
-            editor.confirm_exit(crate::editor::ExitAction::Command),
-            Ok(())
-        );
+        assert_eq!(editor.confirm_exit(false), Ok(()));
     }
 
     #[test]

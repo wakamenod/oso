@@ -59,7 +59,7 @@ pub enum ReadOnly {
     /// The file is binary (a NUL byte in its first 8 KB). It can never be
     /// saved.
     Binary,
-    /// The editor keeps this buffer for itself.
+    /// The editor keeps this buffer for itself, and only the editor changes it.
     Internal,
 }
 
@@ -169,8 +169,14 @@ pub struct Buffer {
     baseline: Option<Baseline>,
     /// A save found the file changed since then, and nothing has written it since.
     changed_on_disk: bool,
+    /// The regular file that save found, which a save the person agrees to may replace.
+    save_over: Option<FileStamp>,
     /// The editor keeps this buffer for itself.
     internal: bool,
+    /// An internal buffer that takes typing, as a prompt's does (ADR 0072).
+    takes_typing: bool,
+    /// Edits keep no undo record, so that no copy of the text stays in one.
+    no_history: bool,
     /// Which keys it takes.
     mode: Mode,
     /// An emergency copy of its file waits for an answer.
@@ -215,7 +221,10 @@ impl Buffer {
             info: FileInfo::default(),
             baseline: None,
             changed_on_disk: false,
+            save_over: None,
             internal: false,
+            takes_typing: false,
+            no_history: false,
             mode: Mode::Fundamental,
             copy_waits: false,
             own_spelling: None,
@@ -324,9 +333,11 @@ impl Buffer {
         self.baseline.as_ref()
     }
 
-    /// Records where the file is and what was there, when it is opened to load.
+    /// Records where the file is and what was there, when it is opened to load. What a
+    /// save found changed was measured against the old one, so nothing is saved over now.
     pub fn set_baseline(&mut self, baseline: Baseline) {
         self.baseline = Some(baseline);
+        self.save_over = None;
     }
 
     /// Records the file a save has just put in place.
@@ -342,8 +353,27 @@ impl Buffer {
         self.changed_on_disk
     }
 
+    /// Records whether a save found the file changed. A file that has not changed has
+    /// nothing to save over.
     pub(crate) fn set_changed_on_disk(&mut self, changed: bool) {
         self.changed_on_disk = changed;
+        if !changed {
+            self.save_over = None;
+        }
+    }
+
+    /// The regular file a save found changed on disk, which a save the person agrees to
+    /// may replace, if it is still that file (ADR 0072).
+    pub(crate) fn save_over(&self) -> Option<FileStamp> {
+        self.save_over.filter(|_| self.changed_on_disk)
+    }
+
+    pub(crate) fn set_save_over(&mut self, found: FileStamp) {
+        self.save_over = Some(found);
+    }
+
+    pub(crate) fn forget_save_over(&mut self) {
+        self.save_over = None;
     }
 
     /// Whether a save of this buffer is running. Until it ends, the disk may hold
@@ -407,6 +437,9 @@ impl Buffer {
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
+        if self.no_history {
+            return;
+        }
         let after = Side {
             content: self.content,
             selections: after,
@@ -525,7 +558,7 @@ impl Buffer {
     /// Why the buffer cannot be edited, if it cannot. A reason that lasts
     /// wins over loading.
     pub fn read_only(&self) -> Option<ReadOnly> {
-        if self.internal {
+        if self.internal && !self.takes_typing {
             Some(ReadOnly::Internal)
         } else if self.info.binary {
             Some(ReadOnly::Binary)

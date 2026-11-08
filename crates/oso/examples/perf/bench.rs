@@ -20,8 +20,10 @@ use crate::process;
 use crate::report::{Gpu, Report, max, median, percentile};
 
 mod compose;
+mod edits;
 
 use compose::composing;
+use edits::{deleting, prompting};
 
 const MB: u64 = 1024 * 1024;
 const GB: u64 = 1024 * MB;
@@ -355,31 +357,11 @@ fn typing(app: &mut App, keys: &[&str], count: usize, rng: &mut Lcg) -> Result<V
     Ok(samples)
 }
 
-/// Key press to presented frame while `DEL` removes what `typing` typed. Only
-/// reported. Fails unless each key drew a frame and the text shrank.
-fn deleting(app: &mut App, count: usize, rng: &mut Lcg) -> Result<Vec<f64>, String> {
-    let before = text_bytes(app)?;
-    let samples = paced_keys(app, &["DEL"], count, rng)?;
-    let after = text_bytes(app)?;
-    if after + count as u64 > before {
-        return Err(format!(
-            "{count} deleting keys took the text from {before} to {after} bytes"
-        ));
-    }
-    if samples.len() != count {
-        return Err(format!(
-            "{count} deleting keys drew {} frames",
-            samples.len()
-        ));
-    }
-    Ok(samples)
-}
-
 /// Key press to presented frame on a screen of mixed text, in new processes.
 fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> Result<(), String> {
     let (mut p50, mut p99, mut worst) = (Vec::new(), Vec::new(), Vec::new());
     let (mut type_p50, mut type_p99, mut type_worst) = (Vec::new(), Vec::new(), Vec::new());
-    let (mut del_p99, mut ime_p99) = (Vec::new(), Vec::new());
+    let (mut del_p99, mut ime_p99, mut prompt_p99) = (Vec::new(), Vec::new(), Vec::new());
     for run in 0..scale.key_runs {
         let mut app = App::start(exe, Some(file))?;
         app.wait_until("loaded file", LOAD_TIMEOUT, |t| {
@@ -400,6 +382,8 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
         del_p99.push(percentile(&samples, 99.0));
         let samples = composing(&mut app, scale.keys, &mut rng)?;
         ime_p99.push(percentile(&samples, 99.0));
+        let samples = prompting(&mut app, scale.keys, &mut rng)?;
+        prompt_p99.push(percentile(&samples, 99.0));
         app.stop();
     }
     report.add("key_p50_ms", p50);
@@ -410,6 +394,7 @@ fn key_latency(exe: &Path, file: &Path, scale: &Scale, report: &mut Report) -> R
     report.add("type_max_ms", type_worst);
     report.add("del_p99_ms", del_p99);
     report.add("ime_preedit_p99_ms", ime_p99);
+    report.add("prompt_type_p99_ms", prompt_p99);
     Ok(())
 }
 

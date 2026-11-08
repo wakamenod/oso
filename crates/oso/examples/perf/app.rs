@@ -150,8 +150,9 @@ impl App {
     /// Asks the app to exit as a user would, so that it removes its socket,
     /// and kills it if it does not.
     pub fn stop(mut self) {
-        // Twice, since the benchmarks leave buffers modified (ADR 0059).
-        let _ = self.send_keys("C-x C-c C-x C-c");
+        // And `y`, since the benchmarks leave buffers modified, and the exit asks
+        // (ADR 0059, ADR 0072).
+        let _ = self.send_keys("C-x C-c y");
         let started = Instant::now();
         while started.elapsed() < EXIT_TIMEOUT {
             if matches!(self.child.try_wait(), Ok(Some(_))) {

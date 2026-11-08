@@ -118,7 +118,7 @@ mod macos {
         let prepared = prepare(&job).unwrap();
         add(&path, "everyone allow read");
         let changed = list(&path);
-        assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict)));
+        assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict(_))));
         assert_eq!(fs::read(&path).unwrap(), b"old\n");
         assert_eq!(list(&path), changed);
         assert_eq!(scratch.names(), ["notes.txt"]);
@@ -332,7 +332,7 @@ mod linux {
             path.as_ref(),
         ]);
         assert_eq!(mode(&path), before, "nothing but the list changed");
-        assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict)));
+        assert!(matches!(prepared.commit(&job), Err(SaveError::Conflict(_))));
         assert_eq!(fs::read(&path).unwrap(), b"old\n");
     }
 }
