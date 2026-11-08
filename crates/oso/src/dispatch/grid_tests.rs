@@ -75,7 +75,7 @@ fn draw_float(editor: &Editor, lines: &mut Vec<String>) {
         "float at row {}, column {}: {} x {}",
         outer.row, outer.column, outer.rows, outer.columns
     ));
-    let framed = layout.regions.framed();
+    let framed = layout.regions.inner != layout.regions.outer;
     let edge = if framed { '│' } else { '|' };
     let label = prompt.label();
     let rows = &layout.label;

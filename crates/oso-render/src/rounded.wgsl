@@ -59,7 +59,8 @@ fn vs_main(@builtin(vertex_index) index: u32, instance: Instance) -> VertexOutpu
 fn rounded_box(p: vec2<f32>, half: vec2<f32>, r: vec4<f32>) -> f32 {
     let top = select(r.x, r.y, p.x > 0.0);
     let bottom = select(r.w, r.z, p.x > 0.0);
-    let radius = select(bottom, top, p.y < 0.0);
+    // No corner is wider than half the box, so a narrow box stays a box.
+    let radius = min(select(bottom, top, p.y < 0.0), min(half.x, half.y));
     let q = abs(p) - half + vec2<f32>(radius);
     return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - radius;
 }
@@ -120,7 +121,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Nothing of the shadow shows under an opaque front, which is most of a panel.
     if in.shadow.a > 0.0 && sigma > 0.0 && front.a < 1.0 {
         let offset = vec2<f32>(0.0, in.params.y);
-        let corner = max(max(in.radii.x, in.radii.y), max(in.radii.z, in.radii.w));
+        let widest = max(max(in.radii.x, in.radii.y), max(in.radii.z, in.radii.w));
+        let corner = min(widest, min(half.x, half.y));
         back = in.shadow.a * shadow_at(in.point - center - offset, half, sigma, corner);
     }
     let under = vec4<f32>(in.shadow.rgb * back, back) * (1.0 - front.a);

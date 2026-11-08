@@ -37,14 +37,13 @@ pub(super) fn boxes(
     let radius = style.radius * pt;
     let top = if attached { 0.0 } else { radius };
     let hairline = whole(style.hairline, pt);
-    let sigma = style.shadow_sigma * pt;
-    let down = style.shadow_down * pt;
+    let (shadow, down, sigma) = fit_shadow(style, pt, fill, clip);
     let body = Rounded {
         rect: corners(fill),
         radii: [top, top, radius, radius],
         fill: Face::Float.background(),
         outline: Face::FloatBorder.background(),
-        shadow: style.shadow,
+        shadow,
         params: [hairline, down, sigma, 0.0],
         bounds: [0.0; 4],
     }
@@ -109,6 +108,23 @@ pub(super) fn boxes(
             .cut(1.0, 0.0, clip)
         });
     body.into_iter().chain(field).chain(keys)
+}
+
+/// The shadow's color, offset down and sigma below `fill`. With less room above `clip`'s
+/// bottom than it reaches, it shrinks and fades to fit, so it ends before the pane does rather
+/// than in a hard line along its edge.
+fn fit_shadow(
+    style: &PanelStyle,
+    pt: f32,
+    fill: PixelRect,
+    clip: PixelRect,
+) -> ([f32; 4], f32, f32) {
+    let (sigma, down) = (style.shadow_sigma * pt, style.shadow_down * pt);
+    let room = (clip.y + clip.height - (fill.y + fill.height)).max(0.0);
+    let fit = (room / (3.0 * sigma + down)).min(1.0);
+    let mut shadow = style.shadow;
+    shadow[3] *= fit;
+    (shadow, down * fit, sigma * fit)
 }
 
 /// `rect` up to the surface's top edge if `attached`.

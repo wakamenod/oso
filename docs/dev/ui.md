@@ -63,7 +63,8 @@ are rounded.
   three rows. A message from a key typed in the prompt shows at the end of its row, in
   brackets, until the next key.
 - A short frame gives up the padding below, then the row between the label and the answer,
-  then the label's first rows. With one row of text, the label and the answer share it.
+  then the label's last rows: it keeps its first, the last of them cut with `…`. With one row
+  of text, the label and the answer share it.
 - The window beneath keeps its text and modeline, and its cursor is drawn **hollow**. The
   float may cover it, and the view does not move. The wheel scrolls it, and its cursors stay.
 - Keys: `RET` gives the answer, `C-g` closes the prompt, `M-p` and `M-n` walk its history,

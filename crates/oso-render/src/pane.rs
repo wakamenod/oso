@@ -22,10 +22,12 @@ const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
 // and key chips.
 const FLOAT: [f32; 4] = [0.063, 0.0666, 0.0999, 1.0];
 const FLOAT_HAIRLINE: [f32; 4] = [1.0, 1.0, 1.0, 0.035];
-const PROMPT: [f32; 4] = [0.3325, 0.3419, 0.4341, 1.0];
+// The label 5.3:1 on the fill and the key 5.6:1 on its chip, against ADR 0027's 4.5:1 at
+// least, and a cool tint apart from the text's.
+const PROMPT: [f32; 4] = [0.52, 0.57, 0.74, 1.0];
 const FIELD_OUTLINE: [f32; 4] = [0.159, 0.2384, 0.5089, 1.0];
 const KEY: [f32; 4] = [0.0908, 0.0953, 0.1413, 1.0];
-const KEY_TEXT: [f32; 4] = [0.5776, 0.6105, 0.7454, 1.0];
+const KEY_TEXT: [f32; 4] = [0.73, 0.77, 0.88, 1.0];
 const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
 
 /// How a float's panel is drawn, beyond its faces' colors: sizes in points (the cell's height

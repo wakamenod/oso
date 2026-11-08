@@ -119,11 +119,6 @@ pub struct FloatRegions {
 }
 
 impl FloatRegions {
-    /// Whether it has padding around what it shows.
-    pub fn framed(&self) -> bool {
-        self.inner != self.outer
-    }
-
     /// Whether a row of padding goes below what it shows.
     pub fn padded_below(&self) -> bool {
         self.outer.row + self.outer.rows > self.inner.row + self.inner.rows
@@ -384,7 +379,7 @@ mod tests {
         // The label, the gap, the answer and the padding below.
         assert_eq!(regions.outer, rect(0, 20, 4, 60));
         assert_eq!(regions.inner, rect(0, 22, 3, 56));
-        assert!(regions.framed() && regions.gap && regions.padded_below());
+        assert!(regions.inner != regions.outer && regions.gap && regions.padded_below());
         assert_eq!(float_regions(&frame(30, 200), 1).outer, rect(0, 40, 4, 120));
         assert_eq!(float_regions(&layout, 3).outer, rect(0, 20, 6, 60));
     }

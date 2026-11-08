@@ -39,7 +39,7 @@ The author chose, through the coordinator, on 2026-11-08, the option described f
 a second pipeline, the public API below, the hairline in points, the chips with verbs, the order for
 small frames, and the color tokens. They also accepted that row 0 of the text is hidden while a float is
 open, and, after the reviews, that a label too tall for a short float keeps its first rows and that
-the save-over question puts the file's name last. From screenshots of three variants taken in the app, they then picked the values marked
+the save-over question opens with what it asks and the file's name. From screenshots of three variants taken in the app, they then picked the values marked
 **(picked)**: the middle one, the mock-up's, with a lighter key chip.
 
 ### Where it sits
@@ -54,6 +54,9 @@ the save-over question puts the file's name last. From screenshots of three vari
 - **What is inside a float is drawn in whole cells, as any pane is:** the label, the answer, the
   message and the keys. The cursor box, the IME's cursor area, the bands of ADR 0052, the snapshots and
   M2-17's candidate rows need nothing new.
+- **Each row of padding goes to the panes of one row at most:** the glyphs of the answer's row, or
+  the keys', keep their bands into the gap above and the padding below, and the label keeps to its
+  own rows, so that no glyph of one pane of the float draws over another's (ADR 0072).
 - **The panel, the field and the chips are drawn in pixels around those cells,** in padding that is
   whole cells, so the panel's edges fall on cell edges (no strip of a half-covered row shows below it)
   and only the field and the chips sit off the grid, inside the padding.
@@ -100,8 +103,10 @@ the save-over question puts the file's name last. From screenshots of three vari
   Radii and the shadow are in fractional pixels with 1 px of antialiasing. The hairline and outlines
   are whole pixels, at least 1.
 - **The shadow and the hairline stay inside the text area of the window beneath:** the panel pane's
-  region is that text area, and nothing of it reaches the modeline or the echo row. In a short frame
-  the shadow is cut at the text area's bottom.
+  region is that text area, and nothing of it reaches the modeline or the echo row. With less room
+  below the panel than the shadow reaches, it shrinks and fades to fit, so it ends before the text
+  area does, not in a hard line along it; with none, there is no shadow.
+- **No corner is wider than half its box,** so a narrow panel, field or chip stays a box.
 - **The text beneath keeps drawing,** under the shadow, which only darkens it.
 
 ### The field and the chips
@@ -127,10 +132,11 @@ the save-over question puts the file's name last. From screenshots of three vari
   key as before.
 - `get-state`'s `prompt` keeps the label as asked, `(y or n)` included, so the socket and the flows
   read what they read today.
-- **A question puts its own words before a name from a file (chosen):** saving over a changed file
-  asks `Changed on disk since it was read; save over notes.md?`, not ADR 0072's
-  `notes.md changed on disk since it was read; save over it?`, so that the question's opening always
-  shows.
+- **A question opens with what it asks, a name from a file right after (chosen):** saving over a
+  changed file asks `Save over notes.md? It changed on disk since it was read.`, not ADR 0072's
+  `notes.md changed on disk since it was read; save over it?`, so that the question's opening and
+  the file it names always show, as far as the row holds the name. A word too long for any row of
+  a label, such as a long name, starts where it is instead of on a row of its own.
 
 ### Small frames (chosen)
 
@@ -208,7 +214,7 @@ inside the answer's cells.
   becomes the hairline, and `Face::Prompt` the label's dim face.
 - In `oso-core`: `Editor::ask_with` takes the two verbs, and `Editor::ask` gives `yes` and `no`
   (`minibuffer::VERBS`); `Kind::Question` gains `verbs`; `PromptLayout` gains `label_cells`, `field`,
-  `field_room`, `keys` and `verbs` and loses `suffix`; `FloatRegions` gains `gap` and `padded_below`; and
+  `field_room`, `keys` and `verbs` and loses `suffix`; `FloatRegions` gains `gap` and `padded_below` and loses `framed`; and
   `minibuffer::KEYS` and `KEY_GAP` say how the keys are drawn, which the app and the snapshots share.
 - No new crate, crate edge, module, trait, dependency or `unsafe`.
 
@@ -224,11 +230,11 @@ converted to linear constants in `pane.rs`:
 | `float.shadow` | `PanelStyle::shadow` | `#08090e` at 55% (picked, of 35%, 55% and 70%) |
 | `float.shadow.size` | `PanelStyle` | 10 points down, sigma 14 |
 | `float.radius`, `float.hairline.width` | `PanelStyle` | 8 and 1 points |
-| `float.label` | `Prompt` | `#9c9eb0` |
+| `float.label` | `Prompt` | `#bfc7df`, 5.3:1 on the fill, a cool tint apart from the text's (the mock-up's `#9c9eb0` was 3.4:1) |
 | `float.field.background` | `Field`'s background | the text area's |
 | `float.field.outline` | `Field` | `#6f86bd` |
 | `float.key.background` | `Key` | `#55576a` (picked): the mock-up's `#4d4f60` all but vanished on the fill in the app |
-| `float.key.foreground` | `Key` | `#c8cde0` |
+| `float.key.foreground` | `Key` | `#dee3f1`, 5.6:1 on its chip |
 
 A question's label keeps the text's color, a prompt's label is dim, as in the mock-up. The keys'
 verbs take the label's dim face.
@@ -263,7 +269,7 @@ float adds no work there:
   edge, not one row below it; it has a panel, a field and chips instead of a border and one cell of
   padding; the label has rows of its own; a question shows its keys as chips instead of `(y or n)`;
   small frames give up the padding in the order above, and a label too tall keeps its first rows, not
-  its last; saving over a changed file asks with the name last.
+  its last; saving over a changed file opens with what it asks and the name.
 - [ADR 0061](0061-panes-clipping-and-layers.md): a pane in front on the top row covers the margin above
   it where its panel is, and the panel's shadow and field draw outside the float's cells, inside the
   pane's region. Rounded boxes are drawn in a layer between its rectangles and its glyphs, their quads

@@ -992,7 +992,6 @@ pub oso_core::frame::FloatRegions::gap: bool
 pub oso_core::frame::FloatRegions::inner: oso_core::frame::CellRect
 pub oso_core::frame::FloatRegions::outer: oso_core::frame::CellRect
 impl oso_core::frame::FloatRegions
-pub fn oso_core::frame::FloatRegions::framed(&self) -> bool
 pub fn oso_core::frame::FloatRegions::padded_below(&self) -> bool
 impl core::clone::Clone for oso_core::frame::FloatRegions
 pub fn oso_core::frame::FloatRegions::clone(&self) -> oso_core::frame::FloatRegions

@@ -296,7 +296,8 @@ pub fn cells_of(text: &str) -> usize {
 }
 
 /// `text` cut into rows of at most `width` cells, after the last space that fits, or at a
-/// whole cluster where a word is longer than a row, and at most `rows` of them. Returns the
+/// whole cluster where a word is longer than a row, which then starts where it is rather
+/// than on a row of its own, and at most `rows` of them. Returns the
 /// rows and whether some was left over, in which case the last row leaves a cell for `…`.
 fn rows_of(text: &str, width: usize, rows: usize) -> (Vec<Range<usize>>, bool) {
     let width = width.max(1);
@@ -310,6 +311,8 @@ fn rows_of(text: &str, width: usize, rows: usize) -> (Vec<Range<usize>>, bool) {
         while used + cluster.cells > width && used > 0 {
             let (end, kept) = space
                 .filter(|&(end, _)| end > start)
+                // A word too long for any row is broken here, not moved to the next.
+                .filter(|&(_, kept)| used - kept + word_cells(&text[cluster.offset..]) <= width)
                 .unwrap_or((cluster.offset, used));
             out.push(start..end);
             if out.len() == rows {
@@ -324,6 +327,14 @@ fn rows_of(text: &str, width: usize, rows: usize) -> (Vec<Range<usize>>, bool) {
     }
     out.push(start..text.len());
     (out, false)
+}
+
+/// The cells of the word `text` starts with, up to its first space.
+fn word_cells(text: &str) -> usize {
+    text_clusters(text, 0)
+        .take_while(|cluster| cluster.text != " ")
+        .map(|cluster| cluster.cells)
+        .sum()
 }
 
 /// Shortens the last of `rows` so that a `…` fits after it in `width` cells.
@@ -357,11 +368,9 @@ fn label_width(kind: Kind, inner_columns: usize) -> usize {
 
 /// The cells a question's keys take, with `verbs` after them or none.
 fn keys_cells(verbs: Option<[&str; 2]>) -> usize {
-    let [y, n] = KEYS.map(cells_of);
-    match verbs {
-        Some([yes, no]) => y + 1 + cells_of(yes) + KEY_GAP + n + 1 + cells_of(no),
-        None => y + 1 + n,
-    }
+    // Where the `n` key or its verb ends, from column 0.
+    let [[_, (n, n_cells)], [_, (no, no_cells)]] = keys_at(0, verbs);
+    (n + n_cells).max(no + no_cells)
 }
 
 /// The cells a field on the last row of `regions`' inner cells may reach into: the padding
@@ -422,12 +431,10 @@ fn place_label(frame: &FrameLayout, body: &str, kind: Kind) -> Label {
     } else {
         inner.rows - 1 - usize::from(regions.gap)
     };
-    // A float too short for every row of the label keeps the first, cut with `…`, so that a
-    // nested prompt's depth and what the label says first stay in view.
+    // A float too short for every row of the label keeps the first, cut with `…`, so that the
+    // question's opening and its depth always show.
     if rows.len() > shown.max(1) {
-        rows.truncate(shown.max(1));
-        rows = cut_last(body, rows, width);
-        cut = true;
+        (rows, cut) = rows_of(body, width, shown.max(1));
     }
     let columns = if one_row {
         // Never past the keys, even for a cluster wider than the row.
@@ -744,7 +751,7 @@ mod tests {
             "a\nb\u{7}c".to_owned(),
         ];
         for name in &names {
-            let label = format!("Changed on disk since it was read; save over {name}?");
+            let label = format!("Save over {name}? It changed on disk since it was read.");
             for rows in 0..8 {
                 for columns in 0..80 {
                     let frame = frame_layout(FrameSize { rows, columns });
@@ -767,6 +774,33 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn a_label_of_one_row_keeps_its_opening_and_the_start_of_a_long_name() {
+        // Two text rows: the label has one row of 56 columns.
+        let frame = frame_layout(FrameSize {
+            rows: 4,
+            columns: 100,
+        });
+        let name = "n".repeat(40);
+        let label = format!("Save over {name}? It changed on disk since it was read.");
+        let layout = layout(&frame, &label, QUESTION, None);
+        assert_eq!(layout.label.len(), 1);
+        let row = &label[layout.label[0].clone()];
+        assert!(
+            row.starts_with(&format!("Save over {}", &name[..20])),
+            "{row}"
+        );
+        assert!(layout.label_cut);
+        // A word too long for any row starts where it is, at the narrowest float too.
+        let narrow = frame_layout(FrameSize {
+            rows: 4,
+            columns: 40,
+        });
+        let layout = super::layout(&narrow, &label, QUESTION, None);
+        let row = &label[layout.label[0].clone()];
+        assert!(row.starts_with("Save over nnnn"), "{row}");
     }
 
     #[test]

@@ -163,15 +163,15 @@ pub(super) fn panes<'a>(
     let regions = layout.regions;
     let inner = regions.inner;
     // A frame of no rows has no room for a float.
-    let Some(last) = (inner.row + inner.rows)
-        .checked_sub(1)
-        .filter(|_| inner.rows > 0)
-    else {
+    if inner.rows == 0 {
         return;
-    };
+    }
+    // The answer's row, or the keys'.
+    let last = inner.row + inner.rows - 1;
     // A pane's glyphs keep a band only into the float's padding, where its region borders on
-    // it, so that none draws over another pane of the float or outside it (ADR 0072). The
-    // label's rows border on the gap, and the answer's row on the padding below.
+    // it, and each row of padding goes to the panes of one row at most, so that no glyph draws
+    // over another pane of the float or outside it (ADR 0072, ADR 0075). The gap and the
+    // padding below both go to the answer's row; the label keeps to its own rows.
     let content = |id, region: CellRect, content| Pane {
         id: PaneId(id),
         region,
@@ -179,12 +179,8 @@ pub(super) fn panes<'a>(
         background: None,
         panel: None,
         bands: Bands {
-            above: regions.gap && region.row == layout.input.row,
-            below: if region.row == last {
-                regions.padded_below()
-            } else {
-                regions.gap
-            },
+            above: regions.gap && region.row == last,
+            below: regions.padded_below() && region.row == last,
         },
         content,
     };

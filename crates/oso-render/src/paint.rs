@@ -488,10 +488,20 @@ mod tests {
     #[test]
     #[ignore = "needs a GPU"]
     fn a_panels_shadow_stays_in_its_pane() {
-        // The pane is rows 0 to 3, y 0..88.
+        // The pane is rows 0 to 3, y 0..88: 20 px below the panel, less than its shadow
+        // reaches, so the shadow shrinks to end before the pane's edge.
         let pixels = panel(4);
         let paper = eight_bit(PAPER());
-        assert!(i32::from(red(&pixels, 58, 86)) < paper, "inside the pane");
+        assert!(
+            i32::from(red(&pixels, 58, 70)) < paper,
+            "just below the panel"
+        );
+        assert_is(
+            &pixels,
+            (58, 87),
+            PAPER(),
+            "faded out at the pane's last pixel",
+        );
         assert_is(&pixels, (58, 88), PAPER(), "the first row past the pane");
         assert_is(&pixels, (4, 40), PAPER(), "the left margin");
     }
@@ -541,5 +551,75 @@ mod tests {
             Face::Float.background(),
             "left of the chip",
         );
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn only_the_answers_row_keeps_a_band_in_the_gap_above_it() {
+        // A label on row 0 and an answer on row 2, with the gap between them, y 28..48, as a
+        // float gives them their bands. Each glyph reaches 8 px below its cell and 6 above.
+        let word = [Span {
+            text: "xx",
+            face: Face::Text,
+        }];
+        let lines: [&[Span<'_>]; 1] = [&word];
+        let label = pane(0, (0, 2, 1, 6), 17, None, &lines);
+        let answer = Pane {
+            bands: Bands {
+                above: true,
+                below: false,
+            },
+            ..pane(1, (2, 2, 1, 6), 17, None, &lines)
+        };
+        let pixels = draw(&[label, answer]);
+        assert_is(&pixels, (32, 27), INK(), "the label's own row");
+        assert_is(
+            &pixels,
+            (32, 29),
+            PAPER(),
+            "the label's marks stop at its row",
+        );
+        assert_is(&pixels, (32, 40), PAPER(), "the middle of the gap");
+        assert_is(&pixels, (32, 45), INK(), "the answer's band in the gap");
+        assert_is(&pixels, (32, 43), PAPER(), "above the answer's band");
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
+    fn a_box_narrower_than_its_corners_never_lightens_what_is_around_it() {
+        // A panel one column wide, x 28..38, with corners of 10 px: wider than half of it.
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: CellRect {
+                    row: 0,
+                    column: 2,
+                    rows: 3,
+                    columns: 1,
+                },
+                field: None,
+                field_room: CellRect {
+                    row: 0,
+                    column: 0,
+                    rows: 0,
+                    columns: 0,
+                },
+                keys: &[],
+            }),
+            ..pane(0, (0, 0, 6, 12), 16, None, &[])
+        }];
+        let pixels = draw(&panes);
+        let paper = eight_bit(PAPER());
+        for (x, y) in [(33, 75), (33, 100), (20, 40), (45, 40), (60, 90)] {
+            let got = i32::from(red(&pixels, x, y));
+            assert!(got <= paper, "({x}, {y}): {got}, lighter than {paper}");
+        }
+        assert_is(
+            &pixels,
+            (33, 30),
+            Face::Float.background(),
+            "the panel itself",
+        );
+        let below = i32::from(red(&pixels, 33, 72));
+        assert!(below < paper, "its shadow still shows below it: {below}");
     }
 }

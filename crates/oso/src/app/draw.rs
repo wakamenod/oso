@@ -426,10 +426,13 @@ mod tests {
             editor.ask(long, "keyboard-quit").unwrap();
             let regions = editor.prompt_layout().unwrap().regions;
             let inner = regions.inner;
-            // The rows of padding: the gap above the answer's row, and the row below it.
+            // The rows of padding: the gap above the answer's row, and the row below it. Each
+            // goes to the panes on the answer's row alone, never to the label's.
             let last = inner.row + inner.rows - 1;
-            let padding = |row: usize| {
-                (regions.gap && row + 1 == last) || (regions.padded_below() && row == last + 1)
+            let padding = |row: usize, from: usize| {
+                from == last
+                    && ((regions.gap && row + 1 == last)
+                        || (regions.padded_below() && row == last + 1))
             };
             let status = Status::default();
             with_panes(&editor, &status, &mut Vec::new(), |panes| {
@@ -438,8 +441,11 @@ mod tests {
                     .filter(|pane| pane.layer == Layer::FLOAT_CONTENT)
                 {
                     let region = pane.region;
-                    let above = region.row.checked_sub(1).is_some_and(padding);
-                    let below = padding(region.row + region.rows);
+                    let above = region
+                        .row
+                        .checked_sub(1)
+                        .is_some_and(|row| padding(row, region.row));
+                    let below = padding(region.row + region.rows, region.row);
                     assert_eq!(pane.bands.above, above, "{rows} rows: {region:?}");
                     assert_eq!(pane.bands.below, below, "{rows} rows: {region:?}");
                 }

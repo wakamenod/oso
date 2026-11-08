@@ -903,6 +903,26 @@ mod tests {
     }
 
     #[test]
+    fn a_shadow_with_little_room_below_shrinks_to_end_inside_its_pane() {
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: rect(0, 2, 2, 10),
+                field: None,
+                field_room: rect(0, 0, 0, 0),
+                keys: &[],
+            }),
+            ..pane(0, rect(0, 0, 3, 12), 16, PaneContent::Lines(&[]))
+        }];
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let panel = scene.rounded()[0];
+        // The panel ends at y 48 and the pane at 68: the shadow's reach fits in 20 px.
+        let [_, down, sigma, _] = panel.params;
+        assert!(3.0 * sigma + down <= 20.0 + 1e-3, "{sigma} {down}");
+        assert!(panel.shadow[3] < PANEL.shadow[3]);
+    }
+
+    #[test]
     fn a_frame_with_no_panel_has_no_rounded_box() {
         let lines: [&[Span<'_>]; 1] = [&line("abc")];
         let panes = [Pane {
