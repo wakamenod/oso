@@ -18,8 +18,8 @@
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
-//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], and kills and
-//! yanks in [`kill`].
+//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], kills and
+//! yanks in [`kill`], and files read again after they changed on disk in [`reload`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -38,6 +38,7 @@ mod follow;
 mod kill;
 mod messages;
 mod prompts;
+mod reload;
 mod save;
 mod status;
 mod view;
@@ -46,6 +47,7 @@ pub use copies::RecoveryAction;
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
+pub use reload::ReloadOutcome;
 pub use save::{ExitRefused, SaveJob, SaveRefused};
 pub use status::Status;
 
@@ -131,6 +133,8 @@ pub struct Editor {
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
+    /// Buffers a person asked to read again from their files, for the host (ADR 0083).
+    reverts: Vec<BufferId>,
 }
 
 impl Default for Editor {
@@ -171,6 +175,7 @@ impl Editor {
             passphrase_command: false,
             save_over_asked: None,
             kills: kill::Kills::default(),
+            reverts: Vec::new(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -959,6 +964,8 @@ mod edit_tests;
 mod model_tests;
 #[cfg(test)]
 mod prompt_tests;
+#[cfg(test)]
+mod reload_tests;
 #[cfg(test)]
 mod save_tests;
 #[cfg(test)]

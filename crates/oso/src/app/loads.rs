@@ -9,6 +9,7 @@ use std::time::Instant;
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::window;
 
+use super::reloads::Reload;
 use super::{App, UserEvent};
 use crate::emergency;
 use crate::loader::{self, LoadError, LoadHandle, LoadUpdate};
@@ -20,6 +21,41 @@ pub(super) struct Load {
     started: Instant,
     /// When its first content arrived, until that frame is drawn.
     first_screen: Option<Instant>,
+    /// It reads a file again into a buffer that has its text (ADR 0083).
+    reload: Option<Reload>,
+}
+
+impl Load {
+    /// A load that reads a file again, as `reload` says.
+    pub(super) fn reloading(handle: LoadHandle, started: Instant, reload: Reload) -> Self {
+        Self {
+            handle,
+            started,
+            first_screen: None,
+            reload: Some(reload),
+        }
+    }
+
+    pub(super) fn buffer(&self) -> BufferId {
+        self.handle.buffer()
+    }
+
+    pub(super) fn handle(&self) -> &LoadHandle {
+        &self.handle
+    }
+
+    /// The state of the buffer a reload compares with, if this is one.
+    pub(super) fn reload_from(&self) -> Option<oso_core::buffer::ContentId> {
+        self.reload.as_ref().map(Reload::from)
+    }
+
+    pub(super) fn reload_mut(&mut self) -> Option<&mut Reload> {
+        self.reload.as_mut()
+    }
+
+    pub(super) fn into_reload(self) -> Option<Reload> {
+        self.reload
+    }
 }
 
 impl App {
@@ -50,6 +86,7 @@ impl App {
                     handle,
                     started,
                     first_screen: None,
+                    reload: None,
                 });
                 Some(buffer)
             }
@@ -108,6 +145,7 @@ impl App {
                 handle,
                 started,
                 first_screen: None,
+                reload: None,
             }),
             Err(e) => {
                 self.editor.message(format!("Cannot read the copy: {e}"));
@@ -120,6 +158,9 @@ impl App {
     /// is needed: only if the window shows the buffer and reaches the part
     /// that changed, or the buffer was replaced.
     fn apply_load(&mut self, index: usize, update: LoadUpdate) -> bool {
+        if self.loads[index].reload.is_some() {
+            return self.apply_reload(index, update);
+        }
         let id = self.loads[index].handle.buffer();
         // The tiled window, also beneath a prompt.
         let shown = self.editor.tiled().0.buffer() == id;
@@ -168,6 +209,8 @@ impl App {
                 self.loads.swap_remove(index);
                 shown
             }
+            // Only a reload sends one.
+            LoadUpdate::Reloaded(_) => false,
             LoadUpdate::Failed(e) => {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);
@@ -203,9 +246,11 @@ impl App {
                     started.elapsed()
                 );
             }
-            editor
-                .buffer(load.handle.buffer())
-                .is_some_and(|buffer| buffer.loading().is_some())
+            // A reload ends where its text is taken in.
+            load.reload.is_some()
+                || editor
+                    .buffer(load.handle.buffer())
+                    .is_some_and(|buffer| buffer.loading().is_some())
         });
     }
 }

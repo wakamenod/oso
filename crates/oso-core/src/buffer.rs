@@ -31,6 +31,7 @@ mod baseline;
 mod internal;
 mod mode;
 mod recovery;
+mod reload;
 mod splice;
 
 pub use crate::secret::Verdict;
@@ -171,6 +172,8 @@ pub struct Buffer {
     changed_on_disk: bool,
     /// The regular file that save found, which a save the person agrees to may replace.
     save_over: Option<FileStamp>,
+    /// The file was found gone, or no longer a file, and nothing has written it since.
+    gone_from_disk: bool,
     /// The editor keeps this buffer for itself.
     internal: bool,
     /// An internal buffer that takes typing, as a prompt's does (ADR 0072).
@@ -225,6 +228,7 @@ impl Buffer {
             baseline: None,
             changed_on_disk: false,
             save_over: None,
+            gone_from_disk: false,
             internal: false,
             takes_typing: false,
             no_history: false,

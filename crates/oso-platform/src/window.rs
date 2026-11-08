@@ -31,6 +31,8 @@ pub enum Event<'a> {
     ScaleFactorChanged(f64),
     /// Whether the window is hidden by others.
     Occluded(bool),
+    /// The window has gained the keyboard focus.
+    Focused,
     RedrawRequested,
     Wheel(Wheel),
     ModifiersChanged(Held),

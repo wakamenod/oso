@@ -369,6 +369,7 @@ pub fn oso_platform::text::load(&oso_platform::text::FontRequest<'_>, f64) -> co
 pub mod oso_platform::window
 pub enum oso_platform::window::Event<'a>
 pub oso_platform::window::Event::CloseRequested
+pub oso_platform::window::Event::Focused
 pub oso_platform::window::Event::Ime(oso_platform::window::ImeEvent)
 pub oso_platform::window::Event::Key(oso_platform::window::KeyInput<'a>)
 pub oso_platform::window::Event::ModifiersChanged(oso_platform::window::Held)

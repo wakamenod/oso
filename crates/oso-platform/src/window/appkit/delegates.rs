@@ -122,7 +122,9 @@ define_class!(
 
         #[unsafe(method(windowDidBecomeKey:))]
         fn did_become_key(&self, _notification: &NSNotification) {
-            self.ivars().state.read_focus_for_secure_input();
+            let state = self.ivars().state;
+            state.read_focus_for_secure_input();
+            state.deliver(Delivery::Window(Event::Focused));
         }
 
         /// Keys released elsewhere never reach the window, so no modifier counts as held.

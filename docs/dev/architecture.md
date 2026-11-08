@@ -407,11 +407,19 @@ The UI thread never blocks on I/O or parsing:
   `\xNN` for invalid bytes
   ([ADR 0022](adr/0022-text-buffer-and-file-loading.md),
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
+- Open files are looked at once a second, and when the window gains the focus, by a
+  thread that only `stat`s them (`loader::Watcher`). A file that changed under a buffer
+  with no unsaved edits is read again on a loading thread, which compares the new text
+  with the old one there. The UI puts it in as one undo step and maps every window's
+  cursors through the one changed span. A buffer with edits keeps them and warns. A reload
+  waits while a prompt is open (`Editor::reload_waits`)
+  ([ADR 0029](adr/0029-file-changes-on-disk.md),
+  [ADR 0083](adr/0083-reloading-files-changed-on-disk.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
-- The event loop's user event is an enum: loader wake-ups, save reports and what threads
-  find of emergency copies in every build, and control socket requests in dev builds.
+- The event loop's user event is an enum: loader wake-ups, save reports, the watcher's
+  reports and what threads find of emergency copies in every build, and control socket requests in dev builds.
 - Tree-sitter parsing runs on a background thread with cancellation and
   timeouts. Results replace the syntax decoration layer atomically.
 - Search (ripgrep-style), git status and language servers stream results in
