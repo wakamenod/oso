@@ -139,6 +139,18 @@ impl Window {
         self.0.set_ime_allowed(allowed);
     }
 
+    /// Whether the app wants secure input (ADR 0073).
+    pub(super) fn set_secure_input(&self, wanted: bool) {
+        self.0.set_secure_input(wanted);
+    }
+
+    /// Whether secure input is wanted, held by the window, and on in the system, for the
+    /// dev socket.
+    #[cfg(feature = "dev")]
+    pub(super) fn secure_input(&self) -> Option<(bool, bool, bool)> {
+        Some(self.0.secure_input())
+    }
+
     /// Drops the composition the input method holds, with no commit.
     pub(super) fn discard_composition(&self) {
         self.0.discard_composition();

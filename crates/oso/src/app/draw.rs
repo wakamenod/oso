@@ -159,6 +159,7 @@ impl App {
             self.view = Some(View::open(event_loop));
             // At once: it costs under 1 µs and does not slow the first frame.
             self.sync_ime();
+            self.sync_secure_input();
             self.update_frame_size();
             // Content that loaded while the window opened shows in the
             // first frame.

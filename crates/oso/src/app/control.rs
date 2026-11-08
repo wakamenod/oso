@@ -139,6 +139,16 @@ impl App {
             area: self.ime_area(),
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
+        // Whether secure input is wanted, held by oso, and on for any process in the system
+        // (ADR 0073): nothing a process of the same user cannot read already (ADR 0044).
+        let secure = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.secure_input());
+        state["secure_input"] = secure.map_or(
+            serde_json::Value::Null,
+            |(wanted, held, system)| json!({ "wanted": wanted, "held": held, "system_any": system }),
+        );
         state
     }
 

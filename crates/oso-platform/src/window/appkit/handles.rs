@@ -88,6 +88,8 @@ impl Control {
             window.makeKeyAndOrderFront(None);
             (window, view, delegate)
         });
+        // As AppKit has them now, whatever notices came before.
+        state.read_focus_for_secure_input();
         // The app reads both when it opens the window, so only later changes are reported.
         state.reported_scale.set(state.scale_factor());
         state.reported_size.set(state.inner_size());
@@ -183,6 +185,25 @@ impl Window {
             .requests
             .borrow_mut()
             .push(Request::DiscardComposition);
+    }
+
+    /// Whether the app wants secure input, as while a buffer that may hold secrets is
+    /// selected (ADR 0073). It is held only while oso is active and the window has the
+    /// keyboard as well.
+    pub fn set_secure_input(&self, wanted: bool) {
+        self.state.update_secure(|secure| secure.set_wanted(wanted));
+    }
+
+    /// Whether secure input is wanted, whether this layer holds it, and whether any process
+    /// has it on, for the dev socket's check.
+    #[cfg(feature = "dev")]
+    pub fn secure_input(&self) -> (bool, bool, bool) {
+        let secure = self.state.secure.get();
+        (
+            secure.wanted(),
+            secure.held(),
+            super::secure::any_enabled(self.state.mtm),
+        )
     }
 
     /// Where the cursor's cell is, for the input method's candidate window. Only kept: the

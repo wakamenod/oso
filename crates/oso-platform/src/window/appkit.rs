@@ -16,6 +16,7 @@ mod gate;
 mod handles;
 mod keys;
 mod runloop;
+mod secure;
 mod view;
 
 use std::any::Any;
@@ -170,6 +171,9 @@ struct State {
     ime: Cell<gate::ImeGate>,
     /// The loop ended while the handler ran: it hears so once it returns.
     exit_waiting: Cell<bool>,
+    /// Whether secure input is wanted, oso is active, its window has the keyboard, and it is
+    /// held (ADR 0073).
+    secure: Cell<gate::SecureInput>,
     /// The size and the scale the handler was last told, so that it hears only changes.
     reported_size: Cell<(u32, u32)>,
     reported_scale: Cell<f64>,
@@ -194,6 +198,7 @@ impl State {
             deadline: Cell::new(None),
             ime: Cell::new(gate::ImeGate::default()),
             exit_waiting: Cell::new(false),
+            secure: Cell::new(gate::SecureInput::default()),
             reported_size: Cell::new((0, 0)),
             reported_scale: Cell::new(0.0),
             hidden_frame: Cell::new(gate::HiddenFrame::default()),
@@ -230,6 +235,7 @@ impl State {
         });
         drop(dispatch);
         if let Err(payload) = result {
+            self.update_secure(gate::SecureInput::release);
             *self.panic.borrow_mut() = Some(payload);
             self.stop();
             return;
@@ -351,6 +357,8 @@ impl State {
 
     /// The loop is ending: the handler hears it once.
     fn exiting(&'static self) {
+        // Secure input goes first, whatever else happens, as the process may end next.
+        self.update_secure(gate::SecureInput::release);
         if self.panic.borrow().is_some() || self.exited.get() {
             return;
         }
@@ -366,6 +374,41 @@ impl State {
 
     fn ime_allowed(&self) -> bool {
         self.ime.get().allowed()
+    }
+
+    /// Changes what secure input depends on, then makes the calls that asks for. The state
+    /// each call hopes for is stored before it, so that a notice coming during one reads it as
+    /// it will be.
+    fn update_secure(&self, change: impl FnOnce(&mut gate::SecureInput)) {
+        let mut secure = self.secure.get();
+        change(&mut secure);
+        let mtm = self.mtm;
+        secure.settle(|step, hoped| {
+            self.secure.set(hoped);
+            let accepted = match step {
+                gate::SecureStep::Enable => secure::enable(mtm),
+                gate::SecureStep::Disable => secure::disable(mtm),
+            };
+            if !accepted {
+                log::warn!("the system refused a change of secure input; asking again later");
+            }
+            accepted
+        });
+        self.secure.set(secure);
+    }
+
+    /// Reads whether oso is the active app and its window has the keyboard from AppKit, so that
+    /// a notice missed cannot leave secure input wrong.
+    fn read_focus_for_secure_input(&self) {
+        let active = NSApplication::sharedApplication(self.mtm).isActive();
+        let key = self
+            .window
+            .get()
+            .is_some_and(|(window, _, _)| window.isKeyWindow());
+        self.update_secure(|secure| {
+            secure.set_active(active);
+            secure.set_key(key);
+        });
     }
 
     fn update_ime(&self, change: impl FnOnce(&mut gate::ImeGate)) {
@@ -387,6 +430,9 @@ impl State {
             return;
         }
         self.deliver(Delivery::BeforeWaiting);
+        // A refused enable or release is asked for again at each turn, and costs nothing when
+        // there is none.
+        self.update_secure(|_| {});
         let look_again = self.check_hidden_frame();
         if self.redraw.take() && self.window.get().is_some() {
             self.deliver(Delivery::Window(Event::RedrawRequested));
