@@ -294,6 +294,16 @@ fn a_file_gone_warns_until_it_is_back() {
 }
 
 #[test]
+fn a_copy_put_in_for_a_file_gone_is_not_told_again() {
+    let (mut editor, id) = visiting("abc\n");
+    with_baseline(&mut editor, id, 4);
+    let buffer = editor.buffer_mut(id).unwrap();
+    buffer.take_format_of_copy(false, crate::decode::LineEnding::Lf, true);
+    seen(&mut editor, id, DiskState::Gone);
+    assert_eq!(warnings(&editor), "");
+}
+
+#[test]
 fn a_chmod_alone_is_taken_in() {
     let (mut editor, id) = visiting("abc\n");
     with_baseline(&mut editor, id, 4);

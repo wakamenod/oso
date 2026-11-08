@@ -38,7 +38,7 @@ struct Side {
 }
 
 /// The modification time of a file that has gone, by which no file can pass for it.
-const NO_TIME: SystemTime = SystemTime::UNIX_EPOCH;
+pub(super) const NO_TIME: SystemTime = SystemTime::UNIX_EPOCH;
 
 impl Buffer {
     /// Which keys this buffer takes.

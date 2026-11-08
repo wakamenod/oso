@@ -7,6 +7,7 @@
 
 use std::path::PathBuf;
 
+use super::recovery::NO_TIME;
 use super::{Buffer, DiskState, FileStamp, OffsetEdit, StagedEdit};
 use crate::decode::FileInfo;
 use crate::load::{Change, LoadSnapshot};
@@ -30,6 +31,8 @@ pub(crate) enum Noticed {
 fn is_as_read(seen: DiskState, read: Option<FileStamp>) -> bool {
     match (seen, read) {
         (DiskState::Gone, None) => true,
+        // A copy's text put in for a file gone says so already, and a save makes the file.
+        (DiskState::Gone, Some(read)) if read.modified == NO_TIME => true,
         (DiskState::File(stamp), Some(read)) => stamp.same_file(read),
         _ => false,
     }
