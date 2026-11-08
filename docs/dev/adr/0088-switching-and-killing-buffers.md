@@ -166,9 +166,9 @@ under [Questions](#questions), which the text below describes. The new public it
   buffer around the selected mark, with that mark drawn as a hollow cursor.
 - **`RET`** leaves one cursor at the mark, with the region hidden, and puts where the cursor was
   in the ring, as `C-u C-SPC` does.
-- It previews the buffer that is shown, also one that may hold secrets, as nothing new reaches the
-  screen; its rows and its preview are withheld from `get-state` as every prompt beside such a
-  buffer is (ADR 0072, ADR 0076).
+- It previews the buffer the tiled window shows, but never one that may hold secrets, as no
+  preview does; its rows are withheld from `get-state` as every prompt beside such a buffer is
+  (ADR 0072, ADR 0076). It refuses inside a prompt, whose own buffer is no list of marks.
 
 ### Reach and the sockets
 

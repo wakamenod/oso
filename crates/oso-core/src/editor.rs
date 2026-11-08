@@ -41,6 +41,7 @@ mod copies;
 mod follow;
 mod isearch;
 mod kill;
+mod marks;
 mod messages;
 mod prompts;
 mod reload;
@@ -51,6 +52,7 @@ mod view;
 mod write;
 
 pub use crate::search::{SearchJob, SearchReport};
+pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
@@ -59,7 +61,7 @@ pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
-pub use switch::KillRefused;
+pub use switch::{KillRefused, Preview};
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -105,6 +107,10 @@ pub struct Editor {
     /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
     /// (ADR 0087).
     write_over_asked: Option<write::WriteOver>,
+    /// The marks the last `C-.` listed (ADR 0088).
+    mark_list: Option<marks::MarkList>,
+    /// The home directory, which `~` stands for, as the host read it at startup.
+    home: Option<std::path::PathBuf>,
     /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
     kill_asked: Option<BufferId>,
     /// What killed buffers held, for the host to free off the UI thread.
@@ -181,6 +187,8 @@ impl Editor {
             messages_buffer: BufferId(0),
             command_left_secret: None,
             way_back: Vec::new(),
+            home: None,
+            mark_list: None,
             write_over_asked: None,
             kill_asked: None,
             freed: Vec::new(),
