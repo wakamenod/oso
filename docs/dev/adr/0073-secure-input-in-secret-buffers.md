@@ -34,10 +34,10 @@ own after the native layer's first one.
   adds its condition to the same function.
 - **It goes off** when any of them stops: the app deactivates, the window loses the keyboard,
   another buffer is selected, the window hides for an exit, the loop ends, or the app quits.
-- **Exactly one enable is held at a time.** The window layer keeps one flag, "held", and
-  calls `EnableSecureEventInput` only when it turns true and `DisableSecureEventInput` only
-  when it turns false. A release the system refuses is made again before any enable, and once
-  the loop has ended nothing enables it again. Nothing else in oso calls them.
+- **One enable is held while it is wanted.** The window layer counts the enables the system
+  holds for oso, calls `EnableSecureEventInput` when it is wanted and none is held, and
+  `DisableSecureEventInput` for each one held when it is not. Once the loop has ended nothing
+  enables it again. Nothing else in oso calls them.
 - **Before the loop ends,** in `exiting` and in `applicationWillTerminate:`, a held enable is
   released. After a panic in the handler is caught on the main thread, it is released
   before the loop stops. The panic hook itself does not call it, as it may run on any
@@ -54,9 +54,16 @@ own after the native layer's first one.
 - **The window layer holds it** only while the flag is set and oso is active with its window
   key. It follows `applicationDidBecomeActive:`, `applicationDidResignActive:`,
   `windowDidBecomeKey:` and `windowDidResignKey:`, and checks again when the flag changes.
-- The rule is a plain value of four booleans (wanted, active, key, held) whose every change
-  says "enable", "disable" or nothing (`window/appkit/gate.rs`), tested without a window. Only
-  the native layer uses it; winit's adapter takes the flag and does nothing with it.
+- The rule is a plain value (`window/appkit/gate.rs`): whether the app wants it, whether oso
+  is active and its window key, whether the loop has ended, and how many enables the system
+  holds for oso. It says which call to make next, and is tested without a window, over every
+  combination of the first four and with calls the system refuses. Only the native layer uses
+  it; winit's adapter takes the flag and does nothing with it.
+- Whether oso is active and its window key is read from AppKit when the window opens and at
+  each notice of a change, so a notice missed cannot leave it wrong.
+- Secure input is retried until held: an enable the system refuses is asked for again at the
+  next turn of the loop. A refused release never blocks a later enable, and is asked for again
+  until the system's count is back to none.
 - An enable the system refuses is not held. The flag is set at once, as these calls do not
   call back into the window.
 
@@ -80,7 +87,8 @@ own after the native layer's first one.
 - **Unit:** the rule's table, every combination of the four booleans, with no real calls, and
   a sequence that shows enables and disables always pair.
 - **Socket:** `get-state` gains `secure_input`: `wanted`, `held` by the window layer, and
-  `system`, from `IsSecureEventInputEnabled`; null on winit, and only in dev builds. It says
+  `system_any`, from `IsSecureEventInputEnabled`, which is true while any process holds secure
+  input; null on winit, and only in dev builds. It says
   nothing a process of the same user cannot read already
   ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)). An e2e flow under
   `native-window` (`just e2e-native`) opens a file with a secret name and checks that it is

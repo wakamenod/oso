@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use super::harness::{App, FAKE_SECRET, Scratch};
 
-/// What `get-state` says of secure input: wanted, and held by the window layer.
+/// What `get-state` says of secure input: wanted, and held by the window layer. Its third
+/// field, whether any process has it on, depends on other apps and is not checked.
 fn secure(state: &Value) -> (bool, bool) {
     let secure = &state["secure_input"];
     let flag = |name: &str| {

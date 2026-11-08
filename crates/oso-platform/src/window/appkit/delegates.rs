@@ -49,16 +49,12 @@ define_class!(
 
         #[unsafe(method(applicationDidBecomeActive:))]
         fn did_become_active(&self, _notification: &NSNotification) {
-            self.ivars()
-                .state
-                .update_secure(|secure| secure.set_active(true));
+            self.ivars().state.read_focus_for_secure_input();
         }
 
         #[unsafe(method(applicationDidResignActive:))]
         fn did_resign_active(&self, _notification: &NSNotification) {
-            self.ivars()
-                .state
-                .update_secure(|secure| secure.set_active(false));
+            self.ivars().state.read_focus_for_secure_input();
         }
 
         /// A Dock quit or a logout: AppKit ends the process after this returns.
@@ -120,16 +116,14 @@ define_class!(
 
         #[unsafe(method(windowDidBecomeKey:))]
         fn did_become_key(&self, _notification: &NSNotification) {
-            self.ivars()
-                .state
-                .update_secure(|secure| secure.set_key(true));
+            self.ivars().state.read_focus_for_secure_input();
         }
 
         /// Keys released elsewhere never reach the window, so no modifier counts as held.
         #[unsafe(method(windowDidResignKey:))]
         fn did_resign_key(&self, _notification: &NSNotification) {
             let state = self.ivars().state;
-            state.update_secure(|secure| secure.set_key(false));
+            state.read_focus_for_secure_input();
             if let Some((_, view, _)) = state.window.get() {
                 view.forget_modifiers();
             }

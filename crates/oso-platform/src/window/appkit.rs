@@ -372,32 +372,39 @@ impl State {
         self.ime.get().allowed()
     }
 
-    /// Changes what secure input depends on, then makes the calls that asks for. The state is
-    /// stored before each call, so that a notice coming during one reads it as it will be.
+    /// Changes what secure input depends on, then makes the calls that asks for. The state
+    /// each call hopes for is stored before it, so that a notice coming during one reads it as
+    /// it will be.
     fn update_secure(&self, change: impl FnOnce(&mut gate::SecureInput)) {
         let mut secure = self.secure.get();
         change(&mut secure);
-        self.secure.set(secure);
-        // At most an owed release, then the call the change asks for.
-        for _ in 0..2 {
-            let mut secure = self.secure.get();
-            let Some(step) = secure.next() else {
-                return;
-            };
-            secure.made(step, true);
-            self.secure.set(secure);
+        let mtm = self.mtm;
+        secure.settle(|step, hoped| {
+            self.secure.set(hoped);
             let accepted = match step {
-                gate::SecureStep::Enable => secure::enable(),
-                gate::SecureStep::Disable => secure::disable(),
+                gate::SecureStep::Enable => secure::enable(mtm),
+                gate::SecureStep::Disable => secure::disable(mtm),
             };
             if !accepted {
-                log::warn!("the system refused a change of secure input");
-                let mut secure = self.secure.get();
-                secure.made(step, false);
-                self.secure.set(secure);
-                return;
+                log::warn!("the system refused a change of secure input; asking again later");
             }
-        }
+            accepted
+        });
+        self.secure.set(secure);
+    }
+
+    /// Reads whether oso is the active app and its window has the keyboard from AppKit, so that
+    /// a notice missed cannot leave secure input wrong.
+    fn read_focus_for_secure_input(&self) {
+        let active = NSApplication::sharedApplication(self.mtm).isActive();
+        let key = self
+            .window
+            .get()
+            .is_some_and(|(window, _, _)| window.isKeyWindow());
+        self.update_secure(|secure| {
+            secure.set_active(active);
+            secure.set_key(key);
+        });
     }
 
     fn update_ime(&self, change: impl FnOnce(&mut gate::ImeGate)) {
@@ -419,6 +426,9 @@ impl State {
             return;
         }
         self.deliver(Delivery::BeforeWaiting);
+        // A refused enable or release is asked for again at each turn, and costs nothing when
+        // there is none.
+        self.update_secure(|_| {});
         if self.redraw.take() && self.window.get().is_some() {
             self.deliver(Delivery::Window(Event::RedrawRequested));
         }

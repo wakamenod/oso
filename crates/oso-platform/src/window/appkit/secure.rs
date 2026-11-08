@@ -4,6 +4,8 @@
 //!
 //! Must not depend on: the view, the delegates or the run loop's hooks.
 
+use objc2_foundation::MainThreadMarker;
+
 // HIToolbox is part of the Carbon framework, which AppKit loads already. No crate binds these.
 #[link(name = "Carbon", kind = "framework")]
 unsafe extern "C" {
@@ -14,21 +16,22 @@ unsafe extern "C" {
 }
 
 /// Enables secure input for this process. `false` if the system refused.
-pub(super) fn enable() -> bool {
-    // SAFETY: a Carbon call with no arguments, made on the main thread only (`State` is not
-    // `Sync`), and paired with `disable` by `gate::SecureInput`.
+pub(super) fn enable(_mtm: MainThreadMarker) -> bool {
+    // SAFETY: a Carbon call with no arguments, made on the main thread, which the marker
+    // proves, and paired with `disable` by `gate::SecureInput`.
     unsafe { EnableSecureEventInput() == 0 }
 }
 
 /// Releases one enable of secure input. `false` if the system refused.
-pub(super) fn disable() -> bool {
+pub(super) fn disable(_mtm: MainThreadMarker) -> bool {
     // SAFETY: as for `enable`; called only for an enable this process holds.
     unsafe { DisableSecureEventInput() == 0 }
 }
 
-/// Whether the system has secure input on, for the dev socket's check only.
+/// Whether any process has secure input on, for the dev socket's check only: the system's
+/// flag, not oso's own.
 #[cfg(feature = "dev")]
-pub(super) fn is_enabled() -> bool {
-    // SAFETY: a Carbon call with no arguments, which only reads.
+pub(super) fn any_enabled(_mtm: MainThreadMarker) -> bool {
+    // SAFETY: a Carbon call with no arguments, which only reads, on the main thread.
     unsafe { IsSecureEventInputEnabled() != 0 }
 }
