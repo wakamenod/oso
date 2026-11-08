@@ -11,6 +11,8 @@ use super::shell::Loop;
 use super::{App, UserEvent};
 use crate::saver::{self, AfterSave, SaveReport};
 use oso_platform::window::Held;
+#[cfg(all(target_os = "macos", feature = "native-window"))]
+use oso_platform::window::{QuitAnswer, QuitReason};
 
 impl App {
     /// Starts a thread for each save a command queued. Each ends in a [`UserEvent::Save`].
@@ -39,6 +41,7 @@ impl App {
         saver::apply(&mut self.editor, report);
         self.dispatcher.publish_for_emergency(&self.editor);
         self.copies_after_a_save(buffer, confirmed);
+        self.answer_session_end(event_loop);
         match self.leaving.save_ended(&self.editor, failed) {
             None | Some(AfterSave::KeepWaiting) => {}
             Some(AfterSave::Exit) => self.go(event_loop),
@@ -61,6 +64,41 @@ impl App {
         }
     }
 
+    /// The OS asks to end oso (ADR 0070, ADR 0084). A person's request, from the Dock or with
+    /// no reason, is guarded as `C-x C-c` is: it becomes oso's own close request, which may
+    /// ask about modified buffers or wait for saves, and the OS is told no. The end of the
+    /// session is never refused: it waits a few seconds for running saves, then the answer
+    /// is yes, and [`App::ending`] writes copies of what is at risk.
+    #[cfg(all(target_os = "macos", feature = "native-window"))]
+    pub(super) fn quit_requested(
+        &mut self,
+        event_loop: &Loop<'_>,
+        reason: QuitReason,
+    ) -> QuitAnswer {
+        match reason {
+            QuitReason::Person => {
+                self.close_requested(event_loop);
+                QuitAnswer::Cancel
+            }
+            QuitReason::SessionEnd => {
+                match self.leaving.begin_session_end(&self.editor, Instant::now()) {
+                    Some(deadline) => {
+                        event_loop.wake_at(deadline);
+                        QuitAnswer::Later
+                    }
+                    None => QuitAnswer::Now,
+                }
+            }
+        }
+    }
+
+    /// Lets the end of the session go once its saves have ended or its time is up.
+    fn answer_session_end(&mut self, event_loop: &Loop<'_>) {
+        if self.leaving.session_end_ready(&self.editor, Instant::now()) {
+            event_loop.answer_quit(true);
+        }
+    }
+
     /// Exits: at once, or if a save is running, once it has ended. A save the user asked
     /// for should not depend on how fast they leave, and a process that ends mid-write
     /// would leave its temporary file behind. The event loop keeps running until then, so
@@ -80,6 +118,10 @@ impl App {
 
     /// Ends the event loop, as this instance has agreed to, so that nothing is written.
     fn go(&mut self, event_loop: &Loop<'_>) {
+        // An end of the session the OS holds for an answer goes with this one.
+        if self.leaving.take_session_end() {
+            event_loop.answer_quit(true);
+        }
         self.leaving.go();
         event_loop.exit();
     }
@@ -99,6 +141,7 @@ impl App {
 
     /// Acts on a save that has held an exit for too long.
     pub(super) fn check_leaving(&mut self, event_loop: &Loop<'_>) {
+        self.answer_session_end(event_loop);
         match self.leaving.check_deadline(&self.editor, Instant::now()) {
             None | Some(AfterSave::KeepWaiting) => {}
             Some(AfterSave::Exit) => {

@@ -215,15 +215,16 @@ item notes when it must be settled.
   the input method asking for the rectangle of the range it names, so the candidate window
   follows the segment; no input context while the IME is off; the cursor's line for the
   input method;
-  the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
-  runs must still reach `exiting`; whether frames keep up during a live resize, now that the
+  whether frames keep up during a live resize, now that the
   view also draws when AppKit displays its layer; `open_window` and `request_attention`
   queued as the other requests are;
   startup and `open_from_launch_ms` measured again with more runs, where the native layer's
   medians sat a few milliseconds above winit's within overlapping ranges; and the author's
   checks at the keyboard of what remains: a window covered by another app and uncovered
-  drawing again with no key, a composition committed when the IME turns off, and each item
-  above as it lands. The author checked at the keyboard on 2026-11-08
+  drawing again with no key, a composition committed when the IME turns off, a Dock quit
+  asking the exit question and a logout going past it
+  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each item above as it
+  lands. The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting

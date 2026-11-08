@@ -557,10 +557,15 @@ impl Drop for Scratch {
 /// the request could be sent.
 #[cfg(target_os = "macos")]
 pub fn ask_to_quit(pid: u32) -> bool {
-    let osascript = Executable::from_path("osascript", None).expect("osascript is on PATH");
     let script = format!(
         "ObjC.import('AppKit'); $.NSRunningApplication.runningApplicationWithProcessIdentifier({pid}).terminate"
     );
+    run_osascript(&script)
+}
+
+/// Runs `script` as JavaScript for Automation. Returns whether it ran.
+fn run_osascript(script: &str) -> bool {
+    let osascript = Executable::from_path("osascript", None).expect("osascript is on PATH");
     let args = ["-l".into(), "JavaScript".into(), "-e".into(), script.into()];
     let status = spawn(&Spawn {
         executable: &osascript,
@@ -575,6 +580,25 @@ pub fn ask_to_quit(pid: u32) -> bool {
     .and_then(|mut child| child.wait())
     .expect("cannot run osascript");
     status.success()
+}
+
+/// Asks the instance with `pid` to quit as the end of the session does: a quit Apple event
+/// with a logout reason (`keyAEQuitReason`), which oso never refuses (ADR 0084). Returns
+/// whether osascript sent it.
+#[cfg(target_os = "macos")]
+pub fn ask_to_quit_for_logout(pid: u32) -> bool {
+    // 'aevt' 'quit', and the reason 'why?' = 'logo', with no reply awaited.
+    let script = format!(
+        "ObjC.import('Foundation');
+        const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier({pid});
+        const quit = $.NSAppleEventDescriptor
+            .appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
+                0x61657674, 0x71756974, target, -1, 0);
+        quit.setParamDescriptorForKeyword(
+            $.NSAppleEventDescriptor.descriptorWithEnumCode(0x6c6f676f), 0x7768793f);
+        quit.sendEventWithOptionsTimeoutError(1, 10, null);"
+    );
+    run_osascript(&script)
 }
 
 /// Whether a process with this ID exists, as `ps` sees it.

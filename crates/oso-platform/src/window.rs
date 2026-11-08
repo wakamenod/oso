@@ -145,6 +145,27 @@ pub struct CursorArea {
     pub height: f32,
 }
 
+/// Why the OS asks oso to end (ADR 0070, ADR 0084).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuitReason {
+    /// A person asked, from the Dock or another app, or the request gave no reason. Any local
+    /// process can send one with any reason, so this decides only whether an end is refused.
+    Person,
+    /// The session ends: a logout, a restart or a shutdown.
+    SessionEnd,
+}
+
+/// What the app answers when the OS asks it to end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum QuitAnswer {
+    /// End now: the loop's `exiting` comes next.
+    Now,
+    /// Do not end. The app may still end later, by itself.
+    Cancel,
+    /// Hold the end until the app gives its answer (`Control::answer_quit` on macOS).
+    Later,
+}
+
 /// What the app does with the native layer's events, one method per callback of the loop
 /// (ADR 0070). It is called on the main thread, never twice at once: what it asks of the window
 /// is done once it returns.
@@ -157,6 +178,9 @@ pub trait Handler<T> {
     fn window_event(&mut self, control: &Control, event: Event<'_>);
     /// The loop is about to wait for the next events.
     fn before_waiting(&mut self, control: &Control);
+    /// The OS asks to end the process, for `reason`, and the answer decides. One that comes
+    /// while another method runs is asked once that returns.
+    fn quit_requested(&mut self, control: &Control, reason: QuitReason) -> QuitAnswer;
     /// The loop is ending, on every exit: the last call.
     fn exiting(&mut self);
 }

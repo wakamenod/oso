@@ -17,6 +17,11 @@ use oso_core::editor::Editor;
 /// save that hangs past it (a stuck network file system) cannot keep it for good.
 const FINISH_TIMEOUT: Duration = Duration::from_secs(600);
 
+/// How long the end of the session waits for running saves, then lets it go: far below what
+/// macOS allows an app, so that oso never holds up a logout for long (ADR 0077). A save not
+/// done by then has an emergency copy of its buffer.
+const SESSION_END_WAIT: Duration = Duration::from_secs(5);
+
 /// What an exit under way does next.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AfterSave {
@@ -99,6 +104,8 @@ pub struct Leaving {
     gone: bool,
     /// Where the agreement is kept for the panic hook and the end of the event loop.
     cell: AgreementCell,
+    /// The session is ending, and waits for running saves until then (ADR 0084).
+    session_end: Option<Instant>,
 }
 
 impl Leaving {
@@ -148,6 +155,50 @@ impl Leaving {
         });
         self.update_cell();
         Some(deadline)
+    }
+
+    /// The session is ending: a logout, a restart or a shutdown, which is never refused.
+    /// `None` to let it go now, or when to stop waiting for the saves running. Nothing is
+    /// agreed to, so what is at risk gets copies when the process ends.
+    #[cfg_attr(
+        all(not(test), not(all(target_os = "macos", feature = "native-window"))),
+        expect(
+            dead_code,
+            reason = "only oso's own macOS layer asks the app whether to end"
+        )
+    )]
+    pub fn begin_session_end(&mut self, editor: &Editor, now: Instant) -> Option<Instant> {
+        if !self.any_worth_waiting_for(editor) {
+            return None;
+        }
+        let deadline = now + SESSION_END_WAIT;
+        self.session_end = Some(deadline);
+        Some(deadline)
+    }
+
+    /// Whether the end of the session waits no longer, as its saves have ended or its time
+    /// is up. Once it says so, no end of the session waits.
+    pub fn session_end_ready(&mut self, editor: &Editor, now: Instant) -> bool {
+        let Some(deadline) = self.session_end else {
+            return false;
+        };
+        let ready = now >= deadline || !self.any_worth_waiting_for(editor);
+        if ready {
+            self.session_end = None;
+        }
+        ready
+    }
+
+    /// Whether the end of the session waits for saves.
+    #[cfg(test)]
+    fn session_end_waits(&self) -> bool {
+        self.session_end.is_some()
+    }
+
+    /// Ends the wait of the end of the session, as the app goes anyway. Returns whether one
+    /// waited.
+    pub fn take_session_end(&mut self) -> bool {
+        self.session_end.take().is_some()
     }
 
     /// A save has ended, and its report has been taken in. `None` if no exit is under way.
@@ -242,6 +293,39 @@ mod tests {
             .unwrap();
         assert!(!matches!(editor.start_save(), Err(SaveRefused::Unmodified)));
         (editor, id)
+    }
+
+    #[test]
+    fn the_end_of_the_session_waits_for_saves_a_short_while_and_agrees_to_nothing() {
+        let now = Instant::now();
+        let mut leaving = Leaving::default();
+        let idle = Editor::with_buffer(Buffer::from_text("t", "x"));
+        assert_eq!(
+            leaving.begin_session_end(&idle, now),
+            None,
+            "nothing to wait for"
+        );
+        let (editor, _) = saving();
+        let deadline = leaving.begin_session_end(&editor, now).unwrap();
+        assert_eq!(deadline, now + SESSION_END_WAIT);
+        assert!(leaving.session_end_waits());
+        assert_eq!(leaving.cell.get(), Agreement::Nothing, "copies at the end");
+        assert!(!leaving.session_end_ready(&editor, now), "the save runs");
+        assert!(
+            leaving.session_end_ready(&editor, deadline),
+            "the time is up"
+        );
+        assert!(!leaving.session_end_waits());
+        assert!(!leaving.session_end_ready(&editor, deadline), "once");
+        // Its saves ending lets it go at once.
+        leaving.begin_session_end(&editor, now).unwrap();
+        assert!(
+            leaving.session_end_ready(&idle, now),
+            "no save runs any more"
+        );
+        leaving.begin_session_end(&editor, now).unwrap();
+        assert!(leaving.take_session_end(), "the app goes by itself");
+        assert!(!leaving.take_session_end() && !leaving.session_end_waits());
     }
 
     #[test]
