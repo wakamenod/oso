@@ -122,6 +122,10 @@ impl Window {
         self.0.request_redraw();
     }
 
+    /// A frame skipped because the window was hidden: winit's notice that it is visible again
+    /// brings it, as the app asks for a frame then.
+    pub(super) fn redraw_when_visible(&self) {}
+
     pub(super) fn set_visible(&self, visible: bool) {
         self.0.set_visible(visible);
     }
