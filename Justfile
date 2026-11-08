@@ -17,6 +17,8 @@ api_macos_target := "aarch64-apple-darwin"
 perf_target := "target/perf-build"
 # The same with oso's own macOS window layer (ADR 0070), apart so neither overwrites the other.
 perf_native_target := "target/perf-native"
+# `perf-remote` builds both sides here, apart from those, with the features asked for.
+perf_remote_target := "target/perf-remote"
 # The whole test run stays within this on the author's Mac (ADR 0037).
 test_budget_s := "30"
 # The design health report lists this many surviving mutants.
@@ -222,6 +224,57 @@ perf out="target/perf/perf.json" *args="":
 perf-native out="target/perf/perf-native.json" *args="":
     cargo build --locked --release --target-dir {{perf_native_target}} -p oso --features dev,native-window --bin oso --example perf
     {{perf_native_target}}/release/examples/perf run --oso {{perf_native_target}}/release/oso --out "{{out}}" {{args}}
+
+# Benchmark the working tree against BASE on the ssh host OSO_PERF_HOST, in PAIRS alternating pairs, both built with FEATURES (`dev,native-window` for ADR 0070's layer). It builds here and only runs there, so builds here may go on meanwhile
+perf-remote base="origin/main" pairs="3" features="dev" *args="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    host="${OSO_PERF_HOST:?set OSO_PERF_HOST to an ssh host, a Mac that runs what is built here}"
+    [[ "{{pairs}}" =~ ^[1-9][0-9]*$ ]] || { echo "error: not a number of pairs: {{pairs}}"; exit 1; }
+    [[ "{{features}}" =~ ^dev(,[a-z-]+)*$ ]] || { echo "error: features must start with dev: {{features}}"; exit 1; }
+    rev=$(git rev-parse --verify "{{base}}^{commit}")
+    new=$(git rev-parse --short HEAD)
+    git diff --quiet HEAD || new="$new with changes"
+    run=$(date +%Y%m%d-%H%M%S)
+    out="target/perf/remote/$run"
+    src="{{perf_remote_target}}/base-src"
+    mkdir -p "$out"
+    rm -rf "$src" && mkdir -p "$src"
+    # The base from git alone, built apart; the harness of the working tree runs both sides.
+    git archive "$rev" | tar -x -C "$src"
+    cargo build --locked --release --manifest-path "$src/Cargo.toml" --target-dir "$PWD/{{perf_remote_target}}/base" -p oso --features "{{features}}" --bin oso
+    cargo build --locked --release --target-dir {{perf_remote_target}}/new -p oso --features "{{features}}" --bin oso --example perf
+    echo "base: {{base}} at ${rev:0:7}; new: $new; features: {{features}}; host: $host" | tee "$out/what.txt"
+    ssh "$host" "mkdir -p oso-perf/$run"
+    rsync -q "{{perf_remote_target}}/base/release/oso" "$host:oso-perf/$run/oso-base"
+    rsync -q "{{perf_remote_target}}/new/release/oso" "$host:oso-perf/$run/oso-new"
+    rsync -q "{{perf_remote_target}}/new/release/examples/perf" "$host:oso-perf/$run/perf"
+    # Base first in each pair. Swapping during a run makes it worth less, so each says how much.
+    ssh "$host" bash -s -- "$run" "{{pairs}}" {{args}} <<'REMOTE' | tee -a "$out/what.txt"
+    set -euo pipefail
+    cd "oso-perf/$1"
+    pairs=$2
+    shift 2
+    swapouts() { vm_stat | awk '/Swapouts/ { gsub(/\./, "", $2); print $2 }'; }
+    for pair in $(seq 1 "$pairs"); do
+        for side in base new; do
+            before=$(swapouts)
+            caffeinate -d ./perf run --oso "./oso-$side" --out "$side-$pair.json" "$@" > "$side-$pair.log" 2>&1 \
+                || { echo "perf-remote: $side of pair $pair failed"; tail -20 "$side-$pair.log"; exit 1; }
+            echo "pair $pair, $side: $(( $(swapouts) - before )) swapouts"
+        done
+    done
+    REMOTE
+    scp -q "$host:oso-perf/$run/*.json" "$host:oso-perf/$run/*.log" "$out/"
+    ssh "$host" "rm -rf oso-perf/$run"
+    status=0
+    for pair in $(seq 1 {{pairs}}); do
+        echo "━━ pair $pair"
+        {{perf_remote_target}}/new/release/examples/perf compare "$out/base-$pair.json" "$out/new-$pair.json" \
+            --summary "$out/summary-$pair.md" || status=1
+    done
+    echo "results in $out"
+    exit $status
 
 # Compare a result with a baseline, and fail on a large regression; a missing baseline passes with a note
 perf-compare base new summary="target/perf/summary.md":
