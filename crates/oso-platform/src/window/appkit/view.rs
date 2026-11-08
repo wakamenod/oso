@@ -14,7 +14,9 @@
 //!   as Dictation or the Character Viewer, is a commit, never a key.
 
 use std::cell::{Cell, RefCell};
+use std::panic::AssertUnwindSafe;
 
+use objc2::exception;
 use objc2::rc::{AutoreleasePool, Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send};
@@ -318,8 +320,15 @@ impl OsoView {
             }
             Route::InputMethod => {
                 *self.ivars().handling.borrow_mut() = Some(Handling { to_oso: false });
-                self.interpretKeyEvents(&NSArray::from_slice(&[event]));
+                let events = NSArray::from_slice(&[event]);
+                // An exception from the input method must not leave a key in hand.
+                let thrown =
+                    exception::catch(AssertUnwindSafe(|| self.interpretKeyEvents(&events)));
                 let handling = self.ivars().handling.take();
+                if thrown.is_err() {
+                    log::error!("an Objective-C exception was raised by the input method");
+                    return;
+                }
                 if handling.is_some_and(|handling| handling.to_oso) {
                     self.deliver_key(event);
                 }
@@ -388,8 +397,10 @@ impl OsoView {
 
     fn drop_input_context_text(&self) {
         self.ivars().muted.set(true);
-        if let Some(context) = self.inputContext() {
-            context.discardMarkedText();
+        if let Some(context) = self.inputContext()
+            && exception::catch(AssertUnwindSafe(|| context.discardMarkedText())).is_err()
+        {
+            log::error!("an Objective-C exception was raised by the input method");
         }
     }
 

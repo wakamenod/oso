@@ -24,11 +24,11 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::Instant;
 
+use objc2::exception;
 use objc2::rc::{Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventModifierFlags, NSEventType,
-    NSScreen, NSWindow,
+    NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSScreen, NSWindow,
 };
 use objc2_foundation::{
     MainThreadMarker, NSDictionary, NSNumber, NSPoint, NSSize, NSString, NSUserDefaults,
@@ -49,7 +49,6 @@ const FIRST_SIZE: NSSize = NSSize::new(800.0, 600.0);
 pub fn run<T: 'static, H: Handler<T> + 'static>(start: impl FnOnce(Waker<T>) -> H) {
     let mtm = MainThreadMarker::new().expect("the window layer runs on the main thread");
     let app = NSApplication::sharedApplication(mtm);
-    app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
     // No windows in tabs, and held letters repeat (ADR 0070).
     NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
     hold_letters_to_repeat();
@@ -212,7 +211,16 @@ impl State {
         let control = Control { state: self };
         // A pool of its own, so that what a frame or an event autoreleases goes at once.
         let result = autoreleasepool(|_| {
-            panic::catch_unwind(AssertUnwindSafe(|| handler.deliver(&control, delivery)))
+            panic::catch_unwind(AssertUnwindSafe(|| {
+                // An Objective-C exception from a call the handler made becomes a panic here,
+                // so the panic hook runs as for any other (ADR 0062). Its reason may quote
+                // anything, so the message does not carry it.
+                if exception::catch(AssertUnwindSafe(|| handler.deliver(&control, delivery)))
+                    .is_err()
+                {
+                    panic!("an Objective-C exception was raised while the app handled an event");
+                }
+            }))
         });
         drop(dispatch);
         if let Err(payload) = result {
@@ -253,7 +261,10 @@ impl State {
     fn after_handler(&'static self) {
         let requests = self.requests.take();
         for request in requests {
-            self.apply(request);
+            // One that throws must not drop the rest, as an IME turned off among them.
+            if exception::catch(AssertUnwindSafe(|| self.apply(request))).is_err() {
+                log::error!("an Objective-C exception was raised by a window request");
+            }
         }
         let pending = self.pending.take();
         for event in pending {
@@ -296,13 +307,14 @@ impl State {
                 ));
             }
             Request::ImeAllowed(allowed) => {
+                // The state first, so that it holds whatever the input method does next.
+                self.ime_allowed.set(allowed);
                 if !allowed {
+                    self.ime_area.set(None);
                     // As winit does: the composition is dropped. Committing it instead is
                     // the next step of ADR 0070, with the app's side of it.
                     view.discard_marked();
-                    self.ime_area.set(None);
                 }
-                self.ime_allowed.set(allowed);
             }
             Request::DiscardComposition => view.discard_marked(),
         }

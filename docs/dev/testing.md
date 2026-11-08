@@ -229,7 +229,9 @@ the build, and it is a reason to run `just test-time` on the Mac, which decides.
 `just e2e` starts real dev builds and drives them over the control socket
 ([ADR 0037](adr/0037-test-pyramid.md), layer 5;
 [ADR 0049](adr/0049-end-to-end-test-harness.md)). `just e2e 20` repeats the
-suite. It runs on the author's Mac, on Linux CI with Xvfb and lavapipe, and on macOS
+suite. `just e2e-native` runs the same flows on oso's own macOS window layer, as macOS CI
+does too, and `just perf-native` benchmarks it as `just perf` does winit's, until it is the
+default there ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). It runs on the author's Mac, on Linux CI with Xvfb and lavapipe, and on macOS
 CI, and it is not part of `just ci`, because windows open and take the focus. Leave
 the keyboard and mouse alone while it runs: real input reaches its windows too, and
 what you type goes into their buffers, which can fail a flow.
@@ -397,7 +399,9 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 - `cargo-deny` and `cargo-audit`
 - a gitleaks scan of the full history
 - `just public-api-check` on Linux: the public API matches
-  `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md))
+  `guardrails/public-api` ([ADR 0038](adr/0038-architecture-guardrails.md)); and
+  `just public-api-macos-check` on macOS for `oso-platform`'s macOS API, with the native
+  window layer ([ADR 0070](adr/0070-windowing-and-input-without-winit.md))
 - the structure workflow (`structure.yml`): a structural change needs an
   ADR cited in the pull request description
 - weekly, the design health report (`design-health.yml`) as a GitHub issue

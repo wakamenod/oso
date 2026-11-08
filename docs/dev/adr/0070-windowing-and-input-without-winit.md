@@ -326,6 +326,9 @@ counts as agreed, and the fuller account of who reads the cursor's line.
 - **What the OS does is tested by hand,** as now: the input method, Option, press-and-hold, a
   Dock quit and a logout, a display with another scale. Translating an `NSEvent`'s fields into
   oso's key event, and the input-method state, are plain functions tested without a window.
+- **`just e2e-native` and `just perf-native`** run the flows and the benchmarks on the native
+  layer, and macOS CI runs the flows on both, until native is the default there. Its API has a
+  snapshot of its own, `guardrails/public-api/oso-platform-macos.txt`, taken on macOS.
 - **`just perf`** compares the native layer against winit on `main` with the same keys. Keys
   that move the cursor should lose the cursor area's cost; nothing else should move. Stage 2
   also measures:

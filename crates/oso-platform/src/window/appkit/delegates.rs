@@ -6,7 +6,8 @@
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSApplication, NSApplicationDelegate, NSWindow, NSWindowDelegate, NSWindowOcclusionState,
+    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate, NSWindow,
+    NSWindowDelegate, NSWindowOcclusionState,
 };
 use objc2_foundation::{MainThreadMarker, NSNotification, NSObject, NSObjectProtocol};
 
@@ -34,12 +35,15 @@ define_class!(
     unsafe impl NSApplicationDelegate for AppDelegate {
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn did_finish_launching(&self, _notification: &NSNotification) {
+            let app = NSApplication::sharedApplication(self.mtm());
+            // Only once launched, as winit does: set before, the window comes up later.
+            app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             // Launched from a terminal, an unbundled app is not in front unless it asks.
             #[expect(
                 deprecated,
                 reason = "`activate` does not bring an unbundled app forward"
             )]
-            NSApplication::sharedApplication(self.mtm()).activateIgnoringOtherApps(true);
+            app.activateIgnoringOtherApps(true);
             self.ivars().state.deliver(Delivery::Resume);
         }
 

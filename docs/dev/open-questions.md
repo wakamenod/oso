@@ -203,12 +203,9 @@ item notes when it must be settled.
   method asking for the rectangle of the range it names, so the candidate window follows the
   segment; no input context while the IME is off; the cursor's line for the input method;
   the quit guard (`applicationShouldTerminate:`), where an end that comes while the handler
-  runs must still reach `exiting`; Objective-C exceptions caught, which needs `objc2`'s
-  `exception` feature and so a new crate, `objc2-exception-helper`, for approval; frames during
-  a live resize, which are drawn only before the loop waits; `open_window`
-  and `request_attention` queued as the other requests are; the macOS API in an API
-  snapshot of its own, as `just public-api` takes Linux's; a way to run `just e2e` and
-  `just perf` with `native-window`; and the author's checks at the keyboard
+  runs must still reach `exiting`; frames during a live resize, which are drawn only before
+  the loop waits; `open_window` and `request_attention` queued as the other requests are;
+  and the author's checks at the keyboard
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
