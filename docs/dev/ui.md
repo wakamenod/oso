@@ -124,6 +124,50 @@ are rounded.
 - The preview is read-only, and it only renders already-open buffers or
   files the trust model allows reading.
 
+### Finding files (`C-x C-f`, `C-x C-w`)
+
+[ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md):
+
+- The centred float, `Find file:` (or `Write file:`), starting at the buffer's directory, the home
+  directory as `~/`. A worker lists directories; the count shows `…` until it answers.
+- Segments before the last are prefixes, and the last one matches as in `M-x`: `~/P/S/o` reaches
+  `~/Projects/SideProjects/oso`. `~/` or `/` typed after a `/` starts over, the text before drawn dim.
+  Names starting with `.` show only when the last segment starts with `.`.
+- A row is the name, `/` after a directory, then its mode, size and age, and `→ target` for a link.
+- `TAB` puts the selected path in the answer. `RET` enters a directory and opens a file, or the
+  typed path when nothing matches (`(New file)`). `M-RET`, or `C-p` from the first row, takes the text
+  as typed.
+- A file already open shows its buffer. A file of 2 GiB or more asks
+  `big.iso is 3.2 GiB, all held in memory; open it? (y or n)`.
+- `C-x C-w` writes the buffer under a new path, asking before it writes over a file, and the buffer
+  then visits it.
+
+### Buffers (`C-x b`, `C-x k`, `M-,`, `M-/`, `C-.`)
+
+[ADR 0088](adr/0088-switching-and-killing-buffers.md):
+
+```
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ 1/4 Switch to buffer: █                                    ┃
+┃▌todo.md  *  2k  Te…▐┃# Todo                                 ┃
+┃ notes.md    9k  Te… ┃- budget for Q3                        ┃
+┃ *Messages*  1k  Me… ┃▯ hiring: two engineers                ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+- `C-x b` lists buffers, the most recent first and the current one last, so `RET` goes back to the
+  previous one. A row is the name, `*` when modified, the size, the mode and the path. A name that
+  matches nothing creates a buffer.
+- The float keeps its size: the list takes the left 2/5, the preview the rest, showing the selected
+  buffer from where the window last was in it. A buffer that may hold secrets is never previewed: the
+  preview says `may hold secrets`. A narrow frame drops the preview.
+- A window comes back to a buffer where it left it: cursors, marks and scroll.
+- Two files with one name show as `notes.md<work>` and `notes.md<home>`.
+- `C-x k` reads a buffer, the current first, and asks before killing a modified one. `*Messages*`,
+  `*Emergency Copies*` and `*Agent*` are kept. The window then shows the most recent other buffer.
+- `M-,` and `M-/` go to the previous and next buffer in the window's order, skipping internal ones.
+- `C-.` lists the mark ring, with the buffer around the selected mark in the preview.
+
 ## Menus
 
 Hydra/transient-style menus float at the **center** of the frame, as they do
@@ -136,7 +180,7 @@ with hydra-posframe today.
 - The minibuffer no longer lives there, so the line is for messages only, and for
   what is being typed: `C-x-` or `C-u 5-`, which comes ahead of any message.
 - Every message is also appended to the `*Messages*` buffer, which `C-h e` shows, and until
-  `C-x b` (M2-19) leaves. What a command says while a secret buffer is shown stays out of
+  `C-x b` leaves. What a command says while a secret buffer is shown stays out of
   `*Messages*` and the log, and goes from the line once the window moves on. An
   undefined key and "Quit" reach only the line
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
@@ -163,7 +207,7 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - `r` shows the text, and `r` again there puts it in the file's buffer as one undo step. Nothing is
   written until `C-x C-s`, and the copy goes once that has reached the disk.
 - `d` says what it does, and `d` again deletes that copy for good. Held down, a letter here answers once.
-- A copy of a file not open needs `oso PATH`, or later `C-x C-f`. Its row gives the path.
+- A copy of a file not open needs `oso PATH` or `C-x C-f`, which starts at the row's path.
 
 ## Modeline
 

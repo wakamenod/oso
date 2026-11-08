@@ -194,9 +194,12 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 - **M2-17** (after M2-16): completion: the orderless matcher, 18 candidate rows,
   annotations, history and `M-x`.
 - **M2-18** (after M2-8 and M2-17): `C-x C-f` with path-segment completion on a
-  worker thread, `C-x C-w`, and asking before opening files of 2 GiB or more.
+  worker thread, `C-x C-w`, asking before opening files of 2 GiB or more, and opening
+  that never blocks on a special file
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - **M2-19** (after M2-17): `C-x b` with in-popup preview, `kill-buffer`, distinct
-  names for files with one name, and `M-,`/`M-/`.
+  names for files with one name, `M-,`/`M-/`, a window's place in each buffer, and `C-.`
+  ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - **M2-20** (after M2-7 and M2-13): isearch (`C-s`/`C-r`) with smart case, match
   highlighting and a count from the background.
 - **M2-21** (after M2-14, M2-17 and M2-20): multiple-cursor keys, and `M-y` from the
