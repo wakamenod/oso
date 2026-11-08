@@ -17,6 +17,7 @@ const ESCAPE: [f32; 4] = [0.85, 0.45, 0.20, 1.0];
 const ESCAPE_BOX: [f32; 4] = [0.22, 0.10, 0.05, 1.0];
 const MODELINE: [f32; 4] = [0.16, 0.16, 0.21, 1.0];
 const WARNING: [f32; 4] = [1.0, 0.72, 0.16, 1.0];
+const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
 
 /// What a piece of the screen means. The renderer turns it into colors, and
 /// the theme (M2-23) will map it to its palette.
@@ -39,13 +40,16 @@ pub enum Face {
     /// Text an input method is composing, and its underline (ADR 0069). It is
     /// shaped apart from the text around it.
     Preedit,
+    /// The region between a mark and its cursor (ADR 0071). Only its background
+    /// is drawn, behind the text, which keeps its own face.
+    Region,
 }
 
 impl Face {
     /// The color of coverage glyphs.
     pub(crate) fn foreground(self) -> [f32; 4] {
         match self {
-            Self::Text | Self::Modeline | Self::Preedit => FOREGROUND,
+            Self::Text | Self::Modeline | Self::Preedit | Self::Region => FOREGROUND,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
@@ -60,6 +64,7 @@ impl Face {
             Self::Cursor => CURSOR,
             Self::Modeline => MODELINE,
             Self::Preedit => FOREGROUND,
+            Self::Region => REGION,
         }
     }
 
@@ -106,6 +111,9 @@ pub struct TextView<'a> {
     /// What an input method is composing, spliced into the cursor's row at the
     /// cursor and pushing the rest of it (ADR 0069).
     pub preedit: Option<&'a Preedit>,
+    /// The frame's cells the regions between marks and cursors take, behind the text
+    /// and its boxes, as `frame::region_cells` gives them (ADR 0071).
+    pub region_cells: &'a [CellRect],
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its

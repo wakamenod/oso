@@ -284,6 +284,10 @@ fn draw_pane<G: GlyphSource>(
     }
     match &pane.content {
         PaneContent::Text(view) => {
+            // Behind the boxes and the glyphs, so the text keeps its face.
+            for cells in view.region_cells {
+                draws.fill(unscrolled.frame_cells(*cells), Face::Region);
+            }
             let mut layout = Layout::new(metrics, pane.region, view.scroll);
             if let Some(cells) = cursor {
                 // Glyphs take the box's color only where the box is.
@@ -483,6 +487,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
             preedit: None,
+            region_cells: &[],
         })
     }
 
@@ -576,6 +581,7 @@ mod tests {
                     scroll: Scroll { top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     preedit: None,
+                    region_cells: &[],
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -647,6 +653,7 @@ mod tests {
             scroll: Scroll { top: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
             preedit: None,
+            region_cells: &[],
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
@@ -725,6 +732,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             preedit: None,
+            region_cells: &[],
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -736,6 +744,41 @@ mod tests {
         assert_eq!(last.size, [30.0, 20.0]);
         let boxed = scene.rects()[0];
         assert_eq!(boxed.size, [30.0, 20.0], "the box is cut too");
+    }
+
+    #[test]
+    fn the_region_goes_behind_the_boxes_and_the_cursor_and_stays_in_the_pane() {
+        let buffer = Buffer::from_text("t", "\u{202e}abc\nde");
+        let region = [rect(1, 1, 1, 8), rect(2, 1, 1, 20)];
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(1, 1),
+            preedit: None,
+            region_cells: &region,
+        });
+        let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
+        panes[0].background = Some(Face::Text);
+        let mut scene = Scene::new(LIMITS);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects: Vec<_> = scene
+            .rects()
+            .iter()
+            .map(|rect| (rect.position, rect.size, rect.color))
+            .collect();
+        assert_eq!(
+            rects,
+            [
+                ([18.0, 28.0], [80.0, 40.0], Face::Text.background()),
+                ([18.0, 28.0], [80.0, 20.0], Face::Region.background()),
+                ([18.0, 48.0], [80.0, 20.0], Face::Region.background()),
+                ([18.0, 28.0], [60.0, 20.0], Face::Boxed.background()),
+                ([28.0, 48.0], [10.0, 20.0], Face::Cursor.background()),
+            ],
+            "the second row of the region is cut to the pane"
+        );
     }
 
     #[test]
@@ -751,6 +794,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
             preedit: Some(&preedit),
+            region_cells: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS);
@@ -789,6 +833,7 @@ mod tests {
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(1000, 0),
                 preedit: None,
+                region_cells: &[],
             })
         };
         let panes = |first, second_id| {
@@ -947,6 +992,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             preedit: None,
+            region_cells: &[],
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);

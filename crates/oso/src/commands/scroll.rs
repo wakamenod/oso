@@ -31,8 +31,10 @@ pub const COMMANDS: &[Command] = &[
 
 /// Scrolls the selected window by `lines` (the text up, toward the end, if
 /// positive), as Emacs's `scroll-up` does. Cursors that would leave the
-/// window move to the start of its nearest row.
+/// window move to the start of its nearest row. With Shift, that selects, as a
+/// motion does (ADR 0071).
 fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
+    super::mark::shift_select(ctx);
     let (window, buffer) = ctx.editor.current_mut();
     let display = buffer.display();
     let row_count = display.row_count();

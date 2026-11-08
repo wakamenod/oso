@@ -1,0 +1,67 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: ab日本c\\n\\nline three\\n"
+---
+keys: C-f C-SPC
+│ab日本c     │
+: ^<><>      :
+│            │
+│line three  │
+│            │
+=-- test  1:1=
+"Mark set    "
+
+keys: C-n C-n C-f
+│ab日本c     │
+:  <><>      :
++ ***********+
+│            │
++************+
+│line three  │
+:  ^         :
++**          +
+│            │
+=-- test  3:2=
+"            "
+
+keys: C-x C-x
+│ab日本c     │
+: ^<><>      :
++ ***********+
+│            │
++************+
+│line three  │
++**          +
+│            │
+=-- test  1:1=
+"            "
+
+keys: C-SPC C-SPC
+│ab日本c     │
+: ^<><>      :
+│            │
+│line three  │
+│            │
+=-- test  1:1=
+"Mark deactiv"
+
+keys: C-x h
+│ab日本c     │
+:^ <><>      :
++************+
+│            │
++************+
+│line three  │
++************+
+│            │
+=-- test  1:0=
+"Mark set    "
+
+keys: C-g
+│ab日本c     │
+:^ <><>      :
+│            │
+│line three  │
+│            │
+=-- test  1:0=
+"Quit        "

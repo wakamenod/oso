@@ -5,7 +5,7 @@
 //! OS with no window.
 
 use oso_core::buffer::{Buffer, Replacement};
-use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Effects};
+use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Effects, Invocation};
 use oso_core::display_map::DisplayPoint;
 use oso_core::editor::Editor;
 use oso_core::key::KeySequence;
@@ -88,8 +88,10 @@ fn run(
         editor,
         id,
         Args::numeric(count),
-        input,
-        None,
+        Invocation {
+            input,
+            ..Invocation::default()
+        },
         super::Step::MayJoin,
     );
     (effects, result.map_err(|e| e.to_string()))

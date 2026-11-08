@@ -5,6 +5,7 @@
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
 mod edit;
+mod mark;
 mod messages;
 mod motion;
 mod prefix;
@@ -23,6 +24,7 @@ use oso_core::keymap::Keymap;
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
     edit::BINDINGS,
+    mark::BINDINGS,
     messages::BINDINGS,
     motion::BINDINGS,
     prefix::BINDINGS,

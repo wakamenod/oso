@@ -9,12 +9,12 @@ keys: M->
 │        │
 :^       :
 =-- test =
-"        "
+"Mark set"
 
 frame rows: 2
 │        │
 :^       :
-"        "
+"Mark set"
 
 frame rows: 6
 │line 5  │
@@ -23,4 +23,4 @@ frame rows: 6
 │        │
 :^       :
 =-- test =
-"        "
+"Mark set"

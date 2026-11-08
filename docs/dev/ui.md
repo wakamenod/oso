@@ -119,6 +119,23 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - After a large jump or scroll, the cursor position flashes briefly
   (beacon-style).
 
+## Mark and region
+
+As Emacs with `transient-mark-mode` and `shift-select-mode`
+([ADR 0071](adr/0071-mark-and-region.md)):
+
+- The region is shown only while it is active: from `C-SPC` (or `C-@`), `C-x C-x` or `C-x h`, or a
+  motion with Shift, until an edit, `C-g`, `C-SPC C-SPC` or another buffer in the window. A region
+  from a motion with Shift ends with the next motion without it.
+- It is a background colour only, a muted blue-grey until the theme: text keeps its own colour,
+  and boxes, the cursor and a preedit's underline are drawn over it. A row whose line break is in
+  the region is filled to the window's right edge.
+- `C-u C-SPC` and `C-,` go back through the mark ring, 16 marks. `M-<` and `M->` set the mark where
+  the cursor was, and the echo area says "Mark set".
+- With several cursors, each has its own mark, and all regions show or none. Regions that come to
+  overlap merge into one.
+- During a composition the region stays, and the preedit pushes it as it pushes the text.
+
 ## isearch
 
 - All matches in view are highlighted, and the current match is emphasized.

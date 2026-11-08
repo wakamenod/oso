@@ -218,6 +218,8 @@ pub struct Invocation<'a> {
     pub key_char: Option<char>,
     /// How many times in a row this command has just run before now.
     pub repeats: usize,
+    /// Its key had Shift, which its binding has not (Emacs's shift translation).
+    pub shifted: bool,
 }
 
 /// What a command gets to work with: the host's editor state, how it was
@@ -263,6 +265,12 @@ impl<'a> Ctx<'a> {
     /// that does something else when repeated, as `C-l` does. It keeps no state.
     pub fn repeats(&self) -> usize {
         self.invocation.repeats
+    }
+
+    /// Whether the key that invoked the command had a Shift that its binding has
+    /// not, as `S-<right>` runs `forward-char`. A motion then selects (ADR 0071).
+    pub fn shifted(&self) -> bool {
+        self.invocation.shifted
     }
 
     /// Leaves `prefix` for the next command, in place of the one this command got.

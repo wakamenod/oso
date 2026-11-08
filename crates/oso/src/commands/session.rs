@@ -1,5 +1,5 @@
 //! Commands for the session as a whole: cancelling what is in progress, and
-//! exiting (ADR 0034, ADR 0059).
+//! exiting (ADR 0034, ADR 0059, ADR 0071).
 //!
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
@@ -11,7 +11,7 @@ use oso_core::editor::ExitAction;
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "keyboard-quit",
-        doc: "Cancel what is in progress.\n\nCancelling a pending prefix key is handled by the key resolver.",
+        doc: "Cancel what is in progress, and hide the region.\n\nCancelling a pending prefix key is handled by the key resolver.",
         args: ArgSpec::None,
         run: keyboard_quit,
     },
@@ -24,7 +24,10 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
-    // Deactivating the mark comes with marks.
+    // Removing extra cursors first comes with the multiple-cursor keys (ADR 0030).
+    if ctx.editor.deactivate_mark() {
+        ctx.request_redraw();
+    }
     log::debug!("Quit");
     ctx.editor.echo("Quit");
     Ok(())

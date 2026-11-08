@@ -57,8 +57,11 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 /// window's buffer, cursor, scroll position and visible text, the keys of a pending
 /// prefix, and the surface size if there is a window.
 ///
+/// The cursor and each selection carry their mark, and each window says whether its
+/// regions show and holds its mark ring (ADR 0071).
+///
 /// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`
-/// are left out. Its other metadata stays, as [`buffer_state`] has it. While any window
+/// are left out, with every mark. Its other metadata stays, as [`buffer_state`] has it. While any window
 /// shows one, `modeline` and `echo` are left out too (ADR 0051, ADR 0063).
 pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     let (window, buffer) = editor.current();
@@ -82,13 +85,14 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
     if !buffer.is_secret() {
-        let cursor = window.selections.primary().cursor;
-        let point = display.offset_to_display_point(cursor);
+        let primary = window.selections.primary();
+        let point = display.offset_to_display_point(primary.cursor);
         state["cursor"] = json!({
-            "offset": cursor,
+            "offset": primary.cursor,
             "row": point.row,
             "column": point.column,
             "count": window.selections.len(),
+            "mark": mark_state(primary.mark, &display),
         });
         state["scroll"] = scroll_state(window);
     }
@@ -182,6 +186,8 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
             .iter()
             .map(|selection| selection_state(selection, &display))
             .collect();
+        state["mark_active"] = json!(selections.mark_active().is_active());
+        state["mark_ring"] = selections.mark_ring().iter().collect();
     }
     state
 }
@@ -193,6 +199,15 @@ fn selection_state(selection: &Selection, display: &DisplaySnapshot) -> Value {
         "row": point.row,
         "column": point.column,
         "goal": goal_state(selection.goal),
+        "mark": mark_state(selection.mark, display),
+    })
+}
+
+/// Where a mark is, or null with none (ADR 0071).
+fn mark_state(mark: Option<usize>, display: &DisplaySnapshot) -> Value {
+    mark.map_or(Value::Null, |mark| {
+        let point = display.offset_to_display_point(mark);
+        json!({ "offset": mark, "row": point.row, "column": point.column })
     })
 }
 
@@ -356,7 +371,7 @@ mod tests {
     use oso_core::buffer::{Buffer, BufferId, Replacement};
     use oso_core::editor::Editor;
     use oso_core::key::KeySequence;
-    use oso_core::selection::SelectionSet;
+    use oso_core::selection::{MarkActive, SelectionSet};
     use oso_core::window::{Scroll, ViewSize};
     use serde_json::json;
     use std::path::PathBuf;
@@ -420,7 +435,7 @@ mod tests {
                 "modeline": "%% bad.txt  2:4  Fundamental  UTF-8 (invalid) CRLF",
                 "echo": "",
                 "buffer": buffer,
-                "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1 },
+                "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1, "mark": null },
                 "scroll": { "top": 0, "left": 3 },
                 "window": { "rows": 5, "columns": 2 },
                 "text": {
@@ -437,7 +452,11 @@ mod tests {
                     "columns": 2,
                     "scroll": { "top": 0, "left": 3 },
                     "primary": 0,
-                    "selections": [{ "cursor": 6, "row": 1, "column": 4, "goal": null }],
+                    "selections": [
+                        { "cursor": 6, "row": 1, "column": 4, "goal": null, "mark": null },
+                    ],
+                    "mark_active": false,
+                    "mark_ring": [],
                 }],
                 "keys": { "pending": "" },
                 "surface": { "width": 800, "height": 600 },
@@ -643,12 +662,32 @@ mod tests {
     fn a_secret_buffer_shows_no_positions() {
         let (mut editor, _) = visiting("/p/.env", Some("/p/.env"), "ONE\nTWO THREE\n");
         editor.restore_positions(SelectionSet::new(6), Scroll { top: 1, left: 0 });
+        // A mark, one in the ring and a region shown, none of which may show either.
+        let selections = &mut editor.current_mut().0.selections;
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.move_to(9);
+            Ok::<(), ()>(())
+        });
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.move_to(11);
+            Ok::<(), ()>(())
+        });
+        selections.set_mark_active(MarkActive::Active);
         let state = state(&editor, &[]);
+        assert!(!state.to_string().contains("mark"), "no mark anywhere");
         let result = state.as_object().unwrap();
         assert!(!result.contains_key("cursor"));
         assert!(!result.contains_key("scroll"));
         let window = state["windows"][0].as_object().unwrap();
-        for hidden in ["scroll", "primary", "selections"] {
+        for hidden in [
+            "scroll",
+            "primary",
+            "selections",
+            "mark_active",
+            "mark_ring",
+        ] {
             assert!(!window.contains_key(hidden), "{hidden}");
         }
         // What the window is stays, and so does the rest.
@@ -764,7 +803,31 @@ mod tests {
         assert_eq!(state["windows"][0]["primary"], 0);
         assert_eq!(
             state["windows"][0]["selections"],
-            json!([{ "cursor": 0, "row": 0, "column": 0, "goal": null }])
+            json!([{ "cursor": 0, "row": 0, "column": 0, "goal": null, "mark": null }])
         );
+    }
+
+    #[test]
+    fn marks_the_region_and_the_ring_are_reported() {
+        let mut editor = editor("abc\ndef", 5, 5);
+        let selections = &mut editor.current_mut().0.selections;
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.move_to(5);
+            Ok::<(), ()>(())
+        });
+        selections.push_marks();
+        selections.update(|selection| {
+            selection.move_to(6);
+            Ok::<(), ()>(())
+        });
+        selections.set_mark_active(MarkActive::Active);
+        let state = state(&editor, &[]);
+        let mark = json!({ "offset": 5, "row": 1, "column": 1 });
+        assert_eq!(state["cursor"]["mark"], mark);
+        let window = &state["windows"][0];
+        assert_eq!(window["selections"][0]["mark"], mark);
+        assert_eq!(window["mark_active"], true);
+        assert_eq!(window["mark_ring"], json!([0]));
     }
 }

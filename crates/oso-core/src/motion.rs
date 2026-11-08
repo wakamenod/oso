@@ -398,22 +398,21 @@ pub fn move_lines(
 /// `move-beginning-of-line` does.
 pub fn move_line_start(display: &DisplaySnapshot, selection: &mut Selection, n: isize) {
     let row = target_row(display, selection.cursor, n);
-    *selection = Selection::at(line_start(display, row));
+    selection.move_to(line_start(display, row));
 }
 
 /// Moves `selection` to the end of its line, after moving `n - 1` lines
 /// down first (up if negative). A vertical move from there stays at line ends.
 pub fn move_line_end(display: &DisplaySnapshot, selection: &mut Selection, n: isize) {
     let row = target_row(display, selection.cursor, n);
-    *selection = at_line_end(line_end(display, row));
+    to_line_end(selection, line_end(display, row));
 }
 
-/// A cursor at the end of a line.
-fn at_line_end(offset: usize) -> Selection {
-    Selection {
-        cursor: offset,
-        goal: Some(Goal::LineEnd),
-    }
+/// Moves `selection` to `offset`, the end of a line, where vertical motion stays at
+/// line ends. The mark stays.
+fn to_line_end(selection: &mut Selection, offset: usize) {
+    selection.cursor = offset;
+    selection.goal = Some(Goal::LineEnd);
 }
 
 /// Moves `selection` as `C-a` does (mwim, ADR 0030): to the first non-blank
@@ -427,7 +426,7 @@ pub fn toggle_line_start(
 ) {
     let row = target_row(display, selection.cursor, n);
     let code = first_non_blank(display, row, budget);
-    *selection = Selection::at(if n == 1 && selection.cursor == code {
+    selection.move_to(if n == 1 && selection.cursor == code {
         line_start(display, row)
     } else {
         code
@@ -446,11 +445,11 @@ pub fn toggle_line_end(
     let row = target_row(display, selection.cursor, n);
     let code = end_before_blanks(display, row, budget);
     let end = line_end(display, row);
-    *selection = if code == end || (n == 1 && selection.cursor == code) {
-        at_line_end(end)
+    if code == end || (n == 1 && selection.cursor == code) {
+        to_line_end(selection, end);
     } else {
-        Selection::at(code)
-    };
+        selection.move_to(code);
+    }
 }
 
 /// Whether `cluster` is blank: a tab, or text of nothing but white space, such as a

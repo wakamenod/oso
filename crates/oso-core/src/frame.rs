@@ -1,7 +1,10 @@
-//! The layout of a frame into regions (ADR 0026, ADR 0057).
+//! The layout of a frame into regions, and the cells a window's cursor box and
+//! the region between its marks and cursors take there (ADR 0026, ADR 0057,
+//! ADR 0071).
 //!
 //! Must not depend on: `editor`, `command`, or any GPU or window-system type.
-//! Sizes come in as plain numbers, and nothing here draws.
+//! Sizes come in as plain numbers, positions through a display snapshot, and
+//! nothing here draws.
 //!
 //! A frame is a grid of whole cells. From the top: the one tiled window's text
 //! area, its modeline, then the echo area. A frame too small for all of them
@@ -9,11 +12,16 @@
 //! as long as there is one. The regions always add up to the frame, and never
 //! overlap. Floating windows, which go above them, arrive with M2-16.
 //!
+//! [`region_cells`] says which cells of a window's text area its regions take,
+//! so the renderer only fills them (ADR 0061, ADR 0071).
+//!
 //! [`PixelGrid`] says where those cells are on the surface. The grid starts at
 //! the top-left margin and holds whole cells only. The pixels left over at the
 //! bottom and on the right are not part of any region.
 
-use crate::display_map::DisplayPoint;
+use crate::display_map::{DisplayPoint, DisplaySnapshot};
+use crate::selection::SelectionSet;
+use crate::sum_tree::Bias;
 use crate::window::{Scroll, ViewSize};
 
 /// The rows a frame reserves below the text area: the modeline and the echo
@@ -121,6 +129,85 @@ pub fn cursor_rect(
         rows: 1,
         columns: end - start,
     })
+}
+
+/// The cells of the regions of `selections`, in a window with this `text` area and
+/// `scroll`, into `out`: one rectangle for each row of a region in view, and none
+/// while the regions are hidden. A row whose line break is in a region is filled to
+/// the area's right edge, as Emacs's region face with `:extend` (ADR 0071).
+/// `preedit` is the cursor's point and the cells of a preedit there, which pushes
+/// what follows it on that row, so a region from that point starts after it.
+///
+/// Each row looks only at the regions in its columns in view, found by a binary
+/// search on the selections, so a frame costs two conversions per row and two for
+/// each region a row shows, however long the rows and however many regions are
+/// out of view.
+pub fn region_cells(
+    text: CellRect,
+    scroll: Scroll,
+    display: &DisplaySnapshot,
+    selections: &SelectionSet,
+    preedit: Option<(DisplayPoint, usize)>,
+    out: &mut Vec<CellRect>,
+) {
+    out.clear();
+    if !selections.mark_active().is_active() {
+        return;
+    }
+    let rows = scroll.top
+        ..scroll
+            .top
+            .saturating_add(text.rows)
+            .min(display.row_count());
+    let columns = scroll.left..scroll.left.saturating_add(text.columns);
+    // While the regions show, none overlap, so their ends are in order too.
+    let all = selections.as_slice();
+    let mut first = 0;
+    for row in rows.clone() {
+        let pushed = preedit.filter(|(at, _)| at.row == row);
+        // A preedit can bring into view what is left of the area in the buffer.
+        let left = columns
+            .start
+            .saturating_sub(pushed.map_or(0, |(_, cells)| cells));
+        let offset =
+            |column| display.display_point_to_offset(DisplayPoint::new(row, column), Bias::Left);
+        let (shown_start, shown_end) = (offset(left), offset(columns.end));
+        first += all[first..].partition_point(|selection| selection.range().end <= shown_start);
+        for selection in &all[first..] {
+            let range = selection.range();
+            if range.start > shown_end {
+                break;
+            }
+            if range.is_empty() {
+                continue;
+            }
+            let start = display.offset_to_display_point(range.start);
+            let end = display.offset_to_display_point(range.end);
+            let mut from = if row == start.row { start.column } else { 0 };
+            let mut to = if row == end.row {
+                end.column
+            } else {
+                usize::MAX
+            };
+            if let Some((at, cells)) = pushed {
+                if from >= at.column {
+                    from = from.saturating_add(cells);
+                }
+                if to > at.column {
+                    to = to.saturating_add(cells);
+                }
+            }
+            let (from, to) = (from.max(columns.start), to.min(columns.end));
+            if from < to {
+                out.push(CellRect {
+                    row: text.row + (row - rows.start),
+                    column: text.column + (from - columns.start),
+                    rows: 1,
+                    columns: to - from,
+                });
+            }
+        }
+    }
 }
 
 /// A rectangle on the surface, in physical pixels.
@@ -393,6 +480,109 @@ mod tests {
         };
         let cells = cursor_rect(text, scroll, far, 1);
         assert_eq!(cells, None, "the column past the last one is not in view");
+    }
+
+    mod regions {
+        use super::*;
+        use crate::display_map::{DisplayMap, TabWidth};
+        use crate::rope::Rope;
+        use crate::selection::{MarkActive, Selection};
+
+        // Rows: "abcdef", "xy", "", "hello", and the empty last one.
+        const TEXT: &str = "abcdef\nxy\n\nhello\n";
+
+        fn cells(
+            columns: usize,
+            scroll: Scroll,
+            parts: &[(usize, usize)],
+            region: MarkActive,
+            preedit: Option<(DisplayPoint, usize)>,
+        ) -> Vec<(usize, usize, usize)> {
+            let display = DisplayMap::new(&Rope::from(TEXT), TabWidth::default()).snapshot();
+            let selections = parts.iter().map(|&(cursor, mark)| Selection {
+                mark: Some(mark),
+                ..Selection::at(cursor)
+            });
+            let mut set = SelectionSet::from_parts(selections.collect(), 0).unwrap();
+            set.set_mark_active(region);
+            let text = rect(0, 0, 4, columns);
+            let mut out = vec![rect(9, 9, 9, 9)];
+            region_cells(text, scroll, &display, &set, preedit, &mut out);
+            out.iter()
+                .inspect(|cell| assert_eq!(cell.rows, 1))
+                .map(|cell| (cell.row, cell.column, cell.columns))
+                .collect()
+        }
+
+        const AT_TOP: Scroll = Scroll { top: 0, left: 0 };
+
+        #[test]
+        fn a_region_fills_its_rows_and_to_the_edge_where_its_line_break_is() {
+            // From `c` to `l` of `hello`, the mark first.
+            let found = cells(5, AT_TOP, &[(13, 2)], MarkActive::Active, None);
+            assert_eq!(found, [(0, 2, 3), (1, 0, 5), (2, 0, 5), (3, 0, 2)]);
+            let backward = cells(5, AT_TOP, &[(2, 13)], MarkActive::Shifted, None);
+            assert_eq!(backward, found, "either way round");
+        }
+
+        #[test]
+        fn hidden_or_empty_regions_take_no_cells() {
+            assert_eq!(cells(5, AT_TOP, &[(13, 2)], MarkActive::Inactive, None), []);
+            assert_eq!(cells(5, AT_TOP, &[(3, 3)], MarkActive::Active, None), []);
+            // Up to the start of `xy`: only the line break of the row before.
+            assert_eq!(
+                cells(9, AT_TOP, &[(0, 7)], MarkActive::Active, None),
+                [(0, 0, 9)]
+            );
+        }
+
+        #[test]
+        fn only_the_part_in_view_is_taken_in_the_areas_cells() {
+            let left = Scroll { top: 0, left: 1 };
+            let found = cells(5, left, &[(13, 2)], MarkActive::Active, None);
+            assert_eq!(found, [(0, 1, 4), (1, 0, 5), (2, 0, 5), (3, 0, 1)]);
+            let down = Scroll { top: 2, left: 0 };
+            let found = cells(5, down, &[(13, 2)], MarkActive::Active, None);
+            assert_eq!(found, [(0, 0, 5), (1, 0, 2)]);
+            let below = Scroll { top: 3, left: 0 };
+            assert_eq!(
+                cells(5, below, &[(1, 0)], MarkActive::Active, None),
+                [],
+                "above it"
+            );
+        }
+
+        #[test]
+        fn each_region_in_view_takes_its_own_cells() {
+            let found = cells(
+                9,
+                AT_TOP,
+                &[(1, 0), (5, 3), (9, 8)],
+                MarkActive::Active,
+                None,
+            );
+            assert_eq!(found, [(0, 0, 1), (0, 3, 2), (1, 1, 1)]);
+        }
+
+        #[test]
+        fn a_preedit_pushes_a_region_after_it_and_not_one_that_ends_there() {
+            let at = Some((DisplayPoint::new(0, 2), 4));
+            // From the preedit's place to `e`.
+            assert_eq!(
+                cells(9, AT_TOP, &[(2, 4)], MarkActive::Active, at),
+                [(0, 6, 2)]
+            );
+            // From `a` to the preedit's place.
+            assert_eq!(
+                cells(9, AT_TOP, &[(2, 0)], MarkActive::Active, at),
+                [(0, 0, 2)]
+            );
+            let other_row = Some((DisplayPoint::new(1, 0), 4));
+            assert_eq!(
+                cells(9, AT_TOP, &[(2, 4)], MarkActive::Active, other_row),
+                [(0, 2, 2)]
+            );
+        }
     }
 
     proptest! {

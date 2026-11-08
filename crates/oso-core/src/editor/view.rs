@@ -1,14 +1,15 @@
-//! The editor's frame and its selected window's view: laying out the frame, and
-//! scrolling to follow the cursor and for the wheel (ADR 0040, ADR 0057, ADR 0058).
+//! The editor's frame and its selected window's view: laying out the frame,
+//! scrolling to follow the cursor and for the wheel, and the cells its regions take
+//! (ADR 0040, ADR 0057, ADR 0058, ADR 0071).
 //!
 //! Must not depend on: `command` or `keymap`, or the host's window; the rules for
 //! scrolling are pure functions elsewhere, and this applies them to the state.
 
 use super::Editor;
 use crate::display_map::{DisplayPoint, Preedit};
-use crate::frame::{self, FrameLayout, FrameSize, PixelGrid, PixelRect};
+use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect};
 use crate::motion;
-use crate::selection::SelectionSet;
+use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{self, Scroll, ViewSize};
 
 impl Editor {
@@ -70,6 +71,30 @@ impl Editor {
         let cells = motion::cursor_cells(&display, point);
         let cell = frame::cursor_rect(self.frame.window.text, window.scroll(), point, cells)?;
         Some(grid.rect(cell))
+    }
+
+    /// Hides the selected window's regions and keeps its marks, as `C-g` does, first
+    /// in the chain of what it cancels (ADR 0030, ADR 0071). Returns whether a region
+    /// was shown, so that a caller can stop there and ask for a frame.
+    pub fn deactivate_mark(&mut self) -> bool {
+        let selections = &mut self.windows[self.selected].selections;
+        selections.set_mark_active(MarkActive::Inactive).is_active()
+    }
+
+    /// The cells of the selected window's text area that its regions take, into
+    /// `out`, which is emptied first, and none while they are hidden (ADR 0071). A
+    /// preedit pushes them as it pushes the text.
+    pub fn region_cells(&self, out: &mut Vec<CellRect>) {
+        out.clear();
+        let (window, buffer) = self.current();
+        if !window.selections.mark_active().is_active() {
+            return;
+        }
+        let display = buffer.display();
+        let preedit =
+            (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
+        let (text, scroll) = (self.frame.window.text, window.scroll());
+        frame::region_cells(text, scroll, &display, &window.selections, preedit, out);
     }
 
     /// What an input method is composing, if anything (ADR 0069).
