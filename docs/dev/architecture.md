@@ -533,7 +533,10 @@ Full details are in [`security.md`](security.md).
     `state`, `text`, `commands`, `cancel` and `version`, over JSON Lines, and no dev method.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
     commands. Arguments are checked against the spec, which gains `Text`.
-  - Each connection waits for the person's yes. The channel runs nothing while a buffer that may
+  - Each connection waits for the person's yes, asked on its first request: one that sends
+    nothing within 2 s is closed unasked, as probes do. Threads read and wait; the UI thread
+    asks, in `app/agent.rs`, and runs commands through `Dispatcher::run_for_agent`. The JSON
+    Lines framing in `channel::wire` is the dev socket's too. The channel runs nothing while a buffer that may
     hold secrets is shown, while the person is in a prompt, a key sequence or a composition or
     typed in the last second, or while its own question is open. A question it opens is answered
     from the window. Its kills stay in oso's kill ring. It opens only files that exist, and a

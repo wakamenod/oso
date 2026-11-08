@@ -210,9 +210,13 @@ and below the row, and a label's glyphs keep their own cells
   oso's configuration or trust ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The threat is
   an agent steered by text it read, and other processes of the same user:
   - The channel is off until the person runs `agent-channel-start`, and each new connection
-    asks the person, from the keyboard only, naming the process that connects. A refusal holds
-    off new connections for 60 s. The modeline shows `Agent` while it is on, and `*Agent*`
-    lists each request without its text.
+    asks the person on its first request, from the keyboard only, naming the process as it
+    reports itself, and `oso mcp` only when the process runs oso's own program. A connection
+    that sends nothing within 2 s is closed unasked and uncounted, so a probe raises no
+    question. One connection waits at a time, at most 10 ask a minute, at most 60 connect a
+    minute and 2 are open at once, and a refusal holds off new connections for 60 s. One let
+    in sends at most 30 requests a second. The modeline shows `Agent` while it is on, and
+    `*Agent*` lists each request without its text.
   - It runs registered commands only, by name, with arguments checked against their spec, and
     no keys. Each command declares a reach: `Look`, `Change` or `Person`. The channel refuses
     `Person` commands: exiting, `M-x`, answering prompts, reading the clipboard, emergency
