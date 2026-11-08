@@ -87,6 +87,16 @@ impl ImeGate {
     }
 }
 
+/// Whether AppKit reads the view's input context again now, rather than after the next event
+/// it handles, as it does by itself: only when the IME goes off for a buffer that may hold
+/// secrets (`secret`, as secure input is wanted for it), and the flip did not come in an event
+/// AppKit dispatched. Then the input method is not left active over that buffer until a key
+/// comes. Any other flip, as a file that is read-only while it loads, waits for the next event:
+/// the view takes no text while the IME is off, and AppKit's update costs time on every flip.
+pub(super) fn reads_context_now(allowed: bool, secret: bool, in_event: bool) -> bool {
+    !allowed && secret && !in_event
+}
+
 /// Secure input: held while the app wants it, oso is the active app and its window has the
 /// keyboard, until the loop ends (ADR 0073). It counts the enables the system holds for oso
 /// and says which call to make next:
@@ -235,7 +245,9 @@ impl HiddenFrame {
 
 #[cfg(test)]
 mod tests {
-    use super::{HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, SecureInput, SecureStep};
+    use super::{
+        HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, SecureInput, SecureStep, reads_context_now,
+    };
     use crate::window::CursorArea;
     use std::time::Instant;
 
@@ -338,6 +350,30 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn only_the_ime_going_off_for_a_secret_buffer_outside_an_event_reads_the_context_now() {
+        assert!(
+            reads_context_now(false, true, false),
+            "a secret buffer, from the socket"
+        );
+        assert!(
+            !reads_context_now(false, false, false),
+            "a file read-only while it loads"
+        );
+        assert!(
+            !reads_context_now(true, false, false),
+            "back on after a load"
+        );
+        assert!(
+            !reads_context_now(true, true, false),
+            "on, if ever, for a secret buffer"
+        );
+        assert!(
+            !reads_context_now(false, true, true),
+            "AppKit reads it after the key"
+        );
     }
 
     /// The system's own count of enables, behind a `settle` that accepts as told.

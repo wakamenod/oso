@@ -185,21 +185,10 @@ fn no_input_context_is_given_while_the_ime_is_off() {
         app.wait_for(what, |state| state["ime"]["input_context"] == context);
     };
     given(&mut app, true, "a context at first");
-    // A request through the socket is no event AppKit dispatched, so the window layer has
-    // AppKit read the context again at once: it is AppKit's current one exactly while given.
-    let current = |app: &mut App, on: bool, what: &str| {
-        let current = if native { json!(on) } else { Value::Null };
-        app.wait_for(what, |state| {
-            state["ime"]["current_input_context"] == current
-        });
-    };
-    current(&mut app, true, "AppKit's current context at first");
     app.send_keys("C-x");
     given(&mut app, false, "no context after a prefix key");
-    current(&mut app, false, "AppKit's current context gone with it");
     app.send_keys("C-g");
     given(&mut app, true, "a context again");
-    current(&mut app, true, "AppKit's current context again");
     app.open_file(&env);
     app.wait_until_ready();
     given(
@@ -207,6 +196,13 @@ fn no_input_context_is_given_while_the_ime_is_off() {
         false,
         "no context in a buffer that may hold secrets",
     );
+    // A request through the socket is no event AppKit dispatched, and for a buffer that may
+    // hold secrets the window layer has AppKit read the context again at once; other flips
+    // wait for AppKit's update after the next event.
+    let current = if native { json!(false) } else { Value::Null };
+    app.wait_for("AppKit's current context gone at once", |state| {
+        state["ime"]["current_input_context"] == current
+    });
     app.show_buffer(&notes);
     given(&mut app, true, "a context back from it");
 }

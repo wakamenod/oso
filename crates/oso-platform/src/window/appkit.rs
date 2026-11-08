@@ -342,11 +342,9 @@ impl State {
                     // (ADR 0077), so whatever the input method still holds is dropped.
                     view.discard_marked();
                 }
-                // AppKit reads the view's input context again after every event it handles,
-                // which gives none while the IME is off. A flip from elsewhere, a load ending or
-                // a socket request, has it read now, so that the input method does not stay
-                // active over a buffer that just turned secret or read-only until a key comes.
-                if !self.in_event.get() {
+                // AppKit reads the view's input context again after the next event it handles.
+                let secret = self.secure.get().wanted();
+                if gate::reads_context_now(allowed, secret, self.in_event.get()) {
                     NSApplication::sharedApplication(self.mtm).updateWindows();
                 }
             }
