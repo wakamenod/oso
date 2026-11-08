@@ -1,6 +1,6 @@
 # 0074. The kill ring and the clipboard
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -46,7 +46,11 @@ The author chose on 2026-11-08, through the coordinator, from options put to the
 reading only on a yank and waiting for it, what a secret kill puts on the clipboard and how its
 provenance survives, the three rules for several cursors, appending, the limits and the socket.
 Each was the recommended option, and they are marked "(chosen)" where they appear. They accepted
-the commands' details below as written with them. The ADR stays Proposed until the pull request.
+the commands' details below as written with them. They accepted this ADR, with the new public
+modules and the fields of `get-state`, on 2026-11-08, through the coordinator, after checking the
+macOS pasteboard at the keyboard: a kill pasted in another app, another app's copy yanked, a
+password copied from a password manager turning the buffer it was yanked into secret, and a kill
+from a `.env` file pasting elsewhere but staying out of the clipboard manager's history.
 
 ### Commands
 

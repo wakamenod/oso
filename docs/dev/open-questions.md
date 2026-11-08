@@ -188,8 +188,9 @@ item notes when it must be settled.
   - Narrowing and widening do not do the same for `left`. With the cursor far to the right,
     a window made very narrow and wide again stays scrolled sideways, with shorter rows blank.
     Decide whether growing sideways follows the same rule.
-- Clipboard backend: proposed in [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md),
-  oso's own code on macOS now, on Linux and Windows with ADR 0070's stage 4.
+- Clipboard on Linux and Windows: their backends come with ADR 0070's stage 4, as
+  [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md) decides (`wl_data_device` on the native
+  Wayland window, Win32 through `windows-sys`).
 - An Option key pressed during a composition ends it with no commit, so what was being
   composed is lost, and the Super command does not run. With winit oso cannot commit
   first; a native view sees the key before the input method and can. ADR 0070 commits
