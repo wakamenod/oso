@@ -243,10 +243,11 @@ pub struct ImeFacts {
 
 /// The `ime` field of `get-state`: what the app wants and allowed, whether a composition
 /// is open, its preedit and range, and the area given to the OS. While a buffer that may
-/// hold secrets is shown, the preedit, its range and the area are null (ADR 0069).
+/// hold secrets is shown, the preedit, its range and the area are null (ADR 0069), and so
+/// they are for a composition that was open then, until it ends (ADR 0079).
 pub fn ime_state(editor: &Editor, facts: &ImeFacts) -> Value {
     let preedit = editor.preedit();
-    let shown = !editor.shows_secret();
+    let shown = !editor.shows_secret() && !editor.preedit_withheld();
     let area = facts.area.filter(|_| shown).map(
         |area| json!({ "x": area.x, "y": area.y, "width": area.width, "height": area.height }),
     );
@@ -471,10 +472,11 @@ impl TextJob {
 }
 
 /// Refuses a screenshot while any window shows a buffer that may hold
-/// secrets. Checked on the UI thread right before the capture, so nothing
+/// secrets, or while anything `get-state` leaves out for having been around one is on the
+/// screen. Checked on the UI thread right before the capture, so nothing
 /// can switch the buffer in between.
 pub fn screenshot_allowed(editor: &Editor) -> Result<(), String> {
-    if editor.shows_secret() {
+    if editor.shows_secret() || editor.around_secret() {
         return Err(WITHHELD.into());
     }
     Ok(())
@@ -861,6 +863,12 @@ mod tests {
         }
         let scratch = editor.buffers().next().unwrap().0;
         show_buffer(&mut editor, scratch.get()).unwrap();
+        // Open while it was shown, it stays out until it ends.
+        assert_eq!(ime_state(&editor, &facts)["preedit"], json!(null));
+        assert!(screenshot_allowed(&editor).is_err());
+        editor.set_preedit(None);
+        let preedit = oso_core::display_map::Preedit::new("にほ".into(), Some(6..6));
+        editor.set_preedit(Some(preedit));
         let shown = ime_state(&editor, &facts);
         assert_eq!(shown["preedit"], "にほ");
         assert_eq!(shown["range"], json!([6, 6]));

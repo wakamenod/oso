@@ -2,12 +2,14 @@
 //!
 //! Must not depend on: a window or the file system; a state is a plain value.
 
-use super::super::{Restore, SECRET_SHOWN, check, exit_allowed, export, generation, parse};
+use super::super::{Restore, SECRET_SHOWN, State, check, exit_allowed, export, generation, parse};
 use super::{TYPED, absolute, type_text, visiting};
 use crate::dev::protocol::EXIT_REFUSED;
 use oso_core::buffer::Buffer;
+use oso_core::display_map::TabWidth;
 use oso_core::editor::Editor;
 use oso_core::key::KeySequence;
+use oso_core::load::decode_all;
 use oso_core::selection::SelectionSet;
 use oso_core::window::Scroll;
 use std::path::PathBuf;
@@ -28,19 +30,64 @@ fn a_state_never_holds_text_secret_or_not() {
 }
 
 #[test]
-fn a_secret_files_positions_stay_out_of_the_state_and_it_starts_from_the_top() {
+fn a_secret_file_behind_messages_comes_back_unshown_with_no_position() {
     let path = absolute("/p/.env");
     let mut editor = visiting(&path, &"line\n".repeat(50));
     let selections = SelectionSet::new(25);
     editor.restore_positions(selections, Scroll { top: 2, left: 1 });
     assert_ne!(editor.window().selections.primary().cursor, 0);
-    // Behind `*Messages*`, the window still hands it over.
     editor.toggle_messages();
     let exported = export(&editor, &[], None, None).unwrap();
     let state = parse(&exported).unwrap();
-    assert_eq!(state.buffers[state.shown], Some(PathBuf::from(&path)));
+    assert_eq!(state.buffers[state.shown], None);
+    assert!(state.buffers.contains(&Some(PathBuf::from(&path))));
     assert_eq!(state.selections, SelectionSet::default());
     assert_eq!(state.scroll, Scroll::default());
+}
+
+/// A new instance that took `state`, as `import-state` builds it, with each file judged by its
+/// path and loaded.
+fn imported(state: &State) -> Editor {
+    let mut editor = Editor::default();
+    let scratch = editor.window().buffer();
+    let mut shown = scratch;
+    for (index, path) in state.buffers.iter().enumerate() {
+        let id = path.as_ref().map_or(scratch, |path| {
+            let mut buffer = Buffer::visiting(path.clone());
+            buffer.apply_load(decode_all(b"KEY=1\n", TabWidth::default()));
+            buffer.judge_secret(Some(std::slice::from_ref(path)));
+            editor.add_buffer(buffer)
+        });
+        if index == state.shown {
+            shown = id;
+        }
+    }
+    editor.show(shown);
+    editor
+}
+
+#[test]
+fn restarts_go_on_after_one_with_a_secret_file_behind_messages() {
+    let mut editor = visiting(&absolute("/p/.env"), "KEY=1\n");
+    editor.toggle_messages();
+    for restart in 1..=2 {
+        let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+        editor = imported(&state);
+        assert!(!editor.shows_secret(), "restart {restart}");
+        assert!(check(&editor).is_ok(), "restart {restart}");
+        assert!(editor.buffers().any(|(_, buffer)| buffer.is_secret()));
+    }
+}
+
+#[test]
+fn a_file_not_judged_yet_holds_no_restart_for_being_shown() {
+    let mut editor = Editor::default();
+    let id = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
+    editor.show(id);
+    assert!(editor.shows_secret(), "it counts as secret until judged");
+    for message in [export(&editor, &[], None, None).err(), check(&editor).err()] {
+        assert_ne!(message.as_deref(), Some(SECRET_SHOWN));
+    }
 }
 
 #[test]

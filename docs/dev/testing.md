@@ -330,8 +330,8 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
 - Secret-pattern buffers give no text, no screenshot and no positions
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
   [ADR 0051](adr/0051-m2-plan-decisions.md)). While one is shown, `get-state` gives no
-  `modified`, `saving` or size of such buffers, no keys in progress, and nothing of a prompt
-  open then, the keys until they end, and no restart is handed over
+  `modified`, `saving` or size of such buffers, and no restart is handed over. Keys in progress,
+  a composition and prompts open then stay out of `get-state` and `screenshot` until they end
   ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)). Any file
   counts as secret until its path is resolved, so wait for `loading` to become
   null before reading it.

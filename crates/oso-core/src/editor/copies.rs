@@ -82,9 +82,9 @@ impl Editor {
         if self.windows.iter().any(|window| window.buffer() == id) {
             let list = self.copies_buffer();
             self.window_moves_on();
-            for window in &mut self.windows {
-                if window.buffer() == id {
-                    window.show(list);
+            for index in 0..self.windows.len() {
+                if self.windows[index].buffer() == id {
+                    self.window_shows(index, list);
                 }
             }
         }

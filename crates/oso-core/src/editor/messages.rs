@@ -242,17 +242,29 @@ impl Editor {
         self.keys_withheld
     }
 
-    /// If a buffer that may hold secrets is shown, the keys in progress and the open prompts
-    /// were around it: the control socket leaves them out, the keys until they end, and no
-    /// answer of those prompts enters a history. Called before and after the window beneath
-    /// a prompt changes what it shows, and as keys are typed.
+    /// If a buffer that may hold secrets is shown, the keys in progress, the composition and
+    /// the open prompts were around it: the control socket leaves them out, the keys and the
+    /// composition until they end, and no answer of those prompts enters a history. Called
+    /// before and after a window changes what it shows, when a shown buffer's verdict changes,
+    /// and as keys and a composition come.
     pub(super) fn note_secret_shown(&mut self) {
         if self.shows_secret() {
             self.keys_withheld |= !self.keys_in_progress.is_empty();
+            self.preedit_withheld |= self.preedit.is_some();
             for prompt in &mut self.prompts {
-                prompt.records = false;
+                prompt.around_secret = true;
             }
         }
+    }
+
+    /// Whether anything the control socket would show was around a buffer that may hold
+    /// secrets, as [`Editor::keys_withheld`], [`Editor::preedit_withheld`] and
+    /// [`Prompt::around_secret`](crate::minibuffer::Prompt::around_secret) say, so that a
+    /// picture of the screen is refused too.
+    pub fn around_secret(&self) -> bool {
+        self.keys_withheld
+            || self.preedit_withheld
+            || self.prompts.iter().any(|prompt| prompt.around_secret)
     }
 
     /// What the echo area shows.
@@ -382,6 +394,7 @@ impl Editor {
 
 #[cfg(test)]
 mod tests {
+    use super::super::test_buffers::secret_buffer;
     use super::*;
     use crate::buffer::{Buffer, EditError, ReadOnly};
     use crate::editor::MESSAGES;
@@ -397,14 +410,6 @@ mod tests {
 
     fn echo(editor: &Editor) -> &str {
         editor.echo_text()
-    }
-
-    /// A file that may hold secrets.
-    fn secret_buffer() -> Buffer {
-        let path = PathBuf::from("/tmp/.env");
-        let mut buffer = Buffer::visiting(path.clone());
-        buffer.judge_secret(Some(&[path]));
-        buffer
     }
 
     /// An editor showing a file that may hold secrets.
@@ -626,6 +631,35 @@ mod tests {
         assert!(!editor.keys_withheld());
         editor.set_keys_in_progress("C-x-");
         assert!(!editor.keys_withheld(), "new ones on a plain buffer");
+    }
+
+    #[test]
+    fn a_composition_around_a_secret_stays_withheld_until_it_ends() {
+        let mut editor = Editor::default();
+        let plain = editor.window().buffer();
+        let secret = editor.add_buffer(secret_buffer());
+        let preedit = || Some(crate::display_map::Preedit::new("にほ".into(), None));
+        editor.set_preedit(preedit());
+        assert!(!editor.preedit_withheld());
+        editor.show(secret);
+        editor.show(plain);
+        assert!(editor.preedit_withheld() && editor.around_secret());
+        editor.set_preedit(preedit());
+        assert!(editor.preedit_withheld(), "while it goes on");
+        editor.set_preedit(None);
+        assert!(!editor.preedit_withheld() && !editor.around_secret());
+    }
+
+    #[test]
+    fn a_prompt_a_secret_kill_is_yanked_into_is_around_a_secret() {
+        let mut editor = Editor::default();
+        let kind = crate::minibuffer::Kind::Number { history: None };
+        editor.open_prompt("Go to line: ", kind).unwrap();
+        let fingerprint = crate::kill::Fingerprint { len: 3, hash: 1 };
+        editor.take_from_clipboard(crate::rope::Rope::from("KEY"), true, fingerprint);
+        editor.yank(0, false).unwrap();
+        assert!(editor.prompt().unwrap().around_secret());
+        assert!(editor.around_secret());
     }
 
     #[test]

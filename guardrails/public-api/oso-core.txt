@@ -920,6 +920,7 @@ pub fn oso_core::editor::Editor::take_prompt_outcome(&mut self) -> core::option:
 pub fn oso_core::editor::Editor::tiled(&self) -> (&oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::walk_history(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::around_secret(&self) -> bool
 pub fn oso_core::editor::Editor::begin_command(&mut self)
 pub fn oso_core::editor::Editor::clear_echo(&mut self)
 pub fn oso_core::editor::Editor::clear_echo_saying(&mut self, &str)
@@ -950,6 +951,7 @@ pub fn oso_core::editor::Editor::deactivate_mark(&mut self) -> bool
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
 pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
+pub fn oso_core::editor::Editor::preedit_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::region_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool

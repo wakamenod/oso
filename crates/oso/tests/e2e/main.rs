@@ -204,6 +204,42 @@ fn assert_withheld(app: &mut App) {
     assert_refused_while_shown(app);
 }
 
+/// Checks that, with another buffer shown, `export-state` hands a secret buffer over by its
+/// path, quoting none of it, and with no window on it to give a position.
+#[track_caller]
+fn assert_handed_over_unshown(app: &mut App, path: &Value) {
+    let line = app
+        .exchange("export-state", None)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_no_secret(&line, "export-state");
+    let exported: Value = serde_json::from_str(&line).expect("a JSON response");
+    let buffers = exported["result"]["buffers"].as_array().expect("buffers");
+    let index = buffers.iter().position(|buffer| buffer["path"] == *path);
+    let index = index.expect("export-state did not hand over the secret buffer by its path");
+    let windows = exported["result"]["windows"].as_array().expect("windows");
+    let id = &buffers[index]["id"];
+    assert!(
+        windows.iter().all(|window| window["buffer"] != *id),
+        "export-state put a window on the secret buffer",
+    );
+}
+
+/// Checks that, with another buffer shown, a restart is refused for a modified secret buffer by
+/// its name, quoting none of it.
+#[track_caller]
+fn assert_refused_by_name(app: &mut App, name: &str) {
+    for method in ["check-handover", "export-state"] {
+        let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_no_secret(&line, method);
+        let response: Value = serde_json::from_str(&line).expect("a JSON response");
+        let message = response["error"]["message"].as_str();
+        assert!(
+            message.is_some_and(|message| message.contains(name)),
+            "{method} did not refuse by name: {message:?}",
+        );
+    }
+}
+
 /// Checks that a restart is refused for the one reason a shown secret buffer gives, which
 /// says nothing of that buffer.
 #[track_caller]
@@ -340,9 +376,11 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     app.open_file(&env);
     let state = app.wait_until_ready();
     let env_id = state["buffer"]["id"].clone();
+    let env_path = state["buffer"]["path"].clone();
     assert_withheld(&mut app);
     app.show_buffer(&plain_id);
     assert_readable(&mut app, "plain text");
+    assert_handed_over_unshown(&mut app, &env_path);
     app.show_buffer(&env_id);
     assert_withheld(&mut app);
     // A motion gives no position away, by either way of asking.
@@ -385,6 +423,10 @@ fn a_secret_file_gives_no_text_or_pixels_until_another_buffer_is_shown() {
     // An edit does not make it readable, and a restart is refused as before it.
     app.send_keys("a");
     assert_withheld(&mut app);
+    // Once it is off the screen, the edit holds a restart, by name.
+    app.show_buffer(&plain_id);
+    assert_refused_by_name(&mut app, ".env");
+    app.show_buffer(&env_id);
     // A character typed by mistake after a prefix stays out of the log.
     app.send_keys("C-x Ж");
     assert_failure_stays_on_the_screen(&mut app, &plain_id);

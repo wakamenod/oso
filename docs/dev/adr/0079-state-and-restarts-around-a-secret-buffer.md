@@ -24,12 +24,21 @@ that is what decides a restart ([ADR 0055](0055-oso-dev-never-loses-unsaved-text
   `invalid-utf8`.
 - **While one is shown, `check-handover`, `export-state` and an `exit` with a generation are
   refused for one reason,** whatever the buffers hold, so the answer is the same before and
-  after an edit. An `exit` without a generation still goes.
+  after an edit. An `exit` without a generation still goes. A file not judged yet does not
+  count here: it is loading, as after a restart, and its positions are the ones it came in with.
+- **A restart does not show such a buffer again from behind an internal buffer:** a window on
+  `*Messages*` or the list of copies with one behind it comes back on `*scratch*`, and the
+  buffer is handed over unshown, so the next restart is not held by it.
 - **Keys in progress typed, or still pending, while such a buffer is shown are left out of
   `get-state`,** in `keys.pending` and the echo area, until they end, and `export-state` hands
   them over as none.
 - **A prompt open while one was shown beneath it, or opened then, gives no label, answer,
   cursor or message, and its answer enters no history,** also once that buffer is gone.
+- **A composition open while one was shown gives no preedit, range or area** until it ends.
+- **`screenshot` is refused while any of these is left out,** as the screen shows them.
+- **What was around such a buffer is noted where it can change:** each change of what a window
+  shows, a change of a shown buffer's verdict, and keys and a composition as they come. So no
+  caller has to remember it.
 
 ### Where this differs from accepted ADRs
 

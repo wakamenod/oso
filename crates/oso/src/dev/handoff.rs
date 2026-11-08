@@ -77,7 +77,7 @@ pub fn export(
     frame: Option<Frame>,
     restore: Option<&Restore>,
 ) -> Reply {
-    if editor.shows_secret() {
+    if shows_judged_secret(editor) {
         return Err(SECRET_SHOWN.into());
     }
     if editor.prompt().is_some() {
@@ -148,16 +148,24 @@ pub fn export(
     Ok(state)
 }
 
-/// Where `window` goes back to, if it is on an internal buffer and has somewhere to go.
+/// Where `window` goes back to, if it is on an internal buffer and has somewhere to go that
+/// cannot hold secrets.
 fn behind_internal<'a>(
     editor: &'a Editor,
     window: &Window,
 ) -> Option<(BufferId, &'a SelectionSet, Scroll)> {
+    // One that may hold secrets is not shown again by a restart: the window comes back on
+    // `*scratch*`, and the buffer is handed over unshown.
     editor
         .shown(window)
         .is_internal()
         .then(|| editor.place_behind_internal())
         .flatten()
+        .filter(|(buffer, ..)| {
+            editor
+                .buffer(*buffer)
+                .is_some_and(|buffer| !buffer.is_secret())
+        })
 }
 
 /// What `window` hands over: what it shows, or from an internal buffer, where it goes back
@@ -212,7 +220,7 @@ fn file_to_read_again(buffer: &Buffer) -> Result<Option<&str>, String> {
 /// without building a state, so that the supervisor can ask before it opens a new
 /// window.
 pub fn check(editor: &Editor) -> Reply {
-    if editor.shows_secret() {
+    if shows_judged_secret(editor) {
         return Err(SECRET_SHOWN.into());
     }
     for (_, buffer) in editor.buffers() {
@@ -239,6 +247,15 @@ const PROMPTING: &str = "cannot hand over: a prompt is open";
 /// whatever that buffer holds.
 const SECRET_SHOWN: &str = "cannot hand over while a buffer that may hold secrets is shown";
 
+/// Whether a window shows a buffer judged to may hold secrets. A file not judged yet does not
+/// count: it is loading, and its positions are the ones it came in with.
+fn shows_judged_secret(editor: &Editor) -> bool {
+    editor.windows().any(|window| {
+        let verdict = editor.shown(window).verdict();
+        verdict.is_withheld() && verdict != Verdict::Unjudged
+    })
+}
+
 /// Names what an instance holds that a file does not: which buffers exist, and
 /// the content of each modified one. It is not a counter, as undoing an edit
 /// brings the old value back, and only the instance that made it compares it.
@@ -264,7 +281,7 @@ pub fn generation(editor: &Editor) -> u64 {
 /// while a buffer that may hold secrets is shown.
 pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String> {
     match expected {
-        Some(_) if editor.shows_secret() => Err(format!("{EXIT_REFUSED}: {SECRET_SHOWN}")),
+        Some(_) if shows_judged_secret(editor) => Err(format!("{EXIT_REFUSED}: {SECRET_SHOWN}")),
         Some(_) if editor.buffers().any(|(_, buffer)| buffer.is_saving()) => {
             Err(format!("{EXIT_REFUSED}: a save is running"))
         }
