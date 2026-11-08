@@ -162,6 +162,17 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   rope slices, so killing a huge region copies nothing. History is bounded in
   bytes, 64 MiB per buffer, not counting the group last recorded or crossed, which
   always stays. It is not persisted to disk.
+- **The kill ring** (`oso_core::kill`, [ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md))
+  is owned by `Editor`. A kill takes one piece per cursor as rope slices, merging ranges
+  that overlap, so it copies nothing on the UI thread, and appends to the newest entry
+  when the command before also killed. It keeps 120 entries and 64 MiB, and a yank
+  inserts at most 16 MiB. An entry killed from a buffer that may hold secrets is secret,
+  and yanking it makes the target buffer secret (`Verdict::Yanked`).
+- **The clipboard** (`oso_platform::clipboard`) runs on two threads of its own: one owns
+  the system's clipboard, and one answers each read within 500 ms. The host hands it what
+  a command killed, joined there with line breaks, and `yank` waits for its read through
+  the dispatcher, which holds the keys that come meanwhile. oso reads it only on a yank.
+  macOS uses `NSPasteboard`; Linux and Windows have none until their window layers.
 - **Modified state** compares content ids. Each edit gets a new id, undo and redo
   restore the stored one, and a buffer is modified when its id differs from the
   saved one. So undoing to the saved state is unmodified, and a buffer whose saved
@@ -329,16 +340,21 @@ glyphs:
 ```
 for each layer, back to front:
   rectangles: backgrounds, boxes, cursors, selections   (shape renderer)
+  rounded boxes: a float's panel, field and key chips   (shape renderer, one quad each)
   glyphs from the atlas                                 (text renderer)
 ```
+
+A layer with no rounded box draws none, so a frame with no float costs nothing more
+([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)).
 
 `scene` builds those ranges with no GPU, and `paint` uploads and records them, for the
 window and for a screenshot alike. Panes are built front to back, so the caps on quads
 and rectangles and the budget of new glyphs run out behind what is in front. A text pane
 holds one rectangle back for its cursor box, so nothing of its own takes its place. A frame is
-clipped to pixels on the CPU, so there is no scissor. Only the background is drawn in the
-margins and in what is left over of a cell at the right and bottom, apart from the band
-that glyphs on the frame's top row keep above it.
+clipped to pixels on the CPU, so there is no scissor; a rounded box's quad is cut to its
+pane there too. Only the background is drawn in the margins and in what is left over of a
+cell at the right and bottom, apart from the band that glyphs on the frame's top row keep
+above it, and a float's panel, which covers the top margin above it.
 
 The event loop uses `ControlFlow::Wait`. Frames are drawn only on demand:
 on input that changes the view, on resize, when the window becomes visible, and when
@@ -500,13 +516,18 @@ Full details are in [`security.md`](security.md).
   - Buffers that may hold secrets give no text and no pixels. The loading
     thread follows the path, and `Buffer::is_secret` holds the verdict, so
     the UI thread never touches the file system for this
-    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+    ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)). While one is shown,
+    `get-state` leaves out what an edit or a save there changes and the keys and prompts around
+    it, and no restart is handed over
+    ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)).
   - `take-timings` reports key latency, startup and load times to benchmarks,
     and `open-file` visits a file with the window up, so that opening can be
     timed apart from startup
     ([ADR 0046](adr/0046-performance-regression-checks.md)). Keys and frames around a
     buffer that may hold secrets stay out of them
-    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+    ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)), and so do its loads. While
+    one is shown, the log keeps warnings and errors only
+    ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 

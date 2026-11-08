@@ -1,5 +1,6 @@
 //! Filled rectangles under the text: panes' backgrounds, the boxes of invisible
-//! characters and the cursor box.
+//! characters and the cursor box. Also rounded boxes with an outline and a soft shadow,
+//! such as a float's panel, in a second pipeline of one instanced quad each (ADR 0075).
 //!
 //! Must not depend on: `atlas`, `grid`, `text` or anything else about text; it
 //! knows pixels and colors.
@@ -43,6 +44,42 @@ impl Vertex {
         }
     }
 }
+
+/// A rounded box as the GPU takes it: seven `vec4`s (see `rounded.wgsl`).
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
+pub(crate) struct Rounded {
+    /// x, y, width and height, in pixels.
+    pub(crate) rect: [f32; 4],
+    /// Top left, top right, bottom right and bottom left.
+    pub(crate) radii: [f32; 4],
+    /// Linear RGBA, straight alpha.
+    pub(crate) fill: [f32; 4],
+    /// The outline's color. It is drawn outside the box.
+    pub(crate) outline: [f32; 4],
+    pub(crate) shadow: [f32; 4],
+    /// The outline's width, the shadow's offset down and its sigma. The last is unused.
+    pub(crate) params: [f32; 4],
+    /// The quad drawn, already cut to its pane on the CPU: left, top, right and bottom.
+    pub(crate) bounds: [f32; 4],
+}
+
+impl Rounded {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRIBUTES: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+            0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4,
+            4 => Float32x4, 5 => Float32x4, 6 => Float32x4,
+        ];
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Rounded>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: &ATTRIBUTES,
+        }
+    }
+}
+
+/// The most rounded boxes in one frame: a float needs four.
+pub(crate) const MAX_ROUNDED: usize = 64;
 
 // ---- Uniforms (orthographic projection matrix) -----------------------------
 
@@ -93,6 +130,9 @@ pub struct ShapeRenderer {
     vertices: Vec<Vertex>,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    rounded_pipeline: wgpu::RenderPipeline,
+    /// Holds [`MAX_ROUNDED`] boxes, written only in a frame that has some.
+    rounded_buffer: wgpu::Buffer,
 }
 
 /// A filled rectangle: its top-left corner, size and color, in pixels.
@@ -196,14 +236,59 @@ impl ShapeRenderer {
             cache: None,
         });
 
+        let rounded_pipeline = Self::rounded_pipeline(device, format, &pipeline_layout);
         Self {
             pipeline,
+            rounded_pipeline,
+            rounded_buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Rounded Instance Buffer"),
+                size: (std::mem::size_of::<Rounded>() * MAX_ROUNDED) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
             vertex_buffer: Self::vertex_buffer(device, INITIAL_RECTS),
             capacity: INITIAL_RECTS,
             vertices: Vec::with_capacity(INITIAL_RECTS * RECT_VERTICES),
             uniform_buffer,
             bind_group,
         }
+    }
+
+    /// The pipeline of rounded boxes: instanced quads, premultiplied (ADR 0075).
+    fn rounded_pipeline(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        layout: &wgpu::PipelineLayout,
+    ) -> wgpu::RenderPipeline {
+        let rounded_shader = device.create_shader_module(wgpu::include_wgsl!("rounded.wgsl"));
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Rounded Pipeline"),
+            layout: Some(layout),
+            vertex: wgpu::VertexState {
+                module: &rounded_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Rounded::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &rounded_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        })
     }
 
     fn vertex_buffer(device: &wgpu::Device, rects: usize) -> wgpu::Buffer {
@@ -223,7 +308,18 @@ impl ShapeRenderer {
 
     /// Uploads this frame's rectangles, at most [`MAX_RECTS`] of them. Must be
     /// called before the render pass begins.
-    pub(crate) fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, rects: &[Rect]) {
+    pub(crate) fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        rects: &[Rect],
+        rounded: &[Rounded],
+    ) {
+        // A frame with no float writes nothing here.
+        if !rounded.is_empty() {
+            let rounded = &rounded[..rounded.len().min(MAX_ROUNDED)];
+            queue.write_buffer(&self.rounded_buffer, 0, bytemuck::cast_slice(rounded));
+        }
         self.vertices.clear();
         for rect in rects {
             let ([x, y], [w, h], color) = (rect.position, rect.size, rect.color);
@@ -259,5 +355,16 @@ impl ShapeRenderer {
         pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         let vertices = RECT_VERTICES as u32;
         pass.draw(range.start * vertices..range.end * vertices, 0..1);
+    }
+
+    /// Records the rounded boxes in `range`, in order: one quad each.
+    pub(crate) fn render_rounded(&self, pass: &mut wgpu::RenderPass<'_>, range: Range<u32>) {
+        if range.is_empty() {
+            return;
+        }
+        pass.set_pipeline(&self.rounded_pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.set_vertex_buffer(0, self.rounded_buffer.slice(..));
+        pass.draw(0..4, range);
     }
 }

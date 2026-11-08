@@ -5,7 +5,7 @@
 
 use std::fs::File;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{AccessEntry, AccessList, Quarantine};
 
@@ -83,4 +83,13 @@ fn none() -> AccessList {
         bytes: Vec::new(),
         denies_deleting: false,
     }
+}
+
+/// Nothing here says where an open file is yet.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the same signature as on macOS, where it can fail"
+)]
+pub(super) fn path_of_opened(_file: &File) -> io::Result<Option<PathBuf>> {
+    Ok(None)
 }

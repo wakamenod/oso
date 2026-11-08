@@ -35,18 +35,40 @@ impl App {
             return;
         }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
+        self.dispatcher.set_input_from_socket(true);
+        let result = self.answer_control(event_loop, op, received, reply);
+        self.dispatcher.set_input_from_socket(false);
+        if let Some((reply, result)) = result {
+            self.note_remote_questions(newest);
+            let _ = reply.send(result);
+        }
+    }
+
+    /// Does what a request asks, and returns its reply unless one has gone or will go
+    /// from elsewhere.
+    fn answer_control(
+        &mut self,
+        event_loop: &Loop<'_>,
+        op: dev::UiOp,
+        received: Instant,
+        reply: std::sync::mpsc::Sender<dev::Reply>,
+    ) -> Option<(std::sync::mpsc::Sender<dev::Reply>, dev::Reply)> {
         let result = match op {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
                 let timings = &mut self.timings;
+                let log_gate = &self.log_gate;
                 let mut watch = dev::SecretWatch::new(&self.editor);
                 let effects =
                     self.dispatcher
                         .handle_keys_with(&mut self.editor, keys, |editor, effects| {
+                            let withheld = watch.after_key(editor);
+                            // So that what the keys after it log, until the batch ends, is held too.
+                            log_gate.note(withheld);
                             let key = dev::HandledKey {
                                 redraw: effects.redraw,
-                                withheld: watch.after_key(editor),
+                                withheld,
                             };
                             timings.key_handled(received, key);
                         });
@@ -63,13 +85,14 @@ impl App {
                 match dev::get_text(&self.editor, start_row, rows) {
                     Ok(job) => {
                         job.spawn(reply);
-                        return;
+                        return None;
                     }
                     Err(message) => Err(message),
                 }
             }
             dev::UiOp::RunCommand { name, arg } => {
                 let (effects, result) = self.dispatcher.run_command(&mut self.editor, &name, arg);
+                self.note_logging();
                 self.apply(event_loop, effects);
                 result.map(|()| json!({ "command": name }))
             }
@@ -82,7 +105,7 @@ impl App {
             }
             dev::UiOp::Screenshot => {
                 self.take_screenshot(reply);
-                return;
+                return None;
             }
             dev::UiOp::ExportState => handoff::export(
                 &self.editor,
@@ -93,6 +116,7 @@ impl App {
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
+            dev::UiOp::Clipboard(op) => self.memory_clipboard(op),
             dev::UiOp::ImportState(state) => self.import_state(*state),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
@@ -103,8 +127,7 @@ impl App {
                 })
             }
         };
-        self.note_remote_questions(newest);
-        let _ = reply.send(result);
+        Some((reply, result))
     }
 
     /// Remembers the questions a request opened, those newer than `newest` was before it, so
@@ -139,6 +162,7 @@ impl App {
             area: self.ime_area(),
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
+        state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
         // Whether the view gives the input method a context, which it does only while the IME
         // is on (ADR 0070); null on winit.
         let context = self
@@ -157,6 +181,29 @@ impl App {
             |(wanted, held, system)| json!({ "wanted": wanted, "held": held, "system_any": system }),
         );
         state
+    }
+
+    /// The result of `clipboard`: what the clipboard in memory holds, but never text marked
+    /// concealed, or that it now holds the text given. Refused with the system's, so that
+    /// no client reads it through oso (ADR 0074).
+    fn memory_clipboard(&self, op: dev::ClipboardOp) -> dev::Reply {
+        let memory = self
+            .clipboard
+            .as_ref()
+            .and_then(oso_platform::clipboard::Clipboard::memory)
+            .ok_or("clipboard needs an editor started with --clipboard memory")?;
+        Ok(match op {
+            // Concealed text may be a secret kill's, which the socket never shows.
+            dev::ClipboardOp::Get => match memory.get() {
+                Some((_, true)) => json!({ "text": null, "concealed": true }),
+                Some((text, false)) => json!({ "text": text, "concealed": false }),
+                None => json!({ "text": null, "concealed": false }),
+            },
+            dev::ClipboardOp::Set { text, concealed } => {
+                memory.set(text, concealed);
+                json!({ "set": true })
+            }
+        })
     }
 
     /// The result of `ime`: the report goes where the OS's would, through the same

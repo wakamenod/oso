@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{AccessEntry, AccessList, Quarantine, posix_list};
 
@@ -149,6 +149,20 @@ pub(super) fn quarantine_at(_path: &Path) -> io::Result<Option<Quarantine>> {
 )]
 pub(super) fn give_quarantine(_flag: &Quarantine, _file: &File) -> io::Result<()> {
     Ok(())
+}
+
+/// The link `/proc` keeps for the open `file`. Without `/proc`, or for a file no longer in any
+/// directory, which the link then marks after its name, there is none.
+pub(super) fn path_of_opened(file: &File) -> io::Result<Option<PathBuf>> {
+    let link = Path::new("/proc/self/fd").join(file.as_raw_fd().to_string());
+    match std::fs::read_link(link) {
+        Ok(path) if path.is_absolute() && !path.as_os_str().as_bytes().ends_with(b" (deleted)") => {
+            Ok(Some(path))
+        }
+        Ok(_) => Ok(None),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]

@@ -543,6 +543,18 @@ secrets:
 doc:
     cargo doc --locked --workspace --open --no-deps
 
+# List the ADRs with their status, read from each file; `just adrs Proposed` keeps the
+# lines that contain the word (docs/dev/adr/README.md)
+[positional-arguments]
+adrs filter="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for f in docs/dev/adr/[0-9][0-9][0-9][0-9]-*.md; do
+        title=$(head -n 1 "$f")
+        status=$(grep -m 1 '^- Status:' "$f" || true)
+        printf '%s  (%s)\n' "${title#\# }" "${status#- Status: }"
+    done | { grep -F -- "${1:-}" || true; }
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Clean
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -25,8 +25,9 @@ before each feature is built.
 ```
 
 All floating UI uses the floating windows of
-[ADR 0008](adr/0008-floating-ui.md), with a border and padding similar to
-posframe.
+[ADR 0008](adr/0008-floating-ui.md). A prompt's float is a panel attached to the top
+edge, close to VS Code's Quick Input
+([ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)).
 
 `oso_core::frame` divides the frame into whole cells
 ([ADR 0057](adr/0057-frame-layout.md)). The modeline and the echo area take the
@@ -37,23 +38,33 @@ in the background color, so no partly shown row or column is drawn
 
 ## Minibuffer and completion
 
-- The minibuffer floats at the **top center** of the frame, **one row below the top**, so the
-  window's first row stays in view above it
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- It has a **border and one cell of padding** on every side, and takes **60% of the frame's
-  columns**, at least 40 and never closer than 2 to an edge. It does not change while typing.
+- The minibuffer **hangs from the top edge** of the text area, centered, over its first rows
+  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
+  [ADR 0075](adr/0075-a-float-as-a-panel-attached-to-the-top-edge.md)). It is a panel only a
+  little lighter than the text, with its bottom corners rounded, a soft shadow and a hairline.
+- It takes **60% of the frame's columns**, at least 40 and never closer than 2 to an edge,
+  with 2 columns of padding at its sides. It does not change while typing.
+- The label has rows of its own. Below it, after a row of padding, the answer is typed in a
+  field with a thin accent outline, and a row of padding ends the panel.
 
 ```
-│# Meeting notes 2026-11-08                                      │
-│            ┌──────────────────────────────────────┐            │
-│Agenda      │ Go to line: 42█        [Past the end]│            │
-│- budget for└──────────────────────────────────────┘            │
+┌────────────┬──────────────────────────────────────┬────────────┐
+│# Meeting no│  Go to line:                         │            │
+│            │                                      │            │
+│Agenda      │ [42█                 [Past the end]] │            │
+│- budget for╰──────────────────────────────────────╯            │
 │▯ hiring: two engineers                                         │
 ```
+
+The panel's top is the window's edge, square and with no hairline; only its bottom corners
+are rounded.
 
 - The answer is one row and scrolls sideways. A long label breaks after a space onto at most
   three rows. A message from a key typed in the prompt shows at the end of its row, in
   brackets, until the next key.
+- A short frame gives up the padding below, then the row between the label and the answer,
+  then the label's last rows: it keeps its first, the last of them cut with `…`. With one row
+  of text, the label and the answer share it.
 - The window beneath keeps its text and modeline, and its cursor is drawn **hollow**. The
   float may cover it, and the view does not move. The wheel scrolls it, and its cursors stay.
 - Keys: `RET` gives the answer, `C-g` closes the prompt, `M-p` and `M-n` walk its history,
@@ -61,7 +72,8 @@ in the background color, so no partly shown row or column is drawn
   answer given again moves to the front. A prompt opened while a buffer that may hold secrets
   is shown keeps none.
 - A prompt can open from a prompt, 8 deep. Only the innermost shows, its depth first: `[2]`.
-- **Questions** show in the same float, ending in `(y or n)`. Only `y` and `n` answer; `SPC`,
+- **Questions** show in the same float, with their keys as chips on the last row, each with
+  what it does: `[y] exit  [n] stay`. Only `y` and `n` answer; `SPC`,
   `DEL` and `RET` do not, unlike in Emacs, and any other key says `Answer y or n`. A held
   key answers once. `C-x C-c` and the close button ask before exiting with unsaved work, and
   `C-x C-s` asks before saving over a file that changed on disk.

@@ -27,20 +27,17 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       # Installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           # Only main writes the cache, so pull requests cannot poison it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          # Never fall back to an install without checksum verification.
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
       # On Windows, just runs recipes with Git Bash's sh. Fail early if missing.
       - run: sh -c 'command -v sh'
       - run: just ci
@@ -56,17 +53,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
       - run: just release-safety
 
   # The public API must match guardrails/public-api (ADR 0038). Nightly is
@@ -75,17 +70,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
       # install-action has no cargo-public-api binary, so build it from
       # crates.io with its lockfile.
       - name: Install nightly and cargo-public-api
@@ -101,17 +94,15 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
       - name: Install nightly and cargo-public-api
         run: |
           rustup toolchain install "$(just --evaluate nightly)" --profile minimal
@@ -123,13 +114,24 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
       # Not cargo-deny-action: its image downloads cargo-deny without a
       # checksum. install-action verifies one.
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@v2.87.29
+        id: tools
+        continue-on-error: true
+        with:
+          tool: cargo-deny@0.20.2
+          fallback: none
+      # Release downloads fail now and then (HTTP 504). Wait, then try once more,
+      # still checking checksums.
+      - if: steps.tools.outcome == 'failure'
+        run: sleep 60
+      - if: steps.tools.outcome == 'failure'
+        uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-deny@0.20.2
           fallback: none
@@ -139,11 +141,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+      - uses: taiki-e/install-action@v2.87.29
+        id: tools
+        continue-on-error: true
+        with:
+          tool: cargo-audit@0.22.2
+          fallback: none
+      # Release downloads fail now and then (HTTP 504). Wait, then try once more,
+      # still checking checksums.
+      - if: steps.tools.outcome == 'failure'
+        run: sleep 60
+      - if: steps.tools.outcome == 'failure'
+        uses: taiki-e/install-action@v2.87.29
         with:
           tool: cargo-audit@0.22.2
           fallback: none
@@ -156,15 +169,24 @@ jobs:
       GITLEAKS_VERSION: 8.30.1
       GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
+      # Through the API with the job's token, as anonymous release downloads fail now and
+      # then (HTTP 504), with a few tries; the checksum is pinned all the same.
       - name: Install gitleaks
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd "$RUNNER_TEMP"
           tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          for attempt in 1 2 3; do
+            gh release download "v${GITLEAKS_VERSION}" --repo gitleaks/gitleaks --pattern "$tarball" --clobber && break
+            [ "$attempt" -lt 3 ] || exit 1
+            echo "::warning::download $attempt of 3 failed"
+            sleep $((attempt * 20))
+          done
           echo "${GITLEAKS_SHA256}  ${tarball}" | sha256sum -c -
           tar -xzf "$tarball" gitleaks
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"

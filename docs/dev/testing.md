@@ -248,7 +248,7 @@ what you type goes into their buffers, which can fail a flow.
 | keys and commands | socket to UI thread to window: `send-keys`, `run-command`, the cursor, scrolling, the visible text, `oso ctl --pid` and its exit status |
 | screenshot | window to renderer to PNG: the window's size, the cursor moves by a row of cells, and text pixels (see below) |
 | invalid bytes | file to loader to buffer: read-only, with `invalid_bytes` |
-| secret files | path judgment to every way out: `get-state` with no positions, `get-text`, `screenshot`, `export-state` with no positions, `take-timings`, `*Messages*`, the echo area and the log, also through a symlink and after a motion, and `show-buffer` allows them again |
+| secret files | path judgment to every way out: `get-state` with no positions and nothing an edit or a save changes, `get-text`, `screenshot`, `check-handover` and `export-state` refused for one reason, `take-timings`, `*Messages*`, the echo area and the log, also through a symlink and after a motion and an edit, and `show-buffer` allows them again |
 | modeline and echo area | a key that changes only the echo area to a frame; the bidi warning; `*Messages*` holds no restart, and takes no typing |
 | restart handoff | `export-state` in one process to `import-state` in another, without cargo; a wrong version leaves the new one clean |
 | unsaved text | an edit to `check-handover`, `export-state`, a guarded `exit` and `import-state` in a real process: each refuses, by name and without quoting the text, and an ordinary `exit` still goes; an edit queued behind an agreed exit is refused |
@@ -313,6 +313,14 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). While one is
   shown, `modeline` and `echo` are left out
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)).
+- `get-state` also gives `kill_ring`: the number of entries and the newest one's pieces,
+  at most 16 of 1 KiB each, leaving out entries killed from a buffer that may hold secrets,
+  and null while one is shown; and `clipboard.waiting`, while a yank waits for the
+  clipboard ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)).
+- `clipboard` reads the clipboard in memory, or with `text` (and `concealed`) sets it as
+  another app would. It works only in an instance started with `--clipboard memory`, which
+  the harness always passes, so no flow touches the person's clipboard. Text marked
+  concealed reads as null.
 - `get-text` reads whole rows, up to 512 KiB and 10,000 rows, and fails clearly
   past that.
 - `show-buffer` shows a buffer by id, until `switch-to-buffer` arrives in M2.
@@ -321,7 +329,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)). `--emergency-dir DIR`, as a dev build's first argument, sends the copies elsewhere, and the harness always passes it.
 - Secret-pattern buffers give no text, no screenshot and no positions
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
-  [ADR 0051](adr/0051-m2-plan-decisions.md)). Any file
+  [ADR 0051](adr/0051-m2-plan-decisions.md)). While one is shown, `get-state` gives no
+  `modified`, `saving` or size of such buffers, and no restart is handed over. Keys in progress,
+  a composition and prompts open then stay out of `get-state` and `screenshot` until they end
+  ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)). Any file
   counts as secret until its path is resolved, so wait for `loading` to become
   null before reading it.
 - `export-state` and `import-state` hand the state to a new instance, and `exit`
@@ -335,9 +346,10 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   directory, never committed) can be driven this way.
 - `take-timings` reads key latency, startup and load times for benchmarks. It records no
   key if a secret-pattern buffer is shown just before or after it or when its frame is
-  presented, and no frames while one is shown, but the first frame and the first load's
-  times. A file counts as secret until it is judged
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  presented, and no frames while one is shown, but the first frame. A file counts as secret
+  until it is judged ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). The load
+  times are of the first file judged ordinary, and its first screen counts only if no such
+  buffer is shown then ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - `screenshot` writes a PNG of the current frame and returns its path.
 
 The transport and protocol themselves are tested without a window or GPU
@@ -428,7 +440,10 @@ every push to `main`. See [ADR 0021](adr/0021-development-tooling.md).
 - the performance workflow (`perf.yml`), on every pull request and every push
   to `main` that changes more than `docs/`: results in the job summary and in
   JSON artifacts, compared with the last result on `main`
-  ([ADR 0046](adr/0046-performance-regression-checks.md))
+  ([ADR 0046](adr/0046-performance-regression-checks.md)). Pull requests run the
+  benchmarks on Linux only; a change to the input, render or load paths is
+  measured with `just perf-remote`, or with the workflow started by hand, which
+  includes macOS ([ADR 0081](adr/0081-macos-benchmarks-off-pull-requests.md))
 - the end-to-end workflow (`e2e.yml`), on pull requests and pushes to `main` that
   change more than `docs/`: `just e2e` on Linux with Xvfb and lavapipe, and on
   macOS, the one runner that checks text pixels

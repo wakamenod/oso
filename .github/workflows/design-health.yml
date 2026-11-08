@@ -32,19 +32,17 @@ jobs:
     outputs:
       body: ${{ steps.report.outputs.body }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           # The report compares with the state 7 days ago.
           fetch-depth: 0
           persist-credentials: false
       - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: Swatinem/rust-cache@v2.9.3
         with:
           save-if: false
-      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: just@1.52.0
-          fallback: none
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
       # The token is in this step's environment alone, not the build's. The
       # job's permissions are the real limit, so they stay read-only.
       - name: Fetch the mutation results

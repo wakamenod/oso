@@ -89,6 +89,8 @@ impl App {
     /// started by the next key opens its candidate window there, and where each character of
     /// a composition is drawn.
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
+        // What follows logs, and the event may have brought a secret buffer into view.
+        self.note_logging();
         if self.composing() && self.editor.current().1.is_secret() {
             self.end_composition();
             // The window's input method too, so that nothing of it is committed later.
@@ -201,6 +203,7 @@ impl App {
     fn commit(&mut self, event_loop: &Loop<'_>, text: &str) -> bool {
         log::trace!("commit");
         let effects = self.dispatcher.commit_text(&mut self.editor, text);
+        self.note_logging();
         self.apply(event_loop, effects);
         effects.redraw
     }

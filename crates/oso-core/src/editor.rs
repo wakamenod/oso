@@ -18,7 +18,8 @@
 //! Saving and the exit guard are in [`save`]: a command starts a save here, and the
 //! host, which owns threads and files, takes the job and reports back. What the
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
-//! buffers that show emergency copies are in [`copies`], and prompts in [`prompts`].
+//! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], and kills and
+//! yanks in [`kill`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -34,6 +35,7 @@ use follow::Selected;
 
 mod copies;
 mod follow;
+mod kill;
 mod messages;
 mod prompts;
 mod save;
@@ -41,6 +43,7 @@ mod status;
 mod view;
 
 pub use copies::RecoveryAction;
+pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
 pub use prompts::Quit;
 pub use save::{ExitRefused, SaveJob, SaveRefused};
@@ -96,6 +99,12 @@ pub struct Editor {
     /// A prefix argument and a prefix key being typed, for the echo area. The dispatcher
     /// holds them, and says so here after each key, so that a frame reads only the editor.
     keys_in_progress: String,
+    /// The keys in progress were typed, or stayed, while a buffer that may hold secrets was
+    /// shown, so the control socket leaves them out until they end.
+    keys_withheld: bool,
+    /// The composition was open while such a buffer was shown, so the control socket leaves it
+    /// out until it ends.
+    preedit_withheld: bool,
     /// Saves the host has yet to start.
     save_jobs: Vec<SaveJob>,
     /// The buffers the last refused exit put at risk, until a question about it is answered
@@ -120,6 +129,8 @@ pub struct Editor {
     /// The buffer a question about saving over its changed file was asked of, so that `y`
     /// saves that buffer and no other.
     save_over_asked: Option<BufferId>,
+    /// The kill ring, and whether the command before killed (ADR 0074).
+    kills: kill::Kills,
 }
 
 impl Default for Editor {
@@ -147,6 +158,8 @@ impl Editor {
             copy_actions: Vec::new(),
             echo: None,
             keys_in_progress: String::new(),
+            keys_withheld: false,
+            preedit_withheld: false,
             save_jobs: Vec::new(),
             exit_attempt: None,
             preedit: None,
@@ -157,6 +170,7 @@ impl Editor {
             next_prompt: 0,
             passphrase_command: false,
             save_over_asked: None,
+            kills: kill::Kills::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));
@@ -206,8 +220,17 @@ impl Editor {
             }
             self.window_moves_on();
             let index = self.tiled_index();
-            self.windows[index].show(buffer);
+            self.window_shows(index, buffer);
         }
+    }
+
+    /// Makes the window at `index` show `buffer`. Every change of what a window shows comes
+    /// through here, but a killed buffer's, so that what was around a buffer that may hold
+    /// secrets, before or after it, is marked so.
+    pub(super) fn window_shows(&mut self, index: usize, buffer: BufferId) {
+        self.note_secret_shown();
+        self.windows[index].show(buffer);
+        self.note_secret_shown();
     }
 
     /// Removes a buffer. Windows that showed it show `*scratch*` instead,
@@ -219,6 +242,8 @@ impl Editor {
         let shown = self.windows.iter().any(|window| window.buffer() == id);
         if shown {
             self.window_moves_on();
+            // Before it goes, as what it was cannot be asked after.
+            self.note_secret_shown();
         }
         self.buffers.retain(|(other, _)| *other != id);
         if !shown {
@@ -230,6 +255,7 @@ impl Editor {
                 window.show(scratch);
             }
         }
+        self.note_secret_shown();
     }
 
     /// The `*scratch*` buffer, created again if needed.
@@ -502,6 +528,8 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
+        // Crossing a recovery takes its verdict along.
+        self.note_secret_shown();
         if let Some(scope) = &mut self.undo_scope {
             scope.before = (id, self.windows[self.selected].selections.clone());
             scope.crossed = true;
@@ -983,5 +1011,7 @@ mod model_tests;
 mod prompt_tests;
 #[cfg(test)]
 mod save_tests;
+#[cfg(test)]
+mod test_buffers;
 #[cfg(test)]
 mod undo_tests;

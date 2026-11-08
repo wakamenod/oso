@@ -63,22 +63,25 @@ const WITHHELD: &str = "the buffer may hold secrets or is still being checked, s
 ///
 /// For a buffer that may hold secrets, `text` is null, and `cursor` and `scroll`
 /// are left out, with every mark. Its other metadata stays, as [`buffer_state`] has it. While any window
-/// shows one, `modeline` and `echo` are left out too (ADR 0051, ADR 0063).
+/// shows one, `modeline` and `echo` are left out too (ADR 0051, ADR 0063), and so are the keys in
+/// progress, which stay out until they end if they were typed then.
 ///
 /// The window, its buffer and its text are the tiled window's, also beneath a prompt.
 /// `prompts` describes the open prompts, the outermost first (ADR 0072).
 pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u32, u32)>) -> Value {
     let (window, buffer) = editor.tiled();
+    let shows_secret = editor.shows_secret();
+    let keys_shown = !shows_secret && !editor.keys_withheld();
     let display = buffer.display();
     let size = window.size();
     let text = (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &display));
     let mut state = json!({
-        "buffer": buffer_state(window.buffer(), buffer),
+        "buffer": buffer_state(window.buffer(), buffer, shows_secret),
         "window": { "rows": size.rows, "columns": size.columns },
         "text": text,
         "buffers": editor
             .buffers()
-            .map(|(id, buffer)| buffer_state(id, buffer))
+            .map(|(id, buffer)| buffer_state(id, buffer, shows_secret))
             .collect::<Vec<_>>(),
         "windows": editor
             .windows()
@@ -86,7 +89,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             .enumerate()
             .map(|(index, window)| window_state(editor, window, index))
             .collect::<Vec<_>>(),
-        "keys": { "pending": display_keys(pending).to_string() },
+        "keys": { "pending": keys_shown.then(|| display_keys(pending).to_string()) },
         "prompts": prompts_state(editor),
         "surface": surface_size.map(|(width, height)| json!({ "width": width, "height": height })),
     });
@@ -102,21 +105,76 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
         });
         state["scroll"] = scroll_state(window);
     }
-    if !editor.shows_secret() && !editor.echo_withheld() {
+    if !shows_secret && !editor.echo_withheld() {
         let mut status = Status::default();
         editor.status_into(&mut status);
         state["modeline"] = json!(status.modeline());
-        state["echo"] = json!(status.echo);
+        if keys_shown {
+            state["echo"] = json!(status.echo);
+        }
     }
+    state["kill_ring"] = kill_ring_state(editor);
     state
+}
+
+/// The most pieces of the newest entry `get-state` shows, and the most bytes of each.
+const SHOWN_PIECES: usize = 16;
+const SHOWN_PIECE_BYTES: usize = 1024;
+
+/// The `kill_ring` field of `get-state`: how many entries there are, and the newest one's
+/// pieces, cut short. Secret entries and text from other apps' copies are left out as if
+/// absent, and the whole field is null while a buffer that may hold secrets is shown
+/// (ADR 0074).
+fn kill_ring_state(editor: &Editor) -> Value {
+    if editor.shows_secret() {
+        return Value::Null;
+    }
+    let mut ordinary = editor
+        .kill_ring()
+        .iter()
+        .filter(|entry| !entry.is_secret() && !entry.came_from_clipboard());
+    let newest = ordinary.next().map(|entry| {
+        let pieces = entry.pieces();
+        let mut truncated = pieces.len() > SHOWN_PIECES;
+        let shown: Vec<String> = pieces
+            .iter()
+            .take(SHOWN_PIECES)
+            .map(|piece| {
+                truncated |= piece.len() > SHOWN_PIECE_BYTES;
+                piece_start(piece)
+            })
+            .collect();
+        json!({ "pieces": shown, "truncated": truncated })
+    });
+    json!({ "entries": usize::from(newest.is_some()) + ordinary.count(), "newest": newest })
+}
+
+/// The first [`SHOWN_PIECE_BYTES`] of `piece`, cut at a character's start.
+fn piece_start(piece: &oso_core::kill::Piece) -> String {
+    let mut text = String::new();
+    for chunk in piece.chunks() {
+        let room = SHOWN_PIECE_BYTES - text.len();
+        if chunk.len() <= room {
+            text.push_str(chunk);
+            continue;
+        }
+        let mut end = room;
+        while !chunk.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.push_str(&chunk[..end]);
+        break;
+    }
+    text
 }
 
 /// The open prompts, the outermost first: each one's depth, kind, label, answer so far, cursor
 /// and message, and the innermost's region, which alone shows. While a buffer that may hold
 /// secrets is shown, a passphrase's prompt among them, the label, the answer, the cursor and
 /// the message are null, as a search string or a line number can say something of the text.
+/// So they are for a prompt that was open around one, or opened then, once it is gone.
 fn prompts_state(editor: &Editor) -> Value {
-    let shown = !editor.shows_secret();
+    let showing = !editor.shows_secret();
     let layout = editor.prompt_layout();
     let count = editor.prompts().len();
     editor
@@ -125,6 +183,7 @@ fn prompts_state(editor: &Editor) -> Value {
         .zip(editor.prompt_windows())
         .enumerate()
         .map(|(index, (prompt, window))| {
+            let shown = showing && !prompt.around_secret();
             let kind = match prompt.kind() {
                 Kind::Number { .. } => "number",
                 Kind::Passphrase => "passphrase",
@@ -132,8 +191,9 @@ fn prompts_state(editor: &Editor) -> Value {
             };
             let buffer = editor.buffer(prompt.buffer()).filter(|_| shown);
             let cursor = shown.then(|| window.selections.primary().cursor);
+            // Its size follows the label and the message, so it goes with them.
             let region = layout
-                .filter(|_| index + 1 == count)
+                .filter(|_| shown && index + 1 == count)
                 .map(|layout| region_state(layout.regions.outer));
             json!({
                 "depth": index + 1,
@@ -184,10 +244,11 @@ pub struct ImeFacts {
 
 /// The `ime` field of `get-state`: what the app wants and allowed, whether a composition
 /// is open, its preedit and range, and the area given to the OS. While a buffer that may
-/// hold secrets is shown, the preedit, its range and the area are null (ADR 0069).
+/// hold secrets is shown, the preedit, its range and the area are null (ADR 0069), and so
+/// they are for a composition that was open then, until it ends (ADR 0079).
 pub fn ime_state(editor: &Editor, facts: &ImeFacts) -> Value {
     let preedit = editor.preedit();
-    let shown = !editor.shows_secret();
+    let shown = !editor.shows_secret() && !editor.preedit_withheld();
     let area = facts.area.filter(|_| shown).map(
         |area| json!({ "x": area.x, "y": area.y, "width": area.width, "height": area.height }),
     );
@@ -209,23 +270,26 @@ fn scroll_state(window: &Window) -> Value {
 }
 
 /// A buffer's metadata. A buffer that may hold secrets gives no size while it is
-/// modified (ADR 0058).
-fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
+/// modified (ADR 0058), and no count of invalid bytes. While `shows_secret`, as one is shown,
+/// it says neither whether it is modified or being saved, nor its size.
+fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     let info = buffer.file_info();
+    let secret = buffer.is_secret();
+    let state_shown = !(secret && shows_secret);
     // The size of a withheld copy or compare says how far it is from its file (ADR 0064).
     let withheld_view = buffer.mode() == Mode::CopyView;
-    let size_shown = !(buffer.is_secret() && (buffer.is_modified() || withheld_view));
+    let size_shown = state_shown && !(secret && (buffer.is_modified() || withheld_view));
     json!({
         "id": id.get(),
         "name": buffer.name(),
         "path": buffer.path().map(|path| path.to_string_lossy()),
         "secret": buffer.is_secret(),
         "read_only": buffer.read_only().map(ReadOnly::as_str),
-        "modified": buffer.is_modified(),
-        "saving": buffer.is_saving(),
+        "modified": state_shown.then(|| buffer.is_modified()),
+        "saving": state_shown.then(|| buffer.is_saving()),
         "line_ending": info.line_ending.as_str(),
         "bom": info.bom,
-        "invalid_bytes": buffer.invalid_bytes().len(),
+        "invalid_bytes": (!secret).then(|| buffer.invalid_bytes().len()),
         "bytes": size_shown.then(|| buffer.text().len()),
         "lines": size_shown.then(|| buffer.display().row_count()),
         "loading": buffer.loading().map(|progress| json!({
@@ -409,10 +473,11 @@ impl TextJob {
 }
 
 /// Refuses a screenshot while any window shows a buffer that may hold
-/// secrets. Checked on the UI thread right before the capture, so nothing
+/// secrets, or while anything `get-state` leaves out for having been around one is on the
+/// screen. Checked on the UI thread right before the capture, so nothing
 /// can switch the buffer in between.
 pub fn screenshot_allowed(editor: &Editor) -> Result<(), String> {
-    if editor.shows_secret() {
+    if editor.shows_secret() || editor.around_secret() {
         return Err(WITHHELD.into());
     }
     Ok(())
@@ -526,6 +591,7 @@ mod tests {
                     "mark_ring": [],
                 }],
                 "keys": { "pending": "" },
+                "kill_ring": { "entries": 0, "newest": null },
                 "prompts": [],
                 "surface": { "width": 800, "height": 600 },
             })
@@ -663,13 +729,24 @@ mod tests {
             ("/p/notes.txt", Some("/h/.ssh/id_rsa")),
             ("/p/notes.txt", None),
         ] {
-            let (editor, _) = visiting(path, resolved, CONTENT);
+            let (mut editor, _) = visiting(path, resolved, CONTENT);
             let state = state(&editor, &[]);
             assert_eq!(state["text"], json!(null), "{path}");
             assert_eq!(state["buffer"]["secret"], true, "{path}");
             assert_eq!(state["buffer"]["path"], path);
-            assert_eq!(state["buffer"]["bytes"], CONTENT.len());
+            // While it is shown, nothing that an edit or a save would change.
+            for hidden in ["modified", "saving", "bytes", "lines", "invalid_bytes"] {
+                assert_eq!(state["buffer"][hidden], json!(null), "{path} {hidden}");
+            }
             assert!(!state.to_string().contains("SECRET-VALUE"), "{path}");
+            let scratch = editor.buffers().next().unwrap().0;
+            show_buffer(&mut editor, scratch.get()).unwrap();
+            let listed = &self::state(&editor, &[])["buffers"][1];
+            assert_eq!(listed["bytes"], CONTENT.len(), "{path}");
+            assert_eq!(listed["modified"], false);
+            assert_eq!(listed["saving"], false);
+            assert_eq!(listed["invalid_bytes"], json!(null), "never for it");
+            show_buffer(&mut editor, listed["id"].as_u64().unwrap()).unwrap();
             assert!(text(&editor, 0, 1).unwrap_err().contains("ADR 0044"));
             assert!(
                 screenshot_allowed(&editor)
@@ -761,8 +838,8 @@ mod tests {
         // What the window is stays, and so does the rest.
         assert_eq!(state["window"]["rows"], state["windows"][0]["rows"]);
         assert_eq!(state["windows"][0]["buffer"], state["buffer"]["id"]);
-        assert_eq!(state["buffer"]["lines"], 3);
-        assert_eq!(state["keys"]["pending"], "");
+        assert_eq!(state["buffer"]["lines"], json!(null));
+        assert_eq!(state["keys"]["pending"], json!(null));
     }
 
     #[test]
@@ -787,6 +864,12 @@ mod tests {
         }
         let scratch = editor.buffers().next().unwrap().0;
         show_buffer(&mut editor, scratch.get()).unwrap();
+        // Open while it was shown, it stays out until it ends.
+        assert_eq!(ime_state(&editor, &facts)["preedit"], json!(null));
+        assert!(screenshot_allowed(&editor).is_err());
+        editor.set_preedit(None);
+        let preedit = oso_core::display_map::Preedit::new("にほ".into(), Some(6..6));
+        editor.set_preedit(Some(preedit));
         let shown = ime_state(&editor, &facts);
         assert_eq!(shown["preedit"], "にほ");
         assert_eq!(shown["range"], json!([6, 6]));
@@ -796,21 +879,100 @@ mod tests {
     }
 
     #[test]
+    fn the_kill_ring_shows_its_newest_own_entry_cut_short_and_nothing_secret_or_copied() {
+        use super::{SHOWN_PIECE_BYTES, kill_ring_state};
+        use oso_core::kill::{Direction, Fingerprint};
+        let (mut editor, secret) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
+        let scratch = editor.buffers().next().unwrap().0;
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let long = "é".repeat(SHOWN_PIECE_BYTES);
+        let typed = Replacement {
+            range: 0..0,
+            text: &long,
+        };
+        editor.apply_edits(scratch, &[typed]).unwrap();
+        let all = 0..long.len();
+        editor
+            .kill(std::iter::once(all), Direction::Forward, true)
+            .unwrap();
+        let copied = oso_core::rope::Rope::from("another app's copy");
+        editor.take_from_clipboard(copied, false, Fingerprint { len: 18, hash: 1 });
+        show_buffer(&mut editor, secret.get()).unwrap();
+        editor
+            .kill(std::iter::once(0..3), Direction::Forward, true)
+            .unwrap();
+        assert!(editor.kill_ring().get(0).unwrap().is_secret());
+        assert_eq!(kill_ring_state(&editor), json!(null), "while it is shown");
+
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let state = kill_ring_state(&editor);
+        assert_eq!(state["entries"], 1, "the secret one and the copy left out");
+        let piece = state["newest"]["pieces"][0].as_str().unwrap();
+        assert_eq!(piece.len(), SHOWN_PIECE_BYTES, "cut at a character's start");
+        assert_eq!(state["newest"]["truncated"], true);
+    }
+
+    #[test]
     fn an_edit_to_a_secret_buffer_hides_its_size_until_undone() {
         let content = "ONE TWO\n";
         let (mut editor, id) = visiting("/p/.env", Some("/p/.env"), content);
+        let scratch = editor.buffers().next().unwrap().0;
         let edit = Replacement {
             range: 0..3,
             text: "",
         };
         editor.apply_edits(id, &[edit]).unwrap();
-        let shown = state(&editor, &[]);
-        assert_eq!(shown["buffer"]["bytes"], json!(null));
-        assert_eq!(shown["buffer"]["lines"], json!(null));
-        assert_eq!(shown["buffers"][1]["bytes"], json!(null), "in the list too");
-        assert!(!shown.to_string().contains("\"bytes\":5"));
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let listed = state(&editor, &[]);
+        assert_eq!(listed["buffers"][1]["modified"], true);
+        assert_eq!(listed["buffers"][1]["bytes"], json!(null));
+        assert_eq!(listed["buffers"][1]["lines"], json!(null));
+        assert!(!listed.to_string().contains("\"bytes\":5"));
+        show_buffer(&mut editor, id.get()).unwrap();
         editor.undo().unwrap();
-        assert_eq!(state(&editor, &[])["buffer"]["bytes"], content.len());
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        assert_eq!(state(&editor, &[])["buffers"][1]["bytes"], content.len());
+    }
+
+    #[test]
+    fn keys_in_progress_typed_where_a_secret_was_shown_stay_out_until_they_end() {
+        let (mut editor, _) = visiting("/p/.env", Some("/p/.env"), "ONE\n");
+        let scratch = editor.buffers().next().unwrap().0;
+        let pending: KeySequence = "C-x".parse().unwrap();
+        editor.set_keys_in_progress("C-u 42 C-x-");
+        show_buffer(&mut editor, scratch.get()).unwrap();
+        let state = state(&editor, &pending.0);
+        assert_eq!(state["keys"]["pending"], json!(null));
+        assert!(state.get("echo").is_none());
+        assert!(state["modeline"].is_string(), "the modeline is back");
+        editor.set_keys_in_progress("");
+        let state = self::state(&editor, &[]);
+        assert_eq!(state["keys"]["pending"], "");
+        assert_eq!(state["echo"], "");
+    }
+
+    #[test]
+    fn a_prompt_open_while_a_secret_was_shown_beneath_it_stays_out() {
+        let mut editor = Editor::default();
+        let plain = editor.window().buffer();
+        let kind = oso_core::minibuffer::Kind::Number {
+            history: Some("line"),
+        };
+        editor.open_prompt("Go to line: ", kind).unwrap();
+        let prompt = state(&editor, &[])["prompts"][0].clone();
+        assert_eq!(prompt["prompt"], "Go to line: ");
+        let path = PathBuf::from("/p/.env");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.judge_secret(Some(&[path]));
+        let secret = editor.add_buffer(buffer);
+        show_buffer(&mut editor, secret.get()).unwrap();
+        show_buffer(&mut editor, plain.get()).unwrap();
+        let prompt = state(&editor, &[])["prompts"][0].clone();
+        for hidden in ["prompt", "text", "cursor", "message"] {
+            assert_eq!(prompt[hidden], json!(null), "{hidden}");
+        }
+        assert_eq!(prompt["region"], json!(null), "its size follows the label");
+        assert_eq!(prompt["kind"], "number");
     }
 
     #[test]

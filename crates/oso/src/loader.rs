@@ -17,8 +17,10 @@
 //!
 //! Right after opening the file, before reading it, the thread follows the
 //! path to where it really leads, so that the UI can tell whether the file
-//! may hold secrets (ADR 0044) without touching the file system. A file
-//! swapped in before the open is what gets judged. It also hands over the file's
+//! may hold secrets (ADR 0044) without touching the file system. The verdict is
+//! taken from the path of the file that was opened, as the system names it, with
+//! the names the walk passed. Where the system cannot name it, the path must still
+//! end at the opened file once resolved, or nobody can tell. It also hands over the file's
 //! baseline: where the path really leads, and the modification time, size and mode read
 //! from the open file, which a save checks before it replaces the file (ADR 0029,
 //! ADR 0059).
@@ -300,12 +302,49 @@ fn baseline_after_open(
 /// very file. The location is worked out after the open, so a link switched in between would
 /// otherwise pair one file's text with another place, where a save would then write it.
 fn baseline_of_opened(location: PathBuf, opened: &Metadata) -> Option<Baseline> {
-    let there = std::fs::metadata(&location).ok()?;
-    if !same_file(opened, &there) {
-        return None;
-    }
+    holds_opened(&location, opened)?;
     let file = Some(stamp_of(opened).ok()?);
     Some(Baseline { location, file })
+}
+
+/// What is at `path`, if `path` itself holds the file opened with `opened` as its metadata, and no
+/// link there leads to it.
+fn holds_opened(path: &Path, opened: &Metadata) -> Option<Metadata> {
+    let there = std::fs::symlink_metadata(path).ok()?;
+    (!there.is_symlink() && same_file(opened, &there)).then_some(there)
+}
+
+/// What decides whether the opened `file` may hold secrets: the path the system gives for the open
+/// file, with the names the walk of `resolved` passed, as the verdict is on the file that is read.
+/// A walk that could not tell still counts so. Where the system gives no path, the one the walk ended at must surely hold the opened file, or
+/// nobody can tell. With nothing opened, nothing was read.
+fn verdict_of_opened(resolved: Resolved, file: Option<(&File, &Metadata)>) -> Resolved {
+    let Some((file, opened)) = file else {
+        return resolved;
+    };
+    if let Ok(Some(real)) = oso_platform::file_meta::path_of_opened(file) {
+        // A walk that could not tell stays so, with the file's own path among its names.
+        return match resolved {
+            Resolved::Paths(mut names) => {
+                names.push(real);
+                Resolved::Paths(names)
+            }
+            Resolved::Unknown(mut names) => {
+                names.push(real);
+                Resolved::Unknown(names)
+            }
+        };
+    }
+    match resolved {
+        Resolved::Paths(paths)
+            if !paths.last().is_some_and(|last| {
+                holds_opened(last, opened).is_some_and(|there| surely_same_file(opened, &there))
+            }) =>
+        {
+            Resolved::Unknown(paths)
+        }
+        resolved => resolved,
+    }
 }
 
 /// Whether two sets of metadata are of one file: its device and inode.
@@ -349,8 +388,24 @@ fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
 /// Only the size seen at open is read, so a file another process keeps
 /// appending to (a log) cannot be read forever.
 fn load(path: &Path, shared: &Shared, send: &dyn Fn(LoadUpdate) -> bool) -> Result<(), LoadError> {
+    load_around(path, shared, send, || {})
+}
+
+/// [`load`], running `after_open` right after the open, for a test.
+fn load_around(
+    path: &Path,
+    shared: &Shared,
+    send: &dyn Fn(LoadUpdate) -> bool,
+    after_open: impl FnOnce(),
+) -> Result<(), LoadError> {
     let opened = open(path);
-    *shared.resolved() = Some(resolve(path));
+    after_open();
+    let resolved = resolve(path);
+    let file = opened
+        .as_ref()
+        .ok()
+        .map(|(file, metadata)| (file, metadata));
+    *shared.resolved() = Some(verdict_of_opened(resolved, file));
     let baseline = baseline_after_open(path, &opened);
     *shared.spelling() = baseline
         .as_ref()
@@ -367,7 +422,6 @@ fn read_into(
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
 ) -> Result<(), LoadError> {
-    let started = Instant::now();
     let mut file = file.take(total);
     let mut builder = Builder::new(Some(total), TabWidth::default());
     let mut piece = vec![0; READ_SIZE];
@@ -384,9 +438,6 @@ fn read_into(
         };
         builder.push(&piece[..read]);
         if sent.is_none_or(|sent| sent.elapsed() >= SEND_INTERVAL) {
-            if sent.is_none() {
-                log::debug!("first {read} bytes decoded in {:?}", started.elapsed());
-            }
             if !send(LoadUpdate::Snapshot(Box::new(builder.snapshot()))) {
                 return Ok(());
             }
@@ -401,7 +452,6 @@ fn read_into(
     {
         log::info!("the file grew while loading; the rest is not shown");
     }
-    log::debug!("loaded {} bytes in {:?}", builder.len(), started.elapsed());
     send(LoadUpdate::Snapshot(Box::new(builder.snapshot())));
     Ok(())
 }
@@ -495,10 +545,14 @@ mod tests {
         let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let resolved = handle.take_resolved().unwrap();
+        // Where the system cannot name an open file, nobody can tell.
+        #[cfg(unix)]
         assert_eq!(
             resolved.paths().unwrap().last(),
             Some(&std::fs::canonicalize(&path).unwrap())
         );
+        #[cfg(not(unix))]
+        assert!(matches!(resolved, Resolved::Unknown(_)), "{resolved:?}");
         assert_eq!(handle.take_resolved(), None, "taken once");
         std::fs::remove_file(path).unwrap();
     }
@@ -548,6 +602,109 @@ mod tests {
         assert_eq!(baseline_of_opened(missing, &metadata), None);
         std::fs::remove_file(opened).unwrap();
         std::fs::remove_file(other).unwrap();
+    }
+
+    /// The verdict a buffer visiting `path` gets from `resolved`.
+    #[cfg(unix)]
+    fn secret_by(path: &Path, resolved: &Resolved) -> bool {
+        let mut buffer = oso_core::buffer::Buffer::visiting(path.to_path_buf());
+        resolved.judge(&mut buffer);
+        buffer.is_secret()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_verdict_is_on_the_file_that_was_opened() {
+        let directory = scratch_file("judged-dir", b"");
+        std::fs::remove_file(&directory).unwrap();
+        std::fs::create_dir(&directory).unwrap();
+        let secret = directory.join(".env");
+        let plain = directory.join("plain.txt");
+        std::fs::write(&secret, b"KEY=1\n").unwrap();
+        std::fs::write(&plain, b"text\n").unwrap();
+        let link = directory.join("notes.txt");
+        let point_at = |target: &Path| {
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(target, &link).unwrap();
+        };
+        let judged = |after_open: &dyn Fn()| {
+            let shared = Shared::default();
+            load_around(&link, &shared, &|_| true, after_open).unwrap();
+            let resolved = shared.resolved().take().unwrap();
+            secret_by(&link, &resolved)
+        };
+        point_at(&plain);
+        assert!(!judged(&|| {}), "an ordinary file through a link");
+        point_at(&secret);
+        assert!(judged(&|| {}), "a secret one through a link");
+        point_at(&secret);
+        assert!(judged(&|| point_at(&plain)));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_path_holds_the_opened_file_only_if_it_is_that_file_and_no_link() {
+        let opened = scratch_file("held.txt", b"abc");
+        let other = scratch_file("held-other.txt", b"abcd");
+        let metadata = std::fs::metadata(&opened).unwrap();
+        assert!(holds_opened(&opened, &metadata).is_some());
+        assert!(holds_opened(&other, &metadata).is_none());
+        let missing = opened.with_file_name("oso-no-such-file-held");
+        assert!(holds_opened(&missing, &metadata).is_none());
+        #[cfg(unix)]
+        {
+            let link =
+                opened.with_file_name(format!("oso-loader-test-{}-held-link", std::process::id()));
+            let _ = std::fs::remove_file(&link);
+            std::os::unix::fs::symlink(&opened, &link).unwrap();
+            assert!(holds_opened(&link, &metadata).is_none(), "a link to it");
+            std::fs::remove_file(link).unwrap();
+        }
+        std::fs::remove_file(opened).unwrap();
+        std::fs::remove_file(other).unwrap();
+    }
+
+    #[test]
+    fn with_nothing_opened_the_walk_decides() {
+        let walked = Resolved::Paths(vec![PathBuf::from("/p/notes.txt")]);
+        assert_eq!(verdict_of_opened(walked.clone(), None), walked);
+        let unknown = Resolved::Unknown(vec![PathBuf::from("/p/notes.txt")]);
+        assert_eq!(verdict_of_opened(unknown.clone(), None), unknown);
+    }
+
+    #[test]
+    fn a_walk_that_could_not_tell_stays_so_with_the_file_opened() {
+        let path = scratch_file("untold.txt", b"abc");
+        let file = File::open(&path).unwrap();
+        let metadata = file.metadata().unwrap();
+        let seen = vec![PathBuf::from("/p/notes.txt")];
+        let verdict = verdict_of_opened(Resolved::Unknown(seen.clone()), Some((&file, &metadata)));
+        let Resolved::Unknown(names) = verdict else {
+            panic!("{verdict:?}");
+        };
+        assert_eq!(names[0], seen[0]);
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        assert_eq!(
+            std::fs::canonicalize(names.last().unwrap()).unwrap(),
+            std::fs::canonicalize(&path).unwrap(),
+            "with its own path among the names"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn the_system_names_the_opened_file() {
+        let path = scratch_file("named.txt", b"abc");
+        let file = File::open(&path).unwrap();
+        let named = oso_platform::file_meta::path_of_opened(&file)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            std::fs::canonicalize(&named).unwrap(),
+            std::fs::canonicalize(&path).unwrap()
+        );
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

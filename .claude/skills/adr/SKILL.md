@@ -23,14 +23,14 @@ gets a new ADR that supersedes the old one.
    - **Consequences:** what follows, good and bad, including follow-up work.
    - **Alternatives considered:** each one with the reason it was rejected.
    - Match the style of existing ADRs: short sentences, bullet lists, English.
-4. **Add a row** to the table in `docs/dev/adr/README.md` with the title and
-   status.
+4. **Do not add a row anywhere.** There is no ADR table: `just adrs` lists
+   the ADRs from their files.
 5. **Update related docs** so they agree with the decision: design docs in
    `docs/dev/`, `AGENTS.md` (keep it short), `REVIEW.md`. If the ADR
    supersedes another, set the old one's status to `Superseded by NNNN` in
-   its file and in the table. Do not change anything else in the old ADR.
+   its file. Do not change anything else in the old ADR.
 6. **Update `docs/dev/open-questions.md`:** remove items the ADR settles, and
    add new open items it raises under the milestone they block.
 7. **Ask for approval.** ADRs are a human gate (ADR 0018). Summarize the
    decision and wait for the author. After approval, change the status to
-   `Accepted` in the file and in the README table.
+   `Accepted` in the file.

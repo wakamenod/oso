@@ -158,7 +158,11 @@ and below the row, and a label's glyphs keep their own cells
   stay with oso. The window layer holds one enable at a time and releases it when any of that
   stops, when the loop ends and after a panic in the handler
   ([ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
-- The kill ring syncs with the OS clipboard but is never persisted. Core
+- The kill ring syncs with the OS clipboard but is never persisted. oso reads the
+  clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
+  goes there marked concealed for clipboard managers, never shows over the socket, and
+  makes the buffer it is yanked into secret, also after a round trip through another app
+  ([ADR 0074](adr/0074-the-kill-ring-and-the-clipboard.md)). Core
   dumps are disabled with `RLIMIT_CORE` on Unix, soft and hard. Windows has no such limit for a process to set.
   The panic hook prints the location and the stack and never the message, also for a panic caught at the
   command boundary ([ADR 0028](adr/0028-secrets-handling.md), [ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)).
@@ -277,10 +281,19 @@ and below the row, and a label's glyphs keep their own cells
   caught, and a path that cannot be resolved counts as secret. A file counts as
   secret from the moment it is visited until the loading thread has resolved
   its path ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+- While a secret-pattern buffer is shown, `get-state` gives no `modified`, `saving` or size of
+  such buffers, and `check-handover`, `export-state` and an `exit` with a generation are refused
+  for one reason, whatever the buffers hold. `invalid_bytes` is null for such a buffer. Keys in
+  progress, a composition and the prompts that were around one stay out of `get-state` and
+  `screenshot` until they end, also once it is gone, and those prompts' answers enter no
+  history. A restart does not show such a buffer again from behind an internal one
+  ([ADR 0079](adr/0079-state-and-restarts-around-a-secret-buffer.md)).
 - `take-timings` records no key if a secret-pattern buffer is shown just before or after
   it or when its frame is presented, and no frames while one is shown, but the first
-  frame and the first load's times
-  ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)).
+  frame ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). It times no load of
+  such a buffer, and no first screen drawn while one is shown. While one is shown, the log
+  keeps warnings and errors only, from every crate
+  ([ADR 0078](adr/0078-load-times-and-log-lines-around-a-secret-buffer.md)).
 - Responses are safe to print: DEL, C1 controls, bidi controls and invisible
   characters from a file go out as `\uXXXX`
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
@@ -302,9 +315,11 @@ and below the row, and a label's glyphs keep their own cells
   Claude Code pre-commit hook, and a full-history gitleaks scan in CI. Both
   scans ignore `gitleaks:allow` comments, and CI rejects gitleaks allowlist
   files.
-- CI actions are pinned by commit SHA, the workflow token is read-only, and
-  checkout does not persist credentials
-  ([ADR 0021](adr/0021-development-tooling.md)).
+- CI actions are pinned to commits by the workflow lockfile, which GitHub requires
+  of every workflow, the workflow token is read-only, and checkout does not persist
+  credentials ([ADR 0021](adr/0021-development-tooling.md),
+  [ADR 0080](adr/0080-workflow-dependency-lockfile.md)). Tools a step downloads are
+  checked against pinned checksums.
 
 ## What must never be committed
 
