@@ -74,7 +74,7 @@ fn compile(pattern: &str, ignore_case: bool) -> Option<Regex> {
 impl Component {
     /// The component `raw` stands for, with its affix read, or `None` if nothing is left
     /// to match once the affix is.
-    fn parse(raw: &str, ignore_case: bool) -> Option<Self> {
+    fn parse(raw: &str, ignore_case: bool, before: &Query) -> Option<Self> {
         let first = raw.chars().next()?;
         let last = raw.chars().next_back()?;
         let (affix, rest) = if AFFIXES.contains(&first) {
@@ -98,9 +98,17 @@ impl Component {
         } else {
             rest.into()
         };
-        // `=` and the other affixes but `!` and `&` take one style only.
+        // `=` and the other affixes but `!` and `&` take one style only. An expression the
+        // query before compiled is reused: its text and case decide it.
         let regex = (matches!(affix, None | Some('!' | '&')) && rest.contains(REGEX_META))
-            .then(|| compile(rest, ignore_case))
+            .then(|| {
+                let same = |old: &&Component| old.pattern == pattern && old.regex.is_some();
+                let compiled = (before.ignore_case == ignore_case)
+                    .then(|| before.components.iter().find(same))
+                    .flatten()
+                    .and_then(|old| old.regex.clone());
+                compiled.or_else(|| compile(rest, ignore_case))
+            })
             .flatten();
         Some(Self {
             style,
@@ -111,7 +119,9 @@ impl Component {
         })
     }
 
-    /// Whether it matches `candidate`, and where, in the original text, if `out` is given.
+    /// Whether it matches `candidate`, and where, in the original text, into `out` if it is
+    /// given. Nothing is recorded for a component that says what must not match, or that
+    /// matches the annotation.
     fn matches(
         &self,
         candidate: &Candidate,
@@ -128,20 +138,26 @@ impl Component {
             _ => text,
         };
         let pattern = &*self.pattern;
-        let mut found = Vec::new();
+        let mut out = out.filter(|_| !self.not && !self.annotation);
+        let start = out.as_ref().map_or(0, |out| out.len());
+        let mut push = |range: Range<usize>| {
+            if let Some(out) = out.as_mut() {
+                out.push(range);
+            }
+        };
         // An expression matches the original text, ignoring case itself, so where it matched
         // needs no mapping back.
         let mut original = false;
         let hit = match self.style {
             Style::Literal => match haystack.find(pattern) {
-                Some(start) => {
-                    found.push(start..start + pattern.len());
+                Some(at) => {
+                    push(at..at + pattern.len());
                     true
                 }
                 None => match self.regex.as_ref().and_then(|regex| regex.find(text)) {
                     Some(hit) => {
                         original = true;
-                        found.push(hit.range());
+                        push(hit.range());
                         true
                     }
                     None => false,
@@ -150,40 +166,33 @@ impl Component {
             Style::Prefix => {
                 let hit = haystack.starts_with(pattern);
                 if hit {
-                    found.push(0..pattern.len());
+                    push(0..pattern.len());
                 }
                 hit
             }
-            Style::Flex => in_order(haystack, pattern, |_, _| true, &mut found),
-            Style::Initialism => in_order(haystack, pattern, starts_word, &mut found),
+            Style::Flex => in_order(haystack, pattern, |_, _| true, push),
+            Style::Initialism => in_order(haystack, pattern, starts_word, push),
         };
-        if self.not {
-            return !hit;
-        }
-        if let Some(out) = out
-            && hit
-            && !self.annotation
-        {
-            let folded_used = ignore_case && folded.text.is_some() && !original;
-            out.extend(found.into_iter().map(|range| {
-                if folded_used {
-                    folded.original(range)
-                } else {
-                    range
+        if let Some(out) = out {
+            if !hit {
+                out.truncate(start);
+            } else if ignore_case && folded.text.is_some() && !original {
+                for range in &mut out[start..] {
+                    *range = folded.original(range.clone());
                 }
-            }));
+            }
         }
-        hit
+        hit != self.not
     }
 }
 
 /// Whether the characters of `pattern` are in `haystack` in order, each where `may_take`
-/// allows it, taking each as early as it can. Pushes where each was found.
+/// allows it, taking each as early as it can. Gives `found` where each was.
 fn in_order(
     haystack: &str,
     pattern: &str,
     may_take: impl Fn(Option<char>, char) -> bool,
-    found: &mut Vec<Range<usize>>,
+    mut found: impl FnMut(Range<usize>),
 ) -> bool {
     let mut wanted = pattern.chars().peekable();
     let mut before = None;
@@ -192,7 +201,7 @@ fn in_order(
             break;
         };
         if c == next && may_take(before, c) {
-            found.push(offset..offset + c.len_utf8());
+            found(offset..offset + c.len_utf8());
             wanted.next();
         }
         before = Some(c);
@@ -206,11 +215,20 @@ fn starts_word(before: Option<char>, c: char) -> bool {
     c.is_alphanumeric() && !before.is_some_and(char::is_alphanumeric)
 }
 
+/// The longest input matched, in bytes. A longer one, such as a whole file yanked into the
+/// answer, matches nothing, so that no key costs more than this much matching (ADR 0076).
+pub const MAX_INPUT_BYTES: usize = 1024;
+
+/// The most components an input is matched with. One with more matches nothing.
+pub const MAX_COMPONENTS: usize = 32;
+
 /// An input read as components, which a candidate matches when it matches all of them.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Query {
     components: Vec<Component>,
     ignore_case: bool,
+    /// The input is past [`MAX_INPUT_BYTES`] or [`MAX_COMPONENTS`]: nothing matches.
+    too_long: bool,
 }
 
 impl Query {
@@ -218,11 +236,19 @@ impl Query {
     /// orderless's `orderless-escapable-split-on-space` does. Case is ignored unless `input`
     /// holds an upper-case letter.
     pub fn parse(input: &str) -> Self {
+        Self::parse_after(input, &Self::default())
+    }
+
+    /// [`Query::parse`], reusing what `before` compiled for a component that is the same.
+    pub fn parse_after(input: &str, before: &Query) -> Self {
+        if input.len() > MAX_INPUT_BYTES {
+            return Self::too_long();
+        }
         let ignore_case = !input.chars().any(char::is_uppercase);
         let mut components = Vec::new();
         let mut current = String::new();
         let mut push = |current: &mut String| {
-            components.extend(Component::parse(current, ignore_case));
+            components.extend(Component::parse(current, ignore_case, before));
             current.clear();
         };
         let mut chars = input.chars().peekable();
@@ -237,17 +263,31 @@ impl Query {
             }
         }
         push(&mut current);
+        if components.len() > MAX_COMPONENTS {
+            return Self::too_long();
+        }
         Self {
             components,
             ignore_case,
+            too_long: false,
+        }
+    }
+
+    /// The query of an input too long to match: nothing matches it.
+    pub fn too_long() -> Self {
+        Self {
+            too_long: true,
+            ..Self::default()
         }
     }
 
     /// Whether `candidate` matches every component.
     pub fn matches(&self, candidate: &Candidate) -> bool {
-        self.components
-            .iter()
-            .all(|component| component.matches(candidate, self.ignore_case, None))
+        !self.too_long
+            && self
+                .components
+                .iter()
+                .all(|component| component.matches(candidate, self.ignore_case, None))
     }
 
     /// Where the components matched `candidate`'s text, in its byte offsets, sorted and
@@ -258,15 +298,20 @@ impl Query {
         for component in &self.components {
             component.matches(candidate, self.ignore_case, Some(out));
         }
-        out.sort_by_key(|range| range.start);
-        let mut joined: Vec<Range<usize>> = Vec::with_capacity(out.len());
-        for range in out.drain(..) {
-            match joined.last_mut() {
+        out.sort_unstable_by_key(|range| range.start);
+        // Joined in place, so that the caller's vector is reused from row to row.
+        let mut kept: usize = 0;
+        for index in 0..out.len() {
+            let range = out[index].clone();
+            match kept.checked_sub(1).map(|last| &mut out[last]) {
                 Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
-                _ => joined.push(range),
+                _ => {
+                    out[kept] = range;
+                    kept += 1;
+                }
             }
         }
-        *out = joined;
+        out.truncate(kept);
     }
 
     /// Whether every candidate this query matches is one `before` matched, so that it
@@ -274,6 +319,12 @@ impl Query {
     /// in its place, at most longer at its end, and none says what must not match unless
     /// it is the same. Case may stop being ignored, and never start.
     pub fn narrows(&self, before: &Query) -> bool {
+        if before.too_long {
+            return false;
+        }
+        if self.too_long {
+            return true;
+        }
         if self.ignore_case && !before.ignore_case {
             return false;
         }

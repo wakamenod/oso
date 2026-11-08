@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use proptest::prelude::*;
 
-use super::{Candidate, Candidates, Query};
+use super::{Candidate, Candidates, MAX_COMPONENTS, MAX_INPUT_BYTES, Query};
 
 fn candidate(text: &str) -> Candidate {
     Candidate::new(text, "", "")
@@ -218,6 +218,80 @@ fn narrowing_needs_every_component_kept_or_longer_at_its_end() {
     assert!(!narrows("sav~", "sav"));
     assert!(!narrows("a|b", "a"));
     assert!(!narrows("a.", "a"));
+}
+
+#[test]
+fn an_input_too_long_or_of_too_many_components_matches_nothing_until_it_is_short_again() {
+    let mut candidates = list(&["save-buffer", "undo"], &[]);
+    candidates.set_input(&"s".repeat(MAX_INPUT_BYTES + 1));
+    assert_eq!((candidates.len(), candidates.selected()), (0, None));
+    candidates.set_input("sa");
+    assert_eq!(shown(&candidates), ["save-buffer"]);
+    candidates.set_too_long();
+    assert!(candidates.is_empty());
+    candidates.set_input("");
+    assert_eq!(candidates.len(), 2, "the empty input matches all again");
+    let many = vec!["a"; MAX_COMPONENTS + 1].join(" ");
+    candidates.set_input(&many);
+    assert!(candidates.is_empty());
+    assert!(!Query::parse(&many).matches(&candidate("a")));
+}
+
+/// Matching at 5000 candidates stays within ADR 0076's budget of 1 ms a key. Run it by hand
+/// in release: `cargo test --release -p oso-core matching_5000 -- --ignored`.
+#[test]
+#[ignore = "a timing to read, run by hand in release"]
+fn matching_5000_candidates_takes_under_a_millisecond_a_key() {
+    use std::time::Instant;
+    let words = [
+        "save", "buffer", "kill", "line", "forward", "char", "word", "mark", "region",
+    ];
+    let items: Arc<[Candidate]> = (0..5000)
+        .map(|n| {
+            let text = format!(
+                "{}-{}-{}-{n}",
+                words[n % 9],
+                words[n / 9 % 9],
+                words[n / 81 % 9]
+            );
+            let note = format!(
+                "Do the {} thing to the {} at every cursor.",
+                words[n % 7],
+                words[n % 5]
+            );
+            Candidate::new(text, "C-x C-s", note)
+        })
+        .collect();
+    let steps: &[&[&str]] = &[
+        &["e", "ea", "eab"],
+        &["e", "", "e"],
+        &["buf", "buf sav"],
+        &["~svbf"],
+        &[",sbk"],
+        &["a.b", "a.bc"],
+        &["!x", "!x e"],
+    ];
+    let mut highlights = Vec::new();
+    for inputs in steps {
+        let mut candidates = Candidates::new(Arc::clone(&items), []);
+        for input in *inputs {
+            let start = Instant::now();
+            candidates.set_input(input);
+            let matched = start.elapsed();
+            let start = Instant::now();
+            for place in 0..crate::complete::ROWS.min(candidates.len()) {
+                let candidate = candidates.get(place).unwrap();
+                candidates.query().highlights(candidate, &mut highlights);
+            }
+            // A debug build is several times slower; the budget is a release build's.
+            assert!(
+                cfg!(debug_assertions) || matched.as_micros() < 1000,
+                "{input}: {} matches in {matched:?}, 18 rows highlighted in {:?}",
+                candidates.len(),
+                start.elapsed()
+            );
+        }
+    }
 }
 
 #[test]

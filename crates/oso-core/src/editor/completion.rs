@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use super::Editor;
 use crate::buffer::Replacement;
-use crate::complete::{Candidate, Candidates, ROWS};
+use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, ROWS};
 use crate::minibuffer::{Kind, ListSize, PromptError, PromptId};
 
 impl Editor {
@@ -65,9 +65,14 @@ impl Editor {
         if buffer.revision() == *seen {
             return;
         }
-        let (revision, text) = (buffer.revision(), buffer.text().to_string());
+        let revision = buffer.revision();
+        // An answer too long to match, such as a whole file yanked into it, is never read.
+        let text = (buffer.text().len() <= MAX_INPUT_BYTES).then(|| buffer.text().to_string());
         if let Some((candidates, seen)) = self.completion_mut() {
-            candidates.set_input(&text);
+            match text {
+                Some(text) => candidates.set_input(&text),
+                None => candidates.set_too_long(),
+            }
             *seen = revision;
         }
         // Which also keeps the selection in view, in the rows the float has now.

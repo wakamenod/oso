@@ -19,7 +19,7 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
-pub use query::Query;
+pub use query::{MAX_COMPONENTS, MAX_INPUT_BYTES, Query};
 
 mod query;
 
@@ -156,7 +156,8 @@ pub struct Candidates {
     /// Where in `matches` an exact match of the input is, which shows first.
     exact: Option<usize>,
     query: Query,
-    input: String,
+    /// The input matched last, or `None` for one too long to match.
+    input: Option<String>,
     /// The selected candidate, as it shows, while any matches.
     selected: usize,
     /// The first row shown.
@@ -194,7 +195,7 @@ impl Candidates {
             items,
             exact: None,
             query: Query::default(),
-            input: String::new(),
+            input: Some(String::new()),
             selected: 0,
             top: 0,
         }
@@ -203,10 +204,14 @@ impl Candidates {
     /// Matches `input`, looking only at what matched before where it narrows that, and
     /// selects the first match. Nothing changes for the input matched last.
     pub fn set_input(&mut self, input: &str) {
-        if input == self.input {
+        if input.len() > MAX_INPUT_BYTES {
+            self.set_too_long();
             return;
         }
-        let query = Query::parse(input);
+        if self.input.as_deref() == Some(input) {
+            return;
+        }
+        let query = Query::parse_after(input, &self.query);
         let items = &self.items;
         if query.narrows(&self.query) {
             self.matches
@@ -225,7 +230,21 @@ impl Candidates {
             .iter()
             .position(|&index| items[index as usize].text() == input);
         self.query = query;
-        input.clone_into(&mut self.input);
+        match &mut self.input {
+            Some(kept) => input.clone_into(kept),
+            None => self.input = Some(input.to_owned()),
+        }
+        self.selected = 0;
+        self.top = 0;
+    }
+
+    /// Matches an input longer than [`MAX_INPUT_BYTES`], which nothing matches, without
+    /// reading it.
+    pub fn set_too_long(&mut self) {
+        self.matches.clear();
+        self.exact = None;
+        self.query = Query::too_long();
+        self.input = None;
         self.selected = 0;
         self.top = 0;
     }
