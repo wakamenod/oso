@@ -31,6 +31,11 @@ unicode-width = { version = "0.2.3", default-features = false }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFBase", "CFString", "CFAttributedString", "CFDictionary", "CFArray", "CFCGTypes", "CFNumber"] }
 objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGContext", "CGBitmapContext", "CGColorSpace", "CGImage"] }
 objc2-core-text = { version = "0.3.2", default-features = false, features = ["std", "CTFont", "CTFontDescriptor", "CTFontTraits", "CTLine", "CTRun", "CTStringAttributes", "CTTypesetter", "objc2-core-graphics"] }
+# The macOS clipboard, NSPasteboard (ADR 0074). objc2 and objc2-foundation are in the
+# tree already through wgpu's Metal backend and CoreText; objc2-app-kit is new.
+objc2 = { version = "0.6.4", default-features = false, features = ["std"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSArray"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem"] }
 # Property-based testing: automatically explores boundary values (e.g. usize::MAX).
 proptest = "1"
 # Line diff for comparing an emergency copy with its file (ADR 0064). Only `std`, for
