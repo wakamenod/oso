@@ -290,3 +290,117 @@ pub fn oso_platform::text::NullTextSystem::metrics(&self) -> oso_platform::text:
 pub fn oso_platform::text::NullTextSystem::rasterize(&mut self, oso_platform::text::GlyphKey) -> core::option::Option<oso_platform::text::GlyphBitmap>
 pub fn oso_platform::text::NullTextSystem::shape(&mut self, &str, &mut alloc::vec::Vec<oso_platform::text::ShapedGlyph>)
 pub fn oso_platform::text::load(&oso_platform::text::FontRequest<'_>, f64) -> core::result::Result<alloc::boxed::Box<dyn oso_platform::text::TextSystem>, oso_platform::text::TextError>
+pub mod oso_platform::window
+pub enum oso_platform::window::Event<'a>
+pub oso_platform::window::Event::CloseRequested
+pub oso_platform::window::Event::Ime(oso_platform::window::ImeEvent)
+pub oso_platform::window::Event::Key(oso_platform::window::KeyInput<'a>)
+pub oso_platform::window::Event::ModifiersChanged(oso_platform::window::Held)
+pub oso_platform::window::Event::Occluded(bool)
+pub oso_platform::window::Event::Other
+pub oso_platform::window::Event::RedrawRequested
+pub oso_platform::window::Event::Resized
+pub oso_platform::window::Event::Resized::height: u32
+pub oso_platform::window::Event::Resized::width: u32
+pub oso_platform::window::Event::ScaleFactorChanged(f64)
+pub oso_platform::window::Event::Wheel(oso_platform::window::Wheel)
+pub enum oso_platform::window::ImeEvent
+pub oso_platform::window::ImeEvent::Commit(alloc::string::String)
+pub oso_platform::window::ImeEvent::Disabled
+pub oso_platform::window::ImeEvent::Preedit(alloc::string::String, core::option::Option<core::ops::range::Range<usize>>)
+pub enum oso_platform::window::SystemKey<'a>
+pub oso_platform::window::SystemKey::Character(&'a str)
+pub oso_platform::window::SystemKey::Dead
+pub oso_platform::window::SystemKey::Named(oso_platform::window::SystemNamed)
+pub oso_platform::window::SystemKey::Unidentified
+impl<'a> core::clone::Clone for oso_platform::window::SystemKey<'a>
+pub fn oso_platform::window::SystemKey<'a>::clone(&self) -> oso_platform::window::SystemKey<'a>
+impl<'a> core::cmp::Eq for oso_platform::window::SystemKey<'a>
+impl<'a> core::cmp::PartialEq for oso_platform::window::SystemKey<'a>
+pub fn oso_platform::window::SystemKey<'a>::eq(&self, &oso_platform::window::SystemKey<'a>) -> bool
+impl<'a> core::marker::Copy for oso_platform::window::SystemKey<'a>
+impl<'a> core::marker::StructuralPartialEq for oso_platform::window::SystemKey<'a>
+pub enum oso_platform::window::SystemNamed
+pub oso_platform::window::SystemNamed::Backspace
+pub oso_platform::window::SystemNamed::Delete
+pub oso_platform::window::SystemNamed::Down
+pub oso_platform::window::SystemNamed::End
+pub oso_platform::window::SystemNamed::Enter
+pub oso_platform::window::SystemNamed::Escape
+pub oso_platform::window::SystemNamed::Function(u8)
+pub oso_platform::window::SystemNamed::Home
+pub oso_platform::window::SystemNamed::Insert
+pub oso_platform::window::SystemNamed::Left
+pub oso_platform::window::SystemNamed::Other
+pub oso_platform::window::SystemNamed::PageDown
+pub oso_platform::window::SystemNamed::PageUp
+pub oso_platform::window::SystemNamed::Right
+pub oso_platform::window::SystemNamed::Space
+pub oso_platform::window::SystemNamed::Tab
+pub oso_platform::window::SystemNamed::Up
+impl core::clone::Clone for oso_platform::window::SystemNamed
+pub fn oso_platform::window::SystemNamed::clone(&self) -> oso_platform::window::SystemNamed
+impl core::cmp::Eq for oso_platform::window::SystemNamed
+impl core::cmp::PartialEq for oso_platform::window::SystemNamed
+pub fn oso_platform::window::SystemNamed::eq(&self, &oso_platform::window::SystemNamed) -> bool
+impl core::fmt::Debug for oso_platform::window::SystemNamed
+pub fn oso_platform::window::SystemNamed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::SystemNamed
+impl core::marker::StructuralPartialEq for oso_platform::window::SystemNamed
+pub enum oso_platform::window::Wheel
+pub oso_platform::window::Wheel::Lines
+pub oso_platform::window::Wheel::Lines::x: f32
+pub oso_platform::window::Wheel::Lines::y: f32
+pub oso_platform::window::Wheel::Pixels
+pub oso_platform::window::Wheel::Pixels::x: f64
+pub oso_platform::window::Wheel::Pixels::y: f64
+impl core::clone::Clone for oso_platform::window::Wheel
+pub fn oso_platform::window::Wheel::clone(&self) -> oso_platform::window::Wheel
+impl core::cmp::PartialEq for oso_platform::window::Wheel
+pub fn oso_platform::window::Wheel::eq(&self, &oso_platform::window::Wheel) -> bool
+impl core::fmt::Debug for oso_platform::window::Wheel
+pub fn oso_platform::window::Wheel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::Wheel
+impl core::marker::StructuralPartialEq for oso_platform::window::Wheel
+pub struct oso_platform::window::CursorArea
+pub oso_platform::window::CursorArea::height: f32
+pub oso_platform::window::CursorArea::width: f32
+pub oso_platform::window::CursorArea::x: f32
+pub oso_platform::window::CursorArea::y: f32
+impl core::clone::Clone for oso_platform::window::CursorArea
+pub fn oso_platform::window::CursorArea::clone(&self) -> oso_platform::window::CursorArea
+impl core::cmp::PartialEq for oso_platform::window::CursorArea
+pub fn oso_platform::window::CursorArea::eq(&self, &oso_platform::window::CursorArea) -> bool
+impl core::fmt::Debug for oso_platform::window::CursorArea
+pub fn oso_platform::window::CursorArea::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::CursorArea
+impl core::marker::StructuralPartialEq for oso_platform::window::CursorArea
+pub struct oso_platform::window::Held(_)
+impl oso_platform::window::Held
+pub const oso_platform::window::Held::ALT: Self
+pub const oso_platform::window::Held::CONTROL: Self
+pub const oso_platform::window::Held::LOGO: Self
+pub const oso_platform::window::Held::NONE: Self
+pub const oso_platform::window::Held::SHIFT: Self
+pub const fn oso_platform::window::Held::contains(self, Self) -> bool
+impl core::clone::Clone for oso_platform::window::Held
+pub fn oso_platform::window::Held::clone(&self) -> oso_platform::window::Held
+impl core::cmp::Eq for oso_platform::window::Held
+impl core::cmp::PartialEq for oso_platform::window::Held
+pub fn oso_platform::window::Held::eq(&self, &oso_platform::window::Held) -> bool
+impl core::default::Default for oso_platform::window::Held
+pub fn oso_platform::window::Held::default() -> oso_platform::window::Held
+impl core::fmt::Debug for oso_platform::window::Held
+pub fn oso_platform::window::Held::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::Held
+impl core::marker::StructuralPartialEq for oso_platform::window::Held
+impl core::ops::bit::BitOr for oso_platform::window::Held
+pub type oso_platform::window::Held::Output = oso_platform::window::Held
+pub fn oso_platform::window::Held::bitor(self, Self) -> Self
+pub struct oso_platform::window::KeyInput<'a>
+pub oso_platform::window::KeyInput::base: oso_platform::window::SystemKey<'a>
+pub oso_platform::window::KeyInput::key: oso_platform::window::SystemKey<'a>
+pub oso_platform::window::KeyInput::repeat: bool
+impl<'a> core::clone::Clone for oso_platform::window::KeyInput<'a>
+pub fn oso_platform::window::KeyInput<'a>::clone(&self) -> oso_platform::window::KeyInput<'a>
+impl<'a> core::marker::Copy for oso_platform::window::KeyInput<'a>

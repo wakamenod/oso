@@ -5,7 +5,9 @@ filesystem and the PTY (ADR 0003, ADR 0004). `privacy` holds what keeps text
 private to its user: no core dumps, and private directories (ADR 0062), and
 `file_meta` what decides who may reach a file beyond its mode (ADR 0065). The dev
 control socket transport lives in `control`, and process spawning in `process`,
-behind the `dev` feature.
+behind the `dev` feature. `window` holds the window layer's events, which the tip crate's
+winit adapter builds too, and with `native-window` the macOS backend in `window/appkit/`
+(ADR 0070).
 
 - Depends on no workspace crate. It is the only crate that may use OS
   bindings (`objc2*`, `core-foundation*`, `libc`, `windows*`, ...).

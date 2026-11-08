@@ -58,6 +58,10 @@ jobs:
           else
             just e2e
           fi
+      # The same flows on oso's own window layer, until it is the default (ADR 0070).
+      - name: End-to-end tests on the native window layer
+        if: runner.os == 'macOS'
+        run: just e2e-native
       # Panes in real pixels (ADR 0061). The glyphs come from a fake text system,
       # so Linux asserts the same as macOS. No display is needed.
       - name: Pixel tests

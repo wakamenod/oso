@@ -10,28 +10,16 @@
 //! - Turning the IME off waits while a composition is open, as the OS keeps a
 //!   composition it was turned off in, and the next key would bring it back.
 //! - Nothing of a composition reaches a log but that one happened (ADR 0028).
-//! - The window system's reports arrive as [`ImeEvent`], from `shell`, and the calls go
-//!   through its window (ADR 0070), so nothing here knows winit.
-
-use std::ops::Range;
+//! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
+//!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
 
 use oso_core::buffer::Buffer;
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
+use oso_platform::window::ImeEvent;
 
 use super::App;
 use super::shell::Loop;
-
-/// What an input method reports, from the window system or from the dev socket's stand-in.
-pub(super) enum ImeEvent {
-    /// The text being composed, and the caret or the segment being converted, in
-    /// bytes. No text ends the composition with no commit.
-    Preedit(String, Option<Range<usize>>),
-    /// The text the composition gave, which comes after an empty preedit.
-    Commit(String),
-    /// The composition is over, whether oso asked for it or not.
-    Disabled,
-}
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
 /// cannot type (ADR 0069), or a prompt is selected (ADR 0072). Isearch and menus add their
@@ -94,6 +82,10 @@ impl App {
     pub(super) fn after_event(&mut self) {
         if self.composing() && self.editor.current().1.is_secret() {
             self.end_composition();
+            // The window's input method too, so that nothing of it is committed later.
+            if let Some(view) = &self.view {
+                view.window.discard_composition();
+            }
         }
         self.sync_ime();
         self.give_cursor_area();
