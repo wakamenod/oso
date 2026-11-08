@@ -1,4 +1,5 @@
-# Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046).
+# Performance results and regression checks (ADR 0024, ADR 0025, ADR 0046,
+# ADR 0081).
 # Results go to the job summary and to JSON artifacts. Pushes to main only
 # report: their results become the baseline, so a regression accepted on
 # purpose does not fail every later pull request. A change to docs alone has
@@ -12,6 +13,8 @@ on:
     paths-ignore: ["docs/**"]
   pull_request:
     paths-ignore: ["docs/**"]
+  # Runs a branch's macOS benchmarks, which pull requests skip (ADR 0081).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -30,7 +33,10 @@ jobs:
       fail-fast: false
       matrix:
         # Not Windows: the control socket does not support it yet (ADR 0032).
-        os: [ubuntu-latest, macos-latest]
+        # Not macOS on pull requests: its jobs wait for a free runner, and
+        # pull requests are measured on a Mac with `just perf-remote` instead
+        # (ADR 0081).
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["ubuntu-latest", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     permissions:
