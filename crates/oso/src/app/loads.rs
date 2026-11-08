@@ -144,7 +144,10 @@ impl App {
                 let done = snapshot.done();
                 buffer.apply_load(*snapshot);
                 let load = &mut self.loads[index];
-                if first {
+                // How long a file that may hold secrets takes says something of its text, so
+                // its load is neither logged nor timed (ADR 0078). It is judged by now.
+                let timed = !buffer.is_secret();
+                if first && timed {
                     load.first_screen = Some(load.started);
                     #[cfg(feature = "dev")]
                     self.timings.load_first_content(load.started);
@@ -152,7 +155,13 @@ impl App {
                 if done {
                     no_baseline = buffer.baseline().is_none() && !buffer.is_internal();
                     self.scan_for_copies |= !buffer.is_internal();
-                    log::debug!("{:?} loaded in {:?}", buffer.name(), load.started.elapsed());
+                    if timed {
+                        let (name, bytes) = (buffer.name(), buffer.text().len());
+                        log::debug!(
+                            "{name:?} loaded, {bytes} bytes, in {:?}",
+                            load.started.elapsed()
+                        );
+                    }
                     #[cfg(feature = "dev")]
                     self.timings.load_done(load.started);
                 }
@@ -192,12 +201,13 @@ impl App {
         redraw
     }
 
-    /// Logs how long the first screen of each new file took, once drawn,
-    /// and forgets loads that finished.
+    /// Logs how long the first screen of each new file took, once drawn, unless a buffer
+    /// that may hold secrets is shown, and forgets loads that finished.
     pub(super) fn note_first_screens(&mut self) {
         let editor = &self.editor;
+        let shown = !editor.shows_secret();
         self.loads.retain_mut(|load| {
-            if let Some(started) = load.first_screen.take() {
+            if let Some(started) = load.first_screen.take().filter(|_| shown) {
                 log::debug!(
                     "first frame of the file drawn {:?} after loading started",
                     started.elapsed()

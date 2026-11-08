@@ -39,6 +39,7 @@ impl App {
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
+                let secret_before = self.editor.shows_secret();
                 let timings = &mut self.timings;
                 let mut watch = dev::SecretWatch::new(&self.editor);
                 let effects =
@@ -50,7 +51,7 @@ impl App {
                             };
                             timings.key_handled(received, key);
                         });
-                log::trace!("key handled in {:?}", started.elapsed());
+                self.trace_time(secret_before, "key handled", started);
                 self.apply(event_loop, effects);
                 Ok(json!({ "keys": count }))
             }

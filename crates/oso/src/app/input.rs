@@ -93,10 +93,11 @@ impl App {
     /// path, through [`crate::dispatch::Dispatcher::handle_keys_with`].
     fn handle_key(&mut self, event_loop: &Loop<'_>, key: KeyPress) {
         let started = Instant::now();
+        let secret_before = self.editor.shows_secret();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.handle_key(&mut self.editor, key);
-        log::trace!("key handled in {:?}", started.elapsed());
+        self.trace_time(secret_before, "key handled", started);
         #[cfg(feature = "dev")]
         self.timings.key_handled(
             started,
@@ -111,6 +112,7 @@ impl App {
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
         let started = Instant::now();
+        let secret_before = self.editor.shows_secret();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);
         let effects = self.dispatcher.insert_text(&mut self.editor, text);
@@ -122,7 +124,7 @@ impl App {
                 withheld: watch.after_key(&self.editor),
             },
         );
-        log::trace!("text handled in {:?}", started.elapsed());
+        self.trace_time(secret_before, "text handled", started);
         self.apply(event_loop, effects);
     }
 

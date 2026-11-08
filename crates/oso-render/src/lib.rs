@@ -384,10 +384,8 @@ impl RenderState {
     ) -> Result<Redraw, RenderError> {
         // The CPU work (shaping, rasterizing, building quads) comes first,
         // so it overlaps the wait for a drawable instead of adding to it.
-        let started = std::time::Instant::now();
         let mut budget = RasterBudget::new(GLYPHS_PER_FRAME);
         self.prepare_frame(panes, &mut budget);
-        log::trace!("frame prepared in {:?}", started.elapsed());
 
         // Acquire the next surface texture, or recover as wgpu documents.
         let current = self
@@ -417,7 +415,6 @@ impl RenderState {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        log::trace!("frame presented {:?} after it started", started.elapsed());
 
         self.failed_frames = 0;
         self.presented += 1;

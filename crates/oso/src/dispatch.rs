@@ -312,7 +312,9 @@ impl Dispatcher {
         }
         if !self.resolver.pending().is_empty() {
             let keys = display_keys(self.resolver.pending()).to_string();
-            log::debug!("{keys} and text are undefined");
+            if !editor.shows_secret() {
+                log::debug!("{keys} and text are undefined");
+            }
             // The text stays out of it, as it does from a log.
             editor.echo(format!("{keys} is undefined"));
             self.resolver.reset();
@@ -432,13 +434,17 @@ impl Dispatcher {
             // A shifted key that only its unshifted form binds (ADR 0071).
             Resolution::Shifted(id) => (id, true),
             Resolution::Pending => {
-                log::debug!("{}-", display_keys(self.resolver.pending()));
+                if !editor.shows_secret() {
+                    log::debug!("{}-", display_keys(self.resolver.pending()));
+                }
                 return Effects::default();
             }
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
-                // which stays out of the log (ADR 0028).
+                // which stays out of the log (ADR 0028), and so do keys pressed where a
+                // buffer that may hold secrets is shown, with their times (ADR 0078).
                 match keys.split_last() {
+                    _ if editor.shows_secret() => {}
                     Some((last, prefix)) if last.text().is_some() => {
                         log::debug!("{} <char> is undefined", display_keys(prefix));
                     }
@@ -456,7 +462,9 @@ impl Dispatcher {
                 return Effects::default();
             }
             Resolution::Cancelled => {
-                log::debug!("Quit");
+                if !editor.shows_secret() {
+                    log::debug!("Quit");
+                }
                 editor.echo("Quit");
                 self.forget_keys();
                 return Effects::default();

@@ -170,4 +170,13 @@ impl App {
             view.window.request_redraw();
         }
     }
+
+    /// Logs at trace level how long `what` took since `started`, unless a buffer that may
+    /// hold secrets is shown, or was before it if `secret_before`, as the log's times would
+    /// say when keys were pressed there.
+    fn trace_time(&self, secret_before: bool, what: &str, started: Instant) {
+        if !secret_before && !self.editor.shows_secret() {
+            log::trace!("{what} in {:?}", started.elapsed());
+        }
+    }
 }

@@ -938,6 +938,39 @@ mod tests {
     }
 
     #[test]
+    fn the_cursor_box_keeps_its_rectangle_when_boxes_fill_the_rest() {
+        // Every character is a 6-cell box, more of them than the frame may draw.
+        let buffer = Buffer::from_text("t", &"\u{202e}".repeat(20));
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
+            preedit: None,
+            region_cells: &[],
+        });
+        let panes = [pane(0, rect(0, 0, 1, 120), 0, content)];
+        let limits = Limits {
+            rects: 8,
+            quads: 1000,
+        };
+        let mut scene = Scene::new(limits);
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects = scene.rects();
+        assert_eq!(rects.len(), limits.rects, "the boxes took all they could");
+        assert!(
+            rects[..rects.len() - 1]
+                .iter()
+                .all(|r| r.color == Face::Boxed.background())
+        );
+        let last = rects.last().unwrap();
+        assert_eq!(last.color, Face::Cursor.background());
+        assert_eq!((last.position, last.size), ([8.0, 8.0], [60.0, 20.0]));
+    }
+
+    #[test]
     fn the_cursor_box_goes_over_the_boxes_and_stays_in_the_pane() {
         let buffer = Buffer::from_text("t", "\u{202e}abc");
         let content = PaneContent::Text(TextView {
