@@ -118,12 +118,6 @@ item notes when it must be settled.
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). M2-18 closes both: one file opens in one
   buffer, found by device and inode, and `write-file` is the person's only, keeping a secret
   verdict wherever it writes ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- By M2-15: the generation that guards `exit` does not change on a save between the
-  export and the exit, and does not cover marks, the kill ring or file information
-  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
-  once the state carries them. Marks and the mark ring now exist and a restart drops them
-  ([ADR 0071](adr/0071-mark-and-region.md)): M2-15 decides whether a region shown at the
-  restart comes back shown.
 - By M2-19: a window that shows another buffer loses its marks and its mark ring, as it
   loses its cursors. Decide where a window keeps a buffer's places when `C-x b` comes back
   to it ([ADR 0071](adr/0071-mark-and-region.md)). M2-19 closes this: a window keeps a place
@@ -183,8 +177,6 @@ item notes when it must be settled.
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), which `draw_pane` tells as
   a tiled pane of `Lines` with one row for now, and what a float shows keeps both bands in its
   padding, told by its layer ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- `C-h e` while a handed-over file loads ends the wait for its positions, so they are not restored
-  (`handoff.rs`). Decide with M2-15, which carries more through a restart.
 - Identical messages are not merged in `*Messages*`, so holding a key that fails evicts its older rows in
   about 35 s. Emacs counts repeats on one row.
 - With `*Messages*` at its 1000 rows, each new message moves what someone is reading there, as the
@@ -238,19 +230,17 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
   the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the cursor's line for the input method;
-  whether frames keep up during a live resize, now that the
-  view also draws when AppKit displays its layer; `open_window` and `request_attention`
-  queued as the other requests are;
-  startup and `open_from_launch_ms` measured again with more runs, where the native layer's
-  medians sat a few milliseconds above winit's within overlapping ranges; and the author's
-  checks at the keyboard of what remains: a window covered by another app and uncovered
-  drawing again with no key, a composition committed when the IME turns off, the candidate
-  window following the segment being converted, no text service reading the view while the
-  IME is off, no Writing Tools for it, a Dock quit asking the exit question, and a real Log
-  Out, cancelled from the system's dialog, going past it, which shows oso reads a real
-  logout's reason ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), and each
-  item above as it lands. The author checked at the keyboard on 2026-11-08
+  the cursor's line for the input method; and the author's checks at the keyboard of what
+  remains: a window covered by another app and uncovered drawing again with no key, a
+  composition committed when the IME turns off, the candidate window following the segment
+  being converted, no text service reading the view while the IME is off, no Writing Tools
+  for it, a Dock quit asking the exit question, and a real Log Out, cancelled from the
+  system's dialog, going past it, which shows oso reads a real logout's reason
+  ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), a live resize, the
+  window's corner dragged slowly and fast, with no text stretched or smeared and no blank
+  frame, `get-state`'s `live_resize` showing a frame for each step
+  ([ADR 0086](adr/0086-frames-during-a-live-resize.md)), and each item above as it lands.
+  The author checked at the keyboard on 2026-11-08
   what has landed: the candidate window's place, also after a prefix key and back from
   `*Messages*`, a full-width space and letter in Japanese mode, and secure input following
   `.env`, other apps in front, Spotlight and quitting

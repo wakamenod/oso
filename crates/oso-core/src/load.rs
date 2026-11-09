@@ -101,6 +101,18 @@ impl Builder {
         self.append();
     }
 
+    /// Appends text that is already decoded, such as a buffer's text carried from another
+    /// instance (ADR 0090), with no BOM to strip and no line ending to learn. A builder
+    /// takes either this or [`Builder::push`], never both. O(log n) plus the text's size.
+    pub fn push_text(&mut self, text: &str) {
+        self.progress.read = self.progress.read.saturating_add(text.len() as u64);
+        if text.is_empty() {
+            return;
+        }
+        let edit = self.text.push_str(text);
+        self.display.sync(&self.text, &edit);
+    }
+
     /// Ends the file: an incomplete sequence at its end becomes invalid
     /// bytes.
     pub fn finish(&mut self) {
@@ -240,6 +252,22 @@ mod tests {
         assert!(!partial.done());
         builder.finish();
         assert!(builder.snapshot().done());
+    }
+
+    #[test]
+    fn decoded_text_keeps_a_leading_bom_and_its_rows_in_any_pieces() {
+        let text = "\u{feff}one\r\ntwo\nthree";
+        let mut builder = Builder::new(None, TabWidth::default());
+        builder.push_text(&text[..5]);
+        builder.push_text("");
+        builder.push_text(&text[5..]);
+        builder.finish();
+        let snapshot = builder.snapshot();
+        assert_eq!(snapshot.text().to_string(), text);
+        assert_eq!(snapshot.progress().read, text.len() as u64);
+        assert!(!snapshot.info.bom, "a pushed text has no BOM to strip");
+        assert_eq!(snapshot.display.snapshot().row_count(), 3);
+        assert!(snapshot.done());
     }
 
     #[test]
