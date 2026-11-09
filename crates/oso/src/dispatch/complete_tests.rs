@@ -1,5 +1,6 @@
 //! Scenario tests of completion (ADR 0076): `M-x` run by keys, its prefix argument, a command
-//! it runs that reads an answer, its history, and moving through the candidates.
+//! it runs that reads an answer, its history, moving through the candidates, and a theme read
+//! by its name (ADR 0089).
 //!
 //! Must not depend on: `app`, winit, the renderer or the GPU.
 
@@ -33,6 +34,33 @@ fn typing(text: &str) -> String {
 fn selected(editor: &Editor) -> Option<&str> {
     let candidates = editor.prompt()?.candidates()?;
     candidates.selected_candidate().map(Candidate::text)
+}
+
+#[test]
+fn load_theme_completes_over_the_themes_and_f5_toggles_the_pair() {
+    let (mut d, mut editor) = on(LINES);
+    editor.set_themes(
+        vec![("dark", "dark"), ("light", "light"), ("dusk", "dark")],
+        0,
+    );
+    send(
+        &mut d,
+        &mut editor,
+        &format!("M-x {} RET", typing("load-theme")),
+    );
+    let prompt = editor.prompt().unwrap();
+    assert_eq!(prompt.label(), "Load theme: ");
+    assert_eq!(prompt.candidates().unwrap().total(), 3);
+    send(&mut d, &mut editor, &typing("du"));
+    assert_eq!(selected(&editor), Some("dusk"));
+    send(&mut d, &mut editor, "RET");
+    assert!(editor.prompt().is_none());
+    assert_eq!(editor.theme_name(), Some("dusk"));
+    // From outside the pair, the toggle goes to its first, then to the other.
+    send(&mut d, &mut editor, "<f5>");
+    assert_eq!(editor.theme_name(), Some("dark"));
+    send(&mut d, &mut editor, "<f5>");
+    assert_eq!(editor.theme_name(), Some("light"));
 }
 
 #[test]

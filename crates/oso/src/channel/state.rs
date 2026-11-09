@@ -203,6 +203,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::Passphrase { .. }
                     | ArgSpec::CountAndClipboard
                     | ArgSpec::Command { .. }
+                    | ArgSpec::Theme { .. }
                     | ArgSpec::Buffer { .. }
                     | ArgSpec::Mark { .. }
                     | ArgSpec::File { .. }

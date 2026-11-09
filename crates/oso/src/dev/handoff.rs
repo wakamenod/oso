@@ -39,7 +39,7 @@ use oso_core::rope::Rope;
 use oso_core::selection::{MarkRing, Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
 use oso_core::window::{Scroll, Window};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
 
@@ -47,6 +47,7 @@ pub mod carry;
 mod format;
 
 use carry::{Exported, Item, MAX_CARRIED};
+
 #[cfg(test)]
 use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
 pub use format::{MAX_ITEMS, State, parse};
@@ -139,6 +140,9 @@ pub fn export(
         } else {
             display_keys(pending).to_string()
         },
+        // The theme drawn in, so a restart right after a switch does not wait for the
+        // remembered one to be written (ADR 0089).
+        "theme": editor.theme_name(),
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -545,5 +549,24 @@ fn export_value(
 
 #[cfg(test)]
 mod internal_tests;
+/// The theme's name, if the state has one, as the built-in themes are named: up to 32
+/// lower-case letters, digits and `-`. A state from before themes has none.
+fn parse_theme(state: &Map<String, Value>) -> Result<Option<String>, String> {
+    let named = |name: &&str| {
+        (1..=32).contains(&name.len())
+            && name
+                .bytes()
+                .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-'))
+    };
+    match state.get("theme") {
+        None | Some(Value::Null) => Ok(None),
+        Some(theme) => theme
+            .as_str()
+            .filter(named)
+            .map(|name| Some(name.to_owned()))
+            .ok_or_else(|| "the theme is not a theme's name".into()),
+    }
+}
+
 #[cfg(test)]
 mod tests;

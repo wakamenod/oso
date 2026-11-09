@@ -294,25 +294,87 @@ fn faces(face: Face) -> (Name, Name) {
     }
 }
 
+/// Near-black, with a high-contrast foreground: the default.
+fn dark(name: Name) -> Color {
+    use Name::*;
+    match name {
+        BgMain => rgb(0x0d0e12),
+        BgFloat => rgb(0x181a22),
+        BgKey => rgb(0x2b2e3b),
+        BgMode => rgb(0x262938),
+        BgRegion => rgb(0x26365c),
+        BgEscape => rgb(0x3a2718),
+        BgMatch => rgb(0x3a2e10),
+        // The current match in teal, apart from the others' amber by hue.
+        BgCurrent => rgb(0x00566a),
+        BgSelected => rgb(0x1e3366),
+        FgMain => rgb(0xeceef4),
+        FgPrompt => rgb(0xa6b0d0),
+        FgKey => rgb(0xe2e6f2),
+        FgQuestion => rgb(0xb8dcff),
+        Escape => rgb(0xfab06e),
+        Warning => rgb(0xf5c84c),
+        FieldOutline => rgb(0x5a76c2),
+        Gold => rgb(0xf7c96e),
+        Slate => rgb(0x9fabd2),
+        Azure => rgb(0x6cc4ff),
+        Teal => rgb(0x5ad6ae),
+        Hairline => rgba(0xffffff, 0.05),
+        Border => rgb(0x30344a),
+        Shadow => rgba(0x000000, 0.6),
+    }
+}
+
+/// Near-white, with a near-black foreground: `dark`'s pair.
+fn light(name: Name) -> Color {
+    use Name::*;
+    match name {
+        BgMain => rgb(0xfbfbf8),
+        BgFloat => rgb(0xeff0f5),
+        BgKey => rgb(0xdadeea),
+        BgMode => rgb(0xd9dce8),
+        BgRegion => rgb(0xc8d6f5),
+        BgEscape => rgb(0xf7e2cf),
+        BgMatch => rgb(0xf6e6b4),
+        BgCurrent => rgb(0x8fdcd0),
+        BgSelected => rgb(0xccdcff),
+        FgMain => rgb(0x15161b),
+        FgPrompt => rgb(0x46507a),
+        FgKey => rgb(0x15161b),
+        FgQuestion => rgb(0x1a3a8c),
+        Escape => rgb(0x8a3f00),
+        Warning => rgb(0x6e4600),
+        FieldOutline => rgb(0x4a6cc4),
+        Gold => rgb(0x623c00),
+        Slate => rgb(0x46507a),
+        Azure => rgb(0x0058b0),
+        Teal => rgb(0x006b52),
+        Hairline => rgba(0x000000, 0.08),
+        Border => rgb(0xc2c6d4),
+        Shadow => rgba(0x1a1f33, 0.18),
+    }
+}
+
 /// The M2 steps' dark grey, with the float's colours as ADR 0075 and ADR 0076 picked them.
+/// Where those missed a floor, the nearest colour that meets it, its hue kept (ADR 0089).
 fn dusk(name: Name) -> Color {
     use Name::*;
     match name {
         BgMain => rgb(0x3f3f4b),
         BgFloat => rgb(0x474959),
         BgKey => rgb(0x555769),
-        BgMode => rgb(0x6f6f7e),
-        BgRegion => rgb(0x45597c),
-        BgEscape => rgb(0x81593f),
+        BgMode => rgb(0x51515f),
+        BgRegion => rgb(0x3f5375),
+        BgEscape => rgb(0x6b452b),
         BgMatch => rgb(0x613f10),
-        BgCurrent => rgb(0x99610d),
-        BgSelected => rgb(0x2f447f),
+        BgCurrent => rgb(0x005c4c),
+        BgSelected => rgb(0x233670),
         FgMain => rgb(0xf3f3f6),
         FgPrompt => rgb(0xbfc7df),
         FgKey => rgb(0xdee3f1),
-        // The prompt's colour until it is picked: no buffer text is drawn in it.
-        FgQuestion => rgb(0xbfc7df),
-        Escape => rgb(0xedb37c),
+        // A pale green: no buffer text is drawn in it.
+        FgQuestion => rgb(0xc8f7c0),
+        Escape => rgb(0xf4ba83),
         Warning => rgb(0xffdd6f),
         FieldOutline => rgb(0x6f86bd),
         Gold => rgb(0xffce7c),
@@ -325,18 +387,23 @@ fn dusk(name: Name) -> Color {
     }
 }
 
-const SOURCES: [Source; 1] = [Source {
-    name: "dusk",
-    kind: Kind::Dark,
-    palette: dusk,
-    faces,
-    // Off until its strength is picked beside the OS's text.
-    text: TextGamma { strength: 0.0 },
-}];
+/// `name`'s theme, with text gamma off until its strength is picked beside the OS's text.
+const fn source(name: &'static str, kind: Kind, palette: fn(Name) -> Color) -> Source {
+    Source {
+        name,
+        kind,
+        palette,
+        faces,
+        text: TextGamma { strength: 0.0 },
+    }
+}
 
-/// Palettes the author picks among, drawn as samples (ADR 0089).
-#[cfg(test)]
-pub(crate) mod candidates;
+/// The built-in themes, the default first (ADR 0089).
+const SOURCES: [Source; 3] = [
+    source("dark", Kind::Dark, dark),
+    source("light", Kind::Light, light),
+    source("dusk", Kind::Dark, dusk),
+];
 
 /// The built-in themes, the default first, in linear colours. The renderer makes them once and
 /// keeps them: there is no global state (ADR 0038).
@@ -497,20 +564,16 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn dusk_keeps_the_colours_of_the_m2_steps() {
-        // The constants `pane.rs` drew with before the themes, in linear RGB.
+    fn dusk_keeps_the_colours_of_the_m2_steps_that_meet_their_floors() {
+        // The constants `pane.rs` drew with before the themes, in linear RGB. The fills of
+        // boxes, the modeline, the region, the selected candidate and the current match, an
+        // escape's label and a question's words, are the nearest colours that meet the floors
+        // instead (ADR 0089).
         let (bg, fg) = ([0.05, 0.05, 0.07, 1.0], [0.90, 0.90, 0.92, 1.0]);
         let float = [0.063, 0.0666, 0.0999, 1.0];
         let before = [
             (Face::Text, fg, bg),
-            (Face::Escape, [0.85, 0.45, 0.20, 1.0], bg),
-            (
-                Face::Boxed,
-                [0.85, 0.45, 0.20, 1.0],
-                [0.22, 0.10, 0.05, 1.0],
-            ),
             (Face::Cursor, bg, fg),
-            (Face::Modeline, fg, [0.16, 0.16, 0.21, 1.0]),
             (Face::Warning, [1.0, 0.72, 0.16, 1.0], bg),
             (Face::Preedit, fg, fg),
             (Face::Float, fg, float),
@@ -526,18 +589,14 @@ pub(crate) mod tests {
                 [0.73, 0.77, 0.88, 1.0],
                 [0.0908, 0.0953, 0.1413, 1.0],
             ),
-            (Face::Region, fg, [0.06, 0.10, 0.20, 1.0]),
-            (Face::CompletionSelected, fg, [0.028, 0.058, 0.212, 1.0]),
             (Face::CompletionMatch, [1.0, 0.62, 0.20, 1.0], bg),
             (Face::CompletionAnnotation, [0.423, 0.479, 0.730, 1.0], bg),
             (Face::CompletionBinding, [0.078, 0.546, 1.0, 1.0], bg),
             (Face::CompletionPrompt, [0.114, 0.680, 0.429, 1.0], bg),
             (Face::SearchMatch, fg, [0.12, 0.05, 0.005, 1.0]),
-            (Face::SearchCurrent, fg, [0.32, 0.12, 0.004, 1.0]),
         ];
         let themes = themes();
-        let dusk = &themes[0];
-        assert_eq!(dusk.name(), "dusk");
+        let dusk = themes.iter().find(|theme| theme.name() == "dusk").unwrap();
         let close = |got: [f32; 4], want: [f32; 4]| {
             got.iter().zip(want).all(|(a, b)| (a - b).abs() < 0.004)
         };
@@ -570,22 +629,22 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn only_dusks_colours_still_to_be_picked_miss_their_floors() {
-        // ADR 0089: where dusk's colours of the M2 steps miss a floor, the author picks the
-        // nearest ones that pass. Picking them empties this list.
+    fn every_pair_meets_its_floor_in_every_theme() {
+        assert_eq!(short_pairs(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_default_theme_is_dark_and_light_is_its_pair() {
+        let names: Vec<_> = themes()
+            .iter()
+            .map(|theme| (theme.name(), theme.kind()))
+            .collect();
         assert_eq!(
-            short_pairs(),
+            names,
             [
-                "dusk: Text on Region (6.38 < 7)",
-                "dusk: Text on SearchCurrent (4.66 < 7)",
-                "dusk: Escape on Region (3.81 < 4.5)",
-                "dusk: Escape on SearchCurrent (2.79 < 4.5)",
-                "dusk: Escape on Modeline (2.67 < 4.5)",
-                "dusk: Boxed on Boxed (3.30 < 4.5)",
-                "dusk: Modeline on Modeline (4.46 < 7)",
-                "dusk: Warning on Modeline (3.72 < 4.5)",
-                "dusk: Question on Float (5.26 < 7)",
-                "dusk: CompletionMatch on CompletionSelected (6.38 < 7)",
+                ("dark", Kind::Dark),
+                ("light", Kind::Light),
+                ("dusk", Kind::Dark)
             ]
         );
     }
@@ -633,20 +692,35 @@ pub(crate) mod tests {
         }
     }
 
-    /// Faces that must be told apart (ADR 0089), with what keeps them apart today.
+    /// OKLab's hue of a linear colour, in degrees.
+    fn hue(color: [f32; 4]) -> f32 {
+        let [_, a, b] = oklab(color);
+        b.atan2(a).to_degrees()
+    }
+
+    /// Faces that must be told apart (ADR 0089). The two search fills were 0.15 apart in
+    /// OKLab and still read as one, both amber, so they also differ by hue.
     #[test]
-    fn faces_that_must_be_told_apart_are_measured() {
-        let themes = themes();
-        let dusk = &themes[0];
-        let apart = |a: Face, b: Face| distance(dusk.background(a), dusk.background(b));
-        let report = [
-            apart(Face::SearchCurrent, Face::SearchMatch),
-            apart(Face::SearchMatch, Face::Region),
-        ]
-        .map(|d| format!("{d:.3}"));
-        // The author found the two search fills too close, both amber, though they are this
-        // far apart. Picking the colours sets the rule from this.
-        assert_eq!(report, ["0.148", "0.153"]);
+    fn faces_that_must_be_told_apart_are_told_apart() {
+        for theme in &themes() {
+            let fill = |face| theme.background(face);
+            let name = theme.name();
+            let current = fill(Face::SearchCurrent);
+            let others = fill(Face::SearchMatch);
+            let turn = (hue(current) - hue(others)).rem_euclid(360.0);
+            assert!(
+                turn.min(360.0 - turn) >= 90.0,
+                "{name}: the search fills' hues"
+            );
+            for (a, b) in [
+                (Face::SearchCurrent, Face::SearchMatch),
+                (Face::SearchMatch, Face::Region),
+                (Face::SearchCurrent, Face::Region),
+            ] {
+                let apart = distance(fill(a), fill(b));
+                assert!(apart >= 0.09, "{name}: {a:?} and {b:?} {apart:.3}");
+            }
+        }
     }
 
     #[test]
