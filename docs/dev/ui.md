@@ -308,22 +308,25 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 
 ## Visual aids
 
-On by default, each toggled by an `M-x` command for every buffer, and from the toggle
-menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
+On by default, each toggled by an `M-x` command for every buffer, which a prefix argument
+turns on (positive) or off (zero or negative) as Emacs's minor modes do, and from the
+toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
 
-- **Whitespace** (`whitespace-mode`):
-  - a full-width space shows as `□`, and a tab as a dim `»` in its first cell;
+- **Whitespace** (`global-whitespace-mode`):
+  - a full-width space shows as `□`, a tab as a dim `»` in its first cell, and the other
+    non-ASCII spaces (such as U+00A0) as a dim `·`;
   - trailing spaces and tabs get a fill, except on a line with a cursor;
   - half-width spaces are not marked.
-- **Current line** (`global-hl-line-mode`): a band across the window on the primary
+- **Current line** (`global-hl-line-mode`): a band across the text area on the primary
   cursor's row, behind the region and isearch's matches.
-- **Cursor flash** (`beacon-mode`): after the cursor moves 5 or more rows, the window
-  scrolls, or another buffer or window is shown, a band from the cursor to the window's
-  edge fades out over about 0.4 s. The next key ends it.
+- **Cursor flash** (`beacon-mode`): after the cursor moves 5 or more rows, a command
+  scrolls the window (`C-v`, `M-v`, `C-l`, `M-<`, `M->`), or another buffer or window is
+  shown, a band from the cursor to the window's edge fades out over about 0.4 s. The
+  scrolling that follows the cursor and the wheel do not flash. The next key ends it.
 
-Off by default: **line numbers** (`display-line-numbers-mode`). They are absolute, the
+Off by default: **line numbers** (`global-display-line-numbers-mode`). They are absolute, the
 current one brighter, in a gutter as wide as the line count's digits plus one, at least
-3 digits.
+3 digits. Floats keep their place when it appears.
 
 None of these is remembered across starts until configuration exists (M3).
 

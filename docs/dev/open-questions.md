@@ -307,7 +307,8 @@ item notes when it must be settled.
 
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
   modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
-  every buffer by `M-x` and start from ADR 0026's defaults
+  every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start
+  from ADR 0026's defaults
   ([ADR 0097](adr/0097-visual-aids.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
