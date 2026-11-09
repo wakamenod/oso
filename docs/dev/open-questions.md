@@ -165,16 +165,16 @@ item notes when it must be settled.
   Redoing takes 1.4 ms. Sharing the slice's chunks with the rope, and keeping display items
   with the undo group, would make it O(log n). Decide before M2-14. `rope.rs` is at its
   size limit, so sharing needs room there.
-- Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
-  budget by itself. Applying a batch of splices in one tree pass instead of one
-  `Rope::replace` each is the next step. M2-21 does that and caps the cursors at 1000, aiming at
-  key press to photon p99 ≤ 8 ms with the edit's share at p99 ≤ 4 ms; if 1000 still miss the
-  budget, the bound goes back to the author
-  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)). A command also clones the selection
-  set for its undo group, and an edit a few times more, which counts with that many cursors.
-- Every window showing a buffer clips all its cursors after each edit, though only those
-  in the edited chunks can change. M2-21 clips only those, in every window, in the batched pass
-  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
+- Typing at 1000 cursors, which took 17 to 26 ms a key at p99, takes about 3 ms on 100 MB and
+  3.3 to 4.7 ms on a 10 MB line of minified JSON since M2-21 edits a leaf in place and clips only
+  what is near an edit, in every window (`text_perf -- cursors`,
+  [ADR 0092](adr/0092-edits-in-place-for-many-cursors.md)). On a 10 MB line dense with CJK, emoji
+  and combining marks it still takes 5.6 to 9.3 ms, over the edit's 4 ms share: each rebuilt
+  chunk's summary walks its clusters through the grapheme segmenter. A faster walk over
+  characters that cannot join their neighbours is the next step; the author keeps the bound at
+  1000 meanwhile. `just perf` has no scenario of 1000 cursors yet, since its thresholds are guard
+  files. A command still clones the selection set for its undo group, and an edit a few times
+  more; a profile at 1000 cursors does not show it.
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.

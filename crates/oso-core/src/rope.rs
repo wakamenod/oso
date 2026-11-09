@@ -561,11 +561,10 @@ impl Rope {
         middle.push_str(&core);
         middle.extend(suffix.iter().copied());
 
-        let (mut tree, _) = self.tree.split(&window_start, Bias::Right);
-        let (_, right) = self.tree.split(&window_end, Bias::Right);
-        tree.append(SplitChunks::new(&middle).map(chunk).collect());
-        tree.append(right);
-        self.tree = tree;
+        self.tree.replace_items(
+            window_start..window_end,
+            SplitChunks::new(&middle).map(chunk).collect(),
+        );
         RopeEdit {
             old: window_start..window_end,
             new: window_start..window_start + middle.len(),

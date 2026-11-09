@@ -5,7 +5,8 @@
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`. Shows that
 //! per-query costs do not grow with file size or line length. The benchmarks
-//! that CI checks against the budgets are in `crates/oso/examples/perf`.
+//! that CI checks against the budgets are in `crates/oso/examples/perf`. `-- words` and
+//! `-- cursors` run only word motion, or only typing at many cursors.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -21,6 +22,9 @@ use oso_core::rope::{Point, Rope};
 use oso_core::selection::{Selection, SelectionSet};
 use oso_core::sum_tree::Bias;
 use oso_core::word;
+
+#[path = "text_perf/cursors.rs"]
+mod cursors;
 
 const MB: usize = 1024 * 1024;
 const QUERIES: usize = 100_000;
@@ -358,6 +362,10 @@ fn word_motion_costs() {
 fn main() {
     if std::env::args().any(|arg| arg == "words") {
         word_motion_costs();
+        return;
+    }
+    if std::env::args().any(|arg| arg == "cursors") {
+        cursors::cursor_costs();
         return;
     }
     println!("== Building (100 MB, source-like text)");

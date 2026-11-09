@@ -4,6 +4,8 @@
 //! Must not depend on: `command` or `keymap`; it works out sets of selections from
 //! offsets and a display snapshot, and the editor swaps them in.
 
+use std::ops::Range;
+
 use super::Editor;
 use crate::buffer::BufferId;
 use crate::display_map::DisplaySnapshot;
@@ -27,29 +29,60 @@ pub(super) enum Selected<'a> {
 /// text. New text can join what follows it, and what was typed must stay before
 /// the cursor. Marks, and those in the ring, go to the start of theirs. A cursor
 /// loses its goal if it moved, or with `clear_goals` always, as after an edit.
+///
+/// With `near`, ranges ascending and apart, only what is in one of them, or at its
+/// end, is clipped: an edit says where clusters may have changed, and anything
+/// elsewhere is where a cursor can be already (ADR 0091).
 pub(super) fn clip_selections(
     set: &mut SelectionSet,
     display: &DisplaySnapshot,
     ends: &[usize],
     clear_goals: bool,
+    near: Option<&[Range<usize>]>,
 ) {
+    // Every test that clips near edits checks that clipping everything gives the same.
+    #[cfg(test)]
+    let full = near.map(|_| {
+        let mut full = set.clone();
+        clip_selections(&mut full, display, ends, clear_goals, None);
+        full
+    });
+    let clips = |offset: usize| {
+        near.is_none_or(|ranges| {
+            let index = ranges.partition_point(|range| range.end < offset);
+            ranges.get(index).is_some_and(|range| range.start <= offset)
+        })
+    };
+    let start = |offset| {
+        if clips(offset) {
+            motion::cluster_start(display, offset)
+        } else {
+            offset
+        }
+    };
     let mut ends = ends.iter().copied().peekable();
     set.update(|selection| {
         while ends.next_if(|end| *end < selection.cursor).is_some() {}
         let cursor = if ends.peek() == Some(&selection.cursor) {
             motion::cluster_end(display, selection.cursor)
         } else {
-            motion::cluster_start(display, selection.cursor)
+            start(selection.cursor)
         };
         if clear_goals || cursor != selection.cursor {
             selection.goal = None;
         }
         selection.cursor = cursor;
-        let clip = |mark| motion::cluster_start(display, mark);
-        selection.mark = selection.mark.map(clip);
+        selection.mark = selection.mark.map(start);
         Ok::<(), ()>(())
     });
-    set.update_ring(|mark| motion::cluster_start(display, mark));
+    set.update_ring(start);
+    #[cfg(test)]
+    if let Some(full) = full {
+        assert_eq!(
+            *set, full,
+            "clipping near {near:?} differs from clipping all"
+        );
+    }
 }
 
 impl Editor {
@@ -63,6 +96,7 @@ impl Editor {
         id: BufferId,
         display: &DisplaySnapshot,
         steps: &[Vec<OffsetEdit>],
+        changed: &[Range<usize>],
         selected: Selected<'_>,
     ) -> Vec<(usize, SelectionSet)> {
         let mut moved = Vec::new();
@@ -77,7 +111,7 @@ impl Editor {
                 steps.iter().for_each(|edits| ring.follow_edits(edits));
                 let mut set = restored.with_ring(ring);
                 set.set_mark_active(MarkActive::Inactive);
-                clip_selections(&mut set, display, &[], true);
+                clip_selections(&mut set, display, &[], true, Some(changed));
                 moved.push((index, set));
                 continue;
             }
@@ -101,7 +135,7 @@ impl Editor {
                     ends.extend(new_text_ends(edits));
                 }
             }
-            clip_selections(&mut set, display, &ends, true);
+            clip_selections(&mut set, display, &ends, true, Some(changed));
             moved.push((index, set));
         }
         moved

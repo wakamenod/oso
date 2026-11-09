@@ -15,6 +15,7 @@ use crate::display_map::{DisplayMap, DisplayPoint, DisplaySnapshot, TabWidth};
 use crate::motion;
 use crate::rope::Rope;
 use crate::rope::tests::{floor_boundary, has_long_cluster, text_strategy};
+use crate::selection::Selection;
 
 /// What a model edit did: `old` at `start` became `new`.
 #[derive(Clone, Debug)]
@@ -506,5 +507,75 @@ proptest! {
         prop_assert!(!buffer.is_modified());
         while editor.redo().is_ok() {}
         prop_assert_eq!(editor.buffer(id).unwrap().undo_lens().1, 0);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// Cursors, marks and the marks in the ring stay where a cursor can be through
+    /// edits, undo and redo, though only those near an edit are clipped (ADR 0091).
+    #[test]
+    fn marks_stay_at_clusters_when_only_those_near_an_edit_are_clipped(
+        start in text_strategy(30),
+        places in prop::collection::vec((0usize..150, 0usize..150), 1..6),
+        steps in prop::collection::vec(step_strategy(), 1..12),
+    ) {
+        let mut editor = Editor::with_buffer(Buffer::from_text("t", &start));
+        let id = editor.window().buffer();
+        let display = editor.buffer(id).unwrap().display();
+        let at = |offset: usize| motion::cluster_start(&display, floor_boundary(&start, offset));
+        let parts = places
+            .iter()
+            .map(|&(cursor, mark)| Selection {
+                cursor: at(cursor),
+                mark: Some(at(mark)),
+                goal: None,
+            })
+            .collect();
+        let mut set = SelectionSet::from_parts(parts, 0).unwrap();
+        set.push_marks();
+        editor.windows[0].selections = set;
+        for step in steps {
+            match step {
+                Step::Command(batches) => {
+                    editor.begin_undo_group();
+                    for edits in &batches {
+                        let replacements: Vec<_> =
+                            edits.iter().map(|(a, b, new)| edit(*a..*b, new)).collect();
+                        let _ = editor.apply_edits(id, &replacements);
+                    }
+                    editor.end_undo_group();
+                }
+                Step::AtCursors { before, after, text } => {
+                    let replacements: Vec<_> = editor.windows[0]
+                        .selections
+                        .iter()
+                        .map(|s| edit(s.cursor.saturating_sub(before)..s.cursor + after, &text))
+                        .collect();
+                    editor.begin_undo_group();
+                    let _ = editor.apply_edits(id, &replacements);
+                    editor.end_undo_group();
+                }
+                Step::Undo => {
+                    let _ = editor.undo();
+                }
+                Step::Redo => {
+                    let _ = editor.redo();
+                }
+                Step::Save | Step::Cursors(..) => {}
+            }
+            let display = editor.buffer(id).unwrap().display();
+            let set = &editor.windows[0].selections;
+            for selection in set.iter() {
+                prop_assert_eq!(motion::cluster_start(&display, selection.cursor), selection.cursor);
+                if let Some(mark) = selection.mark {
+                    prop_assert_eq!(motion::cluster_start(&display, mark), mark);
+                }
+            }
+            for mark in set.mark_ring().iter() {
+                prop_assert_eq!(motion::cluster_start(&display, mark), mark);
+            }
+        }
     }
 }

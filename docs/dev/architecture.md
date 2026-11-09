@@ -128,8 +128,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   goal column for vertical motion and its own mark. The set says whether the
   regions show, for all of them, and keeps the primary's mark ring. See
   [ADR 0007](adr/0007-multi-cursor.md) and [ADR 0071](adr/0071-mark-and-region.md).
-  Every window's cursors follow an edit of the buffer it shows, and are clipped
-  to display clusters. In the selected window a cursor at an insertion ends after
+  Every window's cursors follow an edit of the buffer it shows, and those in the
+  chunks the edit rebuilt are clipped to display clusters (`display-model.md`). In the selected window a cursor at an insertion ends after
   it; in others it stays before, as an Emacs marker. Marks follow as markers in
   every window, and an edit hides the regions.
 - **Edits** go through `Editor::apply_edits`, but for an internal buffer's, which have no undo

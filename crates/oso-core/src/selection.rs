@@ -17,6 +17,11 @@ use std::ops::Range;
 
 use crate::sum_tree::Bias;
 
+mod offsets;
+
+use offsets::Follow;
+pub(crate) use offsets::{OffsetEdit, follow_ranges, new_text_ends};
+
 /// Where vertical motion (`C-n`, `C-p`) aims, kept across consecutive
 /// vertical moves so that short lines do not pull the cursor left for good.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -168,74 +173,6 @@ pub struct SelectionSet {
 impl Default for SelectionSet {
     fn default() -> Self {
         Self::new(0)
-    }
-}
-
-/// One replacement as a cursor sees it: `old_len` bytes at `start` became
-/// `new_len` bytes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct OffsetEdit {
-    pub(crate) start: usize,
-    pub(crate) old_len: usize,
-    pub(crate) new_len: usize,
-}
-
-/// Where new text ends after `edits`, ascending. The edits are as in
-/// [`SelectionSet::follow_edits`], and deletions have no new text.
-pub(crate) fn new_text_ends(edits: &[OffsetEdit]) -> impl Iterator<Item = usize> + '_ {
-    let (mut old_end, mut new_end) = (0, 0);
-    edits.iter().filter_map(move |edit| {
-        new_end += edit.start - old_end + edit.new_len;
-        old_end = edit.start + edit.old_len;
-        (edit.new_len > 0).then_some(new_end)
-    })
-}
-
-/// Moves offsets through sorted edits, as [`SelectionSet::follow_edits`] says. The
-/// offsets must come in ascending order, and cost O(offsets + edits) together.
-struct Follow<'a> {
-    edits: &'a [OffsetEdit],
-    bias: Bias,
-    /// Where the edits passed so far end, before and after them.
-    old_end: usize,
-    new_end: usize,
-    next: usize,
-}
-
-impl<'a> Follow<'a> {
-    fn new(edits: &'a [OffsetEdit], bias: Bias) -> Self {
-        Self {
-            edits,
-            bias,
-            old_end: 0,
-            new_end: 0,
-            next: 0,
-        }
-    }
-
-    fn map(&mut self, offset: usize) -> usize {
-        loop {
-            let Some(edit) = self.edits.get(self.next) else {
-                return self.new_end.saturating_add(offset - self.old_end);
-            };
-            let new_start = self.new_end + (edit.start - self.old_end);
-            let before = match self.bias {
-                Bias::Left => offset <= edit.start,
-                Bias::Right => offset < edit.start,
-            };
-            if before {
-                return self.new_end.saturating_add(offset - self.old_end);
-            }
-            if offset < edit.start + edit.old_len {
-                return match self.bias {
-                    Bias::Left => new_start,
-                    Bias::Right => new_start + edit.new_len,
-                };
-            }
-            self.old_end = edit.start + edit.old_len;
-            self.new_end = new_start + edit.new_len;
-            self.next += 1;
-        }
     }
 }
 

@@ -433,7 +433,8 @@ OS and architecture. Nothing is built or installed there.
 - Key latency ends when `present` returns, so it leaves out the GPU's work as
   well as the display and the compositor.
 - `crates/oso-core/examples/text_perf.rs` remains for looking closely at the
-  rope and the display model.
+  rope and the display model. `-- cursors` runs only typing and undo at 1, 100 and 1000
+  cursors, bare, with marks and over regions (ADR 0091).
 
 ## Fuzzing
 

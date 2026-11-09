@@ -18,6 +18,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
+mod replace;
+
 /// Fewest children (or items) of a node other than the root.
 #[cfg(not(test))]
 const MIN_CHILDREN: usize = 8;
@@ -463,9 +465,11 @@ impl<T: Item> SumTree<T> {
             }
         }
     }
+}
 
+#[cfg(test)]
+impl<T: Item> SumTree<T> {
     /// Checks the B-tree invariants and cached summaries. Returns the height.
-    #[cfg(test)]
     pub(crate) fn check_invariants(&self) -> u8
     where
         T::Summary: PartialEq + fmt::Debug,
@@ -956,7 +960,88 @@ mod tests {
         assert_eq!(cursor.end(), (Count(3), Sum(18)));
     }
 
+    /// What `replace_items` must leave: two splits and two appends.
+    fn replaced_by_splits<D>(
+        tree: &SumTree<Num>,
+        range: std::ops::Range<D>,
+        items: &[u32],
+    ) -> Vec<u32>
+    where
+        D: Dimension<NumSummary> + Ord,
+    {
+        let (mut left, _) = tree.split(&range.start, Bias::Right);
+        let (_, right) = tree.split(&range.end, Bias::Right);
+        left.append(tree_of(items));
+        left.append(right);
+        contents(&left)
+    }
+
     proptest! {
+        /// Replacing in place, by count or by a sum that many items share, leaves what
+        /// splitting and appending would, a valid tree, and the trees it was cloned from
+        /// as they were (ADR 0091).
+        #[test]
+        fn replacing_items_is_splitting_and_appending(
+            values in prop::collection::vec(0u32..4, 0..120),
+            edits in prop::collection::vec(
+                (any::<bool>(), 0usize..140, 0usize..140, prop::collection::vec(0u32..4, 0..12)),
+                1..20,
+            ),
+        ) {
+            let mut tree = tree_of(&values);
+            for (by_count, a, b, items) in edits {
+                let before = tree.clone();
+                let kept = contents(&before);
+                let (start, end) = (a.min(b), a.max(b));
+                let expected = if by_count {
+                    replaced_by_splits(&tree, Count(start)..Count(end), &items)
+                } else {
+                    replaced_by_splits(&tree, Sum(start as u64)..Sum(end as u64), &items)
+                };
+                let items = items.into_iter().map(Num).collect();
+                if by_count {
+                    tree.replace_items(Count(start)..Count(end), items);
+                } else {
+                    tree.replace_items(Sum(start as u64)..Sum(end as u64), items);
+                }
+                tree.check_invariants();
+                prop_assert_eq!(contents(&tree), expected);
+                prop_assert_eq!(contents(&before), kept);
+            }
+        }
+
+        /// Edits in place one after another, as a command's at many cursors, leave what
+        /// `Vec::splice` would and a valid tree, and a clone taken between them keeps what
+        /// it held (ADR 0091).
+        #[test]
+        fn replacing_in_place_again_and_again_is_splicing(
+            values in prop::collection::vec(0u32..10, 0..200),
+            edits in prop::collection::vec(
+                (0usize..220, 0usize..6, prop::collection::vec(0u32..10, 0..20)),
+                1..40,
+            ),
+            snapshot_at in 0usize..40,
+        ) {
+            let mut tree = tree_of(&values);
+            let mut model = values;
+            let mut snapshot = None;
+            for (index, (at, len, items)) in edits.into_iter().enumerate() {
+                if index == snapshot_at {
+                    snapshot = Some((tree.clone(), model.clone()));
+                }
+                let start = at.min(model.len());
+                let end = (start + len).min(model.len());
+                model.splice(start..end, items.iter().copied());
+                tree.replace_items(Count(start)..Count(end), items.into_iter().map(Num).collect());
+                tree.check_invariants();
+                prop_assert_eq!(contents(&tree), model.clone());
+            }
+            if let Some((tree, model)) = snapshot {
+                tree.check_invariants();
+                prop_assert_eq!(contents(&tree), model);
+            }
+        }
+
         #[test]
         fn building_matches_the_input(values in prop::collection::vec(0u32..10, 0..300)) {
             let tree = tree_of(&values);
