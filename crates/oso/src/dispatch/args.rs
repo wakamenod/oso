@@ -50,7 +50,7 @@ pub fn map(
             "{name} reads a command's name; run the command itself"
         )),
         (ArgSpec::Theme { .. }, _) => Err(format!(
-            "{name} reads a theme's name in a prompt, through send-keys"
+            "{name} reads a theme's name, which only its prompt takes, from keys"
         )),
         // Only its prompt reads a buffer's name. The agent channel's switch to a buffer by name
         // never comes here: `Dispatcher::run_for_agent` resolves the name to a buffer it may
