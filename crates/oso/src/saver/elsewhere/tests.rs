@@ -243,8 +243,9 @@ fn a_directory_takes_the_buffers_file_name() {
         editor.current().1.path(),
         Some(into.join("old.md").as_path())
     );
+    let named = into.join("old.md").display().to_string();
     assert!(
-        last_message(&editor).ends_with("into/old.md"),
+        last_message(&editor).ends_with(&named),
         "{}",
         last_message(&editor)
     );
