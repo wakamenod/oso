@@ -288,6 +288,10 @@ item notes when it must be settled.
   counts as the person typing and restarts the 500 ms wait before a question the agent caused
   takes an answer. It could count only text or the end of a composition that was open. Kept
   for now, as the cautious side ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- The rule that a channel save of a buffer the agent opened asks the person lives in
+  `save-buffer`, the only writer the channel reaches. Move it into `Editor::start_save`, as a
+  `SaveRefused` the person's `y` gets past, once the channel reaches a second writer, such as a
+  `save-some-buffers` ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 ## M3
 
