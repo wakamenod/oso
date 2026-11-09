@@ -45,7 +45,7 @@ paint
 scene
 text
 rows
-atlas grid shape
+atlas grid shape theme
 pane
 
 [oso]

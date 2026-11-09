@@ -26,6 +26,18 @@ impl Buffer {
     pub fn opened_by_agent(&self) -> bool {
         self.opened_by_agent
     }
+
+    /// Notes whether the agent channel is still opening it: loading it, or not yet past the
+    /// channel's checks of what it may show.
+    pub fn set_agent_pending(&mut self, pending: bool) {
+        self.agent_pending = pending;
+    }
+
+    /// Whether the agent channel is still opening it, so that nothing shows it or takes it for
+    /// the buffer of its file before the channel's checks (ADR 0087).
+    pub fn agent_pending(&self) -> bool {
+        self.agent_pending
+    }
 }
 
 #[cfg(test)]

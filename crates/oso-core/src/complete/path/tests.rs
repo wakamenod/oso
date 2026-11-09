@@ -50,7 +50,7 @@ fn home() -> &'static Path {
 
 fn expand_in(tree: &HashMap<PathBuf, Vec<Name>>, input: &str) -> Expanded {
     let plan = plan(input, Some(home()), Path::new("/work"));
-    expand(&plan, |dir| tree.get(dir).map(Vec::as_slice))
+    expand(&plan, |dir| tree.get(dir).map(Vec::as_slice), |_| false)
 }
 
 /// Each row as it reads: its context, then its name.
@@ -180,7 +180,7 @@ fn expanding_keeps_at_most_its_limit_and_says_so() {
         tree.insert(PathBuf::from(format!("/r/d{n:02}")), Vec::new());
     }
     let plan = plan("/r/d/", None, Path::new("/"));
-    let expanded = expand(&plan, |dir| tree.get(dir).map(Vec::as_slice));
+    let expanded = expand(&plan, |dir| tree.get(dir).map(Vec::as_slice), |_| false);
     assert_eq!(expanded, Expanded::Ready(Vec::new(), true));
 }
 
@@ -202,6 +202,18 @@ fn a_path_as_typed_and_the_typed_form_of_a_candidate() {
 
 fn plan_relative() -> Plan {
     plan("a/b", Some(home()), Path::new("/work"))
+}
+
+#[test]
+fn a_directory_known_to_exist_is_gone_into_without_listing_what_holds_it() {
+    let tree: HashMap<PathBuf, Vec<Name>> =
+        [(PathBuf::from("/a/b"), names(&[("c.md", NameKind::File)]))]
+            .into_iter()
+            .collect();
+    let plan = plan("/a/b/", None, Path::new("/"));
+    let known = |path: &Path| path == Path::new("/a") || path == Path::new("/a/b");
+    let expanded = expand(&plan, |dir| tree.get(dir).map(Vec::as_slice), known);
+    assert_eq!(texts(&expanded), ["c.md"]);
 }
 
 #[test]

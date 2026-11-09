@@ -60,6 +60,7 @@ pub use agent::AgentChannel;
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use cursors::{CursorError, Toward};
+pub use files::Looked;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;

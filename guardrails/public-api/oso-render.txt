@@ -1,4 +1,30 @@
 pub mod oso_render
+pub mod oso_render::theme
+pub enum oso_render::theme::Kind
+pub oso_render::theme::Kind::Dark
+pub oso_render::theme::Kind::Light
+impl core::clone::Clone for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::clone(&self) -> oso_render::theme::Kind
+impl core::cmp::Eq for oso_render::theme::Kind
+impl core::cmp::PartialEq for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::eq(&self, &oso_render::theme::Kind) -> bool
+impl core::fmt::Debug for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::theme::Kind
+impl core::marker::StructuralPartialEq for oso_render::theme::Kind
+pub struct oso_render::theme::Theme
+impl oso_render::theme::Theme
+pub fn oso_render::theme::Theme::kind(&self) -> oso_render::theme::Kind
+pub fn oso_render::theme::Theme::name(&self) -> &'static str
+impl core::clone::Clone for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::clone(&self) -> oso_render::theme::Theme
+impl core::cmp::PartialEq for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::eq(&self, &oso_render::theme::Theme) -> bool
+impl core::fmt::Debug for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::theme::Theme
+impl core::marker::StructuralPartialEq for oso_render::theme::Theme
+pub fn oso_render::theme::themes() -> alloc::vec::Vec<oso_render::theme::Theme>
 pub enum oso_render::CaptureError
 pub oso_render::CaptureError::Gpu(alloc::string::String)
 pub oso_render::CaptureError::UnsupportedFormat(alloc::string::String)
@@ -37,6 +63,7 @@ pub oso_render::Face::Key
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
+pub oso_render::Face::Question
 pub oso_render::Face::Region
 pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
@@ -177,6 +204,7 @@ pub fn oso_render::RenderState::presented_frames(&self) -> u64
 pub fn oso_render::RenderState::render(&mut self, &[oso_render::Pane<'_>], &dyn core::ops::function::Fn() -> (u32, u32)) -> core::result::Result<oso_render::Redraw, oso_render::RenderError>
 pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redraw
 pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
+pub fn oso_render::RenderState::set_theme(&mut self, &str) -> core::option::Option<oso_render::Redraw>
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
 impl oso_render::RenderState
 pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo

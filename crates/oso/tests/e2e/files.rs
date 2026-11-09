@@ -74,3 +74,30 @@ fn c_x_c_w_writes_under_a_new_name_and_the_buffer_visits_it() {
         "untouched"
     );
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_link_to_a_file_open_already_shows_that_buffer() {
+    let scratch = Scratch::new("files-link");
+    let notes = scratch.write("notes.md", b"agenda\n");
+    scratch.symlink("link.md", &notes);
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    app.send_keys("C-x C-f");
+    listed(&mut app);
+    app.send_keys(&typing("link.md"));
+    app.send_keys("M-RET");
+    let state = app.wait_for("the open buffer", |state| {
+        state["echo"]
+            .as_str()
+            .is_some_and(|echo| echo.contains("already open"))
+    });
+    assert_eq!(state["buffer"]["name"], "notes.md");
+    let names: Vec<&Value> = state["buffers"]
+        .as_array()
+        .expect("buffers")
+        .iter()
+        .map(|buffer| &buffer["name"])
+        .collect();
+    assert!(!names.iter().any(|name| *name == "link.md"), "{names:?}");
+}

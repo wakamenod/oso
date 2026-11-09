@@ -209,12 +209,11 @@ impl App {
         let id = self.loads[index].handle.buffer();
         // The tiled window, also beneath a prompt.
         let shown = self.editor.tiled().0.buffer() == id;
-        if self.editor.buffer(id).is_none() {
-            self.loads.swap_remove(index);
-            return false;
+        if self.take_what_was_found(index, id) {
+            return true;
         }
-        self.take_what_was_found(index, id);
         let Some(buffer) = self.editor.buffer_mut(id) else {
+            self.loads.swap_remove(index);
             return false;
         };
         let mut no_baseline = false;
@@ -296,8 +295,9 @@ impl App {
     }
 
     /// Takes in what the load at `index` found of `id`'s file before its content: the verdict,
-    /// the baseline and the file's own spelling.
-    fn take_what_was_found(&mut self, index: usize, id: BufferId) {
+    /// the baseline and the file's own spelling. Returns whether the buffer went, as another one
+    /// visits that very file.
+    fn take_what_was_found(&mut self, index: usize, id: BufferId) -> bool {
         let handle = &self.loads[index].handle;
         let (resolved, baseline, spelling) = (
             handle.take_resolved(),
@@ -305,7 +305,7 @@ impl App {
             handle.take_own_spelling(),
         );
         let Some(buffer) = self.editor.buffer_mut(id) else {
-            return;
+            return false;
         };
         if let Some(resolved) = resolved {
             resolved.judge(buffer);
@@ -313,9 +313,35 @@ impl App {
         if let Some(spelling) = spelling {
             buffer.set_own_spelling(spelling);
         }
-        if let Some(baseline) = baseline {
-            buffer.set_baseline(baseline);
-        }
+        let Some(baseline) = baseline else {
+            return false;
+        };
+        buffer.set_baseline(baseline);
+        self.shows_the_one_open(index, id)
+    }
+
+    /// If another buffer visits the very file the load of `id` opened, by its device and inode,
+    /// drops this one and shows that one, so one file is never in two buffers (ADR 0087).
+    /// Returns whether it did.
+    fn shows_the_one_open(&mut self, index: usize, id: BufferId) -> bool {
+        let Some(other) = self.editor.visiting_same_file(id) else {
+            return false;
+        };
+        let name = |editor: &oso_core::editor::Editor, id| {
+            editor
+                .buffer(id)
+                .map_or_else(String::new, |buffer| buffer.name().to_owned())
+        };
+        let message = format!(
+            "{} is already open as {}",
+            name(&self.editor, id),
+            name(&self.editor, other)
+        );
+        self.editor.show(other);
+        self.editor.kill_buffer(id);
+        self.editor.message(message);
+        self.loads.swap_remove(index);
+        true
     }
 
     /// A load of `id` stopped before reading, as its file holds `bytes`, 2 GiB or more: the

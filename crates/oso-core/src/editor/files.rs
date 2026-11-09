@@ -11,10 +11,22 @@ use std::sync::Arc;
 
 use super::Editor;
 use super::completion::CompletionStyle;
-use crate::buffer::Replacement;
+use crate::buffer::{BufferId, Replacement};
 use crate::complete::Candidate;
 use crate::complete::path::{self, Expanded, Found, Name, Plan};
 use crate::minibuffer::{PromptError, PromptId};
+
+/// What the host found of a path a row shows, for its annotation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Looked {
+    /// What the row says after the name, as the host wrote it: mode, size, age, where a link
+    /// leads.
+    pub annotation: String,
+    /// Its size, which decides whether opening it asks first.
+    pub bytes: u64,
+    /// It is a directory, or a link to one, which `RET` goes into.
+    pub directory: bool,
+}
 
 /// The most candidates a prompt that reads a path lists, as a listing keeps of one directory.
 pub const MAX_FOUND: usize = 100_000;
@@ -42,6 +54,13 @@ pub(super) struct FileList {
     listing_cut: bool,
     /// The candidates shown, in the order of their items.
     found: Vec<Found>,
+    /// What a look found of each path, for its row's annotation and its size (ADR 0087).
+    looks: HashMap<PathBuf, Looked>,
+    /// The paths asked to be looked at and not answered yet.
+    looking: HashSet<PathBuf>,
+    /// The directories the prompt started in and those that hold it, which exist, so a segment
+    /// naming one whole needs no listing of the one above (ADR 0087).
+    known: Vec<PathBuf>,
 }
 
 impl Editor {
@@ -70,8 +89,10 @@ impl Editor {
         {
             candidates.match_last_segment();
         }
+        let start = path::as_typed(&path::plan(initial, self.home.as_deref(), &base));
         self.file_list = FileList {
             prompt: Some(id),
+            known: start.ancestors().map(Path::to_path_buf).collect(),
             base,
             ..FileList::default()
         };
@@ -182,11 +203,15 @@ impl Editor {
             return;
         }
         let list = &self.file_list;
-        let expanded = path::expand(&plan, |directory| {
-            list.listings
-                .get(directory)
-                .map(|names| names.as_deref().unwrap_or(&[]))
-        });
+        let expanded = path::expand(
+            &plan,
+            |directory| {
+                list.listings
+                    .get(directory)
+                    .map(|names| names.as_deref().unwrap_or(&[]))
+            },
+            |directory| list.known.iter().any(|known| known == directory),
+        );
         self.file_list.plan = Some(plan);
         match expanded {
             Expanded::Need(directories) => {
@@ -214,9 +239,27 @@ impl Editor {
     /// segment, with the directories that tell rows of one name apart beside it. The row
     /// selected stays selected, by its path.
     fn show_files(&mut self, found: Vec<Found>) {
+        let looks = &self.file_list.looks;
         let items: Arc<[Candidate]> = found
             .iter()
-            .map(|found| Candidate::new(found.name.as_str(), "", found.context.as_str()))
+            .map(|found| {
+                let looked = looks.get(&found.path);
+                let note = match looked {
+                    Some(looked) if !found.context.is_empty() => {
+                        format!("{}  {}", found.context, looked.annotation)
+                    }
+                    Some(looked) => looked.annotation.clone(),
+                    None => found.context.clone(),
+                };
+                // A link that leads to a directory reads as one.
+                let directory = looked.is_some_and(|looked| looked.directory);
+                let name = if directory && !found.name.ends_with('/') {
+                    format!("{}/", found.name)
+                } else {
+                    found.name.clone()
+                };
+                Candidate::new(name, "", note)
+            })
             .collect();
         let history = self
             .prompts
@@ -259,7 +302,9 @@ impl Editor {
         let candidates = self.prompts.last()?.candidates()?;
         let index = candidates.item_at(candidates.selected()?)?;
         let found = self.file_list.found.get(index)?;
-        let typed = path::typed_form(&found.path, found.directory, self.home.as_deref());
+        let looked = self.file_list.looks.get(&found.path);
+        let directory = found.directory || looked.is_some_and(|looked| looked.directory);
+        let typed = path::typed_form(&found.path, directory, self.home.as_deref());
         Some((found, typed))
     }
 
@@ -293,11 +338,17 @@ impl Editor {
             && !on_input
             && let Some((found, _)) = self.selected_file()
         {
-            if found.directory {
+            let looked = self.file_list.looks.get(&found.path);
+            if found.directory || looked.is_some_and(|looked| looked.directory) {
                 return Some(self.insert_completion());
             }
-            let path = found.path.display().to_string();
-            return Some(self.give_answer(path));
+            // A look that found 2 GiB or more makes the command ask at once (ADR 0087).
+            let bytes = looked.map_or(0, |looked| looked.bytes);
+            let path = found.path.clone();
+            if bytes >= crate::load::LARGE {
+                self.remember_large(path.clone(), bytes);
+            }
+            return Some(self.give_answer(path.display().to_string()));
         }
         let path = self.typed_file()?;
         // A path typed with `/` at its end names a directory, which `C-x C-w` writes into.
@@ -315,11 +366,11 @@ impl Editor {
 
     /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
     /// command cannot start a load itself. A buffer that visits that path already is shown at
-    /// once instead.
+    /// once instead, unless the agent channel is still opening it.
     pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
         let open = self
             .buffers()
-            .find(|(_, buffer)| buffer.path() == Some(path.as_path()))
+            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
             .map(|(id, _)| id);
         match open {
             Some(id) => self.show(id),
@@ -360,6 +411,78 @@ impl Editor {
     /// Tells the editor the directory oso started in, read once by the host at startup.
     pub fn set_start_directory(&mut self, directory: PathBuf) {
         self.start_directory = directory;
+    }
+
+    /// The rows shown that nobody has looked at yet, by directory, for the host to look at and
+    /// answer with [`Editor::file_looked`]. Each is given once.
+    pub fn take_file_looks(&mut self) -> Vec<(PathBuf, Vec<String>)> {
+        if !self.reads_path() {
+            return Vec::new();
+        }
+        let rows = self.candidate_rows();
+        let Some(candidates) = self.prompts.last().and_then(|prompt| prompt.candidates()) else {
+            return Vec::new();
+        };
+        let list = &self.file_list;
+        let mut asked: Vec<(PathBuf, Vec<String>)> = Vec::new();
+        let mut paths = Vec::new();
+        let top = candidates.top();
+        for place in top..(top + rows).min(candidates.len()) {
+            let Some(found) = candidates
+                .item_at(place)
+                .and_then(|index| list.found.get(index))
+            else {
+                continue;
+            };
+            if list.looks.contains_key(&found.path) || list.looking.contains(&found.path) {
+                continue;
+            }
+            let (Some(directory), Some(name)) = (found.path.parent(), found.path.file_name())
+            else {
+                continue;
+            };
+            let name = name.to_string_lossy().into_owned();
+            match asked.iter_mut().find(|(other, _)| other == directory) {
+                Some((_, names)) => names.push(name),
+                None => asked.push((directory.to_path_buf(), vec![name])),
+            }
+            paths.push(found.path.clone());
+        }
+        self.file_list.looking.extend(paths);
+        asked
+    }
+
+    /// Takes in what looking at the names in `directory` found, and shows it on their rows.
+    pub fn file_looked(&mut self, directory: &Path, looks: Vec<(String, Looked)>) {
+        if self.file_list.prompt.is_none() {
+            return;
+        }
+        for (name, looked) in looks {
+            let path = directory.join(name);
+            self.file_list.looking.remove(&path);
+            self.file_list.looks.insert(path, looked);
+        }
+        if self.reads_path() {
+            let found = self.file_list.found.clone();
+            self.show_files(found);
+        }
+    }
+
+    /// Another buffer that visits the very file `id` loaded, by its device and inode, as a link
+    /// or a second spelling of an open file leads to it (ADR 0087). A buffer the agent channel
+    /// is still opening is neither, as the channel checks what it may show before it shows
+    /// anything (ADR 0085); once shown, it is like any other.
+    pub fn visiting_same_file(&self, id: BufferId) -> Option<BufferId> {
+        let buffer = self.buffer(id).filter(|buffer| !buffer.agent_pending())?;
+        let identity = buffer.baseline()?.file?.identity?;
+        self.buffers().map(|(other, _)| other).find(|other| {
+            *other != id
+                && self
+                    .buffer(*other)
+                    .filter(|buffer| !buffer.agent_pending())
+                    .and_then(|buffer| buffer.baseline()?.file?.identity)
+                    == Some(identity)
+        })
     }
 
     /// Forgets the prompt that read a path, once it has closed.
