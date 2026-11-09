@@ -80,6 +80,37 @@ fn oso() -> Executable {
     Executable::absolute(env!("CARGO_BIN_EXE_oso")).expect("cargo builds the binary for this test")
 }
 
+/// Starts an instance in `cwd` with no window system to reach, waits for it to exit, and
+/// returns its status and what it wrote to stderr. Linux only: there, no display variable
+/// and no runtime directory leave winit nothing to connect to.
+#[cfg(target_os = "linux")]
+pub fn start_without_a_window_system(cwd: &Path) -> (ExitStatus, String) {
+    let args: Vec<OsString> = vec!["--clipboard".into(), "memory".into()];
+    let mut child = spawn(&Spawn {
+        executable: &oso(),
+        args: &args,
+        cwd: Some(cwd),
+        project: None,
+        inherit: &["RUST_LOG", "RUST_BACKTRACE"],
+        stdout: Sink::Null,
+        stderr: Sink::Piped,
+        own_process_group: false,
+    })
+    .expect("cannot start the instance");
+    let mut stderr = child.stderr.take().expect("stderr is piped");
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("cannot wait for the instance") {
+            break status;
+        }
+        assert!(started.elapsed() < TIMEOUT, "the instance did not exit");
+        thread::sleep(POLL);
+    };
+    let mut log = String::new();
+    let _ = stderr.read_to_string(&mut log);
+    (status, log)
+}
+
 /// A running dev instance.
 pub struct App {
     reader: BufReader<ControlStream>,

@@ -109,6 +109,19 @@ fn on_ci() -> bool {
     std::env::var_os("CI").is_some_and(|value| !value.is_empty())
 }
 
+/// With no window system to reach, the instance says why and exits with status 1, without a
+/// panic, whose message would be dropped (ADR 0028).
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn with_no_window_system_it_says_so_and_exits_with_status_one() {
+    let scratch = harness::Scratch::new("no-display");
+    let (status, log) = harness::start_without_a_window_system(scratch.path());
+    assert_eq!(status.code(), Some(1), "{log}");
+    assert!(log.contains("cannot reach the window system"), "{log}");
+    assert!(!log.contains("panicked"), "{log}");
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn keys_and_commands_reach_the_window_and_the_state_reads_them_back() {
