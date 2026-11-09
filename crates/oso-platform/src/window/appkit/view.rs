@@ -22,7 +22,7 @@ use objc2::runtime::{AnyObject, Sel};
 use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
     NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSTextInputContext,
-    NSTextInputTraits, NSView, NSWritingToolsBehavior,
+    NSTextInputTraits, NSView, NSViewLayerContentsRedrawPolicy, NSWritingToolsBehavior,
 };
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound,
@@ -125,8 +125,9 @@ define_class!(
             true
         }
 
-        /// AppKit wants the view shown, as when the window first appears: a frame now,
-        /// rather than when the loop next waits, as winit draws from `drawRect:`.
+        /// AppKit wants the view shown, which with the redraw policy `Never` is only when
+        /// something marks it as needing display: a frame now, rather than when the loop next
+        /// waits, as winit draws from `drawRect:`.
         #[unsafe(method(updateLayer))]
         fn update_layer(&self) {
             // A request the app made stays, and is drawn when the loop next waits.
@@ -369,6 +370,10 @@ impl OsoView {
         // SAFETY: `initWithFrame:` is NSView's initializer, with this signature.
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
         view.setWantsLayer(true);
+        // AppKit never redisplays the Metal layer on its own: every frame is the app's. A
+        // display of AppKit's held a drawable, so that a key's frame during a load waited for
+        // the next one.
+        view.setLayerContentsRedrawPolicy(NSViewLayerContentsRedrawPolicy::Never);
         view
     }
 

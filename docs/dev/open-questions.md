@@ -124,14 +124,6 @@ item notes when it must be settled.
   loses its cursors. Decide where a window keeps a buffer's places when `C-x b` comes back
   to it ([ADR 0071](adr/0071-mark-and-region.md)). M2-19 closes this: a window keeps a place
   per buffer ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
-- Motion functions take display rows (`motion::line_start(display, row)`),
-  which are buffer lines while there is no soft wrap. When the WrapMap
-  lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines
-  (`display-model.md`), so they need line-level conversions then
-  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)). `TAB` counts
-  display columns the same way ([ADR 0056](adr/0056-typing.md)), and word motion
-  treats the end of a row as the end of a word
-  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - `kill-buffer` must cancel a load at once (ADR 0022). Today the app drops
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
@@ -176,7 +168,8 @@ item notes when it must be settled.
   more; a profile at 1000 cursors does not show it.
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
-  scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
+  scrolled sideways with text hidden to its left. A wrapped buffer never scrolls sideways
+  ([ADR 0100](adr/0100-soft-wrap.md)), so this is for unwrapped ones.
 - What panes below the frame's top row do with the band above their first row, which they
   lose today: by M3. The modeline and the echo row keep it
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), which `draw_pane` tells as
@@ -270,8 +263,6 @@ item notes when it must be settled.
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
-  Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
   have ([ADR 0069](adr/0069-macos-input-method.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
@@ -295,6 +286,11 @@ item notes when it must be settled.
 
 ## M3
 
+- With soft wrap: a fill column to wrap at, narrower than the window, through M3's
+  configuration; and scripts that need more than spaces and cluster breaks, such as Thai, which
+  wrap at clusters until then ([ADR 0100](adr/0100-soft-wrap.md)).
+- A `just perf` scenario with soft wrap on, whose thresholds are guard files and wait for the
+  author ([ADR 0100](adr/0100-soft-wrap.md)).
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
   modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
   every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start

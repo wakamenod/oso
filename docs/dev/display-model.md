@@ -59,7 +59,11 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
 - **`DisplayCluster::for_each_run`** says what a cluster puts on the grid. The
   renderer and the text-grid snapshots both draw through it
   ([ADR 0045](adr/0045-text-grid-snapshots.md)).
-- **Rows are buffer lines**, because soft wrap is off by default.
+- **A `DisplayPoint`'s row is a logical line**, a buffer line, and its
+  column a cell column in it. Soft wrap does not change that: what a window
+  shows is in **view rows**, rows on the screen, which the window's WrapMap
+  gives ([ADR 0100](adr/0100-soft-wrap.md)). Unwrapped, a logical line is
+  one view row.
 - **Invalid bytes.** The TabMap holds the buffer's invalid-byte table
   (`oso_core::decode::InvalidBytes`), its only copy: the buffer reads it
   from the display map. The U+FFFD of an invalid byte is a
@@ -77,8 +81,10 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   were. FoldMap and InlayMap must keep this, or say what an edit changed beyond its
   chunks.
 - FoldMap and InlayMap will go below the TabMap; its items then mirror
-  InlayMap chunks. WrapMap and BlockMap will go above it; a display point
-  then differs from a TabMap point. There are no placeholder layers.
+  InlayMap chunks, and a display point then differs from a TabMap point. The
+  WrapMap goes above it, in the window, since its rows depend on the window's
+  width ([ADR 0100](adr/0100-soft-wrap.md)); whose the BlockMap is will be
+  decided when it comes. There are no placeholder layers.
 
 ## Cell grid
 
@@ -144,6 +150,20 @@ O(log n). This is cheaper than retrofitting variable heights later.
 
 Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
+[ADR 0100](adr/0100-soft-wrap.md) designs it:
+
+- `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer, with Emacs's
+  argument. Each window wraps at its own width, less a column for the `↩` that
+  marks a row that continues; below 8 columns nothing wraps.
+- Rows break after spaces, between CJK clusters, and with basic kinsoku, only
+  between display clusters. One space at a break may take the mark's column.
+- The WrapMap is the window's: a `SumTree` of breaks in bounded items. Motion,
+  kills and `TAB` read `DisplayPoint`s as before; what draws and scrolls reads
+  view rows. A window's top is an offset.
+- An edit rewraps near itself, within a budget, on clones committed with the
+  buffer ([ADR 0053](adr/0053-edit-core.md)). A width change, a load, a large
+  edit or a stale tail wraps on a worker, with the rows in view wrapped at once
+  from the top.
 
 ## Decorations
 
