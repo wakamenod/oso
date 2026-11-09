@@ -428,3 +428,37 @@ fn a_match_on_the_worker_gives_what_matching_here_gives() {
         assert_eq!(here.exact, there.exact, "{input:?}");
     }
 }
+
+#[test]
+fn a_row_shown_only_while_nothing_is_typed_is_hidden_here_and_on_the_worker() {
+    use std::sync::atomic::AtomicU64;
+
+    use super::{CompletionJob, CompletionReport, Report};
+    // A row like M-y's secret kill, whose text every input below would match but for the rule
+    // (ADR 0091).
+    let items: Arc<[Candidate]> = [
+        Candidate::new("alpha kill", "", "").hidden_by_input(),
+        candidate("alpha"),
+        candidate("beta"),
+    ]
+    .into();
+    let mut here = Candidates::new(Arc::clone(&items), []);
+    assert_eq!(here.len(), 3, "it shows while nothing is typed");
+    let mut there = Candidates::new(items, []);
+    // A first input, then one that narrows it, so both of `match_over`'s passes are taken.
+    for input in ["al", "alp"] {
+        here.set_input(input);
+        let live = Arc::new(AtomicU64::new(1));
+        let job = CompletionJob::matching(there.matching(input).unwrap(), 1, live);
+        let Some(CompletionReport(Report::Matched { matched, .. })) = job.run() else {
+            panic!("matched");
+        };
+        there.apply(matched, false);
+        for candidates in [&here, &there] {
+            let texts: Vec<&str> = (0..candidates.len())
+                .filter_map(|place| candidates.get(place).map(Candidate::text))
+                .collect();
+            assert_eq!(texts, ["alpha"], "{input:?}");
+        }
+    }
+}
