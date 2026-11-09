@@ -923,6 +923,7 @@ impl core::marker::Copy for oso_core::editor::AgentChannel
 impl core::marker::StructuralPartialEq for oso_core::editor::AgentChannel
 pub enum oso_core::editor::CursorError
 pub oso_core::editor::CursorError::Loading
+pub oso_core::editor::CursorError::NoCurrentMatch
 pub oso_core::editor::CursorError::NoMark
 pub oso_core::editor::CursorError::NoMore
 pub oso_core::editor::CursorError::NoWord
@@ -1238,6 +1239,7 @@ pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::isearch_mark(&mut self, core::option::Option<oso_core::editor::Toward>) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::skip_like_this(&mut self, oso_core::editor::Toward) -> core::result::Result<(), oso_core::editor::CursorError>

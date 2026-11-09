@@ -402,3 +402,58 @@ fn every_occurrence_waits_for_a_load_to_end() {
     editor.mark_like_this(Toward::Next, 1).unwrap();
     assert_eq!(cursors(&editor), [2, 5], "what has loaded is searched");
 }
+
+/// Starts a forward search for `string`, and lets the worker count.
+fn search(editor: &mut Editor, string: &str) {
+    editor.isearch_begin(false);
+    editor.isearch_add(string);
+    drain(editor);
+}
+
+#[test]
+fn a_search_ends_with_its_match_as_the_region_and_adds_the_next_with_its_case() {
+    let mut editor = editor("ab AB abc ab");
+    search(&mut editor, "ab");
+    editor.isearch_mark(Some(Toward::Next)).unwrap();
+    assert!(editor.isearch().is_none());
+    assert_eq!(
+        regions(&editor),
+        (vec![(0, 2), (3, 5)], 1),
+        "smart case folds"
+    );
+    editor.mark_like_this(Toward::Next, 1).unwrap();
+    assert_eq!(
+        regions(&editor).0,
+        [(0, 2), (3, 5), (6, 8)],
+        "not only whole words"
+    );
+}
+
+#[test]
+fn a_failing_search_has_no_match_to_add_cursors_from_and_goes_on() {
+    let mut editor = editor("ab ab");
+    search(&mut editor, "abx");
+    assert_eq!(
+        editor.isearch_mark(Some(Toward::Next)),
+        Err(CursorError::NoCurrentMatch)
+    );
+    assert!(editor.isearch().is_some());
+}
+
+#[test]
+fn every_match_of_a_search_gets_a_cursor_unless_it_counted_too_many() {
+    let mut editor = editor("ab x ab x ab");
+    search(&mut editor, "ab");
+    editor.isearch_mark(None).unwrap();
+    assert!(editor.isearch().is_none());
+    assert_eq!(regions(&editor), (vec![(0, 2), (5, 7), (10, 12)], 0));
+
+    let text = "a ".repeat(MAX_CURSORS + 1);
+    let mut editor = self::editor(&text);
+    search(&mut editor, "a");
+    assert_eq!(
+        editor.isearch_mark(None),
+        Err(CursorError::TooManyMatches(MAX_CURSORS + 1))
+    );
+    assert!(editor.isearch().is_some(), "the search goes on");
+}

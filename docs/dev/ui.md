@@ -299,7 +299,10 @@ As multiple-cursors.el ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   search history, and `RET` ends the search there and pushes where it began onto the mark ring.
 - `C-g` first takes away a failing part, then goes back where the search began. Any other key
   ends the search and runs.
-- Only the primary cursor searches; the others stay.
+- Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
+  match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
+  every match, with the search's string and case
+  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 
 ## Input method (IME)
 

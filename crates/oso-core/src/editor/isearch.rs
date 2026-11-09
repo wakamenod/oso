@@ -303,6 +303,23 @@ impl Editor {
         true
     }
 
+    /// The search's query, its current match, and how many matches it counted if it knows,
+    /// for the keys that add cursors from it (ADR 0091). None while it fails or a worker
+    /// still looks for the match.
+    pub(super) fn isearch_current_match(
+        &self,
+    ) -> Option<(search::Query, Range<usize>, Option<usize>)> {
+        let state = self.isearch.as_ref()?;
+        if state.failing || state.searching.is_some() {
+            return None;
+        }
+        let total = match state.tally {
+            Some(Tally::Known { total, .. }) => Some(total),
+            _ => None,
+        };
+        Some((state.query.clone()?, state.current.clone()?, total))
+    }
+
     /// Ends a search with nothing kept, when its window shows another buffer or a prompt
     /// opens over it: no history, no mark, and the cursors stay.
     pub(super) fn isearch_abandon(&mut self) {

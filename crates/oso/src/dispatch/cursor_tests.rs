@@ -62,3 +62,32 @@ fn c_x_spc_puts_one_on_each_line() {
     send(&mut d, &mut editor, "-");
     assert_eq!(text(&editor), "o-ne\nt-wo\nt-hree\n");
 }
+
+#[test]
+fn c_greater_in_a_search_marks_the_match_and_the_next() {
+    let (mut d, mut editor) = at("ab AB ab", &[0]);
+    send(&mut d, &mut editor, "C-s a b C->");
+    assert!(editor.isearch().is_none());
+    assert_eq!(cursors(&editor), [2, 5]);
+}
+
+#[test]
+fn c_c_c_less_in_a_search_marks_every_match() {
+    let (mut d, mut editor) = at("ab x ab x ab", &[0]);
+    send(&mut d, &mut editor, "C-s a b C-c C-<");
+    assert!(editor.isearch().is_none());
+    assert_eq!(cursors(&editor), [2, 7, 12]);
+}
+
+#[test]
+fn another_key_under_c_c_ends_the_search_and_runs_as_it_would() {
+    let (mut d, mut editor) = at("ab ab", &[0]);
+    send(&mut d, &mut editor, "C-s a b C-c C-g");
+    assert!(
+        editor.isearch().is_some(),
+        "C-g under C-c cancels the prefix alone"
+    );
+    send(&mut d, &mut editor, "C-c x");
+    assert!(editor.isearch().is_none());
+    assert_eq!(text(&editor), "ab ab", "C-c x is bound to nothing");
+}

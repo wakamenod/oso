@@ -13,13 +13,12 @@
 
 use std::fmt;
 use std::ops::{Range, RangeInclusive};
-use std::sync::atomic::Ordering;
 
 use super::Editor;
 use crate::buffer::BufferId;
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, WalkBudget};
-use crate::search::{KEY_BUDGET, MAX_QUERY_CHARS, MatchWork, Matched, Query, SearchJob};
+use crate::search::{KEY_BUDGET, MAX_QUERY_CHARS, Matched, Query};
 use crate::selection::{Goal, MAX_CURSORS, MarkActive, Selection, SelectionSet};
 use crate::sum_tree::Bias;
 use crate::word;
@@ -27,6 +26,7 @@ use crate::word;
 mod find;
 #[cfg(test)]
 mod tests;
+mod worker;
 
 pub use find::Toward;
 use find::{Text, Wanted};
@@ -50,6 +50,8 @@ pub enum CursorError {
     Loading,
     /// The primary cursor has no mark.
     NoMark,
+    /// isearch has no current match: it fails, or a worker still looks for one.
+    NoCurrentMatch,
 }
 
 impl fmt::Display for CursorError {
@@ -65,6 +67,7 @@ impl fmt::Display for CursorError {
             Self::OnlyOne => f.write_str("Only one cursor"),
             Self::Loading => f.write_str("Buffer is still loading"),
             Self::NoMark => f.write_str("The mark is not set now"),
+            Self::NoCurrentMatch => f.write_str("No current match"),
         }
     }
 }
@@ -192,62 +195,51 @@ impl Editor {
         Ok(())
     }
 
-    /// Takes in what a worker found for a key that adds cursors, unless the window's
-    /// cursors or the text changed since. Returns whether what shows changed.
-    pub(super) fn cursors_reported(&mut self, generation: u64, matched: Matched) -> bool {
-        let Some(marking) = &mut self.marking else {
-            return false;
-        };
-        let Some(pending) = marking
-            .pending
-            .take_if(|pending| pending.generation == generation)
-        else {
-            return false;
-        };
-        let (window, buffer, revision) = (marking.window, marking.buffer, marking.revision);
-        let len = self.buffer(buffer).map_or(0, |buffer| buffer.text().len());
-        let same = window == self.selected
-            && self.windows[window].buffer() == buffer
-            && self.windows[window].selections == pending.selections
-            && (pending.loading
-                || self
-                    .buffer(buffer)
-                    .is_some_and(|buffer| buffer.revision() == revision))
-            && matched.ranges.iter().all(|range| range.end <= len);
-        if !same {
-            self.say_found("Search dropped: the buffer changed".into());
-            return true;
+    /// `C->` or `C-<` in isearch, `toward` either way, or `C-c C-<` with none: ends the
+    /// search as `RET` does, with its current match as the primary's region, and goes on
+    /// as those keys do with the search's string and case, not only whole words.
+    ///
+    /// # Errors
+    ///
+    /// [`CursorError::NoCurrentMatch`], and with every occurrence counted already, more
+    /// than [`MAX_CURSORS`] of them; the search goes on. Otherwise, after it ended, what
+    /// the key says.
+    pub fn isearch_mark(&mut self, toward: Option<Toward>) -> Result<(), CursorError> {
+        let (query, current, total) = self
+            .isearch_current_match()
+            .ok_or(CursorError::NoCurrentMatch)?;
+        if toward.is_none()
+            && let Some(total) = total.filter(|&total| total > MAX_CURSORS)
+        {
+            return Err(CursorError::TooManyMatches(total));
         }
-        let done = match pending.ask {
-            Ask::Add { toward, most } => {
-                let found = self.put_found(toward, false, &matched.ranges);
-                found.and(if matched.ranges.len() < most {
-                    Err(CursorError::NoMore)
-                } else {
-                    Ok(())
-                })
-            }
-            Ask::Skip(toward) => self.put_found(toward, true, &matched.ranges),
-            Ask::All => self.put_all(&matched),
+        self.isearch_exit();
+        let index = self.selected;
+        let (window, buffer) = self.current();
+        let (id, revision) = (window.buffer(), buffer.revision());
+        let selections = &mut self.windows[index].selections;
+        let at_start = selections.primary().cursor == current.start;
+        let (mark, cursor) = if at_start {
+            (current.end, current.start)
+        } else {
+            (current.start, current.end)
         };
-        if let Err(error) = done {
-            self.say_found(error.to_string());
-        }
-        true
-    }
-
-    /// Drops a search for cursors still waiting on the worker, as every `C-g` does.
-    pub(super) fn drop_cursor_search(&mut self) {
-        let Some(pending) = self
-            .marking
-            .as_mut()
-            .and_then(|marking| marking.pending.take())
-        else {
-            return;
-        };
-        // A newer job, isearch's, may have taken its place already.
-        if pending.generation == self.search_live.load(Ordering::Relaxed) {
-            self.supersede_search();
+        selections.move_primary(cursor);
+        selections.push_primary_mark(mark);
+        selections.set_mark_active(MarkActive::Active);
+        self.marking = Some(Marking {
+            window: index,
+            buffer: id,
+            revision,
+            wanted: Wanted {
+                query,
+                whole_word: false,
+            },
+            pending: None,
+        });
+        match toward {
+            Some(toward) => self.find_cursors(toward, 1, false),
+            None => self.mark_all_like_this(),
         }
     }
 
@@ -455,33 +447,6 @@ impl Editor {
         Ok(primary)
     }
 
-    /// Leaves the rest of a search for cursors to the worker, from `from`.
-    fn ask_worker(&mut self, ask: Ask, from: usize, (text, wanted): (Text, Wanted)) {
-        let generation = self.supersede_search();
-        let loading = self.current().1.loading().is_some();
-        let work: MatchWork = match ask {
-            Ask::All => Box::new(move |stop| text.all(&wanted, stop)),
-            Ask::Add { toward, most } => {
-                Box::new(move |stop| several(&text, &wanted, toward, from, most, stop))
-            }
-            Ask::Skip(toward) => {
-                Box::new(move |stop| several(&text, &wanted, toward, from, 1, stop))
-            }
-        };
-        let live = (generation, self.search_live.clone());
-        self.search_job = Some(SearchJob::matches(work, live));
-        let selections = self.windows[self.selected].selections.clone();
-        if let Some(marking) = &mut self.marking {
-            marking.pending = Some(Pending {
-                generation,
-                ask,
-                selections,
-                loading,
-            });
-        }
-        self.echo("Searching…");
-    }
-
     /// The selected buffer's text, as a search for cursors reads it, in O(1).
     fn cursor_text(&self) -> Text {
         let buffer = self.current().1;
@@ -490,42 +455,6 @@ impl Editor {
             invalid: buffer.invalid_bytes().clone(),
             display: buffer.display(),
         }
-    }
-
-    /// Says what a search for cursors found, in the echo area alone while a buffer that may
-    /// hold secrets is shown, since it tells something of its text.
-    fn say_found(&mut self, text: String) {
-        if self.shows_secret() {
-            self.echo(text);
-        } else {
-            self.message(text);
-        }
-    }
-}
-
-/// Up to `most` occurrences `toward` either way from `from`, with no budget but `stop`.
-fn several(
-    text: &Text,
-    wanted: &Wanted,
-    toward: Toward,
-    from: usize,
-    most: usize,
-    stop: &dyn Fn() -> bool,
-) -> Option<Matched> {
-    let mut ranges = Vec::new();
-    let mut limit = usize::MAX;
-    match text.several(
-        wanted,
-        (toward, from),
-        (most, &mut limit),
-        stop,
-        &mut ranges,
-    ) {
-        Some(_) => None,
-        None => Some(Matched {
-            total: ranges.len(),
-            ranges,
-        }),
     }
 }
 
