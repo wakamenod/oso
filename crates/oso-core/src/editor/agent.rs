@@ -140,8 +140,7 @@ impl Editor {
     }
 
     /// The buffer `*Agent*`, once something was logged there.
-    #[cfg(test)]
-    fn agent_log_buffer(&self) -> Option<BufferId> {
+    pub(super) fn agent_log_buffer(&self) -> Option<BufferId> {
         self.agent.log
     }
 }

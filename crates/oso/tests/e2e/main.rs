@@ -12,6 +12,7 @@
 mod agent;
 mod buffers;
 mod complete;
+mod files;
 mod handover;
 mod harness;
 mod ime;

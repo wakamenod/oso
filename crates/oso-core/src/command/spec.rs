@@ -47,6 +47,13 @@ pub enum ArgSpec {
         history: &'static str,
         purpose: BufferPurpose,
     },
+    /// A path, read in a prompt that says `prompt` and completes by segments over listed
+    /// directories, starting at the buffer's directory, kept in the history named `history`
+    /// (ADR 0087). The command reads the whole path with [`Ctx::answer`](super::Ctx::answer).
+    File {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A mark of the selected window's, read in a prompt that says `prompt` and completes over
     /// the primary cursor's mark and its ring, with the buffer around the selected one beside
     /// it, and no history (ADR 0088). The command reads the row with
