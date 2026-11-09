@@ -570,6 +570,7 @@ pub fn oso_platform::window::Waker<T>::clone(&self) -> Self
 pub struct oso_platform::window::Window
 impl oso_platform::window::Window
 pub fn oso_platform::window::Window::discard_composition(&self)
+pub fn oso_platform::window::Window::ime_excerpt_extent(&self) -> core::option::Option<(usize, usize)>
 pub fn oso_platform::window::Window::inner_size(&self) -> (u32, u32)
 pub fn oso_platform::window::Window::input_context(&self) -> (bool, bool)
 pub fn oso_platform::window::Window::live_resize_counts(&self) -> (u32, u32)
@@ -583,6 +584,7 @@ pub fn oso_platform::window::Window::scale_factor(&self) -> f64
 pub fn oso_platform::window::Window::secure_input(&self) -> (bool, bool, bool)
 pub fn oso_platform::window::Window::set_ime_allowed(&self, bool)
 pub fn oso_platform::window::Window::set_ime_cursor_area(&self, oso_platform::window::CursorArea)
+pub fn oso_platform::window::Window::set_ime_excerpt(&self, &mut alloc::string::String, core::option::Option<usize>)
 pub fn oso_platform::window::Window::set_ime_preedit(&self, core::option::Option<(&str, oso_platform::window::CursorArea, &[f32])>)
 pub fn oso_platform::window::Window::set_outer_position(&self, i32, i32)
 pub fn oso_platform::window::Window::set_secure_input(&self, bool)

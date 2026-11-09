@@ -23,6 +23,10 @@ const TITLE: &str = "oso Editor";
 /// This layer commits a composition when oso turns the IME off (ADR 0077).
 pub(super) const COMMITS_WHEN_TURNED_OFF: bool = true;
 
+/// This layer answers the input method's questions from what the app gives it: where the
+/// composition is drawn, and the excerpt of the cursor's line (ADR 0077).
+pub(super) const ANSWERS_INPUT_METHOD: bool = true;
+
 /// Runs the event loop until it ends. `start` makes the app, given the waker other threads
 /// reach it through, before the window opens. `started` is when the process started.
 pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {
@@ -191,6 +195,20 @@ impl Window {
         let laid_out =
             laid_out.map(|(text, first, positions)| (text, cursor_area(first), positions));
         self.0.set_ime_preedit(laid_out);
+    }
+
+    /// Gives the input method the excerpt of the cursor's line, taken from `excerpt`, and
+    /// where the cursor is in it in bytes, or none (ADR 0077). Only kept, and read while the
+    /// IME is on.
+    pub(super) fn set_ime_excerpt(&self, excerpt: &mut String, cursor: Option<usize>) {
+        self.0.set_ime_excerpt(excerpt, cursor);
+    }
+
+    /// How long the excerpt the window holds is, and where the cursor is in it, for the dev
+    /// socket. No text.
+    #[cfg(feature = "dev")]
+    pub(super) fn ime_excerpt_extent(&self) -> Option<(usize, usize)> {
+        self.0.ime_excerpt_extent()
     }
 }
 

@@ -1213,6 +1213,9 @@ pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::Fram
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
+pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::files_seen(&mut self, &[(oso_core::buffer::BufferId, oso_core::buffer::DiskState)], bool, impl core::ops::function::Fn(oso_core::buffer::BufferId) -> bool) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::judge_reload(&mut self, oso_core::buffer::BufferId, core::result::Result<&[std::path::PathBuf], &[std::path::PathBuf]>)
 pub fn oso_core::editor::Editor::reload(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)

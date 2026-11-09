@@ -246,6 +246,12 @@ A panicking command is caught at the command boundary
   the view only keeps them, and answers the input method's question about a range with that
   place, so the candidate window follows the segment being converted. While the IME is off
   it gives no input context, so no text service reads it, and Writing Tools are off for it.
+  While the IME is on, the app also gives it an excerpt of the cursor's line, at most 2000
+  bytes each side of the cursor (`Editor::cursor_excerpt`), from a buffer whose verdict is
+  `Ordinary` and not internal, and none in a prompt; again when the buffer, its text or
+  verdict, or the cursor changed (`Editor::excerpt_stamp`). The view answers the input
+  method's questions about text and ranges in that excerpt's coordinates, with the
+  composition at the cursor, and drops the excerpt when the IME goes off.
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of

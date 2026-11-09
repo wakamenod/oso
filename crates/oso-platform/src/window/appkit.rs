@@ -273,6 +273,8 @@ impl State {
             self.update_secure(gate::SecureInput::release);
             // First, so that nothing reaches the handler again, `exiting` included.
             *self.panic.borrow_mut() = Some(payload);
+            // Nothing of a buffer stays for the input method once no handler runs.
+            self.update_ime(|ime| ime.set_allowed(false));
             // An end AppKit holds for an answer that will not come goes now. AppKit then ends
             // the process itself, with the copies the panic hook wrote, and the panic is not
             // resumed.
