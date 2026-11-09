@@ -34,6 +34,11 @@ fn main() {
     // First of all, before any text can be here, also in `oso ctl`. A dump would hold every
     // buffer (ADR 0028).
     let core_dumps = oso_platform::privacy::disable_core_dumps();
+    // The agent channel's bridge, in every build; it opens no window (ADR 0085).
+    let core_dumps_failed = core_dumps.as_ref().err().map(ToString::to_string);
+    if let Some(status) = channel::mcp::main_if_requested(core_dumps_failed) {
+        std::process::exit(status);
+    }
     #[cfg(feature = "dev")]
     if let Some(status) = dev::ctl::main_if_requested().or_else(dev::supervisor::main_if_requested)
     {

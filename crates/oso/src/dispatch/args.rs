@@ -49,16 +49,21 @@ pub fn map(
         (ArgSpec::Command { .. }, _) => Err(format!(
             "{name} reads a command's name; run the command itself"
         )),
-        // A name the agent gives would be text for a prompt that completes, with rules of its
-        // own: none is given yet.
         (ArgSpec::Theme { .. }, _) => Err(format!(
             "{name} reads a theme's name in a prompt, through send-keys"
         )),
+        // Only its prompt reads a buffer's name. The agent channel's switch to a buffer by name
+        // never comes here: `Dispatcher::run_for_agent` resolves the name to a buffer it may
+        // show, and shows it (ADR 0094, ADR 0095).
         (ArgSpec::Buffer { .. }, _) => Err(format!(
             "{name} reads a buffer's name, which only its prompt takes, from keys"
         )),
         (ArgSpec::Mark { .. }, _) => Err(format!(
             "{name} reads a mark, which only its prompt takes, from keys"
+        )),
+        // A path read with completion opens or writes a file the person typed (ADR 0087).
+        (ArgSpec::File { .. }, _) => Err(format!(
+            "{name} reads a path, which only its prompt takes, from keys"
         )),
         (ArgSpec::None, Given::Nothing) => plain(Args::with_prefix(prefix)),
         (ArgSpec::None, _) => Err(format!("{name} takes no argument")),
@@ -81,7 +86,7 @@ pub fn map(
 #[cfg(test)]
 mod tests {
     use super::{Given, Mapped, map};
-    use oso_core::command::{ArgSpec, Args, Prefix};
+    use oso_core::command::{ArgSpec, Args, BufferPurpose, Prefix};
 
     const NUMBER: ArgSpec = ArgSpec::Number {
         prompt: "Go to line: ",
@@ -160,9 +165,17 @@ mod tests {
         let buffer = ArgSpec::Buffer {
             prompt: "Switch to buffer: ",
             history: "buffer",
-            purpose: oso_core::command::BufferPurpose::Switch,
+            purpose: BufferPurpose::Switch,
         };
         assert!(refused(buffer, Given::Text("notes")).contains("buffer's name"));
+        assert!(refused(buffer, Given::Nothing).contains("buffer's name"));
+        assert!(refused(buffer, Given::Count(1)).contains("buffer's name"));
+        let kill = ArgSpec::Buffer {
+            prompt: "Kill buffer: ",
+            history: "buffer",
+            purpose: BufferPurpose::Kill,
+        };
+        assert!(refused(kill, Given::Text("notes")).contains("buffer's name"));
         let mark = ArgSpec::Mark {
             prompt: "Go to mark: ",
         };
@@ -172,5 +185,10 @@ mod tests {
             history: "theme",
         };
         assert!(refused(theme, Given::Nothing).contains("theme's name"));
+        let file = ArgSpec::File {
+            prompt: "Find file:",
+            history: "file",
+        };
+        assert!(refused(file, Given::Text("/etc/hosts")).contains("path"));
     }
 }

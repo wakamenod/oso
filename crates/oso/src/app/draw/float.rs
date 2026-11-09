@@ -50,7 +50,18 @@ impl<'a> Parts<'a> {
         });
         let list = prompt.candidates().map(|candidates| {
             let place = candidates.selected().map_or(0, |place| place + 1);
-            (candidates, format!("{place}/{}", candidates.len()))
+            // While a listing is on its way, the rows shown stay and the count says so
+            // (ADR 0076, ADR 0087).
+            let count = if editor.files_pending() {
+                "…/…".to_owned()
+            } else {
+                {
+                    // Past a limit, `+` says some were left out (ADR 0087).
+                    let more = if editor.files_cut() { "+" } else { "" };
+                    format!("{place}/{}{more}", candidates.len())
+                }
+            };
+            (candidates, count)
         });
         let mut region = Vec::new();
         editor.prompt_region_cells(&mut region);

@@ -19,9 +19,11 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+pub use path::{Name, NameKind, typed_form};
 pub(crate) use query::MAX_INPUT_BYTES;
 pub use query::Query;
 
+pub(crate) mod path;
 mod query;
 
 /// The most candidate rows a prompt shows, until configuration sets it (ADR 0026).
@@ -179,6 +181,8 @@ pub struct Candidates {
     previews: bool,
     /// The candidates keep the order given, not one from a history (ADR 0088).
     given_order: bool,
+    /// Only what is typed after the last `/` is matched, as a path's last segment (ADR 0087).
+    last_segment: bool,
 }
 
 impl Candidates {
@@ -242,7 +246,33 @@ impl Candidates {
             on_input: false,
             previews: false,
             given_order: false,
+            last_segment: false,
         }
+    }
+
+    /// Matches only what is typed after the last `/`.
+    pub(crate) fn match_last_segment(&mut self) {
+        self.last_segment = true;
+    }
+
+    /// The same candidates' settings over `items`, in the order [`Candidates::new`] gives them
+    /// with `history`, matched against what this matched last.
+    pub(crate) fn with_items<'a>(
+        &self,
+        items: Arc<[Candidate]>,
+        history: impl IntoIterator<Item = &'a str>,
+    ) -> Self {
+        let mut next = Self::new(items, history);
+        next.takes_input = self.takes_input;
+        next.previews = self.previews;
+        next.last_segment = self.last_segment;
+        next.given_order = self.given_order;
+        // Matched from scratch: the list is not the one this narrowed.
+        next.input = None;
+        if let Some(input) = &self.input {
+            next.set_input(input);
+        }
+        next
     }
 
     /// Shows the selected candidate beside the list.
@@ -274,6 +304,11 @@ impl Candidates {
     /// Matches `input`, looking only at what matched before where it narrows that, and
     /// selects the first match. Nothing changes for the input matched last.
     pub(crate) fn set_input(&mut self, input: &str) {
+        let input = if self.last_segment {
+            input.rfind('/').map_or(input, |slash| &input[slash + 1..])
+        } else {
+            input
+        };
         if input.len() > MAX_INPUT_BYTES {
             self.set_too_long();
             return;
@@ -354,13 +389,23 @@ impl Candidates {
     /// The match shown at `place`, from 0: an exact match of the input first, then the rest
     /// in their order.
     pub fn get(&self, place: usize) -> Option<&Candidate> {
+        self.items.get(self.item_at(place)?)
+    }
+
+    /// The index in the items given of the match shown at `place`, for a caller that keeps
+    /// more of each item beside it.
+    pub fn item_at(&self, place: usize) -> Option<usize> {
         let at = match self.exact {
             Some(exact) if place == 0 => exact,
             Some(exact) if place <= exact => place - 1,
             _ => place,
         };
-        let index = *self.matches.get(at)?;
-        self.items.get(index as usize)
+        Some(*self.matches.get(at)? as usize)
+    }
+
+    /// The place where the item at `index` shows, if it matches.
+    pub(crate) fn place_of(&self, index: usize) -> Option<usize> {
+        (0..self.len()).find(|place| self.item_at(*place) == Some(index))
     }
 
     /// Where the selected candidate shows, while any matches and what is typed is not selected.

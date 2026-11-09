@@ -5,7 +5,8 @@
 //! Must not depend on: the channel's socket or protocol, or `app`; the host decides when the
 //! channel may run anything at all.
 
-use oso_core::command::{Invocation, MAX_REMOTE_COUNT, Reach};
+use oso_core::buffer::{BufferId, Mode};
+use oso_core::command::{ArgSpec, BufferPurpose, Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
 
 use super::args::{self, Given};
@@ -22,6 +23,39 @@ impl Dispatcher {
     /// Every registered command, for the channel to list those it may run.
     pub fn commands(&self) -> impl Iterator<Item = &oso_core::command::Command> {
         self.registry.iter().map(|(_, command)| command)
+    }
+
+    /// The command `name`, if the channel may run it with `reach`: it is there, it is no
+    /// `Person` command, and `reach` is its own. Asked before anything waits for the person,
+    /// so that an agent hears at once what it may never run.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`], naming only a registered command.
+    pub fn by_reach(
+        &self,
+        name: &str,
+        reach: Reach,
+    ) -> Result<(oso_core::command::CommandId, oso_core::command::Command), Refused> {
+        let refused = |why: String| Err(Refused(why));
+        let Some(id) = self.registry.lookup(name) else {
+            return refused("no command by that name".into());
+        };
+        let Some(command) = self.registry.get(id).copied() else {
+            return refused("no command by that name".into());
+        };
+        if command.reach == Reach::Person {
+            return refused(format!("{name} needs a person at the keyboard"));
+        }
+        if command.reach != reach {
+            let other = if command.reach == Reach::Change {
+                "changes"
+            } else {
+                "only looks"
+            };
+            return refused(format!("{name} {other}; ask for its reach"));
+        }
+        Ok((id, command))
     }
 
     /// Runs the command `name` for the agent channel, if its reach is `reach`, with `given` as
@@ -41,23 +75,7 @@ impl Dispatcher {
         reach: Reach,
     ) -> Result<(Effects, Result<(), String>), Refused> {
         let refused = |why: String| Err(Refused(why));
-        let Some(id) = self.registry.lookup(name) else {
-            return refused("no command by that name".into());
-        };
-        let Some(command) = self.registry.get(id).copied() else {
-            return refused("no command by that name".into());
-        };
-        if command.reach == Reach::Person {
-            return refused(format!("{name} needs a person at the keyboard"));
-        }
-        if command.reach != reach {
-            let other = if command.reach == Reach::Change {
-                "changes"
-            } else {
-                "only looks"
-            };
-            return refused(format!("{name} {other}; ask for its reach"));
-        }
+        let (id, command) = self.by_reach(name, reach)?;
         if self.waits_for_clipboard() {
             return refused("a yank is waiting for the clipboard".into());
         }
@@ -77,6 +95,26 @@ impl Dispatcher {
             return refused(format!(
                 "the text times the cursors is more than {MAX_INSERTED} bytes"
             ));
+        }
+        // A buffer to show, by its name: resolved once, here, and shown as it is, so that
+        // nothing makes a buffer for the agent (ADR 0094, ADR 0095).
+        if let (
+            ArgSpec::Buffer {
+                purpose: BufferPurpose::Switch,
+                ..
+            },
+            Given::Text(name),
+        ) = (command.args, given)
+        {
+            let shown = showable(editor, name).map_err(|why| Refused(why.into()))?;
+            return Ok(self.as_input(editor, |_, editor| {
+                editor.for_agent(|editor| editor.show(shown));
+                let effects = Effects {
+                    redraw: true,
+                    ..Effects::default()
+                };
+                (effects, Ok(()))
+            }));
         }
         // Whatever the person's keys left stays theirs: the agent's command never takes it.
         let mapped = args::map(name, command.args, given, None).map_err(Refused)?;
@@ -99,6 +137,30 @@ impl Dispatcher {
         editor.forget_kills();
         Ok(ran)
     }
+}
+
+/// The buffer named `name`, if the agent may show it: one `C-x b` lists, as the channel
+/// makes no buffer (ADR 0094); not one that may hold secrets or is still loading; and one
+/// whose keys are the ordinary ones, so that the person's typing never reaches the bare keys
+/// of a list such as `*Emergency Copies*` (ADR 0095). The reason never quotes the name, which
+/// is the agent's text.
+fn showable(editor: &Editor, name: &str) -> Result<BufferId, &'static str> {
+    let Some((id, buffer)) = editor
+        .buffer_named(name)
+        .and_then(|id| Some((id, editor.buffer(id)?)))
+    else {
+        return Err("no buffer by that name; the channel makes none");
+    };
+    if buffer.is_secret() {
+        return Err("that buffer may hold secrets, so it is not shown; ask the person");
+    }
+    if buffer.loading().is_some() {
+        return Err("that buffer is still loading; try again");
+    }
+    if buffer.mode() != Mode::Fundamental {
+        return Err("that buffer's keys are the person's; ask the person");
+    }
+    Ok(id)
 }
 
 #[cfg(test)]
@@ -150,6 +212,132 @@ mod tests {
     }
 
     #[test]
+    fn switches_by_name_only_to_a_listed_buffer_that_may_be_shown() {
+        use std::path::PathBuf;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let todo = editor.add_buffer(Buffer::from_text("todo.md", "x"));
+        let env = PathBuf::from("/tmp/.env");
+        let mut secret = Buffer::visiting(env.clone());
+        secret.judge_secret(Some(&[env]));
+        editor.add_buffer(secret);
+        // Not judged yet: it may hold secrets until it is.
+        editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/later.txt")));
+        let buffers = editor.buffers().count();
+        let mut switch = |editor: &mut Editor, name| {
+            dispatcher.run_for_agent(editor, "switch-to-buffer", Given::Text(name), Reach::Look)
+        };
+        let (_, result) = switch(&mut editor, "todo.md").unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(editor.window().buffer(), todo);
+        let (_, result) = switch(&mut editor, "*Messages*").unwrap();
+        assert_eq!(result, Ok(()), "an internal buffer C-x b lists");
+        let messages = editor.window().buffer();
+        for (name, why) in [
+            ("missing.md", "no buffer by that name"),
+            (".env", "may hold secrets"),
+            ("later.txt", "may hold secrets"),
+        ] {
+            let Err(Refused(refused)) = switch(&mut editor, name) else {
+                panic!("{name} was shown");
+            };
+            assert!(refused.contains(why), "{name}: {refused}");
+            assert!(
+                !refused.contains(name),
+                "the agent's text is not quoted: {refused}"
+            );
+        }
+        assert_eq!(editor.window().buffer(), messages, "nothing else showed");
+        assert_eq!(
+            editor.buffers().count(),
+            buffers,
+            "the channel made no buffer"
+        );
+    }
+
+    /// Runs `switch-to-buffer` for the agent with `name`, and returns why it was refused.
+    fn refused_switch(dispatcher: &mut Dispatcher, editor: &mut Editor, name: &str) -> String {
+        refusal(
+            dispatcher,
+            editor,
+            "switch-to-buffer",
+            Given::Text(name),
+            Reach::Look,
+        )
+    }
+
+    /// A loaded buffer visiting `path`, judged by the names it resolved to.
+    fn visited(path: &str, resolved: &[&str]) -> Buffer {
+        use oso_core::display_map::TabWidth;
+        use oso_core::load::decode_all;
+        let mut buffer = Buffer::visiting(std::path::PathBuf::from(path));
+        let resolved: Vec<_> = resolved.iter().map(std::path::PathBuf::from).collect();
+        buffer.judge_secret(Some(&resolved));
+        buffer.apply_load(decode_all(b"x\n", TabWidth::default()));
+        buffer
+    }
+
+    #[test]
+    fn a_name_c_x_b_does_not_list_is_no_buffer_even_when_ordinary() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::CopyView);
+        assert!(!editor.buffer(view).unwrap().is_secret(), "judged ordinary");
+        let why = refused_switch(&mut dispatcher, &mut editor, "*copy of notes.txt*");
+        assert!(why.contains("no buffer by that name"), "{why}");
+        assert_ne!(editor.window().buffer(), view);
+    }
+
+    #[test]
+    fn the_list_of_emergency_copies_is_the_persons() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let notes = editor.window().buffer();
+        editor.toggle_copies();
+        editor.toggle_copies();
+        assert!(editor.has_copies_list());
+        assert_eq!(editor.window().buffer(), notes);
+        let why = refused_switch(&mut dispatcher, &mut editor, "*Emergency Copies*");
+        assert!(why.contains("the person's"), "{why}");
+        assert_eq!(editor.window().buffer(), notes);
+    }
+
+    #[test]
+    fn of_two_files_of_one_name_only_the_ordinary_one_shows() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let work = editor.add_buffer(visited("/work/notes.md", &["/work/notes.md"]));
+        // A name a link gave it: the file may hold secrets.
+        let home = editor.add_buffer(visited("/home/notes.md", &["/home/.env"]));
+        assert!(editor.buffer(home).unwrap().is_secret());
+        let name = |editor: &Editor, id| editor.buffer(id).unwrap().name().to_owned();
+        let (work_name, home_name) = (name(&editor, work), name(&editor, home));
+        assert_ne!(work_name, home_name, "told apart");
+        let (_, result) = dispatcher
+            .run_for_agent(
+                &mut editor,
+                "switch-to-buffer",
+                Given::Text(&work_name),
+                Reach::Look,
+            )
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(editor.window().buffer(), work, "exactly that one");
+        let why = refused_switch(&mut dispatcher, &mut editor, &home_name);
+        assert!(why.contains("may hold secrets"), "{why}");
+        assert_eq!(editor.window().buffer(), work);
+    }
+
+    #[test]
+    fn a_buffer_still_loading_is_not_shown() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let mut loading = Buffer::visiting(std::path::PathBuf::from("/tmp/big.log"));
+        loading.judge_secret(Some(&[std::path::PathBuf::from("/tmp/big.log")]));
+        assert!(loading.loading().is_some() && !loading.is_secret());
+        let id = editor.add_buffer(loading);
+        let why = refused_switch(&mut dispatcher, &mut editor, "big.log");
+        assert!(why.contains("still loading"), "{why}");
+        assert_ne!(editor.window().buffer(), id);
+    }
+
+    #[test]
     fn refuses_what_needs_a_person_or_another_reach() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
         let mut refused =
@@ -167,12 +355,8 @@ mod tests {
         assert!(refused("delete-char", Given::Nothing, Reach::Look).contains("changes"));
         assert!(refused("forward-char", Given::Nothing, Reach::Change).contains("only looks"));
         assert!(refused("goto-line", Given::Nothing, Reach::Look).contains("needs a number"));
-        // Its name would be read in a prompt, which the channel never opens.
+        // Its name comes with it as text; no prompt opens for it.
         assert!(refused("switch-to-buffer", Given::Nothing, Reach::Look).contains("buffer's name"));
-        assert!(
-            refused("switch-to-buffer", Given::Text("notes"), Reach::Look)
-                .contains("buffer's name")
-        );
         assert!(
             refused("mark-whole-buffer", Given::Count(1), Reach::Look)
                 .contains("takes no argument")

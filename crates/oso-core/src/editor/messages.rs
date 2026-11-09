@@ -388,7 +388,13 @@ impl Editor {
         let Some(staged) = buffer.stage_internal(&edits) else {
             return;
         };
-        let moved = self.moved_selections(id, &staged.display(), staged.steps(), Selected::Logged);
+        let moved = self.moved_selections(
+            id,
+            &staged.display(),
+            staged.steps(),
+            staged.changed(),
+            Selected::Logged,
+        );
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.commit_internal(staged);

@@ -78,7 +78,7 @@ impl Editor {
         // where a cursor can be too (ADR 0071).
         let display = shown.display();
         selections.set_mark_active(MarkActive::Inactive);
-        clip_selections(&mut selections, &display, &[], false);
+        clip_selections(&mut selections, &display, &[], false, None);
         window.restore_positions(selections, scroll, &display);
         self.follow_window(index);
     }
@@ -148,16 +148,13 @@ impl Editor {
 
     /// The buffers a person goes between, the one the tiled window shows first, then those it
     /// showed before, the most recent first, then the rest in the order they opened: every
-    /// buffer of the user's, `*Messages*` and the list of emergency copies once made. A prompt's
-    /// buffer and a copy being looked at are left out (ADR 0088).
+    /// buffer of the user's, `*Messages*`, and the list of emergency copies and `*Agent*` once
+    /// made. A prompt's buffer and a copy being looked at are left out (ADR 0088).
     pub fn buffers_by_recency(&self) -> Vec<BufferId> {
         let window = &self.windows[self.tiled_index()];
         let listed = |id: BufferId| {
-            self.buffer(id).is_some_and(|buffer| {
-                !buffer.is_internal()
-                    || id == self.messages_buffer
-                    || Some(id) == self.copies_buffer
-            })
+            self.buffer(id)
+                .is_some_and(|buffer| self.listed(id, buffer))
         };
         let mut order = Vec::new();
         let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
@@ -176,13 +173,17 @@ impl Editor {
         // Names are unique, so one pass finds it, whatever the order.
         self.buffers
             .iter()
-            .find(|(id, buffer)| {
-                buffer.name() == name
-                    && (!buffer.is_internal()
-                        || *id == self.messages_buffer
-                        || Some(*id) == self.copies_buffer)
-            })
+            .find(|(id, buffer)| buffer.name() == name && self.listed(*id, buffer))
             .map(|(id, _)| *id)
+    }
+
+    /// Whether a person goes to `buffer`: one of the user's, or the internal buffers a person
+    /// reads, `*Messages*`, the list of emergency copies and `*Agent*` (ADR 0088).
+    fn listed(&self, id: BufferId, buffer: &Buffer) -> bool {
+        !buffer.is_internal()
+            || id == self.messages_buffer
+            || Some(id) == self.copies_buffer
+            || Some(id) == self.agent_log_buffer()
     }
 
     /// Shows the buffer named `name`, making an empty one with no file if none is (ADR 0088).

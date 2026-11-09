@@ -373,6 +373,12 @@ process spawning, the state format, the order of a restart and the source
 watcher, so CI runs them on Linux and macOS. Windows is not supported yet
 (ADR 0032).
 
+The agent channel's flows (`tests/e2e/agent.rs`, ADR 0085) talk to the channel's own socket
+as an agent would, with the dev socket's keys standing in for the person's. The one for
+`oso mcp` gives the bridge its requests in a file, with the dev-only `oso mcp --requests FILE`:
+a child that `oso_platform::process` starts gets a closed stdin, by design. So the path where
+stdin stays open while the person decides is tested only in the bridge's unit tests.
+
 ### Level 3: snapshot tests (after text rendering lands)
 
 - Render headlessly and compare PNGs with a tolerance.
@@ -429,7 +435,8 @@ OS and architecture. Nothing is built or installed there.
 - Key latency ends when `present` returns, so it leaves out the GPU's work as
   well as the display and the compositor.
 - `crates/oso-core/examples/text_perf.rs` remains for looking closely at the
-  rope and the display model.
+  rope and the display model. `-- cursors` runs only typing and undo at 1, 100 and 1000
+  cursors, bare, with marks and over regions (ADR 0091).
 
 ## Fuzzing
 
