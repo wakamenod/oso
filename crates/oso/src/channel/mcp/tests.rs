@@ -111,7 +111,9 @@ fn initializes_without_connecting_and_lists_its_tools() {
         .collect();
     assert_eq!(
         names,
-        ["state", "text", "commands", "look", "change", "open"]
+        [
+            "state", "text", "commands", "look", "change", "open", "cancel"
+        ]
     );
     let hint = |name: &str, hint: &str| {
         tools.iter().find(|tool| tool["name"] == name).unwrap()["annotations"][hint].clone()
@@ -122,6 +124,8 @@ fn initializes_without_connecting_and_lists_its_tools() {
     assert_eq!(hint("look", "readOnlyHint"), false);
     assert_eq!(hint("open", "readOnlyHint"), false);
     assert_eq!(hint("change", "destructiveHint"), true);
+    assert_eq!(hint("cancel", "readOnlyHint"), false);
+    assert_eq!(hint("cancel", "destructiveHint"), false);
     assert_eq!(
         asked.borrow().connects,
         0,
@@ -162,6 +166,7 @@ fn tools_become_the_channels_methods_with_their_reach() {
         &call("open", &json!({ "path": "/tmp/a.md", "line": 3 })),
     );
     response(&mut bridge, &call("state", &json!({})));
+    response(&mut bridge, &call("cancel", &json!({})));
     let calls = asked.borrow().calls.clone();
     let run = |name: &str, arg: Value, reach: &str| {
         (
@@ -176,6 +181,7 @@ fn tools_become_the_channels_methods_with_their_reach() {
         ("open".to_owned(), json!({ "path": "/tmp/a.md", "line": 3 }))
     );
     assert_eq!(calls[3].0, "state");
+    assert_eq!(calls[4], ("cancel".to_owned(), json!({})));
     assert_eq!(asked.borrow().connects, 1, "one connection for all");
 }
 
@@ -188,6 +194,8 @@ fn a_reach_cannot_be_given_by_the_agent() {
         &call("look", &json!({ "name": "delete-char", "reach": "change" })),
     );
     assert_eq!(sneaky["error"]["code"], -32602);
+    let cancel = response(&mut bridge, &call("cancel", &json!({ "id": 3 })));
+    assert_eq!(cancel["error"]["code"], -32602, "cancel takes nothing");
     assert!(asked.borrow().calls.is_empty());
 }
 

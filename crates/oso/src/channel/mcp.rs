@@ -17,7 +17,8 @@
 //!   the agent gave up on runs later.
 //! - JSON-RPC as MCP uses it: ids are strings or numbers, params are objects, there are no
 //!   batches, and responses the agent sends are ignored.
-//! - Tools: `state`, `text`, `commands`, `look`, `change` and `open`. Looking and changing are
+//! - Tools: `state`, `text`, `commands`, `look`, `change`, `open` and `cancel` (ADR 0093).
+//!   Looking and changing are
 //!   separate tools, so that the agent's own permission rules can allow one and ask for the
 //!   other.
 
@@ -40,7 +41,7 @@ const MCP_VERSIONS: [&str; 2] = ["2025-06-18", "2024-11-05"];
 const PROBE_EVERY: Duration = Duration::from_secs(5);
 
 /// What the bridge tells the agent about itself when it starts.
-const INSTRUCTIONS: &str = "Drives the person's oso editor through its agent channel. The person turns the channel on with M-x agent-channel-start and lets each connection in; until then, tool calls fail and say so. A refusal that says the person is busy means: wait, and try again. Commands that need a person at the keyboard are never run.";
+const INSTRUCTIONS: &str = "Drives the person's oso editor through its agent channel. The person turns the channel on with M-x agent-channel-start and lets each connection in; until then, tool calls fail and say so. A refusal that says the person is busy means: wait, and try again. A change that waits for the person can be taken back with cancel. Commands that need a person at the keyboard are never run.";
 
 /// A connection to the channel.
 trait Link {
