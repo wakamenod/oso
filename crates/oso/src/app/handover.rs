@@ -192,6 +192,7 @@ impl App {
             .zip(carried)
             .enumerate()
         {
+            let opened_by_agent = entry.opened_by_agent;
             let buffer = match (entry.path, carried) {
                 (Some(path), None) => self.visit(path),
                 (Some(path), Some((text, facts))) => {
@@ -213,6 +214,10 @@ impl App {
             };
             if buffer != scratch {
                 added.push(buffer);
+                // Its saves still ask the person, as before the restart (ADR 0085).
+                if opened_by_agent && let Some(buffer) = self.editor.buffer_mut(buffer) {
+                    buffer.mark_opened_by_agent();
+                }
             }
             if index == state.shown {
                 shown = buffer;

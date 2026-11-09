@@ -196,7 +196,12 @@ fn buffer_state(id: BufferId, buffer: &Buffer, items: &mut Vec<Item>) -> Result<
             (path, facts_state(items.len() - 1, &buffer.file_facts())?)
         }
     };
-    Ok(json!({ "id": id.get(), "path": path, "text": text }))
+    let mut entry = json!({ "id": id.get(), "path": path, "text": text });
+    // Said only when true, so that a state from before it reads the same (ADR 0085).
+    if buffer.opened_by_agent() {
+        entry["opened_by_agent"] = Value::Bool(true);
+    }
+    Ok(entry)
 }
 
 /// How a buffer is handed over.
