@@ -1,6 +1,6 @@
 # 0100. Soft wrap
 
-- Status: Accepted
+- Status: Accepted, amended by 0102
 - Date: 2026-11-09
 
 ## Context
@@ -75,10 +75,9 @@ the first.
   - **Never a break opportunity:** U+00A0, U+202F and U+2007 (no-break spaces), and inside a word.
     A word longer than a row breaks at the last cluster that fits.
   - **Kinsoku** uses the core sets of JIS X 4051:
-    - a row starts with none of `、。，．・：；？！ー）］｝〕〉》」』】`, the small kana, the
-      iteration marks `々ゝゞヽヾ`, `〜`, `‼`, the closing quotes `”’`, or the halfwidth
-      `｡｣､･ｧｨｩｪｫｬｭｮｯｰ`, nor with ASCII `,.:;?!)]}` after CJK;
-    - a row ends with none of `（［｛〔〈《「『【“‘｢`, nor with `([{` before CJK;
+    - a row starts with none of `、。，．・：；？！ー）］｝〕〉》」』】` or the small kana, nor with
+      ASCII `,.:;?!)]}` after CJK;
+    - a row ends with none of `（［｛〔〈《「『【`, nor with `([{` before CJK;
     - a break that would break a rule moves back, by up to two clusters, which then start the next
       row. If two are not enough, it breaks where it would have.
 - **The spaces at a break (author):**
@@ -140,21 +139,17 @@ the first.
     logical line where it starts. Unwrapped, each logical line is one view row.
   - Only what draws or scrolls reads view rows. That is the renderer, the frame's cell rectangles,
     the window's scroll, isearch's highlights and the input method's rectangle.
-- **A `SumTree` of rows with bounded items.** An item is either a run of at most 256 logical
-  lines that each fit in a row, or at most 64 rows, of one line or several. A line that wraps
-  starts an item of rows, which takes the lines around it until 16 that fit come in a row. Its
-  summary counts view rows, bytes and logical lines, so a view row and an offset convert both
-  ways in O(log n).
-  - A 10 MB line at 100 columns holds about 100,000 rows in about 1,700 items. An edit copies
+- **A `SumTree` of breaks with bounded items.** An item is either a run of logical lines that do
+  not wrap, or at most 64 breaks within one TabMap chunk. Its summary counts view rows and bytes,
+  so a view row and an offset convert both ways in O(log n).
+  - A 10 MB line at 100 columns holds about 100,000 breaks in about 1,600 items. An edit copies
     the path to the items it changes, not the line.
-  - A row in an item of rows costs about 9 bytes, items and summaries counted; a run of lines
-    that fit costs next to nothing. `text_perf -- wrap` measures it: 100 MB of prose at 40
-    columns takes about 22 MB a window, 100 MB of source about 46 MB at 40 columns and 1 MB at
-    80, and a 10 MB line about 1 MB.
-- **Whether a line fits** is found from its bytes when it is printable ASCII and tabs, and by
-  reading its clusters otherwise, on the worker or for the rows in view. The TabMap gains no field
-  for it (the checkpoints of ADR 0099, PR #123, make a scan from mid-line cheap). A line's width in
-  the TabMap's summary would need a later ADR.
+  - A break costs at most 8 bytes, so a wrap takes at most 8 bytes per view row that continues.
+    100 MB of one-line paragraphs at 40 columns comes to about 2.5 million breaks, about 20 MB a
+    window. `text_perf` measures it, and a 1 GB file too (below).
+- **Whether a line fits** is found by reading its clusters, on the worker or for the rows in view.
+  The TabMap gains no field for it (the checkpoints of ADR 0099, PR #123, make a scan from mid-line
+  cheap). A line's width in the TabMap's summary would need a later ADR.
 
 ### A window's top
 
@@ -179,11 +174,8 @@ the first.
 - **Every window's wrap follows each edit with the buffer.** `Editor` rewraps every window that
   shows the buffer on clones, and commits them in the same step that swaps the buffer's rope and
   display map in, which cannot panic (ADR 0053). So a window's wrap and its buffer never disagree.
-- **A command's splices rewrap in the order they were applied,** each with the display snapshots
-  from before and after it, which the edit core makes anyway
-  ([ADR 0092](0092-edits-in-place-for-many-cursors.md)). Once the command's budget is spent, the
-  rest are joined in one go: what they changed, taken back through those before, becomes one
-  provisional span and one stale range.
+- **A command's splices rewrap in one pass,** ascending, over the ranges the edit rebuilt
+  (`changed`, [ADR 0092](0092-edits-in-place-for-many-cursors.md)), after all of them are applied.
 - **Where a rewrap starts:**
   - Clusters change only in the rebuilt chunks (ADR 0092), so it starts at the view row before the
     one that holds the rebuilt chunks' start.
@@ -195,9 +187,8 @@ the first.
   - after a cluster of the same class for the rules.
 
   From there every break is as before.
-- **What the UI thread does is bounded** by the rows in view and a budget of 128 KiB of rows a
-  command, each splice charged 2 KiB more for its seeks into a long line: about 4 ms whatever
-  the script, as CJK costs about twice what ASCII does a byte.
+- **What the UI thread does is bounded** by the rows in view and a byte budget, 256 KiB a command,
+  as a key's is (ADR 0091).
   - Text with spaces resyncs within a row or two of an edit.
   - In CJK or text with no spaces, the breaks after an edit all shift and may not resync before the
     line's end. Past the rows in view and the budget, the old breaks are kept, shifted by the
@@ -315,11 +306,9 @@ the first.
   1. The WrapMap, its rules and `text_perf`, after ADR 0099 (PR #123)
      merges. Its result does not depend on the checkpoints, which are exact; its cost
      does.
-  2. The worker and the UI thread's budget, with the stale tail, before anything shows wrapped
-     rows: an edit rewraps the chunks the rope rebuilt around it, about 700 bytes, so a
-     thousand cursors would rewrap about 700 KB a key without the budget.
-  3. The offset top, the window's wrap and the toggle.
-  4. The renderer, the frame, isearch and the input method.
+  2. The offset top, the window's wrap and the toggle.
+  3. The renderer, the frame, isearch and the input method.
+  4. The worker.
 
 ### Tests and measures
 
