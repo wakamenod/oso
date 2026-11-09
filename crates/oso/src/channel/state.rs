@@ -94,6 +94,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
         "secret": buffer.is_secret(),
         "read_only": buffer.read_only().is_some(),
         "loading": buffer.loading().is_some(),
+        "wrapped": buffer.wraps(),
     })
 }
 
@@ -110,7 +111,7 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
             let point = display.offset_to_display_point(offset);
             json!({ "row": point.row, "column": point.column })
         };
-        state["first_row"] = json!(window.scroll().top);
+        state["first_row"] = json!(first_line(window, shown.text(), &display));
         state["selection_count"] = json!(window.selections.len());
         state["selections"] = window
             .selections
@@ -142,7 +143,15 @@ pub const fn kind(kind: Kind) -> &'static str {
 /// The rows the window shows in full, at most [`MAX_VISIBLE_TEXT`].
 fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Value {
     let (rows, truncated) = visible_rows(window, text, display, MAX_VISIBLE_TEXT);
-    json!({ "first_row": window.scroll().top, "rows": rows, "truncated": truncated })
+    let first = first_line(window, text, display);
+    json!({ "first_row": first, "rows": rows, "truncated": truncated })
+}
+
+/// The logical line that holds the window's top. The agent's rows are logical lines, so that
+/// its view does not depend on a window's width (ADR 0100).
+fn first_line(window: &Window, text: &Rope, display: &DisplaySnapshot) -> usize {
+    let start = window.scroll().start.min(text.len());
+    display.offset_to_display_point(start).row
 }
 
 /// The rows the window shows in full, from its top row and left column, cut at its right
@@ -156,14 +165,12 @@ pub fn visible_rows(
 ) -> (Vec<String>, bool) {
     let size = window.size();
     let scroll = window.scroll();
-    let end_row = scroll
-        .top
-        .saturating_add(size.rows)
-        .min(display.row_count());
+    let top = first_line(window, text, display);
+    let end_row = top.saturating_add(size.rows).min(display.row_count());
     let right = scroll.left.saturating_add(size.columns);
     let mut budget = budget;
     let mut rows = Vec::new();
-    for row in scroll.top..end_row {
+    for row in top..end_row {
         let start =
             display.display_point_to_offset(DisplayPoint::new(row, scroll.left), Bias::Left);
         let end = display.display_point_to_offset(DisplayPoint::new(row, right), Bias::Right);

@@ -15,6 +15,8 @@
 //!   there every row is as before (`edit.rs`).
 //! - A command's rewraps read at most a budget; past it, rows are provisional and stale, and
 //!   a [`WrapJob`] rewraps them, or a new width, off the UI thread (`job.rs`, ADR 0102).
+//! - Until a job reports, the rows near a window's view are wrapped from an anchor, and the
+//!   rest count one row a logical line (`view.rs`, ADR 0103).
 //!
 //! No `Debug` here prints an offset, as where rows break tells how long words are in a
 //! buffer that may hold secrets.
@@ -23,12 +25,14 @@ mod breaks;
 mod builder;
 mod edit;
 mod job;
+mod view;
 
 use std::fmt;
 use std::sync::Arc;
 
 use self::breaks::{Cluster, RowEnd, Rows};
 use self::builder::Builder;
+pub(crate) use self::job::WrapMap;
 pub use self::job::{COMMAND_BUDGET, Splice, WrapJob, WrapReport};
 use super::{DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::sum_tree::{Bias, Dimension, Item, SumTree, Summary};
@@ -431,6 +435,11 @@ impl WrapSnapshot {
             .sum()
     }
 
+    /// How many bytes its rows cover, which is its buffer's length.
+    pub(crate) fn len(&self) -> usize {
+        self.tree.summary().bytes
+    }
+
     /// Whether rows wrap at all.
     pub fn wraps(&self) -> bool {
         self.width != usize::MAX
@@ -487,7 +496,7 @@ impl WrapSnapshot {
 
     /// Where view row `row` starts and ends, and whether its line goes on past it, without
     /// the column a [`ViewRow`] gives, which costs a scan of its line.
-    fn row_span(&self, display: &DisplaySnapshot, row: usize) -> (usize, usize, bool) {
+    pub(crate) fn row_span(&self, display: &DisplaySnapshot, row: usize) -> (usize, usize, bool) {
         let mut cursor = self.tree.cursor::<(ViewRows, Start)>();
         cursor.seek(&ViewRows(row), Bias::Right);
         let start = cursor.start().1;

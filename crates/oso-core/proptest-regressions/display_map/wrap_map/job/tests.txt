@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc c11c624d79a641b1e536a96bd8d171460028dc6b12a07fef80a4b0dc72a0126f # shrinks to text = " abcdefghij word 日本語 word abcdefghij日本語word word word word 。word 。\t\t。word abab\t\t\t word abword \tab ", steps = [(1, [(6, 3, "abab")], 8)], columns = 12
+cc d552f07900d592038a65f2ebfaacb239cdb6b8e98e921906d7f593d17df8bae8 # shrinks to text = "日本語word ababword word  word word word word abcdefghijword word word word ababab", steps = [(0, [(3, 0, "。。word ab日本語abcdefghij。")], 4), (1, [(0, 0, "。。abab\n\t 。\tword 。。。日本語。。\nword word word 日本語word 日本語word word word  abcdefghij abab\t")], 4), (1, [(120, 0, "")], 4), (1, [(105, 0, "\nabcdefghij日本語abcdefghijword \n\nabword 日本語"), (0, 0, "")], 4)], columns = 8, provisional = false

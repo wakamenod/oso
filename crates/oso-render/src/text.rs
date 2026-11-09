@@ -16,7 +16,7 @@ use std::ops::Range;
 use bytemuck::{Pod, Zeroable};
 use oso_core::display_map::DisplayPoint;
 use oso_core::frame::{CellRect, PixelGrid, PixelRect};
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 use oso_platform::text::{CellMetrics, GlyphFormat};
 
 use wgpu::util::DeviceExt;
@@ -120,7 +120,7 @@ pub(crate) struct Layout {
     /// [`Self::top_band`].
     clip: PixelRect,
     /// The display row and column at the region's top-left cell.
-    scroll: Scroll,
+    scroll: ViewTop,
     /// The cells under the cursor box: its display point and width. Glyphs
     /// there are drawn on it, in [`Face::Cursor`].
     cursor: (DisplayPoint, usize),
@@ -132,7 +132,7 @@ pub(crate) struct Layout {
 
 impl Layout {
     /// A pane's layout with no cursor box.
-    pub(crate) fn new(metrics: CellMetrics, region: CellRect, scroll: Scroll) -> Self {
+    pub(crate) fn new(metrics: CellMetrics, region: CellRect, scroll: ViewTop) -> Self {
         let grid = PixelGrid::new(metrics.width, metrics.height);
         Self {
             grid,
@@ -185,7 +185,7 @@ impl Layout {
     /// ones.
     fn display_cell(&self, row: usize, column: usize) -> [f32; 2] {
         let column = column as i64 - self.scroll.left as i64;
-        let row = row as i64 - self.scroll.top as i64;
+        let row = row as i64 - self.scroll.row as i64;
         self.grid.cell(
             self.region.row as i64 + row,
             self.region.column as i64 + column,
@@ -579,7 +579,7 @@ mod tests {
             rows: 5,
             columns: 20,
         };
-        Layout::new(METRICS, cells, Scroll::default()).with_cursor(
+        Layout::new(METRICS, cells, ViewTop::default()).with_cursor(
             0,
             CellRect {
                 column: 3,
@@ -618,7 +618,7 @@ mod tests {
         assert_eq!(l.display_cell(0, 0), [8.0, 8.0]);
         assert_eq!(l.display_cell(0, 3), [38.0, 8.0]);
         assert_eq!(l.display_cell(2, 1), [18.0, 48.0]);
-        l.scroll = Scroll { top: 10, left: 20 };
+        l.scroll = ViewTop { row: 10, left: 20 };
         assert_eq!(l.display_cell(10, 20), [8.0, 8.0]);
         assert_eq!(l.display_cell(11, 19), [-2.0, 28.0]);
         // Far columns keep whole-pixel precision.
@@ -782,7 +782,7 @@ mod tests {
             rows: 5,
             columns: 20,
         };
-        let l = Layout::new(metrics, cells, Scroll::default());
+        let l = Layout::new(metrics, cells, ViewTop::default());
         // Row 1 spans y 48..88, with its baseline at 81. The bitmap starts at
         // y 79 and is 30 px tall, so it is kept down to y 92.
         let q = l
@@ -827,7 +827,7 @@ mod tests {
     #[test]
     fn glyphs_stay_in_their_cells_when_scrolled() {
         let mut l = layout();
-        l.scroll = Scroll { top: 10, left: 20 };
+        l.scroll = ViewTop { row: 10, left: 20 };
         // Cell (11, 21) spans x 18..28 and y 28..48.
         let q = l
             .quad(11, &glyph(21, 1), &bitmap(-5, 12, [20, 12]), &theme())
@@ -912,7 +912,7 @@ mod tests {
             rows: 1,
             columns: 20,
         };
-        let l = Layout::new(METRICS, cells, Scroll::default());
+        let l = Layout::new(METRICS, cells, ViewTop::default());
         // The pane spans y 68..88, with its baseline at 84: nothing above 68.
         let q = l
             .quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24]), &theme())
@@ -930,7 +930,7 @@ mod tests {
             rows: 1,
             columns: 20,
         };
-        let l = Layout::new(METRICS, cells, Scroll::default()).with_band_above();
+        let l = Layout::new(METRICS, cells, ViewTop::default()).with_band_above();
         // The pane spans y 68..88. A bitmap from y 60 is kept from y 64, 4 px up.
         let q = l
             .quad(0, &glyph(1, 1), &bitmap(0, 24, [8, 24]), &theme())
@@ -950,7 +950,7 @@ mod tests {
             rows: 2,
             columns: 4,
         };
-        let l = Layout::new(METRICS, cells, Scroll::default());
+        let l = Layout::new(METRICS, cells, ViewTop::default());
         assert_eq!(l.display_cell(0, 0), [38.0, 48.0]);
         let q = l.quad(0, &glyph(1, 1), &entry(), &theme()).unwrap();
         assert_eq!(q.position, [49.0, 52.0]);
@@ -991,7 +991,7 @@ mod tests {
             rows: 0,
             columns: 20,
         };
-        let l = Layout::new(METRICS, cells, Scroll::default());
+        let l = Layout::new(METRICS, cells, ViewTop::default());
         assert!(l.quad(0, &glyph(0, 1), &entry(), &theme()).is_none());
         assert!(
             l.quad(0, &glyph(0, 1), &bitmap(0, 24, [8, 24]), &theme())

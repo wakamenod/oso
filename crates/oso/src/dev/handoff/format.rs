@@ -58,6 +58,8 @@ pub struct State {
     pub shown: usize,
     pub selections: SelectionSet,
     pub scroll: Scroll,
+    /// Whether `scroll`'s start is a logical line, as a state before version 3 kept the top.
+    pub top_is_row: bool,
     pub pending_keys: Vec<KeyPress>,
     pub frame: Option<Frame>,
     /// The theme the previous instance drew in, if it said.
@@ -87,6 +89,8 @@ pub struct BufferEntry {
     pub path: Option<PathBuf>,
     pub carried: Option<Carried>,
     pub opened_by_agent: bool,
+    /// Whether its long lines wrap (ADR 0100), said only when they do.
+    pub wraps: bool,
 }
 
 /// The text a buffer held unsaved, and what it knew of its file.
@@ -181,10 +185,10 @@ pub fn selections_state(selections: &SelectionSet) -> Value {
 pub fn parse(state: &Value) -> Result<State, String> {
     let state = state.as_object().ok_or("the state is not an object")?;
     let version = match state.get("version").and_then(Value::as_u64) {
-        Some(version @ (1 | STATE_VERSION)) => version,
+        Some(version @ (1 | 2 | STATE_VERSION)) => version,
         Some(version) => {
             return Err(format!(
-                "the state has version {version}, and this build reads versions 1 and {STATE_VERSION}"
+                "the state has version {version}, and this build reads versions 1 to {STATE_VERSION}"
             ));
         }
         None => return Err("the state has no version".into()),
@@ -240,9 +244,10 @@ pub fn parse(state: &Value) -> Result<State, String> {
         shown,
         selections: parse_selections(window)?,
         scroll: Scroll {
-            top: size(scroll, "top")?,
+            start: size(scroll, if version < 3 { "top" } else { "start" })?,
             left: size(scroll, "left")?,
         },
+        top_is_row: version < 3,
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
         theme: super::parse_theme(state)?,
@@ -386,10 +391,16 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         Some(Value::Bool(opened)) => *opened,
         Some(_) => return Err("a buffer's opened_by_agent is not true or false".into()),
     };
+    let wraps = match entry.get("wraps") {
+        None => false,
+        Some(Value::Bool(wraps)) => *wraps,
+        Some(_) => return Err("a buffer's wraps is not true or false".into()),
+    };
     Ok(BufferEntry {
         path,
         carried,
         opened_by_agent,
+        wraps,
     })
 }
 

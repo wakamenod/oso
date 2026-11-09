@@ -54,6 +54,7 @@ mod status;
 mod switch;
 mod themes;
 mod view;
+mod wraps;
 mod write;
 mod yank_pop;
 
@@ -405,6 +406,7 @@ impl Editor {
         let after = moved
             .iter()
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
+        let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
 
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
@@ -413,6 +415,7 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
+        self.commit_views(id, views);
         self.note_edited(id);
         Ok(())
     }
@@ -457,7 +460,10 @@ impl Editor {
     /// which returns to the selected window's cursors as they are now. A group
     /// left open closes here first, so a missed end costs one step, not all
     /// later ones in a single group.
+    ///
+    /// Each window's wrap gets its budget for the command here too (ADR 0102).
     pub fn begin_undo_group(&mut self) {
+        self.refill_wraps();
         self.close_undo_scope(false);
         let window = &self.windows[self.selected];
         self.undo_scope = Some(UndoScope {
@@ -566,6 +572,7 @@ impl Editor {
             staged.changed(),
             selected,
         );
+        let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
 
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
@@ -574,6 +581,7 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
+        self.commit_views(id, views);
         // Crossing a recovery takes its verdict along.
         self.note_secret_shown();
         if let Some(scope) = &mut self.undo_scope {
@@ -613,13 +621,13 @@ mod tests {
     /// Resizes to `rows` rows. Returns whether the view moved and the top row.
     fn resize(editor: &mut Editor, rows: usize) -> (bool, usize) {
         let moved = editor.set_view_size(ViewSize::new(rows, 40));
-        (moved, editor.window().scroll().top)
+        (moved, editor.top_row())
     }
 
     #[test]
     fn growing_at_the_end_shows_the_text_again() {
         let mut editor = editor_on_row(100, 100, 10);
-        assert_eq!(editor.window().scroll().top, 91);
+        assert_eq!(editor.top_row(), 91);
         let cursor = editor.window().selections.primary().cursor;
         assert_eq!(resize(&mut editor, 1), (true, 100), "only the cursor's row");
         assert_eq!(resize(&mut editor, 10), (true, 91), "the screen it had");
@@ -653,7 +661,7 @@ mod tests {
     #[test]
     fn growing_near_the_end_fills_only_the_empty_rows() {
         let mut editor = editor_on_row(100, 95, 3);
-        assert_eq!(editor.window().scroll().top, 93);
+        assert_eq!(editor.top_row(), 93);
         assert_eq!(resize(&mut editor, 8), (false, 93), "rows 93 to 100");
         assert_eq!(resize(&mut editor, 10), (true, 91));
 
@@ -671,7 +679,7 @@ mod tests {
     #[test]
     fn a_buffer_shorter_than_the_window_comes_back_from_its_top() {
         let mut editor = editor_on_row(3, 3, 10);
-        assert_eq!(editor.window().scroll().top, 0);
+        assert_eq!(editor.top_row(), 0);
         assert_eq!(resize(&mut editor, 1), (true, 3));
         assert_eq!(resize(&mut editor, 2), (true, 2));
         assert_eq!(resize(&mut editor, 10), (true, 0));
@@ -749,7 +757,7 @@ mod tests {
             let mut editor = editor_on_row(n, row.min(n), 10);
             let mut before = 10;
             for rows in sizes {
-                let old = editor.window().scroll().top;
+                let old = editor.top_row();
                 let (moved, top) = resize(&mut editor, rows);
                 prop_assert_eq!(moved, top != old);
                 prop_assert!(top <= row.min(n) && row.min(n) < top + rows);
@@ -768,7 +776,10 @@ mod tests {
     fn restoring_positions_follows_the_cursor() {
         let mut editor = Editor::with_buffer(Buffer::from_text("t", &lines(100)));
         editor.set_view_size(ViewSize::new(10, 20));
-        let saved = Scroll { top: 40, left: 1 };
+        let saved = Scroll {
+            start: 40 * "line 000\n".len(),
+            left: 1,
+        };
         editor.restore_positions(SelectionSet::new(45 * "line 000\n".len() + 1), saved);
         assert_eq!(editor.window().scroll(), saved, "the cursor is in view");
         editor.restore_positions(SelectionSet::new(0), saved);
@@ -820,7 +831,7 @@ mod tests {
             rows: 11,
             columns: 40,
         }));
-        assert_eq!(editor.window().scroll().top, 1);
+        assert_eq!(editor.top_row(), 1);
     }
 
     #[test]
@@ -928,14 +939,14 @@ mod tests {
         editor.set_view_size(ViewSize::new(10, 20));
         editor.set_preedit(Some(Preedit::new("か".into(), None)));
         assert!(editor.scroll_view(30));
-        assert_eq!(editor.window().scroll().top, 30);
+        assert_eq!(editor.top_row(), 30);
         assert_eq!(
             editor.window().selections.primary().cursor,
             0,
             "the cursor stays"
         );
         editor.set_preedit(None);
-        assert_eq!(editor.window().scroll().top, 0, "the view comes back to it");
+        assert_eq!(editor.top_row(), 0, "the view comes back to it");
         assert!(editor.scroll_view(30));
         assert_ne!(
             editor.window().selections.primary().cursor,
@@ -1034,17 +1045,17 @@ mod tests {
         editor.set_view_size(ViewSize::new(10, 20));
         editor.windows[0].selections = crate::selection::SelectionSet::new(15 * 9);
         assert!(editor.follow_cursor());
-        assert_eq!(editor.window().scroll().top, 6);
+        assert_eq!(editor.top_row(), 6);
         assert!(!editor.follow_cursor());
 
         assert!(editor.scroll_view(20));
-        assert_eq!(editor.window().scroll().top, 26);
+        assert_eq!(editor.top_row(), 26);
         let cursor = editor.window().selections.primary().cursor;
         assert_eq!(cursor, 26 * 9, "moved to the start of the top row");
         assert!(editor.scroll_view(-3));
         assert_eq!(editor.window().selections.primary().cursor, 26 * 9);
         assert!(editor.scroll_view(-100));
-        assert_eq!(editor.window().scroll().top, 0);
+        assert_eq!(editor.top_row(), 0);
         assert!(!editor.scroll_view(-1));
     }
 }

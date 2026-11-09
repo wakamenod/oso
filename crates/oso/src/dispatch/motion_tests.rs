@@ -330,7 +330,7 @@ mod recenter {
     }
 
     fn top(editor: &Editor) -> usize {
-        editor.window().scroll().top
+        editor.top_row()
     }
 
     #[test]
@@ -414,7 +414,7 @@ mod wheel {
         send(&mut d, &mut editor, "C-e");
         assert_eq!(editor.window().scroll().left, 41);
         assert!(editor.scroll_view(20));
-        assert_eq!(editor.window().scroll(), Scroll { top: 20, left: 0 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (20, 0));
         assert_eq!(cursors(&editor), [20 * 61], "at column 0, in view");
     }
 
@@ -439,6 +439,6 @@ mod wheel {
         send(&mut d, &mut editor, "C-f C-b");
         assert!(editor.scroll_view_sideways(10));
         assert!(editor.scroll_view(2));
-        assert_eq!(editor.window().scroll(), Scroll { top: 2, left: 10 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (2, 10));
     }
 }

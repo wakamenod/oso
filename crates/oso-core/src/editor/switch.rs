@@ -19,10 +19,11 @@ pub const MAX_NAME_BYTES: usize = 255;
 /// What a prompt's preview shows (ADR 0088).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Preview {
-    /// The buffer `id`, from the display row `top`, with a cursor at the offset `cursor`.
+    /// The buffer `id`, from the row that holds the offset `start`, with a cursor at the
+    /// offset `cursor`.
     Buffer {
         id: BufferId,
-        top: usize,
+        start: usize,
         cursor: usize,
     },
     /// A buffer that may hold secrets, or whose file is not judged yet, or a secret kill:
@@ -231,12 +232,13 @@ impl Editor {
             if buffer.verdict().is_withheld() {
                 return Some(Preview::Withheld);
             }
-            let row = buffer.display().offset_to_display_point(cursor).row;
+            let display = buffer.display();
+            let row = display.offset_to_display_point(cursor).row;
             let rows = self
                 .prompt_layout()
                 .map_or(0, |layout| layout.regions.preview.rows);
-            let top = row.saturating_sub(rows / 2);
-            return Some(Preview::Buffer { id, top, cursor });
+            let start = crate::motion::line_start(&display, row.saturating_sub(rows / 2));
+            return Some(Preview::Buffer { id, start, cursor });
         }
         let prompt = self.prompt()?;
         let candidates = prompt
@@ -258,17 +260,15 @@ impl Editor {
                 None => {
                     return Some(Preview::Buffer {
                         id,
-                        top: 0,
+                        start: 0,
                         cursor: 0,
                     });
                 }
             }
         };
-        let cursor = selections.primary().cursor.min(buffer.text().len());
-        let top = scroll
-            .top
-            .min(buffer.display().row_count().saturating_sub(1));
-        Some(Preview::Buffer { id, top, cursor })
+        let len = buffer.text().len();
+        let (cursor, start) = (selections.primary().cursor.min(len), scroll.start.min(len));
+        Some(Preview::Buffer { id, start, cursor })
     }
 
     /// The home directory, which `~` stands for, as the host read it once at startup.

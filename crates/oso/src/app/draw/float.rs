@@ -553,11 +553,12 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) ->
     let (window, buffer) = editor.current();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
+    let scroll = window.drawn_top(&display);
     PaneContent::Text(TextView {
         display,
         buffer: window.buffer(),
         revision: buffer.revision(),
-        scroll: window.scroll(),
+        scroll,
         cursor,
         cursor_style: CursorStyle::Box,
         others: &[],

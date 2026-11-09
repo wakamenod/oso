@@ -1,4 +1,4 @@
-//! Windows and scrolling (ADR 0007, ADR 0040).
+//! Windows and scrolling (ADR 0007, ADR 0040, ADR 0100, ADR 0103).
 //!
 //! Must not depend on: `editor`, `command` or any GPU or window-system type; a
 //! window here is editor state, not an OS window.
@@ -7,14 +7,21 @@
 //! Scrolling follows Emacs with `scroll-conservatively` at 101: when the
 //! cursor would leave the window, the view moves by the fewest rows that
 //! bring it back. `C-v` and `M-v` move by a screen, keeping
-//! [`CONTEXT_LINES`] rows of context. Lines never wrap (ADR 0006), so a
-//! long line scrolls sideways to keep the cursor in view, also by the
-//! fewest columns.
+//! [`CONTEXT_LINES`] rows of context. A long line that does not wrap scrolls
+//! sideways to keep the cursor in view, also by the fewest columns.
 //!
-//! The scrolling rules are pure functions of positions and sizes, so they
+//! Rows here are view rows: a wrapped buffer's from the window's [`WrapMap`], at its
+//! width, and otherwise one a logical line. The window keeps its top as the offset where
+//! its first view row starts, which follows edits as a marker and is put back at its
+//! row's start whenever the rows change, so that what it shows stays put.
+//!
+//! The scrolling rules are pure functions of rows and sizes, so they
 //! are tested without a window.
 
+use std::fmt;
+
 use crate::buffer::BufferId;
+use crate::display_map::wrap_map::{WrapMap, WrapSnapshot};
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion::{self, Edge};
 use crate::selection::SelectionSet;
@@ -28,12 +35,20 @@ pub(crate) use places::{Places, Walk};
 /// `next-screen-context-lines`.
 pub const CONTEXT_LINES: usize = 2;
 
-/// The first row and column a window shows.
+/// What a window shows, as it keeps it and as a place keeps it (ADR 0100).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Scroll {
-    /// The display row at the top.
-    pub top: usize,
-    /// The display column at the left edge.
+    /// The offset where its first view row starts.
+    pub start: usize,
+    /// The display column at the left edge; 0 while its buffer wraps.
+    pub left: usize,
+}
+
+/// The first row a window shows and its left column, as the rules of scrolling and
+/// the frame's cells count them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ViewTop {
+    pub row: usize,
     pub left: usize,
 }
 
@@ -61,8 +76,59 @@ impl Default for ViewSize {
     }
 }
 
+/// A window's view rows over its buffer as it shows now: its wrap's, or one a logical line.
+#[derive(Clone, Copy)]
+pub(crate) struct Rows<'a> {
+    display: &'a DisplaySnapshot,
+    wrap: Option<&'a WrapSnapshot>,
+}
+
+impl<'a> Rows<'a> {
+    /// The rows of `wrap` over `display`, or one a logical line without it, or with one
+    /// whose text is not `display`'s, as the editor brings it along at the next command.
+    pub(crate) fn new(display: &'a DisplaySnapshot, wrap: Option<&'a WrapMap>) -> Self {
+        Self {
+            display,
+            wrap: wrap
+                .map(WrapMap::snapshot)
+                .filter(|wrap| wrap.len() == display.len()),
+        }
+    }
+
+    /// How many there are.
+    pub(crate) fn count(&self) -> usize {
+        match self.wrap {
+            Some(wrap) => wrap.row_count(),
+            None => self.display.row_count(),
+        }
+    }
+
+    /// The row that holds `offset`; the last at or past the end.
+    pub(crate) fn row_of(&self, offset: usize) -> usize {
+        let offset = offset.min(self.display.len());
+        match self.wrap {
+            Some(wrap) => wrap.row_of(self.display, offset),
+            None => self.display.offset_to_display_point(offset).row,
+        }
+    }
+
+    /// Where row `row` starts, clamped to the last.
+    pub(crate) fn start(&self, row: usize) -> usize {
+        let row = row.min(self.count() - 1);
+        match self.wrap {
+            Some(wrap) => wrap.row_span(self.display, row).0,
+            None => motion::line_start(self.display, row),
+        }
+    }
+
+    /// Whether rows wrap.
+    pub(crate) fn wrapped(&self) -> bool {
+        self.wrap.is_some()
+    }
+}
+
 /// A window: a view of one buffer.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Window {
     buffer: BufferId,
     /// The cursors.
@@ -72,6 +138,22 @@ pub struct Window {
     size: ViewSize,
     /// Where it was in the buffers it showed before (ADR 0088).
     places: Places,
+    /// The rows of its buffer at its width, while the buffer wraps (ADR 0100).
+    wrap: Option<WrapMap>,
+    /// The buffer's revision the wrap follows.
+    wrapped: u64,
+}
+
+impl fmt::Debug for Window {
+    /// Leaves out the offsets: where rows break tells how long words are in a buffer that
+    /// may hold secrets (ADR 0100).
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Window")
+            .field("buffer", &self.buffer)
+            .field("size", &self.size)
+            .field("wrapped", &self.wrap.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Window {
@@ -83,6 +165,8 @@ impl Window {
             scroll: Scroll::default(),
             size: ViewSize::default(),
             places: Places::default(),
+            wrap: None,
+            wrapped: 0,
         }
     }
 
@@ -91,10 +175,11 @@ impl Window {
         self.buffer
     }
 
-    /// Shows `buffer`, keeping where the window was in the one it leaves. Gives where it was
-    /// in `buffer` the last time, for the editor to clip to the text as it is now; until then it
-    /// shows `buffer` from its start, with one cursor. Showing the buffer it shows changes
-    /// nothing there. Ends a walk of `M-,` and `M-/`.
+    /// Shows `buffer`, keeping where the window was in the one it leaves, and dropping its
+    /// wrap of it (ADR 0103). Gives where it was in `buffer` the last time, for the editor to
+    /// clip to the text as it is now; until then it shows `buffer` from its start, with one
+    /// cursor. Showing the buffer it shows changes nothing there. Ends a walk of `M-,` and
+    /// `M-/`.
     pub(crate) fn show(&mut self, buffer: BufferId) -> Option<Place> {
         self.places.end_walk();
         if buffer == self.buffer {
@@ -143,6 +228,92 @@ impl Window {
         self.scroll
     }
 
+    /// Its rows of its buffer at its width while the buffer wraps, some perhaps provisional
+    /// until a job reports.
+    pub fn wrap(&self) -> Option<&WrapSnapshot> {
+        self.wrap.as_ref().map(WrapMap::snapshot)
+    }
+
+    pub(crate) fn wrap_map(&self) -> Option<&WrapMap> {
+        self.wrap.as_ref()
+    }
+
+    pub(crate) fn wrap_map_mut(&mut self) -> Option<&mut WrapMap> {
+        self.wrap.as_mut()
+    }
+
+    /// Puts in `wrap`, the rows of its buffer as `display` shows it at `revision`, or none,
+    /// and puts the top back at its row's start. While wrapped, the left column is 0.
+    pub(crate) fn set_wrap(
+        &mut self,
+        wrap: Option<WrapMap>,
+        display: &DisplaySnapshot,
+        revision: u64,
+    ) {
+        self.wrap = wrap;
+        self.wrapped = revision;
+        if self.wrap.is_some() {
+            self.scroll.left = 0;
+        }
+        self.snap_top(display);
+    }
+
+    /// The revision of its buffer that its wrap follows.
+    pub(crate) fn wrapped_revision(&self) -> u64 {
+        self.wrapped
+    }
+
+    /// Notes that its wrap follows its buffer at `revision`.
+    pub(crate) fn set_wrapped_revision(&mut self, revision: u64) {
+        self.wrapped = revision;
+    }
+
+    /// Puts in the wrap and the view that followed a change of its buffer, which is now at
+    /// `revision`. Nothing here can panic (ADR 0053).
+    pub(crate) fn follow_change(&mut self, wrap: Option<WrapMap>, scroll: Scroll, revision: u64) {
+        self.wrap = wrap;
+        self.wrapped = revision;
+        self.scroll = scroll;
+    }
+
+    /// Its view rows over `display`, its buffer as it shows now.
+    pub(crate) fn rows<'a>(&'a self, display: &'a DisplaySnapshot) -> Rows<'a> {
+        Rows::new(display, self.wrap.as_ref())
+    }
+
+    /// How many view rows its buffer has.
+    pub fn row_count(&self, display: &DisplaySnapshot) -> usize {
+        self.rows(display).count()
+    }
+
+    /// The view row at the top.
+    pub fn top_row(&self, display: &DisplaySnapshot) -> usize {
+        self.rows(display).row_of(self.scroll.start)
+    }
+
+    /// The view row of the primary cursor.
+    pub fn cursor_row(&self, display: &DisplaySnapshot) -> usize {
+        self.rows(display).row_of(self.selections.primary().cursor)
+    }
+
+    /// The first row a frame draws and its left column. Until the renderer draws view rows
+    /// (ADR 0100's next step), a frame draws logical lines, from the one that holds the top.
+    pub fn drawn_top(&self, display: &DisplaySnapshot) -> ViewTop {
+        let start = self.scroll.start.min(display.len());
+        ViewTop {
+            row: display.offset_to_display_point(start).row,
+            left: self.scroll.left,
+        }
+    }
+
+    /// The top and the left column as rows count them.
+    fn view_top(&self, display: &DisplaySnapshot) -> ViewTop {
+        ViewTop {
+            row: self.top_row(display),
+            left: self.scroll.left,
+        }
+    }
+
     /// Moves the view and leaves every cursor where it is, for following the
     /// cursor, for the sideways wheel and for a window that gets taller. Anything
     /// else that moves the view on its own uses [`Window::set_top`].
@@ -150,9 +321,50 @@ impl Window {
         self.scroll = scroll;
     }
 
-    /// Puts back cursors and a view that were saved together. The top row stays
-    /// within the buffer, which may have changed since. The cursor may end up out
-    /// of view, so `Editor::restore_positions` follows it afterwards.
+    /// Shows `top` as rows count them, its row's start at the top, and leaves every cursor
+    /// where it is. Returns whether the view moved.
+    pub(crate) fn set_view_top(&mut self, top: ViewTop, display: &DisplaySnapshot) -> bool {
+        let rows = self.rows(display);
+        let scroll = Scroll {
+            start: rows.start(top.row),
+            left: if rows.wrapped() { 0 } else { top.left },
+        };
+        let moved = scroll != self.scroll;
+        self.scroll = scroll;
+        moved
+    }
+
+    /// Puts the top back at the start of the view row that holds it, as after the rows or
+    /// the text changed under it.
+    pub(crate) fn snap_top(&mut self, display: &DisplaySnapshot) {
+        let rows = self.rows(display);
+        self.scroll.start = rows.start(rows.row_of(self.scroll.start));
+    }
+
+    /// Wraps at once the provisional rows from the one that holds `at` to `rows` past it,
+    /// within what is left of the command's budget (ADR 0103), and puts the top back at its
+    /// row's start if they changed. Returns whether they did.
+    pub(crate) fn realize(&mut self, display: &DisplaySnapshot, at: usize, rows: usize) -> bool {
+        let Some(wrap) = &mut self.wrap else {
+            return false;
+        };
+        let changed = wrap.realize(display, at, rows);
+        if changed {
+            self.snap_top(display);
+        }
+        changed
+    }
+
+    /// Wraps at once the provisional rows in view, and as many again below them, which
+    /// `C-v` and the wheel reach. Returns whether they changed.
+    pub(crate) fn realize_view(&mut self, display: &DisplaySnapshot) -> bool {
+        let (start, rows) = (self.scroll.start, self.size.rows);
+        self.realize(display, start, rows.saturating_mul(2))
+    }
+
+    /// Puts back cursors and a view that were saved together. The top stays within the
+    /// buffer, which may have changed since, at the start of a view row. The cursor may end
+    /// up out of view, so `Editor::restore_positions` follows it afterwards.
     pub(crate) fn restore_positions(
         &mut self,
         selections: SelectionSet,
@@ -161,9 +373,11 @@ impl Window {
     ) {
         self.selections = selections;
         self.scroll = Scroll {
-            top: scroll.top.min(display.row_count().saturating_sub(1)),
-            left: scroll.left,
+            start: scroll.start.min(display.len()),
+            left: if self.wrap.is_some() { 0 } else { scroll.left },
         };
+        self.realize_view(display);
+        self.snap_top(display);
     }
 
     /// The cursor a frame draws, and the view follows: the primary one.
@@ -171,32 +385,34 @@ impl Window {
         display.offset_to_display_point(self.selections.primary().cursor)
     }
 
-    /// Shows rows from `top` on, or from the last row if that is past it, and
+    /// Shows view rows from `top` on, or from the last row if that is past it, and
     /// moves every cursor the view left behind to the start of the nearest row in
     /// view, as Emacs does after `C-v`, `M-v` and the mouse wheel. The view follows
     /// the primary cursor sideways if it moved, so that it stays in view with
     /// `left` above 0. A cursor that did not move stays as it is, since the sideways
     /// wheel may have left it out of view on purpose. Returns whether the view moved.
     pub fn set_top(&mut self, top: usize, display: &DisplaySnapshot) -> bool {
-        let row_count = display.row_count();
+        let rows = Rows::new(display, self.wrap.as_ref());
+        let row_count = rows.count();
         let top = top.min(row_count.saturating_sub(1));
-        if top == self.scroll.top {
+        if top == rows.row_of(self.scroll.start) {
             return false;
         }
-        self.scroll.top = top;
+        self.scroll.start = rows.start(top);
         let size = self.size;
         let primary = self.selections.primary().cursor;
         self.selections.update(|selection| {
-            let row = display.offset_to_display_point(selection.cursor).row;
+            let row = rows.row_of(selection.cursor);
             if let Some(row) = row_in_view(row, top, size, row_count) {
-                selection.move_to(motion::line_start(display, row));
+                selection.move_to(rows.start(row));
             }
             Ok::<(), ()>(())
         });
-        if self.selections.primary().cursor != primary {
+        if self.selections.primary().cursor != primary && !rows.wrapped() {
             let point = self.cursor_point(display);
             let cells = motion::cursor_cells(display, point);
-            self.scroll = follow(self.scroll, size, point, cells);
+            let next = follow(self.view_top(display), size, point, cells);
+            self.scroll.left = next.left;
         }
         true
     }
@@ -208,15 +424,14 @@ pub fn reaches(top: usize, size: ViewSize, row: usize) -> bool {
     top.saturating_add(size.rows) > row
 }
 
-/// The scroll position that shows the cursor at `cursor`, whose cluster
-/// takes `cells` cells, moving `scroll` by as few rows and columns as
-/// possible.
-pub fn follow(scroll: Scroll, size: ViewSize, cursor: DisplayPoint, cells: usize) -> Scroll {
+/// The top that shows the cursor at `cursor`, a view row and a column, whose cluster
+/// takes `cells` cells, moving `scroll` by as few rows and columns as possible.
+pub fn follow(scroll: ViewTop, size: ViewSize, cursor: DisplayPoint, cells: usize) -> ViewTop {
     let mut next = scroll;
-    if cursor.row < scroll.top {
-        next.top = cursor.row;
-    } else if cursor.row >= scroll.top + size.rows {
-        next.top = cursor.row + 1 - size.rows;
+    if cursor.row < scroll.row {
+        next.row = cursor.row;
+    } else if cursor.row >= scroll.row + size.rows {
+        next.row = cursor.row + 1 - size.rows;
     }
     // A cluster wider than the window shows its start.
     let right = cursor.column + cells.min(size.columns);
@@ -366,7 +581,7 @@ mod tests {
     fn showing_a_buffer_keeps_the_window_size() {
         let mut window = Window::new(BufferId(1));
         window.set_size(SIZE);
-        window.scroll.top = 3;
+        window.scroll.start = 9;
         window.show(BufferId(2));
         assert_eq!(window.buffer(), BufferId(2));
         assert_eq!(window.size(), SIZE);
@@ -375,18 +590,18 @@ mod tests {
 
     #[test]
     fn follow_scrolls_by_the_fewest_rows() {
-        let scroll = Scroll { top: 5, left: 0 };
+        let scroll = ViewTop { row: 5, left: 0 };
         assert_eq!(follow(scroll, SIZE, at(5, 0), 1), scroll);
         assert_eq!(follow(scroll, SIZE, at(14, 0), 1), scroll);
-        assert_eq!(follow(scroll, SIZE, at(15, 0), 1).top, 6);
-        assert_eq!(follow(scroll, SIZE, at(40, 0), 1).top, 31);
-        assert_eq!(follow(scroll, SIZE, at(4, 0), 1).top, 4);
-        assert_eq!(follow(scroll, SIZE, at(0, 0), 1).top, 0);
+        assert_eq!(follow(scroll, SIZE, at(15, 0), 1).row, 6);
+        assert_eq!(follow(scroll, SIZE, at(40, 0), 1).row, 31);
+        assert_eq!(follow(scroll, SIZE, at(4, 0), 1).row, 4);
+        assert_eq!(follow(scroll, SIZE, at(0, 0), 1).row, 0);
     }
 
     #[test]
     fn follow_scrolls_sideways_by_the_fewest_columns() {
-        let scroll = Scroll { top: 0, left: 10 };
+        let scroll = ViewTop { row: 0, left: 10 };
         assert_eq!(follow(scroll, SIZE, at(0, 10), 1), scroll);
         assert_eq!(follow(scroll, SIZE, at(0, 29), 1), scroll);
         assert_eq!(follow(scroll, SIZE, at(0, 30), 1).left, 11);
@@ -483,7 +698,11 @@ mod tests {
         let mut window = Window::new(BufferId(0));
         window.set_size(SIZE);
         assert!(window.set_top(usize::MAX, &display));
-        assert_eq!(window.scroll.top, 30, "the empty row after the last line");
+        assert_eq!(
+            window.scroll.start,
+            30 * 3,
+            "the empty row after the last line"
+        );
         assert_eq!(window.selections.primary().cursor, 30 * 3);
         assert!(!window.set_top(99, &display), "already there");
     }
@@ -497,7 +716,14 @@ mod tests {
         window.scroll.left = 1;
         assert!(window.set_top(5, &display));
         assert_eq!(window.selections.primary().cursor, 5 * 3, "at column 0");
-        assert_eq!(window.scroll, Scroll { top: 5, left: 0 }, "and in view");
+        assert_eq!(
+            window.scroll,
+            Scroll {
+                start: 5 * 3,
+                left: 0
+            },
+            "and in view"
+        );
     }
 
     #[test]
@@ -508,7 +734,13 @@ mod tests {
         window.selections = SelectionSet::new(5 * 3);
         window.scroll.left = 7;
         assert!(window.set_top(3, &display));
-        assert_eq!(window.scroll, Scroll { top: 3, left: 7 });
+        assert_eq!(
+            window.scroll,
+            Scroll {
+                start: 3 * 3,
+                left: 7
+            }
+        );
         assert_eq!(window.selections.primary().cursor, 5 * 3);
     }
 
@@ -604,13 +836,25 @@ mod tests {
             .snapshot();
         let mut window = Window::new(BufferId(0));
         window.set_size(SIZE);
-        let scroll = Scroll { top: 20, left: 3 };
+        let scroll = Scroll {
+            start: 20 * 3,
+            left: 3,
+        };
         window.restore_positions(SelectionSet::new(5), scroll, &display);
         assert_eq!(window.scroll(), scroll);
         assert_eq!(window.selections.primary().cursor, 5, "out of view is kept");
-        let past_the_end = Scroll { top: 99, left: 3 };
+        let past_the_end = Scroll {
+            start: 999,
+            left: 3,
+        };
         window.restore_positions(SelectionSet::new(5), past_the_end, &display);
-        assert_eq!(window.scroll(), Scroll { top: 30, left: 3 });
+        assert_eq!(
+            window.scroll(),
+            Scroll {
+                start: 30 * 3,
+                left: 3
+            }
+        );
     }
 
     #[test]
@@ -634,9 +878,9 @@ mod tests {
             rows in 1usize..30, columns in 1usize..30,
         ) {
             let size = ViewSize::new(rows, columns);
-            let scroll = Scroll { top, left };
+            let scroll = ViewTop { row: top, left };
             let next = follow(scroll, size, at(row, column), cells);
-            prop_assert!((next.top..next.top + rows).contains(&row));
+            prop_assert!((next.row..next.row + rows).contains(&row));
             prop_assert!((next.left..next.left + columns).contains(&column));
             let visible = (top..top + rows).contains(&row)
                 && column >= left && column + cells <= left + columns;
@@ -644,8 +888,8 @@ mod tests {
                 prop_assert_eq!(next, scroll);
             }
             // The fewest rows: the cursor ends at an edge if it moved.
-            if next.top != top {
-                prop_assert!(row == next.top || row == next.top + rows - 1);
+            if next.row != top {
+                prop_assert!(row == next.row || row == next.row + rows - 1);
             }
         }
 

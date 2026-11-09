@@ -9,11 +9,11 @@ use std::path::PathBuf;
 
 use super::Editor;
 use super::follow::clip_selections;
-use crate::buffer::{BufferId, ContentId, DiskState, Noticed};
+use crate::buffer::{BufferId, ContentId, DiskState, Noticed, Rewrap};
 use crate::display_map::DisplaySnapshot;
 use crate::load::{Change, LoadSnapshot, Reloaded};
 use crate::rope::Rope;
-use crate::selection::{MarkActive, SelectionSet};
+use crate::selection::{MarkActive, OffsetEdit, SelectionSet};
 
 /// What became of a file read again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,6 +236,13 @@ impl Editor {
         let after = moved
             .iter()
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
+        // The tops follow the change as markers; the wraps start over from the new text.
+        let step = vec![OffsetEdit {
+            start: change.start,
+            old_len: change.old_end - change.start,
+            new_len: change.new_end - change.start,
+        }];
+        let views = self.moved_views(id, &display, std::slice::from_ref(&step), &Rewrap::Whole);
 
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
@@ -244,6 +251,7 @@ impl Editor {
                 None => buffer.replace_with_reload(snapshot),
             }
         }
+        self.commit_views(id, views);
         for (index, set) in moved {
             let scroll = self.windows[index].scroll();
             self.windows[index].restore_positions(set, scroll, &display);

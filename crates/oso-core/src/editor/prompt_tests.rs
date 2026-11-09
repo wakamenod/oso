@@ -96,18 +96,14 @@ fn the_wheel_scrolls_the_window_beneath_and_its_cursors_stay() {
     let mut editor = editor(100);
     editor.open_prompt("Go to line: ", NUMBER).unwrap();
     assert!(editor.scroll_view(20));
-    let (window, _) = editor.tiled();
-    assert_eq!(window.scroll().top, 20);
+    let (window, buffer) = editor.tiled();
+    assert_eq!(window.top_row(&buffer.display()), 20);
     assert_eq!(
         window.selections.primary().cursor,
         0,
         "what the prompt acts on stays"
     );
-    assert_eq!(
-        editor.window().scroll().top,
-        0,
-        "the prompt's own does not move"
-    );
+    assert_eq!(editor.top_row(), 0, "the prompt's own does not move");
 }
 
 #[test]

@@ -79,7 +79,7 @@ fn a_state_round_trips() {
     ];
     editor.restore_positions(
         SelectionSet::from_parts(selections.clone(), 1).unwrap(),
-        Scroll { top: 2, left: 1 },
+        Scroll { start: 10, left: 1 },
     );
     let pending: KeySequence = "C-x 4".parse().unwrap();
     let frame = Frame {
@@ -101,7 +101,7 @@ fn a_state_round_trips() {
         selections
     );
     assert_eq!(state.selections.primary().cursor, 11);
-    assert_eq!(state.scroll, Scroll { top: 2, left: 1 });
+    assert_eq!(state.scroll, Scroll { start: 10, left: 1 });
     assert_eq!(state.pending_keys, pending.0);
     assert_eq!(state.frame, Some(frame));
 
@@ -125,7 +125,7 @@ fn positions_still_waiting_for_their_file_are_the_ones_exported() {
     let restore = restore(600, 40, &editor);
     let state = parse(&export(&editor, &[], None, Some(&restore)).unwrap()).unwrap();
     assert_eq!(state.selections.primary().cursor, 600);
-    assert_eq!(state.scroll.top, 40);
+    assert_eq!(state.scroll.start, 40);
 }
 
 #[test]
@@ -340,7 +340,11 @@ fn restore(cursor: usize, top: usize, editor: &Editor) -> Restore {
     Restore {
         buffer: editor.window().buffer(),
         selections: SelectionSet::new(cursor),
-        scroll: Scroll { top, left: 0 },
+        scroll: Scroll {
+            start: top,
+            left: 0,
+        },
+        top_is_row: false,
     }
 }
 
@@ -369,11 +373,7 @@ fn positions_move_to_what_exists_in_a_changed_file() {
         0,
         "the start of the character"
     );
-    assert_eq!(
-        editor.window().scroll().top,
-        0,
-        "scrolled back to the cursor"
-    );
+    assert_eq!(editor.top_row(), 0, "scrolled back to the cursor");
     assert!(restore(1000, 0, &editor).try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 7, "the end");
 }

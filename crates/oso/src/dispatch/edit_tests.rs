@@ -177,7 +177,7 @@ mod scenarios {
         for _ in 0..12 {
             send(&mut dispatcher, &mut editor, "RET");
         }
-        assert_eq!(editor.window().scroll(), Scroll { top: 3, left: 0 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (3, 0));
     }
 
     #[test]

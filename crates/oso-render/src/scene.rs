@@ -20,7 +20,7 @@ use std::ops::Range;
 
 use oso_core::frame::{self, CellRect, PixelRect};
 use oso_core::motion;
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
@@ -309,7 +309,7 @@ fn draw_pane<G: GlyphSource>(
     system: &mut dyn TextSystem,
     glyphs: &mut G,
 ) {
-    let unscrolled = Layout::new(metrics, pane.region, Scroll::default());
+    let unscrolled = Layout::new(metrics, pane.region, ViewTop::default());
     // A text pane's cursor box is filled last, over its background and boxes, and
     // none of them can take its place.
     let cursor = match &pane.content {
@@ -520,7 +520,7 @@ fn draw_text<G: GlyphSource>(
     let display = &view.display;
     rows.begin(view.buffer, view.revision);
     let columns = layout.shaped_columns();
-    let top = view.scroll.top;
+    let top = view.scroll.row;
     let visible = top..top
         .saturating_add(pane.region.rows)
         .min(display.row_count());
@@ -637,7 +637,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -735,7 +735,7 @@ mod tests {
                     display: buffer.display(),
                     buffer: id(),
                     revision: 1,
-                    scroll: Scroll { top, left },
+                    scroll: ViewTop { row: top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     cursor_style: CursorStyle::Box,
                     others: &[],
@@ -809,7 +809,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll { top: 3, left: 64 },
+            scroll: ViewTop { row: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1059,7 +1059,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &others,
@@ -1093,7 +1093,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Hollow,
             others: &[],
@@ -1186,7 +1186,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1219,7 +1219,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1246,7 +1246,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(1, 1),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1285,7 +1285,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1324,7 +1324,7 @@ mod tests {
                 display: buffer.display(),
                 buffer: id(),
                 revision: 1,
-                scroll: Scroll::default(),
+                scroll: ViewTop::default(),
                 cursor: DisplayPoint::new(0, 0),
                 cursor_style: CursorStyle::Box,
                 others: &[],
@@ -1365,7 +1365,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1397,7 +1397,7 @@ mod tests {
                 display: buffer.display(),
                 buffer: id,
                 revision: 1,
-                scroll: Scroll::default(),
+                scroll: ViewTop::default(),
                 cursor: DisplayPoint::new(1000, 0),
                 cursor_style: CursorStyle::Box,
                 others: &[],
@@ -1558,7 +1558,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &[],

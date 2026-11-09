@@ -59,10 +59,10 @@ impl Editor {
         }
         let display = buffer.display();
         let (text, invalid) = (buffer.text(), buffer.invalid_bytes());
-        let (area, scroll) = (self.frame.window.text, window.scroll());
-        let rows = scroll.top
+        let (area, scroll) = (self.frame.window.text, window.drawn_top(&display));
+        let rows = scroll.row
             ..scroll
-                .top
+                .row
                 .saturating_add(area.rows)
                 .min(display.row_count());
         let reach = query.max_bytes();

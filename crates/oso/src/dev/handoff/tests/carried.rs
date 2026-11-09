@@ -136,6 +136,7 @@ fn marks_the_region_and_the_mark_ring_round_trip_and_are_put_back() {
         buffer: new.window().buffer(),
         selections: state.selections,
         scroll: state.scroll,
+        top_is_row: false,
     };
     assert!(restore.try_apply(&mut new));
     assert_eq!(
@@ -162,6 +163,7 @@ fn marks_and_the_ring_move_to_what_exists_and_wait_for_the_file() {
             .unwrap()
             .with_ring(MarkRing::from_newest([1, 99])),
         scroll: Scroll::default(),
+        top_is_row: false,
     };
     let buffer = editor.buffer_mut(id).unwrap();
     let mut builder = oso_core::load::Builder::new(None, TabWidth::default());
@@ -271,7 +273,7 @@ fn what_was_known_of_a_carried_file_round_trips() {
 #[test]
 fn bad_carried_fields_are_refused() {
     let bad: [(&str, Mutation); 11] = [
-        ("version 3", Box::new(|s| s["version"] = json!(3))),
+        ("version 4", Box::new(|s| s["version"] = json!(4))),
         (
             "no items",
             Box::new(|s| {

@@ -192,7 +192,7 @@ impl App {
             .zip(carried)
             .enumerate()
         {
-            let opened_by_agent = entry.opened_by_agent;
+            let (opened_by_agent, wraps) = (entry.opened_by_agent, entry.wraps);
             let buffer = match (entry.path, carried) {
                 // The old instance held it, so it opens without asking, whatever its size
                 // (ADR 0087).
@@ -221,6 +221,7 @@ impl App {
                     buffer.mark_opened_by_agent();
                 }
             }
+            self.editor.set_wraps(buffer, wraps);
             if index == state.shown {
                 shown = buffer;
             }
@@ -265,6 +266,7 @@ impl App {
             buffer: shown,
             selections: state.selections,
             scroll: state.scroll,
+            top_is_row: state.top_is_row,
         });
         self.try_restore_positions();
         self.dispatcher

@@ -95,12 +95,13 @@ fn panes<'a>(
     let beneath = editor.prompt().is_some();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
+    let scroll = window.drawn_top(&display);
     let frame = editor.frame();
     let text = PaneContent::Text(TextView {
         display,
         buffer: window.buffer(),
         revision: buffer.revision(),
-        scroll: window.scroll(),
+        scroll,
         cursor,
         cursor_style: if beneath {
             CursorStyle::Hollow

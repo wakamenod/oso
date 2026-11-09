@@ -728,7 +728,7 @@ mod tests {
                 "buffer": 0,
                 "primary": 0,
                 "selections": [{ "cursor": 0, "goal": null }],
-                "scroll": { "top": 0, "left": 0 },
+                "scroll": { "start": 0, "left": 0 },
             }],
             "selected": 0,
             "pending_keys": "",

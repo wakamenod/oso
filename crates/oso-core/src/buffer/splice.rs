@@ -8,6 +8,7 @@ use std::ops::Range;
 
 use super::Replacement;
 use crate::display_map::DisplayMap;
+use crate::display_map::wrap_map::Splice as WrapSplice;
 use crate::rope::{Rope, RopeEdit};
 use crate::selection::{OffsetEdit, follow_ranges};
 use crate::undo::{Batch, Splice};
@@ -97,18 +98,22 @@ pub(super) fn apply<T: SpliceText>(
     text: &mut Rope,
     display: &mut DisplayMap,
 ) -> Batch {
-    apply_marking(splices, text, display, &mut Vec::new())
+    apply_marking(splices, text, display, &mut Vec::new(), None)
 }
 
 /// As [`apply`], and sets `changed` to where the text may now break into display
 /// clusters otherwise than before: the chunks the splices rebuilt, in the offsets
 /// after the whole batch, ascending and apart. A cursor or mark anywhere else is
 /// still where a cursor can be (ADR 0091).
+///
+/// With `wraps`, each splice also goes there with the display before and after it, in the
+/// order they apply, for the windows' wraps to follow (ADR 0102).
 pub(super) fn apply_marking<T: SpliceText>(
     splices: &[Splice<T>],
     text: &mut Rope,
     display: &mut DisplayMap,
     changed: &mut Vec<Range<usize>>,
+    mut wraps: Option<&mut Vec<WrapSplice>>,
 ) -> Batch {
     let mut undo: Batch = Vec::with_capacity(splices.len());
     // Where each splice's rebuilt chunks start, in the offsets before the batch, as the
@@ -125,7 +130,15 @@ pub(super) fn apply_marking<T: SpliceText>(
         let range = splice.start..splice.start + splice.len;
         let removed = (!range.is_empty()).then(|| text.slice(range.clone()));
         let edit = splice.text.replace_in(text, range);
+        let before = wraps.is_some().then(|| display.snapshot());
         display.sync(text, &edit);
+        if let (Some(wraps), Some(before)) = (wraps.as_deref_mut(), before) {
+            wraps.push(WrapSplice {
+                before,
+                after: display.snapshot(),
+                edit: edit.clone(),
+            });
+        }
         let start = splice.start - old_below + new_below;
         let after = edit.new.end.saturating_sub(splice.start + new_len);
         starts.push(edit.new.start..edit.new.start);
@@ -167,6 +180,7 @@ pub(super) fn apply_group(
     group: &[Batch],
     text: &mut Rope,
     display: &mut DisplayMap,
+    mut wraps: Option<&mut Vec<WrapSplice>>,
 ) -> (Vec<Vec<OffsetEdit>>, Vec<Batch>, Vec<Range<usize>>) {
     let mut steps = Vec::with_capacity(group.len());
     let mut batches = Vec::with_capacity(group.len());
@@ -176,7 +190,13 @@ pub(super) fn apply_group(
         // What earlier batches changed moves with this one.
         follow_ranges(&mut changed, &step);
         steps.push(step);
-        batches.push(apply_marking(batch, text, display, &mut more));
+        batches.push(apply_marking(
+            batch,
+            text,
+            display,
+            &mut more,
+            wraps.as_deref_mut(),
+        ));
         changed = union(changed, std::mem::take(&mut more));
     }
     (steps, batches, changed)
@@ -290,7 +310,7 @@ mod tests {
             .collect();
         let mut display = DisplayMap::new(&rope, TabWidth::new(4));
         let mut changed = Vec::new();
-        apply_marking(splices, &mut rope, &mut display, &mut changed);
+        apply_marking(splices, &mut rope, &mut display, &mut changed, None);
         for (start, chunk) in chunks(&rope) {
             if kept.contains(&(start, chunk.clone())) {
                 continue;
@@ -348,7 +368,7 @@ mod tests {
                 .filter_map(|at| moved(&splices, at, true))
                 .collect();
             let mut changed = Vec::new();
-            apply_marking(&splices, &mut rope, &mut display, &mut changed);
+            apply_marking(&splices, &mut rope, &mut display, &mut changed, None);
             let after = display.snapshot();
             for at in starts {
                 let index = changed.partition_point(|range| range.end < at);

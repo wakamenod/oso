@@ -140,10 +140,16 @@ fn the_view_keeps_its_top_row() {
     let content: String = (0..40).map(|i| format!("line {i}\n")).collect();
     let (mut editor, id) = visiting(&content);
     let top = content.find("line 20").unwrap();
-    editor.restore_positions(SelectionSet::new(top), Scroll { top: 20, left: 0 });
+    editor.restore_positions(
+        SelectionSet::new(top),
+        Scroll {
+            start: top,
+            left: 0,
+        },
+    );
     let changed = content.replace("line 3\n", "line three\n");
     reload(&mut editor, id, &changed);
-    assert_eq!(editor.window().scroll().top, 20);
+    assert_eq!(editor.top_row(), 20);
     assert_eq!(cursors(&editor), vec![top + 4]);
 }
 

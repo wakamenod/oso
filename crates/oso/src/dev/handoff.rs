@@ -55,7 +55,7 @@ use format::{MAX_KILL_PIECES, facts_state, selections_state};
 
 /// The version of the state format. Bump it on any change that the previous
 /// reader would get wrong, and keep reading the one before.
-pub const STATE_VERSION: u64 = 2;
+pub const STATE_VERSION: u64 = 3;
 
 /// The longest state, leaving room for the request line that carries it.
 const MAX_STATE: usize = MAX_LINE - 256;
@@ -128,7 +128,7 @@ pub fn export(
             };
             let mut state = selections_state(selections);
             state["buffer"] = json!(buffer.get());
-            state["scroll"] = json!({ "top": scroll.top, "left": scroll.left });
+            state["scroll"] = json!({ "start": scroll.start, "left": scroll.left });
             state
         })
         .collect();
@@ -209,6 +209,10 @@ fn buffer_state(id: BufferId, buffer: &Buffer, items: &mut Vec<Item>) -> Result<
     // Said only when true, so that a state from before it reads the same (ADR 0085).
     if buffer.opened_by_agent() {
         entry["opened_by_agent"] = Value::Bool(true);
+    }
+    // Also only when true (ADR 0100).
+    if buffer.wraps() {
+        entry["wraps"] = Value::Bool(true);
     }
     Ok(entry)
 }
@@ -485,6 +489,9 @@ pub struct Restore {
     pub buffer: BufferId,
     pub selections: SelectionSet,
     pub scroll: Scroll,
+    /// Whether the scroll's start is a logical line, from a state before version 3, which
+    /// kept the top as a row.
+    pub top_is_row: bool,
 }
 
 impl Restore {
@@ -510,10 +517,15 @@ impl Restore {
         }
         let display = buffer.display();
         let selections = self.clipped(&display);
+        let mut scroll = self.scroll;
+        if self.top_is_row {
+            let row = scroll.start.min(display.row_count().saturating_sub(1));
+            scroll.start = oso_core::motion::line_start(&display, row);
+        }
         if shown {
-            editor.restore_positions(selections, self.scroll);
+            editor.restore_positions(selections, scroll);
         } else {
-            editor.restore_kept_place(self.buffer, selections, self.scroll);
+            editor.restore_kept_place(self.buffer, selections, scroll);
         }
         true
     }

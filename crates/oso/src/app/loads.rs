@@ -202,13 +202,26 @@ impl App {
         }
     }
 
+    /// How many view rows the tiled window, also beneath a prompt, shows of `id`, if it
+    /// shows it.
+    fn rows_shown(&self, id: BufferId) -> Option<usize> {
+        let (window, buffer) = self.editor.tiled();
+        (window.buffer() == id).then(|| window.row_count(&buffer.display()))
+    }
+
+    /// Whether the tiled window's view reaches its view row `row` or those after it.
+    fn reaches_row(&self, row: usize) -> bool {
+        let (window, buffer) = self.editor.tiled();
+        window::reaches(window.top_row(&buffer.display()), window.size(), row)
+    }
+
     /// Applies one update of `self.loads[index]`. Returns whether a frame
     /// is needed: only if the window shows the buffer and reaches the part
     /// that changed, or the buffer was replaced.
     fn apply_load(&mut self, index: usize, update: LoadUpdate) -> bool {
         let id = self.loads[index].handle.buffer();
-        // The tiled window, also beneath a prompt.
-        let shown = self.editor.tiled().0.buffer() == id;
+        let old_rows = self.rows_shown(id);
+        let shown = old_rows.is_some();
         if self.take_what_was_found(index, id) {
             return true;
         }
@@ -219,7 +232,6 @@ impl App {
         let mut no_baseline = false;
         let redraw = match update {
             LoadUpdate::Snapshot(snapshot) => {
-                let old_rows = buffer.display().row_count();
                 let first = buffer.text().is_empty();
                 let done = snapshot.done();
                 buffer.apply_load(*snapshot);
@@ -245,8 +257,9 @@ impl App {
                     #[cfg(feature = "dev")]
                     self.timings.load_done(load.started);
                 }
-                let window = self.editor.tiled().0;
-                shown && window::reaches(window.scroll().top, window.size(), old_rows - 1)
+                // The windows showing it wrap the text that came, if it wraps (ADR 0103).
+                self.editor.loaded(id);
+                old_rows.is_some_and(|rows| self.reaches_row(rows - 1))
             }
             // The buffer holds carried text, and only its verdict was missing.
             #[cfg(feature = "dev")]
