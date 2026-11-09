@@ -35,6 +35,7 @@
 pub mod cell;
 mod preedit;
 pub mod tab_map;
+pub mod wrap_map;
 
 use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
@@ -248,6 +249,11 @@ impl DisplaySnapshot {
     /// The buffer's invalid bytes.
     pub fn invalid_bytes(&self) -> &InvalidBytes {
         self.tab_map.invalid()
+    }
+
+    /// The tab width.
+    pub(crate) fn tab_width(&self) -> TabWidth {
+        self.tab_map.tab_width()
     }
 
     /// The number of display rows.
