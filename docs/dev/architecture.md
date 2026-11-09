@@ -246,6 +246,12 @@ A panicking command is caught at the command boundary
   the view only keeps them, and answers the input method's question about a range with that
   place, so the candidate window follows the segment being converted. While the IME is off
   it gives no input context, so no text service reads it, and Writing Tools are off for it.
+  While the IME is on, the app also gives it an excerpt of the cursor's line, at most 2000
+  bytes each side of the cursor (`Editor::cursor_excerpt`), from a buffer whose verdict is
+  `Ordinary` and not internal, and none in a prompt; again when the buffer, its text or
+  verdict, or the cursor changed (`Editor::excerpt_stamp`). The view answers the input
+  method's questions about text and ranges in that excerpt's coordinates, with the
+  composition at the cursor, and drops the excerpt when the IME goes off.
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of
@@ -572,8 +578,18 @@ Full details are in [`security.md`](security.md).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
     `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
     `commands`, `run`, `cancel`, `open` and `text`, over the JSON Lines framing in
-    `channel::wire`, which the dev socket shares, and no dev method. `oso mcp` comes next
-    (AC-2).
+    `channel::wire`, which the dev socket shares, and no dev method.
+  - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
+    JSON-RPC on stdin and stdout, with the tools `state`, `text`, `commands`, `look`,
+    `change` and `open`. It connects on the first tool call, asks the channel's `version`
+    first, and connects again after oso restarts. It looks through every instance's socket
+    only while it knows none to use, at most once each 5 s, since each look counts toward each
+    instance's connections a minute. stdin is read on a thread of its own
+    (`channel/mcp/stdin.rs`): the end of stdin, or a cancel naming the call in flight, closes
+    that call's connection, a cancelled request that still waits never runs, and at most 8
+    lines wait, so a cancel is never stuck behind them. To use it with Claude Code:
+    `claude mcp add --scope user oso -- /absolute/path/to/oso mcp`, then `M-x
+    agent-channel-start` in oso, and `y` to the question when Claude Code first calls a tool.
   - `open` visits a file that exists, unshown, through `app/agent/open.rs`, and shows it at
     its line once the loader has judged it ordinary and read it; one judged otherwise is
     dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer

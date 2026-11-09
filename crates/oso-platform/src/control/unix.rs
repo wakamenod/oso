@@ -162,7 +162,9 @@ impl ControlDir {
 
     /// Connects to `socket` of the instance with process ID `pid`, or of the
     /// only instance that has one if `pid` is `None`. Returns the instance's
-    /// process ID and the stream.
+    /// process ID and the stream. Fails with [`io::ErrorKind::NotFound`] when
+    /// no instance has one, and with [`io::ErrorKind::InvalidInput`] when
+    /// several do and `pid` is `None`.
     pub fn connect(&self, socket: Socket, pid: Option<u32>) -> io::Result<(u32, ControlStream)> {
         if let Some(pid) = pid {
             let path = self.path.join(socket.file_name(pid));
@@ -187,11 +189,14 @@ impl ControlDir {
             )),
             _ => {
                 let pids: Vec<String> = live.iter().map(|(pid, _)| pid.to_string()).collect();
-                Err(io::Error::other(format!(
-                    "found more than one {} (pids {}); choose one with --pid",
-                    socket.what(),
-                    pids.join(", ")
-                )))
+                Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "found more than one {} (pids {}); choose one with --pid",
+                        socket.what(),
+                        pids.join(", ")
+                    ),
+                ))
             }
         }
     }
@@ -730,6 +735,7 @@ mod tests {
         let _other = UnixListener::bind(dir.path().join("1.sock")).unwrap();
         let err = dir.connect(Socket::Dev, None).unwrap_err();
         assert!(err.to_string().contains("--pid"), "{err}");
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
         assert_eq!(dir.connect(Socket::Dev, Some(1)).unwrap().0, 1);
     }
 

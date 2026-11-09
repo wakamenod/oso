@@ -39,6 +39,7 @@ use std::sync::atomic::AtomicU64;
 mod agent;
 mod completion;
 mod copies;
+mod excerpt;
 mod files;
 mod follow;
 mod isearch;

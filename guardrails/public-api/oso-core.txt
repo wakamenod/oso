@@ -1243,6 +1243,9 @@ pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::Fram
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
+pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
 pub fn oso_core::editor::Editor::file_prompt_open(&self) -> bool
