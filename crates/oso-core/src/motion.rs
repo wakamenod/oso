@@ -89,6 +89,11 @@ impl WalkBudget {
         self.ran_out
     }
 
+    /// What it still holds.
+    pub(crate) const fn left(self) -> usize {
+        self.left
+    }
+
     /// A budget of `bytes`, for a command that needs less than a whole one.
     pub(crate) const fn with_limit(bytes: usize) -> Self {
         Self {

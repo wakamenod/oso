@@ -460,6 +460,7 @@ impl Dispatcher {
             }
             Resolution::Cancelled => {
                 log::debug!("Quit");
+                editor.drop_cursor_search();
                 editor.echo("Quit");
                 self.forget_keys(editor);
                 return Effects::default();
@@ -489,6 +490,8 @@ impl Dispatcher {
 mod buffer_tests;
 #[cfg(test)]
 mod complete_tests;
+#[cfg(test)]
+mod cursor_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]

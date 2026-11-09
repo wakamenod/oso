@@ -269,6 +269,23 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
   overlap merge into one.
 - During a composition the region stays, and the preedit pushes it as it pushes the text.
 
+## Multiple cursors
+
+As multiple-cursors.el ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
+
+- `C->` and `C-<` add a cursor at the next or previous occurrence of the region, or of the
+  word at point, which the first key selects; a string from a word matches whole words only,
+  and case always matters. The new cursor's region covers the match, and it becomes the
+  primary. There is no wrap: past the end the echo area says "No more matches".
+- `C-M->` and `C-M-<` skip: they move the last (first) cursor on to the next occurrence. `M--`
+  before `C->` or `C-<` removes the cursor at that end.
+- `C-c C-<` puts a cursor on every occurrence in the buffer, and `C-x SPC` one on each line from
+  the mark's to the cursor's, at the cursor's column.
+- A window has at most 1000 cursors. A key that would pass it adds none, and `C-c C-<` says how
+  many occurrences there are.
+- A far occurrence is found on a worker thread, and the echo area says `Searching…` meanwhile.
+- `C-g` first hides the regions, then leaves the primary cursor alone.
+
 ## isearch
 
 - `C-s` and `C-r` search for the literal string as it is typed, with smart case: case matters

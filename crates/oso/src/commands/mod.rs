@@ -10,6 +10,7 @@
 mod agent;
 mod buffers;
 mod complete;
+mod cursors;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
@@ -40,6 +41,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 const TABLES: &[&[Command]] = &[
     agent::COMMANDS,
     complete::COMMANDS,
+    cursors::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,

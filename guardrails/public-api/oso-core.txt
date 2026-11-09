@@ -964,6 +964,27 @@ impl core::fmt::Debug for oso_core::editor::AgentChannel
 pub fn oso_core::editor::AgentChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::AgentChannel
 impl core::marker::StructuralPartialEq for oso_core::editor::AgentChannel
+pub enum oso_core::editor::CursorError
+pub oso_core::editor::CursorError::Loading
+pub oso_core::editor::CursorError::NoMark
+pub oso_core::editor::CursorError::NoMore
+pub oso_core::editor::CursorError::NoWord
+pub oso_core::editor::CursorError::OnlyOne
+pub oso_core::editor::CursorError::TooLong
+pub oso_core::editor::CursorError::TooMany
+pub oso_core::editor::CursorError::TooManyMatches(usize)
+impl core::clone::Clone for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::clone(&self) -> oso_core::editor::CursorError
+impl core::cmp::Eq for oso_core::editor::CursorError
+impl core::cmp::PartialEq for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::eq(&self, &oso_core::editor::CursorError) -> bool
+impl core::error::Error for oso_core::editor::CursorError
+impl core::fmt::Debug for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::CursorError
+impl core::marker::StructuralPartialEq for oso_core::editor::CursorError
 pub enum oso_core::editor::KillRefused
 pub oso_core::editor::KillRefused::Gone
 pub oso_core::editor::KillRefused::Internal
@@ -994,6 +1015,7 @@ pub fn oso_core::editor::Preview::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 impl core::marker::Copy for oso_core::editor::Preview
 impl core::marker::StructuralPartialEq for oso_core::editor::Preview
 pub enum oso_core::editor::Quit
+pub oso_core::editor::Quit::Cursors
 pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
 pub oso_core::editor::Quit::Region
@@ -1062,6 +1084,18 @@ impl core::fmt::Display for oso_core::editor::SaveRefused
 pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
+pub enum oso_core::editor::Toward
+pub oso_core::editor::Toward::Next
+pub oso_core::editor::Toward::Previous
+impl core::clone::Clone for oso_core::editor::Toward
+pub fn oso_core::editor::Toward::clone(&self) -> oso_core::editor::Toward
+impl core::cmp::Eq for oso_core::editor::Toward
+impl core::cmp::PartialEq for oso_core::editor::Toward
+pub fn oso_core::editor::Toward::eq(&self, &oso_core::editor::Toward) -> bool
+impl core::fmt::Debug for oso_core::editor::Toward
+pub fn oso_core::editor::Toward::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Toward
+impl core::marker::StructuralPartialEq for oso_core::editor::Toward
 pub enum oso_core::editor::YankError
 pub oso_core::editor::YankError::Edit(oso_core::buffer::EditError)
 pub oso_core::editor::YankError::Empty
@@ -1250,6 +1284,13 @@ pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::View
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::skip_like_this(&mut self, oso_core::editor::Toward) -> core::result::Result<(), oso_core::editor::CursorError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
@@ -2338,6 +2379,7 @@ impl<E: core::fmt::Debug> core::fmt::Debug for oso_core::selection::UpdateOutcom
 pub fn oso_core::selection::UpdateOutcome<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::marker::StructuralPartialEq for oso_core::selection::UpdateOutcome<E>
 pub const oso_core::selection::MARK_RING_SIZE: usize
+pub const oso_core::selection::MAX_CURSORS: usize
 pub mod oso_core::sum_tree
 pub enum oso_core::sum_tree::Bias
 pub oso_core::sum_tree::Bias::Left
