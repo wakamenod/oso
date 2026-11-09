@@ -203,6 +203,28 @@ fn far_apart_places_typed_in_during_a_job_stay_apart_once_it_reports() {
     assert_eq!(window.rows(), window.fresh(12));
 }
 
+/// Found by the review: a lower place's join reaching into the rows an upper one already
+/// replaced, with no empty edit.
+#[test]
+fn a_lower_join_reaching_an_upper_one_joins_with_it() {
+    let mut window = Window::new("日本語word ab日本語ab 。abword abcdefghijabcdefghij abab", 16);
+    window.command(&[(19, 0, "\n")]);
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    window.command(&[(29, 1, "")]);
+    window.command(&[(34, 0, "x")]);
+    let report = job.run().expect("a report");
+    assert!(window.wrap.take_report(report, &window.map.snapshot()));
+    let display = window.map.snapshot();
+    let mut at = 0;
+    for index in 0..window.wrap.snapshot().row_count() {
+        let row = window.wrap.snapshot().row(&display, index);
+        assert_eq!(row.start, at, "rows tile");
+        at = row.end;
+    }
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(16));
+}
+
 /// Text with long lines of words and of CJK.
 fn text() -> impl Strategy<Value = String> {
     let pieces = prop::sample::select(
