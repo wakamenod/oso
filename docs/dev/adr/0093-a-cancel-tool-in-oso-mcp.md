@@ -1,6 +1,6 @@
 # 0093. A `cancel` tool in `oso mcp`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-09
 
 ## Context
@@ -20,6 +20,8 @@ and `oso mcp` closes that call's connection. A question the agent caused outlive
 caused it.
 
 ## Decision
+
+The author accepted this on 2026-11-09, through the coordinator.
 
 - **`oso mcp` gains a seventh tool, `cancel`,** which calls the channel's `cancel` method. It takes
   no arguments, and closes the innermost open question this connection caused.
