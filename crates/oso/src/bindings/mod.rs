@@ -6,6 +6,7 @@
 
 mod buffers;
 mod complete;
+mod cursors;
 mod edit;
 mod isearch;
 mod kill;
@@ -29,6 +30,7 @@ use oso_core::keymap::Keymap;
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
     complete::BINDINGS,
+    cursors::BINDINGS,
     edit::BINDINGS,
     isearch::BINDINGS,
     kill::BINDINGS,

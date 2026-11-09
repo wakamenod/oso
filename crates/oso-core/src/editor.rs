@@ -39,6 +39,7 @@ use std::sync::atomic::AtomicU64;
 mod agent;
 mod completion;
 mod copies;
+mod cursors;
 mod follow;
 mod isearch;
 mod kill;
@@ -56,6 +57,7 @@ pub use crate::search::{SearchJob, SearchReport};
 pub use agent::AgentChannel;
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
+pub use cursors::{CursorError, Toward};
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
@@ -166,6 +168,8 @@ pub struct Editor {
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
     search_job: Option<SearchJob>,
+    /// The query a window keeps for the keys that add cursors (ADR 0091).
+    marking: Option<cursors::Marking>,
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
     reverts: Vec<(BufferId, ContentId)>,
 }
@@ -217,6 +221,7 @@ impl Editor {
             isearch: None,
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
+            marking: None,
             reverts: Vec::new(),
         };
         let id = editor.add_buffer(buffer);

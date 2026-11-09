@@ -598,6 +598,8 @@ mod buffer_tests;
 #[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
+mod cursor_tests;
+#[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
 mod emergency_tests;

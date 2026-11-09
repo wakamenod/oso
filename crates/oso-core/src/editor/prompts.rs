@@ -28,6 +28,8 @@ pub enum Quit {
     SearchStep,
     /// It ended isearch, and put the cursors and the view back as they were.
     Search,
+    /// It left the selected window its primary cursor alone (ADR 0091).
+    Cursors,
     /// Nothing was in progress.
     Nothing,
 }
@@ -410,6 +412,8 @@ impl Editor {
     /// steps (ADR 0082). M2-21 (extra cursors) adds its part after them. Closing a question runs nothing and forgets
     /// a refused exit.
     pub fn quit(&mut self) -> Quit {
+        // Whatever else it does (ADR 0091).
+        self.drop_cursor_search();
         // A region in a prompt goes before the prompt, as with Emacs's
         // `delete-selection-mode`.
         if self.deactivate_mark() {
@@ -424,6 +428,9 @@ impl Editor {
         }
         if let Some(quit) = self.isearch_quit() {
             return quit;
+        }
+        if self.quit_cursors() {
+            return Quit::Cursors;
         }
         Quit::Nothing
     }
