@@ -346,6 +346,7 @@ fn draw_pane<G: GlyphSource>(
             }
             draw_text(draws, view, pane, &layout, rows, system, glyphs);
             draws.held -= held;
+            outline_others(draws, view, &layout, metrics);
             underline_preedit(draws, view, &layout, metrics);
             if let Some(cells) = cursor {
                 fill_cursor(draws, &layout, cells, hollow, metrics);
@@ -413,6 +414,21 @@ fn outline(rect: PixelRect, width: f32) -> [PixelRect; 4] {
             ..rect
         },
     ]
+}
+
+/// Draws the outlines of `view`'s other cursors, over the glyphs and under the primary's
+/// box (ADR 0091).
+fn outline_others(draws: &mut Draws, view: &TextView<'_>, layout: &Layout, metrics: CellMetrics) {
+    let line = line_width(metrics);
+    for rect in view
+        .others
+        .iter()
+        .filter_map(|cells| layout.frame_cells(*cells))
+    {
+        for side in outline(rect, line) {
+            draws.fill(Some(side), Face::SecondaryCursor);
+        }
+    }
 }
 
 /// Fills the cursor box over `cells`, or only its outline for a hollow one.
@@ -624,6 +640,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         })
@@ -721,6 +738,7 @@ mod tests {
                     scroll: Scroll { top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     cursor_style: CursorStyle::Box,
+                    others: &[],
                     preedit: None,
                     fills: &[],
                 })
@@ -794,6 +812,7 @@ mod tests {
             scroll: Scroll { top: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
@@ -1033,6 +1052,41 @@ mod tests {
     }
 
     #[test]
+    fn other_cursors_are_dim_outlines_under_the_primarys_box() {
+        let buffer = Buffer::from_text("t", "abc");
+        let others = [rect(0, 2, 1, 1)];
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
+            others: &others,
+            preedit: None,
+            fills: &[],
+        });
+        let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
+        let mut scene = Scene::new(LIMITS, theme());
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects = scene.rects();
+        let dim = theme().background(Face::SecondaryCursor);
+        let outline: Vec<_> = rects.iter().filter(|r| r.color == dim).collect();
+        assert_eq!(outline.len(), 4, "four sides");
+        assert_eq!(
+            (outline[0].position, outline[0].size),
+            ([28.0, 8.0], [10.0, 1.0])
+        );
+        let last = rects.last().unwrap();
+        assert_eq!(
+            last.color,
+            theme().background(Face::Cursor),
+            "the primary's box last"
+        );
+        assert_eq!(scene.quads().len(), 3, "every glyph still shows");
+    }
+
+    #[test]
     fn a_hollow_cursor_is_an_outline_over_glyphs_as_they_are() {
         let buffer = Buffer::from_text("t", "abc");
         let content = PaneContent::Text(TextView {
@@ -1042,6 +1096,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Hollow,
+            others: &[],
             preedit: None,
             fills: &[],
         });
@@ -1134,6 +1189,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
@@ -1166,6 +1222,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
@@ -1192,6 +1249,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1, 1),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[(Face::Region, &region)],
         });
@@ -1230,6 +1288,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: Some(&preedit),
             fills: &[],
         });
@@ -1268,6 +1327,7 @@ mod tests {
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(0, 0),
                 cursor_style: CursorStyle::Box,
+                others: &[],
                 preedit: None,
                 fills: &[],
             })
@@ -1308,6 +1368,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
@@ -1339,6 +1400,7 @@ mod tests {
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(1000, 0),
                 cursor_style: CursorStyle::Box,
+                others: &[],
                 preedit: None,
                 fills: &[],
             })
@@ -1499,6 +1561,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });

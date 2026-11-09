@@ -61,6 +61,7 @@ pub(super) fn preview_panes<'a>(
                 scroll: Scroll { top, left: 0 },
                 cursor,
                 cursor_style: CursorStyle::Hollow,
+                others: &[],
                 preedit: None,
                 fills: &[],
             };

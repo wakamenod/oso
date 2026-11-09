@@ -43,7 +43,17 @@ pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {
         use winit::platform::macos::EventLoopBuilderExtMacOS;
         builder.with_default_menu(false);
     }
-    let event_loop = builder.build().unwrap();
+    // With no window system to reach, as when the display has gone, there is nothing to show:
+    // it says why and exits, where a panic would say only where (ADR 0028). Nothing is open
+    // yet, so nothing is lost.
+    let event_loop = match builder.build() {
+        Ok(event_loop) => event_loop,
+        Err(e) => {
+            // Only this level reaches a terminal with no `RUST_LOG`.
+            log::error!("cannot reach the window system: {e}");
+            std::process::exit(1);
+        }
+    };
     // Sleep until an event arrives; frames are drawn only on demand.
     event_loop.set_control_flow(ControlFlow::Wait);
     log::debug!("event loop built {:?} after start", started.elapsed());

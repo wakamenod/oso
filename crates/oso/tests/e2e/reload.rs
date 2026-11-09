@@ -39,12 +39,13 @@ fn a_file_changed_on_disk_reloads_and_keeps_the_cursor_and_undo_takes_it_back() 
         .expect("numbered lines are ASCII")
         .replace("line 000", "the very first line");
     replace(&file, changed.as_bytes());
-    let state = app.wait_for("the new text", |state| {
-        state["text"]["rows"][0] == "the very first line"
+    // The message comes once no other read has started for a moment, so that many files
+    // reloaded at once are said once: it may follow the text by up to that moment.
+    let state = app.wait_for("the new text, said", |state| {
+        state["text"]["rows"][0] == "the very first line" && state["echo"] == "Reloaded notes.txt"
     });
     assert_eq!(cursor(&state), (5, 2), "the cursor kept its place");
     assert_eq!(state["buffer"]["modified"], false);
-    assert_eq!(state["echo"], "Reloaded notes.txt");
 
     app.send_keys("C-z");
     let state = app.state();

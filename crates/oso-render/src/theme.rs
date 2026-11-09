@@ -212,7 +212,7 @@ impl Theme {
 }
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 21] = [
+const FACES: [Face; 22] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -234,6 +234,7 @@ const FACES: [Face; 21] = [
     Face::CompletionPrompt,
     Face::SearchMatch,
     Face::SearchCurrent,
+    Face::SecondaryCursor,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -261,6 +262,7 @@ const fn index(face: Face) -> usize {
         Face::CompletionPrompt => 18,
         Face::SearchMatch => 19,
         Face::SearchCurrent => 20,
+        Face::SecondaryCursor => 21,
     }
 }
 
@@ -291,6 +293,8 @@ fn faces(face: Face) -> (Name, Name) {
         Face::CompletionPrompt => (Teal, BgMain),
         Face::SearchMatch => (FgMain, BgMatch),
         Face::SearchCurrent => (FgMain, BgCurrent),
+        // An outline in the prompt's dim colour, drawn as a fill (ADR 0091).
+        Face::SecondaryCursor => (FgMain, FgPrompt),
     }
 }
 
@@ -527,7 +531,8 @@ pub(crate) mod tests {
             | Face::Region
             | Face::CompletionSelected
             | Face::SearchMatch
-            | Face::SearchCurrent => &[],
+            | Face::SearchCurrent
+            | Face::SecondaryCursor => &[],
         }
     }
 
@@ -669,6 +674,24 @@ pub(crate) mod tests {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
             }
+        }
+    }
+
+    /// A secondary cursor's outline stands out on the text's background, as WCAG asks of
+    /// what is no text, at 3:1, and less than the cursor box, so the primary is the one that
+    /// stands out (ADR 0091).
+    #[test]
+    fn a_secondary_cursor_is_seen_and_dimmer_than_the_primary() {
+        for theme in &themes() {
+            let behind = theme.background(Face::Text);
+            let outline = contrast(theme.background(Face::SecondaryCursor), behind);
+            let primary = contrast(theme.background(Face::Cursor), behind);
+            assert!(outline >= 3.0, "{}: {outline:.2}", theme.name());
+            assert!(
+                outline < primary,
+                "{}: {outline:.2} {primary:.2}",
+                theme.name()
+            );
         }
     }
 

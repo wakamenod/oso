@@ -22,6 +22,9 @@ pub enum Face {
     Boxed,
     /// The cursor box, and the glyphs on it.
     Cursor,
+    /// The outline of a cursor other than the primary, dimmer than the cursor box, over
+    /// glyphs as they are (ADR 0091). Only its background is drawn.
+    SecondaryCursor,
     /// A modeline, and its text.
     Modeline,
     /// A warning that must be seen, on whatever is behind it.
@@ -138,6 +141,10 @@ pub struct TextView<'a> {
     pub cursor: DisplayPoint,
     /// How the cursor is drawn.
     pub cursor_style: CursorStyle,
+    /// The frame's cells of the other cursors' boxes, drawn as outlines in
+    /// [`Face::SecondaryCursor`] over the text (ADR 0091), as `Editor::other_cursor_cells`
+    /// gives them.
+    pub others: &'a [CellRect],
     /// What an input method is composing, spliced into the cursor's row at the
     /// cursor and pushing the rest of it (ADR 0069).
     pub preedit: Option<&'a Preedit>,
