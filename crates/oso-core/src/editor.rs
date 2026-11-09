@@ -39,6 +39,8 @@ use std::sync::atomic::AtomicU64;
 mod agent;
 mod completion;
 mod copies;
+mod excerpt;
+mod files;
 mod follow;
 mod isearch;
 mod kill;
@@ -109,6 +111,15 @@ pub struct Editor {
     /// A file a write to a new place found, which the next `C-x C-w` of it asks to write over
     /// (ADR 0087).
     write_over_asked: Option<write::WriteOver>,
+    /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
+    file_list: files::FileList,
+    /// Files commands asked to visit, with the most bytes each may read, for the host.
+    visits: Vec<(std::path::PathBuf, u64)>,
+    /// A file a load stopped before reading as too large, with its size, which `C-x C-f` asks
+    /// about next (ADR 0087).
+    large: Option<(std::path::PathBuf, u64)>,
+    /// The directory oso started in.
+    start_directory: std::path::PathBuf,
     /// The marks the last `C-.` listed (ADR 0088).
     mark_list: Option<marks::MarkList>,
     /// The home directory, which `~` stands for, as the host read it at startup.
@@ -193,6 +204,10 @@ impl Editor {
             way_back: Vec::new(),
             home: None,
             mark_list: None,
+            file_list: files::FileList::default(),
+            visits: Vec::new(),
+            large: None,
+            start_directory: std::path::PathBuf::from("/"),
             write_over_asked: None,
             kill_asked: None,
             freed: Vec::new(),

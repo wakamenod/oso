@@ -35,16 +35,19 @@ keys: M-x
 =-- test  1:0  Fundamental  UTF-8 LF                                                                 =
 "                                                                                                    "
 float at row 4, column 19: 19 x 62
-│ 1/54  M-x                                                    │
+│ 1/60  M-x                                                    │
 :           ^                                                  :
 │>undo (C-z)             Undo the last N changes to the buffe… │
 │ yank (C-y)             Insert the newest kill at every curs… │
+│ insert                 Insert text at every cursor, as one … │
 │ newline (RET)          Insert a line break at every cursor,… │
+│ find-file (C-x C-f)    Visit a file, its path read with com… │
 │ goto-line (M-g g)      Move point to the start of line N, c… │
 │ kill-line (C-k)        Kill the rest of the line at every c… │
 │ kill-word (M-d)        Kill from every cursor to the end of… │
 │ next-line (C-n)        Move point N lines down (up if N is … │
 │ undo-redo (C-M-z)      Redo the last N undone changes (undo… │
+│ write-file (C-x C-w)   Write the buffer to a file, its path… │
 │ delete-char (C-d)      Delete the N characters after every … │
 │ kill-buffer (C-x k)    Kill a buffer, read with completion,… │
 │ next-buffer (M-/)      Go the other way from `previous-buff… │
@@ -52,9 +55,6 @@ float at row 4, column 19: 19 x 62
 │ consult-mark (C-.)     Go to a mark, picked from the mark a… │
 │ forward-char (C-f)     Move point N characters forward (bac… │
 │ forward-word (M-f)     Move point to the end of the next wo… │
-│ backward-char (C-b)    Move point N characters backward (fo… │
-│ backward-word (M-b)    Move point to the start of the previ… │
-│ end-of-buffer (M->)    Move point to the end of the buffer.  │
 
 keys: f o r w
 │# Notes                                                                                             │

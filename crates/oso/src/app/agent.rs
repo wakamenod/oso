@@ -16,24 +16,31 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::json;
 
 use oso_core::command::Reach;
 use oso_core::editor::AgentChannel;
 use oso_core::key::KeyPress;
 use oso_core::minibuffer::PromptId;
-use oso_platform::control::{Peer, PeerProcess};
+use oso_platform::control::Peer;
+
+mod admit;
+mod open;
 
 use super::App;
-use super::UserEvent;
 use super::shell::Loop;
-use crate::channel::{self, Connection, Event, Reply, protocol::Op};
+use crate::channel::protocol::{Arg, Op};
+use crate::channel::{self, Connection, Event, Reply};
+use crate::dispatch::Given;
 
 /// How long a question the channel caused takes no answer after the last key.
 pub const QUIET: Duration = Duration::from_millis(500);
 
 /// How often a row that can come many times a second is logged, at most.
 const OFTEN: Duration = Duration::from_secs(5);
+
+/// The most bytes of text one connection gives its commands in a minute.
+pub const MAX_TEXT_A_MINUTE: usize = 4 << 20;
 
 /// How long after the person's last key the channel runs nothing.
 pub const PERSON_TYPING: Duration = Duration::from_secs(1);
@@ -56,6 +63,9 @@ pub(super) struct Agent {
     asking: Option<Asking>,
     /// The questions the channel's commands caused, with the connection that caused each.
     caused: Vec<(PromptId, Connection)>,
+    /// The connection whose question the person answered last, which a question that answer
+    /// opens is put down to.
+    last_answered: Option<Connection>,
     /// Questions the agent caused whose connection went, or whose channel stopped, which
     /// close as soon as they are innermost: no `y` answers them any more.
     orphaned: Vec<PromptId>,
@@ -70,6 +80,12 @@ pub(super) struct Agent {
     quiet_since: Option<Instant>,
     /// When the person last typed in the window.
     person_typed: Option<Instant>,
+    /// The files the channel is opening.
+    opening: Vec<open::Opening>,
+    /// How many files each connection has opened.
+    opened: HashMap<Connection, usize>,
+    /// The text each connection has given this minute: since when, and how many bytes.
+    inserted: HashMap<Connection, (Instant, usize)>,
 }
 
 #[derive(Debug)]
@@ -164,12 +180,26 @@ impl App {
             Event::Silent => self.agent_log_often("closed connections that sent nothing"),
             Event::Op(op) => {
                 let Some(reply) = reply else { return };
-                let result = if self.agent.connected.contains(&connection) {
-                    self.agent_op(event_loop, connection, op)
-                } else {
-                    Err("the person has not let this connection in".into())
-                };
-                let _ = reply.send(result);
+                if !self.agent.connected.contains(&connection) {
+                    let _ = reply.send(Err("the person has not let this connection in".into()));
+                    return;
+                }
+                match op {
+                    // These reply later: once the text is copied, or the file shown.
+                    Op::Text(of) => {
+                        self.agent_log_often("text");
+                        match channel::text::start(&self.editor, of) {
+                            Ok(job) => job.spawn(reply),
+                            Err(why) => {
+                                let _ = reply.send(Err(why));
+                            }
+                        }
+                    }
+                    Op::Open { path, line } => self.agent_open(connection, path, line, reply),
+                    op => {
+                        let _ = reply.send(self.agent_op(event_loop, connection, op));
+                    }
+                }
             }
         }
     }
@@ -178,6 +208,7 @@ impl App {
     fn agent_gone(&mut self, connection: Connection) {
         self.agent.connected.retain(|&open| open != connection);
         self.orphan_questions(Some(connection));
+        self.drop_agent_opens(Some(connection));
         if self
             .agent
             .asking
@@ -227,6 +258,8 @@ impl App {
             Op::Run { name, arg, reach } => {
                 self.agent_run(event_loop, connection, &name, arg, reach)
             }
+            // Answered where they come in, as they reply later.
+            Op::Text(_) | Op::Open { .. } => Err("not here".into()),
         }
     }
 
@@ -236,17 +269,39 @@ impl App {
         event_loop: &Loop<'_>,
         connection: Connection,
         name: &str,
-        arg: Option<isize>,
+        arg: Option<Arg>,
         reach: Reach,
     ) -> Reply {
+        // What the channel may never run is said at once, before anything waits.
+        if let Err(refused) = self.dispatcher.by_reach(name, reach) {
+            self.agent_log(&format!("run: refused: {}", refused.0));
+            return Err(refused.0);
+        }
         if let Some(why) = self.agent_waits() {
             self.agent_log_often(why);
             return Err(why.into());
         }
+        let given = match &arg {
+            None => Given::Nothing,
+            Some(Arg::Count(n)) => Given::Count(*n),
+            Some(Arg::Text(text)) => Given::Text(text),
+        };
+        // What one connection puts in a minute is bounded, as well as what one request does.
+        if let Given::Text(text) = given {
+            let now = Instant::now();
+            let (since, bytes) = self.agent.inserted.entry(connection).or_insert((now, 0));
+            if now.duration_since(*since) >= Duration::from_secs(60) {
+                (*since, *bytes) = (now, 0);
+            }
+            if bytes.saturating_add(text.len()) > MAX_TEXT_A_MINUTE {
+                return Err("this agent has put in as much text as it may this minute".into());
+            }
+            *bytes += text.len();
+        }
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
         let ran = self
             .dispatcher
-            .run_for_agent(&mut self.editor, name, arg, reach);
+            .run_for_agent(&mut self.editor, name, given, reach);
         let (effects, result) = match ran {
             Ok(ran) => ran,
             Err(refused) => {
@@ -259,7 +314,12 @@ impl App {
         self.note_logging();
         let asked = self.note_caused(newest, connection);
         self.apply(event_loop, effects);
-        let shown_arg = arg.map_or_else(String::new, |n| format!(" {n}"));
+        // A text argument is never logged, only its length.
+        let shown_arg = match &arg {
+            None => String::new(),
+            Some(Arg::Count(n)) => format!(" {n}"),
+            Some(Arg::Text(text)) => format!(" ({} bytes of text)", text.len()),
+        };
         let outcome = match (&result, &asked) {
             (Err(message), _) => format!("failed: {message}"),
             (Ok(()), Some(_)) => "waiting for the person".to_owned(),
@@ -277,7 +337,7 @@ impl App {
     }
 
     /// Why the channel may run nothing now, if it may not.
-    fn agent_waits(&self) -> Option<&'static str> {
+    pub(super) fn agent_waits(&self) -> Option<&'static str> {
         let prompts = self.editor.prompts();
         waits(&Now {
             shows_secret: self.editor.shows_secret(),
@@ -319,10 +379,8 @@ impl App {
         }
         self.ask_about_a_connection();
         self.close_orphaned_questions();
-        let open = self.editor.prompts();
-        self.agent
-            .caused
-            .retain(|(id, _)| open.iter().any(|prompt| prompt.id() == *id));
+        self.progress_agent_opens();
+        self.track_follow_up_questions();
         let status = match (&self.agent.channel, self.agent.connected.is_empty()) {
             (None, _) => AgentChannel::Off,
             (Some(_), true) => AgentChannel::On,
@@ -331,134 +389,6 @@ impl App {
         if self.editor.agent_channel() != status {
             self.editor.set_agent_channel(status);
             self.request_redraw();
-        }
-    }
-
-    /// Starts the channel on a thread of its own, as it checks and binds in the file system.
-    fn start_agent_channel(&mut self) {
-        self.agent.stop_when_started = false;
-        if self.agent.channel.is_some() || self.agent.starting {
-            self.editor.message("The agent channel is on already");
-            return;
-        }
-        self.agent.run += 1;
-        let run = self.agent.run;
-        let waker = self.waker.clone();
-        let spawned = std::thread::Builder::new()
-            .name("oso-agent-start".into())
-            .spawn(move || {
-                let send = waker.clone();
-                let started =
-                    channel::start(run, move |request| send.send(UserEvent::Agent(request)));
-                waker.send(UserEvent::AgentStarted(started));
-            });
-        match spawned {
-            Ok(_) => self.agent.starting = true,
-            Err(e) => self
-                .editor
-                .message(format!("The agent channel did not start: {e}")),
-        }
-    }
-
-    /// The channel's thread started it, or could not.
-    pub(super) fn agent_started(&mut self, started: std::io::Result<channel::Channel>) {
-        self.agent.starting = false;
-        if std::mem::take(&mut self.agent.stop_when_started) {
-            return;
-        }
-        match started {
-            Ok(channel) => {
-                self.agent.channel = Some(channel);
-                self.agent.started = Some(Instant::now());
-                self.agent_log("the agent channel is on");
-                self.editor
-                    .message("Agent channel on: each agent asks you first");
-            }
-            Err(e) => {
-                log::warn!("the agent channel did not start: {e}");
-                self.editor
-                    .message(format!("The agent channel did not start: {e}"));
-            }
-        }
-    }
-
-    fn stop_agent_channel(&mut self) {
-        if self.agent.starting {
-            self.agent.stop_when_started = true;
-            self.editor.message("Agent channel off");
-            return;
-        }
-        let Some(channel) = self.agent.channel.take() else {
-            self.editor.message("The agent channel is off already");
-            return;
-        };
-        drop(channel);
-        if let Some(asking) = self.agent.asking.take() {
-            let _ = asking
-                .reply
-                .send(Err("the person turned the agent channel off".into()));
-            if let Some(question) = asking.question
-                && self
-                    .editor
-                    .prompt()
-                    .is_some_and(|prompt| prompt.id() == question)
-            {
-                self.editor.quit();
-            }
-        }
-        self.agent.connected.clear();
-        self.orphan_questions(None);
-        self.agent_log("the agent channel is off");
-        self.editor.message("Agent channel off");
-    }
-
-    /// Asks about the waiting connection once no prompt is open and no keys are in progress,
-    /// and takes the person's answer once its question has closed.
-    fn ask_about_a_connection(&mut self) {
-        let Some(asking) = &self.agent.asking else {
-            return;
-        };
-        match asking.question {
-            None => {
-                if self.editor.prompt().is_some()
-                    || self.dispatcher.keys_in_progress()
-                    || self.composing()
-                {
-                    return;
-                }
-                let label = channel::question::connection(&asking.peer);
-                let Ok(id) =
-                    self.editor
-                        .ask_for_agent(label, "agent-channel-allow", CONNECTION_VERBS)
-                else {
-                    return;
-                };
-                self.agent.quiet_since = Some(Instant::now());
-                if let Some(asking) = &mut self.agent.asking {
-                    asking.question = Some(id);
-                }
-                self.request_redraw();
-            }
-            Some(id) => {
-                if self.editor.prompts().iter().any(|prompt| prompt.id() == id) {
-                    return;
-                }
-                let Some(asking) = self.agent.asking.take() else {
-                    return;
-                };
-                let pid = asking.peer.process.as_ref().map(PeerProcess::pid);
-                let who = pid.map_or_else(|| "an agent".to_owned(), |pid| format!("pid {pid}"));
-                if self.editor.take_agent_allowed() {
-                    let _ = asking.reply.send(Ok(Value::Null));
-                    self.agent.connected.push(asking.connection);
-                    self.agent_log(&format!("{who}: let in"));
-                } else {
-                    let _ = asking
-                        .reply
-                        .send(Err(channel::REFUSED_BY_THE_PERSON.into()));
-                    self.agent_log(&format!("{who}: refused"));
-                }
-            }
         }
     }
 
@@ -515,6 +445,52 @@ impl App {
         }
     }
 
+    /// Forgets the questions the agent caused that have closed, and takes on those that the
+    /// person's `y` to one of them opened: they are the same connection's, so that its
+    /// `cancel` closes them and they close when it goes (ADR 0085).
+    fn track_follow_up_questions(&mut self) {
+        let open: Vec<(PromptId, bool)> = self
+            .editor
+            .prompts()
+            .iter()
+            .map(|prompt| (prompt.id(), prompt.from_agent()))
+            .collect();
+        let is_open = |id: PromptId| open.iter().any(|&(open, _)| open == id);
+        // The connection whose question closed last is the one a follow-up comes from.
+        if let Some(&(_, by)) = self
+            .agent
+            .caused
+            .iter()
+            .rev()
+            .find(|&&(id, _)| !is_open(id))
+        {
+            self.agent.last_answered = Some(by);
+        }
+        self.agent.caused.retain(|&(id, _)| is_open(id));
+        let asked = self
+            .agent
+            .asking
+            .as_ref()
+            .and_then(|asking| asking.question);
+        for &(id, from_agent) in &open {
+            let known = self.agent.caused.iter().any(|&(caused, _)| caused == id)
+                || self.agent.orphaned.contains(&id)
+                || asked == Some(id);
+            if !from_agent || known {
+                continue;
+            }
+            match self
+                .agent
+                .last_answered
+                .filter(|by| self.agent.connected.contains(by))
+            {
+                Some(by) => self.agent.caused.push((id, by)),
+                None => self.agent.orphaned.push(id),
+            }
+        }
+        self.close_orphaned_questions();
+    }
+
     /// The questions `connection` caused, or every connection if `None`, take no answer any
     /// more: each closes once it is innermost.
     fn orphan_questions(&mut self, connection: Option<Connection>) {
@@ -561,7 +537,7 @@ impl App {
     }
 
     /// Adds a row to `*Agent*`, with the time since the channel started.
-    fn agent_log(&mut self, row: &str) {
+    pub(super) fn agent_log(&mut self, row: &str) {
         let since = self.agent.started.map_or(Duration::ZERO, |at| at.elapsed());
         let seconds = since.as_secs();
         self.editor

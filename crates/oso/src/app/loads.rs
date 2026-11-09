@@ -27,24 +27,38 @@ impl App {
     /// shows at once, read-only, and fills in as a background thread loads
     /// it. Nothing in the file is run (security.md, T1).
     pub fn open(&mut self, path: PathBuf) {
-        if let Some(buffer) = self.visit(path) {
+        if let Some(buffer) = self.visit(path, loader::UNASKED) {
             self.editor.show(buffer);
         }
         self.request_redraw();
     }
 
-    /// Adds a buffer for `path` and starts loading it. `None` if the loading
-    /// thread cannot start.
-    pub(super) fn visit(&mut self, path: PathBuf) -> Option<BufferId> {
+    /// Adds a buffer for `path` and starts loading it, if it holds at most `limit` bytes
+    /// ([`loader::spawn`]). `None` if the loading thread cannot start.
+    pub(super) fn visit(&mut self, path: PathBuf, limit: u64) -> Option<BufferId> {
+        self.visit_with(path, limit, false)
+    }
+
+    /// [`Self::visit`], for the agent channel if `for_agent`: the file opened must have one
+    /// name, or its load fails and the buffer goes, unshown (ADR 0085).
+    pub(super) fn visit_with(
+        &mut self,
+        path: PathBuf,
+        limit: u64,
+        for_agent: bool,
+    ) -> Option<BufferId> {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
-        let spawned = loader::spawn(buffer, path, move |buffer| {
-            waker.send(UserEvent::Load(buffer))
-        });
+        let wake = move |buffer| waker.send(UserEvent::Load(buffer));
+        let spawned = if for_agent {
+            loader::spawn_one_name(buffer, path, limit, wake)
+        } else {
+            loader::spawn(buffer, path, limit, wake)
+        };
         match spawned {
             Ok(handle) => {
                 self.loads.push(Load {
@@ -62,6 +76,11 @@ impl App {
                 None
             }
         }
+    }
+
+    /// Stops loading `buffer`: its thread ends at its next read, and nothing it read comes in.
+    pub(super) fn cancel_load(&mut self, buffer: BufferId) {
+        self.loads.retain(|load| load.handle.buffer() != buffer);
     }
 
     /// Adds a buffer for `path` holding `text`, carried unsaved from another instance, and
@@ -190,19 +209,14 @@ impl App {
         let id = self.loads[index].handle.buffer();
         // The tiled window, also beneath a prompt.
         let shown = self.editor.tiled().0.buffer() == id;
-        let Some(buffer) = self.editor.buffer_mut(id) else {
+        if self.editor.buffer(id).is_none() {
             self.loads.swap_remove(index);
             return false;
+        }
+        self.take_what_was_found(index, id);
+        let Some(buffer) = self.editor.buffer_mut(id) else {
+            return false;
         };
-        if let Some(resolved) = self.loads[index].handle.take_resolved() {
-            resolved.judge(buffer);
-        }
-        if let Some(baseline) = self.loads[index].handle.take_baseline() {
-            buffer.set_baseline(baseline);
-        }
-        if let Some(spelling) = self.loads[index].handle.take_own_spelling() {
-            buffer.set_own_spelling(spelling);
-        }
         let mut no_baseline = false;
         let redraw = match update {
             LoadUpdate::Snapshot(snapshot) => {
@@ -252,6 +266,11 @@ impl App {
             }
             // Only a reload sends one, and `reloads` takes it.
             LoadUpdate::Reloaded(_) => false,
+            LoadUpdate::Failed(LoadError::TooLarge(bytes)) => {
+                self.stopped_as_large(id, bytes);
+                self.loads.swap_remove(index);
+                shown
+            }
             LoadUpdate::Failed(e) => {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);
@@ -274,6 +293,48 @@ impl App {
         #[cfg(feature = "dev")]
         let redraw = self.try_restore_positions() || redraw;
         redraw
+    }
+
+    /// Takes in what the load at `index` found of `id`'s file before its content: the verdict,
+    /// the baseline and the file's own spelling.
+    fn take_what_was_found(&mut self, index: usize, id: BufferId) {
+        let handle = &self.loads[index].handle;
+        let (resolved, baseline, spelling) = (
+            handle.take_resolved(),
+            handle.take_baseline(),
+            handle.take_own_spelling(),
+        );
+        let Some(buffer) = self.editor.buffer_mut(id) else {
+            return;
+        };
+        if let Some(resolved) = resolved {
+            resolved.judge(buffer);
+        }
+        if let Some(spelling) = spelling {
+            buffer.set_own_spelling(spelling);
+        }
+        if let Some(baseline) = baseline {
+            buffer.set_baseline(baseline);
+        }
+    }
+
+    /// A load of `id` stopped before reading, as its file holds `bytes`, 2 GiB or more: the
+    /// buffer goes, and the next `C-x C-f` of that file asks (ADR 0087).
+    fn stopped_as_large(&mut self, id: BufferId, bytes: u64) {
+        let Some(buffer) = self.editor.buffer(id) else {
+            return;
+        };
+        let path = buffer.path().map(std::path::Path::to_path_buf);
+        let message = format!(
+            "{} is {}; C-x C-f asks to open it",
+            buffer.name(),
+            loader::gib(bytes)
+        );
+        if let Some(path) = path {
+            self.editor.remember_large(path, bytes);
+        }
+        self.editor.message(message);
+        self.editor.kill_buffer(id);
     }
 
     /// Logs how long the first screen of each new file took, once drawn,

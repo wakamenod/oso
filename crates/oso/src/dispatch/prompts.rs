@@ -70,6 +70,12 @@ impl Dispatcher {
                     },
                 )
             }
+            Some(ArgSpec::Text { prompt, history }) => (
+                prompt,
+                Kind::Text {
+                    history: Some(history),
+                },
+            ),
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
@@ -91,6 +97,9 @@ impl Dispatcher {
             }
             Some(ArgSpec::Mark { prompt }) => {
                 return self.read_mark(editor, id, args.raw(), prompt);
+            }
+            Some(ArgSpec::File { prompt, history }) => {
+                return self.read_file(editor, id, args.raw(), prompt, history);
             }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
@@ -119,6 +128,46 @@ impl Dispatcher {
             redraw: true,
             ..Effects::default()
         };
+        (effects, Ok(()))
+    }
+
+    /// Opens the prompt that reads a path for the command `id`, starting at the shown buffer's
+    /// directory, or the one oso started in, unless a prompt is selected (ADR 0087).
+    fn read_file(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        prompt: &'static str,
+        history: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let effects = Effects {
+            redraw: true,
+            ..Effects::default()
+        };
+        if editor.prompt().is_some() {
+            editor.prompt_says("Not in the minibuffer");
+            return (effects, Ok(()));
+        }
+        let start = editor.start_directory().to_path_buf();
+        let directory = editor
+            .current()
+            .1
+            .path()
+            .and_then(std::path::Path::parent)
+            .map_or(start, std::path::Path::to_path_buf);
+        let initial = oso_core::complete::typed_form(&directory, true, editor.home());
+        // A relative path typed in place of it starts there too.
+        match editor.open_file_prompt(prompt, history, &initial, directory) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+            }),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
         (effects, Ok(()))
     }
 
@@ -222,6 +271,9 @@ impl Dispatcher {
                     })
                 }
                 Some(Outcome::Run(name)) => {
+                    // What the person's `y` to the agent's question runs is the agent's, so
+                    // that a prompt it opens says so too (ADR 0085).
+                    let agents = editor.take_agents_answer();
                     self.forget_closed(editor);
                     let Some(id) = self.registry.lookup(name) else {
                         // A bug: a question named a command that does not exist.
@@ -233,10 +285,15 @@ impl Dispatcher {
                         confirmed: true,
                         ..Invocation::default()
                     };
-                    Some(
+                    let mut run = |editor: &mut Editor| {
                         self.execute(editor, id, Args::NONE, invocation, Step::MayJoin)
-                            .0,
-                    )
+                            .0
+                    };
+                    Some(if agents {
+                        editor.for_agent(|editor| run(editor))
+                    } else {
+                        run(editor)
+                    })
                 }
                 None => {
                     self.forget_closed(editor);

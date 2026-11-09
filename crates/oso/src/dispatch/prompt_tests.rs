@@ -399,7 +399,7 @@ mod passphrase {
     fn run_command_refuses_a_passphrase_and_runs_only_c_g_while_one_is_open() {
         let (mut d, mut editor) = on(LINES);
         let (_, result) = d.run_command(&mut editor, "dev-read-passphrase", None);
-        assert!(result.unwrap_err().contains("through send-keys"));
+        assert!(result.unwrap_err().contains("only its prompt takes"));
         send(&mut d, &mut editor, "<f34> a b");
         let (_, result) = d.run_command(&mut editor, "backward-char", None);
         assert!(result.unwrap_err().contains("passphrase prompt is open"));

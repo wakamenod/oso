@@ -79,6 +79,19 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `C-x C-f` matches its candidates on the UI thread, as ADR 0076's worker path past 5000 is not
+  built: the list is capped at 100,000, which takes about 20 ms a key to match at that size, and a
+  change of directory over 100,000 names about 26 ms to build. Move both to a worker
+  ([ADR 0076](adr/0076-completion-and-m-x.md),
+  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- A segment of `C-x C-f` that matches several directories lists each, which can reach an
+  automounted or cloud-synced folder the person did not name, and wait there. Decide whether
+  expansion stops at such mounts.
+- `C-x C-f` leaves out names that are not UTF-8, as a path made from a lossy copy of one would
+  name another file. Keep the name as the system gives it if they turn out to matter.
+- `C-x C-f` reads a path with `/` between its parts and starts an absolute one at `/`, so on
+  Windows a path with a drive, such as `C:/Users`, is read as relative. Decide how a drive or a
+  UNC share is typed once Windows draws text.
 - `C-x C-f` matches file names code point by code point, so a name stored decomposed (NFD), as older
   macOS volumes and zip archives keep them, does not match the composed form an input method types.
   Normalizing needs `unicode-normalization`, a dependency; decide once it is seen to matter
@@ -223,11 +236,11 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - What ADR 0070's stage 2 still owes before the native layer is the default on macOS, with
   the author's choices in [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md):
-  the cursor's line for the input method; and the author's checks at the keyboard of what
-  remains: a window covered by another app and uncovered drawing again with no key, a
-  composition committed when the IME turns off, the candidate window following the segment
-  being converted, no text service reading the view while the IME is off, no Writing Tools
-  for it, a Dock quit asking the exit question, and a real Log Out, cancelled from the
+  the author's checks at the keyboard of what remains: a window covered by another app and
+  uncovered drawing again with no key, a composition committed when the IME turns off, the
+  candidate window following the segment being converted, no text service reading the view
+  while the IME is off, no Writing Tools for it, the input method's predictions with the
+  cursor's line, a Dock quit asking the exit question, and a real Log Out, cancelled from the
   system's dialog, going past it, which shows oso reads a real logout's reason
   ([ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md)), a live resize, the
   window's corner dragged slowly and fast, with no text stretched or smeared and no blank
@@ -240,8 +253,15 @@ item notes when it must be settled.
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
 - Reconversion: a replacement range outside the marked text is ignored for now, and the text
-  goes in at the cursor. Decide whether to apply one inside the excerpt last given, as ADR
-  0070 allows, once the cursor's line reaches the input method
+  goes in at the cursor, though the input method now reads the cursor's line. Decide whether
+  to apply one inside the excerpt last given, as ADR 0070 allows
+  ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
+- The cursor's line for the input method and typing in one long line: on the native layer,
+  typing and deleting in a 10 MB line were about 0.3 ms slower per key once the excerpt was
+  given, in every run on the Mac mini on 2026-11-09, far under the 5 ms gate. Cutting the
+  excerpt there takes about 3 µs, with or without an edit before it, handing it to the window
+  is a swap, and motion keys, which give a new excerpt too, did not move. Find where the time
+  goes with the same build run against itself with no excerpt given
   ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
@@ -264,6 +284,10 @@ item notes when it must be settled.
 - Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
   M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
   ([ADR 0057](adr/0057-frame-layout.md)).
+- Any input-method report, even an empty preedit or `Disabled` with no composition open,
+  counts as the person typing and restarts the 500 ms wait before a question the agent caused
+  takes an answer. It could count only text or the end of a composition that was open. Kept
+  for now, as the cautious side ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 ## M3
 

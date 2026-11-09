@@ -21,6 +21,7 @@ mod control;
 mod copies;
 mod draw;
 mod events;
+mod files;
 #[cfg(feature = "dev")]
 mod handover;
 mod ime;
@@ -68,11 +69,15 @@ pub enum UserEvent {
     Clipboard(clipboard::ClipboardEvent),
     /// isearch's worker found or counted something (ADR 0082).
     Search(oso_core::editor::SearchReport),
+    /// The lister answered a prompt that reads a path (ADR 0087).
+    Listed,
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
     /// Something from a connection of the agent channel (ADR 0085).
     Agent(crate::channel::Request),
+    /// A deadline of the agent channel's came: a file it opens is dropped once it passes.
+    AgentDeadline,
     /// The agent channel started, or could not, off the UI thread.
     AgentStarted(std::io::Result<crate::channel::Channel>),
 }
@@ -122,6 +127,8 @@ pub struct App {
     clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
+    /// The threads that list directories for a prompt that reads a path (ADR 0087).
+    lister: crate::lister::Lister,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -158,9 +165,16 @@ impl App {
         let offer = emergency.offer();
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
+        let lister = files::lister(&waker);
+        let mut editor = Editor::default();
+        // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
+        editor.set_home(std::env::var_os("HOME").map(std::path::PathBuf::from));
+        if let Ok(directory) = std::env::current_dir() {
+            editor.set_start_directory(directory);
+        }
         Self {
             view: None,
-            editor: Editor::default(),
+            editor,
             dispatcher,
             modifiers: Held::NONE,
             waker,
@@ -178,6 +192,7 @@ impl App {
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
+            lister,
             log_gate,
             agent: agent::Agent::default(),
             #[cfg(feature = "dev")]
@@ -201,6 +216,8 @@ impl App {
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
         self.forget_killed();
+        self.serve_files();
+        self.forget_listings();
         self.start_saves();
         self.start_searches();
         self.start_reverts();
