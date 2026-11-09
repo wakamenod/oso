@@ -15,7 +15,8 @@ api_macos_target := "aarch64-apple-darwin"
 # Benchmarks build with the dev feature, so they keep out of target/release,
 # where the release binary lives (ADR 0046).
 perf_target := "target/perf-build"
-# `perf-remote` builds both sides here, apart from those, with the features asked for.
+# `perf-remote` builds both sides here, apart from those, with the features asked for, the
+# base's own if given.
 perf_remote_target := "target/perf-remote"
 # The whole test run stays within this on the author's Mac (ADR 0037).
 test_budget_s := "30"
@@ -135,8 +136,11 @@ release-safety:
     # so it cannot pass vacuously. The release side checks what `just
     # release` builds: the whole workspace, with features unified.
     set -euo pipefail
-    dev_crates="serde_json miniz_oxide"
-    markers="oso-dev-control-socket oso-dev-process-spawn"
+    # serde_json ships for the agent channel (ADR 0085).
+    dev_crates="miniz_oxide"
+    # Dev method names too: with serde_json shipping, they show that no dev method got into
+    # the agent channel (ADR 0085).
+    markers="oso-dev-control-socket oso-dev-process-spawn send-keys export-state"
     tree() {
         cargo tree --locked --workspace --target all -e normal,build --prefix none \
             --format '{p} [{f}]' "$@" | sort -u
@@ -207,13 +211,17 @@ perf out="target/perf/perf.json" *args="":
     cargo build --locked --release --target-dir {{perf_target}} -p oso --features dev --bin oso --example perf
     {{perf_target}}/release/examples/perf run --oso {{perf_target}}/release/oso --out "{{out}}" {{args}}
 
-# Benchmark the working tree against BASE on the ssh host OSO_PERF_HOST, in PAIRS alternating pairs, both built with FEATURES. It builds here and only runs there, so builds here may go on meanwhile
-perf-remote base="origin/main" pairs="3" features="dev" *args="":
+# Benchmark the working tree against BASE on the ssh host OSO_PERF_HOST, in PAIRS alternating pairs, built with FEATURES, the base with BASE_FEATURES if given. It builds here and only runs there, so builds here may go on meanwhile
+perf-remote base="origin/main" pairs="3" features="dev" base_features="" *args="":
     #!/usr/bin/env bash
     set -euo pipefail
     host="${OSO_PERF_HOST:?set OSO_PERF_HOST to an ssh host, a Mac that runs what is built here}"
     [[ "{{pairs}}" =~ ^[1-9][0-9]*$ ]] || { echo "error: not a number of pairs: {{pairs}}"; exit 1; }
-    [[ "{{features}}" =~ ^dev(,[a-z-]+)*$ ]] || { echo "error: features must start with dev: {{features}}"; exit 1; }
+    # The base is built with `base_features` if given, as winit against the native layer is.
+    base_features="{{ if base_features == "" { features } else { base_features } }}"
+    for f in "{{features}}" "$base_features"; do
+        [[ "$f" =~ ^dev(,[a-z-]+)*$ ]] || { echo "error: features must start with dev: $f"; exit 1; }
+    done
     rev=$(git rev-parse --verify "{{base}}^{commit}")
     new=$(git rev-parse --short HEAD)
     git diff --quiet HEAD || new="$new with changes"
@@ -224,9 +232,9 @@ perf-remote base="origin/main" pairs="3" features="dev" *args="":
     rm -rf "$src" && mkdir -p "$src"
     # The base from git alone, built apart; the harness of the working tree runs both sides.
     git archive "$rev" | tar -x -C "$src"
-    cargo build --locked --release --manifest-path "$src/Cargo.toml" --target-dir "$PWD/{{perf_remote_target}}/base" -p oso --features "{{features}}" --bin oso
+    cargo build --locked --release --manifest-path "$src/Cargo.toml" --target-dir "$PWD/{{perf_remote_target}}/base" -p oso --features "$base_features" --bin oso
     cargo build --locked --release --target-dir {{perf_remote_target}}/new -p oso --features "{{features}}" --bin oso --example perf
-    echo "base: {{base}} at ${rev:0:7}; new: $new; features: {{features}}; host: $host" | tee "$out/what.txt"
+    echo "base: {{base}} at ${rev:0:7} with $base_features; new: $new with {{features}}; host: $host" | tee "$out/what.txt"
     ssh "$host" "mkdir -p oso-perf/$run"
     rsync -q "{{perf_remote_target}}/base/release/oso" "$host:oso-perf/$run/oso-base"
     rsync -q "{{perf_remote_target}}/new/release/oso" "$host:oso-perf/$run/oso-new"
@@ -516,6 +524,17 @@ audit:
 # Scan the full git history for secrets
 secrets:
     gitleaks git --redact
+
+# Fail on a conflict marker in a tracked file, as the architecture test does, without a
+# build: for CI's docs-only path (ADR 0038)
+markers:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if git grep -nE '^(<{7}|\|{7}|>{7})( |$)|^={7}$'; then
+        echo "error: conflict markers above; finish resolving the merge, or write a heading with '#'."
+        exit 1
+    fi
+    echo "conflict markers: none"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Docs

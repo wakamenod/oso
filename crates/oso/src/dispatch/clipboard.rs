@@ -103,7 +103,6 @@ impl Dispatcher {
     }
 
     /// Whether a command waits for the clipboard.
-    #[cfg(any(test, feature = "dev"))]
     pub fn waits_for_clipboard(&self) -> bool {
         self.waiting.is_some()
     }

@@ -19,8 +19,11 @@ use std::panic::AssertUnwindSafe;
 use objc2::exception;
 use objc2::rc::{AutoreleasePool, Retained, autoreleasepool};
 use objc2::runtime::{AnyObject, Sel};
-use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send};
-use objc2_app_kit::{NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSView};
+use objc2::{ClassType, DefinedClass, MainThreadOnly, define_class, msg_send};
+use objc2_app_kit::{
+    NSEvent, NSEventModifierFlags, NSResponder, NSTextInputClient, NSTextInputContext,
+    NSTextInputTraits, NSView, NSWritingToolsBehavior,
+};
 use objc2_foundation::{
     MainThreadMarker, NSArray, NSAttributedString, NSAttributedStringKey, NSNotFound,
     NSObjectProtocol, NSPoint, NSRange, NSRangePointer, NSRect, NSSize, NSString, NSUInteger,
@@ -31,7 +34,7 @@ use objc2_quartz_core::{CALayer, CAMetalLayer};
 use super::keys::{self, Route};
 use super::{Delivery, State};
 use crate::window::utf16;
-use crate::window::{Event, Held, ImeEvent, KeyInput, SystemKey, Wheel};
+use crate::window::{CursorArea, Event, Held, ImeEvent, KeyInput, SystemKey, Wheel};
 
 /// The key `keyDown:` is handling while the input method has it, and whether the input
 /// method gave it back to oso as a key.
@@ -74,6 +77,17 @@ define_class!(
             true
         }
 
+        /// None while oso has the IME off, so that no input method or other text service
+        /// reads the view then (ADR 0070).
+        #[unsafe(method_id(inputContext))]
+        fn input_context(&self) -> Option<Retained<NSTextInputContext>> {
+            if self.ivars().state.ime_allowed() {
+                self.own_input_context()
+            } else {
+                None
+            }
+        }
+
         /// Places count from the top left, as the app's do.
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
@@ -85,6 +99,24 @@ define_class!(
             let layer = CAMetalLayer::new();
             layer.setContentsScale(self.scale());
             layer.into_super()
+        }
+
+        /// The person starts dragging the window's edge: each step is drawn at once from now
+        /// on (ADR 0086).
+        #[unsafe(method(viewWillStartLiveResize))]
+        fn view_will_start_live_resize(&self) {
+            // SAFETY: NSView's own `viewWillStartLiveResize`, which takes nothing and returns
+            // nothing, as subclasses must call it.
+            let (): () = unsafe { msg_send![super(self), viewWillStartLiveResize] };
+            self.ivars().state.set_live_resize(true);
+        }
+
+        /// The drag has ended: frames come when the loop waits again.
+        #[unsafe(method(viewDidEndLiveResize))]
+        fn view_did_end_live_resize(&self) {
+            // SAFETY: NSView's own `viewDidEndLiveResize`, as above.
+            let (): () = unsafe { msg_send![super(self), viewDidEndLiveResize] };
+            self.ivars().state.set_live_resize(false);
         }
 
         /// AppKit displays the layer itself, through `updateLayer`, and not by drawing.
@@ -113,7 +145,7 @@ define_class!(
 
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &NSEvent) {
-            self.route_key(event);
+            self.ivars().state.during_event(|| self.route_key(event));
         }
 
         #[unsafe(method(keyUp:))]
@@ -121,33 +153,47 @@ define_class!(
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            self.note_modifiers(keys::held(event.modifierFlags()));
+            let held = keys::held(event.modifierFlags());
+            self.ivars().state.during_event(|| self.note_modifiers(held));
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            let (x, y) = (event.scrollingDeltaX(), event.scrollingDeltaY());
-            let wheel = if event.hasPreciseScrollingDeltas() {
-                let scale = self.scale();
-                Wheel::Pixels {
-                    x: x * scale,
-                    y: y * scale,
-                }
-            } else {
-                #[expect(clippy::cast_possible_truncation, reason = "a wheel's notches are few")]
-                Wheel::Lines {
-                    x: x as f32,
-                    y: y as f32,
-                }
-            };
-            self.ivars()
-                .state
-                .deliver(Delivery::Window(Event::Wheel(wheel)));
+            self.ivars().state.during_event(|| {
+                let (x, y) = (event.scrollingDeltaX(), event.scrollingDeltaY());
+                let wheel = if event.hasPreciseScrollingDeltas() {
+                    let scale = self.scale();
+                    Wheel::Pixels {
+                        x: x * scale,
+                        y: y * scale,
+                    }
+                } else {
+                    #[expect(clippy::cast_possible_truncation, reason = "a wheel's notches are few")]
+                    Wheel::Lines {
+                        x: x as f32,
+                        y: y as f32,
+                    }
+                };
+                self.ivars()
+                    .state
+                    .deliver(Delivery::Window(Event::Wheel(wheel)));
+            });
         }
     }
 
     // SAFETY: `NSObjectProtocol` has no requirements.
     unsafe impl NSObjectProtocol for OsoView {}
+
+    // SAFETY: the protocol's methods are all optional, and the one here has the signature
+    // AppKit declares for it.
+    unsafe impl NSTextInputTraits for OsoView {
+        /// Writing Tools are off for the view, which rewrites no buffer text for another
+        /// process (ADR 0070).
+        #[unsafe(method(writingToolsBehavior))]
+        fn writing_tools_behavior(&self) -> NSWritingToolsBehavior {
+            NSWritingToolsBehavior::None
+        }
+    }
 
     // SAFETY: every required method is here, with the signatures AppKit declares.
     unsafe impl NSTextInputClient for OsoView {
@@ -216,22 +262,28 @@ define_class!(
             }
         }
 
+        /// In the excerpt of the cursor's line, where the cursor is, or the caret or segment in
+        /// the text being composed there (ADR 0077).
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
+            let offset = self.ivars().state.ime.borrow().excerpt_offset();
             if self.ivars().marked.borrow().is_empty() {
-                NSRange::new(0, 0)
+                NSRange::new(offset, 0)
             } else {
-                self.ivars().selected.get()
+                let selected = self.ivars().selected.get();
+                NSRange::new(offset.saturating_add(selected.location), selected.length)
             }
         }
 
+        /// The text being composed, at the cursor in the excerpt of its line.
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
             let marked = self.ivars().marked.borrow();
             if marked.is_empty() {
                 NSRange::new(not_found(), 0)
             } else {
-                NSRange::new(0, utf16::utf16_len(&marked))
+                let offset = self.ivars().state.ime.borrow().excerpt_offset();
+                NSRange::new(offset, utf16::utf16_len(&marked))
             }
         }
 
@@ -240,14 +292,30 @@ define_class!(
             !self.ivars().marked.borrow().is_empty()
         }
 
+        /// The excerpt of the cursor's line, with the text being composed at the cursor, as far
+        /// as the range asks and the excerpt goes; nothing while the IME is off (ADR 0070,
+        /// ADR 0077).
         #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
         fn attributed_substring(
             &self,
-            _range: NSRange,
-            _actual: NSRangePointer,
+            range: NSRange,
+            actual: NSRangePointer,
         ) -> Option<Retained<NSAttributedString>> {
-            // No text of a buffer yet: the cursor's line comes with the next step of ADR 0070.
-            None
+            let units = range.location..range.location.saturating_add(range.length);
+            let answer = {
+                let marked = self.ivars().marked.borrow();
+                self.ivars().state.ime.borrow().text(&marked, units)
+            };
+            answer.map(|(text, covered)| {
+                if !actual.is_null() {
+                    // SAFETY: AppKit passes null or a pointer to an `NSRange` it owns for the
+                    // length of the call, which is not null here.
+                    unsafe {
+                        actual.write(NSRange::new(covered.start, covered.end - covered.start));
+                    };
+                }
+                NSAttributedString::from_nsstring(&NSString::from_str(&text))
+            })
         }
 
         #[unsafe(method_id(validAttributesForMarkedText))]
@@ -256,13 +324,25 @@ define_class!(
         }
 
         #[unsafe(method(firstRectForCharacterRange:actualRange:))]
-        fn first_rect(&self, _range: NSRange, _actual: NSRangePointer) -> NSRect {
+        fn first_rect(&self, range: NSRange, actual: NSRangePointer) -> NSRect {
+            let units = range.location..range.location.saturating_add(range.length);
+            let answer = {
+                let marked = self.ivars().marked.borrow();
+                self.ivars().state.ime.borrow().rect(&marked, units)
+            };
             // While the input method is off, as in a buffer that may hold secrets, no place.
-            if self.ivars().state.ime_allowed() {
-                self.cursor_rect_on_screen()
-            } else {
-                NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0))
+            let Some((area, covered)) = answer else {
+                return NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0));
+            };
+            // The range cut to the composition, as the answer covers no more.
+            if let Some(units) = covered
+                && !actual.is_null()
+            {
+                // SAFETY: AppKit passes null or a pointer to an `NSRange` it owns for the length
+                // of the call, which is not null here.
+                unsafe { actual.write(NSRange::new(units.start, units.end - units.start)) };
             }
+            self.on_screen(area)
         }
 
         #[unsafe(method(characterIndexForPoint:))]
@@ -421,27 +501,44 @@ impl OsoView {
 
     fn drop_input_context_text(&self) {
         self.ivars().muted.set(true);
-        if let Some(context) = self.inputContext()
+        // The view's own, also once the IME is off and it gives none.
+        if let Some(context) = self.own_input_context()
             && exception::catch(AssertUnwindSafe(|| context.discardMarkedText())).is_err()
         {
             log::error!("an Objective-C exception was raised by the input method");
         }
     }
 
-    /// The cursor's cell the app last gave, on the screen, in points.
-    fn cursor_rect_on_screen(&self) -> NSRect {
+    /// The input context NSView keeps for the view, whether or not the IME is on: NSView's
+    /// own method, past the view's override, which gives none while the IME is off.
+    fn own_input_context(&self) -> Option<Retained<NSTextInputContext>> {
+        // SAFETY: `self` is an `OsoView`, whose superclass is NSView, so the lookup from NSView
+        // finds NSView's `inputContext`. It takes no arguments and returns an
+        // `NSTextInputContext *` or nil, which `Retained` retains, and the view is used only on
+        // the main thread.
+        unsafe { msg_send![super(self, NSView::class()), inputContext] }
+    }
+
+    /// Whether the view gives an input context now, and whether AppKit's current one is it,
+    /// for the dev socket's check.
+    #[cfg(feature = "dev")]
+    pub(super) fn input_context_state(&self) -> (bool, bool) {
+        let given = self.inputContext();
+        let current = NSTextInputContext::currentInputContext(self.mtm());
+        let is_current =
+            matches!((&given, &current), (Some(given), Some(current)) if given == current);
+        (given.is_some(), is_current)
+    }
+
+    /// `area`, in physical pixels of the view, in points on the screen.
+    fn on_screen(&self, area: CursorArea) -> NSRect {
         let scale = self.scale();
-        let rect = self.ivars().state.ime.get().area().map_or(
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(0.0, 0.0)),
-            |area| {
-                NSRect::new(
-                    NSPoint::new(f64::from(area.x) / scale, f64::from(area.y) / scale),
-                    NSSize::new(
-                        f64::from(area.width) / scale,
-                        f64::from(area.height) / scale,
-                    ),
-                )
-            },
+        let rect = NSRect::new(
+            NSPoint::new(f64::from(area.x) / scale, f64::from(area.y) / scale),
+            NSSize::new(
+                f64::from(area.width) / scale,
+                f64::from(area.height) / scale,
+            ),
         );
         let in_window = self.convertRect_toView(rect, None);
         self.window()

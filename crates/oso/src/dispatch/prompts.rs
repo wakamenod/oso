@@ -10,11 +10,13 @@
 //! drops what waited for it. A question's `y` runs the command it names, confirmed, which
 //! checks again what is true by then.
 
-use oso_core::command::{ArgSpec, Args, CommandId, Effects, ExecuteError, Invocation, Prefix};
-use oso_core::editor::Editor;
-use oso_core::minibuffer::{Kind, Outcome, PromptId};
+use oso_core::command::{
+    ArgSpec, Args, BufferPurpose, CommandId, Effects, ExecuteError, Invocation, Prefix,
+};
+use oso_core::editor::{CompletionStyle, Editor};
+use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
 
-use super::{Dispatcher, Step};
+use super::{Dispatcher, Step, buffers, extended};
 
 /// A command waiting for the answer of the prompt `prompt`.
 pub(super) struct Reading {
@@ -23,6 +25,8 @@ pub(super) struct Reading {
     prompt: PromptId,
     /// The answer is a passphrase.
     passphrase: bool,
+    /// The answer names a command, which runs in its place, as `M-x` does (ADR 0076).
+    runs_answer: bool,
 }
 
 /// The most commands one key runs through prompts that end: a question's answer runs
@@ -66,21 +70,53 @@ impl Dispatcher {
                     },
                 )
             }
+            Some(ArgSpec::Text { prompt, history }) => (
+                prompt,
+                Kind::Text {
+                    history: Some(history),
+                },
+            ),
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
                 self.wait_for_clipboard(editor, id, args, &invocation);
                 return (Effects::default(), Ok(()));
             }
+            Some(ArgSpec::Command { prompt, history }) => (prompt, Kind::Complete { history }),
+            Some(ArgSpec::Buffer {
+                prompt,
+                history,
+                purpose,
+            }) => {
+                let read = ReadBuffer {
+                    prompt,
+                    history,
+                    purpose,
+                };
+                return self.read_buffer(editor, id, args.raw(), read);
+            }
+            Some(ArgSpec::Mark { prompt }) => {
+                return self.read_mark(editor, id, args.raw(), prompt);
+            }
             _ => return self.execute(editor, id, args, invocation, Step::MayJoin),
         };
         let (prompt, kind) = kind;
-        match editor.open_prompt(prompt, kind) {
+        // `M-x` completes over the commands, and runs the one named in its place (ADR 0076).
+        let runs_answer = matches!(spec, Some(ArgSpec::Command { .. }));
+        let opened = match kind {
+            Kind::Complete { history } if runs_answer => {
+                let items = self.command_candidates(editor);
+                editor.open_completion(extended::with_prefix(prompt, args.raw()), history, items)
+            }
+            _ => editor.open_prompt(prompt, kind),
+        };
+        match opened {
             Ok(prompt) => self.reading.push(Reading {
                 id,
                 prefix: args.raw(),
                 prompt,
                 passphrase: kind == Kind::Passphrase,
+                runs_answer,
             }),
             // The innermost prompt is where the person looks.
             Err(error) => editor.prompt_says(error.to_string()),
@@ -89,6 +125,75 @@ impl Dispatcher {
             redraw: true,
             ..Effects::default()
         };
+        (effects, Ok(()))
+    }
+
+    /// Opens the prompt that reads a mark for the command `id`, `C-.`, unless a prompt is
+    /// selected, whose own buffer is no list of marks and may be a passphrase's (ADR 0088).
+    fn read_mark(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        prompt: &'static str,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let effects = Effects {
+            redraw: true,
+            ..Effects::default()
+        };
+        if editor.prompt().is_some() {
+            editor.prompt_says("Not in the minibuffer");
+            return (effects, Ok(()));
+        }
+        match editor.open_mark_list(prompt) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+            }),
+            Err(PromptError::Invalid) => editor.message("No mark set in this buffer"),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
+        (effects, Ok(()))
+    }
+
+    /// Opens the prompt that reads a buffer for the command `id`, unless a prompt is selected,
+    /// whose window always shows its own buffer, so these refuse there before asking anything
+    /// (ADR 0072, ADR 0088).
+    fn read_buffer(
+        &mut self,
+        editor: &mut Editor,
+        id: CommandId,
+        prefix: Option<Prefix>,
+        read: ReadBuffer,
+    ) -> (Effects, Result<(), ExecuteError>) {
+        let effects = Effects {
+            redraw: true,
+            ..Effects::default()
+        };
+        if editor.prompt().is_some() {
+            editor.prompt_says("Not in the minibuffer");
+            return (effects, Ok(()));
+        }
+        // The buffers, most recent first; showing takes any name.
+        let style = CompletionStyle {
+            given_order: true,
+            takes_input: read.purpose == BufferPurpose::Switch,
+            preview: read.purpose == BufferPurpose::Switch,
+        };
+        let items = buffers::candidates(editor, read.purpose);
+        match editor.open_completion_as(read.prompt, read.history, items, style) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+            }),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
         (effects, Ok(()))
     }
 
@@ -110,16 +215,22 @@ impl Dispatcher {
                         waiting.as_ref().is_some_and(|reading| reading.passphrase);
                     self.forget_closed(editor);
                     waiting.map(|reading| {
+                        let args = Args::with_prefix(reading.prefix);
+                        if reading.runs_answer {
+                            return self.run_answer(editor, &text, args);
+                        }
                         let invocation = Invocation {
                             answer: Some(&text),
                             ..Invocation::default()
                         };
-                        let args = Args::with_prefix(reading.prefix);
                         self.execute(editor, reading.id, args, invocation, Step::MayJoin)
                             .0
                     })
                 }
                 Some(Outcome::Run(name)) => {
+                    // What the person's `y` to the agent's question runs is the agent's, so
+                    // that a prompt it opens says so too (ADR 0085).
+                    let agents = editor.take_agents_answer();
                     self.forget_closed(editor);
                     let Some(id) = self.registry.lookup(name) else {
                         // A bug: a question named a command that does not exist.
@@ -131,10 +242,15 @@ impl Dispatcher {
                         confirmed: true,
                         ..Invocation::default()
                     };
-                    Some(
+                    let mut run = |editor: &mut Editor| {
                         self.execute(editor, id, Args::NONE, invocation, Step::MayJoin)
-                            .0,
-                    )
+                            .0
+                    };
+                    Some(if agents {
+                        editor.for_agent(|editor| run(editor))
+                    } else {
+                        run(editor)
+                    })
                 }
                 None => {
                     self.forget_closed(editor);
@@ -180,6 +296,19 @@ impl Dispatcher {
         effects.union(self.after_prompts(editor))
     }
 
+    /// Runs the command named `name`, given to `M-x`, with `M-x`'s prefix argument, reading
+    /// first what it reads (ADR 0076).
+    fn run_answer(&mut self, editor: &mut Editor, name: &str, args: Args) -> Effects {
+        let Some(id) = self.registry.lookup(name) else {
+            // The prompt gives only a candidate, and every candidate is a command.
+            log::error!("M-x gave no command's name");
+            editor.message(format!("No command named {name}"));
+            return Effects::default();
+        };
+        let (effects, _) = self.run_or_read(editor, id, args, Invocation::default());
+        effects
+    }
+
     /// Drops the commands that waited for a prompt now closed with no answer.
     fn forget_closed(&mut self, editor: &Editor) {
         self.reading.retain(|reading| {
@@ -189,4 +318,11 @@ impl Dispatcher {
                 .any(|prompt| prompt.id() == reading.prompt)
         });
     }
+}
+
+/// What `ArgSpec::Buffer` asks for.
+struct ReadBuffer {
+    prompt: &'static str,
+    history: &'static str,
+    purpose: BufferPurpose,
 }

@@ -10,14 +10,23 @@
 //! An instance goes only when it says so itself: it answers on its UI thread,
 //! with the text it holds at that moment. Nothing here can end an instance that
 //! has not agreed, since [`Instance`] has no way to.
+//!
+//! The texts a state carries go from the old instance to the new one a piece at a
+//! time, between the export and the import, and only one piece is held here at once
+//! (ADR 0090). Why a restart waits goes to the old instance's echo area.
 
 use std::time::Instant;
 
 use serde_json::{Value, json};
 
+use super::protocol::MAX_DEV_MESSAGE as MAX_MESSAGE;
+
 /// The method that reports an instance's generation, or why its text would not
 /// survive a restart.
 pub const CHECK: &str = "check-handover";
+
+/// The method that puts a message in an instance's echo area and `*Messages*`.
+pub const MESSAGE: &str = "dev-message";
 
 /// The instances a supervisor looks after.
 #[derive(Debug)]
@@ -86,6 +95,10 @@ pub trait Instance {
     /// Asks it to exit if its generation is still `generation`, and waits for
     /// it to. Never forces it.
     fn stop(&mut self, generation: u64) -> Result<(), NotStopped>;
+    /// The generation its import reported, if it took over a state.
+    fn imported(&self) -> Option<u64>;
+    /// Records the generation its import reported.
+    fn set_imported(&mut self, generation: Option<u64>);
 }
 
 /// The generation in a result of `check-handover` or `export-state`.
@@ -95,24 +108,38 @@ fn generation_in(result: &Value) -> Result<u64, String> {
         .ok_or_else(|| "the instance reported no generation".to_owned())
 }
 
+/// The generation in a result of `check-handover`, if the instance holds nothing a
+/// file does not, so that it may be closed. One that holds unsaved text can hand it
+/// over, but stays (ADR 0055, ADR 0090). An instance from before that field holds none.
+fn closable(answer: &Value) -> Result<u64, String> {
+    if answer["unsaved"] == true {
+        return Err("it holds unsaved text".into());
+    }
+    generation_in(answer)
+}
+
 /// Closes an instance if it holds nothing unsaved, or returns why it stays. The
 /// generation closes the gap between asking and exiting, in which it can be edited.
+/// One that took over a state holds only what the instance it was to replace still
+/// does, as long as its generation is still the one its import reported.
 fn close<I: Instance>(instance: &mut I) -> Result<(), String> {
     if instance.gone() {
         return Ok(());
     }
-    let answer = instance.call(CHECK, None)?;
-    let generation = generation_in(&answer)?;
+    let generation = match instance.imported() {
+        Some(generation) => generation,
+        None => closable(&instance.call(CHECK, None)?)?,
+    };
     instance.stop(generation).map_err(NotStopped::into_reason)
 }
 
-/// [`close`], for an instance that may never answer.
+/// [`close`], for an instance that may never answer. Such an instance took over
+/// nothing.
 fn close_briefly<I: Instance>(instance: &mut I) -> Result<(), String> {
     if instance.gone() {
         return Ok(());
     }
-    let answer = instance.check_briefly()?;
-    let generation = generation_in(&answer)?;
+    let generation = closable(&instance.check_briefly()?)?;
     instance.stop(generation).map_err(NotStopped::into_reason)
 }
 
@@ -203,12 +230,24 @@ pub fn hand_over<I: Instance>(
         }
         Err(reason) => return give_up(new, format!("export failed: {reason}")),
     };
+    if let Err(reason) = carry(old, &mut new, &state) {
+        if old.gone() {
+            return Handover::Beside {
+                new,
+                reason: format!("the old instance has gone: {reason}"),
+            };
+        }
+        return give_up(new, format!("carrying the text failed: {reason}"));
+    }
     let exported = started.elapsed();
-    if let Err(reason) = new.call("import-state", Some(json!({ "state": state }))) {
-        return Handover::Beside {
-            new,
-            reason: format!("it refused the state: {reason}"),
-        };
+    match new.call("import-state", Some(json!({ "state": state }))) {
+        Ok(reply) => new.set_imported(reply["generation"].as_u64()),
+        Err(reason) => {
+            return Handover::Beside {
+                new,
+                reason: format!("it refused the state: {reason}"),
+            };
+        }
     }
     let imported = started.elapsed();
     match old.stop(generation) {
@@ -227,6 +266,46 @@ pub fn hand_over<I: Instance>(
         // It may have agreed and be on its way out, and then the new one must be
         // there. Whichever goes first, the other is what remains.
         Err(NotStopped::Unknown(reason)) => Handover::Beside { new, reason },
+    }
+}
+
+/// Moves each item `state` names from `old` to `new`, a piece at a time. A state of
+/// version 1 names none.
+fn carry<I: Instance>(old: &mut I, new: &mut I, state: &Value) -> Result<(), String> {
+    let Some(items) = state["items"].as_array() else {
+        return Ok(());
+    };
+    let export = state["export"].clone();
+    for (item, len) in items.iter().enumerate() {
+        let len = len.as_u64().ok_or("an item has no length")?;
+        let mut offset = 0;
+        while offset < len {
+            let at = json!({ "export": export, "item": item, "offset": offset });
+            let mut piece = old.call("export-text", Some(at.clone()))?;
+            let end = piece["end"]
+                .as_u64()
+                .filter(|&end| end > offset && end <= len)
+                .ok_or("a piece does not move on")?;
+            let mut params = at;
+            params["text"] = piece["text"].take();
+            new.call("import-text", Some(params))?;
+            offset = end;
+        }
+    }
+    Ok(())
+}
+
+/// Says `text` in `instance`'s echo area and `*Messages*`, cut to what it takes. An
+/// instance from before this method says nothing, which is no reason to stop.
+pub fn tell<I: Instance>(instance: &mut I, text: &str) {
+    let mut text = text.to_owned();
+    if text.len() > MAX_MESSAGE {
+        let end = text.floor_char_boundary(MAX_MESSAGE - '…'.len_utf8());
+        text.truncate(end);
+        text.push('…');
+    }
+    if let Err(e) = instance.call(MESSAGE, Some(json!({ "text": text }))) {
+        log::debug!("oso dev: instance {} was not told: {e}", instance.pid());
     }
 }
 
@@ -253,10 +332,17 @@ where
                 "oso dev: new instance {} runs beside the old one: {reason:?}",
                 new.pid()
             );
+            if !old.gone() {
+                tell(
+                    old,
+                    &format!("oso dev: the new build runs beside this one: {reason}"),
+                );
+            }
             instances.beside = Some(new);
             false
         }
         Handover::NoWindow { new, reason } => {
+            tell(old, &format!("oso dev: restart held: {reason}"));
             keep_stray(&mut instances.strays, new, &reason);
             false
         }
@@ -266,6 +352,7 @@ where
         }
         Handover::Failed(reason) => {
             log::warn!("oso dev: the old instance stays: {reason:?}");
+            tell(old, &format!("oso dev: restart held: {reason}"));
             false
         }
     }
@@ -308,7 +395,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Handover, Instance, Instances, NotStopped, hand_over, restart};
+    use super::{Handover, Instance, Instances, MAX_MESSAGE, NotStopped, hand_over, restart, tell};
     use serde_json::{Value, json};
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -330,6 +417,14 @@ mod tests {
         import: Result<Value, String>,
         export: Result<Value, String>,
         stop: Result<(), NotStopped>,
+        /// The text of item 0, which `export-text` gives four bytes at a time.
+        text: String,
+        /// What `import-text` brought.
+        imported: String,
+        /// What `dev-message` said.
+        told: Vec<String>,
+        /// The generation its import reported.
+        generation_imported: Option<u64>,
     }
 
     impl Fake {
@@ -343,6 +438,21 @@ mod tests {
                 import: Ok(json!({})),
                 export: Ok(json!({ "version": 1, "generation": EXPORTED })),
                 stop: Ok(()),
+                text: String::new(),
+                imported: String::new(),
+                told: Vec::new(),
+                generation_imported: None,
+            }
+        }
+
+        /// An instance whose export carries `text` as its one item.
+        fn carrying(name: &'static str, log: &Log, text: &str) -> Self {
+            Self {
+                export: Ok(json!({
+                    "version": 2, "generation": EXPORTED, "export": 3, "items": [text.len()],
+                })),
+                text: text.to_owned(),
+                ..Self::new(name, log)
             }
         }
 
@@ -350,6 +460,14 @@ mod tests {
         fn edited(name: &'static str, log: &Log) -> Self {
             Self {
                 check: Err("cannot hand over notes: it has unsaved edits".into()),
+                ..Self::new(name, log)
+            }
+        }
+
+        /// An instance with unsaved text it can hand over, but which must not be closed.
+        fn unsaved(name: &'static str, log: &Log) -> Self {
+            Self {
+                check: Ok(json!({ "generation": CHECKED, "unsaved": true })),
                 ..Self::new(name, log)
             }
         }
@@ -378,8 +496,29 @@ mod tests {
                 "check-handover" => self.check.clone(),
                 "export-state" => self.export.clone(),
                 "import-state" => {
-                    assert_eq!(params.unwrap()["state"]["version"], 1);
+                    assert!(params.unwrap()["state"]["version"].is_u64());
                     self.import.clone()
+                }
+                "export-text" => {
+                    let params = params.unwrap();
+                    assert_eq!(
+                        (params["export"].clone(), params["item"].clone()),
+                        (json!(3), json!(0))
+                    );
+                    let offset = usize::try_from(params["offset"].as_u64().unwrap()).unwrap();
+                    let end = (offset + 4).min(self.text.len());
+                    Ok(json!({ "text": &self.text[offset..end], "end": end }))
+                }
+                "import-text" => {
+                    let params = params.unwrap();
+                    assert_eq!(params["offset"], self.imported.len());
+                    self.imported.push_str(params["text"].as_str().unwrap());
+                    Ok(json!({ "end": self.imported.len() }))
+                }
+                "dev-message" => {
+                    self.told
+                        .push(params.unwrap()["text"].as_str().unwrap().to_owned());
+                    Ok(Value::Null)
                 }
                 other => panic!("{other}"),
             }
@@ -401,6 +540,14 @@ mod tests {
 
         fn gone(&mut self) -> bool {
             self.exited
+        }
+
+        fn imported(&self) -> Option<u64> {
+            self.generation_imported
+        }
+
+        fn set_imported(&mut self, generation: Option<u64>) {
+            self.generation_imported = generation;
         }
 
         fn stop(&mut self, generation: u64) -> Result<(), NotStopped> {
@@ -438,6 +585,87 @@ mod tests {
                 "old stop 8"
             ]
         );
+    }
+
+    #[test]
+    fn the_text_goes_across_a_piece_at_a_time_before_the_import() {
+        let log = log();
+        let mut old = Fake::carrying("old", &log, "ten bytes!");
+        let new = Fake::new("new", &log);
+        let Handover::Replaced(new) = handed_over(&mut old, new) else {
+            panic!("not replaced");
+        };
+        assert_eq!(new.imported, "ten bytes!");
+        let log = log.borrow();
+        let pieces = log.iter().filter(|line| *line == "old export-text").count();
+        assert_eq!(pieces, 3);
+        let import = log
+            .iter()
+            .position(|line| line == "new import-state")
+            .unwrap();
+        let last_piece = log
+            .iter()
+            .rposition(|line| line == "new import-text")
+            .unwrap();
+        assert!(last_piece < import, "{log:?}");
+        assert_eq!(log.last().map(String::as_str), Some("old stop 8"));
+    }
+
+    #[test]
+    fn an_instance_with_unsaved_text_beside_or_stray_is_never_closed() {
+        let log = log();
+        let mut old = Fake::new("old", &log);
+        let mut beside = Some(Fake::unsaved("beside", &log));
+        let outcome = hand_over::<Fake>(&mut old, &mut beside, || panic!("a new window opened"));
+        assert!(matches!(outcome, Handover::Failed(reason) if reason.contains("unsaved")));
+        assert!(beside.is_some());
+        let mut strays = vec![Fake::unsaved("stray", &log)];
+        super::sweep(&mut strays);
+        assert_eq!(strays.len(), 1);
+        assert!(
+            !log.borrow().iter().any(|line| line.contains("stop")),
+            "{log:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_instance_with_imported_text_goes_by_its_import_generation_if_unchanged() {
+        let log = log();
+        // The old one was typed into after the export, so it refuses to go.
+        let mut old = Fake::refusing("old", &log);
+        let mut new = Fake::unsaved("new", &log);
+        new.import = Ok(json!({ "buffers": 2, "generation": 42 }));
+        let outcome = handed_over(&mut old, new);
+        assert!(matches!(outcome, Handover::Failed(_)));
+        assert_eq!(log.borrow().last().map(String::as_str), Some("new stop 42"));
+
+        // Typed into too, the new one stays, and only by that generation is it closed later.
+        let log = self::log();
+        let mut old = Fake::refusing("old", &log);
+        let mut new = Fake::unsaved("new", &log);
+        new.import = Ok(json!({ "buffers": 2, "generation": 42 }));
+        new.stop = Err(NotStopped::Refused("exit refused".into()));
+        let Handover::Beside { new, .. } = handed_over(&mut old, new) else {
+            panic!("the new one went");
+        };
+        assert_eq!(new.imported(), Some(42));
+    }
+
+    #[test]
+    fn a_held_restart_says_why_in_the_old_instance() {
+        let log = log();
+        let mut instances = with_current(Fake::edited("old", &log));
+        assert!(!restart(&mut instances, || -> Result<Fake, String> {
+            panic!("a new window opened")
+        }));
+        let told = &instances.current.as_ref().unwrap().told;
+        assert_eq!(told.len(), 1);
+        assert!(told[0].starts_with("oso dev: restart held: "), "{told:?}");
+        assert!(told[0].contains("notes"), "{told:?}");
+        let mut long = Fake::new("long", &log);
+        tell(&mut long, &"é".repeat(MAX_MESSAGE));
+        assert!(long.told[0].len() <= MAX_MESSAGE);
+        assert!(long.told[0].ends_with('…'));
     }
 
     #[test]

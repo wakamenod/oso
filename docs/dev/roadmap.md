@@ -188,24 +188,32 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
 - **M2-15** (after M2-2, M2-7, M2-13 and M2-14): `oso dev` carries unsaved text, and
   sends build errors to the echo area
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
-  [ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md)).
+  [ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
+  [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)).
 - **M2-16** (after M2-7): floating windows and minibuffer input, reading a command's
   arguments, yes/no prompts and the `C-g` chain ([ADR 0008](adr/0008-floating-ui.md)).
 - **M2-17** (after M2-16): completion: the orderless matcher, 18 candidate rows,
   annotations, history and `M-x`.
 - **M2-18** (after M2-8 and M2-17): `C-x C-f` with path-segment completion on a
-  worker thread, `C-x C-w`, and asking before opening files of 2 GiB or more.
+  worker thread, `C-x C-w`, asking before opening files of 2 GiB or more, and opening
+  that never blocks on a special file
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - **M2-19** (after M2-17): `C-x b` with in-popup preview, `kill-buffer`, distinct
-  names for files with one name, and `M-,`/`M-/`.
+  names for files with one name, `M-,`/`M-/`, a window's place in each buffer, and `C-.`
+  ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - **M2-20** (after M2-7 and M2-13): isearch (`C-s`/`C-r`) with smart case, match
   highlighting and a count from the background.
-- **M2-21** (after M2-14, M2-17 and M2-20): multiple-cursor keys, and `M-y` from the
-  kill ring ([ADR 0007](adr/0007-multi-cursor.md)).
+- **M2-21** (after M2-14, M2-17, M2-19 and M2-20): multiple-cursor keys (`C->`, `C-<`, their skips,
+  `C-c C-<`, `C-x SPC` and the same keys in isearch), at most 1000 cursors with the edits
+  batched, and `M-y` from the kill ring in the centred float with a preview
+  ([ADR 0007](adr/0007-multi-cursor.md), [ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 - **M2-22** (after M2-8 and M2-16): reloading files changed on disk
   ([ADR 0029](adr/0029-file-changes-on-disk.md)).
-- **M2-23** (after M2-13, and after the work in the text pass merges): the dark and
-  light theme with the contrast check, text gamma, and gaps between invisible boxes
-  ([ADR 0027](adr/0027-theme.md)).
+- **M2-23** (after M2-13, M2-17 and M2-20, and after the work in the text pass merges):
+  three built-in themes, `dark`, `light` and `dusk`, switched at run time with `load-theme`
+  and `<f5>` and remembered across starts, with the contrast check for every theme, text
+  gamma, and gaps between invisible boxes ([ADR 0027](adr/0027-theme.md),
+  [ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - **M2-24** (after M2-23): visual aids: whitespace, current line, cursor flash and
   line numbers.
 - **M2-25** (after M2-9 and M2-24): soft wrap, with the WrapMap

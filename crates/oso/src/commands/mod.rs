@@ -7,6 +7,9 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+mod agent;
+mod buffers;
+mod complete;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
@@ -33,12 +36,15 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    agent::COMMANDS,
+    complete::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
     isearch::COMMANDS,
     kill::COMMANDS,
     mark::COMMANDS,
+    buffers::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,
     motion::COMMANDS,
@@ -138,10 +144,24 @@ mod tests {
             .collect();
         person.sort_unstable();
         let mut expected = vec![
-            // Answering a prompt.
+            // Who may drive the editor.
+            "agent-channel-allow",
+            "agent-channel-start",
+            "agent-channel-stop",
+            // Answering a prompt, choosing what it answers, and running a command by name
+            // (ADR 0076).
             "answer-no",
             "answer-yes",
+            "execute-extended-command",
             "exit-minibuffer",
+            "exit-minibuffer-input",
+            "first-completion",
+            "insert-completion",
+            "last-completion",
+            "next-completion",
+            "previous-completion",
+            "scroll-completions-down",
+            "scroll-completions-up",
             "next-history-element",
             "previous-history-element",
             // Emergency copies.
@@ -153,9 +173,16 @@ mod tests {
             "emergency-copy-view",
             "recover-session",
             "revert-buffer",
+            // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
+            "consult-mark",
+            // Killing a buffer, which can lose unsaved text (ADR 0088).
+            "kill-buffer",
+            "kill-buffer-anyway",
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
+            // The person's yes to the agent's question about saving.
+            "save-buffer-the-agent-opened",
             // Keys: the channel passes a count or text instead.
             "digit-argument",
             "negative-argument",

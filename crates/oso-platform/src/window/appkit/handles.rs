@@ -12,9 +12,7 @@ use std::time::Instant;
 
 use objc2::MainThreadOnly;
 use objc2::runtime::ProtocolObject;
-use objc2_app_kit::{
-    NSApplication, NSBackingStoreType, NSRequestUserAttentionType, NSWindow, NSWindowStyleMask,
-};
+use objc2_app_kit::{NSBackingStoreType, NSWindow, NSWindowStyleMask};
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSString};
 use raw_window_handle::{
     AppKitDisplayHandle, AppKitWindowHandle, DisplayHandle, HandleError, HasDisplayHandle,
@@ -94,7 +92,8 @@ impl Control {
             // The delegate first, so that it hears the window come up, occluded or not.
             let delegate = WindowDelegate::new(mtm, state);
             window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-            window.makeKeyAndOrderFront(None);
+            // Shown once the handler returns, as AppKit calls back from inside.
+            state.requests.borrow_mut().push(Request::Visible(true));
             (window, view, delegate)
         });
         // As AppKit has them now, whatever notices came before.
@@ -151,8 +150,14 @@ impl Window {
 
     /// Asks for the person's attention, without taking the keyboard from another app.
     pub fn request_attention(&self) {
-        NSApplication::sharedApplication(self.state.mtm)
-            .requestUserAttention(NSRequestUserAttentionType::InformationalRequest);
+        self.state.requests.borrow_mut().push(Request::Attention);
+    }
+
+    /// The steps of the last live resize and the frames drawn for them, for the dev socket's
+    /// check.
+    #[cfg(feature = "dev")]
+    pub fn live_resize_counts(&self) -> (u32, u32) {
+        self.state.live_resize.get().counts()
     }
 
     /// Where the window's frame is, from the top left of the screen with the menu bar.
@@ -219,6 +224,41 @@ impl Window {
     /// input method asks for it when it needs it.
     pub fn set_ime_cursor_area(&self, area: CursorArea) {
         self.state.update_ime(|ime| ime.set_area(area));
+    }
+
+    /// Where the app lays out the composition `text`, or none with `None`: its first cell as
+    /// the window now scrolls, and the x of each of its characters from that cell's left, then
+    /// that of its end, in physical pixels. Only kept, so that the input method's question
+    /// about a range of that text is answered with its place, and the candidate window
+    /// follows the segment being converted (ADR 0077).
+    pub fn set_ime_preedit(&self, laid_out: Option<(&str, CursorArea, &[f32])>) {
+        self.state.update_ime(|ime| ime.set_preedit(laid_out));
+    }
+
+    /// Takes the excerpt of the cursor's line from `excerpt`, with where the cursor is in it in
+    /// bytes, as the input method may read it, or drops the one held with `None` (ADR 0077).
+    /// `excerpt` is left with the one held before, for reuse. Only kept, answered while the IME
+    /// is on, and dropped when it goes off.
+    pub fn set_ime_excerpt(&self, excerpt: &mut String, cursor: Option<usize>) {
+        self.state
+            .update_ime(|ime| ime.set_excerpt(excerpt, cursor));
+    }
+
+    /// How long the excerpt the window holds is, and where the cursor is in it, in bytes, for
+    /// the dev socket's check. No text.
+    #[cfg(feature = "dev")]
+    pub fn ime_excerpt_extent(&self) -> Option<(usize, usize)> {
+        self.state.ime.borrow().excerpt_extent()
+    }
+
+    /// Whether the view gives the input method a context now, which it does only while the
+    /// IME is on, and whether AppKit's current context is that one, for the dev socket's check.
+    #[cfg(feature = "dev")]
+    pub fn input_context(&self) -> (bool, bool) {
+        self.state
+            .window
+            .get()
+            .map_or((false, false), |(_, view, _)| view.input_context_state())
     }
 }
 

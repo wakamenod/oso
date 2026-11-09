@@ -7,12 +7,14 @@
 
 mod app;
 mod bindings;
+mod channel;
 mod commands;
 #[cfg(feature = "dev")]
 mod dev;
 mod dispatch;
 mod emergency;
 mod keys;
+mod lister;
 mod loader;
 mod saver;
 mod text;

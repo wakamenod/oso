@@ -23,6 +23,10 @@ const TITLE: &str = "oso Editor";
 /// This layer commits a composition when oso turns the IME off (ADR 0077).
 pub(super) const COMMITS_WHEN_TURNED_OFF: bool = true;
 
+/// This layer answers the input method's questions from what the app gives it: where the
+/// composition is drawn, and the excerpt of the cursor's line (ADR 0077).
+pub(super) const ANSWERS_INPUT_METHOD: bool = true;
+
 /// Runs the event loop until it ends. `start` makes the app, given the waker other threads
 /// reach it through, before the window opens. `started` is when the process started.
 pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {
@@ -161,6 +165,18 @@ impl Window {
         Some(self.0.secure_input())
     }
 
+    /// The steps of the last live resize and the frames drawn for them, for the dev socket.
+    #[cfg(feature = "dev")]
+    pub(super) fn live_resize(&self) -> Option<(u32, u32)> {
+        Some(self.0.live_resize_counts())
+    }
+
+    /// Whether the view gives the input method a context, for the dev socket.
+    #[cfg(feature = "dev")]
+    pub(super) fn input_context(&self) -> Option<(bool, bool)> {
+        Some(self.0.input_context())
+    }
+
     /// Drops the composition the input method holds, with no commit.
     pub(super) fn discard_composition(&self) {
         self.0.discard_composition();
@@ -169,12 +185,30 @@ impl Window {
     /// Tells the input method where the cursor's cell is, for its candidate window. The
     /// native layer only keeps it, and answers the input method with it when asked.
     pub(super) fn set_ime_cursor_area(&self, area: PixelRect) {
-        self.0.set_ime_cursor_area(CursorArea {
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: area.height,
-        });
+        self.0.set_ime_cursor_area(cursor_area(area));
+    }
+
+    /// Tells the input method where the composition `text` is drawn: its first cell, and
+    /// where each of its characters is from that cell's left (ADR 0077). Only kept, as the
+    /// cursor area is.
+    pub(super) fn set_ime_preedit(&self, laid_out: Option<(&str, PixelRect, &[f32])>) {
+        let laid_out =
+            laid_out.map(|(text, first, positions)| (text, cursor_area(first), positions));
+        self.0.set_ime_preedit(laid_out);
+    }
+
+    /// Gives the input method the excerpt of the cursor's line, taken from `excerpt`, and
+    /// where the cursor is in it in bytes, or none (ADR 0077). Only kept, and read while the
+    /// IME is on.
+    pub(super) fn set_ime_excerpt(&self, excerpt: &mut String, cursor: Option<usize>) {
+        self.0.set_ime_excerpt(excerpt, cursor);
+    }
+
+    /// How long the excerpt the window holds is, and where the cursor is in it, for the dev
+    /// socket. No text.
+    #[cfg(feature = "dev")]
+    pub(super) fn ime_excerpt_extent(&self) -> Option<(usize, usize)> {
+        self.0.ime_excerpt_extent()
     }
 }
 
@@ -203,5 +237,15 @@ impl Handler<UserEvent> for App {
     /// OS's request to end was answered yes.
     fn exiting(&mut self) {
         self.ending();
+    }
+}
+
+/// `rect` as the window layer takes a place for the input method.
+fn cursor_area(rect: PixelRect) -> CursorArea {
+    CursorArea {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
     }
 }

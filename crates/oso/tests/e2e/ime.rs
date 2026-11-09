@@ -64,9 +64,8 @@ fn a_preedit_draws_in_the_window_and_a_commit_is_one_undo_step() {
     assert_eq!(state["ime"]["preedit"], Value::Null);
     assert_visible_row(&state, 0, "日本abc");
     assert_eq!(cursor(&state), (0, 4));
-    // Now what holds a restart is the edit, which a file can carry.
-    let refused = app.try_call("check-handover", None).unwrap_err();
-    assert!(refused.contains("unsaved edits"), "{refused}");
+    // With the composition over, the edit is text a restart carries (ADR 0090).
+    assert!(app.call("check-handover", None)["generation"].is_u64());
 
     app.send_keys("x");
     ime(&mut app, json!({ "commit": "、" })).unwrap();
@@ -169,6 +168,46 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_turning_off_keeps_the_text() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
+fn no_input_context_is_given_while_the_ime_is_off() {
+    let scratch = Scratch::new("ime-context");
+    let file = scratch.write("notes.txt", b"abc\n");
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    let notes = app.wait_until_ready()["buffer"]["id"].clone();
+    // oso's own layer gives none while the IME is off, so no text service reads the view
+    // then (ADR 0070); winit keeps its own, and the socket reports none.
+    // The window applies what the app asks once the app's handler returns, and a request of
+    // the socket may come in the same turn, so each is waited for.
+    let native = cfg!(target_os = "macos");
+    let given = |app: &mut App, on: bool, what: &str| {
+        let context = if native { json!(on) } else { Value::Null };
+        app.wait_for(what, |state| state["ime"]["input_context"] == context);
+    };
+    given(&mut app, true, "a context at first");
+    app.send_keys("C-x");
+    given(&mut app, false, "no context after a prefix key");
+    app.send_keys("C-g");
+    given(&mut app, true, "a context again");
+    app.open_file(&env);
+    app.wait_until_ready();
+    given(
+        &mut app,
+        false,
+        "no context in a buffer that may hold secrets",
+    );
+    // A request through the socket is no event AppKit dispatched, and for a buffer that may
+    // hold secrets the window layer has AppKit read the context again at once; other flips
+    // wait for AppKit's update after the next event.
+    let current = if native { json!(false) } else { Value::Null };
+    app.wait_for("AppKit's current context gone at once", |state| {
+        state["ime"]["current_input_context"] == current
+    });
+    app.show_buffer(&notes);
+    given(&mut app, true, "a context back from it");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
 fn a_composition_waits_where_its_text_would_not_go_in_as_typed() {
     let scratch = Scratch::new("ime-wait");
     let file = scratch.write("notes.txt", b"abc\n");
@@ -192,4 +231,65 @@ fn a_composition_waits_where_its_text_would_not_go_in_as_typed() {
     let state = app.state();
     assert_visible_row(&state, 0, "xabc");
     assert_eq!(state["prompts"], json!([]));
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_input_method_gets_a_bounded_excerpt_of_an_ordinary_line_only() {
+    let scratch = Scratch::new("ime-line");
+    let mut long = "a".repeat(1_000_000);
+    long.push('\n');
+    let file = scratch.write("long.txt", long.as_bytes());
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    let long_id = app.wait_until_ready()["buffer"]["id"].clone();
+    // oso's own layer gives at most 2000 bytes each side of the cursor of an ordinary buffer
+    // while the IME is on, and the socket says how much, never what (ADR 0077); winit none.
+    let native = cfg!(target_os = "macos");
+    // Far enough in that the reach cuts the line on both sides; the socket counts to 10 000.
+    app.run_command("forward-char", Some(10_000)).unwrap();
+    let given = app.wait_for("the excerpt", |state| {
+        !native
+            || state["ime"]["excerpt"]["cursor"]
+                .as_u64()
+                .is_some_and(|at| at > 1000)
+    });
+    if native {
+        let (len, at) = (
+            &given["ime"]["excerpt"]["len"],
+            &given["ime"]["excerpt"]["cursor"],
+        );
+        let (len, at) = (len.as_u64().unwrap(), at.as_u64().unwrap());
+        assert!(at <= 2000 && len - at <= 2000, "{len} {at}");
+        assert!(at >= 1990 && len - at >= 1990, "{len} {at}");
+    } else {
+        assert_eq!(app.state()["ime"]["excerpt"], Value::Null);
+    }
+    app.send_keys("C-x");
+    app.wait_for("no excerpt while the IME is off", |state| {
+        state["ime"]["excerpt"] == Value::Null
+    });
+    app.send_keys("C-g");
+    // A question during a composition keeps the IME on, so only the prompt keeps the line
+    // from the input method then.
+    ime(&mut app, json!({ "preedit": "か" })).unwrap();
+    app.send_keys("x C-x C-c");
+    let state = app.wait_for("no excerpt in a question", |state| {
+        state["ime"]["excerpt"] == Value::Null
+    });
+    assert_eq!(state["ime"]["allowed"], true, "the composition holds it on");
+    ime(&mut app, json!({ "clear": true })).unwrap();
+    app.send_keys("n");
+    app.open_file(&env);
+    app.wait_until_ready();
+    app.wait_for("no excerpt from a buffer that may hold secrets", |state| {
+        state["ime"]["excerpt"] == Value::Null
+    });
+    app.show_buffer(&long_id);
+    app.wait_for("the excerpt again", |state| {
+        !native
+            || state["ime"]["excerpt"]["len"]
+                .as_u64()
+                .is_some_and(|len| len > 1000)
+    });
 }

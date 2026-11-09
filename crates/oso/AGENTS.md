@@ -15,7 +15,8 @@ often, so it must rebuild within 2 s.
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
   the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`,
-  `loads`, `reloads`, `saves`, `copies`, `clipboard` and `searches` do the work, and `control` answers the dev socket.
+  `loads`, `reloads`, `saves`, `copies`, `clipboard` and `searches` do the work, `control`
+  answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies
   (ADR 0062), and recovering them (ADR 0064). Their writer sits above `saver`, and nothing
   there may hold text in a message or a log. A path in a `.meta` is never used to touch a file.
@@ -25,7 +26,8 @@ often, so it must rebuild within 2 s.
   behind the `dev` feature; `just release-safety` checks it.
 - `src/channel/` is the agent channel and `oso mcp` (ADR 0085), in every
   build. It has no dev method, and runs only commands whose reach is `Look`
-  or `Change`.
+  or `Change`. `src/app/agent.rs` answers it on the UI thread, and
+  `src/dispatch/agent.rs` runs its commands.
 - End-to-end flows live in `tests/e2e` and run with `just e2e` (ADR 0049). They
   drive a dev build from outside, and start it through `oso_platform::process`.
 - Module layers are in `guardrails/layers.txt` (`[oso]`).

@@ -34,6 +34,7 @@ impl App {
             let _ = reply.send(Err("the editor is shutting down".into()));
             return;
         }
+        self.drop_stale_texts();
         let newest = self.editor.prompts().last().map(|prompt| prompt.id());
         self.dispatcher.set_input_from_socket(true);
         let result = self.answer_control(event_loop, op, received, reply);
@@ -54,6 +55,10 @@ impl App {
         reply: std::sync::mpsc::Sender<dev::Reply>,
     ) -> Option<(std::sync::mpsc::Sender<dev::Reply>, dev::Reply)> {
         let result = match op {
+            // Keys from the dev socket stand in for the person's (ADR 0085).
+            dev::UiOp::SendKeys(keys) if let Some(why) = self.agent_holds_keys(&keys) => {
+                Err(why.into())
+            }
             dev::UiOp::SendKeys(keys) => {
                 let count = keys.len();
                 let started = Instant::now();
@@ -107,21 +112,25 @@ impl App {
                 self.take_screenshot(reply);
                 return None;
             }
-            dev::UiOp::ExportState => handoff::export(
-                &self.editor,
-                self.dispatcher.pending(),
-                self.frame(),
-                self.restore.as_ref(),
-            ),
+            dev::UiOp::ExportState => self.export_state(),
+            op @ (dev::UiOp::ExportText { .. } | dev::UiOp::ImportText(_)) => {
+                return self.carry_text(op, reply);
+            }
+            dev::UiOp::DevMessage(text) => self.dev_message(text),
             dev::UiOp::CheckHandover => handoff::check(&self.editor),
             dev::UiOp::Panic | dev::UiOp::EndUnasked => self.end_for_a_test(event_loop, &op),
             dev::UiOp::Ime(report) => self.report_ime(event_loop, report, received),
             dev::UiOp::Clipboard(op) => self.memory_clipboard(op),
-            dev::UiOp::ImportState(state) => self.import_state(*state),
+            dev::UiOp::ImportState(state) => return self.answer_import(*state, reply),
             // Checked here on the UI thread, and nothing runs after it (see the
             // top), so no edit can come between the check and the exit.
             dev::UiOp::Exit { generation } => {
-                handoff::exit_allowed(&self.editor, generation).map(|()| {
+                let allowed = handoff::exit_allowed(&self.editor, generation);
+                if allowed.is_err() {
+                    // That restart is over, and its snapshot need hold no text.
+                    self.forget_export();
+                }
+                allowed.map(|()| {
                     self.leave(event_loop, true);
                     json!({ "exiting": true })
                 })
@@ -130,13 +139,17 @@ impl App {
         Some((reply, result))
     }
 
-    /// Remembers the questions a request opened, those newer than `newest` was before it, so
-    /// that keys from the window cannot answer them: a person typing does not see a question
-    /// an agent asked appear under their fingers (ADR 0072). The window's `C-g` still closes
-    /// one.
+    /// Remembers the questions a request opened, and the prompts that complete, those newer
+    /// than `newest` was before it, so that keys from the window cannot answer them: a person
+    /// typing does not see a question an agent asked appear under their fingers, nor run a
+    /// command an agent chose (ADR 0072, ADR 0076). The window's `C-g` still closes one.
     fn note_remote_questions(&mut self, newest: Option<PromptId>) {
-        self.remote_questions
-            .extend(opened_questions(&self.editor, newest));
+        let opened = opened_questions(&self.editor, newest);
+        // What an agent typed into `M-x` is not the person's history.
+        for &id in &opened {
+            self.editor.keep_out_of_history(id);
+        }
+        self.remote_questions.extend(opened);
         let prompts = self.editor.prompts();
         self.remote_questions
             .retain(|id| prompts.iter().any(|prompt| prompt.id() == *id));
@@ -163,6 +176,36 @@ impl App {
         };
         state["ime"] = dev::ime_state(&self.editor, &facts);
         state["clipboard"] = json!({ "waiting": self.dispatcher.waits_for_clipboard() });
+        // The steps of the last live resize and the frames drawn for them (ADR 0077): numbers
+        // only, null on winit.
+        let resize = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.live_resize());
+        state["live_resize"] = resize.map_or(
+            serde_json::Value::Null,
+            |(steps, frames)| json!({ "steps": steps, "frames": frames }),
+        );
+        // Whether the view gives the input method a context, which it does only while the IME
+        // is on (ADR 0070), and whether AppKit's current context is it; null on winit.
+        let context = self
+            .view
+            .as_ref()
+            .and_then(|view| view.window.input_context());
+        state["ime"]["input_context"] =
+            context.map_or(serde_json::Value::Null, |(given, _)| given.into());
+        state["ime"]["current_input_context"] =
+            context.map_or(serde_json::Value::Null, |(_, current)| current.into());
+        // How much of the cursor's line the window holds for the input method, never its
+        // text, and none where none is given or while a buffer that may hold secrets is shown,
+        // as `area` is withheld (ADR 0044, ADR 0070).
+        let extent = (self.view.as_ref())
+            .and_then(|view| view.window.ime_excerpt_extent())
+            .filter(|_| !self.editor.shows_secret());
+        state["ime"]["excerpt"] = extent.map_or(
+            serde_json::Value::Null,
+            |(len, cursor)| json!({ "len": len, "cursor": cursor }),
+        );
         // Whether secure input is wanted, held by oso, and on for any process in the system
         // (ADR 0073): nothing a process of the same user cannot read already (ADR 0044).
         let secure = self
@@ -234,7 +277,7 @@ impl App {
 
     /// The result of `open-file`: visits a file in the selected window.
     fn open_file(&mut self, path: PathBuf) -> dev::Reply {
-        let visited = self.visit(path);
+        let visited = self.visit(path, crate::loader::UNASKED);
         let result = visited
             .map(|buffer| {
                 self.editor.show(buffer);
@@ -290,7 +333,7 @@ impl App {
     }
 
     /// The OS window's place and size, if there is a window.
-    fn frame(&self) -> Option<handoff::Frame> {
+    pub(super) fn frame(&self) -> Option<handoff::Frame> {
         let window = &self.view.as_ref()?.window;
         let (width, height) = window.inner_size();
         Some(handoff::Frame {
@@ -299,75 +342,20 @@ impl App {
             height,
         })
     }
-
-    /// Takes over from the instance that exported `state`: opens its files
-    /// again, each judged anew, and moves the window. A reply means every file
-    /// has begun to load, which is what lets the old instance exit. Refused
-    /// without changing anything if this instance has opened something already
-    /// or has been edited.
-    fn import_state(&mut self, state: handoff::State) -> dev::Reply {
-        handoff::import_allowed(&self.editor)?;
-        let scratch = self.editor.window().buffer();
-        let mut shown = scratch;
-        for (index, path) in state.buffers.into_iter().enumerate() {
-            let buffer = match path {
-                Some(path) => self
-                    .visit(path)
-                    .ok_or("a file could not begin to load, so the old instance should stay")?,
-                None => scratch,
-            };
-            if index == state.shown {
-                shown = buffer;
-            }
-        }
-        self.editor.show(shown);
-        // The size first, so that positions are restored against it. A system that applies
-        // it at once says what it came to, with no `Resized`. Most apply it later, so the
-        // view takes the size asked for now, and a `Resized` event corrects this if the
-        // window ends up another size.
-        if let (Some(view), Some(frame)) = (&mut self.view, state.frame) {
-            if let Some((x, y)) = frame.position {
-                view.window.set_outer_position(x, y);
-            }
-            let (width, height) = view
-                .window
-                .request_inner_size(frame.width, frame.height)
-                .unwrap_or((frame.width, frame.height));
-            self.resize(width, height);
-        }
-        self.restore = Some(handoff::Restore {
-            buffer: shown,
-            selections: state.selections,
-            scroll: state.scroll,
-        });
-        self.try_restore_positions();
-        self.dispatcher
-            .restore_pending(&mut self.editor, &state.pending_keys);
-        self.request_redraw();
-        Ok(json!({ "buffers": self.editor.buffers().count() }))
-    }
-
-    /// Applies positions from a handoff if their file has loaded far enough.
-    /// Returns whether this is over: restored, or the window has moved on.
-    pub(super) fn try_restore_positions(&mut self) -> bool {
-        let done = self
-            .restore
-            .as_ref()
-            .is_some_and(|restore| restore.try_apply(&mut self.editor));
-        if done {
-            self.restore = None;
-        }
-        done
-    }
 }
 
-/// The open questions newer than `newest`, which every prompt open before a request was at
-/// most. Ids only grow, so a request that closes one prompt and opens another is told apart.
+/// The open questions, and prompts that complete, newer than `newest`, which every prompt open
+/// before a request was at most. A completion's answer runs a command, so one a request opened
+/// is answered over the socket too (ADR 0076). Ids only grow, so a request that closes one
+/// prompt and opens another is told apart.
 fn opened_questions(editor: &Editor, newest: Option<PromptId>) -> Vec<PromptId> {
     editor
         .prompts()
         .iter()
-        .filter(|prompt| prompt.kind().is_question() && newest.is_none_or(|id| prompt.id() > id))
+        .filter(|prompt| {
+            let held = prompt.kind().is_question() || prompt.candidates().is_some();
+            held && newest.is_none_or(|id| prompt.id() > id)
+        })
         .map(|prompt| prompt.id())
         .collect()
 }
@@ -375,6 +363,7 @@ fn opened_questions(editor: &Editor, newest: Option<PromptId>) -> Vec<PromptId> 
 #[cfg(test)]
 mod tests {
     use super::opened_questions;
+    use oso_core::complete::Candidate;
     use oso_core::editor::Editor;
     use oso_core::minibuffer::Kind;
 
@@ -389,5 +378,17 @@ mod tests {
         let asked = editor.ask("Exit?", "keyboard-quit").unwrap();
         assert_eq!(opened_questions(&editor, Some(prompt)), [asked]);
         assert_eq!(opened_questions(&editor, None), [before, asked]);
+    }
+
+    #[test]
+    fn a_prompt_that_completes_counts_as_opened_and_one_that_reads_a_number_does_not() {
+        let mut editor = Editor::default();
+        let number = Kind::Number { history: None };
+        let before = editor.open_prompt("Go to line: ", number).unwrap();
+        let items: std::sync::Arc<[Candidate]> = [Candidate::new("yank", "C-y", "")].into();
+        let completing = editor.open_completion("M-x", "command", items).unwrap();
+        assert_eq!(opened_questions(&editor, None), [completing]);
+        assert_eq!(opened_questions(&editor, Some(before)), [completing]);
+        assert_eq!(opened_questions(&editor, Some(completing)), []);
     }
 }

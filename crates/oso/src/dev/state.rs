@@ -17,25 +17,25 @@
 //! Text is what the rope holds: invalid bytes read as U+FFFD, not as the
 //! `\xNN` escapes on screen, and tabs are tabs.
 
-use std::ops::Range;
 use std::sync::mpsc;
 use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
-use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use oso_core::editor::{Editor, Isearch, Status};
+use oso_core::complete::Candidates;
+use oso_core::display_map::{DisplaySnapshot, Preedit};
+use oso_core::editor::{Editor, Isearch, Preview, Status};
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
-use oso_core::minibuffer::{Kind, MAX_ENTRY_BYTES};
+use oso_core::minibuffer::MAX_ENTRY_BYTES;
 use oso_core::motion;
 use oso_core::rope::Rope;
 use oso_core::selection::{Goal, Selection};
-use oso_core::sum_tree::Bias;
 use oso_core::window::Window;
 use serde_json::{Value, json};
 
 use super::Reply;
+use crate::channel::state::{slice, visible_rows};
 
 /// The most visible text `get-state` returns, in bytes. A cell usually holds
 /// a few bytes but can hold dozens (combining marks), and a response this
@@ -199,10 +199,12 @@ fn piece_start(piece: &oso_core::kill::Piece) -> String {
 }
 
 /// The open prompts, the outermost first: each one's depth, kind, label, answer so far, cursor
-/// and message, and the innermost's region, which alone shows. While a buffer that may hold
-/// secrets is shown, a passphrase's prompt among them, the label, the answer, the cursor and
-/// the message are null, as a search string or a line number can say something of the text.
-/// So they are for a prompt that was open around one, or opened then, once it is gone.
+/// and message, its candidates for one that completes, and the innermost's region, which alone
+/// shows. While a buffer that may hold secrets is shown, a passphrase's prompt among them, the
+/// label, the answer, the cursor, the message and the candidates are null, as a search string
+/// or a line number can say something of the text, and which candidates match says what was
+/// typed (ADR 0076). So they are for a prompt that was open around one, or opened then, once it
+/// is gone.
 fn prompts_state(editor: &Editor) -> Value {
     let showing = !editor.shows_secret();
     let layout = editor.prompt_layout();
@@ -214,11 +216,7 @@ fn prompts_state(editor: &Editor) -> Value {
         .enumerate()
         .map(|(index, (prompt, window))| {
             let shown = showing && !prompt.around_secret();
-            let kind = match prompt.kind() {
-                Kind::Number { .. } => "number",
-                Kind::Passphrase => "passphrase",
-                Kind::Question { .. } => "question",
-            };
+            let kind = crate::channel::state::kind(prompt.kind());
             let buffer = editor.buffer(prompt.buffer()).filter(|_| shown);
             let cursor = shown.then(|| window.selections.primary().cursor);
             // Its size follows the label and the message, so it goes with them.
@@ -233,9 +231,37 @@ fn prompts_state(editor: &Editor) -> Value {
                 "cursor": cursor,
                 "message": prompt.message().filter(|_| shown && !prompt.message_withheld()),
                 "region": region,
+                // Only the innermost shows its rows and keeps them in view.
+                "completion": prompt
+                    .candidates()
+                    .filter(|_| shown && index + 1 == count)
+                    .map(|candidates| completion_state(editor, candidates)),
             })
         })
         .collect()
+}
+
+/// How many candidates match of how many, which is selected, the names of those in the rows
+/// shown, as the float shows them (ADR 0076), whether what is typed is selected, and which
+/// buffer the preview shows, by id and never its text, or `null` when it shows none or withholds
+/// it (ADR 0088).
+fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
+    let rows = candidates
+        .shown(editor.candidate_rows())
+        .map(|(_, candidate)| candidate.text())
+        .collect::<Vec<_>>();
+    let preview = match editor.preview() {
+        Some(Preview::Buffer { id, .. }) => Some(id.get()),
+        Some(Preview::Withheld) | None => None,
+    };
+    json!({
+        "count": candidates.len(),
+        "total": candidates.total(),
+        "selected": candidates.selected(),
+        "typed": candidates.on_input(),
+        "rows": rows,
+        "preview": preview,
+    })
 }
 
 /// What a prompt holds, cut on a character boundary to the longest answer a history keeps,
@@ -385,38 +411,14 @@ pub(super) fn goal_state(goal: Option<Goal>) -> Value {
 /// at its right edge. A wide character across either edge is included. Stops
 /// at [`MAX_VISIBLE_TEXT`] and says so.
 fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Value {
-    let size = window.size();
+    let (rows, truncated) = visible_rows(window, text, display, MAX_VISIBLE_TEXT);
     let scroll = window.scroll();
-    let end_row = scroll
-        .top
-        .saturating_add(size.rows)
-        .min(display.row_count());
-    let right = scroll.left.saturating_add(size.columns);
-    let mut budget = MAX_VISIBLE_TEXT;
-    let mut truncated = false;
-    let mut rows = Vec::new();
-    for row in scroll.top..end_row {
-        let start =
-            display.display_point_to_offset(DisplayPoint::new(row, scroll.left), Bias::Left);
-        let end = display.display_point_to_offset(DisplayPoint::new(row, right), Bias::Right);
-        if end - start > budget {
-            truncated = true;
-            rows.push(slice(text, start..start + budget));
-            break;
-        }
-        budget -= end - start;
-        rows.push(slice(text, start..end));
-    }
     json!({
         "start_row": scroll.top,
         "start_column": scroll.left,
         "rows": rows,
         "truncated": truncated,
     })
-}
-
-fn slice(text: &Rope, range: Range<usize>) -> String {
-    text.chunks_in_range(range).collect()
 }
 
 /// Starts `get-text`: whole rows of the tiled window's buffer, also beneath a prompt,

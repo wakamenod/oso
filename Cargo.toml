@@ -35,7 +35,7 @@ objc2-core-graphics = { version = "0.3.2", default-features = false, features = 
 # clipboard (ADR 0074) uses objc2-app-kit's pasteboard on every macOS build.
 objc2 = { version = "0.6.4", default-features = false, features = ["std", "exception"] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSString", "NSAttributedString", "NSArray", "NSGeometry", "NSRange", "NSNotification", "NSUserDefaults", "NSDictionary", "NSValue", "NSObject", "NSAppleEventManager", "NSAppleEventDescriptor"] }
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "objc2-core-foundation", "NSWindowRestoration", "NSApplication", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSTextInputClient", "NSTextInputContext", "NSScreen", "NSGraphics", "NSRunningApplication", "NSAttributedString", "NSGraphicsContext", "NSPasteboard", "NSPasteboardItem"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-quartz-core", "objc2-core-foundation", "NSWindowRestoration", "NSApplication", "NSResponder", "NSView", "NSWindow", "NSEvent", "NSTextInputClient", "NSTextInputContext", "NSScreen", "NSGraphics", "NSRunningApplication", "NSAttributedString", "NSGraphicsContext", "NSPasteboard", "NSPasteboardItem", "NSTextCheckingClient"] }
 objc2-quartz-core = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "CALayer", "CAMetalLayer"] }
 raw-window-handle = { version = "0.6.2", default-features = false }
 objc2-core-text = { version = "0.3.2", default-features = false, features = ["std", "CTFont", "CTFontDescriptor", "CTFontTraits", "CTLine", "CTRun", "CTStringAttributes", "CTTypesetter", "objc2-core-graphics"] }
@@ -47,10 +47,12 @@ similar = { version = "3.2", default-features = false, features = ["std"] }
 # Text-grid snapshots (ADR 0037). Tests only, never in a release build.
 insta = { version = "1.49", default-features = false }
 
-# Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
-# JSON Lines for the control socket (ADR 0023); used through `Value` only, so
-# without serde's derive macros.
+# JSON Lines for the control sockets (ADR 0023): the dev one, and the agent
+# channel in release builds too (ADR 0085). Used through `Value` only, so without
+# serde's derive macros.
 serde_json = "1"
+
+# Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
 miniz_oxide = "0.9"
 # Peer credentials and the effective user ID for the control socket.

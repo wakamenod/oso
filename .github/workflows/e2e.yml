@@ -61,3 +61,46 @@ jobs:
       # so Linux asserts the same as macOS. No display is needed.
       - name: Pixel tests
         run: just pixel-tests
+
+  # ADR 0070's early task: show that lavapipe presents under a headless Wayland compositor,
+  # before Linux CI moves off Xvfb at stage 4. It runs the same flows on winit's Wayland
+  # backend, with no X server, and gates nothing yet.
+  e2e-wayland:
+    name: just e2e (ubuntu-latest, headless Wayland)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          save-if: false
+      - uses: $/.github/actions/install-just
+      # Weston with its headless backend and the software renderer, lavapipe, and what
+      # winit's Wayland backend loads at run time, all from Ubuntu's archive.
+      - name: Install a headless Wayland compositor and lavapipe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            weston mesa-vulkan-drivers libvulkan1 libwayland-client0 libwayland-cursor0 libxkbcommon0
+          weston --version
+      - name: End-to-end tests under headless Weston
+        run: |
+          export XDG_RUNTIME_DIR="$(mktemp -d)"
+          chmod 700 "$XDG_RUNTIME_DIR"
+          weston --backend=headless --renderer=pixman --width=1280 --height=800 \
+            --socket=wayland-oso --idle-time=0 > "$RUNNER_TEMP/weston.log" 2>&1 &
+          for _ in $(seq 1 50); do
+            [ -S "$XDG_RUNTIME_DIR/wayland-oso" ] && break
+            sleep 0.2
+          done
+          [ -S "$XDG_RUNTIME_DIR/wayland-oso" ] || { cat "$RUNNER_TEMP/weston.log"; exit 1; }
+          # No X server, so winit can only take Wayland.
+          env -u DISPLAY WAYLAND_DISPLAY=wayland-oso just e2e
+      - name: The compositor's log
+        if: always()
+        run: cat "$RUNNER_TEMP/weston.log" || true
+

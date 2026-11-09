@@ -23,8 +23,9 @@ const WHEEL_ROWS: f64 = 3.0;
 /// cell is about half as wide as it is high.
 const WHEEL_COLUMNS: f64 = 6.0;
 
-/// Whether `key` from the window must not reach the innermost prompt, `innermost`: a question
-/// a control socket request asked, among `remote`. `C-g` still closes it.
+/// Whether `key` from the window must not reach the innermost prompt, `innermost`: a question,
+/// or a prompt that completes, that a control socket request opened, among `remote`. `C-g`
+/// still closes it.
 #[cfg(feature = "dev")]
 fn held_from_the_window(
     remote: &[oso_core::minibuffer::PromptId],
@@ -63,6 +64,9 @@ impl App {
                 }
             } else {
                 self.answering = answers_once(mode, question, key).then_some(key);
+            }
+            if self.note_key_for_agent(key) {
+                return;
             }
             #[cfg(feature = "dev")]
             if self.asked_remotely(key) {
@@ -112,6 +116,7 @@ impl App {
 
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
+        self.person_typed();
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);

@@ -221,8 +221,9 @@ impl App {
         };
         let read_from = buffer.content_id();
         let old = buffer.text().clone();
+        let for_agent = buffer.opened_by_agent();
         let waker = self.waker.clone();
-        let spawned = loader::spawn_reload(id, path, old, move |buffer| {
+        let spawned = loader::spawn_reload(id, path, old, for_agent, move |buffer| {
             waker.send(UserEvent::Load(buffer))
         });
         match spawned {
@@ -305,6 +306,9 @@ impl App {
                 self.editor.reload_failed(id);
                 return false;
             }
+            // Only a carried buffer's path is judged alone (ADR 0090).
+            #[cfg(feature = "dev")]
+            LoadUpdate::Judged => return false,
             // A reload sends its text whole.
             LoadUpdate::Snapshot(snapshot) => {
                 self.disk.free(snapshot);
@@ -331,6 +335,14 @@ impl App {
         match outcome {
             ReloadOutcome::Reloaded | ReloadOutcome::Same => {
                 if let Some(buffer) = self.editor.buffer_mut(id) {
+                    // A file found elsewhere now, as through a link pointed anew, is no longer
+                    // the one the person visited: the agent's save of it asks (ADR 0085).
+                    let moved = buffer
+                        .baseline()
+                        .is_some_and(|old| old.location != baseline.location);
+                    if moved {
+                        buffer.mark_opened_by_agent();
+                    }
                     buffer.set_baseline(baseline);
                     if let Some(spelling) = spelling {
                         buffer.set_own_spelling(spelling);

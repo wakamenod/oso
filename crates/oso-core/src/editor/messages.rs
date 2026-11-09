@@ -15,11 +15,11 @@
 //! it until the next key, as no text of it had arrived. What arrives behind keys in
 //! progress waits for them to end, since they show in its place.
 
-use super::follow::{Selected, clip_selections};
+use super::follow::Selected;
 use super::{Editor, Isearch};
 use crate::buffer::{BufferId, Replacement};
-use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{Scroll, Window};
+use crate::selection::SelectionSet;
+use crate::window::Scroll;
 
 /// The messages the editor keeps, as Emacs's `message-log-max`.
 const MAX_MESSAGES: usize = 1000;
@@ -73,24 +73,6 @@ pub(super) struct Echo {
     /// It was said around such a buffer or by a command that got a passphrase, so the control
     /// socket leaves it out.
     withheld: bool,
-}
-
-/// Where a window was before it showed an internal buffer, to go back to. M2-19 removes this
-/// with the way back, once `C-x b` leaves those buffers.
-pub(super) struct Place {
-    pub(super) buffer: BufferId,
-    pub(super) selections: SelectionSet,
-    pub(super) scroll: Scroll,
-}
-
-impl Place {
-    pub(super) fn of(window: &Window) -> Self {
-        Self {
-            buffer: window.buffer(),
-            selections: window.selections.clone(),
-            scroll: window.scroll(),
-        }
-    }
 }
 
 /// `text` as a row of an internal buffer shows it, escaped as in [`log_text`], so that a name
@@ -272,6 +254,11 @@ impl Editor {
     }
 
     /// What the echo area shows.
+    /// Whether the echo area shows keys in progress: a prefix key or argument being typed.
+    pub fn shows_keys_in_progress(&self) -> bool {
+        !self.keys_in_progress.is_empty()
+    }
+
     pub(super) fn echo_text(&self) -> &str {
         if !self.keys_in_progress.is_empty() {
             return &self.keys_in_progress;
@@ -286,30 +273,68 @@ impl Editor {
     }
 
     /// Where the selected window goes back to through the internal buffers it has gone to, if
-    /// it is on one and that place still exists, for a state handoff.
+    /// it is on one and that buffer still exists, for a state handoff.
     pub fn place_behind_internal(&self) -> Option<(BufferId, &SelectionSet, Scroll)> {
         if !self.current().1.is_internal() {
             return None;
         }
-        let place = self.way_back.first()?;
-        let buffer = self.buffer(place.buffer)?;
-        (!buffer.is_internal()).then_some((place.buffer, &place.selections, place.scroll))
+        let first = *self.way_back.first()?;
+        let buffer = self.buffer(first)?;
+        if buffer.is_internal() {
+            return None;
+        }
+        let window = &self.windows[self.tiled_index()];
+        let (_, place) = window.places().find(|(id, _)| *id == first)?;
+        Some((first, &place.selections, place.scroll))
+    }
+
+    /// Puts `selections` and `scroll` in the place the tiled window keeps for `buffer`, which
+    /// it no longer shows, for positions a state handoff brought that waited for their file
+    /// (ADR 0090). Showing it again clips them to its text. Returns whether the window keeps
+    /// such a place.
+    pub fn restore_kept_place(
+        &mut self,
+        buffer: BufferId,
+        selections: SelectionSet,
+        scroll: Scroll,
+    ) -> bool {
+        let index = self.tiled_index();
+        match self.windows[index].places_mut().get_mut(buffer) {
+            Some(place) => {
+                place.selections = selections;
+                place.scroll = scroll;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Shows the internal buffer `id`, to come back from later. If the window has already come
     /// through it, this goes back to it, so that going between two of them cannot grow the way.
     pub(super) fn go_to_internal(&mut self, id: BufferId) {
-        match self.way_back.iter().position(|place| place.buffer == id) {
+        match self.way_back.iter().position(|other| *other == id) {
             Some(index) => self.way_back.truncate(index),
-            None => self.way_back.push(Place::of(self.window())),
+            None => self.way_back.push(self.window().buffer()),
         }
         self.show(id);
     }
 
-    /// Goes back to where the window was before the internal buffer it is on.
+    /// Goes back to where the window was before the internal buffer it is on, or to
+    /// `*scratch*` if that buffer has gone.
     pub(super) fn leave_internal(&mut self) {
         let back = self.way_back.pop();
         self.go_back(back);
+    }
+
+    /// Shows `back` where the window was in it, or `*scratch*` if it has gone.
+    pub(super) fn go_back(&mut self, back: Option<BufferId>) {
+        match back.filter(|id| self.buffer(*id).is_some()) {
+            Some(id) => self.show(id),
+            None => {
+                let scratch = self.scratch();
+                self.show(scratch);
+            }
+        }
     }
 
     /// Shows `*Messages*` in the selected window, with its last row in view. From
@@ -329,44 +354,25 @@ impl Editor {
         self.leave_internal();
     }
 
-    /// Shows `back` as it was, or `*scratch*` if there is no such place any more.
-    pub(super) fn go_back(&mut self, back: Option<Place>) {
-        match back.filter(|place| self.buffer(place.buffer).is_some()) {
-            Some(Place {
-                buffer,
-                mut selections,
-                scroll,
-            }) => {
-                self.show(buffer);
-                // The buffer may have changed behind `*Messages*`. A cursor that stays where
-                // it was keeps its goal, as `C-n` then has it to go on. The marks go where a
-                // cursor can be too, and the region stays hidden, as it does for another
-                // buffer (ADR 0071).
-                // The window `show` went to: the tiled one, also beneath a prompt (ADR 0072).
-                let display = self.tiled().1.display();
-                selections.set_mark_active(MarkActive::Inactive);
-                clip_selections(&mut selections, &display, &[], false);
-                self.restore_positions(selections, scroll);
-            }
-            None => {
-                let scratch = self.scratch();
-                self.show(scratch);
-            }
-        }
-    }
-
     /// Adds a row to `*Messages*`, and takes the oldest one out once it holds
     /// [`MAX_MESSAGES`]. The text has no line break, as [`log_text`] escapes them, so each
     /// message is one row. Cursors at the end stay at the end, and the view follows the
     /// selected window's.
     fn add_to_messages_buffer(&mut self, shown: &str) {
-        let id = self.messages_buffer;
+        self.add_row(self.messages_buffer, shown, MAX_MESSAGES);
+    }
+
+    /// Adds `row`, which has no line break, to the internal buffer `id`, and takes the oldest
+    /// row out once it holds `max`. Cursors at the end stay at the end, and the view follows
+    /// the selected window's.
+    pub(super) fn add_row(&mut self, id: BufferId, row: &str, max: usize) {
+        let shown = row;
         let Some(buffer) = self.buffer(id) else {
             return;
         };
         let end = buffer.text().len();
-        // The last line is the empty one after the newest message.
-        let full = buffer.text().line_count() > MAX_MESSAGES;
+        // The last line is the empty one after the newest row.
+        let full = buffer.text().line_count() > max;
         let oldest = if full { buffer.text().line_start(1) } else { 0 };
         let line = format!("{shown}\n");
         let edits = [

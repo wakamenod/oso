@@ -1,6 +1,6 @@
 # 0071. The mark and the region
 
-- Status: Accepted
+- Status: Accepted, amended by 0088, 0090 and 0091
 - Date: 2026-11-08
 
 ## Context

@@ -14,12 +14,15 @@ use oso_core::command::Effects;
 use oso_core::editor::{Editor, Status};
 use oso_core::window::WheelRemainder;
 
+mod agent;
 mod clipboard;
 #[cfg(feature = "dev")]
 mod control;
 mod copies;
 mod draw;
 mod events;
+#[cfg(feature = "dev")]
+mod handover;
 mod ime;
 mod input;
 mod loads;
@@ -69,6 +72,12 @@ pub enum UserEvent {
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
+    /// Something from a connection of the agent channel (ADR 0085).
+    Agent(crate::channel::Request),
+    /// A deadline of the agent channel's came: a file it opens is dropped once it passes.
+    AgentDeadline,
+    /// The agent channel started, or could not, off the UI thread.
+    AgentStarted(std::io::Result<crate::channel::Channel>),
 }
 
 /// Top-level application state.
@@ -119,6 +128,8 @@ pub struct App {
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
+    /// The agent channel, once the person turns it on (ADR 0085).
+    agent: agent::Agent,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -127,10 +138,10 @@ pub struct App {
     /// Questions a control socket request opened, which keys from the window do not answer.
     #[cfg(feature = "dev")]
     remote_questions: Vec<oso_core::minibuffer::PromptId>,
-    /// Positions handed over from the previous instance, until their file has
-    /// loaded.
+    /// What a restart under `oso dev` keeps: positions still to restore, the latest export,
+    /// and what an import has brought so far.
     #[cfg(feature = "dev")]
-    restore: Option<dev::handoff::Restore>,
+    handover: handover::Handover,
 }
 
 impl App {
@@ -171,6 +182,7 @@ impl App {
             clipboard,
             searcher: searches::Searcher::default(),
             log_gate,
+            agent: agent::Agent::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]
@@ -178,7 +190,7 @@ impl App {
             #[cfg(feature = "dev")]
             remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
-            restore: None,
+            handover: handover::Handover::default(),
         }
     }
 
@@ -191,6 +203,7 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
+        self.forget_killed();
         self.start_saves();
         self.start_searches();
         self.start_reverts();

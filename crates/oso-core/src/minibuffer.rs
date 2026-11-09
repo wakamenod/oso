@@ -13,14 +13,25 @@
 //! What is typed here may be a passphrase, so nothing here prints it through `Debug`, and
 //! a passphrase enters no history.
 
-use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
 
+pub use candidates::{BINDING_CLOSE, BINDING_OPEN, CandidateRow, annotation_column, candidate_row};
+pub(crate) use completion::completion_layout;
+use cut::rows_of;
+pub use cut::{cells_of, cut_to, fit_message};
+
 use crate::buffer::BufferId;
-use crate::display_map::text_clusters;
+use crate::complete::Candidates;
 use crate::frame::{CellRect, FloatRegions, FrameLayout, float_regions};
 use crate::rope::Rope;
+
+mod candidates;
+mod completion;
+mod cut;
+mod history;
+
+pub(crate) use history::Histories;
 
 /// The most prompts open at once. One more is refused.
 pub const MAX_DEPTH: usize = 8;
@@ -58,9 +69,14 @@ pub const CUT: &str = "…";
 pub enum Kind {
     /// A whole number, kept in the history named, if any.
     Number { history: Option<&'static str> },
+    /// Any text, kept in the history named, if any (ADR 0085).
+    Text { history: Option<&'static str> },
     /// A passphrase. It shows as one `*` per character, keeps no undo record and enters no
     /// history. Its buffer may hold secrets, so every rule for such a buffer applies.
     Passphrase,
+    /// One of a list of candidates, matched as typed and kept in the history named
+    /// (ADR 0076). `RET` gives the selected candidate.
+    Complete { history: &'static str },
     /// A question answered by `y` or `n`. `yes` names the command `y` runs, confirmed,
     /// which checks again what was true when it was asked. `n` runs nothing. `verbs` say
     /// what `y` and `n` do, after their keys (ADR 0075).
@@ -74,7 +90,8 @@ impl Kind {
     /// The history its answers go to, if any.
     pub fn history(self) -> Option<&'static str> {
         match self {
-            Self::Number { history } => history,
+            Self::Number { history } | Self::Text { history } => history,
+            Self::Complete { history } => Some(history),
             Self::Passphrase | Self::Question { .. } => None,
         }
     }
@@ -151,10 +168,18 @@ pub struct Prompt {
     /// It opened while a buffer that may hold secrets was shown, or one was shown beneath it
     /// since, so its answer enters no history.
     pub(crate) around_secret: bool,
+    /// What a control socket request opened: its answer is not the person's, so it enters no
+    /// history (ADR 0076).
+    pub(crate) from_socket: bool,
     /// Where `M-p` and `M-n` have got to: the entry shown, 0 the newest.
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.
     pub(crate) typed: Option<String>,
+    /// The agent channel caused it, and its label says so (ADR 0085).
+    pub(crate) from_agent: bool,
+    /// Its candidates, for a prompt that completes, and the revision of its buffer they
+    /// were last matched against.
+    pub(crate) completion: Option<(Candidates, u64)>,
 }
 
 impl Prompt {
@@ -189,11 +214,22 @@ impl Prompt {
         self.message_withheld
     }
 
+    /// Its candidates, for a prompt that completes (ADR 0076).
+    pub fn candidates(&self) -> Option<&Candidates> {
+        self.completion.as_ref().map(|(candidates, _)| candidates)
+    }
+
     /// Whether it opened while a buffer that may hold secrets was shown, or one was shown
     /// beneath it since. Its answer then enters no history, and the control socket leaves
     /// out what it holds.
     pub fn around_secret(&self) -> bool {
         self.around_secret
+    }
+
+    /// Whether the agent channel caused it: its label starts with `Agent: `, after its
+    /// depth, and only the person answers it (ADR 0085).
+    pub fn from_agent(&self) -> bool {
+        self.from_agent
     }
 }
 
@@ -225,48 +261,6 @@ impl fmt::Debug for Outcome {
     }
 }
 
-/// The answers given to each history, newest first, in memory only: never written to
-/// disk or carried through a restart (ADR 0013, ADR 0051).
-#[derive(Default)]
-pub(crate) struct Histories {
-    pub(crate) lists: Vec<(&'static str, VecDeque<String>)>,
-}
-
-impl Histories {
-    /// Records `text` as the newest of `name`. An answer given before moves to the front,
-    /// and the oldest goes past [`HISTORY_LENGTH`]. Nothing empty or longer than
-    /// [`MAX_ENTRY_BYTES`] is recorded.
-    pub(crate) fn record(&mut self, name: &'static str, text: &str) {
-        if text.is_empty() || text.len() > MAX_ENTRY_BYTES {
-            return;
-        }
-        let index = match self.lists.iter().position(|(other, _)| *other == name) {
-            Some(index) => index,
-            None => {
-                self.lists.push((name, VecDeque::new()));
-                self.lists.len() - 1
-            }
-        };
-        let list = &mut self.lists[index].1;
-        list.retain(|entry| entry != text);
-        list.push_front(text.to_owned());
-        list.truncate(HISTORY_LENGTH);
-    }
-
-    /// The answers of `name`, newest first.
-    pub(crate) fn entries(&self, name: &str) -> impl Iterator<Item = &str> {
-        self.lists
-            .iter()
-            .filter(move |(other, _)| *other == name)
-            .flat_map(|(_, list)| list.iter().map(String::as_str))
-    }
-
-    /// The answer `index` steps back in `name`, 0 the newest.
-    pub(crate) fn get(&self, name: &str, index: usize) -> Option<&str> {
-        self.entries(name).nth(index)
-    }
-}
-
 /// Where the parts of a prompt go inside its float (ADR 0075).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PromptLayout {
@@ -295,70 +289,9 @@ pub struct PromptLayout {
     pub keys: [CellRect; 2],
     /// Each key's verb after it, a cell on: empty where the row is too narrow for them.
     pub verbs: [CellRect; 2],
-}
-
-/// The cells of `text` as one row.
-pub fn cells_of(text: &str) -> usize {
-    text_clusters(text, 0).map(|cluster| cluster.cells).sum()
-}
-
-/// `text` cut into rows of at most `width` cells, after the last space that fits, or at a
-/// whole cluster where a word is longer than a row, which then starts where it is rather
-/// than on a row of its own, and at most `rows` of them. Returns the
-/// rows and whether some was left over, in which case the last row leaves a cell for `…`.
-fn rows_of(text: &str, width: usize, rows: usize) -> (Vec<Range<usize>>, bool) {
-    let width = width.max(1);
-    let mut out = Vec::new();
-    let (mut start, mut used) = (0, 0);
-    // Where the row could end after a space, and the cells it would hold then.
-    let mut space = None;
-    for cluster in text_clusters(text, 0) {
-        // What a break after a space carries over can still leave no room for a wide cluster,
-        // so this breaks again, before it, until the cluster fits or starts a row.
-        while used + cluster.cells > width && used > 0 {
-            let (end, kept) = space
-                .filter(|&(end, _)| end > start)
-                // A word too long for any row is broken here, not moved to the next.
-                .filter(|&(_, kept)| used - kept + word_cells(&text[cluster.offset..]) <= width)
-                .unwrap_or((cluster.offset, used));
-            out.push(start..end);
-            if out.len() == rows {
-                return (cut_last(text, out, width), true);
-            }
-            (start, used, space) = (end, used - kept, None);
-        }
-        used += cluster.cells;
-        if cluster.text == " " {
-            space = Some((cluster.offset + 1, used));
-        }
-    }
-    out.push(start..text.len());
-    (out, false)
-}
-
-/// The cells of the word `text` starts with, up to its first space.
-fn word_cells(text: &str) -> usize {
-    text_clusters(text, 0)
-        .take_while(|cluster| cluster.text != " ")
-        .map(|cluster| cluster.cells)
-        .sum()
-}
-
-/// Shortens the last of `rows` so that a `…` fits after it in `width` cells.
-fn cut_last(text: &str, mut rows: Vec<Range<usize>>, width: usize) -> Vec<Range<usize>> {
-    if let Some(last) = rows.last_mut() {
-        let mut used = 0;
-        let mut end = last.start;
-        for cluster in text_clusters(&text[last.clone()], 0) {
-            used += cluster.cells;
-            if used >= width {
-                break;
-            }
-            end = last.start + cluster.offset + cluster.text.len();
-        }
-        last.end = end;
-    }
-    rows
+    /// A list's count, such as `3/57`, at the end of the answer's row. Empty with no list
+    /// (ADR 0076).
+    pub count: CellRect,
 }
 
 /// The cells of a row the label may take where it shares the row with the answer: all of
@@ -528,6 +461,7 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
             message: rect(start, message_columns),
             keys: keys.map(|(column, columns)| rect(column, columns)),
             verbs: verbs.map(|(column, columns)| rect(column, columns)),
+            count: rect(0, 0),
         };
     }
     let message_columns = message_cells(left.saturating_sub(MIN_INPUT_COLUMNS));
@@ -537,11 +471,7 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
         label_cut,
         label_cells,
         input: rect(start, left - message_columns),
-        field: if one_row {
-            rect(0, 0)
-        } else {
-            rect(0, inner.columns)
-        },
+        field: rect(0, if one_row { 0 } else { inner.columns }),
         field_room: if one_row {
             rect(0, 0)
         } else {
@@ -550,36 +480,12 @@ pub fn layout(frame: &FrameLayout, label: &str, kind: Kind, message: Option<&str
         message: rect(inner.columns - message_columns, message_columns),
         keys: [rect(0, 0); 2],
         verbs: [rect(0, 0); 2],
+        count: rect(0, 0),
     }
 }
 
 /// What ends a question's label: what the keys that answer it are.
 pub const QUESTION_END: &str = " (y or n)";
-
-/// `message` cut at a whole cluster to fit, with the brackets around it, in `columns` cells,
-/// and `…` if it was cut: what a prompt's message row shows.
-pub fn fit_message(message: &str, columns: usize) -> (&str, &'static str) {
-    cut_to(message, columns.saturating_sub(3))
-}
-
-/// `text` cut at a whole cluster to fit in `cells` cells with a `…` after it, and the `…`,
-/// or `text` whole and nothing if it fits. A name an untrusted file gives is cut this way
-/// before a question says it, so that it cannot push the question's own words out of view.
-pub fn cut_to(text: &str, cells: usize) -> (&str, &'static str) {
-    if cells_of(text) <= cells {
-        return (text, "");
-    }
-    let mut used = 0;
-    let mut end = 0;
-    for cluster in text_clusters(text, 0) {
-        used += cluster.cells;
-        if used >= cells {
-            break;
-        }
-        end = cluster.offset + cluster.text.len();
-    }
-    (&text[..end], CUT)
-}
 
 #[cfg(test)]
 mod tests {
