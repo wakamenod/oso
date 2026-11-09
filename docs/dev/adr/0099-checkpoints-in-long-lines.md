@@ -35,9 +35,11 @@ The author decided this on 2026-11-09, through the coordinator.
 
   It takes 16 bytes.
 - **Scans start at the last checkpoint before what they look for**, when it is past the line's
-  start, and the ASCII pair a cluster's scan can start at. So a scan in a long line reads at most
-  one stride and a cluster. This covers an offset's point, a point's offset, the clusters of a row
-  from a column, and the cluster around an offset.
+  start. This covers an offset's point, a point's offset, the clusters of a row from a column, and
+  the cluster around an offset. The cluster around an offset first looks for two ASCII characters
+  within a stride before it, from the bytes alone, and needs no checkpoint when it finds them.
+  Once a chunk has checkpoints, a scan in one of its long lines reads at most a stride and a
+  cluster, plus what the segmenter looks back over.
 - **Exact by construction:**
   - At a checkpoint the scan keeps the whole chunk as context, as a display cluster can start
     inside a grapheme cluster. It also starts in the state the scan from the chunk's start had
@@ -54,14 +56,20 @@ The author decided this on 2026-11-09, through the coordinator.
   - A search that reads one chunk thousands of times makes them after its first few reads.
   - Loading and editing cost what they did, and only chunks read over and over hold checkpoints.
 - **The budgets of what a key may read stay as they are.** A capped check makes the same
-  decisions and stops at the same step. Each seek now reads at most one stride, so it costs less
-  than `SEEK_COST` charges for it.
+  decisions and stops at the same step. Once its chunk has checkpoints, a seek reads less than
+  `SEEK_COST` charges for it.
+- **A `OnceLock` in each chunk, the repo's first exception to the rule against them.** The rule
+  bans `OnceLock` as a way to keep global state (ADR 0038). Here each TabMap item keeps its own,
+  so that its checkpoints are made once and shared by every snapshot that holds the item, on any
+  thread, with no lock on a read once they exist. Nothing outside the item reaches it, and it goes
+  with the item. It is written in ADR 0038's exception form, an
+  `#[expect(clippy::disallowed_types, reason = "...")]` at each use, citing this ADR.
 
 ## Changes to accepted ADRs
 
 - [ADR 0035](0035-sumtree-rope-and-cell-grid.md), "the column of any offset is found in O(log n)
   plus a scan of one chunk": on a line longer than 128 bytes, once its chunk has checkpoints, the
-  scan is of at most one stride and a cluster.
+  scan is of at most a stride and a cluster, plus what the segmenter looks back over.
 
 ## Consequences
 
@@ -89,8 +97,8 @@ One `M-f` on a long line reads its chunk too few times to make checkpoints, and 
 - **Every chunk is 32 bytes larger,** 96 bytes in place of 64, for the checkpoints it may make
   and the count of reads before them.
 - **What reads one long line over and over,** a search or a motion with a large count, reads about
-  a fifth of what it did. What remains for the keys that add cursors is their word checks, which
-  read a window of clusters before each match (see `open-questions.md`).
+  a fifth of what it did. Whether the keys that add cursors should check words in offsets rather
+  than in display points is left open (see `open-questions.md`).
 
 ## Alternatives considered
 

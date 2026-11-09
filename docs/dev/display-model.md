@@ -50,7 +50,8 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   changing it rebuilds only the TabMap. A chunk read often keeps checkpoints in its
   lines longer than 128 bytes, cluster starts every 128 bytes where a scan can begin
   in the state a scan from the chunk's start has there, so a scan in a long line reads
-  at most one stride ([ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
+  at most a stride and a cluster, plus what the segmenter looks back over
+  ([ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
 - **`DisplayMap` and `DisplaySnapshot`.** The API callers use: offset ↔
   `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
   clusters, row widths, and the clusters of a row from any column, for

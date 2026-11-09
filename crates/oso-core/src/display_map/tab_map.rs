@@ -354,24 +354,31 @@ impl TabMap {
         let Some(item) = cursor.item() else {
             return (start, start);
         };
-        // The scan starts at the last checkpoint before `offset` (ADR 0099), or after it at
-        // the nearest place where two ASCII characters but CR LF meet, which always have a
-        // cluster boundary between them, past which the clusters are as from the chunk's
-        // start.
-        let checkpoint = item.checkpoint_before(start, self, offset - start);
-        let (mut from, mut past_limit_until) = checkpoint.map_or((0, None), |checkpoint| {
-            (
-                usize::from(checkpoint.at),
-                Some(usize::from(checkpoint.past_limit_until)),
-            )
-        });
-        let before = &item.text.as_bytes()[from..offset - start];
-        if let Some(index) = before.windows(2).rposition(|pair| {
-            pair[0] == b'\n' || (pair[0].is_ascii() && pair[1].is_ascii() && pair != b"\r\n")
-        }) {
-            from += index + 1;
-            past_limit_until = None;
-        }
+        // Two ASCII characters but CR LF always have a cluster boundary between them, past
+        // which the clusters are as from the chunk's start, so the scan starts at the nearest
+        // such pair within a stride, found from the bytes alone. Without one, it starts at the
+        // last checkpoint before `offset` (ADR 0099), or the nearest pair after it.
+        let pair = |bytes: &[u8]| {
+            bytes.windows(2).rposition(|pair| {
+                pair[0] == b'\n' || (pair[0].is_ascii() && pair[1].is_ascii() && pair != b"\r\n")
+            })
+        };
+        let near = (offset - start).saturating_sub(checkpoints::STRIDE);
+        let (from, past_limit_until) = match pair(&item.text.as_bytes()[near..offset - start]) {
+            Some(index) => (near + index + 1, None),
+            None => {
+                let checkpoint = item.checkpoint_before(start, self, offset - start);
+                let (at, past) = checkpoint.map_or((0, None), |checkpoint| {
+                    let past = usize::from(checkpoint.past_limit_until);
+                    (usize::from(checkpoint.at), Some(past))
+                });
+                // A checkpoint within the stride already searched needs no search after it.
+                match pair(&item.text.as_bytes()[at.min(near)..near]) {
+                    Some(index) => (at.min(near) + index + 1, None),
+                    None => (at, past),
+                }
+            }
+        };
         let (clusters, shift) =
             clusters_from(&item.text, start, from, past_limit_until, &self.invalid);
         for (index, cluster, _, _) in clusters {

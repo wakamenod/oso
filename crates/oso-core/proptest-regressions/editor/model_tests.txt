@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 9101987e3e100b162bb751e883739bc2b9a42072243859da6cef8b33b5bade65 # shrinks to start = "\r日本語\r", places = [(7, 10)], steps = [Command([[]])]
+cc 61fa51017d2acb5d6bd3f7dce2135dd553225e938c619efc38e994604232bd58 # shrinks to start = "日本語a日本語a👍🏽日本語", at = 6, pieces = ["日本語"]
+cc c01899b96000fd4f64d3801f7207a7678c2259952120b366734e326b3dc3188a # shrinks to start = "日本語", steps = [AtCursors { before: 0, after: 0, text: "日本語" }]

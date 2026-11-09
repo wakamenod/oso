@@ -204,9 +204,9 @@ item notes when it must be settled.
   the command's ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
   `TAB` on a row with several cursors walks what lies between them with no budget
   ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
-- On a long line, the keys that add cursors check each match against its words by stepping back a
-  window of clusters in display points (`word.rs`), which is now what bounds how fast they go
-  there. Decide with the item above, in a later ADR, whether to check in offsets instead
+- The keys that add cursors check each match against its words in display points, stepping back
+  a window of clusters (`word.rs`). Decide with the item above, in a later ADR, whether to check
+  words in offsets instead
   ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md),
   [ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:

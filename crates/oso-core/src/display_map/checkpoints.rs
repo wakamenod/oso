@@ -1,6 +1,7 @@
 //! Checkpoints in a long line (ADR 0099): cluster starts inside a chunk where a scan can
 //! begin instead of at the chunk's start, so that finding the cluster or the column of an
-//! offset reads at most one stride of a long line.
+//! offset reads at most a stride and a cluster of a long line, plus what the segmenter looks
+//! back over.
 //!
 //! Must not depend on: cursors, windows or fonts; it sees only a chunk's text, where it
 //! starts, its invalid bytes and the tab width.
@@ -194,20 +195,6 @@ impl Clone for Kept {
 }
 
 impl Kept {
-    /// What a chunk keeps when it is never to make checkpoints, for a test that compares
-    /// scans with and without them.
-    #[cfg(test)]
-    #[expect(
-        clippy::disallowed_types,
-        reason = "each item's own checkpoints, made once and shared by snapshots on any thread, not global state (ADR 0099)"
-    )]
-    pub(super) fn never() -> Self {
-        Self {
-            made: OnceLock::from(None),
-            reads: AtomicU8::new(0),
-        }
-    }
-
     /// The checkpoints of `text`, a chunk that starts at `base`, if scans have read it often
     /// enough; counts this read otherwise.
     pub(super) fn get(
@@ -281,18 +268,78 @@ pub(super) fn before_offset(checkpoints: &[Checkpoint], offset: usize) -> Option
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use proptest::prelude::*;
 
     use super::*;
+    use crate::decode::REPLACEMENT;
+
+    /// Text that reaches what checkpoints must keep: runs past a display cluster's limits,
+    /// regional indicators alone and paired, Indic conjuncts, prepended marks, joiners, tag
+    /// characters, controls, invalid bytes' U+FFFD, tabs and line breaks of both kinds.
+    pub(in crate::display_map) fn pieces() -> impl Strategy<Value = String> {
+        const PIECES: [&str; 26] = [
+            "a",
+            "a",
+            "a",
+            "b ",
+            "\r\n",
+            "\n",
+            "\t",
+            "\r",
+            "日",
+            "\u{1f1ef}",
+            "\u{1f1f5}",
+            "🇯🇵",
+            "👍",
+            "\u{1f3fd}",
+            "\u{200d}",
+            "\u{200c}",
+            "\u{e0041}",
+            "\u{fe0f}",
+            "\u{301}",
+            "\u{915}",
+            "\u{94d}",
+            "\u{937}",
+            "\u{600}",
+            "\u{fffd}",
+            "\u{202e}",
+            "\u{85}",
+        ];
+        // Repeats reach the limits; most pieces stay short.
+        let repeats = prop_oneof![4 => Just(1usize), 1 => 2usize..24];
+        prop::collection::vec((prop::sample::select(&PIECES[..]), repeats), 0..40).prop_map(
+            |pieces| {
+                pieces
+                    .into_iter()
+                    .map(|(piece, n)| piece.repeat(n))
+                    .collect()
+            },
+        )
+    }
+
+    /// The invalid bytes of `text` if every `every`th U+FFFD in it stands for one.
+    pub(in crate::display_map) fn invalid_in(text: &str, every: usize) -> InvalidBytes {
+        let entries: Vec<_> = text
+            .match_indices(REPLACEMENT)
+            .step_by(every)
+            .map(|(offset, _)| (offset, 0x80 + (offset % 100) as u8))
+            .collect();
+        let mut invalid = InvalidBytes::new();
+        invalid.extend(0, &entries);
+        invalid
+    }
 
     /// Every cluster of `text` from the chunk's start, with the line breaks and the column
     /// function before it, as a scan from there finds them.
-    fn scanned(text: &str, tab_width: TabWidth) -> Vec<(usize, String, u16, ColumnFn)> {
-        let invalid = InvalidBytes::default();
+    fn scanned(
+        text: &str,
+        invalid: &InvalidBytes,
+        tab_width: TabWidth,
+    ) -> Vec<(usize, String, u16, ColumnFn)> {
         let (mut rows, mut column) = (0_u16, ColumnFn::default());
         let mut out = Vec::new();
-        for (index, cluster, kind, cells) in Clusters::with_invalid(text, 0, &invalid) {
+        for (index, cluster, kind, cells) in Clusters::with_invalid(text, 0, invalid) {
             out.push((index, cluster.to_owned(), rows, column));
             match kind {
                 CellKind::LineBreak => {
@@ -326,32 +373,36 @@ mod tests {
 
     proptest! {
         /// A scan from any checkpoint finds the clusters a scan from the chunk's start finds
-        /// after it, and the checkpoint holds the line breaks and the column there.
+        /// after it, and the checkpoint holds the line breaks and the column there, with
+        /// invalid bytes or none and any tab width.
         #[test]
         fn a_scan_from_a_checkpoint_is_the_scan_from_the_chunks_start(
-            text in crate::rope::tests::text_strategy(120),
+            text in pieces(),
+            every in 1usize..3,
+            tab_width in 1u32..10,
         ) {
-            let tab_width = TabWidth::new(4);
-            let invalid = InvalidBytes::default();
-            let whole = scanned(&text, tab_width);
-            let checkpoints = of_chunk(&text, 0, &invalid, tab_width);
-            for checkpoint in checkpoints.as_deref().unwrap_or(&[]) {
-                let at = usize::from(checkpoint.at);
-                let tail: Vec<(usize, String)> = whole
-                    .iter()
-                    .filter(|(index, ..)| *index >= at)
-                    .map(|(index, cluster, ..)| (*index, cluster.clone()))
-                    .collect();
-                let past = usize::from(checkpoint.past_limit_until);
-                let resumed: Vec<(usize, String)> =
-                    Clusters::with_invalid_from(&text, 0, at, past, &invalid)
-                        .map(|(index, cluster, _, _)| (index, cluster.to_owned()))
+            let tab_width = TabWidth::new(tab_width);
+            for invalid in [InvalidBytes::default(), invalid_in(&text, every)] {
+                let whole = scanned(&text, &invalid, tab_width);
+                let checkpoints = of_chunk(&text, 0, &invalid, tab_width);
+                for checkpoint in checkpoints.as_deref().unwrap_or(&[]) {
+                    let at = usize::from(checkpoint.at);
+                    let tail: Vec<(usize, String)> = whole
+                        .iter()
+                        .filter(|(index, ..)| *index >= at)
+                        .map(|(index, cluster, ..)| (*index, cluster.clone()))
                         .collect();
-                prop_assert_eq!(&resumed, &tail);
-                let here = whole.iter().find(|(index, ..)| *index == at);
-                let (_, _, rows, column) = here.expect("a checkpoint is a cluster start");
-                prop_assert_eq!(checkpoint.rows, *rows);
-                prop_assert_eq!(checkpoint.column(), *column);
+                    let past = usize::from(checkpoint.past_limit_until);
+                    let resumed: Vec<(usize, String)> =
+                        Clusters::with_invalid_from(&text, 0, at, past, &invalid)
+                            .map(|(index, cluster, _, _)| (index, cluster.to_owned()))
+                            .collect();
+                    prop_assert_eq!(&resumed, &tail, "{:?} from {}", text, at);
+                    let here = whole.iter().find(|(index, ..)| *index == at);
+                    let (_, _, rows, column) = here.expect("a checkpoint is a cluster start");
+                    prop_assert_eq!(checkpoint.rows, *rows);
+                    prop_assert_eq!(checkpoint.column(), *column);
+                }
             }
         }
     }
