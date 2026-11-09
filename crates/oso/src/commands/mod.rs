@@ -26,6 +26,7 @@ mod recovery;
 mod save;
 mod scroll;
 mod session;
+mod theme;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;
@@ -57,6 +58,7 @@ const TABLES: &[&[Command]] = &[
     save::COMMANDS,
     scroll::COMMANDS,
     session::COMMANDS,
+    theme::COMMANDS,
 ];
 
 /// Refuses a command that would change which buffer a window shows, while a prompt is
@@ -191,6 +193,9 @@ mod tests {
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
+            // The theme, which is the person's and is remembered on disk (ADR 0089).
+            "load-theme",
+            "toggle-theme",
             // The person's yes to the agent's question about saving.
             "save-buffer-the-agent-opened",
             // Keys: the channel passes a count or text instead.

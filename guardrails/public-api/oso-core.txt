@@ -251,6 +251,9 @@ pub oso_core::command::ArgSpec::Passphrase::prompt: &'static str
 pub oso_core::command::ArgSpec::Text
 pub oso_core::command::ArgSpec::Text::history: &'static str
 pub oso_core::command::ArgSpec::Text::prompt: &'static str
+pub oso_core::command::ArgSpec::Theme
+pub oso_core::command::ArgSpec::Theme::history: &'static str
+pub oso_core::command::ArgSpec::Theme::prompt: &'static str
 impl oso_core::command::ArgSpec
 pub const fn oso_core::command::ArgSpec::reads_clipboard(self, core::option::Option<oso_core::command::Prefix>) -> bool
 impl core::clone::Clone for oso_core::command::ArgSpec
@@ -1336,6 +1339,13 @@ pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
 pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::load_theme(&mut self, &str) -> core::result::Result<(), oso_core::editor::NoSuchTheme>
+pub fn oso_core::editor::Editor::set_themes(&mut self, alloc::vec::Vec<(&'static str, &'static str)>, usize)
+pub fn oso_core::editor::Editor::theme(&self) -> usize
+pub fn oso_core::editor::Editor::theme_candidates(&self) -> alloc::sync::Arc<[oso_core::complete::Candidate]>
+pub fn oso_core::editor::Editor::theme_name(&self) -> core::option::Option<&'static str>
+pub fn oso_core::editor::Editor::toggle_theme(&mut self) -> bool
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::FileStamp, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::write_over_asked(&self) -> core::option::Option<&std::path::Path>
@@ -1402,6 +1412,15 @@ impl core::default::Default for oso_core::editor::MatchCells
 pub fn oso_core::editor::MatchCells::default() -> oso_core::editor::MatchCells
 impl core::fmt::Debug for oso_core::editor::MatchCells
 pub fn oso_core::editor::MatchCells::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::editor::NoSuchTheme(pub alloc::string::String)
+impl core::cmp::Eq for oso_core::editor::NoSuchTheme
+impl core::cmp::PartialEq for oso_core::editor::NoSuchTheme
+pub fn oso_core::editor::NoSuchTheme::eq(&self, &oso_core::editor::NoSuchTheme) -> bool
+impl core::fmt::Debug for oso_core::editor::NoSuchTheme
+pub fn oso_core::editor::NoSuchTheme::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::NoSuchTheme
+pub fn oso_core::editor::NoSuchTheme::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::editor::NoSuchTheme
 pub struct oso_core::editor::Over
 pub oso_core::editor::Over::found: oso_core::buffer::FileStamp
 pub oso_core::editor::Over::location: std::path::PathBuf

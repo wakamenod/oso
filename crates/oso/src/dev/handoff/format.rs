@@ -60,6 +60,8 @@ pub struct State {
     pub scroll: Scroll,
     pub pending_keys: Vec<KeyPress>,
     pub frame: Option<Frame>,
+    /// The theme the previous instance drew in, if it said.
+    pub theme: Option<String>,
     /// The kill ring's entries, the newest first.
     pub kills: Vec<KillState>,
     pub histories: Vec<HistoryState>,
@@ -243,6 +245,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         },
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
+        theme: super::parse_theme(state)?,
         kills,
         histories,
     })

@@ -215,7 +215,7 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
   gamma, and gaps between invisible boxes ([ADR 0027](adr/0027-theme.md),
   [ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - **M2-24** (after M2-23): visual aids: whitespace, current line, cursor flash and
-  line numbers.
+  line numbers ([ADR 0097](adr/0097-visual-aids.md)).
 - **M2-25** (after M2-9 and M2-24): soft wrap, with the WrapMap
   ([ADR 0006](adr/0006-display-model.md)).
 
