@@ -243,6 +243,13 @@ item notes when it must be settled.
   goes in at the cursor, though the input method now reads the cursor's line. Decide whether
   to apply one inside the excerpt last given, as ADR 0070 allows
   ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
+- The cursor's line for the input method and typing in one long line: on the native layer,
+  typing and deleting in a 10 MB line were about 0.3 ms slower per key once the excerpt was
+  given, in every run on the Mac mini on 2026-11-09, far under the 5 ms gate. Cutting the
+  excerpt there takes about 3 µs, with or without an edit before it, handing it to the window
+  is a swap, and motion keys, which give a new excerpt too, did not move. Find where the time
+  goes with the same build run against itself with no excerpt given
+  ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
