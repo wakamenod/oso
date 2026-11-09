@@ -55,6 +55,7 @@ mod switch;
 mod themes;
 mod view;
 mod write;
+mod yank_pop;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use agent::AgentChannel;
@@ -71,6 +72,7 @@ pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
+pub use yank_pop::YankPopError;
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -118,6 +120,8 @@ pub struct Editor {
     write_over_asked: Option<write::WriteOver>,
     /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
     file_list: files::FileList,
+    /// What a prompt that completes waits for from the worker (ADR 0096).
+    completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
     visits: Vec<(std::path::PathBuf, u64)>,
     /// A file a load stopped before reading as too large, with its size, which `C-x C-f` asks
@@ -127,6 +131,8 @@ pub struct Editor {
     start_directory: std::path::PathBuf,
     /// The marks the last `C-.` listed (ADR 0088).
     mark_list: Option<marks::MarkList>,
+    /// The ring's entries a `M-y` list shows (ADR 0091).
+    kill_list: Option<yank_pop::KillList>,
     /// The home directory, which `~` stands for, as the host read it at startup.
     home: Option<std::path::PathBuf>,
     /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
@@ -212,7 +218,9 @@ impl Editor {
             way_back: Vec::new(),
             home: None,
             mark_list: None,
+            kill_list: None,
             file_list: files::FileList::default(),
+            completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,
             start_directory: std::path::PathBuf::from("/"),

@@ -130,6 +130,10 @@ are rounded.
 
 - The centred float, `Find file:` (or `Write file:`), starting at the buffer's directory, the home
   directory as `~/`. A worker lists directories; the count shows `…` until it answers.
+- Past 5000 names, a worker builds the list and matches each key; the rows shown stay and the
+  count shows `…` until it answers, and `RET` or `TAB` meanwhile waits for it. Any other key
+  drops that wait, a prefix too, and `C-g` then does nothing more
+  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Segments before the last are prefixes, and the last one matches as in `M-x`: `~/P/S/o` reaches
   `~/Projects/SideProjects/oso`. `~/` or `/` typed after a `/` starts over, the text before drawn dim.
   Names starting with `.` show only when the last segment starts with `.`.
@@ -287,6 +291,21 @@ As multiple-cursors.el ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
   many occurrences there are.
 - A far occurrence is found on a worker thread, and the echo area says `Searching…` meanwhile.
 - `C-g` first hides the regions, then leaves the primary cursor alone.
+
+## `M-y`
+
+As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
+
+- `M-y` reads the clipboard as `C-y` does, then lists the kill ring in the centred float,
+  the newest first, each text once. A row is the first 1 KiB of a kill, a line break drawn
+  as `⤶` in the annotation's face, and says how many lines and pieces it has. The selected kill's lines show beside
+  the list.
+- A kill from a buffer that may hold secrets is listed with only its line count, no text and
+  no preview, and anything typed hides it. It is never compared with another kill.
+- `RET` yanks the kill picked as `C-y` would, in place of what a yank just inserted, and
+  puts it first in the ring.
+- In a prompt and in isearch, `M-y` right after a yank puts the next older kill in its place,
+  passing secret ones.
 
 ## isearch
 

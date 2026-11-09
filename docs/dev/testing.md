@@ -416,6 +416,7 @@ OS and architecture. Nothing is built or installed there.
 | `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; reported only (ADR 0069) | 5, 400 reports each |
 | `prompt_type_p99_ms` | digits typed into `goto-line`'s open prompt to the frames that draw them, there; reported only (ADR 0072) | 5, 400 keys each |
 | `mx_type_p99_ms` | a letter and `DEL` typed in turn into `M-x` listing every command, to the frames that draw them; reported only (ADR 0076) | 5, 400 keys each |
+| `file_prompt_type_p99_ms` | a letter, `.`, `*`, a digit and four `DEL` typed in turn into `C-x C-f` over a directory of 100,000 empty files whose names mix ASCII, accented and Japanese letters, to the frames that draw them, while a worker builds and matches the list; making the files takes about 4 s and removing them about 4 s, once per run of the benchmark; reported only (ADR 0096) | 5, 400 keys each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |

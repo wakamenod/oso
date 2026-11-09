@@ -269,6 +269,11 @@ impl KillEntry {
     pub fn joined(&self) -> String {
         join(&self.pieces)
     }
+
+    /// What the clipboard got of its text, or gave it, if anything.
+    pub(crate) fn fingerprint(&self) -> Option<Fingerprint> {
+        self.written
+    }
 }
 
 /// `pieces` joined with [`PIECE_SEPARATOR`], copied. O(their length).
@@ -295,6 +300,9 @@ pub struct KillRing {
     /// The fingerprints secret entries went to the clipboard with, or came from it with,
     /// the newest last.
     secrets_written: VecDeque<Fingerprint>,
+    /// What the clipboard was last seen to hold: an entry it got from the ring, or text it
+    /// gave it, wherever that entry is in the ring now.
+    clipboard: Option<Fingerprint>,
 }
 
 impl KillRing {
@@ -321,6 +329,19 @@ impl KillRing {
     /// The entries, the newest first.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &KillEntry> {
         self.entries.iter()
+    }
+
+    /// Where the entry `id` is, 0 the newest, if the ring still holds it.
+    pub(crate) fn position(&self, id: u64) -> Option<usize> {
+        self.entries.iter().position(|entry| entry.id == id)
+    }
+
+    /// Moves the entry `id` to the front, as consult's `consult-yank-rotate` does, so the
+    /// next yank takes it (ADR 0091). Its text and id stay.
+    pub(crate) fn bring_to_front(&mut self, id: u64) {
+        if let Some(entry) = self.position(id).and_then(|at| self.entries.remove(at)) {
+            self.entries.push_front(entry);
+        }
     }
 
     /// Puts `pieces` first as a new entry and returns its id. The oldest go past the
@@ -390,6 +411,7 @@ impl KillRing {
     /// Records what the clipboard got for the entry `id`, if it is still in the ring and
     /// has not grown since.
     pub fn note_written(&mut self, id: u64, fingerprint: Fingerprint) {
+        self.clipboard = Some(fingerprint);
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
             entry.written = Some(fingerprint);
             if entry.secret {
@@ -405,10 +427,10 @@ impl KillRing {
         self.secrets_written.push_back(fingerprint);
     }
 
-    /// What the clipboard last held of the newest entry: what it got from the ring, or
-    /// gave it.
-    pub fn newest_written(&self) -> Option<Fingerprint> {
-        self.entries.front().and_then(|entry| entry.written)
+    /// Whether the clipboard holds what it was last seen to: what it got from the ring, or
+    /// gave it, as Emacs compares the selection with the last one it saw.
+    pub(crate) fn clipboard_seen(&self, fingerprint: Fingerprint) -> bool {
+        self.clipboard == Some(fingerprint)
     }
 
     /// Whether a secret entry went to the clipboard as text with this fingerprint, or came
@@ -418,15 +440,17 @@ impl KillRing {
         self.secrets_written.contains(&fingerprint)
     }
 
-    /// Makes the newest entry secret, as the same text came back from the clipboard marked
-    /// so.
-    pub fn make_newest_secret(&mut self) {
-        if let Some(entry) = self.entries.front_mut() {
+    /// Makes the entry that went to the clipboard or came from it as `fingerprint` secret,
+    /// as the same text came back from the clipboard marked so.
+    pub(crate) fn make_written_secret(&mut self, fingerprint: Fingerprint) {
+        let written = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.written == Some(fingerprint));
+        if let Some(entry) = written {
             entry.secret = true;
-            if let Some(written) = entry.written {
-                self.remember_secret(written);
-            }
         }
+        self.remember_secret(fingerprint);
     }
 
     /// Drops the oldest entries past the bounds, but never the newest.
@@ -594,7 +618,7 @@ mod tests {
             .append(pieces(&["c"]), Direction::Forward, false)
             .unwrap();
         assert_eq!(
-            ring.newest_written(),
+            ring.get(0).unwrap().fingerprint(),
             None,
             "a grown entry waits for its own"
         );

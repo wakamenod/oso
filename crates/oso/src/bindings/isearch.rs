@@ -15,6 +15,7 @@ pub const ISEARCH: &[(&str, &str)] = &[
     ("RET", "isearch-exit"),
     ("C-w", "isearch-yank-word-or-char"),
     ("C-y", "isearch-yank-kill"),
+    ("M-y", "isearch-yank-pop"),
     ("M-p", "isearch-ring-retreat"),
     ("M-n", "isearch-ring-advance"),
     ("M-c", "isearch-toggle-case-fold"),

@@ -79,11 +79,10 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- `C-x C-f` matches its candidates on the UI thread, as ADR 0076's worker path past 5000 is not
-  built: the list is capped at 100,000, which takes about 20 ms a key to match at that size, and a
-  change of directory over 100,000 names about 26 ms to build. Move both to a worker
-  ([ADR 0076](adr/0076-completion-and-m-x.md),
-  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `file_prompt_type_p99_ms`, typing into `C-x C-f` over 100,000 names, is reported only until a few
+  runs exist. Its first run on the Mac mini, on 2026-11-09, gave 4.1–7.1 ms, against 38.6–39.8 ms
+  for the same scenario before the worker. Set its threshold from those runs
+  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.
@@ -270,10 +269,6 @@ item notes when it must be settled.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
   have ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-18: matching on a worker thread past 5000 candidates, with the generation and the
-  snapshot ADR 0076 fixes, for large directories. The worker gives back matches; where the list
-  is scrolled to stays with the prompt
-  ([ADR 0076](adr/0076-completion-and-m-x.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box

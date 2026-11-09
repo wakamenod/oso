@@ -25,8 +25,11 @@ pub enum Preview {
         top: usize,
         cursor: usize,
     },
-    /// A buffer that may hold secrets, or whose file is not judged yet: nothing of it shows.
+    /// A buffer that may hold secrets, or whose file is not judged yet, or a secret kill:
+    /// nothing of it shows.
     Withheld,
+    /// The kill ring's entry `entry`, as [`Editor::kill_preview`] gives its lines (ADR 0091).
+    Text { entry: u64 },
 }
 
 /// Why a person's kill of a buffer did not happen (ADR 0088).
@@ -212,6 +215,15 @@ impl Editor {
     /// the buffer that candidate names, from where the tiled window last was in it, or that
     /// it may hold secrets, which it never shows (ADR 0088).
     pub fn preview(&self) -> Option<Preview> {
+        // `M-y` previews the kill its selected row names, never a secret one (ADR 0091).
+        if self.kill_list_open() {
+            let entry = self.selected_kill()?;
+            return Some(if entry.is_secret() {
+                Preview::Withheld
+            } else {
+                Preview::Text { entry: entry.id() }
+            });
+        }
         // `C-.` previews the buffer it lists the marks of, unless it may hold secrets, as any
         // preview.
         if let Some((id, cursor)) = self.selected_mark() {

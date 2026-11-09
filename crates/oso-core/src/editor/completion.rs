@@ -12,8 +12,12 @@ use std::sync::Arc;
 
 use super::Editor;
 use crate::buffer::Replacement;
-use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES};
+use crate::complete::{Candidate, Candidates, MAX_INPUT_BYTES, WORKER_PAST};
 use crate::minibuffer::{Kind, PromptError, PromptId};
+
+pub(super) use worker::CompletionWork;
+
+mod worker;
 
 /// How a prompt that completes orders its candidates, and what it takes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -92,17 +96,22 @@ impl Editor {
     }
 
     /// The revision of the innermost prompt's buffer.
-    fn prompt_revision(&self) -> Option<u64> {
+    pub(super) fn prompt_revision(&self) -> Option<u64> {
         let prompt = self.prompts.last()?;
         Some(self.buffer(prompt.buffer)?.revision())
     }
 
     /// Matches the innermost prompt's answer against its candidates again, if it changed
     /// since they were last matched. The dispatcher calls it as each command ends, so what a
-    /// command typed is matched once.
+    /// command typed is matched once. Past [`WORKER_PAST`] candidates, it leaves the match for
+    /// the worker (ADR 0096).
     pub fn match_completion(&mut self) {
         // A path's segments decide the list before its last is matched (ADR 0087).
         self.refresh_files();
+        // A list on its way takes in what is typed now once it comes.
+        if self.building_completion() {
+            return;
+        }
         let Some(prompt) = self.prompts.last() else {
             return;
         };
@@ -118,12 +127,23 @@ impl Editor {
         let revision = buffer.revision();
         // An answer too long to match, such as a whole file yanked into it, is never read.
         let text = (buffer.text().len() <= MAX_INPUT_BYTES).then(|| buffer.text().to_string());
-        if let Some((candidates, seen)) = self.completion_mut() {
-            match text {
-                Some(text) => candidates.set_input(&text),
-                None => candidates.set_too_long(),
+        let Some((candidates, seen)) = self.completion_mut() else {
+            return;
+        };
+        *seen = revision;
+        match text {
+            Some(text) if candidates.total() > WORKER_PAST => {
+                match candidates.matching(&text) {
+                    Some(matching) => self.leave_match(matching, revision),
+                    // Back to what was matched last: a job for what came between is stale.
+                    None => self.stop_completion_job(),
+                }
             }
-            *seen = revision;
+            Some(text) => candidates.set_input(&text),
+            None => {
+                candidates.set_too_long();
+                self.stop_completion_job();
+            }
         }
         // Which also keeps the selection in view, in the rows the float has now.
         self.relayout_prompt();
@@ -147,6 +167,8 @@ impl Editor {
         if let Some((candidates, _)) = self.completion_mut() {
             candidates.keep_in_view(rows);
         }
+        // Rows that come into view show what looks found of them (ADR 0096).
+        self.patch_looks();
     }
 
     /// Selects the candidate `by` places after the selected one, or before it for a negative
