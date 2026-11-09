@@ -366,11 +366,11 @@ impl Editor {
 
     /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
     /// command cannot start a load itself. A buffer that visits that path already is shown at
-    /// once instead.
+    /// once instead, unless the agent channel is still opening it.
     pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
         let open = self
             .buffers()
-            .find(|(_, buffer)| buffer.path() == Some(path.as_path()))
+            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
             .map(|(id, _)| id);
         match open {
             Some(id) => self.show(id),
@@ -469,13 +469,17 @@ impl Editor {
     }
 
     /// Another buffer that visits the very file `id` loaded, by its device and inode, as a link
-    /// or a second spelling of an open file leads to it (ADR 0087).
+    /// or a second spelling of an open file leads to it (ADR 0087). A buffer the agent channel
+    /// is still opening is neither, as the channel checks what it may show before it shows
+    /// anything (ADR 0085); once shown, it is like any other.
     pub fn visiting_same_file(&self, id: BufferId) -> Option<BufferId> {
-        let identity = self.buffer(id)?.baseline()?.file?.identity?;
+        let buffer = self.buffer(id).filter(|buffer| !buffer.agent_pending())?;
+        let identity = buffer.baseline()?.file?.identity?;
         self.buffers().map(|(other, _)| other).find(|other| {
             *other != id
                 && self
                     .buffer(*other)
+                    .filter(|buffer| !buffer.agent_pending())
                     .and_then(|buffer| buffer.baseline()?.file?.identity)
                     == Some(identity)
         })

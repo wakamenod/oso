@@ -335,4 +335,23 @@ fn a_buffer_that_loaded_the_file_another_has_is_found_by_its_identity() {
     assert_eq!(editor.visiting_same_file(second), Some(first));
     let third = editor.add_buffer(Buffer::from_text("other", ""));
     assert_eq!(editor.visiting_same_file(third), None, "no file");
+    // An open the agent channel has not shown yet is left to its checks: it neither gives way
+    // to the person's buffer nor is found as the one open, by its identity or its path.
+    let mut agents = visiting("/c/again.md");
+    agents.mark_opened_by_agent();
+    agents.set_agent_pending(true);
+    let agents = editor.add_buffer(agents);
+    assert_eq!(editor.visiting_same_file(agents), None, "nothing dropped");
+    editor.kill_buffer(first);
+    assert_eq!(editor.visiting_same_file(second), None, "not found");
+    editor.request_visit(PathBuf::from("/c/again.md"), 0);
+    assert_eq!(editor.take_visits().len(), 1, "a load of its own");
+    // Once the channel has shown it, it is the buffer of its file like any other.
+    editor.buffer_mut(agents).unwrap().set_agent_pending(false);
+    assert_eq!(editor.visiting_same_file(second), Some(agents));
+    let count = editor.buffers().count();
+    editor.request_visit(PathBuf::from("/c/again.md"), 0);
+    assert!(editor.take_visits().is_empty(), "no second buffer");
+    assert_eq!(editor.buffers().count(), count);
+    assert_eq!(editor.window().buffer(), agents, "shown");
 }

@@ -71,6 +71,7 @@ impl App {
         };
         if let Some(buffer) = self.editor.buffer_mut(buffer) {
             buffer.mark_opened_by_agent();
+            buffer.set_agent_pending(true);
         }
         self.agent.opening.push(Opening {
             buffer,
@@ -141,6 +142,9 @@ impl App {
             self.drop_agents_file(opening.buffer);
             self.agent_log("open: dropped, the person was busy");
             return Err(why.into());
+        }
+        if let Some(buffer) = self.editor.buffer_mut(opening.buffer) {
+            buffer.set_agent_pending(false);
         }
         self.editor.show(opening.buffer);
         if let Some(line) = opening.line {
