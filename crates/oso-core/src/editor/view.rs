@@ -148,6 +148,18 @@ impl Editor {
         frame::region_cells(text, scroll, &display, &window.selections, preedit, out);
     }
 
+    /// The cells of the tiled window's text area that the boxes of its cursors other than the
+    /// primary take, into `out`, which is emptied first (ADR 0091). A preedit pushes them as it
+    /// pushes the text.
+    pub fn other_cursor_cells(&self, out: &mut Vec<CellRect>) {
+        let (window, buffer) = self.tiled();
+        let display = buffer.display();
+        let preedit =
+            (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
+        let (text, scroll) = (self.frame.window.text, window.scroll());
+        frame::other_cursor_cells(text, scroll, &display, &window.selections, preedit, out);
+    }
+
     /// The cells of the innermost prompt's answer that its regions take, into `out`, which
     /// is emptied first, and none while they are hidden or no prompt is open (ADR 0076). No
     /// input method composes in a prompt, so no preedit pushes them.

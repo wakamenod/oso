@@ -20,7 +20,9 @@
 //! being converted with `=` (ADR 0069). A line between `+` below a row marks with `*`
 //! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
 //! (ADR 0071), and with `#` and `~` the current isearch match and the others in view,
-//! from `Editor::isearch_cells` (ADR 0082).
+//! from `Editor::isearch_cells` (ADR 0082). On the line between `:`, `.` marks the cells
+//! of the boxes of the cursors other than the primary, drawn as dim outlines, from
+//! `Editor::other_cursor_cells` (ADR 0091).
 //!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
@@ -324,6 +326,12 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
             let (text, _) = spans_row(&["may hold secrets"], preview.columns);
             text
         }
+        // A kill's lines, as the float draws them (ADR 0091).
+        Some(Preview::Text { entry }) => {
+            let lines = editor.kill_preview(entry, preview.rows, preview.columns);
+            let line = lines.get(index).map_or("", String::as_str);
+            spans_row(&[line], preview.columns).0
+        }
         _ => " ".repeat(preview.columns),
     };
     format!("│{text}")
@@ -383,6 +391,8 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let cursor = frame::cursor_rect(area, scroll, place, cells);
     let mut region = Vec::new();
     editor.region_cells(&mut region);
+    let mut others = Vec::new();
+    editor.other_cursor_cells(&mut others);
     let mut found = oso_core::editor::MatchCells::default();
     editor.isearch_cells(&mut found);
     let (current, matches) = (found.current, found.others);
@@ -404,7 +414,12 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
             cursor: mark,
             whitespace,
         };
-        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor, spliced, style);
+        let (text, mut marks) =
+            draw_row(&display, row, scroll, area.columns, cursor, spliced, style);
+        for cells in others.iter().filter(|cells| cells.row == area.row + index) {
+            let start = cells.column - area.column;
+            marks[start..start + cells.columns].fill('.');
+        }
         lines.push(format!("│{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
@@ -1197,6 +1212,39 @@ mod scenarios {
         editor.set_preedit(None);
         frames.push(format!("cleared\n{}", text_grid(&editor)));
         assert_frames("preedit_in_its_row", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn other_cursors_are_marked_over_their_cells() {
+        // Cursors on `b`, `日` and the empty row; the primary on `c`.
+        let text = "ab日本c\n\nline three\n";
+        let mut editor = open(text.as_bytes(), (4, 12));
+        let parts = [1, 2, 9, 11]
+            .into_iter()
+            .map(oso_core::selection::Selection::at)
+            .collect();
+        editor.current_mut().0.selections =
+            oso_core::selection::SelectionSet::from_parts(parts, 2).unwrap();
+        check_editor("other_cursors", text.as_bytes(), editor, &["", "C-f"]);
+    }
+
+    #[test]
+    fn m_y_lists_the_kills_with_the_selected_ones_text_beside() {
+        // Two kills: the first line with its break, then a word.
+        let text = "first\nsecond line\nthird\n";
+        let mut editor = open(text.as_bytes(), (22, 100));
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        for keys in ["C-k C-f M-d", "M-y", "C-n"] {
+            let sequence: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(&mut editor, sequence.0);
+            // The clipboard holds what oso wrote, as the host would answer.
+            if dispatcher.take_clipboard_request().is_some() {
+                dispatcher.clipboard_answered(&mut editor, &oso_core::kill::FromClipboard::Own);
+            }
+            frames.push(format!("keys: {keys}\n{}", text_grid(&editor)));
+        }
+        assert_frames("kill_list", text.as_bytes(), &frames);
     }
 
     #[test]

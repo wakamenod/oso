@@ -35,6 +35,9 @@ fn load_theme(name: &str) -> Theme {
 }
 ";
 
+/// Two other cursors, on the rows below the primary's (ADR 0091).
+const OTHERS: [CellRect; 2] = [cells(4, 10, 1, 1), cells(5, 10, 1, 1)];
+
 const fn cells(row: usize, column: usize, rows: usize, columns: usize) -> CellRect {
     CellRect {
         row,
@@ -76,6 +79,7 @@ fn text_pane<'a>(
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(3, 10),
             cursor_style: CursorStyle::Box,
+            others: &OTHERS,
             preedit: None,
             fills,
             whitespace: true,

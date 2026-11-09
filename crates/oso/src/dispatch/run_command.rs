@@ -58,6 +58,18 @@ impl Dispatcher {
                 Err("a passphrase prompt is open; only keyboard-quit runs".into()),
             );
         }
+        // A command from the socket drops a key held for a result, as a key does, and does not
+        // take a candidate of the rows of an older input (ADR 0096).
+        self.completion_held = None;
+        if editor.completion_pending() && super::held::takes_the_selected(name) {
+            return (
+                Effects::default(),
+                Err(
+                    "the list is still being matched; wait until get-state says nothing is pending"
+                        .into(),
+                ),
+            );
+        }
         // Whether a command found a match would say something of an answer withheld beside a
         // buffer that may hold secrets (ADR 0076).
         let completing = editor

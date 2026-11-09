@@ -75,6 +75,12 @@ pub enum ArgSpec {
     /// the UI thread, and runs the command once it has the answer, as `yank` needs
     /// (ADR 0074).
     CountAndClipboard,
+    /// An entry of the kill ring, read in a prompt that says `prompt` and completes over the
+    /// ring, newest first, with the selected entry's text beside it, after the dispatcher has
+    /// read the clipboard, as for `CountAndClipboard`, so that another app's newest copy is
+    /// in the ring (ADR 0091). The command yanks it with
+    /// [`Editor::yank_picked`](crate::editor::Editor::yank_picked).
+    KillEntry { prompt: &'static str },
 }
 
 /// What a buffer is read for, which decides the order and what the prompt takes (ADR 0088).
@@ -89,7 +95,10 @@ pub enum BufferPurpose {
 impl ArgSpec {
     /// Whether a command with this spec, given `prefix`, waits for the clipboard.
     pub const fn reads_clipboard(self, prefix: Option<Prefix>) -> bool {
-        matches!(self, Self::CountAndClipboard)
-            && matches!(prefix, None | Some(Prefix::Universal(_)))
+        match self {
+            Self::CountAndClipboard => matches!(prefix, None | Some(Prefix::Universal(_))),
+            Self::KillEntry { .. } => true,
+            _ => false,
+        }
     }
 }

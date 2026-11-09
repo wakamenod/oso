@@ -1,0 +1,24 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: ab日本c\\n\\nline three\\n"
+---
+keys: none
+│ab日本c     │
+: ...<> ^    :
+│            │
+│line three  │
+:.           :
+│            │
+=-- test  1:7=
+"            "
+
+keys: C-f
+│ab日本c     │
+:  ....      :
+│            │
+:^           :
+│line three  │
+: .          :
+│            │
+=-- test  2:0=
+"            "

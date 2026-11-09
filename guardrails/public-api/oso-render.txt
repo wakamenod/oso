@@ -68,6 +68,7 @@ pub oso_render::Face::Question
 pub oso_render::Face::Region
 pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
+pub oso_render::Face::SecondaryCursor
 pub oso_render::Face::Text
 pub oso_render::Face::TrailingWhitespace
 pub oso_render::Face::Warning
@@ -220,6 +221,7 @@ pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
 pub oso_render::TextView::cursor_style: oso_render::CursorStyle
 pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot
 pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::CellRect])]
+pub oso_render::TextView::others: &'a [oso_core::frame::CellRect]
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64
 pub oso_render::TextView::scroll: oso_core::window::Scroll

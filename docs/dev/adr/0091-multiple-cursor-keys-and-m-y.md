@@ -1,6 +1,6 @@
 # 0091. Multiple-cursor keys and `M-y`
 
-- Status: Accepted, amended by 0092
+- Status: Accepted, amended by 0092 and 0098
 - Date: 2026-11-09
 
 ## Context

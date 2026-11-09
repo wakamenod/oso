@@ -76,6 +76,8 @@ pub(super) struct Kills {
     killed: bool,
     /// The newest entry, to go to the clipboard once the command ends.
     to_write: Option<u64>,
+    /// What the last yank inserted, for `M-y` right after it (ADR 0091).
+    pub(super) last_yank: Option<super::yank_pop::LastYank>,
 }
 
 impl Editor {
@@ -164,15 +166,15 @@ impl Editor {
     }
 
     /// Puts text another app put on the clipboard in the ring as an entry of one piece, as
-    /// Emacs's `interprogram-paste-function` does, for a yank to insert, unless the newest
-    /// entry is that text already. It counts as secret if the clipboard marks it concealed,
+    /// Emacs's `interprogram-paste-function` does, for a yank to insert, unless the clipboard
+    /// holds what it was last seen to, wherever `M-y` has moved that entry. It counts as secret if the clipboard marks it concealed,
     /// as a password manager does, or if a secret entry went to the clipboard as the same
     /// text, so a round trip through another app does not wash it (ADR 0074).
     pub fn take_from_clipboard(&mut self, text: Rope, concealed: bool, fingerprint: Fingerprint) {
         let ring = &mut self.kills.ring;
-        if ring.newest_written() == Some(fingerprint) {
+        if ring.clipboard_seen(fingerprint) {
             if concealed {
-                ring.make_newest_secret();
+                ring.make_written_secret(fingerprint);
             }
             return;
         }
@@ -237,6 +239,7 @@ impl Editor {
     /// [`kill::MAX_YANK`], and the buffer's refusal.
     pub fn yank(&mut self, n: usize, cursor_at_start: bool) -> Result<(), YankError> {
         let entry = self.kills.ring.get(n).ok_or(YankError::Empty)?;
+        let entry_id = entry.id();
         let (window, buffer) = self.current();
         if let Some(reason) = buffer.read_only() {
             return Err(EditError::ReadOnly(reason).into());
@@ -279,6 +282,7 @@ impl Editor {
                 Ok::<(), ()>(())
             });
         }
+        self.note_yank(entry_id);
         if secret
             && self
                 .buffer_mut(id)

@@ -31,6 +31,7 @@ pub use args::Given;
 pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
+mod held;
 mod keymaps;
 mod prompts;
 #[cfg(any(test, feature = "dev"))]
@@ -72,6 +73,8 @@ pub struct Dispatcher {
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
+    /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
+    completion_held: Option<held::HeldTake>,
 }
 
 impl Dispatcher {
@@ -111,6 +114,7 @@ impl Dispatcher {
             publisher: None,
             waiting: None,
             from_socket: false,
+            completion_held: None,
         }
     }
 
@@ -285,6 +289,8 @@ impl Dispatcher {
     }
 
     fn run_text(&mut self, editor: &mut Editor, text: &str, step: Step) -> Effects {
+        // Text changes the input, so a key held for its older result is dropped (ADR 0096).
+        self.drop_held_completion();
         // Text answers no question, and says so, as another key does.
         if editor
             .prompt()
@@ -418,6 +424,8 @@ impl Dispatcher {
     }
 
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
+        let dropped = self.drop_held_completion();
         let reading = self.keymaps.reading();
         let layers = self.keymaps.active(&reading, self.prefix, editor);
         let (id, shifted) = match self.resolver.feed(&layers, key) {
@@ -428,15 +436,19 @@ impl Dispatcher {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
                 return Effects::default();
             }
-            Resolution::Unbound(keys) if editor.isearch().is_some() && keys.len() == 1 => {
-                // It ends the search where it is, and then does what it would have
-                // (ADR 0082). isearch binds no prefix, so this is the key alone.
+            Resolution::Unbound(keys) if editor.isearch().is_some() => {
+                // It ends the search, and the key, or a sequence under isearch's `C-c`, does
+                // what it would have (ADR 0082, ADR 0091).
+                let keys = keys.to_vec();
                 editor.isearch_exit();
-                let ran = self.resolve_key(editor, key);
-                return ran.union(Effects {
+                let mut ran = Effects {
                     redraw: true,
                     ..Effects::default()
-                });
+                };
+                for key in keys {
+                    ran = ran.union(self.resolve_key(editor, key));
+                }
+                return ran;
             }
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
@@ -460,6 +472,7 @@ impl Dispatcher {
             }
             Resolution::Cancelled => {
                 log::debug!("Quit");
+                editor.drop_cursor_search();
                 editor.echo("Quit");
                 self.forget_keys(editor);
                 return Effects::default();
@@ -474,6 +487,9 @@ impl Dispatcher {
             Key::Named(_) => None,
         };
         let args = Args::with_prefix(self.prefix.take());
+        if self.hold_for_completion(editor, id, args, dropped) {
+            return Effects::default();
+        }
         let invocation = Invocation {
             input,
             key_char,
@@ -490,6 +506,8 @@ mod buffer_tests;
 #[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
+mod cursor_tests;
+#[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
 mod emergency_tests;
@@ -497,6 +515,8 @@ mod emergency_tests;
 mod file_tests;
 #[cfg(test)]
 mod grid_tests;
+#[cfg(test)]
+mod held_tests;
 #[cfg(test)]
 mod ime_tests;
 #[cfg(test)]
@@ -517,6 +537,8 @@ mod recovery_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod yank_pop_tests;
 
 #[cfg(test)]
 mod tests {

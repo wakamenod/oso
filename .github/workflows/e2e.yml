@@ -94,16 +94,32 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)"
           chmod 700 "$XDG_RUNTIME_DIR"
-          weston --backend=headless --renderer=pixman --width=1280 --height=800 \
-            --socket=wayland-oso --idle-time=0 > "$RUNNER_TEMP/weston.log" 2>&1 &
+          # Weston writes its own log, which it flushes, and the shell around it notes how it
+          # ended: its status, or 128 and the number of the signal that ended it.
+          ( weston --backend=headless --renderer=pixman --width=1280 --height=800 \
+              --socket=wayland-oso --idle-time=0 --log="$RUNNER_TEMP/weston.log" \
+              > "$RUNNER_TEMP/weston.out" 2>&1
+            echo "weston exited with status $?" >> "$RUNNER_TEMP/weston.out" ) &
           for _ in $(seq 1 50); do
             [ -S "$XDG_RUNTIME_DIR/wayland-oso" ] && break
             sleep 0.2
           done
-          [ -S "$XDG_RUNTIME_DIR/wayland-oso" ] || { cat "$RUNNER_TEMP/weston.log"; exit 1; }
+          [ -S "$XDG_RUNTIME_DIR/wayland-oso" ] || {
+            cat "$RUNNER_TEMP/weston.log" "$RUNNER_TEMP/weston.out"
+            exit 1
+          }
           # No X server, so winit can only take Wayland.
-          env -u DISPLAY WAYLAND_DISPLAY=wayland-oso just e2e
+          status=0
+          env -u DISPLAY WAYLAND_DISPLAY=wayland-oso just e2e || status=$?
+          # Whether the compositor outlived the flows: when it did not, every flow after it
+          # fails to connect.
+          if pgrep -x weston > /dev/null; then
+            echo "weston is still running"
+          else
+            echo "::warning::weston was gone before the flows ended; see the compositor's log"
+          fi
+          exit "$status"
       - name: The compositor's log
         if: always()
-        run: cat "$RUNNER_TEMP/weston.log" || true
+        run: cat "$RUNNER_TEMP/weston.log" "$RUNNER_TEMP/weston.out" || true
 

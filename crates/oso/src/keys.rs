@@ -192,6 +192,17 @@ mod tests {
     }
 
     #[test]
+    fn control_with_a_shifted_symbol_keeps_the_symbol() {
+        // `C->`, `C-<` and `C-M->`, which add cursors (ADR 0091). If a layer reported the
+        // unshifted key here, `C->` would arrive as `C-.`.
+        assert_eq!(translate(ch(">"), ch("."), CONTROL | SHIFT), press("C->"));
+        assert_eq!(translate(ch("<"), ch(","), CONTROL | SHIFT), press("C-<"));
+        let held = CONTROL | meta() | SHIFT;
+        assert_eq!(translate(ch(">"), ch("."), held), press("C-M->"));
+        assert_eq!(translate(ch("<"), ch(","), held), press("C-M-<"));
+    }
+
+    #[test]
     fn meta_and_super_follow_the_platform() {
         assert_eq!(translate(ch("f"), ch("f"), meta()), press("M-f"));
         if cfg!(target_os = "macos") {

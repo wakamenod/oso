@@ -26,6 +26,7 @@ use state::{Asked, Step};
 mod cells;
 mod state;
 mod worker;
+mod yank;
 
 pub use cells::MatchCells;
 pub use state::Isearch;
@@ -190,34 +191,6 @@ impl Editor {
         self.isearch_add(&piece);
     }
 
-    /// `C-y`: adds the newest kill, its pieces joined by line breaks. A kill from a buffer
-    /// that may hold secrets makes the searched buffer one, as a yank does (ADR 0074), so that
-    /// where the search goes says no more of the kill than its text would.
-    pub fn isearch_yank_kill(&mut self) {
-        let Some(state) = &self.isearch else {
-            return;
-        };
-        let room = state.room();
-        let Some(entry) = self.kills.ring.get(0) else {
-            return;
-        };
-        let (text, secret) = (kill_text(entry, room), entry.is_secret());
-        if secret {
-            let id = state.buffer;
-            if let Some(state) = &mut self.isearch {
-                state.around_secret = true;
-            }
-            if self
-                .buffer_mut(id)
-                .is_some_and(|buffer| buffer.treat_as_secret())
-            {
-                self.note_secret_shown();
-                self.message("Buffer now treated as secret");
-            }
-        }
-        self.isearch_add(&text);
-    }
-
     /// `M-p` (`older`) and `M-n`: the string becomes an older or newer one of the history,
     /// and is searched for from the match.
     pub fn isearch_history(&mut self, older: bool) {
@@ -301,6 +274,28 @@ impl Editor {
             }
         }
         true
+    }
+
+    /// The search's query, its current match, how many matches it counted if it knows, and
+    /// whether it goes backward, for the keys that add cursors from it (ADR 0091). None while
+    /// it fails or a worker still looks for the match.
+    pub(super) fn isearch_current_match(
+        &self,
+    ) -> Option<(search::Query, Range<usize>, Option<usize>, bool)> {
+        let state = self.isearch.as_ref()?;
+        if state.failing || state.searching.is_some() {
+            return None;
+        }
+        let total = match state.tally {
+            Some(Tally::Known { total, .. }) => Some(total),
+            _ => None,
+        };
+        Some((
+            state.query.clone()?,
+            state.current.clone()?,
+            total,
+            state.backward,
+        ))
     }
 
     /// Ends a search with nothing kept, when its window shows another buffer or a prompt

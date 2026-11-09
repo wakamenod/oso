@@ -240,6 +240,8 @@ pub oso_core::command::ArgSpec::File
 pub oso_core::command::ArgSpec::File::history: &'static str
 pub oso_core::command::ArgSpec::File::prompt: &'static str
 pub oso_core::command::ArgSpec::Key
+pub oso_core::command::ArgSpec::KillEntry
+pub oso_core::command::ArgSpec::KillEntry::prompt: &'static str
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::None
@@ -492,6 +494,7 @@ pub struct oso_core::complete::Candidate
 impl oso_core::complete::Candidate
 pub fn oso_core::complete::Candidate::annotation(&self) -> &str
 pub fn oso_core::complete::Candidate::binding(&self) -> &str
+pub fn oso_core::complete::Candidate::hidden_by_input(self) -> Self
 pub fn oso_core::complete::Candidate::new(impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>) -> Self
 pub fn oso_core::complete::Candidate::text(&self) -> &str
 impl core::fmt::Debug for oso_core::complete::Candidate
@@ -504,6 +507,7 @@ pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
 pub fn oso_core::complete::Candidates::item_at(&self, usize) -> core::option::Option<usize>
 pub fn oso_core::complete::Candidates::len(&self) -> usize
 pub fn oso_core::complete::Candidates::on_input(&self) -> bool
+pub fn oso_core::complete::Candidates::pending(&self) -> bool
 pub fn oso_core::complete::Candidates::previews(&self) -> bool
 pub fn oso_core::complete::Candidates::query(&self) -> &oso_core::complete::Query
 pub fn oso_core::complete::Candidates::selected(&self) -> core::option::Option<usize>
@@ -514,6 +518,14 @@ pub fn oso_core::complete::Candidates::top(&self) -> usize
 pub fn oso_core::complete::Candidates::total(&self) -> usize
 impl core::fmt::Debug for oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::complete::CompletionJob
+impl oso_core::complete::CompletionJob
+pub fn oso_core::complete::CompletionJob::run(self) -> core::option::Option<oso_core::complete::CompletionReport>
+impl core::fmt::Debug for oso_core::complete::CompletionJob
+pub fn oso_core::complete::CompletionJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::complete::CompletionReport(_)
+impl core::fmt::Debug for oso_core::complete::CompletionReport
+pub fn oso_core::complete::CompletionReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::complete::Name
 pub oso_core::complete::Name::kind: oso_core::complete::NameKind
 pub oso_core::complete::Name::name: alloc::string::String
@@ -967,6 +979,29 @@ impl core::fmt::Debug for oso_core::editor::AgentChannel
 pub fn oso_core::editor::AgentChannel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::AgentChannel
 impl core::marker::StructuralPartialEq for oso_core::editor::AgentChannel
+pub enum oso_core::editor::CursorError
+pub oso_core::editor::CursorError::Counting
+pub oso_core::editor::CursorError::Loading
+pub oso_core::editor::CursorError::NoCurrentMatch
+pub oso_core::editor::CursorError::NoMark
+pub oso_core::editor::CursorError::NoMore
+pub oso_core::editor::CursorError::NoWord
+pub oso_core::editor::CursorError::OnlyOne
+pub oso_core::editor::CursorError::TooLong
+pub oso_core::editor::CursorError::TooMany
+pub oso_core::editor::CursorError::TooManyMatches(usize)
+impl core::clone::Clone for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::clone(&self) -> oso_core::editor::CursorError
+impl core::cmp::Eq for oso_core::editor::CursorError
+impl core::cmp::PartialEq for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::eq(&self, &oso_core::editor::CursorError) -> bool
+impl core::error::Error for oso_core::editor::CursorError
+impl core::fmt::Debug for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::CursorError
+pub fn oso_core::editor::CursorError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::CursorError
+impl core::marker::StructuralPartialEq for oso_core::editor::CursorError
 pub enum oso_core::editor::KillRefused
 pub oso_core::editor::KillRefused::Gone
 pub oso_core::editor::KillRefused::Internal
@@ -986,6 +1021,8 @@ pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
 pub oso_core::editor::Preview::Buffer::id: oso_core::buffer::BufferId
 pub oso_core::editor::Preview::Buffer::top: usize
+pub oso_core::editor::Preview::Text
+pub oso_core::editor::Preview::Text::entry: u64
 pub oso_core::editor::Preview::Withheld
 impl core::clone::Clone for oso_core::editor::Preview
 pub fn oso_core::editor::Preview::clone(&self) -> oso_core::editor::Preview
@@ -997,6 +1034,7 @@ pub fn oso_core::editor::Preview::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 impl core::marker::Copy for oso_core::editor::Preview
 impl core::marker::StructuralPartialEq for oso_core::editor::Preview
 pub enum oso_core::editor::Quit
+pub oso_core::editor::Quit::Cursors
 pub oso_core::editor::Quit::Nothing
 pub oso_core::editor::Quit::Prompt
 pub oso_core::editor::Quit::Region
@@ -1065,6 +1103,18 @@ impl core::fmt::Display for oso_core::editor::SaveRefused
 pub fn oso_core::editor::SaveRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::SaveRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::SaveRefused
+pub enum oso_core::editor::Toward
+pub oso_core::editor::Toward::Next
+pub oso_core::editor::Toward::Previous
+impl core::clone::Clone for oso_core::editor::Toward
+pub fn oso_core::editor::Toward::clone(&self) -> oso_core::editor::Toward
+impl core::cmp::Eq for oso_core::editor::Toward
+impl core::cmp::PartialEq for oso_core::editor::Toward
+pub fn oso_core::editor::Toward::eq(&self, &oso_core::editor::Toward) -> bool
+impl core::fmt::Debug for oso_core::editor::Toward
+pub fn oso_core::editor::Toward::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::Toward
+impl core::marker::StructuralPartialEq for oso_core::editor::Toward
 pub enum oso_core::editor::YankError
 pub oso_core::editor::YankError::Edit(oso_core::buffer::EditError)
 pub oso_core::editor::YankError::Empty
@@ -1083,6 +1133,22 @@ impl core::fmt::Display for oso_core::editor::YankError
 pub fn oso_core::editor::YankError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::YankError
 impl core::marker::StructuralPartialEq for oso_core::editor::YankError
+pub enum oso_core::editor::YankPopError
+pub oso_core::editor::YankPopError::NoOther
+pub oso_core::editor::YankPopError::NotAfterYank
+pub oso_core::editor::YankPopError::Yank(oso_core::editor::YankError)
+impl core::clone::Clone for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::clone(&self) -> oso_core::editor::YankPopError
+impl core::cmp::Eq for oso_core::editor::YankPopError
+impl core::cmp::PartialEq for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::eq(&self, &oso_core::editor::YankPopError) -> bool
+impl core::error::Error for oso_core::editor::YankPopError
+impl core::fmt::Debug for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::YankPopError
+impl core::marker::StructuralPartialEq for oso_core::editor::YankPopError
 pub struct oso_core::editor::ClipboardWrite
 pub oso_core::editor::ClipboardWrite::id: u64
 pub oso_core::editor::ClipboardWrite::pieces: alloc::vec::Vec<oso_core::kill::Piece>
@@ -1223,6 +1289,11 @@ pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option
 pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
 pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::completion_failed(&mut self)
+pub fn oso_core::editor::Editor::completion_pending(&self) -> bool
+pub fn oso_core::editor::Editor::completion_reported(&mut self, oso_core::complete::CompletionReport) -> bool
+pub fn oso_core::editor::Editor::take_completion_job(&mut self) -> core::option::Option<oso_core::complete::CompletionJob>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::confirm_exit(&mut self, bool) -> core::result::Result<(), oso_core::editor::ExitRefused>
 pub fn oso_core::editor::Editor::file_changed_on_disk(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::may_save_over(&mut self, oso_core::buffer::BufferId, oso_core::buffer::FileStamp)
@@ -1244,6 +1315,7 @@ pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) 
 pub fn oso_core::editor::Editor::deactivate_mark(&mut self) -> bool
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
 pub fn oso_core::editor::Editor::frame(&self) -> oso_core::frame::FrameLayout
+pub fn oso_core::editor::Editor::other_cursor_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_core::display_map::Preedit>
 pub fn oso_core::editor::Editor::preedit_layout(&self, oso_core::frame::PixelGrid, &mut alloc::vec::Vec<f32>) -> core::option::Option<oso_core::frame::PixelRect>
 pub fn oso_core::editor::Editor::preedit_withheld(&self) -> bool
@@ -1258,6 +1330,14 @@ pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::View
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::isearch_mark(&mut self, core::option::Option<oso_core::editor::Toward>) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>
+pub fn oso_core::editor::Editor::skip_like_this(&mut self, oso_core::editor::Toward) -> core::result::Result<(), oso_core::editor::CursorError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
 pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
@@ -1297,7 +1377,6 @@ pub fn oso_core::editor::Editor::isearch_exit(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_history(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_repeat(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
-pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_cells(&self, &mut oso_core::editor::MatchCells)
@@ -1305,6 +1384,15 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
 pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
+pub fn oso_core::editor::Editor::isearch_yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::kill_list_open(&self) -> bool
+pub fn oso_core::editor::Editor::kill_preview(&self, u64, usize, usize) -> alloc::vec::Vec<alloc::string::String>
+pub fn oso_core::editor::Editor::open_kill_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::yank_picked(&mut self) -> core::result::Result<(), oso_core::editor::YankError>
+pub fn oso_core::editor::Editor::yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::load_theme(&mut self, &str) -> core::result::Result<(), oso_core::editor::NoSuchTheme>
 pub fn oso_core::editor::Editor::set_themes(&mut self, alloc::vec::Vec<(&'static str, &'static str)>, usize)
@@ -1575,6 +1663,7 @@ pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window:
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
 pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::frame::other_cursor_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub mod oso_core::key
 pub enum oso_core::key::Key
@@ -1891,9 +1980,7 @@ pub fn oso_core::kill::KillRing::holds_secret(&self, oso_core::kill::Fingerprint
 pub fn oso_core::kill::KillRing::is_empty(&self) -> bool
 pub fn oso_core::kill::KillRing::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::kill::KillEntry>
 pub fn oso_core::kill::KillRing::len(&self) -> usize
-pub fn oso_core::kill::KillRing::make_newest_secret(&mut self)
 pub fn oso_core::kill::KillRing::new() -> Self
-pub fn oso_core::kill::KillRing::newest_written(&self) -> core::option::Option<oso_core::kill::Fingerprint>
 pub fn oso_core::kill::KillRing::note_written(&mut self, u64, oso_core::kill::Fingerprint)
 pub fn oso_core::kill::KillRing::push(&mut self, alloc::vec::Vec<oso_core::kill::Piece>, bool) -> u64
 pub fn oso_core::kill::KillRing::push_from_clipboard(&mut self, oso_core::rope::Rope, bool) -> u64
@@ -2362,6 +2449,7 @@ impl<E: core::fmt::Debug> core::fmt::Debug for oso_core::selection::UpdateOutcom
 pub fn oso_core::selection::UpdateOutcome<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<E> core::marker::StructuralPartialEq for oso_core::selection::UpdateOutcome<E>
 pub const oso_core::selection::MARK_RING_SIZE: usize
+pub const oso_core::selection::MAX_CURSORS: usize
 pub mod oso_core::sum_tree
 pub enum oso_core::sum_tree::Bias
 pub oso_core::sum_tree::Bias::Left

@@ -40,6 +40,7 @@ mod agent;
 mod aids;
 mod completion;
 mod copies;
+mod cursors;
 mod excerpt;
 mod files;
 mod follow;
@@ -55,12 +56,14 @@ mod switch;
 mod themes;
 mod view;
 mod write;
+mod yank_pop;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use agent::AgentChannel;
 pub use aids::VisualAids;
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
+pub use cursors::{CursorError, Toward};
 pub use files::Looked;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
@@ -71,6 +74,7 @@ pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
+pub use yank_pop::YankPopError;
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -118,6 +122,8 @@ pub struct Editor {
     write_over_asked: Option<write::WriteOver>,
     /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
     file_list: files::FileList,
+    /// What a prompt that completes waits for from the worker (ADR 0096).
+    completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
     visits: Vec<(std::path::PathBuf, u64)>,
     /// A file a load stopped before reading as too large, with its size, which `C-x C-f` asks
@@ -127,6 +133,8 @@ pub struct Editor {
     start_directory: std::path::PathBuf,
     /// The marks the last `C-.` listed (ADR 0088).
     mark_list: Option<marks::MarkList>,
+    /// The ring's entries a `M-y` list shows (ADR 0091).
+    kill_list: Option<yank_pop::KillList>,
     /// The home directory, which `~` stands for, as the host read it at startup.
     home: Option<std::path::PathBuf>,
     /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
@@ -182,6 +190,8 @@ pub struct Editor {
     search_live: Arc<AtomicU64>,
     /// A job for a worker, until the host takes it.
     search_job: Option<SearchJob>,
+    /// The query a window keeps for the keys that add cursors (ADR 0091).
+    marking: Option<cursors::Marking>,
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
     reverts: Vec<(BufferId, ContentId)>,
     themes: themes::Themes,
@@ -211,7 +221,9 @@ impl Editor {
             way_back: Vec::new(),
             home: None,
             mark_list: None,
+            kill_list: None,
             file_list: files::FileList::default(),
+            completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,
             start_directory: std::path::PathBuf::from("/"),
@@ -239,6 +251,7 @@ impl Editor {
             isearch: None,
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
+            marking: None,
             reverts: Vec::new(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
