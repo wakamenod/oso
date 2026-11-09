@@ -248,6 +248,7 @@ fn what_was_known_of_a_carried_file_round_trips() {
     use std::time::{Duration, SystemTime};
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\r\n");
     let stamp = |modified| FileStamp {
+        identity: Some((7, 42)),
         modified,
         len: 5,
         mode: 0o600,

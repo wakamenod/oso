@@ -24,7 +24,7 @@ use std::sync::mpsc;
 use std::thread;
 
 use oso_platform::clipboard::Source;
-use oso_platform::control::{CleanupGuard, ControlDir};
+use oso_platform::control::{CleanupGuard, ControlDir, Socket};
 use oso_render::Capture;
 use serde_json::json;
 
@@ -85,7 +85,7 @@ where
     let since = std::time::Instant::now();
     let started = (|| {
         let dir = ControlDir::open()?;
-        let listener = dir.bind()?;
+        let listener = dir.listen(Socket::Dev)?;
         let socket = listener.socket_path();
         let cleanup = listener.cleanup_guard();
         server::spawn(listener, send)?;

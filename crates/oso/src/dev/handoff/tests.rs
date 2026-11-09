@@ -379,13 +379,20 @@ fn positions_move_to_what_exists_in_a_changed_file() {
 }
 
 #[test]
-fn positions_are_dropped_if_the_window_moved_on() {
+fn positions_go_to_the_place_kept_for_a_buffer_the_window_moved_away_from() {
     let mut editor = visiting("/p/a.txt", "abc\n");
+    let file = editor.window().buffer();
     let restore = restore(2, 0, &editor);
     let (scratch, _) = editor.buffers().next().unwrap();
     editor.show(scratch);
     assert!(restore.try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 0);
+    editor.show(file);
+    assert_eq!(
+        editor.window().selections.primary().cursor,
+        2,
+        "kept for the way back"
+    );
 }
 
 /// What a save reports of the file it put in place.
@@ -394,6 +401,7 @@ fn written() -> FileStamp {
         modified: std::time::SystemTime::UNIX_EPOCH,
         len: 0,
         mode: 0o644,
+        identity: None,
     }
 }
 

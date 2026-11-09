@@ -17,7 +17,8 @@ api_macos_target := "aarch64-apple-darwin"
 perf_target := "target/perf-build"
 # The same with oso's own macOS window layer (ADR 0070), apart so neither overwrites the other.
 perf_native_target := "target/perf-native"
-# `perf-remote` builds both sides here, apart from those, with the features asked for.
+# `perf-remote` builds both sides here, apart from those, with the features asked for, the
+# base's own if given.
 perf_remote_target := "target/perf-remote"
 # The whole test run stays within this on the author's Mac (ADR 0037).
 test_budget_s := "30"
@@ -226,12 +227,16 @@ perf-native out="target/perf/perf-native.json" *args="":
     {{perf_native_target}}/release/examples/perf run --oso {{perf_native_target}}/release/oso --out "{{out}}" {{args}}
 
 # Benchmark the working tree against BASE on the ssh host OSO_PERF_HOST, in PAIRS alternating pairs, both built with FEATURES (`dev,native-window` for ADR 0070's layer). It builds here and only runs there, so builds here may go on meanwhile
-perf-remote base="origin/main" pairs="3" features="dev" *args="":
+perf-remote base="origin/main" pairs="3" features="dev" base_features="" *args="":
     #!/usr/bin/env bash
     set -euo pipefail
     host="${OSO_PERF_HOST:?set OSO_PERF_HOST to an ssh host, a Mac that runs what is built here}"
     [[ "{{pairs}}" =~ ^[1-9][0-9]*$ ]] || { echo "error: not a number of pairs: {{pairs}}"; exit 1; }
-    [[ "{{features}}" =~ ^dev(,[a-z-]+)*$ ]] || { echo "error: features must start with dev: {{features}}"; exit 1; }
+    # The base is built with `base_features` if given, as winit against the native layer is.
+    base_features="{{ if base_features == "" { features } else { base_features } }}"
+    for f in "{{features}}" "$base_features"; do
+        [[ "$f" =~ ^dev(,[a-z-]+)*$ ]] || { echo "error: features must start with dev: $f"; exit 1; }
+    done
     rev=$(git rev-parse --verify "{{base}}^{commit}")
     new=$(git rev-parse --short HEAD)
     git diff --quiet HEAD || new="$new with changes"
@@ -242,9 +247,9 @@ perf-remote base="origin/main" pairs="3" features="dev" *args="":
     rm -rf "$src" && mkdir -p "$src"
     # The base from git alone, built apart; the harness of the working tree runs both sides.
     git archive "$rev" | tar -x -C "$src"
-    cargo build --locked --release --manifest-path "$src/Cargo.toml" --target-dir "$PWD/{{perf_remote_target}}/base" -p oso --features "{{features}}" --bin oso
+    cargo build --locked --release --manifest-path "$src/Cargo.toml" --target-dir "$PWD/{{perf_remote_target}}/base" -p oso --features "$base_features" --bin oso
     cargo build --locked --release --target-dir {{perf_remote_target}}/new -p oso --features "{{features}}" --bin oso --example perf
-    echo "base: {{base}} at ${rev:0:7}; new: $new; features: {{features}}; host: $host" | tee "$out/what.txt"
+    echo "base: {{base}} at ${rev:0:7} with $base_features; new: $new with {{features}}; host: $host" | tee "$out/what.txt"
     ssh "$host" "mkdir -p oso-perf/$run"
     rsync -q "{{perf_remote_target}}/base/release/oso" "$host:oso-perf/$run/oso-base"
     rsync -q "{{perf_remote_target}}/new/release/oso" "$host:oso-perf/$run/oso-new"
@@ -534,6 +539,17 @@ audit:
 # Scan the full git history for secrets
 secrets:
     gitleaks git --redact
+
+# Fail on a conflict marker in a tracked file, as the architecture test does, without a
+# build: for CI's docs-only path (ADR 0038)
+markers:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if git grep -nE '^(<{7}|\|{7}|>{7})( |$)|^={7}$'; then
+        echo "error: conflict markers above; finish resolving the merge, or write a heading with '#'."
+        exit 1
+    fi
+    echo "conflict markers: none"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Docs

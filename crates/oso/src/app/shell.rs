@@ -180,6 +180,18 @@ impl Window {
         None
     }
 
+    /// winit draws a live resize its own way, and counts nothing.
+    #[cfg(feature = "dev")]
+    pub(super) fn live_resize(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    /// winit keeps the input context to itself, so the dev socket reports none.
+    #[cfg(feature = "dev")]
+    pub(super) fn input_context(&self) -> Option<(bool, bool)> {
+        None
+    }
+
     /// Drops the composition the input method holds, with no commit. winit has no call for
     /// it; it drops the composition when the IME goes off, which follows (ADR 0069).
     pub(super) fn discard_composition(&self) {}
@@ -191,6 +203,10 @@ impl Window {
             PhysicalSize::new(f64::from(area.width), f64::from(area.height)),
         );
     }
+
+    /// winit gives the input method one rectangle, the cursor area's, so where a composition
+    /// is drawn goes nowhere (ADR 0077).
+    pub(super) fn set_ime_preedit(&self, _laid_out: Option<(&str, PixelRect, &[f32])>) {}
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -263,6 +279,7 @@ fn translate(event: WindowEvent) -> Event<'static> {
             Event::ScaleFactorChanged(scale_factor)
         }
         WindowEvent::Occluded(occluded) => Event::Occluded(occluded),
+        WindowEvent::Focused(true) => Event::Focused,
         WindowEvent::RedrawRequested => Event::RedrawRequested,
         WindowEvent::MouseWheel { delta, .. } => Event::Wheel(wheel(delta)),
         WindowEvent::ModifiersChanged(modifiers) => {
@@ -454,6 +471,10 @@ mod tests {
         assert_eq!(wheel(pixels), Wheel::Pixels { x: 3.0, y: 4.0 });
         assert!(matches!(
             translate(WindowEvent::Focused(true)),
+            Event::Focused
+        ));
+        assert!(matches!(
+            translate(WindowEvent::Focused(false)),
             Event::Other
         ));
     }

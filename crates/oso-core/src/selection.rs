@@ -100,8 +100,7 @@ pub struct MarkRing {
 }
 
 impl MarkRing {
-    /// A ring of `marks`, the newest first, as far as there is room, for one carried from
-    /// another instance (ADR 0090).
+    /// A ring of `marks`, the newest first, as far as there is room (ADR 0090).
     pub fn from_newest(marks: impl IntoIterator<Item = usize>) -> Self {
         let mut ring = Self::default();
         for mark in marks.into_iter().take(MARK_RING_SIZE) {
@@ -350,6 +349,27 @@ impl SelectionSet {
         for selection in &mut self.selections {
             selection.mark = Some(selection.cursor);
         }
+    }
+
+    /// Sets the primary selection's mark at `offset`, and puts its old mark, if it had
+    /// one, first in the ring, as Emacs's `push-mark` does for one cursor. The others keep
+    /// theirs, and the region stays as it was.
+    pub fn push_primary_mark(&mut self, offset: usize) {
+        let primary = &mut self.selections[self.primary];
+        if let Some(mark) = primary.mark.replace(offset) {
+            self.ring.push(mark);
+        }
+    }
+
+    /// Moves the primary cursor to `offset` with no goal, and keeps its mark. The others
+    /// stay, and merge with it as [`SelectionSet::update`] merges, if it meets them.
+    pub fn move_primary(&mut self, offset: usize) {
+        let order = KeepOrder {
+            set: self,
+            changed: true,
+        };
+        let primary = order.set.primary;
+        order.set.selections[primary].move_to(offset);
     }
 
     /// Keeps only the primary selection, and the ring.

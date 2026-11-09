@@ -149,6 +149,7 @@ fn stamp_state(stamp: FileStamp) -> Value {
         "before_epoch": before_epoch,
         "len": stamp.len,
         "mode": stamp.mode,
+        "identity": stamp.identity.map(|(device, inode)| json!([device, inode])),
     })
 }
 
@@ -423,7 +424,17 @@ fn optional_stamp(object: &Map<String, Value>, name: &str) -> Result<Option<File
         SystemTime::UNIX_EPOCH.checked_add(since)
     }
     .ok_or("a stamp's time is out of range")?;
+    let identity = match stamp.get("identity") {
+        None | Some(Value::Null) => None,
+        Some(identity) => match identity.as_array().map(Vec::as_slice) {
+            Some([device, inode]) => device.as_u64().zip(inode.as_u64()),
+            _ => None,
+        }
+        .map(Some)
+        .ok_or("a stamp's identity is not a device and an inode")?,
+    };
     Ok(Some(FileStamp {
+        identity,
         modified,
         len: u64_of(stamp, "len")?,
         mode: u32::try_from(u64_of(stamp, "mode")?).map_err(|_| "a stamp's mode is too large")?,

@@ -84,6 +84,9 @@ pub fn export(
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
+    if editor.isearch().is_some() {
+        return Err(SEARCHING.into());
+    }
     carried_bytes(editor)?;
     let mut items = Vec::new();
     let mut buffers = Vec::new();
@@ -357,6 +360,9 @@ pub fn check(editor: &Editor) -> Reply {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
+    if editor.isearch().is_some() {
+        return Err(SEARCHING.into());
+    }
     Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
 }
 
@@ -367,6 +373,10 @@ const COMPOSING: &str = "cannot hand over: a composition is open";
 /// Why a restart waits for every prompt to close: it is no unsaved work, but a new
 /// instance would take it away from the person mid-answer (ADR 0072).
 const PROMPTING: &str = "cannot hand over: a prompt is open";
+
+/// Why a restart waits for isearch to end: a new instance would take the search away
+/// mid-typing (ADR 0082).
+const SEARCHING: &str = "cannot hand over: a search is under way";
 
 /// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
 /// whatever that buffer holds.
@@ -422,6 +432,9 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
             Err(format!("{EXIT_REFUSED}: a composition is open"))
         }
         Some(_) if editor.prompt().is_some() => Err(format!("{EXIT_REFUSED}: a prompt is open")),
+        Some(_) if editor.isearch().is_some() => {
+            Err(format!("{EXIT_REFUSED}: a search is under way"))
+        }
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),
@@ -462,14 +475,14 @@ pub struct Restore {
 
 impl Restore {
     /// Moves the window to the positions if the buffer holds them by now, or, if the
-    /// window has gone to an internal buffer meanwhile, the place it goes back to.
-    /// Returns whether this is over: restored, or the window has moved on.
+    /// window has gone to another buffer meanwhile, the place it keeps for this one, which
+    /// showing it again gives back (ADR 0090). Returns whether this is over: restored, or the
+    /// window keeps no place for the buffer.
     pub fn try_apply(&self, editor: &mut Editor) -> bool {
-        let shown = editor.current().0.buffer() == self.buffer;
-        let behind = editor
-            .place_behind_internal()
-            .is_some_and(|(buffer, ..)| buffer == self.buffer);
-        let Some(buffer) = editor.buffer(self.buffer).filter(|_| shown || behind) else {
+        let window = editor.tiled().0;
+        let shown = window.buffer() == self.buffer;
+        let kept = window.places().any(|(buffer, _)| buffer == self.buffer);
+        let Some(buffer) = editor.buffer(self.buffer).filter(|_| shown || kept) else {
             return true;
         };
         let selections = self.selections.iter();
@@ -483,14 +496,10 @@ impl Restore {
         }
         let display = buffer.display();
         let selections = self.clipped(&display);
-        let scroll = Scroll {
-            top: self.scroll.top.min(display.row_count().saturating_sub(1)),
-            left: self.scroll.left,
-        };
         if shown {
             editor.restore_positions(selections, self.scroll);
         } else {
-            editor.restore_place_behind_internal(self.buffer, selections, scroll);
+            editor.restore_kept_place(self.buffer, selections, self.scroll);
         }
         true
     }

@@ -79,6 +79,7 @@ mod tests {
 
     fn facts() -> FileFacts {
         let stamp = FileStamp {
+            identity: Some((1, 2)),
             modified: SystemTime::UNIX_EPOCH,
             len: 3,
             mode: 0o644,

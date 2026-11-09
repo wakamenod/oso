@@ -1,6 +1,6 @@
 # 0090. `oso dev` carries unsaved text
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-08
 
 ## Context
@@ -20,7 +20,8 @@ A response line is limited to 1 MiB ([ADR 0032](0032-control-socket-transport.md
 state passes through sockets in memory only, never through files
 ([ADR 0023](0023-control-socket-protocol-and-restart.md)).
 
-The author chose these on 2026-11-08, through the coordinator.
+The author chose these on 2026-11-08, through the coordinator. The author accepted this on
+2026-11-09, through the coordinator.
 
 ## Decision
 
@@ -137,8 +138,9 @@ The author chose these on 2026-11-08, through the coordinator.
 - **`get-state` shows nothing new.** Build errors are in `echo` and in `*Messages*`, and a
   carried buffer looks like any modified buffer.
 - **Positions waiting for a handed-over file to load stay with that buffer.** If the window goes
-  to an internal buffer, such as with `C-h e`, they are applied to the place it goes back to
-  once the file has loaded. Showing another buffer ends the wait.
+  to another buffer meanwhile, such as `*Messages*` with `C-h e`, they are put in the place the
+  window keeps for that file ([ADR 0088](0088-switching-and-killing-buffers.md)) once it has
+  loaded, and coming back gives them. The wait ends once the window keeps no place for it.
 
 ## Changes to accepted ADRs
 

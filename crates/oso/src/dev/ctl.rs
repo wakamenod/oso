@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::time::Duration;
 
-use oso_platform::control::ControlDir;
+use oso_platform::control::{ControlDir, Socket};
 use serde_json::{Value, json};
 
 use super::protocol::{self, MAX_LINE};
@@ -249,7 +249,7 @@ pub fn exchange_within(
     params: Option<Value>,
     patience: Duration,
 ) -> io::Result<String> {
-    let (_, stream) = dir.connect(pid)?;
+    let (_, stream) = dir.connect(Socket::Dev, pid)?;
     stream.set_read_timeout(Some(patience))?;
     stream.set_write_timeout(Some(patience))?;
     let mut writer = stream.try_clone()?;

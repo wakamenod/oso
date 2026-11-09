@@ -502,7 +502,7 @@ mod tests {
         use super::super::{Instance, Instances, NotStopped, Running, reap};
         use crate::dev::protocol::EXIT_REFUSED;
         use crate::dev::server;
-        use oso_platform::control::ControlDir;
+        use oso_platform::control::{ControlDir, Socket};
         use oso_platform::process::{Executable, Sink, Spawn, spawn};
         use std::ffi::OsString;
         use std::fs::{self, Permissions};
@@ -548,7 +548,7 @@ mod tests {
 
         /// Serves `reply` to any request, on the socket `running` is reached by.
         fn answer(running: &Running, dir: &ControlDir, reply: Result<(), &'static str>) {
-            let listener = dir.bind().unwrap();
+            let listener = dir.listen(Socket::Dev).unwrap();
             let socket = dir.path().join(format!("{}.sock", running.child.id()));
             std::os::unix::fs::symlink(listener.socket_path(), socket).unwrap();
             server::spawn(listener, move |request: server::UiRequest| {

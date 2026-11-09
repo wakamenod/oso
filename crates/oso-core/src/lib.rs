@@ -12,6 +12,7 @@
 
 pub mod buffer;
 pub mod command;
+pub mod complete;
 pub mod decode;
 pub mod display_map;
 pub mod editor;
@@ -23,6 +24,7 @@ pub mod load;
 pub mod minibuffer;
 pub mod motion;
 pub mod rope;
+mod search;
 mod secret;
 pub mod selection;
 pub mod sum_tree;

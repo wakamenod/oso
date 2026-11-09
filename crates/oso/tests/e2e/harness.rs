@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use oso_platform::control::{ControlDir, ControlStream};
+use oso_platform::control::{ControlDir, ControlStream, Socket};
 use oso_platform::process::{Executable, Sink, Spawn, spawn};
 use serde_json::{Value, json};
 
@@ -47,6 +47,17 @@ const EXIT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How often to look at something awaited.
 const POLL: Duration = Duration::from_millis(20);
+
+/// What an osascript run throws when the system does not list the instance yet, which it
+/// does a little after launch.
+#[cfg(target_os = "macos")]
+const NOT_LISTED_YET: &str = "the system does not list the instance yet";
+
+/// How long an instance may take to be listed by the system, and how often to look again.
+#[cfg(target_os = "macos")]
+const LISTED_TIMEOUT: Duration = Duration::from_secs(3);
+#[cfg(target_os = "macos")]
+const LISTED_POLL: Duration = Duration::from_millis(100);
 
 /// How much of an instance's log to keep: the end of it.
 const LOG_BYTES: usize = 64 * 1024;
@@ -130,11 +141,30 @@ impl App {
 
     /// Asks this instance, and only it, to quit as another app or the Dock does: `terminate`, a
     /// quit Apple event with no reason, which oso's own layer takes as a person's (ADR 0084).
-    /// Returns whether osascript sent it.
+    /// Returns what osascript said when it could not send it.
     #[cfg(target_os = "macos")]
-    pub fn ask_to_quit(&self) -> bool {
-        let script = format!("{}\napp.terminate;", self.this_instance_script());
-        run_osascript(&script)
+    pub fn ask_to_quit(&self) -> Result<(), String> {
+        self.run_for_this_instance("app.terminate;")
+    }
+
+    /// Runs [`App::this_instance_script`] and then `rest` in one osascript run. The system
+    /// lists a new instance a little after it has started, so a run that found nothing at the
+    /// process ID is tried again, for a while; that one has sent nothing yet. Any other
+    /// failure, a path that is not the binary's included, ends it at once.
+    #[cfg(target_os = "macos")]
+    fn run_for_this_instance(&self, rest: &str) -> Result<(), String> {
+        let script = format!("{}\n{rest}", self.this_instance_script());
+        let started = Instant::now();
+        loop {
+            match run_osascript(&script) {
+                Err(said)
+                    if said.contains(NOT_LISTED_YET) && started.elapsed() < LISTED_TIMEOUT =>
+                {
+                    thread::sleep(LISTED_POLL);
+                }
+                done => return done,
+            }
+        }
     }
 
     /// JavaScript for Automation that sets `app` to this instance's `NSRunningApplication`, and
@@ -155,7 +185,10 @@ impl App {
             const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(pid);
             const resolved = (url) => url.URLByResolvingSymlinksInPath.path.js;
             const launched = resolved($.NSURL.fileURLWithPath({expected}));
-            if (app.isNil() || resolved(app.executableURL) !== launched) {{
+            if (app.isNil()) {{
+                throw new Error('{NOT_LISTED_YET}');
+            }}
+            if (resolved(app.executableURL) !== launched) {{
                 throw new Error('not the instance this test launched');
             }}"
         )
@@ -166,24 +199,20 @@ impl App {
     /// The event goes to this instance's process ID, after osascript has checked that the
     /// app there runs the binary this test launched ([`App::this_instance_script`]), so that
     /// it can never reach the login window or another app, where a logout reason could end
-    /// the session. Returns whether
-    /// osascript sent it.
+    /// the session. Returns what osascript said when it could not send it.
     #[cfg(target_os = "macos")]
-    pub fn ask_to_quit_for_logout(&self) -> bool {
+    pub fn ask_to_quit_for_logout(&self) -> Result<(), String> {
         // 'aevt' 'quit' to `pid` alone, with the reason 'why?' = 'logo' as an attribute, as
         // the system sends it, and no reply awaited.
-        let script = format!(
-            "{}
-            const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier(pid);
+        self.run_for_this_instance(
+            "const target = $.NSAppleEventDescriptor.descriptorWithProcessIdentifier(pid);
             const quit = $.NSAppleEventDescriptor
                 .appleEventWithEventClassEventIDTargetDescriptorReturnIDTransactionID(
                     0x61657674, 0x71756974, target, -1, 0);
             quit.setAttributeDescriptorForKeyword(
                 $.NSAppleEventDescriptor.descriptorWithTypeCode(0x6c6f676f), 0x7768793f);
             quit.sendEventWithOptionsTimeoutError(1, 10, null);",
-            self.this_instance_script()
-        );
-        run_osascript(&script)
+        )
     }
 
     /// Where the instance's socket is while it runs.
@@ -376,7 +405,7 @@ impl App {
     pub fn race(&mut self, first: &Value, second: &Value) -> (String, String) {
         let (_, other) = self
             .dir
-            .connect(Some(self.pid()))
+            .connect(Socket::Dev, Some(self.pid()))
             .expect("cannot make a second connection");
         other
             .set_read_timeout(Some(TIMEOUT))
@@ -476,7 +505,7 @@ impl Process {
             );
             // The directory may not exist yet, on a first run.
             if let Ok(dir) = ControlDir::open_existing()
-                && let Ok((_, stream)) = dir.connect(Some(pid))
+                && let Ok((_, stream)) = dir.connect(Socket::Dev, Some(pid))
             {
                 return (dir, stream);
             }
@@ -611,24 +640,29 @@ impl Drop for Scratch {
     }
 }
 
-/// Runs `script` as JavaScript for Automation. Returns whether it ran.
+/// Runs `script` as JavaScript for Automation. Returns what osascript said when it failed:
+/// the script's own error, which quotes no text of an instance.
 #[cfg(target_os = "macos")]
-fn run_osascript(script: &str) -> bool {
+fn run_osascript(script: &str) -> Result<(), String> {
     let osascript = Executable::from_path("osascript", None).expect("osascript is on PATH");
     let args = ["-l".into(), "JavaScript".into(), "-e".into(), script.into()];
-    let status = spawn(&Spawn {
+    let output = spawn(&Spawn {
         executable: &osascript,
         args: &args,
         cwd: None,
         project: None,
         inherit: &[],
         stdout: Sink::Null,
-        stderr: Sink::Null,
+        stderr: Sink::Piped,
         own_process_group: false,
     })
-    .and_then(|mut child| child.wait())
+    .and_then(Child::wait_with_output)
     .expect("cannot run osascript");
-    status.success()
+    if output.status.success() {
+        return Ok(());
+    }
+    let said = String::from_utf8_lossy(&output.stderr);
+    Err(format!("{}: {}", output.status, said.trim()))
 }
 
 /// Whether a process with this ID exists, as `ps` sees it.

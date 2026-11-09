@@ -39,6 +39,7 @@ impl App {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
+        self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
         let spawned = loader::spawn(buffer, path, move |buffer| {
@@ -77,6 +78,7 @@ impl App {
         let mut buffer = Buffer::visiting(path.clone());
         buffer.apply_carried(text, facts);
         let buffer = self.editor.add_buffer(buffer);
+        self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
         match loader::spawn_judging(buffer, path, move |buffer| {
@@ -98,14 +100,40 @@ impl App {
         }
     }
 
+    /// Stops the loads of buffers that are gone, at once, and frees what killed buffers held
+    /// on a thread of its own, as a large one's trees take tens of milliseconds a GB to free
+    /// (ADR 0088).
+    pub(super) fn forget_killed(&mut self) {
+        let editor = &self.editor;
+        self.loads
+            .retain(|load| editor.buffer(load.handle.buffer()).is_some());
+        let freed = self.editor.take_freed();
+        if freed.is_empty() {
+            return;
+        }
+        let spawned = std::thread::Builder::new()
+            .name("oso-free".into())
+            .spawn(move || drop(freed));
+        if let Err(e) = spawned {
+            // What it held was freed here, as the thread could not take it.
+            log::warn!("could not free a killed buffer off the UI thread: {e}");
+        }
+    }
+
     /// A loading thread has an update for `buffer`: takes it in, and asks for a
     /// frame if it needs one.
     pub(super) fn load_updated(&mut self, buffer: BufferId) {
         let load = self.loads.iter().position(|l| l.handle.buffer() == buffer);
+        if load.is_none() {
+            // A file read again, which `reloads` runs.
+            self.reload_updated(buffer);
+            return;
+        }
         if let Some(index) = load
             && let Some(update) = self.loads[index].handle.take()
         {
             let redraw = self.apply_load(index, update);
+            self.forget_killed();
             #[cfg(feature = "dev")]
             self.reply_to_import();
             // Not in `apply_load`, as `poll_loads` runs on the frame path. A buffer still
@@ -222,6 +250,8 @@ impl App {
                 self.loads.swap_remove(index);
                 shown
             }
+            // Only a reload sends one, and `reloads` takes it.
+            LoadUpdate::Reloaded(_) => false,
             LoadUpdate::Failed(e) => {
                 let message = format!("Cannot open: {e}: {:?}", buffer.name());
                 self.editor.message(message);

@@ -18,8 +18,40 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Whether a pull request changes nothing but docs/, which builds nothing: then only the
+  # secrets scan and the conflict markers run, and the jobs that build are skipped. A push
+  # to main always runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.diff.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          # The base and the head, for the merge base between them.
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docs_only=false
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            # What the pull request changes, from where it left the base.
+            changed=$(git diff --name-only "$BASE...$HEAD")
+            if [ -n "$changed" ] && ! printf '%s\n' "$changed" | grep -qv '^docs/'; then
+              docs_only=true
+            fi
+          fi
+          echo "docs-only=$docs_only" | tee -a "$GITHUB_OUTPUT"
+
   ci:
     name: just ci (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +73,19 @@ jobs:
       # On Windows, just runs recipes with Git Bash's sh. Fail early if missing.
       - run: sh -c 'command -v sh'
       - run: just ci
+      # oso-platform's macOS API, with oso's own window layer, has a snapshot of its own,
+      # taken on macOS (ADR 0070). It runs here rather than in a job of its own, so that a
+      # push starts one macOS job fewer. Nightly is installed only for it, for rustdoc JSON;
+      # versions come from the Justfile.
+      - name: Install nightly and cargo-public-api
+        if: runner.os == 'macOS'
+        run: |
+          rustup toolchain install "$(just --evaluate nightly)" --profile minimal
+          rustup target add --toolchain "$(just --evaluate nightly)" "$(just --evaluate api_macos_target)"
+          cargo install --locked "cargo-public-api@$(just --evaluate cargo_public_api)"
+      - name: Public API on macOS
+        if: runner.os == 'macOS'
+        run: just public-api-macos-check
       # Warns, and does not fail. The budget is 30 s on the author's Mac, and
       # this runner takes twice as long: 7.6 to 9.4 s against 4.6 s (ADR 0050).
       - name: Test time budget
@@ -50,6 +95,8 @@ jobs:
   # Release builds must not contain the dev control socket or other dev-only
   # code (ADR 0016, ADR 0032).
   release-safety:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -67,6 +114,8 @@ jobs:
   # The public API must match guardrails/public-api (ADR 0038). Nightly is
   # installed only here, for rustdoc JSON; versions come from the Justfile.
   public-api:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -88,29 +137,9 @@ jobs:
           cargo install --locked "cargo-public-api@$(just --evaluate cargo_public_api)"
       - run: just public-api-check
 
-  # oso-platform's macOS API, with oso's own window layer, has a snapshot of its own,
-  # taken on macOS (ADR 0070).
-  public-api-macos:
-    runs-on: macos-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          persist-credentials: false
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      # just from the cache or its release through the API, checked (.github/actions).
-      - uses: $/.github/actions/install-just
-      - name: Install nightly and cargo-public-api
-        run: |
-          rustup toolchain install "$(just --evaluate nightly)" --profile minimal
-          rustup target add --toolchain "$(just --evaluate nightly)" "$(just --evaluate api_macos_target)"
-          cargo install --locked "cargo-public-api@$(just --evaluate cargo_public_api)"
-      - run: just public-api-macos-check
-
   deny:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -138,6 +167,8 @@ jobs:
       - run: cargo deny check
 
   audit:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -161,6 +192,19 @@ jobs:
           tool: cargo-audit@0.22.2
           fallback: none
       - run: cargo audit
+
+  # Conflict markers in any tracked file, docs included, without a build. `just ci` runs
+  # the architecture test that holds the same check (ADR 0038).
+  markers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # just from the cache or its release through the API, checked (.github/actions).
+      - uses: $/.github/actions/install-just
+      - run: just markers
 
   secrets:
     runs-on: ubuntu-latest
