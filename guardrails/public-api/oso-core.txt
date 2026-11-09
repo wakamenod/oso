@@ -150,6 +150,10 @@ pub fn oso_core::buffer::Buffer::take_format_of_copy(&mut self, bool, oso_core::
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::is_internal(&self) -> bool
 impl oso_core::buffer::Buffer
+pub fn oso_core::buffer::Buffer::mark_opened_by_agent(&mut self)
+pub fn oso_core::buffer::Buffer::name_may_hold_secrets(&std::path::Path) -> bool
+pub fn oso_core::buffer::Buffer::opened_by_agent(&self) -> bool
+impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::naming(&self) -> u32
 pub struct oso_core::buffer::BufferId(_)
 impl oso_core::buffer::BufferId
@@ -242,6 +246,9 @@ pub oso_core::command::ArgSpec::Number::history: &'static str
 pub oso_core::command::ArgSpec::Number::prompt: &'static str
 pub oso_core::command::ArgSpec::Passphrase
 pub oso_core::command::ArgSpec::Passphrase::prompt: &'static str
+pub oso_core::command::ArgSpec::Text
+pub oso_core::command::ArgSpec::Text::history: &'static str
+pub oso_core::command::ArgSpec::Text::prompt: &'static str
 impl oso_core::command::ArgSpec
 pub const fn oso_core::command::ArgSpec::reads_clipboard(self, core::option::Option<oso_core::command::Prefix>) -> bool
 impl core::clone::Clone for oso_core::command::ArgSpec
@@ -459,6 +466,7 @@ impl core::default::Default for oso_core::command::Registry
 pub fn oso_core::command::Registry::default() -> oso_core::command::Registry
 impl core::fmt::Debug for oso_core::command::Registry
 pub fn oso_core::command::Registry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_core::command::MAX_REMOTE_COUNT: isize
 pub type oso_core::command::CommandFn = fn(&mut oso_core::command::Ctx<'_>, oso_core::command::Args) -> core::result::Result<(), oso_core::command::CommandError>
 pub mod oso_core::complete
 pub enum oso_core::complete::NameKind
@@ -1134,9 +1142,11 @@ pub fn oso_core::editor::Editor::allow_agent(&mut self)
 pub fn oso_core::editor::Editor::ask_for_agent(&mut self, impl core::convert::Into<alloc::string::String>, &'static str, [&'static str; 2]) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::for_agent<R>(&mut self, impl core::ops::function::FnOnce(&mut Self) -> R) -> R
 pub fn oso_core::editor::Editor::request_agent_channel(&mut self, bool)
+pub fn oso_core::editor::Editor::runs_for_agent(&self) -> bool
 pub fn oso_core::editor::Editor::set_agent_channel(&mut self, oso_core::editor::AgentChannel)
 pub fn oso_core::editor::Editor::take_agent_allowed(&mut self) -> bool
 pub fn oso_core::editor::Editor::take_agent_channel_request(&mut self) -> core::option::Option<bool>
+pub fn oso_core::editor::Editor::take_agents_answer(&mut self) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask(&mut self, impl core::convert::Into<alloc::string::String>, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
@@ -1917,6 +1927,8 @@ pub oso_core::minibuffer::Kind::Passphrase
 pub oso_core::minibuffer::Kind::Question
 pub oso_core::minibuffer::Kind::Question::verbs: [&'static str; 2]
 pub oso_core::minibuffer::Kind::Question::yes: &'static str
+pub oso_core::minibuffer::Kind::Text
+pub oso_core::minibuffer::Kind::Text::history: core::option::Option<&'static str>
 impl oso_core::minibuffer::Kind
 pub fn oso_core::minibuffer::Kind::history(self) -> core::option::Option<&'static str>
 pub fn oso_core::minibuffer::Kind::is_question(self) -> bool

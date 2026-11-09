@@ -35,10 +35,8 @@ const MAX_COMMAND_NAME: usize = 256;
 /// sentence, and each one is segmented once when it comes (ADR 0069).
 const MAX_PREEDIT: usize = 64 * 1024;
 
-/// The largest count `run-command` passes on, in either direction. A command
-/// runs on the UI thread and may repeat its work this many times, so this
-/// plays the part of [`MAX_KEYS`].
-const MAX_COMMAND_ARG: isize = 10_000;
+/// The largest count `run-command` passes on, in either direction, as the agent channel's.
+const MAX_COMMAND_ARG: isize = oso_core::command::MAX_REMOTE_COUNT;
 
 /// How the message of an `exit` refused for its generation starts, which tells
 /// a refusal, after which the instance surely runs on, from a request that went

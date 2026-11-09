@@ -27,6 +27,7 @@ use crate::selection::{OffsetEdit, SelectionSet};
 pub use crate::undo::ContentId;
 use crate::undo::{Batch, Direction, Group, History, Opening, Side, Splice};
 
+mod agent;
 mod baseline;
 mod carried;
 mod internal;
@@ -214,6 +215,8 @@ pub struct Buffer {
     /// A kill that counts as secret was yanked into it (ADR 0074). Nothing that judges the
     /// text clears this: [`Buffer::verdict`] combines the two.
     yanked_secret: bool,
+    /// The agent channel opened it (ADR 0085).
+    opened_by_agent: bool,
     /// The state of the content now.
     content: ContentId,
     /// The state the file on disk has.
@@ -258,6 +261,7 @@ impl Buffer {
             revision: 0,
             verdict: Verdict::Ordinary,
             yanked_secret: false,
+            opened_by_agent: false,
             content: ContentId(0),
             saved: ContentId(0),
             next_content: 1,
