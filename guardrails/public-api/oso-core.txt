@@ -1280,6 +1280,8 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::drop_cursor_search(&mut self)
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::edit_lines(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::mark_all_like_this(&mut self) -> core::result::Result<(), oso_core::editor::CursorError>
 pub fn oso_core::editor::Editor::mark_like_this(&mut self, oso_core::editor::Toward, isize) -> core::result::Result<(), oso_core::editor::CursorError>

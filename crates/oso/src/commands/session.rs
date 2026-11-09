@@ -26,6 +26,8 @@ pub const COMMANDS: &[Command] = &[
 ];
 
 fn keyboard_quit(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    // Whatever else it does, a person's `C-g` drops a search for cursors (ADR 0091).
+    ctx.editor.drop_cursor_search();
     let quit = ctx.editor.quit();
     if quit != Quit::Nothing {
         ctx.request_redraw();

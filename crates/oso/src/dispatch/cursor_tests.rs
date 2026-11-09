@@ -62,3 +62,14 @@ fn c_x_spc_puts_one_on_each_line() {
     send(&mut d, &mut editor, "-");
     assert_eq!(text(&editor), "o-ne\nt-wo\nt-hree\n");
 }
+
+#[test]
+fn every_c_g_drops_a_search_for_cursors_also_under_a_prefix() {
+    let far = format!("needle {}needle", "-".repeat(600 * 1024));
+    let (mut d, mut editor) = at(&far, &[0]);
+    send(&mut d, &mut editor, "C->");
+    send(&mut d, &mut editor, "C-x C-g");
+    assert!(editor.take_isearch_job().is_none(), "the job was dropped");
+    send(&mut d, &mut editor, "C-> C-g");
+    assert!(editor.take_isearch_job().is_none());
+}

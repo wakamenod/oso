@@ -432,8 +432,6 @@ impl Editor {
     /// steps (ADR 0082). M2-21 (extra cursors) adds its part after them. Closing a question runs nothing and forgets
     /// a refused exit.
     pub fn quit(&mut self) -> Quit {
-        // Whatever else it does (ADR 0091).
-        self.drop_cursor_search();
         // A region in a prompt goes before the prompt, as with Emacs's
         // `delete-selection-mode`.
         if self.deactivate_mark() {
