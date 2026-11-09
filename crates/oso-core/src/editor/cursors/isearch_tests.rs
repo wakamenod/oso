@@ -98,3 +98,15 @@ fn every_match_waits_for_the_search_to_count_them() {
     editor.isearch_mark(None).unwrap();
     assert_eq!(cursors(&editor), [2, 5]);
 }
+
+#[test]
+fn every_match_keeps_the_searchs_own_inside_a_cluster_as_the_primary() {
+    // `e` matches the start of `e` + U+0301, which is no occurrence of its own: the search's
+    // match, widened to the cluster, stays the primary.
+    let mut editor = editor("x e\u{301} e");
+    editor.isearch_begin(false);
+    editor.isearch_add("e");
+    drain(&mut editor);
+    editor.isearch_mark(None).unwrap();
+    assert_eq!(regions(&editor), (vec![(2, 5), (6, 7)], 0));
+}

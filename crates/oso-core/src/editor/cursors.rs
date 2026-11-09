@@ -388,22 +388,33 @@ impl Editor {
     }
 
     /// Puts a cursor on each of `matched`, the primary on the one at its own region.
+    ///
+    /// When no occurrence covers the primary's own region, as a search's current match
+    /// widened to whole clusters may not, that region is one more cursor, the primary.
     fn put_all(&mut self, matched: &Matched) -> Result<(), CursorError> {
-        if matched.total > MAX_CURSORS {
-            return Err(CursorError::TooManyMatches(matched.total));
+        let own = *self.windows[self.selected].selections.primary();
+        let mut ranges = matched.ranges.clone();
+        let mut total = matched.total;
+        let covered = |range: &Range<usize>| range.contains(&own.cursor) || range.end == own.cursor;
+        let primary = match ranges.iter().position(covered) {
+            Some(index) => index,
+            None if own.mark.is_some_and(|mark| mark != own.cursor) => {
+                let region = own.range();
+                let index = ranges.partition_point(|range| range.start < region.start);
+                ranges.insert(index, region);
+                total += 1;
+                index
+            }
+            None => 0,
+        };
+        if total > MAX_CURSORS {
+            return Err(CursorError::TooManyMatches(total));
         }
-        if matched.ranges.is_empty() {
+        if ranges.is_empty() {
             return Err(CursorError::NoMore);
         }
-        let own = *self.windows[self.selected].selections.primary();
         let forward = forward(&own);
-        let primary = matched
-            .ranges
-            .iter()
-            .position(|range| range.contains(&own.cursor) || range.end == own.cursor)
-            .unwrap_or(0);
-        let parts = matched
-            .ranges
+        let parts = ranges
             .iter()
             .map(|range| oriented(range, forward))
             .collect();
