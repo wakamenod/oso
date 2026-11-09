@@ -178,6 +178,35 @@ fn a_person_cannot_kill_an_internal_buffer_or_one_that_saves() {
 }
 
 #[test]
+fn agent_is_listed_once_made_and_kept_from_a_kill() {
+    let (mut editor, _) = three();
+    let listed = |editor: &Editor| {
+        editor
+            .buffers_by_recency()
+            .into_iter()
+            .filter_map(|id| Some(editor.buffer(id)?.name().to_owned()))
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        !listed(&editor).contains(&"*Agent*".to_owned()),
+        "not made yet"
+    );
+    editor.agent_log("run forward-char 1 ok");
+    assert!(listed(&editor).contains(&"*Agent*".to_owned()));
+    let agent = editor.buffer_named("*Agent*").unwrap();
+    // `C-x b *Agent*` goes to it, and makes no buffer of that name.
+    let before = editor.buffers().count();
+    editor.switch_to_named("*Agent*").unwrap();
+    assert_eq!(editor.window().buffer(), agent);
+    assert_eq!(editor.buffers().count(), before);
+    assert_eq!(
+        editor.kill_by_person(agent, true),
+        Err(KillRefused::Internal)
+    );
+    assert!(editor.buffer(agent).is_some());
+}
+
+#[test]
 fn files_with_one_name_are_told_apart_until_one_goes() {
     let mut editor = Editor::default();
     let work = editor.add_buffer(Buffer::visiting(PathBuf::from("/home/me/work/notes.md")));
