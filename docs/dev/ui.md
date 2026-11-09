@@ -237,7 +237,9 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - A **box** cursor that does **not blink**. It covers its character's
   cells: two for a full-width character, the whole escape for `\xFF`, one
   on a tab (built in M1-6).
-- With multiple cursors, secondary cursors use a dimmer color.
+- With multiple cursors, every cursor but the primary is drawn as an outline of its box in
+  a dimmer colour, the theme's prompt colour, over the glyph as it is; the primary keeps its
+  filled box ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 - After a large jump or scroll, the cursor position flashes briefly
   (beacon-style).
 

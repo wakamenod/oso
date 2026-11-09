@@ -14,8 +14,9 @@
 //! places one from the layout, which holds none (ADR 0072).
 //!
 //! [`region_cells`] says which cells of a window's text area its regions take,
-//! so the renderer only fills them (ADR 0061, ADR 0071), and [`match_cells`] those
-//! isearch's matches take (ADR 0082).
+//! so the renderer only fills them (ADR 0061, ADR 0071), [`match_cells`] those
+//! isearch's matches take (ADR 0082), and [`other_cursor_cells`] those of the boxes of
+//! the cursors but the primary (ADR 0091).
 //!
 //! [`PixelGrid`] says where those cells are on the surface. The grid starts at
 //! the top-left margin and holds whole cells only. The pixels left over at the
@@ -24,6 +25,7 @@
 use std::ops::Range;
 
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
+use crate::motion;
 use crate::selection::{Selection, SelectionSet};
 use crate::sum_tree::Bias;
 use crate::window::{Scroll, ViewSize};
@@ -321,6 +323,54 @@ pub fn cursor_rect(
         rows: 1,
         columns: end - start,
     })
+}
+
+/// The cells of the boxes of the cursors of `selections` but the primary, in a window with
+/// this `text` area and `scroll`, into `out`, which is emptied first: each over the cluster
+/// it is on, as the primary's box, and cut by the area's edges (ADR 0091). `preedit` is the
+/// primary's point and the cells of a preedit there, which pushes what follows it on that
+/// row. Only the cursors on the rows in view are looked at, found by a binary search, so a
+/// frame costs two conversions for each one shown, however many are out of view.
+pub fn other_cursor_cells(
+    text: CellRect,
+    scroll: Scroll,
+    display: &DisplaySnapshot,
+    selections: &SelectionSet,
+    preedit: Option<(DisplayPoint, usize)>,
+    out: &mut Vec<CellRect>,
+) {
+    out.clear();
+    if selections.len() < 2 || text.rows == 0 {
+        return;
+    }
+    let row_start = |row| display.display_point_to_offset(DisplayPoint::new(row, 0), Bias::Left);
+    // Past the last row, the end of the buffer, where a cursor can also be.
+    let (start, end) = (
+        row_start(scroll.top),
+        row_start(scroll.top.saturating_add(text.rows)),
+    );
+    let all = selections.as_slice();
+    let first = all.partition_point(|selection| selection.cursor < start);
+    for (index, selection) in all.iter().enumerate().skip(first) {
+        let past = selection.cursor > end
+            || (selection.cursor == end
+                && scroll.top.saturating_add(text.rows) < display.row_count());
+        if past {
+            break;
+        }
+        if index == selections.primary_index() {
+            continue;
+        }
+        let point = display.offset_to_display_point(selection.cursor);
+        let (point, cells) = motion::cursor_box(display, point, None);
+        let point = match preedit {
+            Some((at, pushed)) if at.row == point.row && point.column >= at.column => {
+                DisplayPoint::new(point.row, point.column + pushed)
+            }
+            _ => point,
+        };
+        out.extend(cursor_rect(text, scroll, point, cells));
+    }
 }
 
 /// The cells of the regions of `selections`, in a window with this `text` area and
@@ -982,5 +1032,78 @@ mod tests {
                 prop_assert!(cell.column + cell.columns <= text.columns);
             }
         }
+    }
+    #[test]
+    fn other_cursors_get_boxes_in_view_and_the_primary_none() {
+        use crate::display_map::{DisplayMap, TabWidth};
+        use crate::rope::Rope;
+        // Rows: `ab`, `日c`, `de`, `fg`; a view of two rows from the second.
+        let text = "ab\n日c\nde\nfg";
+        let display = DisplayMap::new(&Rope::from(text), TabWidth::new(4)).snapshot();
+        let area = CellRect {
+            row: 0,
+            column: 0,
+            rows: 2,
+            columns: 10,
+        };
+        let scroll = Scroll { top: 1, left: 0 };
+        let parts = [0, 3, 6, 8, 11].into_iter().map(Selection::at).collect();
+        let selections = SelectionSet::from_parts(parts, 2).unwrap();
+        let mut out = Vec::new();
+        other_cursor_cells(area, scroll, &display, &selections, None, &mut out);
+        let cell = |row, column, columns| CellRect {
+            row,
+            column,
+            rows: 1,
+            columns,
+        };
+        // `日` takes two cells, the primary at `c` has none, and rows out of view none.
+        assert_eq!(out, [cell(0, 0, 2), cell(1, 0, 1)]);
+
+        // A preedit before a cursor on its row pushes it.
+        let parts = [3, 6].into_iter().map(Selection::at).collect();
+        let selections = SelectionSet::from_parts(parts, 0).unwrap();
+        other_cursor_cells(
+            area,
+            scroll,
+            &display,
+            &selections,
+            Some((DisplayPoint::new(1, 0), 3)),
+            &mut out,
+        );
+        assert_eq!(out, [cell(0, 5, 1)]);
+    }
+
+    #[test]
+    fn a_cursor_at_the_end_of_the_buffer_gets_a_box_on_the_last_row() {
+        use crate::display_map::{DisplayMap, TabWidth};
+        use crate::rope::Rope;
+        let display = DisplayMap::new(&Rope::from("ab\ncd"), TabWidth::new(4)).snapshot();
+        let area = CellRect {
+            row: 0,
+            column: 0,
+            rows: 5,
+            columns: 10,
+        };
+        let parts = [0, 5].into_iter().map(Selection::at).collect();
+        let selections = SelectionSet::from_parts(parts, 0).unwrap();
+        let mut out = Vec::new();
+        other_cursor_cells(
+            area,
+            Scroll::default(),
+            &display,
+            &selections,
+            None,
+            &mut out,
+        );
+        assert_eq!(
+            out,
+            [CellRect {
+                row: 1,
+                column: 2,
+                rows: 1,
+                columns: 1
+            }]
+        );
     }
 }

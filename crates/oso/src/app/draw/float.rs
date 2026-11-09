@@ -520,6 +520,7 @@ fn preview_panes<'a>(
                 scroll: Scroll { top, left: 0 },
                 cursor,
                 cursor_style: CursorStyle::Hollow,
+                others: &[],
                 preedit: None,
                 fills: &[],
             };
@@ -575,6 +576,7 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) ->
         scroll: window.scroll(),
         cursor,
         cursor_style: CursorStyle::Box,
+        others: &[],
         preedit: editor.preedit(),
         fills: &lines.fills,
     })
