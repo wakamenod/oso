@@ -152,15 +152,16 @@ item notes when it must be settled.
   Redoing takes 1.4 ms. Sharing the slice's chunks with the rope, and keeping display items
   with the undo group, would make it O(log n). Decide before M2-14. `rope.rs` is at its
   size limit, so sharing needs room there.
-- Typing at 1000 cursors, which took about 17 ms a key, takes 2 to 3 ms at p99 on 100 MB and
-  on a 10 MB line of minified JSON since M2-21 edits a leaf in place and clips only what is near
-  an edit, in every window (`text_perf -- cursors`,
-  [ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)). On a 10 MB line dense with CJK, emoji
-  and combining marks it still takes 5.6 to 9.3 ms at p99, over the edit's 4 ms share: each
-  rebuilt chunk's summary walks its clusters through the grapheme segmenter. A faster walk
-  over characters that cannot join their neighbours is the next step, and the bound of 1000
-  goes back to the author meanwhile. A command still clones the selection set for its undo
-  group, and an edit a few times more; a profile at 1000 cursors does not show it.
+- Typing at 1000 cursors, which took 17 to 26 ms a key at p99, takes about 3 ms on 100 MB and
+  3.3 to 4.7 ms on a 10 MB line of minified JSON since M2-21 edits a leaf in place and clips only
+  what is near an edit, in every window (`text_perf -- cursors`,
+  [ADR 0092](adr/0092-edits-in-place-for-many-cursors.md)). On a 10 MB line dense with CJK, emoji
+  and combining marks it still takes 5.6 to 9.3 ms, over the edit's 4 ms share: each rebuilt
+  chunk's summary walks its clusters through the grapheme segmenter. A faster walk over
+  characters that cannot join their neighbours is the next step; the author keeps the bound at
+  1000 meanwhile. `just perf` has no scenario of 1000 cursors yet, since its thresholds are guard
+  files. A command still clones the selection set for its undo group, and an edit a few times
+  more; a profile at 1000 cursors does not show it.
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
