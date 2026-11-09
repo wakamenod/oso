@@ -26,6 +26,8 @@ mod float;
 #[derive(Default)]
 pub(super) struct Cells {
     region: Vec<frame::CellRect>,
+    /// The boxes of the cursors other than the primary (ADR 0091).
+    others: Vec<frame::CellRect>,
     matches: MatchCells,
 }
 
@@ -57,6 +59,7 @@ pub(super) fn with_panes<R>(
         span(&status.echo[..], Face::Text),
     ];
     editor.region_cells(&mut cells.region);
+    editor.other_cursor_cells(&mut cells.others);
     editor.isearch_cells(&mut cells.matches);
     // The current match first, so that it always has room, and the regions over the matches.
     let fills = [
@@ -65,7 +68,7 @@ pub(super) fn with_panes<R>(
         (Face::Region, &cells.region[..]),
     ];
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
-    let tiled = panes(editor, &fills, &modeline, &echo);
+    let tiled = panes(editor, (&fills, &cells.others), &modeline, &echo);
     let Some(parts) = float::Parts::of(editor) else {
         return draw(&tiled);
     };
@@ -84,7 +87,7 @@ pub(super) fn with_panes<R>(
 /// not selected (ADR 0072).
 fn panes<'a>(
     editor: &'a Editor,
-    fills: &'a [(Face, &'a [frame::CellRect])],
+    (fills, others): (&'a [(Face, &'a [frame::CellRect])], &'a [frame::CellRect]),
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -104,6 +107,7 @@ fn panes<'a>(
         } else {
             CursorStyle::Box
         },
+        others,
         preedit: editor.preedit().filter(|_| !beneath),
         fills,
     });
