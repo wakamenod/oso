@@ -154,9 +154,10 @@ item notes when it must be settled.
   size limit, so sharing needs room there.
 - Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
   budget by itself. Applying a batch of splices in one tree pass instead of one
-  `Rope::replace` each is the next step. Do that or cap the cursors before M2-21. A command
-  also clones the selection set for its undo group, and an edit a few times more, which counts
-  with that many cursors.
+  `Rope::replace` each is the next step. M2-21 does that and caps the cursors at 1000; if 1000
+  still miss the budget, the bound goes back to the author
+  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)). A command also clones the selection
+  set for its undo group, and an edit a few times more, which counts with that many cursors.
 - Every window showing a buffer clips all its cursors after each edit, though only those
   in the edited chunks can change. Limit it to those before splits (M3) bring more windows.
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
