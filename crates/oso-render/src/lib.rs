@@ -169,6 +169,22 @@ pub struct RenderState {
     presented: u64,
     #[cfg(feature = "dev")]
     adapter: wgpu::AdapterInfo,
+    /// When the last presented frame had been prepared, had its drawable and was presented,
+    /// each from the frame's start, for the dev socket's timings.
+    #[cfg(feature = "dev")]
+    last_frame: FrameTimes,
+}
+
+/// Where a presented frame's time went, each from its start (dev builds only).
+#[cfg(feature = "dev")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FrameTimes {
+    /// The CPU work: shaping, rasterizing and building quads.
+    pub prepared: std::time::Duration,
+    /// The next drawable had come back from the surface, which may wait for the display.
+    pub acquired: std::time::Duration,
+    /// The frame was encoded, submitted and presented.
+    pub presented: std::time::Duration,
 }
 
 impl RenderState {
@@ -277,6 +293,8 @@ impl RenderState {
             presented: 0,
             #[cfg(feature = "dev")]
             adapter: info,
+            #[cfg(feature = "dev")]
+            last_frame: FrameTimes::default(),
         }
     }
 
@@ -323,6 +341,12 @@ impl RenderState {
     /// window is hidden does not count.
     pub fn presented_frames(&self) -> u64 {
         self.presented
+    }
+
+    /// Where the last presented frame's time went (dev builds only).
+    #[cfg(feature = "dev")]
+    pub fn last_frame_times(&self) -> FrameTimes {
+        self.last_frame
     }
 
     /// The size of the surface in physical pixels, as last configured.
@@ -418,13 +442,15 @@ impl RenderState {
         let started = std::time::Instant::now();
         let mut budget = RasterBudget::new(GLYPHS_PER_FRAME);
         self.prepare_frame(panes, &mut budget);
-        log::trace!("frame prepared in {:?}", started.elapsed());
+        let prepared = started.elapsed();
+        log::trace!("frame prepared in {prepared:?}");
 
         // Acquire the next surface texture, or recover as wgpu documents.
         let current = self
             .surface
             .as_ref()
             .map(wgpu::Surface::get_current_texture);
+        let acquired = started.elapsed();
         let action = surface_action(current.as_ref());
         let output = match current {
             Some(
@@ -448,7 +474,18 @@ impl RenderState {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        log::trace!("frame presented {:?} after it started", started.elapsed());
+        let presented = started.elapsed();
+        log::trace!("frame presented {presented:?} after it started");
+        #[cfg(feature = "dev")]
+        {
+            self.last_frame = FrameTimes {
+                prepared,
+                acquired,
+                presented,
+            };
+        }
+        #[cfg(not(feature = "dev"))]
+        let _ = (prepared, acquired);
 
         self.failed_frames = 0;
         self.presented += 1;
