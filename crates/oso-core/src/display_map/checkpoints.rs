@@ -169,6 +169,11 @@ const READS_BEFORE_CHECKPOINTS: u8 = 1;
 /// and kept for good. An edit makes a new chunk, so typing, which reads one a few times
 /// between edits, makes none, and a scan that reads one over and over makes them after its
 /// first reads. Snapshots share them.
+///
+/// They hold no buffer offsets, only offsets in the chunk. Where the chunk starts is used
+/// only to find its invalid bytes, as for its summary: a buffer that has any is read-only,
+/// and loading only adds chunks after it, so a chunk that has them never moves. The count of
+/// reads stops at [`READS_BEFORE_CHECKPOINTS`], as the checkpoints are made then.
 #[derive(Debug, Default)]
 #[expect(
     clippy::disallowed_types,
@@ -189,6 +194,20 @@ impl Clone for Kept {
 }
 
 impl Kept {
+    /// What a chunk keeps when it is never to make checkpoints, for a test that compares
+    /// scans with and without them.
+    #[cfg(test)]
+    #[expect(
+        clippy::disallowed_types,
+        reason = "each item's own checkpoints, made once and shared by snapshots on any thread, not global state (ADR 0099)"
+    )]
+    pub(super) fn never() -> Self {
+        Self {
+            made: OnceLock::from(None),
+            reads: AtomicU8::new(0),
+        }
+    }
+
     /// The checkpoints of `text`, a chunk that starts at `base`, if scans have read it often
     /// enough; counts this read otherwise.
     pub(super) fn get(
@@ -235,8 +254,11 @@ pub(super) fn clusters_from<'a>(
     }
 }
 
-/// The last of `checkpoints` on the row `rows` breaks into the chunk whose column is at most
-/// `target`, with that column, the row's part in the chunk starting at `column`.
+/// The last of `checkpoints` on the row `rows` breaks into the chunk whose column is before
+/// `target`, with that column, the row's part in the chunk starting at `column`. Before, not at:
+/// a scan from the row's start stops at the first cluster that reaches `target`, which can be
+/// a cluster of no cells just before a checkpoint at that column, and every cluster that
+/// reaches it comes after a checkpoint before it.
 pub(super) fn on_row(
     checkpoints: &[Checkpoint],
     (rows, column): (usize, usize),
@@ -248,7 +270,7 @@ pub(super) fn on_row(
         .iter()
         .filter(|checkpoint| usize::from(checkpoint.rows) == rows)
         .map(|checkpoint| (checkpoint, checkpoint.column().apply(start, tab_width)))
-        .take_while(|(_, at)| *at <= target)
+        .take_while(|(_, at)| *at < target)
         .last()
 }
 

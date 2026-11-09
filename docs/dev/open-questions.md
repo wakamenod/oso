@@ -86,11 +86,6 @@ item notes when it must be settled.
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.
-- On a long line, the keys that add cursors check each match against its words by stepping back a
-  window of clusters in display points (`word.rs`), which is now what bounds how fast they go
-  there. Decide in a later ADR whether to check in offsets instead
-  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md),
-  [ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
 - `C-x C-f` leaves out names that are not UTF-8, as a path made from a lossy copy of one would
   name another file. Keep the name as the system gives it if they turn out to matter.
 - `C-x C-f` reads a path with `/` between its parts and starts an absolute one at `/`, so on
@@ -209,6 +204,11 @@ item notes when it must be settled.
   the command's ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
   `TAB` on a row with several cursors walks what lies between them with no budget
   ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
+- On a long line, the keys that add cursors check each match against its words by stepping back a
+  window of clusters in display points (`word.rs`), which is now what bounds how fast they go
+  there. Decide with the item above, in a later ADR, whether to check in offsets instead
+  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md),
+  [ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:
   - The limit should be a pure function beside `window::wheel`, used by both.
   - By M3: "taller" compares the tiled window alone, also beneath a prompt. Splits of

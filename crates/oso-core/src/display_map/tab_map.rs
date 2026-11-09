@@ -397,7 +397,7 @@ impl TabMap {
 
     /// [`TabMap::to_offset`], the point of the offset it returns, and the buffer
     /// offset before which characters are past a display cluster's limits, as
-    /// they were when the scan reached that offset.
+    /// they were when the scan reached that offset, 0 for none.
     fn locate(&self, target: TabPoint, bias: Bias) -> (usize, TabPoint, usize) {
         let mut cursor = self.tree.cursor::<(TabPoint, usize)>();
         cursor.seek(&target, Bias::Right);
@@ -429,7 +429,10 @@ impl TabMap {
         while let Some((index, cluster, kind, cells)) = clusters.next() {
             let offset = start + shift + index;
             let past_limit_until =
-                |clusters: &Clusters<'_>| start + shift + clusters.past_limit_until_at(index);
+                |clusters: &Clusters<'_>| match clusters.past_limit_until_at(index) {
+                    0 => 0,
+                    until => start + shift + until,
+                };
             if point.row == target.row {
                 if kind == CellKind::LineBreak || point.column >= target.column {
                     return (offset, point, past_limit_until(&clusters));
@@ -512,6 +515,9 @@ impl TabMap {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Iterates over the clusters of one row. See [`TabMap::clusters`].
 pub struct RowClusters<'a> {
