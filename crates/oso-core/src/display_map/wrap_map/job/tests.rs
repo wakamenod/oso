@@ -151,6 +151,28 @@ fn provisional_rows_near_the_view_wrap_at_once_and_the_rest_wait() {
 }
 
 #[test]
+fn a_narrower_window_edited_and_wrapped_near_its_view_before_the_report_settles_to_its_width() {
+    let text = format!(
+        "{}\n{}",
+        "word and more ".repeat(30),
+        "日本語の文章です。".repeat(12)
+    );
+    let mut window = Window::new(&text, 30);
+    window.wrap.set_columns(12, &window.map.snapshot());
+    // Rows of the old width stay until the report, but those wrapped here are at the new one.
+    window.command(&[(200, 0, "x"), (40, 3, "")]);
+    let display = window.map.snapshot();
+    window.wrap.refill();
+    window.wrap.realize(&display, 100, 3);
+    window.command(&[(300, 0, "あい")]);
+    window.wrap.refill();
+    window.wrap.realize(&window.map.snapshot(), 5, 2);
+    assert_eq!(window.wrap.snapshot().len(), window.map.snapshot().len());
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(12));
+}
+
+#[test]
 fn a_reset_drops_the_running_jobs_report_and_its_next_job_supersedes_it() {
     let mut window = Window::new(&"word ".repeat(40), 30);
     window.wrap.set_columns(20, &window.map.snapshot());

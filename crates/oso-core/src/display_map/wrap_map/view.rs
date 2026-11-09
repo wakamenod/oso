@@ -114,7 +114,8 @@ impl WrapSnapshot {
 
     /// Where rows wanted from `target` start wrapping: the start of its row, if that is at
     /// most [`ANCHOR_BACK`] before it or before `floor`, where the provisional rows start;
-    /// otherwise past a run of spaces near that bound, or the cluster start there.
+    /// otherwise past a run of spaces near that bound, after it or else before it, so that no
+    /// word is split until the report, or the cluster start there.
     fn anchor(&self, display: &DisplaySnapshot, target: usize, floor: usize) -> usize {
         let row_start = self.row_span(display, self.row_of(display, target)).0;
         let back = display
@@ -135,7 +136,18 @@ impl WrapSnapshot {
             }
             offset += piece.len();
         }
-        back
+        // The last space before the bound, but not before the row or the provisional rows.
+        let from = back.saturating_sub(SPACE_SEARCH).max(row_start).max(floor);
+        let (mut offset, mut after) = (from, None);
+        for piece in display.text_in(from..back) {
+            for (index, byte) in piece.bytes().enumerate() {
+                if byte == b' ' {
+                    after = Some(offset + index + 1);
+                }
+            }
+            offset += piece.len();
+        }
+        after.map_or(back, |after| display.cluster_at(after).0)
     }
 }
 
