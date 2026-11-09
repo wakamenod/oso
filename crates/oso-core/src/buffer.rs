@@ -229,6 +229,8 @@ pub struct Buffer {
     yanked_secret: bool,
     /// The agent channel opened it (ADR 0085).
     opened_by_agent: bool,
+    /// The agent channel is opening it and has not shown it yet.
+    agent_pending: bool,
     /// The state of the content now.
     content: ContentId,
     /// The state the file on disk has.
@@ -274,6 +276,7 @@ impl Buffer {
             verdict: Verdict::Ordinary,
             yanked_secret: false,
             opened_by_agent: false,
+            agent_pending: false,
             content: ContentId(0),
             saved: ContentId(0),
             next_content: 1,
