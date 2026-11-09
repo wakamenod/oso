@@ -33,8 +33,8 @@ about keys, behaviour and the float, not about the core model. Earlier ADRs fixe
 - every command declares its reach, and the channel refuses `Person`
   ([ADR 0085](0085-agent-channel-and-oso-mcp.md)).
 
-What is still open: typing with 1000 cursors takes about 15 ms a key, over the 8 ms budget, and
-`open-questions.md` asks to batch the edits or cap the cursors before M2-21. The editor has no
+What is still open: typing with 1000 cursors in a 100 MB file takes 16.75 ms a key at p50 and
+25.8 ms at p99, over the 8 ms budget, and undoing it takes as long. `open-questions.md` asks to batch the edits or cap the cursors before M2-21. The editor has no
 mouse clicks yet.
 
 ## Decision
@@ -170,13 +170,20 @@ them with line breaks. Typing over regions and `M-w` work at every cursor.
 
 ### Batching the edits
 
-- **A command's edits at all cursors are applied in one pass over the rope's tree,** in place of
-  one `Rope::replace` each, and the display map is updated in the same pass. A command clones
-  the selection set once, where an edit now clones it a few times.
+- **Where the time goes now:** each splice costs about 17 µs. `Rope::replace` and the tab map's
+  `sync` each split the tree twice and append twice, so one splice copies O(log n) nodes four
+  times, and clipping the cursors after the edit seeks once per cursor and per mark.
+- **A command's edits at all cursors are applied in one pass,** over the rope's tree and the tab
+  map's, in place of one `Rope::replace` and one `sync` each, and the cursors are clipped by one
+  cursor moving forward. Undo and redo go through the same pass. A command clones the selection
+  set once, where an edit now clones it a few times. Which pass (an edit in place inside a leaf,
+  or one walk that keeps the untouched subtrees) is chosen by measuring both.
 - **The target:** typing at 1000 cursors in the 100 MB file of ADR 0071's measures within the 8 ms
-  budget at p50, from 15 ms now, without slowing a single cursor. The implementing pull request
-  reports the numbers; if 1000 cursors still miss the budget, the bound goes back to the author.
-- The pass is a private module beside `rope`, since `rope.rs` is at its size limit.
+  budget at p50 and at p99, from 16.75 ms and 25.8 ms now, and undoing it too, without slowing a
+  single cursor (10.5 µs p50 now). The implementing pull request reports p50 and p99 before and
+  after; if 1000 cursors still miss the budget at either, the bound goes back to the author.
+- **The pass is private to `oso-core`:** a module under `rope/`, since `rope.rs` is at its size
+  limit, `pub(crate)` at most, with no `unsafe`, as `oso-core` has none. No new public module.
 
 ### Reach and the sockets
 
@@ -201,8 +208,8 @@ them with line breaks. Typing over regions and `M-w` work at every cursor.
 - **`oso-core`:** `editor/cursors.rs`, a private module, with the query a window keeps and the
   `Editor` methods behind the commands; the search through `oso_core::search` (still private) and
   the isearch worker's `SearchJob`; `Quit::Cursors`; `selection::MAX_CURSORS`; the batched pass
-  beside `rope`; and the `M-y` prompt's candidates, rows and preview in `editor/kill.rs` and
-  `minibuffer`, with a `Preview::Text` beside `Preview::Buffer` and a `ArgSpec::KillEntry` that
+  in a private module under `rope/`; and the `M-y` prompt's candidates, rows and preview in `editor/kill.rs` and
+  `minibuffer`, with a `Preview::Text` beside `Preview::Buffer` and an `ArgSpec::KillEntry` that
   reads the clipboard and then the entry, as `CountAndClipboard` reads the clipboard.
 - **`oso`:** `commands/cursors.rs` and `bindings/cursors.rs`; `consult-yank-pop` and `yank-pop` in
   `commands/kill.rs`; the isearch commands in `commands/isearch.rs`; the preview's text pane in
@@ -235,7 +242,7 @@ Put to the author on 2026-11-09, the recommended option first; each answer was t
 4. **From isearch:** (a) the same keys, `C->` and `C-c C-<`, on the search's string; (b) `M-RET` for
    all matches only.
 5. **The bound on cursors:** (a) 1000, with the edits batched in M2-21 to fit the budget; (b) 100
-   now, raised later; (c) 1000 at 15 ms a key.
+   now, raised later; (c) 1000 at 16.75 ms a key.
 6. **`M-y`'s preview:** (a) the entry's text in the float; (b) a trial insertion in the buffer, as
    consult does; (c) none.
 7. **Secret entries in `M-y`:** (a) listed, with no text and no preview, and picking them works;
@@ -292,7 +299,7 @@ accepted, the status of ADR 0030 and ADR 0071 gains `amended by 0091`.
 - **Adding the first 1000 of more matches:** a rename would cover only part of the buffer, without
   the person seeing where it stopped.
 - **100 cursors now:** fits the budget today, but a rename across a large file would not reach.
-- **1000 cursors at 15 ms a key:** over the budget the project holds itself to.
+- **1000 cursors at 16.75 ms a key (25.8 ms at p99):** over the budget the project holds itself to.
 - **A trial insertion in the buffer for the preview,** as consult does: the centred float usually
   covers the cursor, and an edit that comes and goes meets undo, saving, reloads and the secret
   rules.
