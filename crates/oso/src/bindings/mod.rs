@@ -19,6 +19,7 @@ mod recovery;
 mod save;
 mod scroll;
 mod session;
+mod theme;
 
 use oso_core::command::Registry;
 use oso_core::keymap::Keymap;
@@ -45,6 +46,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
+    theme::BINDINGS,
 ];
 
 /// The default global keymap, over the commands in `registry`.

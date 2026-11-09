@@ -51,6 +51,7 @@ mod reload;
 mod save;
 mod status;
 mod switch;
+mod themes;
 mod view;
 mod write;
 
@@ -67,6 +68,7 @@ pub use reload::{Leftover, ReloadOutcome};
 pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
+pub use themes::NoSuchTheme;
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -182,6 +184,7 @@ pub struct Editor {
     search_job: Option<SearchJob>,
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
     reverts: Vec<(BufferId, ContentId)>,
+    themes: themes::Themes,
 }
 
 impl Default for Editor {
@@ -237,6 +240,7 @@ impl Editor {
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,
             reverts: Vec::new(),
+            themes: themes::Themes::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));

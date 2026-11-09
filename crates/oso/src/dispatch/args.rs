@@ -49,6 +49,9 @@ pub fn map(
         (ArgSpec::Command { .. }, _) => Err(format!(
             "{name} reads a command's name; run the command itself"
         )),
+        (ArgSpec::Theme { .. }, _) => Err(format!(
+            "{name} reads a theme's name, which only its prompt takes, from keys"
+        )),
         // Only its prompt reads a buffer's name. The agent channel's switch to a buffer by name
         // never comes here: `Dispatcher::run_for_agent` resolves the name to a buffer it may
         // show, and shows it (ADR 0094, ADR 0095).
@@ -177,6 +180,11 @@ mod tests {
             prompt: "Go to mark: ",
         };
         assert!(refused(mark, Given::Nothing).contains("mark"));
+        let theme = ArgSpec::Theme {
+            prompt: "Load theme: ",
+            history: "theme",
+        };
+        assert!(refused(theme, Given::Nothing).contains("theme's name"));
         let file = ArgSpec::File {
             prompt: "Find file:",
             history: "file",

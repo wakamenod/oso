@@ -448,3 +448,30 @@ fn a_finished_save_lets_the_handover_through() {
 
 mod carried;
 mod secret;
+
+#[test]
+fn the_theme_drawn_in_is_handed_over() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    editor.set_themes(vec![("dark", "dark"), ("light", "light")], 1);
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert_eq!(state.theme.as_deref(), Some("light"));
+}
+
+#[test]
+fn a_state_with_no_theme_reads_and_one_with_a_bad_name_is_refused() {
+    let state = with(|state| {
+        state.as_object_mut().unwrap().remove("theme");
+    });
+    assert_eq!(parse(&state).unwrap().theme, None);
+    for bad in [
+        json!(""),
+        json!("Dark"),
+        json!("../x"),
+        json!(7),
+        json!("a".repeat(33)),
+    ] {
+        let state = with(|state| state["theme"] = bad.clone());
+        let message = parse(&state).unwrap_err();
+        assert!(message.contains("theme"), "{message}");
+    }
+}
