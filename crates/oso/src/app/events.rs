@@ -47,6 +47,7 @@ impl App {
             UserEvent::Copies(event) => self.copies_event(event),
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             UserEvent::Search(report) => self.isearch_reported(report),
+            UserEvent::Completion(report) => self.completion_reported(event_loop, report),
             UserEvent::Listed => self.listed(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -67,6 +68,7 @@ impl App {
         self.check_disk();
         // A load may have grown the buffer under isearch.
         self.start_searches();
+        self.start_completions(event_loop);
         self.ask_for_a_frame_if_status_changed();
         self.note_logging();
     }

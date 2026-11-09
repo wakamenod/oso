@@ -501,6 +501,7 @@ pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
 pub fn oso_core::complete::Candidates::item_at(&self, usize) -> core::option::Option<usize>
 pub fn oso_core::complete::Candidates::len(&self) -> usize
 pub fn oso_core::complete::Candidates::on_input(&self) -> bool
+pub fn oso_core::complete::Candidates::pending(&self) -> bool
 pub fn oso_core::complete::Candidates::previews(&self) -> bool
 pub fn oso_core::complete::Candidates::query(&self) -> &oso_core::complete::Query
 pub fn oso_core::complete::Candidates::selected(&self) -> core::option::Option<usize>
@@ -511,6 +512,14 @@ pub fn oso_core::complete::Candidates::top(&self) -> usize
 pub fn oso_core::complete::Candidates::total(&self) -> usize
 impl core::fmt::Debug for oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::complete::CompletionJob
+impl oso_core::complete::CompletionJob
+pub fn oso_core::complete::CompletionJob::run(self) -> core::option::Option<oso_core::complete::CompletionReport>
+impl core::fmt::Debug for oso_core::complete::CompletionJob
+pub fn oso_core::complete::CompletionJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::complete::CompletionReport(_)
+impl core::fmt::Debug for oso_core::complete::CompletionReport
+pub fn oso_core::complete::CompletionReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::complete::Name
 pub oso_core::complete::Name::kind: oso_core::complete::NameKind
 pub oso_core::complete::Name::name: alloc::string::String
@@ -1216,6 +1225,10 @@ pub fn oso_core::editor::Editor::note_command_ended(&mut self, bool)
 pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option::Option<oso_core::editor::ClipboardWrite>
 pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
 pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::completion_pending(&self) -> bool
+pub fn oso_core::editor::Editor::completion_reported(&mut self, oso_core::complete::CompletionReport) -> bool
+pub fn oso_core::editor::Editor::take_completion_job(&mut self) -> core::option::Option<oso_core::complete::CompletionJob>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::confirm_exit(&mut self, bool) -> core::result::Result<(), oso_core::editor::ExitRefused>
 pub fn oso_core::editor::Editor::file_changed_on_disk(&mut self, oso_core::buffer::BufferId)

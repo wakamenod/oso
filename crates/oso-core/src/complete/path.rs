@@ -59,12 +59,23 @@ pub struct Found {
 }
 
 /// What expanding a plan came to.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expanded {
     /// These directories must be listed first.
     Need(Vec<PathBuf>),
     /// The candidates, and whether a segment matched more directories than are kept.
     Ready(Vec<Found>, bool),
+}
+
+/// Which directories a plan's segments reach.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reach {
+    /// These directories must be listed first.
+    Need(Vec<PathBuf>),
+    /// The directories reached, each with what its rows show before a name, all listed, and
+    /// whether a segment matched more directories than are kept.
+    Ready(Vec<Reached>, bool),
 }
 
 /// Where `input` starts after it was started over: right after `//`, or at `~/` typed right
@@ -125,26 +136,54 @@ fn may_be_directory(kind: NameKind) -> bool {
 }
 
 /// A directory a plan has reached, with what its rows show before a name.
-type Reached = (PathBuf, String);
+pub type Reached = (PathBuf, String);
+
+/// How many names [`found_in`] goes through between two looks at whether to stop.
+const STOP_EVERY: usize = 1024;
 
 /// The candidates of `plan`, given what is listed of each directory, or the directories that
-/// must be listed first. A directory `known` to exist, such as one the prompt started in, is
-/// gone into by a segment that names it whole without listing the one it is in. Names starting
-/// with `.` are left out unless the last segment starts with `.`.
+/// must be listed first: [`reach`], then [`found_in`].
+#[cfg(test)]
 pub fn expand<'a>(
     plan: &Plan,
     listing: impl Fn(&Path) -> Option<&'a [Name]>,
     known: impl Fn(&Path) -> bool,
 ) -> Expanded {
+    match reach(plan, &listing, known) {
+        Reach::Need(need) => Expanded::Need(need),
+        Reach::Ready(reached, cut) => {
+            let listed = reached.iter().map(|(directory, shown)| {
+                (
+                    directory.as_path(),
+                    shown.as_str(),
+                    listing(directory).unwrap_or(&[]),
+                )
+            });
+            let found = found_in(listed, plan.last.starts_with('.'), &|| false);
+            Expanded::Ready(found.unwrap_or_default(), cut)
+        }
+    }
+}
+
+/// The directories `plan`'s segments reach, given what is listed of each directory, or the
+/// directories that must be listed first. A directory `known` to exist, such as one the prompt
+/// started in, is gone into by a segment that names it whole without listing the one it is in.
+/// This looks only at the names of directories on the way, so it costs little beside
+/// [`found_in`], and tells how many names the list will have before it is made (ADR 0096).
+pub fn reach<'a>(
+    plan: &Plan,
+    listing: &impl Fn(&Path) -> Option<&'a [Name]>,
+    known: impl Fn(&Path) -> bool,
+) -> Reach {
     let mut reached: Vec<Reached> = vec![(plan.root.clone(), String::new())];
     let mut cut = false;
     for segment in &plan.segments {
-        match step(&reached, segment, &listing, &known) {
+        match step(&reached, segment, listing, &known) {
             Ok((next, more)) => {
                 reached = next;
                 cut |= more;
             }
-            Err(need) => return Expanded::Need(need),
+            Err(need) => return Reach::Need(need),
         }
     }
     let need: Vec<PathBuf> = reached
@@ -152,14 +191,27 @@ pub fn expand<'a>(
         .filter(|(directory, _)| listing(directory).is_none())
         .map(|(directory, _)| directory.clone())
         .collect();
-    if !need.is_empty() {
-        return Expanded::Need(need);
+    if need.is_empty() {
+        Reach::Ready(reached, cut)
+    } else {
+        Reach::Need(need)
     }
-    let hidden = plan.last.starts_with('.');
+}
+
+/// The candidates in the directories `reached`, each given with what its rows show before a
+/// name and its listing. Names starting with `.` are left out unless `hidden`. `None` if `stop`
+/// says so first, which it is asked every [`STOP_EVERY`] names.
+pub fn found_in<'a>(
+    reached: impl IntoIterator<Item = (&'a Path, &'a str, &'a [Name])>,
+    hidden: bool,
+    stop: &dyn Fn() -> bool,
+) -> Option<Vec<Found>> {
     let mut found = Vec::new();
-    for (directory, shown) in &reached {
-        let names = listing(directory).unwrap_or(&[]);
-        for name in names {
+    for (directory, shown, names) in reached {
+        for (index, name) in names.iter().enumerate() {
+            if index % STOP_EVERY == STOP_EVERY - 1 && stop() {
+                return None;
+            }
             if name.name.starts_with('.') && !hidden {
                 continue;
             }
@@ -167,13 +219,13 @@ pub fn expand<'a>(
             let slash = if is_directory { "/" } else { "" };
             found.push(Found {
                 name: format!("{}{slash}", name.name),
-                context: shown.clone(),
+                context: shown.to_owned(),
                 path: directory.join(&name.name),
                 directory: is_directory,
             });
         }
     }
-    Expanded::Ready(found, cut)
+    Some(found)
 }
 
 /// The directories one `segment` reaches from those `reached`, and whether some were left out

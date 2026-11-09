@@ -267,7 +267,7 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         "directory": editor
             .file_directory()
             .map(|directory| oso_core::complete::typed_form(directory, true, editor.home())),
-        "pending": editor.files_pending(),
+        "pending": editor.files_pending() || editor.completion_pending(),
     })
 }
 

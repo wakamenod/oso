@@ -60,9 +60,10 @@ The author decided this on 2026-11-09, through the coordinator.
 
 - **`oso_core::complete` makes the job and takes in the report.** The host only runs one and hands
   the other back, as isearch's are (ADR 0082). Two public types go in that public module,
-  `CompletionJob` and `CompletionReport`, along with `Editor::take_completion_job` and
-  `Editor::completion_reported`. The job depends on nothing of the editor, which ADR 0076 kept
-  `complete` free of for this.
+  `CompletionJob` and `CompletionReport`, with `Candidates::pending` for the count. The editor
+  gains `Editor::take_completion_job`, `Editor::completion_reported`, and
+  `Editor::completion_pending` for the count and the keys held. The job depends on nothing of
+  the editor, which ADR 0076 kept `complete` free of for this.
 - **The generation is shared with the worker.** The UI raises it with each job, and the worker reads
   it every 1024 candidates and between the build's steps. A job superseded midway stops there and
   reports nothing.
@@ -123,8 +124,8 @@ The author decided this on 2026-11-09, through the coordinator.
 - A key in a long list shows its result a few milliseconds later than it would on the UI thread. In
   exchange, the frame for the key, the cursor and the typed text is never late.
 - A key held by `RET` or `TAB` shows nothing until the result comes. The count's `…` says why.
-- `complete` gains two public types and the editor two public methods. The host needs a
-  `UserEvent` and a file of its own.
+- `complete` gains two public types and a method, and the editor three public methods. The host
+  needs a `UserEvent` and a file of its own, and the dispatcher a file for the keys it holds.
 
 ## Alternatives considered
 

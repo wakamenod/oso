@@ -404,3 +404,27 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_match_on_the_worker_gives_what_matching_here_gives() {
+    use std::sync::atomic::AtomicU64;
+
+    use super::{CompletionJob, CompletionReport, Report};
+    let items: Arc<[Candidate]> = (0..6000)
+        .map(|index| Candidate::new(format!("name {index}"), "", ""))
+        .collect();
+    let mut here = Candidates::new(Arc::clone(&items), []);
+    let mut there = Candidates::new(items, []);
+    // Narrowing, a new component, one taken back, and a regular expression.
+    for input in ["1", "12", "12 3", "2", "na.*9", ""] {
+        here.set_input(input);
+        let live = Arc::new(AtomicU64::new(1));
+        let job = CompletionJob::matching(there.matching(input).unwrap(), 1, live);
+        let Some(CompletionReport(Report::Matched { matched, .. })) = job.run() else {
+            panic!("matched");
+        };
+        there.apply(matched);
+        assert_eq!(here.matches, there.matches, "{input:?}");
+        assert_eq!(here.exact, there.exact, "{input:?}");
+    }
+}

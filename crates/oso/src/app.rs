@@ -16,6 +16,7 @@ use oso_core::window::WheelRemainder;
 
 mod agent;
 mod clipboard;
+mod completions;
 #[cfg(feature = "dev")]
 mod control;
 mod copies;
@@ -69,6 +70,8 @@ pub enum UserEvent {
     Clipboard(clipboard::ClipboardEvent),
     /// isearch's worker found or counted something (ADR 0082).
     Search(oso_core::editor::SearchReport),
+    /// The completion worker built a list or matched an input (ADR 0096).
+    Completion(oso_core::complete::CompletionReport),
     /// The lister answered a prompt that reads a path (ADR 0087).
     Listed,
     /// A control socket request, in dev builds.
@@ -127,6 +130,8 @@ pub struct App {
     clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
+    /// The completion worker, for a list past 5000 candidates (ADR 0096).
+    completer: completions::Completer,
     /// The threads that list directories for a prompt that reads a path (ADR 0087).
     lister: crate::lister::Lister,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
@@ -192,6 +197,7 @@ impl App {
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
+            completer: completions::Completer::default(),
             lister,
             log_gate,
             agent: agent::Agent::default(),

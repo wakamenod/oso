@@ -417,8 +417,8 @@ before running it, and a command that has to ask leaves a question whose `y` run
 command of its own, which checks again. `C-g` does one thing at a time, in
 `Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). A prompt that
 completes keeps its candidates in the editor (`oso_core::complete`): orderless matching in an
-order fixed as it opens, matched once each command ends, on the UI thread up to 5000 candidates,
-in a float at the center of the frame.
+order fixed as it opens, matched once each command ends, on the UI thread up to 5000 candidates
+and on a worker past that, in a float at the center of the frame.
 `M-x` reads a command's name through `ArgSpec::Command`, and the dispatcher runs that command
 with `M-x`'s prefix argument ([ADR 0076](adr/0076-completion-and-m-x.md)).
 
@@ -449,6 +449,12 @@ The UI thread never blocks on I/O or parsing:
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- A prompt's list past 5000 candidates is built and matched on a thread of its own
+  (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
+  by the next through a generation. The rows shown stay and the count says `…` until the result
+  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`). A look at a
+  row patches it, with no new list
+  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).

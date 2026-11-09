@@ -32,6 +32,7 @@ pub use args::Given;
 pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
+mod held;
 mod keymaps;
 mod prompts;
 
@@ -71,6 +72,8 @@ pub struct Dispatcher {
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
+    /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
+    completion_held: Option<held::Held>,
 }
 
 impl Dispatcher {
@@ -110,6 +113,7 @@ impl Dispatcher {
             publisher: None,
             waiting: None,
             from_socket: false,
+            completion_held: None,
         }
     }
 
@@ -373,6 +377,8 @@ impl Dispatcher {
     }
 
     fn run_text(&mut self, editor: &mut Editor, text: &str, step: Step) -> Effects {
+        // Text changes the input, so a key held for its older result is dropped (ADR 0096).
+        self.drop_held_completion();
         // Text answers no question, and says so, as another key does.
         if editor
             .prompt()
@@ -562,6 +568,9 @@ impl Dispatcher {
             Key::Named(_) => None,
         };
         let args = Args::with_prefix(self.prefix.take());
+        if self.hold_for_completion(editor, id, args) {
+            return Effects::default();
+        }
         let invocation = Invocation {
             input,
             key_char,
@@ -585,6 +594,8 @@ mod emergency_tests;
 mod file_tests;
 #[cfg(test)]
 mod grid_tests;
+#[cfg(test)]
+mod held_tests;
 #[cfg(test)]
 mod ime_tests;
 #[cfg(test)]

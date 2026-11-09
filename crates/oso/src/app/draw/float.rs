@@ -50,9 +50,9 @@ impl<'a> Parts<'a> {
         });
         let list = prompt.candidates().map(|candidates| {
             let place = candidates.selected().map_or(0, |place| place + 1);
-            // While a listing is on its way, the rows shown stay and the count says so
-            // (ADR 0076, ADR 0087).
-            let count = if editor.files_pending() {
+            // While a listing or a worker's result is on its way, the rows shown stay and the
+            // count says so (ADR 0076, ADR 0087, ADR 0096).
+            let count = if editor.files_pending() || candidates.pending() {
                 "…/…".to_owned()
             } else {
                 {
