@@ -7,6 +7,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+mod buffers;
 mod complete;
 #[cfg(feature = "dev")]
 mod dev_tools;
@@ -41,6 +42,7 @@ const TABLES: &[&[Command]] = &[
     isearch::COMMANDS,
     kill::COMMANDS,
     mark::COMMANDS,
+    buffers::COMMANDS,
     messages::COMMANDS,
     minibuffer::COMMANDS,
     motion::COMMANDS,
@@ -146,6 +148,7 @@ mod tests {
             "answer-yes",
             "execute-extended-command",
             "exit-minibuffer",
+            "exit-minibuffer-input",
             "first-completion",
             "insert-completion",
             "last-completion",
@@ -164,6 +167,11 @@ mod tests {
             "emergency-copy-view",
             "recover-session",
             "revert-buffer",
+            // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
+            "consult-mark",
+            // Killing a buffer, which can lose unsaved text (ADR 0088).
+            "kill-buffer",
+            "kill-buffer-anyway",
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",

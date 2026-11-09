@@ -165,6 +165,12 @@ impl Window {
         Some(self.0.secure_input())
     }
 
+    /// The steps of the last live resize and the frames drawn for them, for the dev socket.
+    #[cfg(feature = "dev")]
+    pub(super) fn live_resize(&self) -> Option<(u32, u32)> {
+        Some(self.0.live_resize_counts())
+    }
+
     /// Whether the view gives the input method a context, for the dev socket.
     #[cfg(feature = "dev")]
     pub(super) fn input_context(&self) -> Option<(bool, bool)> {

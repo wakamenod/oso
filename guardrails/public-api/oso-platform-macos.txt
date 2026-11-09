@@ -572,6 +572,7 @@ pub fn oso_platform::window::Window::discard_composition(&self)
 pub fn oso_platform::window::Window::ime_excerpt_extent(&self) -> core::option::Option<(usize, usize)>
 pub fn oso_platform::window::Window::inner_size(&self) -> (u32, u32)
 pub fn oso_platform::window::Window::input_context(&self) -> (bool, bool)
+pub fn oso_platform::window::Window::live_resize_counts(&self) -> (u32, u32)
 pub fn oso_platform::window::Window::outer_position(&self) -> core::option::Option<(i32, i32)>
 pub fn oso_platform::window::Window::redraw_when_visible(&self)
 pub fn oso_platform::window::Window::render_target(&self) -> oso_platform::window::RenderTarget

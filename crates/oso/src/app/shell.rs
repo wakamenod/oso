@@ -184,6 +184,12 @@ impl Window {
         None
     }
 
+    /// winit draws a live resize its own way, and counts nothing.
+    #[cfg(feature = "dev")]
+    pub(super) fn live_resize(&self) -> Option<(u32, u32)> {
+        None
+    }
+
     /// winit keeps the input context to itself, so the dev socket reports none.
     #[cfg(feature = "dev")]
     pub(super) fn input_context(&self) -> Option<(bool, bool)> {

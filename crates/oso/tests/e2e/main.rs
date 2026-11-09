@@ -9,7 +9,9 @@
 // The control socket supports only Unix for now (ADR 0032).
 #![cfg(unix)]
 
+mod buffers;
 mod complete;
+mod handover;
 mod harness;
 mod ime;
 mod isearch;
@@ -561,7 +563,7 @@ fn the_modeline_and_the_echo_area_say_what_the_editor_does_and_get_a_frame() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn typed_keys_reach_the_text_and_hold_the_handover_until_undone() {
+fn typed_keys_reach_the_text_and_change_the_generation_until_undone() {
     let scratch = Scratch::new("typing");
     let file = scratch.write("notes.txt", b"on disk\n");
     let mut app = App::start(Some(&file), scratch.path());
@@ -571,10 +573,8 @@ fn typed_keys_reach_the_text_and_hold_the_handover_until_undone() {
     app.send_keys("a 語 RET");
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 2 })));
     assert_eq!(text["rows"], json!(["a語", "on disk"]));
-    assert!(
-        app.try_call("check-handover", None).is_err(),
-        "a modified buffer holds a restart",
-    );
+    let edited = app.call("check-handover", None)["generation"].clone();
+    assert_ne!(edited, clean, "the edit is text only this instance holds");
 
     app.send_keys("C-z C-z");
     let text = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1 })));
@@ -584,7 +584,7 @@ fn typed_keys_reach_the_text_and_hold_the_handover_until_undone() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
+fn an_edit_changes_the_generation_and_a_generation_guards_the_exit() {
     let scratch = Scratch::new("unsaved");
     let file = scratch.write("notes.txt", b"on disk\n");
     let mut app = App::start(Some(&file), scratch.path());
@@ -595,16 +595,12 @@ fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
 
     app.send_keys(UNSAVED_KEYS);
 
-    // No way of asking gives the text, and each names the buffer.
+    // Neither way of asking gives the text: the state names its length only.
     for method in ["check-handover", "export-state"] {
         let line = app.exchange(method, None).unwrap_or_else(|e| panic!("{e}"));
         assert!(!line.contains(UNSAVED), "{method} quotes the text");
         let response: Value = serde_json::from_str(&line).expect("a JSON response");
-        let message = response["error"]["message"].as_str();
-        assert!(
-            message.is_some_and(|message| message.contains("notes.txt")),
-            "{method} did not refuse by name: {message:?}",
-        );
+        assert_ne!(response["result"]["generation"], checked, "{method}");
     }
 
     // The exit a supervisor makes is refused, and the instance goes on.
@@ -652,17 +648,13 @@ fn an_edit_holds_the_handover_and_a_generation_guards_the_exit() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn a_save_reaches_the_disk_and_lets_a_held_restart_through() {
+fn a_save_reaches_the_disk_and_a_restart_reads_the_file_again() {
     let scratch = Scratch::new("save");
     let file = scratch.write("notes.txt", b"on disk\n");
     let mut app = App::start(Some(&file), scratch.path());
     app.wait_until_ready();
 
     app.send_keys(UNSAVED_KEYS);
-    assert!(
-        app.try_call("check-handover", None).is_err(),
-        "a modified buffer holds a restart",
-    );
     app.send_keys("C-x C-s");
     app.wait_for("the save to end", |state| {
         state["buffer"]["saving"] == false && state["buffer"]["modified"] == false
@@ -676,9 +668,10 @@ fn a_save_reaches_the_disk_and_lets_a_held_restart_through() {
         .count();
     assert_eq!(names, 1, "nothing is left beside the file");
 
-    // The restart that was held now goes through, and the new instance reads the file.
+    // Saved, nothing is carried, and the new instance reads the file.
     let generation = app.call("check-handover", None)["generation"].clone();
     let state = app.call("export-state", None);
+    assert_eq!(state["items"], json!([]), "the saved text is not carried");
     let mut new = App::start(None, scratch.path());
     new.wait_until_ready();
     new.call("import-state", Some(json!({ "state": state })));
@@ -1073,7 +1066,7 @@ fn the_system_asking_the_app_to_quit_writes_the_copies() {
     } else {
         app.ask_to_quit()
     };
-    assert!(asked, "osascript could not ask");
+    asked.unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
     assert!(app.wait_for_exit().success());
     let copies = read_copies(&emergency_dir(scratch.path()));
     assert_eq!(copies.len(), 1);
@@ -1094,14 +1087,16 @@ fn a_persons_quit_asks_the_exit_question() {
     let question = |state: &Value| {
         state["prompts"][0]["prompt"] == "1 modified buffer; exit without saving? (y or n)"
     };
-    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.ask_to_quit()
+        .unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
     app.wait_for("the exit question", question);
     app.send_keys("n");
     let state = app.wait_for("the question answered", |state| {
         state["prompts"] == json!([])
     });
     assert_eq!(state["buffer"]["modified"], true, "still here");
-    assert!(app.ask_to_quit(), "osascript could not ask");
+    app.ask_to_quit()
+        .unwrap_or_else(|said| panic!("osascript could not ask: {said}"));
     app.wait_for("the exit question again", question);
     // It may exit before answering.
     let _ = app.exchange("send-keys", Some(json!({ "keys": "y" })));
@@ -1158,7 +1153,11 @@ fn a_failing_test_leaves_nothing_behind_and_other_instances_alone() {
     // Real input can move its positions and size, since its window is on the
     // screen for anyone to scroll. CI has no such input, so there nothing may
     // change. `App::start` checks that sockets lead to the right instance.
+    // AppKit's current input context belongs to the key window, which the inner instance's
+    // window takes when it opens, so on the native layer whether it is the bystander's follows
+    // focus, not anything the bystander did.
     let mut changed = changed_fields(&before, &bystander.state());
+    changed.retain(|field| field != "ime.current_input_context");
     changed.retain(|field| on_ci() || field == "buffers");
     assert!(
         changed.is_empty(),

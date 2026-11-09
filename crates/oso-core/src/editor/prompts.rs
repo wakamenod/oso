@@ -11,7 +11,6 @@
 
 use super::Editor;
 use crate::buffer::{Buffer, Replacement};
-use crate::complete::Candidates;
 use crate::minibuffer::{
     self, Kind, MAX_DEPTH, Outcome, Prompt, PromptError, PromptId, PromptLayout,
 };
@@ -156,21 +155,61 @@ impl Editor {
     /// with nothing matching, which the prompt then says, staying open. A prompt that
     /// completes gives its selected candidate (ADR 0076).
     pub fn submit_prompt(&mut self) -> Result<(), PromptError> {
+        self.submit(false)
+    }
+
+    /// Gives what is typed in the innermost prompt, whatever candidate is selected, as `M-RET`
+    /// does in a prompt that takes any text (`vertico-exit-input`). Elsewhere it is
+    /// [`Editor::submit_prompt`].
+    ///
+    /// # Errors
+    ///
+    /// As [`Editor::submit_prompt`].
+    pub fn submit_typed(&mut self) -> Result<(), PromptError> {
+        self.submit(true)
+    }
+
+    fn submit(&mut self, typed: bool) -> Result<(), PromptError> {
         let completes = matches!(self.prompt().map(Prompt::kind), Some(Kind::Complete { .. }));
         // What was typed last is matched first.
         self.match_completion();
         // Around a secret no history orders the list, so its first candidate is no choice: an
         // empty answer takes one only once the person moved to it (ADR 0076).
+        // A list in an order of its own, as buffers most recent first, needs no history to make
+        // its first a choice (ADR 0088).
         let unchosen = self.prompt().is_some_and(|prompt| {
-            prompt.around_secret && prompt.candidates().is_some_and(Candidates::defaulted)
+            prompt.around_secret
+                && prompt.candidates().is_some_and(|candidates| {
+                    candidates.defaulted() && !candidates.in_order_given()
+                })
         });
-        if completes && unchosen {
+        // What is typed goes as it is only in a prompt that takes any text, and only once
+        // something is typed: otherwise `M-RET` is `RET`.
+        let typed_given = typed
+            && self.prompt().is_some_and(|prompt| {
+                prompt
+                    .candidates()
+                    .is_some_and(crate::complete::Candidates::takes_input)
+                    && self
+                        .buffer(prompt.buffer)
+                        .is_some_and(|buffer| !buffer.text().is_empty())
+            });
+        let typed = typed_given;
+        if completes && unchosen && !typed {
             self.prompt_says("Type a name, or move to one");
             return Err(PromptError::Invalid);
         }
-        let selected = if completes {
+        let (takes_input, on_input) = self
+            .prompt()
+            .and_then(Prompt::candidates)
+            .map_or((false, false), |candidates| {
+                (candidates.takes_input(), candidates.on_input())
+            });
+        let selected = if completes && !on_input && !(typed && takes_input) {
             match self.selected_completion() {
                 Ok(text) => Some(text),
+                // A prompt that takes any text gives what is typed (ADR 0087, ADR 0088).
+                Err(PromptError::Invalid) if takes_input => None,
                 Err(PromptError::Invalid) => {
                     self.prompt_says("No match");
                     return Err(PromptError::Invalid);
@@ -198,6 +237,8 @@ impl Editor {
         if let Some(prompt) = self.close_innermost()
             && records
             && let Some(name) = prompt.kind.history()
+            // An empty name is no history, as `C-.`'s rows are the buffer's text (ADR 0088).
+            && !name.is_empty()
         {
             self.histories.record(name, text.trim());
         }
@@ -227,6 +268,18 @@ impl Editor {
     /// How the last prompt to end ended, once, for the dispatcher.
     pub fn take_prompt_outcome(&mut self) -> Option<Outcome> {
         self.outcome.take()
+    }
+
+    /// Each history's name and answers, the newest first, which `oso dev` carries to the
+    /// instance that replaces this one (ADR 0090).
+    pub fn histories(&self) -> impl Iterator<Item = (&str, impl Iterator<Item = &str>)> {
+        self.histories.all()
+    }
+
+    /// Puts answers another instance's history `name` held behind what this one holds, the
+    /// newest first, leaving out what a history would not keep (ADR 0090).
+    pub fn carry_history(&mut self, name: &str, newest_first: impl IntoIterator<Item = String>) {
+        self.histories.extend_older(name, newest_first);
     }
 
     /// Puts the answer `older` steps from where the innermost prompt's history walk is in
@@ -317,6 +370,7 @@ impl Editor {
                     &prompt.label,
                     message,
                     candidates.total(),
+                    candidates.previews(),
                 ),
                 None => minibuffer::layout(&self.frame, &prompt.label, prompt.kind, message),
             }
@@ -337,6 +391,7 @@ impl Editor {
             self.window_moves_on();
         }
         let prompt = self.prompts.pop()?;
+        self.forget_marks(prompt.id);
         self.windows.pop();
         self.selected = prompt.beneath;
         let id = prompt.buffer;

@@ -24,7 +24,7 @@ use std::thread;
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
 use oso_core::complete::Candidates;
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
-use oso_core::editor::{Editor, Isearch, Status};
+use oso_core::editor::{Editor, Isearch, Preview, Status};
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
@@ -241,24 +241,32 @@ fn prompts_state(editor: &Editor) -> Value {
                 "completion": prompt
                     .candidates()
                     .filter(|_| shown && index + 1 == count)
-                    .map(|candidates| completion_state(candidates, editor.candidate_rows())),
+                    .map(|candidates| completion_state(editor, candidates)),
             })
         })
         .collect()
 }
 
-/// How many candidates match of how many, which is selected, and the names of those in the
-/// rows shown, as the float shows them (ADR 0076).
-fn completion_state(candidates: &Candidates, shown: usize) -> Value {
+/// How many candidates match of how many, which is selected, the names of those in the rows
+/// shown, as the float shows them (ADR 0076), whether what is typed is selected, and which
+/// buffer the preview shows, by id and never its text, or `null` when it shows none or withholds
+/// it (ADR 0088).
+fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
     let rows = candidates
-        .shown(shown)
+        .shown(editor.candidate_rows())
         .map(|(_, candidate)| candidate.text())
         .collect::<Vec<_>>();
+    let preview = match editor.preview() {
+        Some(Preview::Buffer { id, .. }) => Some(id.get()),
+        Some(Preview::Withheld) | None => None,
+    };
     json!({
         "count": candidates.len(),
         "total": candidates.total(),
         "selected": candidates.selected(),
+        "typed": candidates.on_input(),
         "rows": rows,
+        "preview": preview,
     })
 }
 

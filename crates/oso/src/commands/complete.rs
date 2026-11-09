@@ -13,6 +13,13 @@ use oso_core::minibuffer::PromptError;
 /// The commands of completion.
 pub const COMMANDS: &[Command] = &[
     Command {
+        name: "exit-minibuffer-input",
+        doc: "Give what is typed, not the selected candidate, as vertico's `vertico-exit-input`.\n\nIn a prompt that takes only a candidate it gives the selected one, as `RET` does.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: exit_minibuffer_input,
+    },
+    Command {
         name: "execute-extended-command",
         doc: "Read a command's name, with completion, and run it.\n\nThe prefix argument given before goes to that command: `C-u 3 M-x forward-char` moves three characters. The commands run last come first.",
         args: ArgSpec::Command {
@@ -75,6 +82,15 @@ pub const COMMANDS: &[Command] = &[
 
 /// Never reached: the dispatcher reads the name and runs that command instead, and
 /// `run-command` refuses it.
+fn exit_minibuffer_input(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ctx.request_redraw();
+    match ctx.editor.submit_typed() {
+        // The prompt said why, and stays.
+        Ok(()) | Err(PromptError::Invalid) => Ok(()),
+        Err(error) => Err(CommandError::new(error.to_string())),
+    }
+}
+
 fn execute_extended_command(_: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     Err(CommandError::new("Run a command through M-x"))
 }
