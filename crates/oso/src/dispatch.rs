@@ -29,6 +29,7 @@ mod agent;
 mod args;
 mod buffers;
 pub use args::Given;
+pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
 mod keymaps;

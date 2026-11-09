@@ -41,7 +41,7 @@ fn annotation(buffer: &Buffer, home: Option<&Path>) -> String {
 }
 
 /// A size as `ls -h` writes it: `812`, `1.2k`, `34M`.
-pub(super) fn size(bytes: usize) -> String {
+pub(crate) fn size(bytes: usize) -> String {
     const UNITS: [&str; 4] = ["k", "M", "G", "T"];
     if bytes < 1024 {
         return bytes.to_string();
