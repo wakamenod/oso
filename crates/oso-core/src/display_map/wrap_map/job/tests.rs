@@ -207,7 +207,10 @@ fn far_apart_places_typed_in_during_a_job_stay_apart_once_it_reports() {
 /// replaced, with no empty edit.
 #[test]
 fn a_lower_join_reaching_an_upper_one_joins_with_it() {
-    let mut window = Window::new("日本語word ab日本語ab 。abword abcdefghijabcdefghij abab", 16);
+    let mut window = Window::new(
+        "日本語word ab日本語ab 。abword abcdefghijabcdefghij abab",
+        16,
+    );
     window.command(&[(19, 0, "\n")]);
     let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
     window.command(&[(29, 1, "")]);

@@ -29,8 +29,10 @@ const CLUSTER_CHECK: usize = 2 * SEEK_COST;
 /// clusters after it that decide a break.
 const AFTER_WORD: usize = 4 * SEEK_COST + 4 * MAX_CLUSTER_BYTES;
 
-/// What `M-b` may read past a match to find that the word starts there: its seeks, and a
-/// backward window of the widest clusters.
+/// What `M-b` may read past a match to find that the word starts there: a fixed cap, its
+/// seeks and as many bytes as two backward windows of the widest clusters once read.
+/// Reading back by offset (ADR 0101) charges a seek for each stretch, so the longest word a
+/// query holds, of four-byte letters, takes most of what this leaves after it.
 const BEFORE_WORD: usize = 4 * SEEK_COST + 2 * BACK_WINDOW * MAX_CLUSTER_BYTES;
 
 /// Which way a search for cursors goes.
