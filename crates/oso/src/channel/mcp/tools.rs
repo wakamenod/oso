@@ -134,7 +134,7 @@ fn acting_tools() -> Vec<Value> {
         "name": { "type": "string", "description": "A command's name, as `commands` lists it." },
         "arg": {
             "type": ["integer", "string"],
-            "description": "A count or a number for a command that takes one, or text for one that reads text.",
+            "description": "A count or a number for a command that takes one, text for one that reads text, or the name of a buffer `state` lists for `switch-to-buffer`.",
         },
     });
     vec![

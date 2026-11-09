@@ -1,6 +1,6 @@
 # 0094. Buffers already open, and switching buffers, for the agent channel
 
-- Status: Accepted
+- Status: Accepted, amended by 0095
 - Date: 2026-11-09
 
 ## Context

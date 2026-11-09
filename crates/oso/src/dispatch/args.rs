@@ -49,8 +49,9 @@ pub fn map(
         (ArgSpec::Command { .. }, _) => Err(format!(
             "{name} reads a command's name; run the command itself"
         )),
-        // A name the agent gives would be text for a prompt that completes, with rules of its
-        // own: none is given yet.
+        // Only its prompt reads a buffer's name. The agent channel's switch to a buffer by name
+        // never comes here: `Dispatcher::run_for_agent` resolves the name to a buffer it may
+        // show, and shows it (ADR 0094, ADR 0095).
         (ArgSpec::Buffer { .. }, _) => Err(format!(
             "{name} reads a buffer's name, which only its prompt takes, from keys"
         )),
@@ -82,7 +83,7 @@ pub fn map(
 #[cfg(test)]
 mod tests {
     use super::{Given, Mapped, map};
-    use oso_core::command::{ArgSpec, Args, Prefix};
+    use oso_core::command::{ArgSpec, Args, BufferPurpose, Prefix};
 
     const NUMBER: ArgSpec = ArgSpec::Number {
         prompt: "Go to line: ",
@@ -161,9 +162,17 @@ mod tests {
         let buffer = ArgSpec::Buffer {
             prompt: "Switch to buffer: ",
             history: "buffer",
-            purpose: oso_core::command::BufferPurpose::Switch,
+            purpose: BufferPurpose::Switch,
         };
         assert!(refused(buffer, Given::Text("notes")).contains("buffer's name"));
+        assert!(refused(buffer, Given::Nothing).contains("buffer's name"));
+        assert!(refused(buffer, Given::Count(1)).contains("buffer's name"));
+        let kill = ArgSpec::Buffer {
+            prompt: "Kill buffer: ",
+            history: "buffer",
+            purpose: BufferPurpose::Kill,
+        };
+        assert!(refused(kill, Given::Text("notes")).contains("buffer's name"));
         let mark = ArgSpec::Mark {
             prompt: "Go to mark: ",
         };

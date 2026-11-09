@@ -183,6 +183,26 @@ fn an_agent_drives_only_once_the_person_lets_it_in_and_by_reach() {
     thread::sleep(AFTER_TYPING);
     assert!(agent.run("forward-char", None, "look").is_ok());
 
+    // It shows a buffer C-x b lists by its name, and makes none for a name that matches none.
+    let switch = |agent: &mut Agent, name: &str| {
+        let params = json!({ "name": "switch-to-buffer", "arg": name, "reach": "look" });
+        agent.call("run", Some(params))
+    };
+    let switched = switch(&mut agent, "*Messages*");
+    assert!(switched.is_ok(), "{switched:?}");
+    assert_eq!(app.state()["buffer"]["name"], "*Messages*");
+    let buffers = app.state()["buffers"].as_array().map(Vec::len);
+    let missing = switch(&mut agent, "missing.md").unwrap_err();
+    assert!(missing.contains("no buffer by that name"), "{missing}");
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "*Messages*");
+    assert_eq!(
+        state["buffers"].as_array().map(Vec::len),
+        buffers,
+        "no buffer made"
+    );
+    assert!(buffers.is_some());
+
     // The person turns it off: the agent's connection closes, and so does the socket.
     app.run_command("agent-channel-stop", None).unwrap();
     assert!(agent.reply().is_none(), "the connection closed");
@@ -222,6 +242,17 @@ fn the_agent_keeps_kills_from_the_clipboard_and_runs_nothing_beside_a_secret() {
     assert!(refused.contains("may hold secrets"), "{refused}");
     let state = agent.call("state", None).unwrap();
     assert_eq!(state["text"], Value::Null);
+    assert!(!state.to_string().contains(FAKE_SECRET));
+
+    // Once the person goes back, the agent cannot bring the secret buffer back by its name.
+    app.send_keys("C-x b RET");
+    app.wait_for("notes.txt", |state| state["buffer"]["name"] == "notes.txt");
+    thread::sleep(AFTER_TYPING);
+    let params = json!({ "name": "switch-to-buffer", "arg": ".env", "reach": "look" });
+    let refused = agent.call("run", Some(params)).unwrap_err();
+    assert!(refused.contains("may hold secrets"), "{refused}");
+    assert_eq!(app.state()["buffer"]["name"], "notes.txt");
+    let state = agent.call("state", None).unwrap();
     assert!(!state.to_string().contains(FAKE_SECRET));
 }
 
