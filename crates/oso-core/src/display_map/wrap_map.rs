@@ -269,7 +269,7 @@ impl Iterator for RowStream<'_> {
 
 /// The offset of the buffer's end.
 fn buffer_end(display: &DisplaySnapshot) -> usize {
-    display.display_point_to_offset(display.max_point(), Bias::Left)
+    display.len()
 }
 
 /// Where logical line `line` ends, past its line break: the next line's start, or the
@@ -427,6 +427,33 @@ impl WrapSnapshot {
                     column: display.offset_to_display_point(offset).column,
                     continues: this.continues,
                 }
+            }
+        }
+    }
+
+    /// Where view row `row` starts and ends, and whether its line goes on past it, without
+    /// the column a [`ViewRow`] gives, which costs a scan of its line.
+    fn row_span(&self, display: &DisplaySnapshot, row: usize) -> (usize, usize, bool) {
+        let mut cursor = self.tree.cursor::<(ViewRows, Start)>();
+        cursor.seek(&ViewRows(row), Bias::Right);
+        let start = cursor.start().1;
+        match cursor.item() {
+            Some(WrapItem::Rows(rows)) => {
+                let index = row - start.rows;
+                let offset = start.bytes
+                    + rows[..index]
+                        .iter()
+                        .map(|row| row.len as usize)
+                        .sum::<usize>();
+                (
+                    offset,
+                    offset + rows[index].len as usize,
+                    rows[index].continues,
+                )
+            }
+            _ => {
+                let row = self.row(display, row);
+                (row.start, row.end, row.continues)
             }
         }
     }

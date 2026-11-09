@@ -7,7 +7,7 @@
 
 use super::breaks;
 use super::{Builder, Bytes, Row, RowStream, Start, WrapItem, WrapSnapshot};
-use crate::display_map::{DisplayPoint, DisplaySnapshot};
+use crate::display_map::{DisplaySnapshot, MAX_CLUSTER_BYTES};
 use crate::rope::RopeEdit;
 use crate::sum_tree::{Bias, Cursor};
 
@@ -58,27 +58,29 @@ impl WrapSnapshot {
     /// kinsoku's reach. `at` and what precedes it read the same in `display` as before.
     fn rewrap_start(&self, display: &DisplaySnapshot, at: usize) -> usize {
         let mut row = self.row_of(display, at);
-        let mut start = self.row(display, row);
+        let mut start = self.row_span(display, row).0;
         for _ in 0..=breaks::KINSOKU_REACH {
             if row == 0 {
                 break;
             }
-            let before = self.row(display, row - 1);
-            if !before.continues {
+            let (before, end, continues) = self.row_span(display, row - 1);
+            if !continues {
                 break;
             }
             row -= 1;
-            let short = display
-                .clusters(DisplayPoint::new(before.line, before.column))
-                .take_while(|cluster| cluster.offset < before.end)
-                .nth(breaks::KINSOKU_REACH)
-                .is_none();
             start = before;
+            // A row longer than two clusters can be holds more than two.
+            let short = end - before <= 2 * MAX_CLUSTER_BYTES
+                && display
+                    .clusters(display.offset_to_display_point(before))
+                    .take_while(|cluster| cluster.offset < end)
+                    .nth(breaks::KINSOKU_REACH)
+                    .is_none();
             if !short {
                 break;
             }
         }
-        start.start
+        start
     }
 
     /// Whether a row started at `old` in `before`, as one now starts at `at`, the same place

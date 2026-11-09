@@ -251,6 +251,11 @@ impl DisplaySnapshot {
         self.tab_map.invalid()
     }
 
+    /// The buffer's length in bytes.
+    pub(crate) fn len(&self) -> usize {
+        self.tab_map.summary().bytes
+    }
+
     /// The tab width.
     pub(crate) fn tab_width(&self) -> TabWidth {
         self.tab_map.tab_width()
