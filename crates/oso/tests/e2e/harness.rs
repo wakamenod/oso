@@ -75,6 +75,33 @@ const INSTANCE_ENV: [&str; 7] = [
     "XDG_SESSION_TYPE",
 ];
 
+/// Under a Wayland compositor, panics if its socket is not where `WAYLAND_DISPLAY` says,
+/// before an instance would fail to connect to it, so that the first flow to see it says
+/// so. Elsewhere it checks nothing.
+fn compositor_is_there() {
+    use std::os::unix::fs::FileTypeExt;
+    let Some(display) = std::env::var_os("WAYLAND_DISPLAY") else {
+        return;
+    };
+    let display = PathBuf::from(display);
+    let socket = if display.is_absolute() {
+        display
+    } else {
+        let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") else {
+            return;
+        };
+        PathBuf::from(runtime).join(display)
+    };
+    match fs::symlink_metadata(&socket) {
+        Ok(meta) if meta.file_type().is_socket() => {}
+        Ok(_) => panic!(
+            "the compositor's socket {} is no socket now",
+            socket.display()
+        ),
+        Err(e) => panic!("the compositor's socket {} is gone: {e}", socket.display()),
+    }
+}
+
 /// The dev build cargo built for this test.
 fn oso() -> Executable {
     Executable::absolute(env!("CARGO_BIN_EXE_oso")).expect("cargo builds the binary for this test")
@@ -520,6 +547,7 @@ struct Process {
 
 impl Process {
     fn start(args: &[OsString], cwd: &Path) -> Self {
+        compositor_is_there();
         let mut child = spawn(&Spawn {
             executable: &oso(),
             args,
