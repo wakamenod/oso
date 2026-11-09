@@ -7,12 +7,14 @@ use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
 use oso_core::editor::VisualAids;
 
 /// The commands for the visual aids. They change only what is drawn, and nothing on disk.
+/// Whitespace's marks are the person's: they show lookalike spaces, so the agent channel may
+/// not turn them off before the person reads a file (ADR 0097).
 pub const COMMANDS: &[Command] = &[
     Command {
         name: "global-whitespace-mode",
         doc: "Toggle marking whitespace in every buffer.\n\nTabs, full-width and other non-ASCII spaces get a mark, and trailing whitespace a fill, but on a line with a cursor. A positive prefix argument turns it on, zero or a negative one off.",
         args: ArgSpec::Count,
-        reach: Reach::Look,
+        reach: Reach::Person,
         run: global_whitespace_mode,
     },
     Command {

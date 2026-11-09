@@ -54,6 +54,9 @@ and nothing remembered. The rest is settled here.
   and lasting choices belong to M3's configuration.
 - **Reach `Look`:** they change only what is drawn, and nothing on disk
   ([ADR 0085](0085-agent-channel-and-oso-mcp.md)).
+  - Erratum (2026-11-09, the author's choice): `global-whitespace-mode` is `Person`. Its
+    marks show lookalike spaces, so the agent channel may not turn them off before the
+    person reads a file. The other three stay `Look`.
 - **`get-state`** reports which aids are on.
 - **An `oso dev` restart** carries the switches in its handoff:
   - a handoff without them starts from the defaults, so `STATE_VERSION` stays;

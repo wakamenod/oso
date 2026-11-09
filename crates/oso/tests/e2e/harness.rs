@@ -134,6 +134,15 @@ impl App {
         app
     }
 
+    /// Turns the visual aids off, for a flow that reads pixels: the current line's band would
+    /// fill the cursor's row (ADR 0097). Each says so in the echo area.
+    pub fn visual_aids_off(&mut self) {
+        for aid in ["global-hl-line-mode", "global-whitespace-mode"] {
+            self.run_command(aid, Some(0))
+                .unwrap_or_else(|e| panic!("{aid}: {e}"));
+        }
+    }
+
     /// The instance's process ID.
     pub fn pid(&self) -> u32 {
         self.process.child.id()

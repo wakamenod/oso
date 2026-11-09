@@ -193,6 +193,8 @@ mod tests {
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
+            // Whitespace's marks, which show lookalike spaces (ADR 0097).
+            "global-whitespace-mode",
             // The theme, which is the person's and is remembered on disk (ADR 0089).
             "load-theme",
             "toggle-theme",
