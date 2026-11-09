@@ -5,7 +5,7 @@
 //! Must not depend on: the channel's socket or protocol, or `app`; the host decides when the
 //! channel may run anything at all.
 
-use oso_core::command::{Invocation, MAX_REMOTE_COUNT, Reach};
+use oso_core::command::{ArgSpec, BufferPurpose, Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
 
 use super::args::{self, Given};
@@ -95,6 +95,9 @@ impl Dispatcher {
                 "the text times the cursors is more than {MAX_INSERTED} bytes"
             ));
         }
+        if let Some(why) = shows_what_it_may(editor, command.args, given) {
+            return refused(why.into());
+        }
         // Whatever the person's keys left stays theirs: the agent's command never takes it.
         let mapped = args::map(name, command.args, given, None).map_err(Refused)?;
         let invocation = Invocation {
@@ -115,6 +118,29 @@ impl Dispatcher {
         });
         editor.forget_kills();
         Ok(ran)
+    }
+}
+
+/// Why the buffer the agent names to show may not be shown, if it may not: it must be one
+/// `C-x b` lists, as the channel makes no buffer, and not one that may hold secrets
+/// (ADR 0094). The reason never quotes the name, which is the agent's text.
+fn shows_what_it_may(editor: &Editor, spec: ArgSpec, given: Given<'_>) -> Option<&'static str> {
+    let (
+        ArgSpec::Buffer {
+            purpose: BufferPurpose::Switch,
+            ..
+        },
+        Given::Text(name),
+    ) = (spec, given)
+    else {
+        return None;
+    };
+    match editor.buffer_named(name).and_then(|id| editor.buffer(id)) {
+        None => Some("no buffer by that name; the channel makes none"),
+        Some(buffer) if buffer.is_secret() => {
+            Some("that buffer may hold secrets, so it is not shown; ask the person")
+        }
+        Some(_) => None,
     }
 }
 
@@ -167,6 +193,49 @@ mod tests {
     }
 
     #[test]
+    fn switches_by_name_only_to_a_listed_buffer_that_may_be_shown() {
+        use std::path::PathBuf;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let todo = editor.add_buffer(Buffer::from_text("todo.md", "x"));
+        let env = PathBuf::from("/tmp/.env");
+        let mut secret = Buffer::visiting(env.clone());
+        secret.judge_secret(Some(&[env]));
+        editor.add_buffer(secret);
+        // Not judged yet: it may hold secrets until it is.
+        editor.add_buffer(Buffer::visiting(PathBuf::from("/tmp/later.txt")));
+        let buffers = editor.buffers().count();
+        let mut switch = |editor: &mut Editor, name| {
+            dispatcher.run_for_agent(editor, "switch-to-buffer", Given::Text(name), Reach::Look)
+        };
+        let (_, result) = switch(&mut editor, "todo.md").unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(editor.window().buffer(), todo);
+        let (_, result) = switch(&mut editor, "*Messages*").unwrap();
+        assert_eq!(result, Ok(()), "an internal buffer C-x b lists");
+        let messages = editor.window().buffer();
+        for (name, why) in [
+            ("missing.md", "no buffer by that name"),
+            (".env", "may hold secrets"),
+            ("later.txt", "may hold secrets"),
+        ] {
+            let Err(Refused(refused)) = switch(&mut editor, name) else {
+                panic!("{name} was shown");
+            };
+            assert!(refused.contains(why), "{name}: {refused}");
+            assert!(
+                !refused.contains(name),
+                "the agent's text is not quoted: {refused}"
+            );
+        }
+        assert_eq!(editor.window().buffer(), messages, "nothing else showed");
+        assert_eq!(
+            editor.buffers().count(),
+            buffers,
+            "the channel made no buffer"
+        );
+    }
+
+    #[test]
     fn refuses_what_needs_a_person_or_another_reach() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
         let mut refused =
@@ -184,12 +253,8 @@ mod tests {
         assert!(refused("delete-char", Given::Nothing, Reach::Look).contains("changes"));
         assert!(refused("forward-char", Given::Nothing, Reach::Change).contains("only looks"));
         assert!(refused("goto-line", Given::Nothing, Reach::Look).contains("needs a number"));
-        // Its name would be read in a prompt, which the channel never opens.
+        // Its name comes with it as text; no prompt opens for it.
         assert!(refused("switch-to-buffer", Given::Nothing, Reach::Look).contains("buffer's name"));
-        assert!(
-            refused("switch-to-buffer", Given::Text("notes"), Reach::Look)
-                .contains("buffer's name")
-        );
         assert!(
             refused("mark-whole-buffer", Given::Count(1), Reach::Look)
                 .contains("takes no argument")

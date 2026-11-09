@@ -4,7 +4,7 @@
 //!
 //! Must not depend on: the socket, the channel or `app`; this only maps a spec and a value.
 
-use oso_core::command::{ArgSpec, Args, Prefix};
+use oso_core::command::{ArgSpec, Args, BufferPurpose, Prefix};
 
 /// An argument given with a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,8 +49,15 @@ pub fn map(
         (ArgSpec::Command { .. }, _) => Err(format!(
             "{name} reads a command's name; run the command itself"
         )),
-        // A name the agent gives would be text for a prompt that completes, with rules of its
-        // own: none is given yet.
+        // The agent channel gives a buffer's name to show as text; its host checks the name
+        // names a buffer that may be shown (ADR 0094). A kill's name only a person gives.
+        (
+            ArgSpec::Buffer {
+                purpose: BufferPurpose::Switch,
+                ..
+            },
+            Given::Text(name),
+        ) => answered(name.to_owned()),
         (ArgSpec::Buffer { .. }, _) => Err(format!(
             "{name} reads a buffer's name, which only its prompt takes, from keys"
         )),
@@ -82,7 +89,7 @@ pub fn map(
 #[cfg(test)]
 mod tests {
     use super::{Given, Mapped, map};
-    use oso_core::command::{ArgSpec, Args, Prefix};
+    use oso_core::command::{ArgSpec, Args, BufferPurpose, Prefix};
 
     const NUMBER: ArgSpec = ArgSpec::Number {
         prompt: "Go to line: ",
@@ -161,9 +168,18 @@ mod tests {
         let buffer = ArgSpec::Buffer {
             prompt: "Switch to buffer: ",
             history: "buffer",
-            purpose: oso_core::command::BufferPurpose::Switch,
+            purpose: BufferPurpose::Switch,
         };
-        assert!(refused(buffer, Given::Text("notes")).contains("buffer's name"));
+        let switched = map("switch-to-buffer", buffer, Given::Text("notes"), None).unwrap();
+        assert_eq!(switched.answer.as_deref(), Some("notes"));
+        assert!(refused(buffer, Given::Nothing).contains("buffer's name"));
+        assert!(refused(buffer, Given::Count(1)).contains("buffer's name"));
+        let kill = ArgSpec::Buffer {
+            prompt: "Kill buffer: ",
+            history: "buffer",
+            purpose: BufferPurpose::Kill,
+        };
+        assert!(refused(kill, Given::Text("notes")).contains("buffer's name"));
         let mark = ArgSpec::Mark {
             prompt: "Go to mark: ",
         };

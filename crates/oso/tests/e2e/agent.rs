@@ -183,6 +183,18 @@ fn an_agent_drives_only_once_the_person_lets_it_in_and_by_reach() {
     thread::sleep(AFTER_TYPING);
     assert!(agent.run("forward-char", None, "look").is_ok());
 
+    // It shows a buffer C-x b lists by its name, and makes none for a name that matches none.
+    let switch = |agent: &mut Agent, name: &str| {
+        let params = json!({ "name": "switch-to-buffer", "arg": name, "reach": "look" });
+        agent.call("run", Some(params))
+    };
+    let switched = switch(&mut agent, "*Messages*");
+    assert!(switched.is_ok(), "{switched:?}");
+    assert_eq!(app.state()["buffer"]["name"], "*Messages*");
+    let missing = switch(&mut agent, "missing.md").unwrap_err();
+    assert!(missing.contains("no buffer by that name"), "{missing}");
+    assert_eq!(app.state()["buffer"]["name"], "*Messages*");
+
     // The person turns it off: the agent's connection closes, and so does the socket.
     app.run_command("agent-channel-stop", None).unwrap();
     assert!(agent.reply().is_none(), "the connection closed");
