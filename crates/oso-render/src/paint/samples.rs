@@ -1,4 +1,4 @@
-//! Sample frames of every face in each theme and candidate, drawn off screen with the OS's
+//! Sample frames of every face in each theme, drawn off screen with the OS's
 //! font, for the author to pick colours from (ADR 0089). Run with `OSO_THEME_SAMPLES=<dir>
 //! cargo test -p oso-render -- --ignored theme_samples`: it writes each frame's RGBA pixels
 //! and a table of the contrast of each face's pairs.
@@ -17,7 +17,6 @@ use oso_platform::text::{self, FontRequest};
 use crate::pane::{
     Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
-use crate::theme::candidates::candidates;
 use crate::theme::{Theme, themes};
 
 const COLUMNS: usize = 80;
@@ -259,7 +258,7 @@ fn theme_samples() {
     let dir = Path::new(&dir);
     std::fs::create_dir_all(dir).unwrap();
     let mut table = String::new();
-    for theme in themes().into_iter().chain(candidates()) {
+    for theme in themes() {
         let name = theme.name();
         let (Some(completion), Some(question)) = (completion_frame(theme), question_frame(theme))
         else {

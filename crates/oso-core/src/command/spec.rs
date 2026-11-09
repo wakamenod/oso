@@ -39,6 +39,13 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// A theme's name, read in a prompt that says `prompt` and completes over the themes the
+    /// host draws with, kept in the history named `history` (ADR 0089). The command reads it
+    /// with [`Ctx::answer`](super::Ctx::answer).
+    Theme {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A buffer's name, read in a prompt that says `prompt` and completes over the buffers,
     /// most recent first, kept in the history named `history` (ADR 0088). The command reads
     /// the name with [`Ctx::answer`](super::Ctx::answer).
