@@ -65,6 +65,8 @@ impl Editor {
         }
         self.note_secret_shown();
         if let Some(place) = self.windows[index].show(buffer) {
+            // Its wrap first, for the top to stay where the place says (ADR 0103).
+            self.sync_wrap(index);
             self.restore_place(index, place);
         }
         self.note_secret_shown();

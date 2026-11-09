@@ -136,6 +136,7 @@ fn provisional_rows_near_the_view_wrap_at_once_and_the_rest_wait() {
     let at = line.len() + 1 + 150;
     window.wrap.refill();
     assert!(window.wrap.realize(&display, at, 0));
+    assert_eq!(window.wrap.snapshot().len(), display.len());
     let snapshot = window.wrap.snapshot();
     let row = snapshot.row_span(&display, snapshot.row_of(&display, at));
     assert!(row.1 - row.0 <= 12, "the row that holds it is wrapped");
@@ -352,6 +353,7 @@ proptest! {
                     let at = replacements[0].0 % (display.len() + 1);
                     window.wrap.refill();
                     window.wrap.realize(&display, at, width % 5);
+                    prop_assert_eq!(window.wrap.snapshot().len(), display.len(), "rows cover the text");
                 }
                 _ => {}
             }

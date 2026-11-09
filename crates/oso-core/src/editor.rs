@@ -1076,3 +1076,5 @@ mod save_tests;
 mod test_buffers;
 #[cfg(test)]
 mod undo_tests;
+#[cfg(test)]
+mod wrap_tests;

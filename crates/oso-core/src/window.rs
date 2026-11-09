@@ -11,9 +11,9 @@
 //! sideways to keep the cursor in view, also by the fewest columns.
 //!
 //! Rows here are view rows: a wrapped buffer's from the window's [`WrapMap`], at its
-//! width, and otherwise one a logical line. The window keeps its top as the offset where
-//! its first view row starts, which follows edits as a marker and is put back at its
-//! row's start whenever the rows change, so that what it shows stays put.
+//! width, and otherwise one a logical line. The window keeps its top as an offset, which
+//! follows edits as a marker, and shows from the start of the view row that holds it,
+//! however the rows change around it, so that what it shows stays put (ADR 0103).
 //!
 //! The scrolling rules are pure functions of rows and sizes, so they
 //! are tested without a window.
@@ -38,7 +38,8 @@ pub const CONTEXT_LINES: usize = 2;
 /// What a window shows, as it keeps it and as a place keeps it (ADR 0100).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Scroll {
-    /// The offset where its first view row starts.
+    /// The offset its first view row holds: where that row starts, once the view is
+    /// scrolled, and through edits, rewraps and reports wherever its text went.
     pub start: usize,
     /// The display column at the left edge; 0 while its buffer wraps.
     pub left: usize,
@@ -242,8 +243,8 @@ impl Window {
         self.wrap.as_mut()
     }
 
-    /// Puts in `wrap`, the rows of its buffer as `display` shows it at `revision`, or none,
-    /// and puts the top back at its row's start. While wrapped, the left column is 0.
+    /// Puts in `wrap`, the rows of its buffer as `display` shows it at `revision`, or none.
+    /// While wrapped, the left column is 0.
     pub(crate) fn set_wrap(
         &mut self,
         wrap: Option<WrapMap>,
@@ -254,8 +255,8 @@ impl Window {
         self.wrapped = revision;
         if self.wrap.is_some() {
             self.scroll.left = 0;
+            self.realize_top(display);
         }
-        self.snap_top(display);
     }
 
     /// The revision of its buffer that its wrap follows.
@@ -334,25 +335,21 @@ impl Window {
         moved
     }
 
-    /// Puts the top back at the start of the view row that holds it, as after the rows or
-    /// the text changed under it.
-    pub(crate) fn snap_top(&mut self, display: &DisplaySnapshot) {
-        let rows = self.rows(display);
-        self.scroll.start = rows.start(rows.row_of(self.scroll.start));
+    /// Wraps the row that holds the top if it is provisional, so that the view does not
+    /// show from the start of its logical line (ADR 0103).
+    pub(crate) fn realize_top(&mut self, display: &DisplaySnapshot) {
+        if let Some(wrap) = &mut self.wrap {
+            wrap.realize(display, self.scroll.start, 0);
+        }
     }
 
     /// Wraps at once the provisional rows from the one that holds `at` to `rows` past it,
-    /// within what is left of the command's budget (ADR 0103), and puts the top back at its
-    /// row's start if they changed. Returns whether they did.
+    /// within what is left of the command's budget (ADR 0103). Returns whether they changed,
+    /// after which the top's and the cursor's rows are found again.
     pub(crate) fn realize(&mut self, display: &DisplaySnapshot, at: usize, rows: usize) -> bool {
-        let Some(wrap) = &mut self.wrap else {
-            return false;
-        };
-        let changed = wrap.realize(display, at, rows);
-        if changed {
-            self.snap_top(display);
-        }
-        changed
+        self.wrap
+            .as_mut()
+            .is_some_and(|wrap| wrap.realize(display, at, rows))
     }
 
     /// Wraps at once the provisional rows in view, and as many again below them, which
@@ -363,8 +360,8 @@ impl Window {
     }
 
     /// Puts back cursors and a view that were saved together. The top stays within the
-    /// buffer, which may have changed since, at the start of a view row. The cursor may end
-    /// up out of view, so `Editor::restore_positions` follows it afterwards.
+    /// buffer, which may have changed since. The cursor may end up out of view, so
+    /// `Editor::restore_positions` follows it afterwards.
     pub(crate) fn restore_positions(
         &mut self,
         selections: SelectionSet,
@@ -377,7 +374,6 @@ impl Window {
             left: if self.wrap.is_some() { 0 } else { scroll.left },
         };
         self.realize_view(display);
-        self.snap_top(display);
     }
 
     /// The cursor a frame draws, and the view follows: the primary one.

@@ -281,13 +281,15 @@ impl Editor {
         let display = buffer.display();
         let before = window.scroll();
         // The rows the wheel reaches, wrapped first if provisional (ADR 0103).
+        let count = rows.unsigned_abs();
         if rows < 0 {
-            let rows_up = rows.unsigned_abs();
-            let row = window.top_row(&display).saturating_sub(rows_up);
+            let row = window.top_row(&display).saturating_sub(count);
             let at = window.rows(&display).start(row);
-            window.realize(&display, at, rows_up);
+            window.realize(&display, at, count);
+        } else {
+            let reach = window.size().rows.saturating_add(count);
+            window.realize(&display, window.scroll().start, reach);
         }
-        window.realize_view(&display);
         let top = window.top_row(&display);
         let next = window::wheel(top, window.size(), window.row_count(&display), rows);
         if cursors_stay {

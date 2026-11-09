@@ -495,3 +495,14 @@ proptest::proptest! {
         }
     }
 }
+
+#[test]
+fn a_wrapped_buffer_read_again_wraps_its_new_text() {
+    use super::wrap_tests::{fresh, rows, settle};
+    let (mut editor, id) = visiting(&format!("{}\nend\n", "word ".repeat(60)));
+    assert!(editor.set_wraps(id, true));
+    settle(&mut editor);
+    reload(&mut editor, id, &format!("{}\nend\n", "word ".repeat(70)));
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor));
+}

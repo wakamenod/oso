@@ -16,7 +16,7 @@ use crate::display_map::DisplaySnapshot;
 use crate::display_map::wrap_map::{WrapJob, WrapMap, WrapReport};
 use crate::selection::{OffsetEdit, follow_offset};
 use crate::sum_tree::Bias;
-use crate::window::{Rows, Scroll};
+use crate::window::Scroll;
 
 /// A window's wrap and view once a change of its buffer is in, by window position.
 pub(super) type MovedViews = Vec<(usize, Option<WrapMap>, Scroll)>;
@@ -49,7 +49,6 @@ impl Editor {
                 let (window, buffer) = self.window_mut(index);
                 let display = buffer.display();
                 window.realize_view(&display);
-                window.snap_top(&display);
             }
         }
     }
@@ -96,8 +95,8 @@ impl Editor {
 
     /// The wraps and views of the windows showing `id` once a change is in, `display` showing
     /// it then: each wrap follows `rewrap` on a clone, within its budget, and each top follows
-    /// `steps` as a marker, put back at its row's start. Nothing here changes the editor;
-    /// [`Editor::commit_views`] puts them in.
+    /// `steps` as a marker. Nothing here changes the editor; [`Editor::commit_views`] puts
+    /// them in.
     pub(super) fn moved_views(
         &self,
         id: BufferId,
@@ -110,20 +109,21 @@ impl Editor {
             if window.buffer() != id {
                 continue;
             }
+            let mut scroll = window.scroll();
+            for edits in steps {
+                scroll.start = follow_offset(scroll.start, edits, Bias::Left);
+            }
             let wrap = window.wrap_map().map(|wrap| {
                 let mut wrap = wrap.clone();
                 match rewrap {
                     Rewrap::Splices(splices) => wrap.edit(splices),
                     Rewrap::Whole => wrap.reset(display),
                 }
+                // A provisional row at the top is wrapped, so that the view does not show
+                // from its logical line's start.
+                wrap.realize(display, scroll.start, 0);
                 wrap
             });
-            let mut scroll = window.scroll();
-            for edits in steps {
-                scroll.start = follow_offset(scroll.start, edits, Bias::Left);
-            }
-            let rows = Rows::new(display, wrap.as_ref());
-            scroll.start = rows.start(rows.row_of(scroll.start));
             moved.push((index, wrap, scroll));
         }
         moved
@@ -159,10 +159,9 @@ impl Editor {
         jobs
     }
 
-    /// Takes a job's report into the window whose wrap made it, if it still shows that wrap,
-    /// and puts its top back at its row's start; the rows in view may break otherwise, but
-    /// the text at the top stays in the first row (ADR 0100). Returns whether a frame is
-    /// needed.
+    /// Takes a job's report into the window whose wrap made it, if it still shows that wrap.
+    /// The rows in view may break otherwise, but the text at the top stays in the first row
+    /// (ADR 0100). Returns whether a frame is needed.
     pub fn take_wrap_report(&mut self, report: WrapReport) -> bool {
         let found = (0..self.tiled_count())
             .find(|&index| (self.windows[index].wrap_map()).is_some_and(|wrap| wrap.owns(&report)));
@@ -176,7 +175,7 @@ impl Editor {
             .wrap_map_mut()
             .is_some_and(|wrap| wrap.take_report(report, &display));
         if taken {
-            window.snap_top(&display);
+            window.realize_view(&display);
             self.follow_window(index);
         }
         taken
