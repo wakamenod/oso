@@ -526,6 +526,32 @@ mod scenarios {
     }
 
     #[test]
+    fn tab_at_many_cursors_on_one_long_row_puts_each_on_a_stop() {
+        // A row over many chunks, with tabs and wide characters between the cursors, whose
+        // columns come from the display map rather than a walk between them (ADR 0101).
+        let row = "ab\t日本x\u{301}\t".repeat(2_000);
+        let unit = "ab\t日本x\u{301}\t".len();
+        let places: Vec<usize> = (0..100).map(|index| index * 13 * unit + 1).collect();
+        let (mut dispatcher, mut editor) = at(&row, &places);
+        send(&mut dispatcher, &mut editor, "TAB");
+        let (window, buffer) = editor.current();
+        let display = buffer.display();
+        let text = buffer.text().to_string();
+        let mut inserted = 0;
+        for (selection, place) in window.selections.iter().zip(&places) {
+            let point = display.offset_to_display_point(selection.cursor);
+            assert_eq!((point.row, point.column % 8), (0, 0), "at {place}");
+            let spaces = selection.cursor - (place + inserted);
+            assert!((1..=8).contains(&spaces), "{spaces} at {place}");
+            assert_eq!(
+                &text[place + inserted..selection.cursor],
+                " ".repeat(spaces)
+            );
+            inserted += spaces;
+        }
+    }
+
+    #[test]
     fn tab_counts_columns_not_bytes() {
         let wide = "日本";
         let (mut dispatcher, mut editor) = at(wide, &[wide.len()]);

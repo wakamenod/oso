@@ -277,7 +277,7 @@ pub(super) mod tests {
     /// Text that reaches what checkpoints must keep: runs past a display cluster's limits,
     /// regional indicators alone and paired, Indic conjuncts, prepended marks, joiners, tag
     /// characters, controls, invalid bytes' U+FFFD, tabs and line breaks of both kinds.
-    pub(in crate::display_map) fn pieces() -> impl Strategy<Value = String> {
+    pub(crate) fn pieces() -> impl Strategy<Value = String> {
         const PIECES: [&str; 26] = [
             "a",
             "a",

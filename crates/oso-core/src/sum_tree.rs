@@ -18,6 +18,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
+mod range;
 mod replace;
 
 /// Fewest children (or items) of a node other than the root.
@@ -974,6 +975,34 @@ mod tests {
         left.append(tree_of(items));
         left.append(right);
         contents(&left)
+    }
+
+    /// The summary of what splits at both ends of `range` cut out.
+    fn summary_by_splits<D>(tree: &SumTree<Num>, range: &std::ops::Range<D>) -> NumSummary
+    where
+        D: Dimension<NumSummary> + Ord,
+    {
+        let (before_end, _) = tree.split(&range.end, Bias::Right);
+        let (_, between) = before_end.split(&range.start, Bias::Right);
+        *between.summary()
+    }
+
+    proptest! {
+        /// The summary of a range, read in place, is what splitting would cut out, by count
+        /// and by a sum that items of no size share (ADR 0101).
+        #[test]
+        fn a_ranges_summary_is_what_splits_cut_out(
+            values in prop::collection::vec(0u32..4, 0..120),
+            a in 0usize..140,
+            b in 0usize..140,
+        ) {
+            let tree = tree_of(&values);
+            let (start, end) = (a.min(b), a.max(b));
+            let by_count = Count(start)..Count(end);
+            prop_assert_eq!(tree.summary_in(&by_count), summary_by_splits(&tree, &by_count));
+            let by_sum = Sum(start as u64)..Sum(end as u64);
+            prop_assert_eq!(tree.summary_in(&by_sum), summary_by_splits(&tree, &by_sum));
+        }
     }
 
     proptest! {

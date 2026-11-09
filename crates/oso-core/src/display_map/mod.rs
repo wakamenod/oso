@@ -42,7 +42,10 @@ use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
 pub use cell::{CellKind, CellStyle, Clusters, Escape, MAX_CLUSTER_BYTES, TabWidth, escape};
+#[cfg(test)]
+pub(crate) use checkpoints::tests::pieces;
 pub use preedit::{Preedit, row_clusters};
+pub(crate) use tab_map::{Piece, PiecesAfter, PiecesBefore};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.
@@ -279,6 +282,24 @@ impl DisplaySnapshot {
     /// [`DisplaySnapshot::offset_to_display_point`] and back finds, for less.
     pub(crate) fn cluster_at(&self, offset: usize) -> (usize, usize) {
         self.tab_map.cluster_at(offset)
+    }
+
+    /// The display clusters from the one at `offset` on, line breaks among them, with their
+    /// kind and text and no columns, for word motion (ADR 0101).
+    pub(crate) fn pieces_after(&self, offset: usize) -> PiecesAfter<'_> {
+        self.tab_map.pieces_after(offset)
+    }
+
+    /// The column at `to` once `from`, a cluster's start on the same line before it, is at
+    /// `column`, as after an insertion before `from`, in O(log n) (ADR 0101).
+    pub fn column_after(&self, from: usize, column: usize, to: usize) -> usize {
+        self.tab_map.column_after(from, column, to)
+    }
+
+    /// The display clusters that start before `offset`, from the nearest back, line breaks
+    /// among them, as [`DisplaySnapshot::pieces_after`] gives them (ADR 0101).
+    pub(crate) fn pieces_before(&self, offset: usize) -> PiecesBefore<'_> {
+        self.tab_map.pieces_before(offset)
     }
 
     /// The buffer offset of a display point. A column past the end of its

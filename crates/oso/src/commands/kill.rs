@@ -109,7 +109,7 @@ fn yank_pop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 fn kill_words(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
     let (window, buffer) = ctx.editor.current();
     let display = buffer.display();
-    let mut budget = WalkBudget::new();
+    let mut budget = WalkBudget::for_cursors(window.selections.len());
     let ranges: Vec<Range<usize>> = window
         .selections
         .iter()
