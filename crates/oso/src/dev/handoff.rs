@@ -121,14 +121,16 @@ pub fn export(
             let withheld = editor
                 .buffer(buffer)
                 .is_none_or(|shown| shown.is_secret() || shown.is_internal());
-            let (selections, scroll) = match waiting {
-                Some(restore) => (&restore.selections, restore.scroll),
-                None if withheld => (&at_the_top, Scroll::default()),
-                None => (selections, scroll),
+            let (selections, scroll, row) = match waiting {
+                Some(restore) => (&restore.selections, restore.scroll, restore.top_is_row),
+                None if withheld => (&at_the_top, Scroll::default(), false),
+                None => (selections, scroll, false),
             };
             let mut state = selections_state(selections);
             state["buffer"] = json!(buffer.get());
-            state["scroll"] = json!({ "start": scroll.start, "left": scroll.left });
+            // A top still waiting as a row, from a state before version 3, goes on as one.
+            let top = if row { "top" } else { "start" };
+            state["scroll"] = json!({ top: scroll.start, "left": scroll.left });
             state
         })
         .collect();
@@ -494,6 +496,12 @@ pub struct Restore {
     pub top_is_row: bool,
 }
 
+/// `offset` moved to the start of the display cluster it is in, or the end.
+fn clip(display: &DisplaySnapshot, offset: usize) -> usize {
+    let point: DisplayPoint = display.offset_to_display_point(offset);
+    display.display_point_to_offset(point, Bias::Left)
+}
+
 impl Restore {
     /// Moves the window to the positions if the buffer holds them by now, or, if the
     /// window has gone to another buffer meanwhile, the place it keeps for this one, which
@@ -518,10 +526,12 @@ impl Restore {
         let display = buffer.display();
         let selections = self.clipped(&display);
         let mut scroll = self.scroll;
-        if self.top_is_row {
+        scroll.start = if self.top_is_row {
             let row = scroll.start.min(display.row_count().saturating_sub(1));
-            scroll.start = oso_core::motion::line_start(&display, row);
-        }
+            oso_core::motion::line_start(&display, row)
+        } else {
+            clip(&display, scroll.start)
+        };
         if shown {
             editor.restore_positions(selections, scroll);
         } else {
@@ -532,10 +542,7 @@ impl Restore {
 
     /// The positions, each moved to the start of the display cluster it is in, or the end.
     fn clipped(&self, display: &DisplaySnapshot) -> SelectionSet {
-        let clip = |offset: usize| {
-            let point: DisplayPoint = display.offset_to_display_point(offset);
-            display.display_point_to_offset(point, Bias::Left)
-        };
+        let clip = |offset: usize| clip(display, offset);
         let selections = self
             .selections
             .iter()

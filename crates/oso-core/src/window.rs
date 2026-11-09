@@ -585,6 +585,18 @@ mod tests {
     }
 
     #[test]
+    fn debug_shows_no_offset() {
+        let mut window = Window::new(BufferId(1));
+        window.selections = SelectionSet::new(1234);
+        window.scroll.start = 5678;
+        let shown = format!("{window:?}");
+        assert!(
+            !shown.contains("1234") && !shown.contains("5678"),
+            "{shown}"
+        );
+    }
+
+    #[test]
     fn follow_scrolls_by_the_fewest_rows() {
         let scroll = ViewTop { row: 5, left: 0 };
         assert_eq!(follow(scroll, SIZE, at(5, 0), 1), scroll);

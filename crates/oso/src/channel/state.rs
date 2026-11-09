@@ -47,7 +47,7 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
             .filter(|(_, buffer)| !buffer.agent_pending())
             .skip(buffer_offset)
             .take(MAX_BUFFERS)
-            .map(|(id, buffer)| buffer_state(id, buffer))
+            .map(|(id, buffer)| buffer_state(id, buffer, shows_secret))
             .collect::<Vec<_>>(),
         "buffer_offset": buffer_offset,
         "buffer_count": editor.buffers().filter(|(_, b)| !b.agent_pending()).count(),
@@ -85,8 +85,10 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
 }
 
 /// A buffer's metadata, which says nothing that follows what a person does in a buffer that
-/// may hold secrets.
-fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
+/// may hold secrets: whether it wraps, which a person toggles there, is withheld while one is
+/// shown (ADR 0079).
+fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
+    let shown = !(buffer.is_secret() && shows_secret);
     json!({
         "id": id.get(),
         "name": buffer.name(),
@@ -94,7 +96,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer) -> Value {
         "secret": buffer.is_secret(),
         "read_only": buffer.read_only().is_some(),
         "loading": buffer.loading().is_some(),
-        "wrapped": buffer.wraps(),
+        "wrapped": shown.then(|| buffer.wraps()),
     })
 }
 
@@ -287,6 +289,37 @@ mod tests {
         assert!(state["windows"][0].get("selections").is_none());
         assert!(state["windows"][0].get("first_row").is_none());
         assert!(state.get("echo").is_none());
+    }
+
+    #[test]
+    fn a_wrapped_buffer_that_may_hold_secrets_gives_no_row_or_whether_it_wraps() {
+        let path = PathBuf::from("/tmp/.env");
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_load(oso_core::load::decode_all(
+            "KEY ".repeat(300).as_bytes(),
+            Default::default(),
+        ));
+        buffer.judge_secret(Some(&[path]));
+        let mut editor = Editor::with_buffer(buffer);
+        editor.set_view_size(ViewSize::new(10, 40));
+        let id = editor.window().buffer();
+        assert!(editor.set_wraps(id, true));
+        let state = state(&editor, 0);
+        assert_eq!(state["text"], json!(null));
+        assert!(state["windows"][0].get("first_row").is_none());
+        assert_eq!(state["buffers"][0]["wrapped"], json!(null));
+    }
+
+    #[test]
+    fn a_wrapped_buffer_says_so_and_its_first_row_is_a_logical_line() {
+        let mut editor = editor(&format!("{}\nnext\n", "word ".repeat(100)));
+        let id = editor.window().buffer();
+        assert!(editor.set_wraps(id, true));
+        assert!(editor.scroll_lines(3).is_ok());
+        let state = state(&editor, 0);
+        assert_eq!(state["buffers"][0]["wrapped"], true);
+        assert_eq!(state["windows"][0]["first_row"], 0, "still the long line");
+        assert_eq!(state["text"]["first_row"], 0);
     }
 
     #[test]

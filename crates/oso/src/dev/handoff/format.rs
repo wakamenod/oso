@@ -237,6 +237,8 @@ pub fn parse(state: &Value) -> Result<State, String> {
         .get("scroll")
         .and_then(Value::as_object)
         .ok_or("a window has no scroll position")?;
+    // Before version 3 the top was a row; one still waiting for its file goes on as a row.
+    let top_is_row = version < 3 || !scroll.contains_key("start");
     Ok(State {
         export,
         items: items.lengths,
@@ -244,10 +246,10 @@ pub fn parse(state: &Value) -> Result<State, String> {
         shown,
         selections: parse_selections(window)?,
         scroll: Scroll {
-            start: size(scroll, if version < 3 { "top" } else { "start" })?,
+            start: size(scroll, if top_is_row { "top" } else { "start" })?,
             left: size(scroll, "left")?,
         },
-        top_is_row: version < 3,
+        top_is_row,
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
         theme: super::parse_theme(state)?,

@@ -85,6 +85,16 @@ mod tests {
     }
 
     #[test]
+    fn the_agent_channel_may_run_it() {
+        let registry = crate::commands::registry();
+        let id = registry.lookup("toggle-truncate-lines").unwrap();
+        assert_eq!(
+            registry.get(id).unwrap().reach,
+            oso_core::command::Reach::Look
+        );
+    }
+
+    #[test]
     fn asked_for_what_it_is_already_it_draws_nothing() {
         let mut editor = editor("text");
         let (result, effects) = run(&mut editor, "toggle-truncate-lines", Args::numeric(1));

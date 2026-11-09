@@ -275,7 +275,7 @@ fn another_version_is_refused() {
 
 #[test]
 fn bad_fields_are_refused() {
-    let bad: [(&str, Mutation); 13] = [
+    let bad: [(&str, Mutation); 15] = [
         ("buffers", Box::new(|s| s["buffers"] = json!(1))),
         ("path", Box::new(|s| s["buffers"][1]["path"] = json!(1))),
         (
@@ -283,6 +283,14 @@ fn bad_fields_are_refused() {
             Box::new(|s| s["buffers"][1]["path"] = json!("a.txt")),
         ),
         ("id", Box::new(|s| s["buffers"][1]["id"] = json!("x"))),
+        (
+            "wraps",
+            Box::new(|s| s["buffers"][1]["wraps"] = json!("yes")),
+        ),
+        (
+            "start",
+            Box::new(|s| s["windows"][0]["scroll"]["start"] = json!(-1)),
+        ),
         ("one window", Box::new(|s| s["windows"] = json!([]))),
         ("one window", Box::new(|s| s["selected"] = json!(1))),
         (
@@ -474,4 +482,43 @@ fn a_state_with_no_theme_reads_and_one_with_a_bad_name_is_refused() {
         let message = parse(&state).unwrap_err();
         assert!(message.contains("theme"), "{message}");
     }
+}
+
+#[test]
+fn a_buffer_that_wraps_says_so_and_comes_back_wrapped() {
+    let mut editor = visiting(&absolute("/p/a.txt"), &"word ".repeat(100));
+    let id = editor.window().buffer();
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert!(!state.buffers[state.shown].wraps, "said only when it does");
+    editor.set_wraps(id, true);
+    let exported = export(&editor, &[], None, None).unwrap();
+    assert_eq!(exported["buffers"][1]["wraps"], true);
+    assert!(parse(&exported).unwrap().buffers[1].wraps);
+}
+
+#[test]
+fn a_top_still_waiting_as_a_row_goes_on_as_one() {
+    let mut editor = Editor::default();
+    let path = PathBuf::from(absolute("/p/a.txt"));
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let id = editor.add_buffer(buffer);
+    editor.show(id);
+    let waiting = Restore {
+        top_is_row: true,
+        ..restore(600, 40, &editor)
+    };
+    let exported = export(&editor, &[], None, Some(&waiting)).unwrap();
+    assert_eq!(exported["windows"][0]["scroll"]["top"], 40);
+    let state = parse(&exported).unwrap();
+    assert!(state.top_is_row, "a row, not an offset");
+    assert_eq!(state.scroll.start, 40);
+}
+
+#[test]
+fn a_top_inside_a_character_comes_back_at_its_start() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "日本語\nabc\n");
+    let waiting = restore(0, 4, &editor);
+    assert!(waiting.try_apply(&mut editor));
+    assert_eq!(editor.window().scroll().start, 3, "the start of 本");
 }

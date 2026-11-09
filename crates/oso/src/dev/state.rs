@@ -362,7 +362,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "invalid_bytes": (!secret).then(|| buffer.invalid_bytes().len()),
         "bytes": size_shown.then(|| buffer.text().len()),
         "lines": size_shown.then(|| buffer.display().row_count()),
-        "wrapped": buffer.wraps(),
+        "wrapped": state_shown.then(|| buffer.wraps()),
         "loading": buffer.loading().map(|progress| json!({
             "read": size_shown.then_some(progress.read),
             "total": if size_shown { progress.total } else { None },
@@ -905,6 +905,34 @@ mod tests {
         assert_eq!(state["buffer"]["name"], "*Messages*");
         assert_eq!(state["buffer"]["read_only"], "internal");
         assert_eq!(state["buffers"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_wrapped_secret_buffer_shows_no_top_and_not_whether_it_wraps() {
+        let text = "WORD ".repeat(200);
+        let (mut editor, _) = visiting("/p/.env", Some("/p/.env"), &text);
+        let id = editor.window().buffer();
+        assert!(editor.set_wraps(id, true));
+        editor.restore_positions(
+            SelectionSet::new(600),
+            Scroll {
+                start: 500,
+                left: 0,
+            },
+        );
+        let state = state(&editor, &[]);
+        assert!(!state.as_object().unwrap().contains_key("scroll"));
+        assert!(
+            !state["windows"][0]
+                .as_object()
+                .unwrap()
+                .contains_key("scroll")
+        );
+        assert_eq!(
+            state["buffer"]["wrapped"],
+            json!(null),
+            "a person toggles it there"
+        );
     }
 
     #[test]
