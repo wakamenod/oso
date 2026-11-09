@@ -1,6 +1,6 @@
 # 0097. Visual aids: whitespace, the current line, a cursor flash and line numbers
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-09
 
 ## Context
