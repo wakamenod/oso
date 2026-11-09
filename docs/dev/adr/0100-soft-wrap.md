@@ -108,7 +108,9 @@ first.
 - **A `SumTree` of wrap points,** where each item is a run of logical rows that do not wrap, or the
   breaks of one row that does. Its summary counts view rows and buffer bytes, so a view row and an
   offset convert both ways in O(log n).
-  - A line that fits costs one entry in a run.
+  - A line that fits costs one entry in a run. Whether it fits is found by reading its clusters,
+    on the worker or for the rows in view; the TabMap gains no field for it. A line's width in
+    the TabMap's summary would need a later ADR.
   - A 10 MB line at 100 columns holds about 100,000 breaks, about 2 MB.
 - **A window's top is an offset,** the start of its first view row. A rewrap therefore keeps the
   text in view where it was, and never has to find a row number first.
