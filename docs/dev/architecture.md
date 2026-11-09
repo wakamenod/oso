@@ -145,8 +145,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   [ADR 0053](adr/0053-edit-core.md).
 - **Motion and scrolling** are pure functions in `oso_core::motion`,
   `oso_core::word` and `oso_core::window`. Motion steps over display clusters, and what a
-  command reads is limited by a `WalkBudget`
-  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)). After every
+  command reads is limited by a `WalkBudget`, which several cursors share
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md),
+  [ADR 0101](adr/0101-word-checks-by-offset-and-reading-shared-by-cursors.md)). After every
   command the dispatcher scrolls the window by the fewest rows and columns
   that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
   mouse wheel set the window's top row with `Window::set_top`, the one

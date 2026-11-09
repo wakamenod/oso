@@ -913,6 +913,7 @@ pub struct oso_core::display_map::DisplaySnapshot
 impl oso_core::display_map::DisplaySnapshot
 pub fn oso_core::display_map::DisplaySnapshot::clip_point(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> oso_core::display_map::DisplayPoint
 pub fn oso_core::display_map::DisplaySnapshot::clusters(&self, oso_core::display_map::DisplayPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
+pub fn oso_core::display_map::DisplaySnapshot::column_after(&self, usize, usize, usize) -> usize
 pub fn oso_core::display_map::DisplaySnapshot::display_point_to_offset(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> usize
 pub fn oso_core::display_map::DisplaySnapshot::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::display_map::DisplaySnapshot::max_point(&self) -> oso_core::display_map::DisplayPoint
@@ -2227,6 +2228,7 @@ impl core::marker::Copy for oso_core::motion::Edge
 impl core::marker::StructuralPartialEq for oso_core::motion::Edge
 pub struct oso_core::motion::WalkBudget
 impl oso_core::motion::WalkBudget
+pub const fn oso_core::motion::WalkBudget::for_cursors(usize) -> Self
 pub const fn oso_core::motion::WalkBudget::is_spent(self) -> bool
 pub const fn oso_core::motion::WalkBudget::new() -> Self
 impl core::clone::Clone for oso_core::motion::WalkBudget

@@ -168,7 +168,7 @@ fn backward_char(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
 /// Moves every cursor by `n` words. A count that reads too much leaves them where
 /// it got to and signals. The buffer's edge does not, as in Emacs.
 fn move_words(ctx: &mut Ctx<'_>, n: isize) -> Result<(), CommandError> {
-    let mut budget = WalkBudget::new();
+    let mut budget = WalkBudget::for_cursors(ctx.editor.window().selections.len());
     move_cursors(ctx, |display, s| {
         s.move_to(word::move_words(display, s.cursor, n, &mut budget));
         Ok(())

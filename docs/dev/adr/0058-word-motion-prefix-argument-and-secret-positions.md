@@ -1,6 +1,6 @@
 # 0058. Word motion, the prefix argument and positions in secret buffers
 
-- Status: Accepted
+- Status: Accepted, amended by 0101
 - Date: 2026-11-05
 
 ## Context
