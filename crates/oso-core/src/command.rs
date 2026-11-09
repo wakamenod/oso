@@ -24,6 +24,10 @@ use crate::buffer::EditError;
 use crate::editor::Editor;
 use crate::kill::FromClipboard;
 
+mod spec;
+
+pub use spec::{ArgSpec, BufferPurpose};
+
 /// The function behind a command.
 pub type CommandFn = fn(&mut Ctx<'_>, Args) -> Result<(), CommandError>;
 
@@ -78,58 +82,9 @@ pub enum Reach {
     Person,
 }
 
-/// Which arguments a command takes. It documents the command
-/// (`describe-function`) and tells `run-command` what to accept.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ArgSpec {
-    /// No arguments. A prefix argument, if given, is ignored, as in Emacs.
-    None,
-    /// A numeric prefix argument, read with [`Args::count`]: a repeat count
-    /// that defaults to 1 and may be negative to reverse the direction.
-    Count,
-    /// A whole number, read in a prompt that says `prompt` before the command runs, and
-    /// kept in the history named `history` (ADR 0072). A numeric prefix argument stands
-    /// for it, with no prompt. The command reads it with [`Ctx::answer`].
-    Number {
-        prompt: &'static str,
-        history: &'static str,
-    },
-    /// A passphrase, read in a prompt that says `prompt` and shows one `*` per character.
-    /// It enters no history, and its buffer may hold secrets. The command reads it with
-    /// [`Ctx::answer`], and must not keep it.
-    Passphrase { prompt: &'static str },
-    /// A command's name, read in a prompt that says `prompt` and completes over the
-    /// registry, kept in the history named `history` (ADR 0076). The dispatcher runs that
-    /// command in its place, with its prefix argument, as `M-x` does.
-    Command {
-        prompt: &'static str,
-        history: &'static str,
-    },
-    /// A theme's name, read in a prompt that says `prompt` and completes over the themes the
-    /// host draws with, kept in the history named `history` (ADR 0089). The command reads it
-    /// with [`Ctx::answer`].
-    Theme {
-        prompt: &'static str,
-        history: &'static str,
-    },
-    /// The key that ran it, read with [`Ctx::input`] or [`Ctx::key_char`], and a numeric
-    /// prefix argument as with `Count`. `M-x` does not list it, as no key runs it there
-    /// (ADR 0076).
-    Key,
-    /// A numeric prefix argument, and with none or only `C-u`, what the OS clipboard
-    /// holds, read with [`Ctx::clipboard`]. The dispatcher reads the clipboard first, off
-    /// the UI thread, and runs the command once it has the answer, as `yank` needs
-    /// (ADR 0074).
-    CountAndClipboard,
-}
-
-impl ArgSpec {
-    /// Whether a command with this spec, given `prefix`, waits for the clipboard.
-    pub const fn reads_clipboard(self, prefix: Option<Prefix>) -> bool {
-        matches!(self, Self::CountAndClipboard)
-            && matches!(prefix, None | Some(Prefix::Universal(_)))
-    }
-}
+/// The largest count the dev socket or the agent channel passes on, in either direction: a
+/// command runs on the UI thread and may repeat its work this many times (ADR 0044).
+pub const MAX_REMOTE_COUNT: isize = 10_000;
 
 /// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher
 /// holds it between keys, and these rules are Emacs's.

@@ -170,6 +170,15 @@ pub struct Candidates {
     top: usize,
     /// A candidate was moved to since the input last changed.
     chosen: bool,
+    /// The prompt takes any text, not only a candidate's: `C-p` from the first candidate
+    /// selects what is typed, and `RET` with no match gives it (ADR 0087, ADR 0088).
+    takes_input: bool,
+    /// What is typed is selected, not a candidate.
+    on_input: bool,
+    /// The float shows the selected candidate beside the list (ADR 0088).
+    previews: bool,
+    /// The candidates keep the order given, not one from a history (ADR 0088).
+    given_order: bool,
 }
 
 impl Candidates {
@@ -200,6 +209,25 @@ impl Candidates {
                 .then_with(|| items[a.2 as usize].text().cmp(items[b.2 as usize].text()))
         });
         let order: Box<[u32]> = keyed.into_iter().map(|(_, _, index)| index).collect();
+        Self::with_order(items, order)
+    }
+
+    /// `items` in the order given, every one matching, as buffers show most recent first
+    /// (ADR 0088).
+    pub(crate) fn in_given_order(items: Arc<[Candidate]>) -> Self {
+        let order: Box<[u32]> = (0..items.len()).map(offset_u32).collect();
+        let mut candidates = Self::with_order(items, order);
+        candidates.given_order = true;
+        candidates
+    }
+
+    /// Whether the candidates keep the order given, as buffers do, most recent first, so the
+    /// first is a choice of its own and not one a history made.
+    pub fn in_order_given(&self) -> bool {
+        self.given_order
+    }
+
+    fn with_order(items: Arc<[Candidate]>, order: Box<[u32]>) -> Self {
         Self {
             matches: order.to_vec(),
             order,
@@ -210,7 +238,37 @@ impl Candidates {
             selected: 0,
             top: 0,
             chosen: false,
+            takes_input: false,
+            on_input: false,
+            previews: false,
+            given_order: false,
         }
+    }
+
+    /// Shows the selected candidate beside the list.
+    pub(crate) fn show_preview(&mut self) {
+        self.previews = true;
+    }
+
+    /// Whether the float shows the selected candidate beside the list.
+    pub fn previews(&self) -> bool {
+        self.previews
+    }
+
+    /// Lets what is typed be selected and given, as a prompt for a file or a buffer that need
+    /// not exist does.
+    pub(crate) fn take_input(&mut self) {
+        self.takes_input = true;
+    }
+
+    /// Whether the prompt takes any text, not only a candidate's.
+    pub fn takes_input(&self) -> bool {
+        self.takes_input
+    }
+
+    /// Whether what is typed is selected, not a candidate.
+    pub fn on_input(&self) -> bool {
+        self.on_input
     }
 
     /// Matches `input`, looking only at what matched before where it narrows that, and
@@ -251,6 +309,7 @@ impl Candidates {
         self.selected = 0;
         self.top = 0;
         self.chosen = false;
+        self.on_input = false;
     }
 
     /// Matches an input longer than [`MAX_INPUT_BYTES`], which nothing matches, without
@@ -263,6 +322,7 @@ impl Candidates {
         self.selected = 0;
         self.top = 0;
         self.chosen = false;
+        self.on_input = false;
     }
 
     /// Whether the selected candidate is only the first of an empty input's list: nothing was
@@ -303,9 +363,9 @@ impl Candidates {
         self.items.get(index as usize)
     }
 
-    /// Where the selected candidate shows, while any matches.
+    /// Where the selected candidate shows, while any matches and what is typed is not selected.
     pub fn selected(&self) -> Option<usize> {
-        (!self.matches.is_empty()).then_some(self.selected)
+        (!self.matches.is_empty() && !self.on_input).then_some(self.selected)
     }
 
     /// The selected candidate, while any matches.
@@ -316,12 +376,26 @@ impl Candidates {
     /// Selects the match at `place`, or the last if there are fewer.
     pub(crate) fn select(&mut self, place: usize) {
         self.chosen = true;
+        self.on_input = false;
         self.selected = place.min(self.matches.len().saturating_sub(1));
     }
 
     /// Selects the match `by` places after the selected one, or before for a negative
-    /// `by`, stopping at the first and the last, as vertico does with `vertico-cycle` off.
+    /// `by`, stopping at the first and the last, as vertico does with `vertico-cycle` off. In a
+    /// prompt that takes any text, going back from the first selects what is typed, and going on
+    /// from there selects the first again.
     pub(crate) fn move_by(&mut self, by: isize) {
+        if self.on_input {
+            if by > 0 {
+                self.select(usize::try_from(by - 1).unwrap_or(usize::MAX));
+            }
+            return;
+        }
+        if self.takes_input && by < 0 && self.selected.checked_add_signed(by).is_none() {
+            self.chosen = true;
+            self.on_input = true;
+            return;
+        }
         let place = self.selected.saturating_add_signed(by);
         self.select(place);
     }

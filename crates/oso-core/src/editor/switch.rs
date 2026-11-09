@@ -13,6 +13,22 @@ use crate::window::{Place, Walk};
 
 use super::SCRATCH;
 
+/// The longest name a new buffer may have, in bytes.
+pub const MAX_NAME_BYTES: usize = 255;
+
+/// What a prompt's preview shows (ADR 0088).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Preview {
+    /// The buffer `id`, from the display row `top`, with a cursor at the offset `cursor`.
+    Buffer {
+        id: BufferId,
+        top: usize,
+        cursor: usize,
+    },
+    /// A buffer that may hold secrets, or whose file is not judged yet: nothing of it shows.
+    Withheld,
+}
+
 /// Why a person's kill of a buffer did not happen (ADR 0088).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KillRefused {
@@ -128,6 +144,128 @@ impl Editor {
             }
         }
         ring
+    }
+
+    /// The buffers a person goes between, the one the tiled window shows first, then those it
+    /// showed before, the most recent first, then the rest in the order they opened: every
+    /// buffer of the user's, `*Messages*` and the list of emergency copies once made. A prompt's
+    /// buffer and a copy being looked at are left out (ADR 0088).
+    pub fn buffers_by_recency(&self) -> Vec<BufferId> {
+        let window = &self.windows[self.tiled_index()];
+        let listed = |id: BufferId| {
+            self.buffer(id).is_some_and(|buffer| {
+                !buffer.is_internal()
+                    || id == self.messages_buffer
+                    || Some(id) == self.copies_buffer
+            })
+        };
+        let mut order = Vec::new();
+        let shown = std::iter::once(window.buffer()).chain(window.places().map(|(id, _)| id));
+        let all = self.buffers.iter().map(|(id, _)| *id);
+        for id in shown.chain(all) {
+            if listed(id) && !order.contains(&id) {
+                order.push(id);
+            }
+        }
+        order
+    }
+
+    /// The buffer a person may go to that is named `name`, as [`Editor::buffers_by_recency`]
+    /// lists them.
+    pub fn buffer_named(&self, name: &str) -> Option<BufferId> {
+        // Names are unique, so one pass finds it, whatever the order.
+        self.buffers
+            .iter()
+            .find(|(id, buffer)| {
+                buffer.name() == name
+                    && (!buffer.is_internal()
+                        || *id == self.messages_buffer
+                        || Some(*id) == self.copies_buffer)
+            })
+            .map(|(id, _)| *id)
+    }
+
+    /// Shows the buffer named `name`, making an empty one with no file if none is (ADR 0088).
+    /// An empty name shows nothing.
+    ///
+    /// # Errors
+    ///
+    /// For a new buffer's name of more than [`MAX_NAME_BYTES`], or with a control character.
+    pub fn switch_to_named(&mut self, name: &str) -> Result<(), &'static str> {
+        if name.is_empty() {
+            return Ok(());
+        }
+        let id = match self.buffer_named(name) {
+            Some(id) => id,
+            None if name.len() > MAX_NAME_BYTES => return Err("That name is too long"),
+            None if name.chars().any(char::is_control) => {
+                return Err("A buffer's name holds no control characters");
+            }
+            None => self.add_buffer(Buffer::new(name)),
+        };
+        self.show(id);
+        Ok(())
+    }
+
+    /// What the innermost prompt's preview shows, if it has one and a candidate is selected:
+    /// the buffer that candidate names, from where the tiled window last was in it, or that
+    /// it may hold secrets, which it never shows (ADR 0088).
+    pub fn preview(&self) -> Option<Preview> {
+        // `C-.` previews the buffer it lists the marks of, unless it may hold secrets, as any
+        // preview.
+        if let Some((id, cursor)) = self.selected_mark() {
+            let buffer = self.buffer(id)?;
+            if buffer.verdict().is_withheld() {
+                return Some(Preview::Withheld);
+            }
+            let row = buffer.display().offset_to_display_point(cursor).row;
+            let rows = self
+                .prompt_layout()
+                .map_or(0, |layout| layout.regions.preview.rows);
+            let top = row.saturating_sub(rows / 2);
+            return Some(Preview::Buffer { id, top, cursor });
+        }
+        let prompt = self.prompt()?;
+        let candidates = prompt
+            .candidates()
+            .filter(|candidates| candidates.previews())?;
+        let name = candidates.selected_candidate()?.text();
+        let id = self.buffer_named(name)?;
+        let buffer = self.buffer(id)?;
+        if buffer.verdict().is_withheld() {
+            return Some(Preview::Withheld);
+        }
+        let window = &self.windows[self.tiled_index()];
+        let (selections, scroll) = if window.buffer() == id {
+            (&window.selections, window.scroll())
+        } else {
+            let place = window.places().find(|(other, _)| *other == id);
+            match place {
+                Some((_, place)) => (&place.selections, place.scroll),
+                None => {
+                    return Some(Preview::Buffer {
+                        id,
+                        top: 0,
+                        cursor: 0,
+                    });
+                }
+            }
+        };
+        let cursor = selections.primary().cursor.min(buffer.text().len());
+        let top = scroll
+            .top
+            .min(buffer.display().row_count().saturating_sub(1));
+        Some(Preview::Buffer { id, top, cursor })
+    }
+
+    /// The home directory, which `~` stands for, as the host read it once at startup.
+    pub fn home(&self) -> Option<&std::path::Path> {
+        self.home.as_deref()
+    }
+
+    /// Tells the editor the home directory, read once by the host at startup.
+    pub fn set_home(&mut self, home: Option<std::path::PathBuf>) {
+        self.home = home;
     }
 
     /// Kills `id` as a person asked: a modified buffer only with `anyway`, after a question

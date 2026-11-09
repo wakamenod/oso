@@ -9,5 +9,6 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("C-@", "set-mark-command"),
     ("C-x C-x", "exchange-point-and-mark"),
     ("C-,", "pop-to-mark-command"),
+    ("C-.", "consult-mark"),
     ("C-x h", "mark-whole-buffer"),
 ];

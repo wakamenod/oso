@@ -8,7 +8,7 @@
 //! and each client gets its own thread, which parses requests and waits for
 //! the UI's reply on a channel.
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufReader, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
@@ -20,6 +20,7 @@ use serde_json::{Value, json};
 
 use super::DEV_BUILD_MARKER;
 use super::protocol::{self, MAX_LINE, Method, Reply, UiOp};
+use crate::channel::wire::{bounded, read_line_within};
 
 /// The most clients connected at once.
 pub const MAX_CLIENTS: usize = 4;
@@ -178,41 +179,6 @@ where
     }
 }
 
-/// Reads up to a newline into `line`, at most [`MAX_LINE`] + 1 bytes, and
-/// returns how many. Times out if the whole line takes longer than `idle`, so
-/// a client cannot hold its slot by sending a byte now and then.
-fn read_line_within(
-    reader: &mut BufReader<ControlStream>,
-    line: &mut Vec<u8>,
-    idle: Duration,
-) -> io::Result<usize> {
-    let started = Instant::now();
-    loop {
-        let remaining = idle
-            .checked_sub(started.elapsed())
-            .filter(|remaining| !remaining.is_zero())
-            .ok_or(io::ErrorKind::TimedOut)?;
-        reader.get_ref().set_read_timeout(Some(remaining))?;
-        let available = match reader.fill_buf() {
-            Ok(available) => available,
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        };
-        if available.is_empty() {
-            return Ok(line.len());
-        }
-        let room = MAX_LINE + 1 - line.len();
-        let window = &available[..available.len().min(room)];
-        let newline = window.iter().position(|&byte| byte == b'\n');
-        let used = newline.map_or(window.len(), |at| at + 1);
-        line.extend_from_slice(&window[..used]);
-        reader.consume(used);
-        if newline.is_some() || line.len() > MAX_LINE {
-            return Ok(line.len());
-        }
-    }
-}
-
 /// The response line for one request line.
 fn respond<S>(line: &str, send: &S) -> String
 where
@@ -245,19 +211,6 @@ where
             protocol::failure(&request.id, "the editor dropped the request")
         }
     }
-}
-
-/// `line`, or an error in its place if a client could not read it: `oso
-/// ctl` and the protocol stop at [`MAX_LINE`] (ADR 0032).
-fn bounded(id: &Value, line: String) -> String {
-    if line.len() > MAX_LINE {
-        let message = format!(
-            "the response takes {} bytes, more than the {MAX_LINE} a line may hold; ask for less",
-            line.len()
-        );
-        return protocol::failure(id, &message);
-    }
-    line
 }
 
 /// The result of `version`.
@@ -298,9 +251,13 @@ mod tests {
             UiOp::RunCommand { name, .. } if name == "fail" => Err("fail panicked".to_owned()),
             UiOp::RunCommand { name, arg } => Ok(json!({ "command": name, "arg": arg })),
             UiOp::ShowBuffer(buffer) => Ok(json!({ "buffer": buffer })),
-            UiOp::Panic | UiOp::EndUnasked | UiOp::Ime(_) | UiOp::Clipboard(_) => {
-                Err("not in this fake".to_owned())
-            }
+            UiOp::Panic
+            | UiOp::EndUnasked
+            | UiOp::Ime(_)
+            | UiOp::Clipboard(_)
+            | UiOp::ExportText { .. }
+            | UiOp::ImportText(_)
+            | UiOp::DevMessage(_) => Err("not in this fake".to_owned()),
             UiOp::CheckHandover | UiOp::ExportState | UiOp::ImportState(_) | UiOp::Exit { .. } => {
                 Ok(json!({}))
             }

@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use oso_core::buffer::{Buffer, BufferId};
+use oso_core::buffer::{Buffer, BufferId, Verdict};
 use oso_core::window;
 
 use super::{App, UserEvent};
@@ -36,15 +36,24 @@ impl App {
     /// Adds a buffer for `path` and starts loading it. `None` if the loading
     /// thread cannot start.
     pub(super) fn visit(&mut self, path: PathBuf) -> Option<BufferId> {
+        self.visit_with(path, false)
+    }
+
+    /// [`Self::visit`], for the agent channel if `for_agent`: the file opened must have one
+    /// name, or its load fails and the buffer goes, unshown (ADR 0085).
+    pub(super) fn visit_with(&mut self, path: PathBuf, for_agent: bool) -> Option<BufferId> {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
-        let spawned = loader::spawn(buffer, path, move |buffer| {
-            waker.send(UserEvent::Load(buffer))
-        });
+        let wake = move |buffer| waker.send(UserEvent::Load(buffer));
+        let spawned = if for_agent {
+            loader::spawn_one_name(buffer, path, wake)
+        } else {
+            loader::spawn(buffer, path, wake)
+        };
         match spawned {
             Ok(handle) => {
                 self.loads.push(Load {
@@ -58,6 +67,47 @@ impl App {
                 let name = self.editor.buffer(buffer).map_or("", Buffer::name);
                 let message = format!("Cannot open: cannot start loading: {e}: {name:?}");
                 self.editor.message(message);
+                self.editor.kill_buffer(buffer);
+                None
+            }
+        }
+    }
+
+    /// Stops loading `buffer`: its thread ends at its next read, and nothing it read comes in.
+    pub(super) fn cancel_load(&mut self, buffer: BufferId) {
+        self.loads.retain(|load| load.handle.buffer() != buffer);
+    }
+
+    /// Adds a buffer for `path` holding `text`, carried unsaved from another instance, and
+    /// starts judging the path, which reads nothing of the file (ADR 0090). Until then it
+    /// counts as a file not judged yet. `None`, and nothing added, if the thread cannot
+    /// start.
+    #[cfg(feature = "dev")]
+    pub(super) fn visit_carried(
+        &mut self,
+        path: PathBuf,
+        text: oso_core::load::LoadSnapshot,
+        facts: oso_core::buffer::FileFacts,
+    ) -> Option<BufferId> {
+        let mut buffer = Buffer::visiting(path.clone());
+        buffer.apply_carried(text, facts);
+        let buffer = self.editor.add_buffer(buffer);
+        self.buffers_changed();
+        let waker = self.waker.clone();
+        let started = Instant::now();
+        match loader::spawn_judging(buffer, path, move |buffer| {
+            waker.send(UserEvent::Load(buffer))
+        }) {
+            Ok(handle) => {
+                self.loads.push(Load {
+                    handle,
+                    started,
+                    first_screen: None,
+                });
+                Some(buffer)
+            }
+            Err(e) => {
+                log::warn!("cannot start judging a carried buffer: {e}");
                 self.editor.kill_buffer(buffer);
                 None
             }
@@ -98,6 +148,8 @@ impl App {
         {
             let redraw = self.apply_load(index, update);
             self.forget_killed();
+            #[cfg(feature = "dev")]
+            self.reply_to_import();
             // Not in `apply_load`, as `poll_loads` runs on the frame path. A buffer still
             // loading is not at risk, so nothing is lost by waiting for this event.
             self.dispatcher.publish_for_emergency(&self.editor);
@@ -115,6 +167,8 @@ impl App {
                 self.apply_load(index, update);
             }
         }
+        #[cfg(feature = "dev")]
+        self.reply_to_import();
     }
 
     /// Starts filling an internal buffer with a copy's text.
@@ -195,6 +249,12 @@ impl App {
                 let window = self.editor.tiled().0;
                 shown && window::reaches(window.scroll().top, window.size(), old_rows - 1)
             }
+            // The buffer holds carried text, and only its verdict was missing.
+            #[cfg(feature = "dev")]
+            LoadUpdate::Judged => {
+                self.loads.swap_remove(index);
+                shown
+            }
             LoadUpdate::Failed(LoadError::NotFound) => {
                 // As Emacs does: a new file, empty until saved.
                 log::info!("(New file) {:?}", buffer.name());
@@ -241,9 +301,10 @@ impl App {
                     started.elapsed()
                 );
             }
-            editor
-                .buffer(load.handle.buffer())
-                .is_some_and(|buffer| buffer.loading().is_some())
+            // A carried buffer has all its text, and waits only for its verdict.
+            editor.buffer(load.handle.buffer()).is_some_and(|buffer| {
+                buffer.loading().is_some() || buffer.verdict() == Verdict::Unjudged
+            })
         });
     }
 }

@@ -13,7 +13,6 @@
 //! What is typed here may be a passphrase, so nothing here prints it through `Debug`, and
 //! a passphrase enters no history.
 
-use std::collections::VecDeque;
 use std::fmt;
 use std::ops::Range;
 
@@ -30,6 +29,9 @@ use crate::rope::Rope;
 mod candidates;
 mod completion;
 mod cut;
+mod history;
+
+pub(crate) use history::Histories;
 
 /// The most prompts open at once. One more is refused.
 pub const MAX_DEPTH: usize = 8;
@@ -67,6 +69,8 @@ pub const CUT: &str = "…";
 pub enum Kind {
     /// A whole number, kept in the history named, if any.
     Number { history: Option<&'static str> },
+    /// Any text, kept in the history named, if any (ADR 0085).
+    Text { history: Option<&'static str> },
     /// A passphrase. It shows as one `*` per character, keeps no undo record and enters no
     /// history. Its buffer may hold secrets, so every rule for such a buffer applies.
     Passphrase,
@@ -86,7 +90,7 @@ impl Kind {
     /// The history its answers go to, if any.
     pub fn history(self) -> Option<&'static str> {
         match self {
-            Self::Number { history } => history,
+            Self::Number { history } | Self::Text { history } => history,
             Self::Complete { history } => Some(history),
             Self::Passphrase | Self::Question { .. } => None,
         }
@@ -171,6 +175,8 @@ pub struct Prompt {
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.
     pub(crate) typed: Option<String>,
+    /// The agent channel caused it, and its label says so (ADR 0085).
+    pub(crate) from_agent: bool,
     /// Its candidates, for a prompt that completes, and the revision of its buffer they
     /// were last matched against.
     pub(crate) completion: Option<(Candidates, u64)>,
@@ -219,6 +225,12 @@ impl Prompt {
     pub fn around_secret(&self) -> bool {
         self.around_secret
     }
+
+    /// Whether the agent channel caused it: its label starts with `Agent: `, after its
+    /// depth, and only the person answers it (ADR 0085).
+    pub fn from_agent(&self) -> bool {
+        self.from_agent
+    }
 }
 
 impl fmt::Debug for Prompt {
@@ -246,48 +258,6 @@ impl fmt::Debug for Outcome {
             Self::Answered { prompt, .. } => write!(f, "Answered {{ prompt: {prompt:?}, .. }}"),
             Self::Run(command) => write!(f, "Run({command:?})"),
         }
-    }
-}
-
-/// The answers given to each history, newest first, in memory only: never written to
-/// disk or carried through a restart (ADR 0013, ADR 0051).
-#[derive(Default)]
-pub(crate) struct Histories {
-    pub(crate) lists: Vec<(&'static str, VecDeque<String>)>,
-}
-
-impl Histories {
-    /// Records `text` as the newest of `name`. An answer given before moves to the front,
-    /// and the oldest goes past [`HISTORY_LENGTH`]. Nothing empty or longer than
-    /// [`MAX_ENTRY_BYTES`] is recorded.
-    pub(crate) fn record(&mut self, name: &'static str, text: &str) {
-        if text.is_empty() || text.len() > MAX_ENTRY_BYTES {
-            return;
-        }
-        let index = match self.lists.iter().position(|(other, _)| *other == name) {
-            Some(index) => index,
-            None => {
-                self.lists.push((name, VecDeque::new()));
-                self.lists.len() - 1
-            }
-        };
-        let list = &mut self.lists[index].1;
-        list.retain(|entry| entry != text);
-        list.push_front(text.to_owned());
-        list.truncate(HISTORY_LENGTH);
-    }
-
-    /// The answers of `name`, newest first.
-    pub(crate) fn entries(&self, name: &str) -> impl Iterator<Item = &str> {
-        self.lists
-            .iter()
-            .filter(move |(other, _)| *other == name)
-            .flat_map(|(_, list)| list.iter().map(String::as_str))
-    }
-
-    /// The answer `index` steps back in `name`, 0 the newest.
-    pub(crate) fn get(&self, name: &str, index: usize) -> Option<&str> {
-        self.entries(name).nth(index)
     }
 }
 

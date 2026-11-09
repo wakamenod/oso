@@ -25,6 +25,10 @@ use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod agent;
+mod args;
+mod buffers;
+pub use args::Given;
 mod clipboard;
 mod extended;
 mod keymaps;
@@ -126,6 +130,12 @@ impl Dispatcher {
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
+    }
+
+    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
+    /// takes no more digits, which the next command would take.
+    pub fn keys_in_progress(&self) -> bool {
+        !self.resolver.pending().is_empty() || self.prefix.is_some()
     }
 
     /// Whether the next key is read as a key rather than typed: a prefix key is
@@ -302,39 +312,18 @@ impl Dispatcher {
             );
         }
         // The socket never opens a prompt that waits for a person: it gives the answer.
-        let answer;
-        let mut invocation = Invocation::default();
-        let args = match (command.args, arg) {
-            (ArgSpec::Number { .. }, Some(n)) => {
-                self.prefix = None;
-                answer = n.to_string();
-                invocation.answer = Some(&answer);
-                Args::NONE
-            }
-            (ArgSpec::Number { .. }, None) => {
-                return (Effects::default(), Err(format!("{name} needs a number")));
-            }
-            (ArgSpec::Passphrase { .. }, _) => {
-                let refused = format!("{name} reads a passphrase in a prompt, through send-keys");
-                return (Effects::default(), Err(refused));
-            }
-            (ArgSpec::Command { .. }, _) => {
-                let refused = format!("{name} reads a command's name; run the command itself");
-                return (Effects::default(), Err(refused));
-            }
-            (ArgSpec::Theme { .. }, _) => {
-                let refused = format!("{name} reads a theme's name in a prompt, through send-keys");
-                return (Effects::default(), Err(refused));
-            }
-            (_, None) => Args::with_prefix(self.prefix.take()),
-            (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Some(n)) => {
-                self.prefix = None;
-                Args::numeric(n)
-            }
-            (ArgSpec::None, Some(_)) => {
-                return (Effects::default(), Err(format!("{name} takes no argument")));
-            }
+        let given = arg.map_or(args::Given::Nothing, args::Given::Count);
+        let mapped = match args::map(name, command.args, given, self.prefix) {
+            Ok(mapped) => mapped,
+            Err(refused) => return (Effects::default(), Err(refused)),
         };
+        // The prefix the keys left is the command's now, or was replaced by the argument.
+        self.prefix = None;
+        let invocation = Invocation {
+            answer: mapped.answer.as_deref(),
+            ..Invocation::default()
+        };
+        let args = mapped.args;
         // A command isearch's keys do not run ends a search first, as a key would
         // (ADR 0082).
         let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();
@@ -583,6 +572,8 @@ impl Dispatcher {
     }
 }
 
+#[cfg(test)]
+mod buffer_tests;
 #[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
@@ -970,18 +961,6 @@ mod tests {
         let (_, result) = dispatcher.run_command(&mut editor, "backward-char", Some(-1));
         assert_eq!(result, Ok(()));
         assert_eq!(cursor(&editor), 5);
-    }
-
-    #[test]
-    fn run_command_refuses_a_command_that_reads_a_themes_name() {
-        let mut dispatcher = Dispatcher::new();
-        let mut editor = editor("abcdef");
-        editor.set_themes(vec![("dark", "dark"), ("light", "light")], 0);
-        let (effects, result) = dispatcher.run_command(&mut editor, "load-theme", None);
-        assert_eq!(effects, Effects::default());
-        assert!(result.unwrap_err().contains("theme's name"));
-        assert!(editor.prompt().is_none());
-        assert_eq!(editor.theme_name(), Some("dark"));
     }
 
     #[test]

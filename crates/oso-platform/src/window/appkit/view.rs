@@ -101,6 +101,24 @@ define_class!(
             layer.into_super()
         }
 
+        /// The person starts dragging the window's edge: each step is drawn at once from now
+        /// on (ADR 0086).
+        #[unsafe(method(viewWillStartLiveResize))]
+        fn view_will_start_live_resize(&self) {
+            // SAFETY: NSView's own `viewWillStartLiveResize`, which takes nothing and returns
+            // nothing, as subclasses must call it.
+            let (): () = unsafe { msg_send![super(self), viewWillStartLiveResize] };
+            self.ivars().state.set_live_resize(true);
+        }
+
+        /// The drag has ended: frames come when the loop waits again.
+        #[unsafe(method(viewDidEndLiveResize))]
+        fn view_did_end_live_resize(&self) {
+            // SAFETY: NSView's own `viewDidEndLiveResize`, as above.
+            let (): () = unsafe { msg_send![super(self), viewDidEndLiveResize] };
+            self.ivars().state.set_live_resize(false);
+        }
+
         /// AppKit displays the layer itself, through `updateLayer`, and not by drawing.
         #[unsafe(method(wantsUpdateLayer))]
         fn wants_update_layer(&self) -> bool {
@@ -330,6 +348,18 @@ impl OsoView {
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
         view.setWantsLayer(true);
         view
+    }
+
+    /// Whether the Metal layer presents each frame inside the Core Animation transaction that
+    /// changes the view, as during a live resize, and not on its own. wgpu reads it at each
+    /// frame.
+    pub(super) fn present_with_transaction(&self, with: bool) {
+        if let Some(layer) = self
+            .layer()
+            .and_then(|layer| layer.downcast::<CAMetalLayer>().ok())
+        {
+            layer.setPresentsWithTransaction(with);
+        }
     }
 
     fn scale(&self) -> f64 {

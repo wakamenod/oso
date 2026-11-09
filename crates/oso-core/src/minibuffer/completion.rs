@@ -27,8 +27,9 @@ pub(crate) fn completion_layout(
     label: &str,
     message: Option<&str>,
     total: usize,
+    previews: bool,
 ) -> PromptLayout {
-    let regions = completion_regions(frame, ROWS);
+    let regions = completion_regions(frame, ROWS, previews);
     let inner = regions.inner;
     let rect = |column: usize, columns: usize| {
         let columns = if inner.rows == 0 {
@@ -98,7 +99,7 @@ mod tests {
             rows: 42,
             columns: 100,
         });
-        let layout = completion_layout(&frame, "M-x", Some("No match"), 340);
+        let layout = completion_layout(&frame, "M-x", Some("No match"), 340, false);
         let inner = layout.regions.inner;
         assert_eq!(
             layout.count,
@@ -124,7 +125,7 @@ mod tests {
             columns: 100,
         });
         let label = "a label much longer than half of the float's row, by far and away";
-        let layout = completion_layout(&frame, label, None, 3);
+        let layout = completion_layout(&frame, label, None, 3, false);
         assert!(layout.label_cut);
         assert_eq!(layout.label_cells.columns, layout.regions.inner.columns / 3);
     }
@@ -140,7 +141,7 @@ mod tests {
             message in proptest::option::of("[a-z]{0,30}"),
         ) {
             let frame = frame_layout(FrameSize { rows, columns });
-            let layout = completion_layout(&frame, &label, message.as_deref(), total);
+            let layout = completion_layout(&frame, &label, message.as_deref(), total, false);
             let outer = layout.regions.outer;
             let parts = [
                 layout.count,

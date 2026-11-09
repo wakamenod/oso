@@ -254,6 +254,11 @@ impl Editor {
     }
 
     /// What the echo area shows.
+    /// Whether the echo area shows keys in progress: a prefix key or argument being typed.
+    pub fn shows_keys_in_progress(&self) -> bool {
+        !self.keys_in_progress.is_empty()
+    }
+
     pub(super) fn echo_text(&self) -> &str {
         if !self.keys_in_progress.is_empty() {
             return &self.keys_in_progress;
@@ -281,6 +286,27 @@ impl Editor {
         let window = &self.windows[self.tiled_index()];
         let (_, place) = window.places().find(|(id, _)| *id == first)?;
         Some((first, &place.selections, place.scroll))
+    }
+
+    /// Puts `selections` and `scroll` in the place the tiled window keeps for `buffer`, which
+    /// it no longer shows, for positions a state handoff brought that waited for their file
+    /// (ADR 0090). Showing it again clips them to its text. Returns whether the window keeps
+    /// such a place.
+    pub fn restore_kept_place(
+        &mut self,
+        buffer: BufferId,
+        selections: SelectionSet,
+        scroll: Scroll,
+    ) -> bool {
+        let index = self.tiled_index();
+        match self.windows[index].places_mut().get_mut(buffer) {
+            Some(place) => {
+                place.selections = selections;
+                place.scroll = scroll;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Shows the internal buffer `id`, to come back from later. If the window has already come
@@ -333,13 +359,20 @@ impl Editor {
     /// message is one row. Cursors at the end stay at the end, and the view follows the
     /// selected window's.
     fn add_to_messages_buffer(&mut self, shown: &str) {
-        let id = self.messages_buffer;
+        self.add_row(self.messages_buffer, shown, MAX_MESSAGES);
+    }
+
+    /// Adds `row`, which has no line break, to the internal buffer `id`, and takes the oldest
+    /// row out once it holds `max`. Cursors at the end stay at the end, and the view follows
+    /// the selected window's.
+    pub(super) fn add_row(&mut self, id: BufferId, row: &str, max: usize) {
+        let shown = row;
         let Some(buffer) = self.buffer(id) else {
             return;
         };
         let end = buffer.text().len();
-        // The last line is the empty one after the newest message.
-        let full = buffer.text().line_count() > MAX_MESSAGES;
+        // The last line is the empty one after the newest row.
+        let full = buffer.text().line_count() > max;
         let oldest = if full { buffer.text().line_start(1) } else { 0 };
         let line = format!("{shown}\n");
         let edits = [
