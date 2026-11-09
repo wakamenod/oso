@@ -7,6 +7,7 @@
 //! Must not depend on: winit, the GPU or `bindings`; a command sees only the
 //! host-owned state and does not know its keys.
 
+mod agent;
 mod buffers;
 mod complete;
 #[cfg(feature = "dev")]
@@ -35,6 +36,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    agent::COMMANDS,
     complete::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
@@ -142,6 +144,10 @@ mod tests {
             .collect();
         person.sort_unstable();
         let mut expected = vec![
+            // Who may drive the editor.
+            "agent-channel-allow",
+            "agent-channel-start",
+            "agent-channel-stop",
             // Answering a prompt, choosing what it answers, and running a command by name
             // (ADR 0076).
             "answer-no",
@@ -175,6 +181,8 @@ mod tests {
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
+            // The person's yes to the agent's question about saving.
+            "save-buffer-the-agent-opened",
             // Keys: the channel passes a count or text instead.
             "digit-argument",
             "negative-argument",

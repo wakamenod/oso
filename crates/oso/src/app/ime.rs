@@ -70,6 +70,7 @@ impl App {
     /// Handles a report of the input method, from the window system or the dev socket.
     /// Returns whether it asked for a frame.
     pub(super) fn ime_event(&mut self, event_loop: &Loop<'_>, event: ImeEvent) -> bool {
+        self.person_typed();
         match event {
             ImeEvent::Preedit(text, range) if !text.is_empty() => {
                 if self.editor.preedit().is_none() {
@@ -88,13 +89,14 @@ impl App {
         }
     }
 
-    /// What follows every event, before the next is read, as the window system hands a key to the
-    /// input method before it reaches oso (ADR 0069): a composition ends if a buffer that
+    /// The input method's part of what follows every event, before the next is read, as the
+    /// window system hands a key to the input method before it reaches oso (ADR 0069): a
+    /// composition ends if a buffer that
     /// may hold secrets is selected, whatever selected it, then the IME is allowed as
     /// wanted, and the window gets the cursor's cell if it changed, so that a composition
     /// started by the next key opens its candidate window there, and where each character of
     /// a composition is drawn.
-    pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
+    pub(super) fn sync_ime_after_event(&mut self, event_loop: &Loop<'_>) {
         // What follows logs, and the event may have brought a secret buffer into view.
         self.note_logging();
         if self.composing() && self.editor.current().1.is_secret() {
@@ -135,7 +137,7 @@ impl App {
     }
 
     /// Whether a composition is open.
-    fn composing(&self) -> bool {
+    pub(super) fn composing(&self) -> bool {
         self.editor.preedit().is_some()
     }
 

@@ -69,6 +69,8 @@ pub const CUT: &str = "…";
 pub enum Kind {
     /// A whole number, kept in the history named, if any.
     Number { history: Option<&'static str> },
+    /// Any text, kept in the history named, if any (ADR 0085).
+    Text { history: Option<&'static str> },
     /// A passphrase. It shows as one `*` per character, keeps no undo record and enters no
     /// history. Its buffer may hold secrets, so every rule for such a buffer applies.
     Passphrase,
@@ -88,7 +90,7 @@ impl Kind {
     /// The history its answers go to, if any.
     pub fn history(self) -> Option<&'static str> {
         match self {
-            Self::Number { history } => history,
+            Self::Number { history } | Self::Text { history } => history,
             Self::Complete { history } => Some(history),
             Self::Passphrase | Self::Question { .. } => None,
         }
@@ -173,6 +175,8 @@ pub struct Prompt {
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.
     pub(crate) typed: Option<String>,
+    /// The agent channel caused it, and its label says so (ADR 0085).
+    pub(crate) from_agent: bool,
     /// Its candidates, for a prompt that completes, and the revision of its buffer they
     /// were last matched against.
     pub(crate) completion: Option<(Candidates, u64)>,
@@ -220,6 +224,12 @@ impl Prompt {
     /// out what it holds.
     pub fn around_secret(&self) -> bool {
         self.around_secret
+    }
+
+    /// Whether the agent channel caused it: its label starts with `Agent: `, after its
+    /// depth, and only the person answers it (ADR 0085).
+    pub fn from_agent(&self) -> bool {
+        self.from_agent
     }
 }
 

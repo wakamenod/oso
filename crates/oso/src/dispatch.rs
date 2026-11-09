@@ -25,7 +25,10 @@ use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod agent;
+mod args;
 mod buffers;
+pub use args::Given;
 mod clipboard;
 mod extended;
 mod keymaps;
@@ -127,6 +130,12 @@ impl Dispatcher {
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
+    }
+
+    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
+    /// takes no more digits, which the next command would take.
+    pub fn keys_in_progress(&self) -> bool {
+        !self.resolver.pending().is_empty() || self.prefix.is_some()
     }
 
     /// Whether the next key is read as a key rather than typed: a prefix key is
@@ -303,41 +312,18 @@ impl Dispatcher {
             );
         }
         // The socket never opens a prompt that waits for a person: it gives the answer.
-        let answer;
-        let mut invocation = Invocation::default();
-        let args = match (command.args, arg) {
-            (ArgSpec::Number { .. }, Some(n)) => {
-                self.prefix = None;
-                answer = n.to_string();
-                invocation.answer = Some(&answer);
-                Args::NONE
-            }
-            (ArgSpec::Number { .. }, None) => {
-                return (Effects::default(), Err(format!("{name} needs a number")));
-            }
-            (ArgSpec::Passphrase { .. }, _) => {
-                let refused = format!("{name} reads a passphrase in a prompt, through send-keys");
-                return (Effects::default(), Err(refused));
-            }
-            (ArgSpec::Command { .. }, _) => {
-                let refused = format!("{name} reads a command's name; run the command itself");
-                return (Effects::default(), Err(refused));
-            }
-            // A buffer's name, or a mark's row, is text, which `run-command` does not carry yet.
-            (ArgSpec::Buffer { .. } | ArgSpec::Mark { .. }, _) => {
-                let refused =
-                    format!("{name} reads a buffer's name in a prompt, through send-keys");
-                return (Effects::default(), Err(refused));
-            }
-            (_, None) => Args::with_prefix(self.prefix.take()),
-            (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Some(n)) => {
-                self.prefix = None;
-                Args::numeric(n)
-            }
-            (ArgSpec::None, Some(_)) => {
-                return (Effects::default(), Err(format!("{name} takes no argument")));
-            }
+        let given = arg.map_or(args::Given::Nothing, args::Given::Count);
+        let mapped = match args::map(name, command.args, given, self.prefix) {
+            Ok(mapped) => mapped,
+            Err(refused) => return (Effects::default(), Err(refused)),
         };
+        // The prefix the keys left is the command's now, or was replaced by the argument.
+        self.prefix = None;
+        let invocation = Invocation {
+            answer: mapped.answer.as_deref(),
+            ..Invocation::default()
+        };
+        let args = mapped.args;
         // A command isearch's keys do not run ends a search first, as a key would
         // (ADR 0082).
         let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();

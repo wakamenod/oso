@@ -154,11 +154,14 @@ item notes when it must be settled.
   size limit, so sharing needs room there.
 - Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
   budget by itself. Applying a batch of splices in one tree pass instead of one
-  `Rope::replace` each is the next step. Do that or cap the cursors before M2-21. A command
-  also clones the selection set for its undo group, and an edit a few times more, which counts
-  with that many cursors.
+  `Rope::replace` each is the next step. M2-21 does that and caps the cursors at 1000, aiming at
+  key press to photon p99 ≤ 8 ms with the edit's share at p99 ≤ 4 ms; if 1000 still miss the
+  budget, the bound goes back to the author
+  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)). A command also clones the selection
+  set for its undo group, and an edit a few times more, which counts with that many cursors.
 - Every window showing a buffer clips all its cursors after each edit, though only those
-  in the edited chunks can change. Limit it to those before splits (M3) bring more windows.
+  in the edited chunks can change. M2-21 clips only those, in every window, in the batched pass
+  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
@@ -261,6 +264,10 @@ item notes when it must be settled.
 - Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
   M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
   ([ADR 0057](adr/0057-frame-layout.md)).
+- Any input-method report, even an empty preedit or `Disabled` with no composition open,
+  counts as the person typing and restarts the 500 ms wait before a question the agent caused
+  takes an answer. It could count only text or the end of a composition that was open. Kept
+  for now, as the cautious side ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 ## M3
 

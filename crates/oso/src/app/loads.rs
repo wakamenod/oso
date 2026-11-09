@@ -36,15 +36,24 @@ impl App {
     /// Adds a buffer for `path` and starts loading it. `None` if the loading
     /// thread cannot start.
     pub(super) fn visit(&mut self, path: PathBuf) -> Option<BufferId> {
+        self.visit_with(path, false)
+    }
+
+    /// [`Self::visit`], for the agent channel if `for_agent`: the file opened must have one
+    /// name, or its load fails and the buffer goes, unshown (ADR 0085).
+    pub(super) fn visit_with(&mut self, path: PathBuf, for_agent: bool) -> Option<BufferId> {
         // Absolute without touching the file system, so the UI never waits.
         let path = std::path::absolute(&path).unwrap_or(path);
         let buffer = self.editor.add_buffer(Buffer::visiting(path.clone()));
         self.buffers_changed();
         let waker = self.waker.clone();
         let started = Instant::now();
-        let spawned = loader::spawn(buffer, path, move |buffer| {
-            waker.send(UserEvent::Load(buffer))
-        });
+        let wake = move |buffer| waker.send(UserEvent::Load(buffer));
+        let spawned = if for_agent {
+            loader::spawn_one_name(buffer, path, wake)
+        } else {
+            loader::spawn(buffer, path, wake)
+        };
         match spawned {
             Ok(handle) => {
                 self.loads.push(Load {
@@ -62,6 +71,11 @@ impl App {
                 None
             }
         }
+    }
+
+    /// Stops loading `buffer`: its thread ends at its next read, and nothing it read comes in.
+    pub(super) fn cancel_load(&mut self, buffer: BufferId) {
+        self.loads.retain(|load| load.handle.buffer() != buffer);
     }
 
     /// Adds a buffer for `path` holding `text`, carried unsaved from another instance, and
