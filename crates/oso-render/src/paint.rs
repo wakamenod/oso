@@ -11,6 +11,7 @@ use crate::pane::{Face, Pane};
 use crate::scene::{GlyphSource, Limits, Scene};
 use crate::shape::{MAX_RECTS, ShapeRenderer};
 use crate::text::TextRenderer;
+use crate::theme::Theme;
 
 /// The real atlas, with what it needs to add a glyph this frame.
 struct Atlas<'a> {
@@ -48,13 +49,15 @@ impl Painter {
         format: wgpu::TextureFormat,
         width: f32,
         height: f32,
+        theme: Theme,
     ) -> Self {
         let shape = ShapeRenderer::new(device, format, width, height);
-        let text = TextRenderer::new(device, format, width, height);
-        let scene = Scene::new(Limits {
+        let text = TextRenderer::new(device, format, width, height, theme.text());
+        let limits = Limits {
             rects: MAX_RECTS,
             quads: text.max_instances(),
-        });
+        };
+        let scene = Scene::new(limits, theme);
         Self { shape, text, scene }
     }
 
@@ -62,6 +65,12 @@ impl Painter {
     pub(crate) fn resize(&self, queue: &wgpu::Queue, width: f32, height: f32) {
         self.shape.resize(queue, width, height);
         self.text.resize(queue, width, height);
+    }
+
+    /// Draws from the next frame on in `theme` (ADR 0089). Shaped rows and glyphs stay.
+    pub(crate) fn set_theme(&mut self, queue: &wgpu::Queue, theme: Theme) {
+        self.text.set_gamma(queue, theme.text());
+        self.scene.set_theme(theme);
     }
 
     /// Drops cached shaping and glyphs, for when the font changes.
@@ -106,7 +115,7 @@ impl Painter {
 
     /// Records the prepared frame into `view`.
     pub(crate) fn encode(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
-        let [r, g, b, a] = Face::Text.background().map(f64::from);
+        let [r, g, b, a] = self.scene.theme().background(Face::Text).map(f64::from);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Panes"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -133,6 +142,9 @@ impl Painter {
 }
 
 #[cfg(test)]
+mod samples;
+
+#[cfg(test)]
 mod tests {
     //! The same frames on a real GPU, in real pixels. Run with `just pixel-tests`:
     //! the rest of the crate's tests need no GPU. The glyphs come from a fake text
@@ -140,6 +152,7 @@ mod tests {
 
     use super::*;
     use crate::pane::{Bands, Layer, PaneContent, PaneId, Panel, Span};
+    use crate::theme::TextGamma;
     use oso_core::frame::CellRect;
     use oso_platform::text::{CellMetrics, FontId, GlyphBitmap, GlyphFormat, GlyphId, ShapedGlyph};
 
@@ -147,8 +160,8 @@ mod tests {
     const HEIGHT: u32 = 128;
 
     /// One glyph per character. Its bitmap fills its cell, 6 px above it and
-    /// 8 px below it, past the bands of ADR 0052 on both sides.
-    struct Blocks;
+    /// 8 px below it, past the bands of ADR 0052 on both sides, at the coverage it holds.
+    struct Blocks(u8);
 
     impl TextSystem for Blocks {
         fn metrics(&self) -> CellMetrics {
@@ -183,7 +196,7 @@ mod tests {
                 left: 0,
                 top: 22,
                 format: GlyphFormat::Coverage,
-                data: vec![255; 340],
+                data: vec![self.0; 340],
             })
         }
     }
@@ -201,6 +214,27 @@ mod tests {
 
     /// Draws `panes` on a real device, and gives back RGBA pixels.
     fn draw(panes: &[Pane<'_>]) -> Vec<u8> {
+        draw_in(panes, 255, theme())
+    }
+
+    fn theme() -> Theme {
+        crate::theme::themes()[0]
+    }
+
+    /// Draws `panes` in `theme`, with glyphs of `coverage`.
+    fn draw_in(panes: &[Pane<'_>], coverage: u8, theme: Theme) -> Vec<u8> {
+        let target = (WIDTH, HEIGHT, wgpu::TextureFormat::Rgba8Unorm);
+        render(panes, &mut Blocks(coverage), theme, target)
+    }
+
+    /// Draws `panes` in `theme` with the glyphs of `system`, on a real device, into a texture
+    /// of `width` by `height` in `format`, and gives back its RGBA pixels.
+    pub(super) fn render(
+        panes: &[Pane<'_>],
+        system: &mut dyn TextSystem,
+        theme: Theme,
+        (width, height, format): (u32, u32, wgpu::TextureFormat),
+    ) -> Vec<u8> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             flags: wgpu::InstanceFlags::default(),
@@ -212,14 +246,19 @@ mod tests {
             .expect("this test needs a GPU");
         let (device, queue) =
             block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
-        let format = wgpu::TextureFormat::Rgba8Unorm;
-        let mut painter = Painter::new(&device, format, WIDTH as f32, HEIGHT as f32);
-        let mut budget = RasterBudget::new(64);
-        painter.prepare(&device, &queue, &mut Blocks, panes, &mut budget);
+        let mut painter = Painter::new(&device, format, width as f32, height as f32, theme);
+        // Frames until every glyph is rasterized, as the app draws them.
+        for _ in 0..64 {
+            let mut budget = RasterBudget::new(64);
+            painter.prepare(&device, &queue, system, panes, &mut budget);
+            if !budget.exhausted {
+                break;
+            }
+        }
 
         let size = wgpu::Extent3d {
-            width: WIDTH,
-            height: HEIGHT,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -232,10 +271,10 @@ mod tests {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        let bytes_per_row = 4 * WIDTH.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT / 4);
+        let bytes_per_row = 4 * width.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT / 4);
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: u64::from(bytes_per_row * HEIGHT),
+            size: u64::from(bytes_per_row * height),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -249,7 +288,7 @@ mod tests {
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: Some(HEIGHT),
+                    rows_per_image: Some(height),
                 },
             },
             size,
@@ -260,7 +299,7 @@ mod tests {
         let mapped = buffer.get_mapped_range(..);
         mapped
             .chunks_exact(bytes_per_row as usize)
-            .flat_map(|row| row[..WIDTH as usize * 4].iter().copied())
+            .flat_map(|row| row[..width as usize * 4].iter().copied())
             .collect()
     }
 
@@ -304,8 +343,8 @@ mod tests {
         }
     }
 
-    const INK: fn() -> [f32; 4] = || Face::Text.foreground();
-    const PAPER: fn() -> [f32; 4] = || Face::Text.background();
+    const INK: fn() -> [f32; 4] = || theme().foreground(Face::Text);
+    const PAPER: fn() -> [f32; 4] = || theme().background(Face::Text);
 
     #[test]
     #[ignore = "needs a GPU"]
@@ -332,6 +371,37 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
+    fn text_at_half_coverage_looks_as_blended_in_srgb() {
+        let word = [Span {
+            text: "xx",
+            face: Face::Text,
+        }];
+        let lines: [&[Span<'_>]; 1] = [&word];
+        let panes = [pane(0, (1, 1, 1, 4), 0, Some(Face::Text), &lines)];
+        let gamma = TextGamma { strength: 1.0 };
+        let pixels = draw_in(&panes, 128, theme().with_text(gamma));
+        let (ink, paper) = (INK(), PAPER());
+        let coverage = 128.0 / 255.0;
+        let a = crate::theme::corrected_coverage(
+            coverage,
+            crate::theme::luminance(ink),
+            crate::theme::luminance(paper),
+            gamma,
+        );
+        let want = a * ink[0] + (1.0 - a) * paper[0];
+        assert_is(
+            &pixels,
+            (22, 38),
+            [want, 0.0, 0.0, 1.0],
+            "a glyph at half coverage",
+        );
+        // Lighter than blending in linear light, which the theme corrects.
+        let linear = coverage * ink[0] + (1.0 - coverage) * paper[0];
+        assert!(f32::from(red(&pixels, 22, 38)) < linear * 255.0 - 20.0);
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
     fn a_panes_text_goes_over_its_own_background() {
         let word = [Span {
             text: "xx",
@@ -341,7 +411,7 @@ mod tests {
         let panes = [pane(0, (1, 1, 1, 4), 0, Some(Face::Boxed), &lines)];
         let pixels = draw(&panes);
         assert_is(&pixels, (22, 38), INK(), "a glyph on the background");
-        let fill = Face::Boxed.background();
+        let fill = theme().background(Face::Boxed);
         assert_is(&pixels, (52, 38), fill, "the background past the glyphs");
         assert_is(&pixels, (58, 67), PAPER(), "below the pane");
     }
@@ -361,7 +431,7 @@ mod tests {
             pane(1, (1, 1, 2, 4), 1, Some(Face::Text), &lines),
         ];
         let pixels = draw(&panes);
-        let fill = Face::Boxed.background();
+        let fill = theme().background(Face::Boxed);
         assert_is(&pixels, (12, 18), INK(), "the back pane's text");
         assert_is(&pixels, (52, 18), fill, "the back pane's background");
         assert_is(&pixels, (22, 38), INK(), "the front pane's text");
@@ -462,7 +532,7 @@ mod tests {
     #[ignore = "needs a GPU"]
     fn a_panel_hangs_from_the_top_with_its_bottom_corners_rounded() {
         let pixels = panel(6);
-        let fill = Face::Float.background();
+        let fill = theme().background(Face::Float);
         assert_is(&pixels, (28, 0), fill, "the square top corner");
         assert_is(&pixels, (29, 38), fill, "the panel's left edge");
         assert_is(&pixels, (58, 66), fill, "the panel's bottom edge");
@@ -517,20 +587,25 @@ mod tests {
         assert_is(
             &pixels,
             (58, 38),
-            Face::Field.background(),
+            theme().background(Face::Field),
             "inside the field",
         );
         assert_is(
             &pixels,
             (58, 23),
-            Face::Field.foreground(),
+            theme().foreground(Face::Field),
             "its top outline",
         );
-        assert_is(&pixels, (58, 22), Face::Float.background(), "above it");
+        assert_is(
+            &pixels,
+            (58, 22),
+            theme().background(Face::Float),
+            "above it",
+        );
         assert_is(
             &pixels,
             (30, 38),
-            Face::Field.foreground(),
+            theme().foreground(Face::Field),
             "its left outline",
         );
     }
@@ -566,11 +641,21 @@ mod tests {
         }];
         let pixels = draw(&panes);
         // The row's cells are x 28..108 and y 68..88; the box reaches 8 px past their sides.
-        let selected = Face::CompletionSelected.background();
+        let selected = theme().background(Face::CompletionSelected);
         assert_is(&pixels, (60, 78), selected, "on the row");
         assert_is(&pixels, (24, 78), selected, "past the row's left cell");
-        assert_is(&pixels, (60, 66), Face::Float.background(), "the row above");
-        assert_is(&pixels, (60, 90), Face::Float.background(), "the row below");
+        assert_is(
+            &pixels,
+            (60, 66),
+            theme().background(Face::Float),
+            "the row above",
+        );
+        assert_is(
+            &pixels,
+            (60, 90),
+            theme().background(Face::Float),
+            "the row below",
+        );
     }
 
     #[test]
@@ -578,17 +663,17 @@ mod tests {
     fn a_key_is_a_chip_inside_its_cells() {
         // Its cells are x 58..88 and y 48..68, inset 1 and 3 px: below the field's reach.
         let pixels = panel(6);
-        assert_is(&pixels, (73, 60), Face::Key.background(), "the chip");
+        assert_is(&pixels, (73, 60), theme().background(Face::Key), "the chip");
         assert_is(
             &pixels,
             (73, 66),
-            Face::Float.background(),
+            theme().background(Face::Float),
             "below the chip",
         );
         assert_is(
             &pixels,
             (58, 60),
-            Face::Float.background(),
+            theme().background(Face::Float),
             "left of the chip",
         );
     }
@@ -658,7 +743,7 @@ mod tests {
         assert_is(
             &pixels,
             (33, 30),
-            Face::Float.background(),
+            theme().background(Face::Float),
             "the panel itself",
         );
         let below = i32::from(red(&pixels, 33, 72));
