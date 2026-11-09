@@ -6,15 +6,16 @@
 use std::ops::Range;
 
 use super::Editor;
+use crate::display_map::DisplaySnapshot;
 use crate::frame::{self, CellRect};
+use crate::motion;
 use crate::rope::Rope;
 
-/// The most bytes one row's walk back over its trailing whitespace reads: 512 characters
-/// of at most three bytes, as U+3000 takes.
-const ROW_BYTES: usize = 512 * 3;
+/// The most whitespace one row's walk back over its trailing run may pass.
+const ROW_CHARS: usize = 512;
 
-/// The most bytes a frame's walks read in all.
-const FRAME_BYTES: usize = 16_384 * 3;
+/// The most whitespace a frame's walks may pass in all.
+const FRAME_CHARS: usize = 16_384;
 
 /// Which visual aids are on (ADR 0097). Every window reads them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,9 +24,9 @@ pub struct VisualAids {
     pub whitespace: bool,
     /// A band on the primary cursor's row.
     pub current_line: bool,
-    /// A band that fades after a large jump.
+    /// A band that fades after a large jump. Not drawn yet: a later step of M2-24 draws it.
     pub flash: bool,
-    /// Line numbers in a gutter.
+    /// Line numbers in a gutter. Not drawn yet: a later step of M2-24 draws them.
     pub line_numbers: bool,
 }
 
@@ -65,24 +66,26 @@ impl Editor {
         let (window, buffer) = self.tiled();
         let display = buffer.display();
         let (text, scroll) = (self.frame.window.text, window.scroll());
-        let rows = scroll.top..(scroll.top + text.rows).min(display.row_count());
-        let cursor_rows: Vec<usize> = window
-            .selections
+        let end = (scroll.top + text.rows).min(display.row_count());
+        // Only the cursors in view, found as the regions' are: selections keep their order.
+        let first = motion::line_start(&display, scroll.top);
+        let selections = window.selections.as_slice();
+        let from = selections.partition_point(|selection| selection.cursor < first);
+        let mut cursor_rows = selections[from..]
             .iter()
             .map(|selection| display.offset_to_display_point(selection.cursor).row)
-            .filter(|row| rows.contains(row))
-            .collect();
-        let mut left = FRAME_BYTES;
-        let (mut ranges, mut tail) = (Vec::new(), Vec::with_capacity(ROW_BYTES));
-        for row in rows {
-            if cursor_rows.contains(&row) {
+            .take_while(|&row| row < end)
+            .peekable();
+        let mut left = FRAME_CHARS;
+        for row in scroll.top..end {
+            while cursor_rows.next_if(|&cursor| cursor < row).is_some() {}
+            if cursor_rows.peek() == Some(&row) {
                 continue;
             }
-            if let Some(range) = trailing(buffer.text(), row, &mut left, &mut tail) {
-                ranges.push(range);
+            if let Some(range) = trailing(buffer.text(), &display, row, &mut left) {
+                frame::match_cells(text, scroll, &display, std::slice::from_ref(&range), out);
             }
         }
-        frame::match_cells(text, scroll, &display, &ranges, out);
     }
 
     /// The cells of the band on the tiled window's primary cursor's row, if the current line
@@ -103,34 +106,76 @@ impl Editor {
     }
 }
 
-/// The trailing whitespace of line `row` in `text`: spaces, tabs and U+3000 before its break
-/// or the end of the text. `None` if there is none, or if it does not end within what is
-/// `left` of the frame's walk, which this takes from. `tail` is room to read into.
-fn trailing(text: &Rope, row: usize, left: &mut usize, tail: &mut Vec<u8>) -> Option<Range<usize>> {
-    let (start, end) = (text.line_start(row), text.line_end(row));
-    let budget = ROW_BYTES.min(*left);
-    let from = end.saturating_sub(budget).max(start);
-    *left -= end - from;
-    tail.clear();
-    for chunk in text.chunks_in_range(from..end) {
-        tail.extend_from_slice(chunk.as_bytes());
+/// How many bytes a step of the walk back reads.
+const STEP: usize = 64;
+
+/// The trailing whitespace of display row `row`: spaces, tabs and U+3000 before its line's
+/// break or the end of the text. `None` if there is none, if the row does not end its line,
+/// as a wrapped row will not (M2-25), or if the run does not end within its share of what is
+/// `left` of the frame's walk, which this takes from. The walk reads back from the row's end
+/// a step at a time and stops at the first character that is not whitespace, so a short run
+/// costs little whatever the line's length.
+fn trailing(
+    text: &Rope,
+    display: &DisplaySnapshot,
+    row: usize,
+    left: &mut usize,
+) -> Option<Range<usize>> {
+    let (start, end) = (
+        motion::line_start(display, row),
+        motion::line_end(display, row),
+    );
+    let ends_line = end == text.len()
+        || text
+            .chunks_in_range(end..end + 1)
+            .next()
+            .is_some_and(|after| after.starts_with(['\n', '\r']));
+    if !ends_line {
+        return None;
     }
-    let mut at = tail.len();
-    loop {
-        match tail[..at] {
-            [.., b' ' | b'\t'] => at -= 1,
-            [.., 0xe3, 0x80, 0x80] => at -= 3,
-            _ => break,
+    let budget = ROW_CHARS.min(*left);
+    let (mut run, mut at, mut walked) = (end, end, 0);
+    // Continuation bytes read of a character not yet whole: U+3000 is E3 80 80.
+    let mut pending = 0;
+    'walk: while at > start {
+        // A step that starts inside a character is widened to its start.
+        let mut bytes = [0u8; STEP + 3];
+        let mut read = 0;
+        for chunk in text.chunks_in_range(at.saturating_sub(STEP).max(start)..at) {
+            bytes[read..read + chunk.len()].copy_from_slice(chunk.as_bytes());
+            read += chunk.len();
         }
+        let from = at - read;
+        for (index, &byte) in bytes[..read].iter().enumerate().rev() {
+            match (byte, pending) {
+                (b' ' | b'\t', 0) => run = from + index,
+                (0x80, 0 | 1) => {
+                    pending += 1;
+                    continue;
+                }
+                (0xe3, 2) => {
+                    pending = 0;
+                    run = from + index;
+                }
+                _ => break 'walk,
+            }
+            walked += 1;
+            if walked > budget {
+                *left -= budget;
+                return None;
+            }
+        }
+        at = from;
     }
-    let ended = at > 0 || from == start;
-    (ended && at < tail.len()).then(|| from + at..end)
+    *left -= walked;
+    (run < end).then_some(run..end)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::buffer::Buffer;
+    use crate::display_map::{DisplayMap, TabWidth};
     use crate::selection::SelectionSet;
     use crate::window::ViewSize;
 
@@ -165,8 +210,8 @@ mod tests {
     }
 
     #[test]
-    fn a_trailing_run_longer_than_the_walk_is_left_unfilled() {
-        let long = format!("x{}\nshort  \n", " ".repeat(ROW_BYTES + 10));
+    fn a_trailing_run_longer_than_the_walk_is_left_unfilled_and_long_lines_cost_little() {
+        let long = format!("x{}\nshort  \n", " ".repeat(ROW_CHARS + 10));
         let editor = editor(&long, long.len());
         let mut cells = Vec::new();
         editor.trailing_cells(&mut cells);
@@ -175,10 +220,29 @@ mod tests {
             [(1, 5, 2)],
             "the long run is not reached in time"
         );
-        let mut left = FRAME_BYTES;
-        let text = Rope::from(long.as_str());
-        assert_eq!(trailing(&text, 0, &mut left, &mut Vec::new()), None);
-        assert_eq!(left, FRAME_BYTES - ROW_BYTES);
+        // A long line of text with two trailing spaces costs the walk two characters.
+        let text = format!("{}  \n", "é".repeat(5000));
+        let rope = Rope::from(text.as_str());
+        let display = DisplayMap::new(&rope, TabWidth::default()).snapshot();
+        let mut left = FRAME_CHARS;
+        assert_eq!(
+            trailing(&rope, &display, 0, &mut left),
+            Some(10_000..10_002)
+        );
+        assert_eq!(left, FRAME_CHARS - 2);
+    }
+
+    #[test]
+    fn a_full_width_space_split_across_steps_is_still_whitespace() {
+        // The steps read back 64 bytes at a time; put U+3000 across a step's edge.
+        let text = format!("x\u{3000}{}\n", " ".repeat(STEP - 1));
+        let rope = Rope::from(text.as_str());
+        let display = DisplayMap::new(&rope, TabWidth::default()).snapshot();
+        let mut left = FRAME_CHARS;
+        assert_eq!(
+            trailing(&rope, &display, 0, &mut left),
+            Some(1..text.len() - 1)
+        );
     }
 
     #[test]

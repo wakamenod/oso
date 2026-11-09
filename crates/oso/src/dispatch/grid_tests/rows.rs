@@ -44,12 +44,13 @@ pub(super) fn draw_row(
         display,
         DisplayPoint::new(row, view.start),
         preedit,
-        |cluster, own| {
+        style.whitespace,
+        |cluster, _| {
             if cluster.column >= view.end {
                 return ControlFlow::Break(());
             }
             let mut boxed_end = None;
-            cluster.for_each_run_with(style.whitespace && !own, |run| {
+            cluster.for_each_run(|run| {
                 let start = run.column.max(view.start);
                 let end = (run.column + run.cells).min(view.end);
                 if start < end {

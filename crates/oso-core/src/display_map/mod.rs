@@ -88,6 +88,9 @@ pub struct DisplayCluster<'a> {
     /// What to draw: the text, blank cells for a tab, or an escape (boxed
     /// for an invisible character or one past a cluster's limits).
     pub kind: CellKind,
+    /// Whether it is drawn with its whitespace mark, if it has one (ADR 0097). Only
+    /// [`row_clusters`] sets it, as it is asked, and never for a preedit's clusters.
+    pub whitespace: bool,
 }
 
 /// What one piece of a display cluster puts on the cell grid: its text in
@@ -109,15 +112,10 @@ impl DisplayCluster<'_> {
     /// a space across a tab's cells, or an escape's label with one run per
     /// cell. Everything that draws the grid goes through here, so the
     /// renderer and the text-grid snapshots agree (ADR 0045).
-    pub fn for_each_run(&self, run: impl FnMut(CellRun<'_>)) {
-        self.for_each_run_with(false, run);
-    }
-
-    /// As [`Self::for_each_run`], with whitespace marked if `whitespace` is set: a tab's
-    /// first cell as `»`, a full-width space as `□` and another non-ASCII space as `·`
-    /// (ADR 0097). The marks are only drawn: the buffer's text is what it was.
-    pub fn for_each_run_with(&self, whitespace: bool, mut run: impl FnMut(CellRun<'_>)) {
-        if whitespace && let Some(mark) = self.whitespace_mark() {
+    pub fn for_each_run(&self, mut run: impl FnMut(CellRun<'_>)) {
+        if self.whitespace
+            && let Some(mark) = self.whitespace_mark()
+        {
             run(CellRun {
                 column: self.column,
                 cells: if self.kind == CellKind::Tab {
@@ -176,10 +174,15 @@ impl DisplayCluster<'_> {
 
 impl DisplayCluster<'_> {
     /// The mark whitespace shows in this cluster's place, if it is whitespace that has one.
+    /// A space a mark or a selector follows is drawn as it is, so that nothing after it is
+    /// hidden behind the mark.
     fn whitespace_mark(&self) -> Option<&'static str> {
+        let mut chars = self.text.chars();
+        let (first, rest) = (chars.next()?, chars.next());
         match self.kind {
             CellKind::Tab => Some("»"),
-            CellKind::Text => match self.text.chars().next()? {
+            CellKind::Text if rest.is_some() => None,
+            CellKind::Text => match first {
                 '\u{3000}' => Some("□"),
                 '\u{a0}' | '\u{2000}'..='\u{200a}' | '\u{202f}' | '\u{205f}' => Some("·"),
                 _ => None,
@@ -218,6 +221,7 @@ pub fn text_clusters(text: &str, mut column: usize) -> impl Iterator<Item = Disp
             cells,
             text,
             kind,
+            whitespace: false,
         };
         column = column.saturating_add(cells);
         Some(cluster)
@@ -606,6 +610,7 @@ pub(crate) mod tests {
             cells: 6,
             text: "\u{301}",
             kind: CellKind::PastLimit('\u{301}'),
+            whitespace: false,
         };
         let labels: String = runs(&cluster).iter().map(|run| run.2.as_str()).collect();
         assert_eq!(labels, "U+0301");
@@ -765,8 +770,9 @@ pub(crate) mod tests {
         let snapshot = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
         let drawn = |whitespace| {
             let mut runs = Vec::new();
-            for cluster in snapshot.clusters(DisplayPoint::new(0, 0)) {
-                cluster.for_each_run_with(whitespace, |run| {
+            for mut cluster in snapshot.clusters(DisplayPoint::new(0, 0)) {
+                cluster.whitespace = whitespace;
+                cluster.for_each_run(|run| {
                     runs.push((run.column, run.cells, run.text.to_owned(), run.style));
                 });
             }
@@ -806,6 +812,7 @@ pub(crate) mod tests {
             cells: 4,
             text: "\u{fffd}",
             kind: CellKind::InvalidByte(0xff),
+            whitespace: false,
         };
         let labels: String = runs(&cluster).iter().map(|run| run.2.as_str()).collect();
         assert_eq!(labels, "\\xFF");

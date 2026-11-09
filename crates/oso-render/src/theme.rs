@@ -733,7 +733,14 @@ pub(crate) mod tests {
     fn a_whitespace_mark_is_in_no_colour_text_is_drawn_in() {
         for theme in &themes() {
             let mark = theme.foreground(Face::Whitespace);
-            for face in [Face::Text, Face::Escape, Face::Boxed, Face::Warning] {
+            let text = [
+                Face::Text,
+                Face::Preedit,
+                Face::Escape,
+                Face::Boxed,
+                Face::Warning,
+            ];
+            for face in text {
                 let apart = distance(mark, theme.foreground(face));
                 assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
             }

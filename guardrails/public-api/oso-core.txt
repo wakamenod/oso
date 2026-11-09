@@ -800,9 +800,9 @@ pub oso_core::display_map::DisplayCluster::column: usize
 pub oso_core::display_map::DisplayCluster::kind: oso_core::display_map::cell::CellKind
 pub oso_core::display_map::DisplayCluster::offset: usize
 pub oso_core::display_map::DisplayCluster::text: &'a str
+pub oso_core::display_map::DisplayCluster::whitespace: bool
 impl oso_core::display_map::DisplayCluster<'_>
 pub fn oso_core::display_map::DisplayCluster<'_>::for_each_run(&self, impl core::ops::function::FnMut(oso_core::display_map::CellRun<'_>))
-pub fn oso_core::display_map::DisplayCluster<'_>::for_each_run_with(&self, bool, impl core::ops::function::FnMut(oso_core::display_map::CellRun<'_>))
 impl<'a> core::clone::Clone for oso_core::display_map::DisplayCluster<'a>
 pub fn oso_core::display_map::DisplayCluster<'a>::clone(&self) -> oso_core::display_map::DisplayCluster<'a>
 impl<'a> core::cmp::Eq for oso_core::display_map::DisplayCluster<'a>
@@ -949,7 +949,7 @@ impl core::marker::Copy for oso_core::display_map::cell::TabWidth
 impl core::marker::StructuralPartialEq for oso_core::display_map::cell::TabWidth
 pub const oso_core::display_map::MAX_CLUSTER_BYTES: usize
 pub fn oso_core::display_map::escape(char) -> core::option::Option<oso_core::display_map::cell::Escape>
-pub fn oso_core::display_map::row_clusters<'a>(&'a oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint, core::option::Option<(usize, &'a oso_core::display_map::Preedit)>, impl core::ops::function::FnMut(oso_core::display_map::DisplayCluster<'a>, bool) -> core::ops::control_flow::ControlFlow<()>)
+pub fn oso_core::display_map::row_clusters<'a>(&'a oso_core::display_map::DisplaySnapshot, oso_core::display_map::DisplayPoint, core::option::Option<(usize, &'a oso_core::display_map::Preedit)>, bool, impl core::ops::function::FnMut(oso_core::display_map::DisplayCluster<'a>, bool) -> core::ops::control_flow::ControlFlow<()>)
 pub fn oso_core::display_map::text_clusters(&str, usize) -> impl core::iter::traits::iterator::Iterator<Item = oso_core::display_map::DisplayCluster<'_>>
 pub mod oso_core::editor
 pub enum oso_core::editor::AgentChannel

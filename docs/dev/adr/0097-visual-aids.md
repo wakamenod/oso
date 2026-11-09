@@ -103,6 +103,10 @@ and nothing remembered. The rest is settled here.
     as `motion::WalkBudget` bounds a motion;
   - a row whose trailing run does not end within the budget gets no fill. A 10 MB line
     of spaces is drawn as fast as one of letters, unmarked.
+  - Erratum (2026-11-09, as built): the walk lives in `Editor`, not the display map. It
+    takes each row's bounds from the display model (`motion::line_start` and `line_end`),
+    fills only a row that ends its line, and reads the text back from there a few bytes at
+    a time, so it counts display rows and stays right with soft wrap.
   - The fill is `Face::TrailingWhitespace`.
 
 ### The current line
