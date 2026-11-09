@@ -21,8 +21,9 @@ use std::sync::mpsc;
 use std::thread;
 
 use oso_core::buffer::{Buffer, BufferId, Mode, ReadOnly};
+use oso_core::complete::Candidates;
 use oso_core::display_map::{DisplaySnapshot, Preedit};
-use oso_core::editor::{Editor, Isearch, Status};
+use oso_core::editor::{Editor, Isearch, Preview, Status};
 use oso_core::frame::{CellRect, PixelRect};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
@@ -198,10 +199,12 @@ fn piece_start(piece: &oso_core::kill::Piece) -> String {
 }
 
 /// The open prompts, the outermost first: each one's depth, kind, label, answer so far, cursor
-/// and message, and the innermost's region, which alone shows. While a buffer that may hold
-/// secrets is shown, a passphrase's prompt among them, the label, the answer, the cursor and
-/// the message are null, as a search string or a line number can say something of the text.
-/// So they are for a prompt that was open around one, or opened then, once it is gone.
+/// and message, its candidates for one that completes, and the innermost's region, which alone
+/// shows. While a buffer that may hold secrets is shown, a passphrase's prompt among them, the
+/// label, the answer, the cursor, the message and the candidates are null, as a search string
+/// or a line number can say something of the text, and which candidates match says what was
+/// typed (ADR 0076). So they are for a prompt that was open around one, or opened then, once it
+/// is gone.
 fn prompts_state(editor: &Editor) -> Value {
     let showing = !editor.shows_secret();
     let layout = editor.prompt_layout();
@@ -228,9 +231,37 @@ fn prompts_state(editor: &Editor) -> Value {
                 "cursor": cursor,
                 "message": prompt.message().filter(|_| shown && !prompt.message_withheld()),
                 "region": region,
+                // Only the innermost shows its rows and keeps them in view.
+                "completion": prompt
+                    .candidates()
+                    .filter(|_| shown && index + 1 == count)
+                    .map(|candidates| completion_state(editor, candidates)),
             })
         })
         .collect()
+}
+
+/// How many candidates match of how many, which is selected, the names of those in the rows
+/// shown, as the float shows them (ADR 0076), whether what is typed is selected, and which
+/// buffer the preview shows, by id and never its text, or `null` when it shows none or withholds
+/// it (ADR 0088).
+fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
+    let rows = candidates
+        .shown(editor.candidate_rows())
+        .map(|(_, candidate)| candidate.text())
+        .collect::<Vec<_>>();
+    let preview = match editor.preview() {
+        Some(Preview::Buffer { id, .. }) => Some(id.get()),
+        Some(Preview::Withheld) | None => None,
+    };
+    json!({
+        "count": candidates.len(),
+        "total": candidates.total(),
+        "selected": candidates.selected(),
+        "typed": candidates.on_input(),
+        "rows": rows,
+        "preview": preview,
+    })
 }
 
 /// What a prompt holds, cut on a character boundary to the longest answer a history keeps,

@@ -1,0 +1,315 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: # Notes\\n\\nAgenda\\n- budget\\n"
+---
+keys: M-x
+│# Notes                                                                                             │
+:o                                                                                                   :
+│                                                                                                    │
+│Agenda                                                                                              │
+│- budget                                                                                            │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 4, column 19: 19 x 62
+│ 1/56  M-x                                                    │
+:           ^                                                  :
+│>undo (C-z)             Undo the last N changes to the buffe… │
+│ yank (C-y)             Insert the newest kill at every curs… │
+│ insert                 Insert text at every cursor, as one … │
+│ newline (RET)          Insert a line break at every cursor,… │
+│ goto-line (M-g g)      Move point to the start of line N, c… │
+│ kill-line (C-k)        Kill the rest of the line at every c… │
+│ kill-word (M-d)        Kill from every cursor to the end of… │
+│ next-line (C-n)        Move point N lines down (up if N is … │
+│ undo-redo (C-M-z)      Redo the last N undone changes (undo… │
+│ delete-char (C-d)      Delete the N characters after every … │
+│ kill-buffer (C-x k)    Kill a buffer, read with completion,… │
+│ next-buffer (M-/)      Go the other way from `previous-buff… │
+│ save-buffer (C-x C-s)  Save the buffer to its file, if it i… │
+│ consult-mark (C-.)     Go to a mark, picked from the mark a… │
+│ forward-char (C-f)     Move point N characters forward (bac… │
+│ forward-word (M-f)     Move point to the end of the next wo… │
+│ backward-char (C-b)    Move point N characters backward (fo… │
+│ backward-word (M-b)    Move point to the start of the previ… │
+
+keys: f o r w
+│# Notes                                                                                             │
+:o                                                                                                   :
+│                                                                                                    │
+│Agenda                                                                                              │
+│- budget                                                                                            │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 4, column 19: 19 x 62
+│ 1/3   M-x forw                                               │
+:               ^                                              :
+│>forward-char (C-f)     Move point N characters forward (bac… │
+: ****                                                         :
+│ forward-word (M-f)     Move point to the end of the next wo… │
+: ****                                                         :
+│ isearch-forward (C-s)  Search forward as you type.           │
+:         ****                                                 :
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+keys: C-n
+│# Notes                                                                                             │
+:o                                                                                                   :
+│                                                                                                    │
+│Agenda                                                                                              │
+│- budget                                                                                            │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 4, column 19: 19 x 62
+│ 2/3   M-x forw                                               │
+:               ^                                              :
+│ forward-char (C-f)     Move point N characters forward (bac… │
+: ****                                                         :
+│>forward-word (M-f)     Move point to the end of the next wo… │
+: ****                                                         :
+│ isearch-forward (C-s)  Search forward as you type.           │
+:         ****                                                 :
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+keys: SPC , w
+│# Notes                                                                                             │
+:o                                                                                                   :
+│                                                                                                    │
+│Agenda                                                                                              │
+│- budget                                                                                            │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 4, column 19: 19 x 62
+│ 1/1   M-x forw ,w                                            │
+:                  ^                                           :
+│>forward-word (M-f)  Move point to the end of the next word,… │
+: ****    *                                                    :
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+keys: C-a C-SPC C-e
+│# Notes                                                                                             │
+:o                                                                                                   :
+│                                                                                                    │
+│Agenda                                                                                              │
+│- budget                                                                                            │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 4, column 19: 19 x 62
+│ 1/1   M-x forw ,w                                            │
+:                  ^                                           :
++           *******                                            +
+│>forward-word (M-f)  Move point to the end of the next word,… │
+: ****    *                                                    :
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+│                                                              │
+
+keys: C-g C-g
+│# Notes                                                                                             │
+:^                                                                                                   :
+│                                                                                                    │
+│Agenda                                                                                              │
+│- budget                                                                                            │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=-- test  1:0  Fundamental  UTF-8 LF                                                                 =
+"Quit                                                                                                "

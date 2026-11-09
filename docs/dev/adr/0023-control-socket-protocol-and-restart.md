@@ -1,6 +1,6 @@
 # 0023. Control socket protocol and restart-and-restore
 
-- Status: Accepted, amended by 0055
+- Status: Accepted, amended by 0055 and 0090
 - Date: 2026-11-03
 
 ## Context

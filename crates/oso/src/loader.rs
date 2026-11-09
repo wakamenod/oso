@@ -41,16 +41,20 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{Baseline, BufferId, FileStamp};
+use oso_core::buffer::{Baseline, BufferId};
 use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, LoadSnapshot, Reloaded};
 use oso_core::rope::Rope;
 
+mod identity;
 mod resolve;
 mod watch;
 
-pub use resolve::{Resolved, location, parent};
-use resolve::{own_spelling, resolve};
+#[cfg(test)]
+use identity::same_stamp;
+pub use identity::stamp_of;
+pub(crate) use identity::{same_file, surely_same_file};
+pub use resolve::{Resolved, location, own_spelling, parent, resolve};
 pub use watch::Watcher;
 
 /// Bytes read at a time.
@@ -70,6 +74,10 @@ pub enum LoadUpdate {
     Reloaded(Box<Reloaded>),
     /// The file could not be read. Nothing more follows.
     Failed(LoadError),
+    /// The path has been judged, and nothing is read: the buffer holds text carried from
+    /// another instance (ADR 0090). Nothing more follows.
+    #[cfg(feature = "dev")]
+    Judged,
 }
 
 impl std::fmt::Debug for LoadUpdate {
@@ -86,6 +94,8 @@ impl std::fmt::Debug for LoadUpdate {
                 .field("changed", &reloaded.is_changed())
                 .finish_non_exhaustive(),
             Self::Failed(e) => f.debug_tuple("Failed").field(e).finish(),
+            #[cfg(feature = "dev")]
+            Self::Judged => f.write_str("Judged"),
         }
     }
 }
@@ -233,6 +243,36 @@ where
     })
 }
 
+/// Starts judging `path` for `buffer` on a background thread, which holds text carried from
+/// another instance (ADR 0090): the thread opens the file and resolves the path as a load
+/// does, and reads nothing, so the text stays the one carried. It records no baseline, as
+/// the buffer brought its own, and never fails: a path it cannot tell counts as secret, and
+/// so does one whose thread panicked. `wake` is as for [`spawn`].
+#[cfg(feature = "dev")]
+pub fn spawn_judging<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHandle>
+where
+    W: Fn(BufferId) -> bool + Send + 'static,
+{
+    let shared = Arc::new(Shared::default());
+    let thread_shared = Arc::clone(&shared);
+    thread::Builder::new()
+        .name("oso-judge".into())
+        .spawn(move || {
+            let judged = std::panic::catch_unwind(|| {
+                let opened = open(&path);
+                let file = opened
+                    .as_ref()
+                    .ok()
+                    .map(|(file, metadata)| (file, metadata));
+                verdict_of_opened(resolve(&path), file)
+            });
+            *thread_shared.resolved() = Some(judged.unwrap_or(Resolved::Unknown(Vec::new())));
+            *thread_shared.slot() = Some(LoadUpdate::Judged);
+            wake(buffer);
+        })?;
+    Ok(LoadHandle { buffer, shared })
+}
+
 /// Starts reading `path` again into `buffer`, whose text is `old`, on a background thread, as
 /// its file changed on disk (ADR 0083). The path is followed and judged, and the baseline taken,
 /// as for [`spawn`], and the whole text comes in one [`LoadUpdate::Reloaded`], compared with
@@ -313,33 +353,6 @@ where
     spawn_reading(buffer, wake, move |shared, post| {
         let file = open().map_err(LoadError::Io)?;
         read_into(file, limit, shared, post)
-    })
-}
-
-/// What a save records of a file, from its metadata, with its device and inode. Loading and saving must agree on
-/// it, or every save would report a conflict.
-///
-/// # Errors
-///
-/// On a system or file system that keeps no modification time.
-pub fn stamp_of(metadata: &Metadata) -> io::Result<FileStamp> {
-    #[cfg(unix)]
-    let mode = std::os::unix::fs::PermissionsExt::mode(&metadata.permissions());
-    #[cfg(not(unix))]
-    let mode = 0;
-    #[cfg(unix)]
-    let identity = {
-        use std::os::unix::fs::MetadataExt;
-        Some((metadata.dev(), metadata.ino()))
-    };
-    // `std` keeps a file's identity unstable here.
-    #[cfg(not(unix))]
-    let identity = None;
-    Ok(FileStamp {
-        modified: metadata.modified()?,
-        len: metadata.len(),
-        mode,
-        identity,
     })
 }
 
@@ -425,41 +438,6 @@ fn verdict_of_opened(resolved: Resolved, file: Option<(&File, &Metadata)>) -> Re
             Resolved::Unknown(paths)
         }
         resolved => resolved,
-    }
-}
-
-/// Whether two sets of metadata are of one file: its device and inode.
-#[cfg(unix)]
-pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    a.dev() == b.dev() && a.ino() == b.ino()
-}
-
-/// Whether two sets of metadata are known to be of one file. Unlike [`same_file`], this does
-/// not guess: where the system cannot say, two files are two.
-#[cfg(unix)]
-pub(crate) fn surely_same_file(a: &Metadata, b: &Metadata) -> bool {
-    same_file(a, b)
-}
-
-/// `std` keeps a file's identity unstable here, so nothing can be sure.
-#[cfg(not(unix))]
-pub(crate) fn surely_same_file(_: &Metadata, _: &Metadata) -> bool {
-    false
-}
-
-/// `std` keeps a file's identity unstable here, so this goes by what a save compares.
-#[cfg(not(unix))]
-pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    same_stamp(a, b)
-}
-
-/// Whether two sets of metadata show one modification time and size.
-#[cfg(any(not(unix), test))]
-fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
-    match (stamp_of(a), stamp_of(b)) {
-        (Ok(a), Ok(b)) => a.same_content(b),
-        _ => false,
     }
 }
 

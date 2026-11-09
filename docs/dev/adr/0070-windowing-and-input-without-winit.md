@@ -1,6 +1,6 @@
 # 0070. Windowing and input without winit
 
-- Status: Accepted, amended by 0077 and 0084
+- Status: Accepted, amended by 0077, 0084 and 0086
 - Date: 2026-11-08
 
 ## Context

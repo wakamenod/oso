@@ -450,6 +450,8 @@ mod tests {
                     columns: 6,
                 },
                 keys: &keys,
+                selected: None,
+                border: false,
             }),
             ..pane(0, (0, 0, rows, 12), 16, None, &[])
         }];
@@ -535,6 +537,44 @@ mod tests {
 
     #[test]
     #[ignore = "needs a GPU"]
+    fn the_selected_candidate_is_a_box_on_its_row_inside_the_panel() {
+        let panes = [Pane {
+            panel: Some(Panel {
+                cells: CellRect {
+                    row: 0,
+                    column: 1,
+                    rows: 5,
+                    columns: 10,
+                },
+                field: None,
+                field_room: CellRect {
+                    row: 0,
+                    column: 0,
+                    rows: 0,
+                    columns: 0,
+                },
+                keys: &[],
+                selected: Some(CellRect {
+                    row: 3,
+                    column: 2,
+                    rows: 1,
+                    columns: 8,
+                }),
+                border: false,
+            }),
+            ..pane(0, (0, 0, 6, 12), 16, None, &[])
+        }];
+        let pixels = draw(&panes);
+        // The row's cells are x 28..108 and y 68..88; the box reaches 8 px past their sides.
+        let selected = Face::CompletionSelected.background();
+        assert_is(&pixels, (60, 78), selected, "on the row");
+        assert_is(&pixels, (24, 78), selected, "past the row's left cell");
+        assert_is(&pixels, (60, 66), Face::Float.background(), "the row above");
+        assert_is(&pixels, (60, 90), Face::Float.background(), "the row below");
+    }
+
+    #[test]
+    #[ignore = "needs a GPU"]
     fn a_key_is_a_chip_inside_its_cells() {
         // Its cells are x 58..88 and y 48..68, inset 1 and 3 px: below the field's reach.
         let pixels = panel(6);
@@ -604,6 +644,8 @@ mod tests {
                     columns: 0,
                 },
                 keys: &[],
+                selected: None,
+                border: false,
             }),
             ..pane(0, (0, 0, 6, 12), 16, None, &[])
         }];

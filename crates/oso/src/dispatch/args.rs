@@ -46,13 +46,26 @@ pub fn map(
         (ArgSpec::Passphrase { .. }, _) => Err(format!(
             "{name} reads a passphrase, which only its prompt takes, from keys"
         )),
+        (ArgSpec::Command { .. }, _) => Err(format!(
+            "{name} reads a command's name; run the command itself"
+        )),
+        // A name the agent gives would be text for a prompt that completes, with rules of its
+        // own: none is given yet.
+        (ArgSpec::Buffer { .. }, _) => Err(format!(
+            "{name} reads a buffer's name, which only its prompt takes, from keys"
+        )),
+        (ArgSpec::Mark { .. }, _) => Err(format!(
+            "{name} reads a mark, which only its prompt takes, from keys"
+        )),
         (ArgSpec::None, Given::Nothing) => plain(Args::with_prefix(prefix)),
         (ArgSpec::None, _) => Err(format!("{name} takes no argument")),
-        (ArgSpec::Count | ArgSpec::CountAndClipboard, Given::Nothing) => {
+        (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Given::Nothing) => {
             plain(Args::with_prefix(prefix))
         }
-        (ArgSpec::Count | ArgSpec::CountAndClipboard, Given::Count(n)) => plain(Args::numeric(n)),
-        (ArgSpec::Count | ArgSpec::CountAndClipboard, Given::Text(_)) => {
+        (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Given::Count(n)) => {
+            plain(Args::numeric(n))
+        }
+        (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Given::Text(_)) => {
             Err(format!("{name} takes a count, not text"))
         }
         (ArgSpec::Number { .. }, Given::Count(n)) => answered(n.to_string()),
@@ -136,5 +149,20 @@ mod tests {
             !refused(passphrase, Given::Nothing).contains("send-keys"),
             "no dev method's name"
         );
+        let command = ArgSpec::Command {
+            prompt: "M-x ",
+            history: "command",
+        };
+        assert!(refused(command, Given::Text("forward-char")).contains("command's name"));
+        let buffer = ArgSpec::Buffer {
+            prompt: "Switch to buffer: ",
+            history: "buffer",
+            purpose: oso_core::command::BufferPurpose::Switch,
+        };
+        assert!(refused(buffer, Given::Text("notes")).contains("buffer's name"));
+        let mark = ArgSpec::Mark {
+            prompt: "Go to mark: ",
+        };
+        assert!(refused(mark, Given::Nothing).contains("mark"));
     }
 }

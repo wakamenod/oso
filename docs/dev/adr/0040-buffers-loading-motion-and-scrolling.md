@@ -1,6 +1,6 @@
 # 0040. Buffers, file loading, cursor motion and scrolling
 
-- Status: Accepted, amended by 0044 and 0051
+- Status: Accepted, amended by 0044, 0051, 0087 and 0088
 - Date: 2026-11-03
 
 ## Context
