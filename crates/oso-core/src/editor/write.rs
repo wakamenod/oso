@@ -68,6 +68,16 @@ impl Editor {
             }
             None => None,
         };
+        let buffer = self.current().1;
+        let name = buffer.path().and_then(Path::file_name).map_or_else(
+            || buffer.name().to_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        // A path ending in `/` names a directory, which takes that name.
+        let path = match path.to_str().and_then(|text| text.strip_suffix('/')) {
+            Some(directory) if !directory.is_empty() => PathBuf::from(directory).join(&name),
+            _ => path,
+        };
         let line_break = missing_final_newline(self.current().1);
         if let Some(line_break) = line_break {
             self.insert_final_newline(id, line_break);
@@ -81,7 +91,11 @@ impl Editor {
                 content: buffer.content_id(),
                 baseline: None,
                 only_if_gone: false,
-                elsewhere: Some(Elsewhere { over: found, open }),
+                elsewhere: Some(Elsewhere {
+                    over: found,
+                    open,
+                    name,
+                }),
             };
             buffer.set_saving(true);
             self.save_jobs.push(job);

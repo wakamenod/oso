@@ -193,12 +193,14 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::Count => "count",
                     ArgSpec::Number { .. } => "number",
                     ArgSpec::Text { .. } => "text",
-                    // A buffer's name is read in a prompt, which the channel never opens.
+                    // A buffer's name, a mark or a path is read in a prompt, which the channel
+                    // never opens.
                     ArgSpec::Passphrase { .. }
                     | ArgSpec::CountAndClipboard
                     | ArgSpec::Command { .. }
                     | ArgSpec::Buffer { .. }
                     | ArgSpec::Mark { .. }
+                    | ArgSpec::File { .. }
                     | ArgSpec::Key => "person",
                 },
                 "reach": if command.reach == Reach::Change { "change" } else { "look" },
