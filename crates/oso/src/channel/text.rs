@@ -25,6 +25,9 @@ pub const MAX_ROWS_TEXT: usize = 512 * 1024;
 /// The most text of a region one `text` gives, in bytes.
 pub const MAX_REGION: usize = 64 * 1024;
 
+/// Why text is refused for a buffer the channel is still opening.
+const OPENING: &str = "the buffer is still opening; try again";
+
 /// Why text is refused for a buffer that may hold secrets.
 const WITHHELD: &str = "the buffer may hold secrets, so its text stays in the editor";
 
@@ -96,6 +99,10 @@ fn snapshot(editor: &Editor, id: BufferId, what: What) -> Result<TextJob, String
     let buffer = editor.buffer(id).ok_or("no buffer with that id")?;
     if buffer.is_secret() {
         return Err(WITHHELD.into());
+    }
+    // Nothing of a file the channel is still opening: its open may yet refuse it (ADR 0094).
+    if buffer.agent_pending() {
+        return Err(OPENING.into());
     }
     Ok(TextJob {
         buffer: id.get(),
@@ -219,6 +226,25 @@ mod tests {
 
     fn id(editor: &Editor) -> u64 {
         editor.window().buffer().get()
+    }
+
+    #[test]
+    fn nothing_of_a_file_the_channel_is_still_opening() {
+        let mut editor = editor("one");
+        let mut opening = Buffer::from_text("plain.txt", "a secret, by another name");
+        opening.set_agent_pending(true);
+        let id = editor.add_buffer(opening).get();
+        let why = start(
+            &editor,
+            TextOf::Rows {
+                buffer: id,
+                start_row: 0,
+                rows: 5,
+            },
+        )
+        .err()
+        .unwrap();
+        assert!(why.contains("still opening"), "{why}");
     }
 
     #[test]
