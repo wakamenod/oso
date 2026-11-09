@@ -76,6 +76,8 @@ pub(super) struct Kills {
     killed: bool,
     /// The newest entry, to go to the clipboard once the command ends.
     to_write: Option<u64>,
+    /// What the last yank inserted, for `M-y` right after it (ADR 0091).
+    pub(super) last_yank: Option<super::yank_pop::LastYank>,
 }
 
 impl Editor {
@@ -237,6 +239,7 @@ impl Editor {
     /// [`kill::MAX_YANK`], and the buffer's refusal.
     pub fn yank(&mut self, n: usize, cursor_at_start: bool) -> Result<(), YankError> {
         let entry = self.kills.ring.get(n).ok_or(YankError::Empty)?;
+        let entry_id = entry.id();
         let (window, buffer) = self.current();
         if let Some(reason) = buffer.read_only() {
             return Err(EditError::ReadOnly(reason).into());
@@ -279,6 +282,7 @@ impl Editor {
                 Ok::<(), ()>(())
             });
         }
+        self.note_yank(entry_id);
         if secret
             && self
                 .buffer_mut(id)

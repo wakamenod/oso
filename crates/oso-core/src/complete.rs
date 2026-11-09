@@ -41,6 +41,8 @@ pub struct Candidate {
     annotation: Box<str>,
     folded: Folded,
     folded_annotation: Folded,
+    /// It shows only while nothing is typed, as a secret kill does (ADR 0091).
+    unmatched: bool,
 }
 
 impl Candidate {
@@ -58,6 +60,16 @@ impl Candidate {
             text,
             binding: binding.into(),
             annotation,
+            unmatched: false,
+        }
+    }
+
+    /// The same, shown only while nothing is typed: any input hides it, whatever it asks,
+    /// so that what it stands for is never matched against (ADR 0091).
+    pub fn unmatched(self) -> Self {
+        Self {
+            unmatched: true,
+            ..self
         }
     }
 
@@ -318,19 +330,21 @@ impl Candidates {
         }
         let query = Query::parse_after(input, &self.query);
         let items = &self.items;
+        let typed = !input.is_empty();
         if query.narrows(&self.query) {
             // Only what changed is checked again: the rest matched before.
             let before = &self.query;
-            self.matches
-                .retain(|&index| query.matches_after(&items[index as usize], before));
+            self.matches.retain(|&index| {
+                let item = &items[index as usize];
+                !(typed && item.unmatched) && query.matches_after(item, before)
+            });
         } else {
             self.matches.clear();
-            self.matches.extend(
-                self.order
-                    .iter()
-                    .copied()
-                    .filter(|&index| query.matches(&items[index as usize])),
-            );
+            self.matches
+                .extend(self.order.iter().copied().filter(|&index| {
+                    let item = &items[index as usize];
+                    !(typed && item.unmatched) && query.matches(item)
+                }));
         }
         self.exact = self
             .matches
@@ -416,6 +430,12 @@ impl Candidates {
     /// The selected candidate, while any matches.
     pub fn selected_candidate(&self) -> Option<&Candidate> {
         self.get(self.selected()?)
+    }
+
+    /// Where the selected candidate is in the items given, while any matches, for a list
+    /// whose rows may read alike.
+    pub(crate) fn selected_item(&self) -> Option<usize> {
+        self.item_at(self.selected()?)
     }
 
     /// Selects the match at `place`, or the last if there are fewer.

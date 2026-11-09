@@ -524,6 +524,8 @@ mod recovery_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod yank_pop_tests;
 
 #[cfg(test)]
 mod tests {

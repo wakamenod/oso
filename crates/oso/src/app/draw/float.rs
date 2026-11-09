@@ -15,10 +15,13 @@ use oso_core::complete::{self, Candidates};
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
 use oso_core::minibuffer::{self, Kind, PromptLayout, cells_of};
-use oso_core::window::Scroll;
 use oso_render::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
+
+mod preview;
+
+use preview::preview_panes;
 
 /// The most panes a float takes.
 pub(super) const MAX_PANES: usize = 9;
@@ -35,6 +38,8 @@ pub(super) struct Parts<'a> {
     list: Option<(&'a Candidates, String)>,
     /// The cells of a region in the answer.
     region: Vec<CellRect>,
+    /// A kill's lines in the preview (ADR 0091).
+    kill: Vec<String>,
 }
 
 impl<'a> Parts<'a> {
@@ -65,6 +70,13 @@ impl<'a> Parts<'a> {
         });
         let mut region = Vec::new();
         editor.prompt_region_cells(&mut region);
+        let preview = layout.regions.preview;
+        let kill = match editor.preview() {
+            Some(Preview::Text { entry }) => {
+                editor.kill_preview(entry, preview.rows, preview.columns)
+            }
+            _ => Vec::new(),
+        };
         Some(Self {
             layout,
             label: prompt.label(),
@@ -73,6 +85,7 @@ impl<'a> Parts<'a> {
             mask,
             list,
             region,
+            kill,
         })
     }
 
@@ -153,6 +166,16 @@ impl<'a> Parts<'a> {
             divider,
             withheld,
             region: &self.region,
+            kill: self
+                .kill
+                .iter()
+                .map(|line| {
+                    [Span {
+                        text: line,
+                        face: Face::Float,
+                    }]
+                })
+                .collect(),
         }
     }
 
@@ -312,6 +335,7 @@ pub(super) struct Spans<'a> {
     withheld: [Span<'a>; 1],
     /// The cells of a region in the answer.
     region: &'a [CellRect],
+    kill: Vec<[Span<'a>; 1]>,
 }
 
 /// The column between the candidates and a preview, one cell a row.
@@ -332,6 +356,7 @@ impl<'a> Spans<'a> {
             divider: vec![&self.divider[..]; complete::ROWS],
             withheld: [&self.withheld],
             fills: [(Face::Region, self.region)],
+            kill: self.kill.iter().map(|row| &row[..]).collect(),
         }
     }
 }
@@ -348,6 +373,7 @@ pub(super) struct Lines<'a> {
     withheld: [&'a [Span<'a>]; 1],
     /// What the answer's pane fills behind its text: its region (ADR 0076).
     fills: [(Face, &'a [CellRect]); 1],
+    kill: Vec<&'a [Span<'a>]>,
 }
 
 /// Adds the float's panes to `list`, after the tiled ones.
@@ -468,70 +494,6 @@ fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pan
             content: PaneContent::Lines(&lines.candidates),
         });
     }
-}
-
-/// The base of a preview pane's id: each previewed buffer's pane has its own, so that the rows
-/// shaped for it are kept while that buffer stays selected (ADR 0088).
-const PREVIEW_PANES: u32 = 1 << 20;
-
-/// Adds a preview's panes to `list`: the column that divides it from the candidates, and the
-/// selected buffer from where its window was, read-only with its cursor hollow, or what is
-/// said of a buffer that may hold secrets in its place (ADR 0088).
-fn preview_panes<'a>(
-    editor: &'a Editor,
-    parts: &'a Parts<'a>,
-    lines: &'a Lines<'a>,
-    list: &mut Vec<Pane<'a>>,
-) {
-    let regions = parts.layout.regions;
-    let preview = regions.preview;
-    if parts.list.is_none() || preview.rows == 0 || preview.columns == 0 {
-        return;
-    }
-    let pane = |id, region, content| Pane {
-        id: PaneId(id),
-        region,
-        layer: Layer::FLOAT_CONTENT,
-        background: None,
-        panel: None,
-        bands: Bands::NONE,
-        content,
-    };
-    let divider = CellRect {
-        column: preview.column - 1,
-        columns: 1,
-        ..preview
-    };
-    let rows = &lines.divider[..preview.rows.min(lines.divider.len())];
-    list.push(pane(10, divider, PaneContent::Lines(rows)));
-    let content = match editor.preview() {
-        None => return,
-        Some(Preview::Withheld) => pane(11, preview, PaneContent::Lines(&lines.withheld)),
-        Some(Preview::Buffer { id, top, cursor }) => {
-            let Some(buffer) = editor.buffer(id) else {
-                return;
-            };
-            let display = buffer.display();
-            let cursor = display.offset_to_display_point(cursor);
-            let view = TextView {
-                display,
-                buffer: id,
-                revision: buffer.revision(),
-                scroll: Scroll { top, left: 0 },
-                cursor,
-                cursor_style: CursorStyle::Hollow,
-                preedit: None,
-                fills: &[],
-            };
-            let number = u32::try_from(id.get()).unwrap_or(u32::MAX);
-            pane(
-                PREVIEW_PANES.saturating_add(number),
-                preview,
-                PaneContent::Text(view),
-            )
-        }
-    };
-    list.push(content);
 }
 
 /// The cells of the selected candidate's row, while it shows, or of the answer's row while what

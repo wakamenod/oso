@@ -418,6 +418,7 @@ impl Editor {
         }
         let prompt = self.prompts.pop()?;
         self.forget_marks(prompt.id);
+        self.forget_kill_list(&prompt);
         self.forget_files(prompt.id);
         self.windows.pop();
         self.selected = prompt.beneath;

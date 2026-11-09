@@ -319,6 +319,12 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
             let (text, _) = spans_row(&["may hold secrets"], preview.columns);
             text
         }
+        // A kill's lines, as the float draws them (ADR 0091).
+        Some(Preview::Text { entry }) => {
+            let lines = editor.kill_preview(entry, preview.rows, preview.columns);
+            let line = lines.get(index).map_or("", String::as_str);
+            spans_row(&[line], preview.columns).0
+        }
         _ => " ".repeat(preview.columns),
     };
     format!("│{text}")
@@ -1122,6 +1128,25 @@ mod scenarios {
         editor.set_preedit(None);
         frames.push(format!("cleared\n{}", text_grid(&editor)));
         assert_frames("preedit_in_its_row", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn m_y_lists_the_kills_with_the_selected_ones_text_beside() {
+        // Two kills: the first line with its break, then a word.
+        let text = "first\nsecond line\nthird\n";
+        let mut editor = open(text.as_bytes(), (22, 100));
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        for keys in ["C-k C-f M-d", "M-y", "C-n"] {
+            let sequence: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(&mut editor, sequence.0);
+            // The clipboard holds what oso wrote, as the host would answer.
+            if dispatcher.take_clipboard_request().is_some() {
+                dispatcher.clipboard_answered(&mut editor, &oso_core::kill::FromClipboard::Own);
+            }
+            frames.push(format!("keys: {keys}\n{}", text_grid(&editor)));
+        }
+        assert_frames("kill_list", text.as_bytes(), &frames);
     }
 
     #[test]

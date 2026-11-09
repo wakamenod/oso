@@ -77,6 +77,13 @@ pub const COMMANDS: &[Command] = &[
         run: isearch_yank_kill,
     },
     Command {
+        name: "isearch-yank-pop",
+        doc: "Right after `C-y` or this, put the next older kill in place of what it added.\n\nKills from a buffer that may hold secrets are passed over.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_yank_pop,
+    },
+    Command {
         name: "isearch-ring-retreat",
         doc: "Put the string searched for before this one in the search, and search for it.",
         args: ArgSpec::None,
@@ -190,6 +197,12 @@ fn isearch_yank_kill(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         return Err(CommandError::new("Kill ring is empty"));
     }
     searching(ctx, |ctx| ctx.editor.isearch_yank_kill())
+}
+
+fn isearch_yank_pop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    let mut done = Ok(());
+    searching(ctx, |ctx| done = ctx.editor.isearch_yank_pop())?;
+    done.map_err(|error| CommandError::new(error.to_string()))
 }
 
 fn isearch_ring_retreat(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {

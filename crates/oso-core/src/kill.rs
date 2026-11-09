@@ -269,6 +269,11 @@ impl KillEntry {
     pub fn joined(&self) -> String {
         join(&self.pieces)
     }
+
+    /// What the clipboard got of its text, or gave it, if anything.
+    pub(crate) fn fingerprint(&self) -> Option<Fingerprint> {
+        self.written
+    }
 }
 
 /// `pieces` joined with [`PIECE_SEPARATOR`], copied. O(their length).
@@ -321,6 +326,19 @@ impl KillRing {
     /// The entries, the newest first.
     pub fn iter(&self) -> impl ExactSizeIterator<Item = &KillEntry> {
         self.entries.iter()
+    }
+
+    /// Where the entry `id` is, 0 the newest, if the ring still holds it.
+    pub(crate) fn position(&self, id: u64) -> Option<usize> {
+        self.entries.iter().position(|entry| entry.id == id)
+    }
+
+    /// Moves the entry `id` to the front, as consult's `consult-yank-rotate` does, so the
+    /// next yank takes it (ADR 0091). Its text and id stay.
+    pub(crate) fn bring_to_front(&mut self, id: u64) {
+        if let Some(entry) = self.position(id).and_then(|at| self.entries.remove(at)) {
+            self.entries.push_front(entry);
+        }
     }
 
     /// Puts `pieces` first as a new entry and returns its id. The oldest go past the

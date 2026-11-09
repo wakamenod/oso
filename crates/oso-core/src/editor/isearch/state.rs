@@ -78,6 +78,9 @@ pub struct Isearch {
     pub(super) around_secret: bool,
     /// Where `M-p` and `M-n` are in the history: 0 the newest.
     pub(super) history: Option<usize>,
+    /// The kill the last `C-y` or `M-y` added, and how many steps the search had then, for
+    /// `M-y` right after it (ADR 0091).
+    pub(super) yanked: Option<(u64, usize)>,
 }
 
 impl fmt::Debug for Isearch {
@@ -116,6 +119,7 @@ impl Isearch {
             steps: VecDeque::new(),
             around_secret,
             history: None,
+            yanked: None,
         }
     }
 

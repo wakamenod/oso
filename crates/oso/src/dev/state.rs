@@ -233,9 +233,10 @@ fn prompts_state(editor: &Editor) -> Value {
                 "message": prompt.message().filter(|_| shown && !prompt.message_withheld()),
                 "region": region,
                 // Only the innermost shows its rows and keeps them in view.
+                // `M-y`'s rows are kills, also another app's copy: none of them (ADR 0091).
                 "completion": prompt
                     .candidates()
-                    .filter(|_| shown && index + 1 == count)
+                    .filter(|_| shown && index + 1 == count && !editor.kill_list_open())
                     .map(|candidates| completion_state(editor, candidates)),
             })
         })
@@ -253,7 +254,7 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         .collect::<Vec<_>>();
     let preview = match editor.preview() {
         Some(Preview::Buffer { id, .. }) => Some(id.get()),
-        Some(Preview::Withheld) | None => None,
+        Some(Preview::Withheld | Preview::Text { .. }) | None => None,
     };
     json!({
         "count": candidates.len(),
@@ -505,12 +506,16 @@ impl TextJob {
 }
 
 /// Refuses a screenshot while any window shows a buffer that may hold
-/// secrets, or while anything `get-state` leaves out for having been around one is on the
-/// screen. Checked on the UI thread right before the capture, so nothing
+/// secrets, while anything `get-state` leaves out for having been around one is on the
+/// screen, or while the kill ring is listed (ADR 0091). Checked on the UI thread right before the capture, so nothing
 /// can switch the buffer in between.
 pub fn screenshot_allowed(editor: &Editor) -> Result<(), String> {
     if editor.shows_secret() || editor.around_secret() {
         return Err(WITHHELD.into());
+    }
+    // The `M-y` list shows what `get-state` leaves out (ADR 0091).
+    if editor.kill_list_open() {
+        return Err("no screenshot while the kill ring is listed".into());
     }
     Ok(())
 }

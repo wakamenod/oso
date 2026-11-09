@@ -1,0 +1,126 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: first\\nsecond line\\nthird\\n"
+---
+keys: C-k C-f M-d
+│s line                                                                                              │
+: ^                                                                                                  :
+│third                                                                                               │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=** test  1:1  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+
+keys: M-y
+│s line                                                                                              │
+: o                                                                                                  :
+│third                                                                                               │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=** test  1:1  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 1, column 19: 19 x 62
+│ 1/2 Yank from kill ring:                                     │
+:                          ^                                   :
+│>econd                   │econd                               │
+│ first⤶  2 lines         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+
+keys: C-n
+│s line                                                                                              │
+: o                                                                                                  :
+│third                                                                                               │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+│                                                                                                    │
+=** test  1:1  Fundamental  UTF-8 LF                                                                 =
+"                                                                                                    "
+float at row 1, column 19: 19 x 62
+│ 2/2 Yank from kill ring:                                     │
+:                          ^                                   :
+│ econd                   │first                               │
+│>first⤶  2 lines         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │
+│                         │                                    │

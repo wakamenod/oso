@@ -55,6 +55,7 @@ mod switch;
 mod themes;
 mod view;
 mod write;
+mod yank_pop;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use agent::AgentChannel;
@@ -71,6 +72,7 @@ pub use save::{Elsewhere, ExitRefused, Over, SaveJob, SaveRefused};
 pub use status::Status;
 pub use switch::{KillRefused, Preview};
 pub use themes::NoSuchTheme;
+pub use yank_pop::YankPopError;
 
 /// The name of the buffer shown when no file is open.
 pub const SCRATCH: &str = "*scratch*";
@@ -127,6 +129,8 @@ pub struct Editor {
     start_directory: std::path::PathBuf,
     /// The marks the last `C-.` listed (ADR 0088).
     mark_list: Option<marks::MarkList>,
+    /// The ring's entries a `M-y` list shows (ADR 0091).
+    kill_list: Option<yank_pop::KillList>,
     /// The home directory, which `~` stands for, as the host read it at startup.
     home: Option<std::path::PathBuf>,
     /// The buffer a question about killing it with unsaved text was asked of (ADR 0088).
@@ -212,6 +216,7 @@ impl Editor {
             way_back: Vec::new(),
             home: None,
             mark_list: None,
+            kill_list: None,
             file_list: files::FileList::default(),
             visits: Vec::new(),
             large: None,
