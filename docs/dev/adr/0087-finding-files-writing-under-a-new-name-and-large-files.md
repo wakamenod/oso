@@ -74,8 +74,9 @@ pull request for the author's approval.
 - **The last segment uses ADR 0076's matcher** over the names in the directories the earlier
   segments reached: components split at spaces, any order, the affixes, and smart case.
 - **What the rows show:** the name, with a trailing `/` for a directory. When an earlier segment
-  matched several directories, a row shows the path from that segment on, as
-  `Projects/SideProjects/oso/`, so two rows with one name can be told apart.
+  matched several directories, the path from that segment on shows beside the name, in the
+  annotation's column, as `Projects/SideProjects/`, so two rows with one name can be told apart.
+  Only the name is matched, so typing the last segment narrows by names alone.
 - **Starting over:** `~/` typed right after a `/` starts the path over at the home directory, and
   `/` typed right after a `/` starts it over at the root, as Emacs's shadowed file names do. The
   text before it is drawn dim and ignored, and stays in the answer until deleted.
