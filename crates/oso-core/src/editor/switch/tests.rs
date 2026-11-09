@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use super::super::edit_tests::plain_edit;
 use super::super::test_buffers::secret_buffer;
 use super::*;
+use crate::editor::CompletionStyle;
 use crate::selection::{Selection, SelectionSet};
 use crate::window::Scroll;
 
@@ -250,4 +251,51 @@ fn a_buffer_with_no_file_named_as_a_file_puts_that_file_apart() {
     assert_eq!(editor.buffer(file).unwrap().name(), "notes");
     editor.add_buffer(Buffer::new("notes"));
     assert_eq!(editor.buffer(file).unwrap().name(), "notes<tmp>");
+}
+
+#[test]
+fn a_preview_shows_the_selected_buffer_where_the_window_was_and_never_a_secret() {
+    use crate::complete::Candidate;
+    let (mut editor, [a, _, _]) = three();
+    editor.show(a);
+    editor.restore_positions(SelectionSet::new(8), Scroll { top: 1, left: 0 });
+    let secret = editor.add_buffer(secret_buffer());
+    editor.show(secret);
+    let scratch = editor.buffer_named(SCRATCH).unwrap();
+    editor.show(scratch);
+    let names = ["a", ".env"].map(|name| Candidate::new(name, "", ""));
+    let style = CompletionStyle {
+        given_order: true,
+        takes_input: true,
+        preview: true,
+    };
+    editor
+        .open_completion_as("Switch to buffer:", "buffer", names.into(), style)
+        .unwrap();
+    assert_eq!(
+        editor.preview(),
+        Some(Preview::Buffer {
+            id: a,
+            top: 1,
+            cursor: 8
+        })
+    );
+    editor.move_completion(1).unwrap();
+    assert_eq!(editor.preview(), Some(Preview::Withheld));
+    assert!(!editor.shows_secret(), "nothing of it reached the screen");
+}
+
+#[test]
+fn a_new_buffers_name_is_bounded_and_holds_no_control_character() {
+    let mut editor = Editor::default();
+    assert_eq!(
+        editor.switch_to_named(&"x".repeat(256)),
+        Err("That name is too long")
+    );
+    assert_eq!(
+        editor.switch_to_named("a\nb"),
+        Err("A buffer's name holds no control characters")
+    );
+    assert_eq!(editor.switch_to_named("fine"), Ok(()));
+    assert_eq!(shown(&editor), "fine");
 }

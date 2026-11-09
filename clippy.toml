@@ -10,10 +10,11 @@ disallowed-types = [
     { path = "std::net::TcpListener", reason = "no network code in oso (ADR 0010)" },
     { path = "std::net::TcpStream", reason = "no network code in oso (ADR 0010)" },
     { path = "std::net::UdpSocket", reason = "no network code in oso (ADR 0010)" },
-    # Local sockets only in the dev control socket (oso-platform::control).
-    { path = "std::os::unix::net::UnixListener", reason = "local sockets only in the dev control socket (ADR 0032)" },
-    { path = "std::os::unix::net::UnixStream", reason = "local sockets only in the dev control socket (ADR 0032)" },
-    { path = "std::os::unix::net::UnixDatagram", reason = "local sockets only in the dev control socket (ADR 0032)" },
+    # Local sockets only in the control sockets' transport (oso-platform::control): the dev
+    # control socket and the agent channel.
+    { path = "std::os::unix::net::UnixListener", reason = "local sockets only in oso-platform::control (ADR 0032, ADR 0085)" },
+    { path = "std::os::unix::net::UnixStream", reason = "local sockets only in oso-platform::control (ADR 0032, ADR 0085)" },
+    { path = "std::os::unix::net::UnixDatagram", reason = "local sockets only in oso-platform::control (ADR 0032, ADR 0085)" },
     # No global state: commands work on host-owned state (ADR 0038). An
     # exception needs `#[expect(clippy::disallowed_types, reason = "...")]`.
     { path = "std::sync::OnceLock", reason = "no global state; keep state host-owned (ADR 0038)" },

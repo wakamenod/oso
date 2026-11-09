@@ -115,16 +115,44 @@ impl ControlDir {
     /// [`Self::remove_stale`], which may block.
     pub fn listen(&self, socket: Socket) -> io::Result<ControlListener> {
         let pid = std::process::id();
-        let cleanup = CleanupGuard {
-            dir: self.path.clone(),
-            pid,
-            only: (socket == Socket::Agent).then(|| socket.file_name(pid)),
-        };
-        drop(cleanup.clone());
-        let path = self.path.join(socket.file_name(pid));
+        let name = socket.file_name(pid);
+        let path = self.path.join(&name);
+        match socket {
+            Socket::Dev => drop(CleanupGuard {
+                dir: self.path.clone(),
+                pid,
+                only: None,
+            }),
+            // This process's own channel may be listening there: it is never unlinked.
+            Socket::Agent if UnixStream::connect(&path).is_ok() => {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    format!("{} is listening already", path.display()),
+                ));
+            }
+            Socket::Agent => {
+                let _ = fs::remove_file(&path);
+            }
+        }
         let listener = UnixListener::bind(&path).map_err(|e| with_path(e, "cannot bind", &path))?;
         // The directory already keeps other users out; this is a second wall.
         fs::set_permissions(&path, Permissions::from_mode(0o600))?;
+        // Only this listener's guard removes this socket: by the file it bound, not its name.
+        let only = match socket {
+            Socket::Dev => None,
+            Socket::Agent => {
+                let meta = fs::symlink_metadata(&path)?;
+                Some(Only {
+                    name,
+                    file: identity(&meta),
+                })
+            }
+        };
+        let cleanup = CleanupGuard {
+            dir: self.path.clone(),
+            pid,
+            only,
+        };
         Ok(ControlListener {
             listener,
             socket,
@@ -324,13 +352,31 @@ impl ControlListener {
 pub struct CleanupGuard {
     dir: PathBuf,
     pid: u32,
-    only: Option<String>,
+    only: Option<Only>,
+}
+
+/// What tells one socket file from another made in its place.
+fn identity(meta: &fs::Metadata) -> (u64, u64, i64, i64) {
+    (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec())
+}
+
+/// The one socket a guard removes: by name, and only while that name is still the file its
+/// listener bound, so that an old guard never removes a newer listener's socket.
+#[derive(Debug, Clone)]
+struct Only {
+    name: String,
+    /// Device, inode and when the inode last changed: an inode number freed by one socket
+    /// can be given at once to the next (Linux does), so the number alone tells nothing.
+    file: (u64, u64, i64, i64),
 }
 
 impl Drop for CleanupGuard {
     fn drop(&mut self) {
-        if let Some(name) = &self.only {
-            let _ = fs::remove_file(self.dir.join(name));
+        if let Some(only) = &self.only {
+            let path = self.dir.join(&only.name);
+            if fs::symlink_metadata(&path).is_ok_and(|meta| identity(&meta) == only.file) {
+                let _ = fs::remove_file(path);
+            }
             return;
         }
         let Ok(entries) = fs::read_dir(&self.dir) else {
@@ -366,6 +412,12 @@ impl ControlStream {
     /// Another handle to the same connection.
     pub fn try_clone(&self) -> io::Result<Self> {
         self.0.try_clone().map(Self)
+    }
+
+    /// Ends the connection both ways, for every handle to it: a read waiting on another
+    /// handle returns at once.
+    pub fn shutdown(&self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
     }
 
     /// Limits how long a read may block. `None` blocks indefinitely.
@@ -776,6 +828,36 @@ mod tests {
         assert!(agent.socket_path().exists());
         let (pid, _client) = dir.connect(Socket::Agent, None).unwrap();
         assert_eq!(pid, std::process::id());
+    }
+
+    #[test]
+    fn a_live_agent_socket_is_never_replaced() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        let first = dir.listen(Socket::Agent).unwrap();
+        let err = dir.listen(Socket::Agent).unwrap_err();
+        assert_eq!(err.kind(), ErrorKind::AlreadyExists);
+        assert!(first.socket_path().exists());
+        let (pid, _client) = dir.connect(Socket::Agent, None).unwrap();
+        assert_eq!(pid, std::process::id());
+    }
+
+    #[test]
+    fn only_the_current_listeners_guard_removes_the_agent_socket() {
+        let scratch = Scratch::new();
+        let dir = ControlDir::at(scratch.join("c")).unwrap();
+        let old = dir.listen(Socket::Agent).unwrap();
+        let old_guard = old.cleanup_guard();
+        // The old listener goes, and a new one takes the name; a copy of the old guard is left.
+        drop(old);
+        let new = dir.listen(Socket::Agent).unwrap();
+        drop(old_guard);
+        assert!(
+            new.socket_path().exists(),
+            "the old guard left the new socket"
+        );
+        drop(new.cleanup_guard());
+        assert!(!new.socket_path().exists());
     }
 
     #[test]

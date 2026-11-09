@@ -4,7 +4,7 @@
 
 use super::{
     Frame, MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS, Restore, STATE_VERSION, check,
-    exit_allowed, export, generation, import_allowed, parse,
+    exit_allowed, export_value as export, generation, import_allowed, parse,
 };
 use crate::dev::protocol::EXIT_REFUSED;
 use oso_core::buffer::{Buffer, FileStamp, Replacement};
@@ -92,7 +92,7 @@ fn a_state_round_trips() {
 
     let state = parse(&exported).unwrap();
     assert_eq!(
-        state.buffers,
+        state.paths(),
         [None, Some(PathBuf::from(absolute("/p/a.txt")))]
     );
     assert_eq!(state.shown, 1);
@@ -137,65 +137,13 @@ fn text_with_no_file_is_refused_not_lost() {
 }
 
 #[test]
-fn a_modified_file_is_refused_by_name_without_its_text() {
-    let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
-    type_text(&mut editor);
-    for message in [
-        export(&editor, &[], None, None).unwrap_err(),
-        check(&editor).unwrap_err(),
-    ] {
-        assert!(message.contains("notes.txt"), "{message}");
-        assert!(message.contains("unsaved"), "{message}");
-        assert!(!message.contains(TYPED), "{message}");
-        assert!(!message.contains("on disk"), "{message}");
-    }
-}
-
-#[test]
-fn text_in_scratch_is_refused_and_an_empty_scratch_is_not() {
-    let mut editor = Editor::default();
-    assert!(export(&editor, &[], None, None).is_ok());
-    assert!(check(&editor).is_ok());
-    type_text(&mut editor);
-    assert!(check(&editor).unwrap_err().contains(SCRATCH));
-    assert!(export(&editor, &[], None, None).is_err());
-    // Emptied again, it holds nothing, and undo history is not carried.
-    let id = editor.window().buffer();
-    let all = Replacement {
-        range: 0..TYPED.len(),
-        text: "",
-    };
-    editor.apply_edits(id, &[all]).unwrap();
-    assert!(editor.current().1.is_modified());
-    assert!(check(&editor).is_ok());
-    assert!(export(&editor, &[], None, None).is_ok());
-}
-
-#[test]
-fn saving_or_undoing_lets_a_restart_through() {
-    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
-    type_text(&mut editor);
-    assert!(check(&editor).is_err());
-    editor.undo().unwrap();
-    assert!(check(&editor).is_ok());
-    editor.redo().unwrap();
-    assert!(check(&editor).is_err());
-    let (_, buffer) = editor.current();
-    let content = buffer.content_id();
-    let id = editor.window().buffer();
-    editor.buffer_mut(id).unwrap().mark_saved(content);
-    assert!(check(&editor).is_ok());
-    assert!(export(&editor, &[], None, None).is_ok());
-}
-
-#[test]
 fn export_and_check_report_the_same_generation() {
     let editor = visiting(&absolute("/p/a.txt"), "abc\n");
     let exported = export(&editor, &[], None, None).unwrap();
     assert_eq!(exported["generation"], generation(&editor));
     assert_eq!(check(&editor).unwrap()["generation"], generation(&editor));
-    assert_eq!(exported["version"], 1, "the format stays version 1");
-    assert!(parse(&exported).is_ok(), "a reader takes it as before");
+    assert_eq!(exported["version"], STATE_VERSION);
+    assert!(parse(&exported).is_ok());
 }
 
 #[test]
@@ -431,13 +379,20 @@ fn positions_move_to_what_exists_in_a_changed_file() {
 }
 
 #[test]
-fn positions_are_dropped_if_the_window_moved_on() {
+fn positions_go_to_the_place_kept_for_a_buffer_the_window_moved_away_from() {
     let mut editor = visiting("/p/a.txt", "abc\n");
+    let file = editor.window().buffer();
     let restore = restore(2, 0, &editor);
     let (scratch, _) = editor.buffers().next().unwrap();
     editor.show(scratch);
     assert!(restore.try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 0);
+    editor.show(file);
+    assert_eq!(
+        editor.window().selections.primary().cursor,
+        2,
+        "kept for the way back"
+    );
 }
 
 /// What a save reports of the file it put in place.
@@ -475,14 +430,14 @@ fn a_running_save_holds_the_handover_and_a_guarded_exit_by_name() {
     assert_eq!(exit_allowed(&editor, None), Ok(()), "a person or an agent");
 
     editor.save_finished(job.buffer, job.content, written());
-    assert!(check(&editor).is_err(), "now modified");
+    assert!(editor.current().1.is_modified());
+    assert!(check(&editor).is_ok(), "carried, as the save is over");
 }
 
 #[test]
 fn a_finished_save_lets_the_handover_through() {
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
     type_text(&mut editor);
-    assert!(check(&editor).is_err());
     editor.start_save().unwrap();
     let job = editor.take_save_jobs().pop().unwrap();
     assert!(check(&editor).is_err());
@@ -491,4 +446,5 @@ fn a_finished_save_lets_the_handover_through() {
     assert!(export(&editor, &[], None, None).is_ok());
 }
 
+mod carried;
 mod secret;

@@ -516,12 +516,18 @@ Full details are in [`security.md`](security.md).
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
   - It polls the sources, and spawns cargo and the new binary through
     `oso-platform::process`.
-  - The state holds paths and positions and never text, so the new instance
-    reads every file from disk. Unsaved content joins it with M2-15
-    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)); undo history
-    does not ([ADR 0051](adr/0051-m2-plan-decisions.md)).
-  - Until then a modified buffer holds the restart, as a running save does, and the
-    supervisor asks before it starts anything. An instance goes only when it says so itself: the supervisor
+  - The state holds paths and positions, and the new instance reads every file
+    without edits from disk ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+    The text of modified buffers, the marks, the kill ring and the histories are
+    carried as items the state names by length: `export-text` gives them in pieces
+    from an O(1) snapshot, the supervisor relays one piece at a time, and
+    `import-text` builds them off the UI thread. Undo history is not carried
+    ([ADR 0051](adr/0051-m2-plan-decisions.md),
+    [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)).
+  - A modified buffer that may hold secrets holds the restart, as a running save
+    does, and the supervisor asks before it starts anything. Why a restart waits, and
+    a failed build's errors, reach the echo area and `*Messages*` through
+    `dev-message`. An instance goes only when it says so itself: the supervisor
     never kills, the `exit` it sends carries the generation of the export, and an
     instance whose text has changed since refuses. If the old one refuses, the new
     one goes unless it has been edited too, and then both stay. Instances run in
@@ -564,19 +570,31 @@ Full details are in [`security.md`](security.md).
   runs `agent-channel-start`, for agents such as Claude Code through `oso mcp`
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
   - `crates/oso/src/channel/` serves `<pid>-agent.sock` in the same private directory through
-    `oso-platform::control`, with the dev socket's thread model. Its methods are `run`, `open`,
-    `state`, `text`, `commands`, `cancel` and `version`, over JSON Lines, and no dev method.
+    `oso-platform::control`, which is built in every build. Its methods are `version`, `state`,
+    `commands`, `run`, `cancel`, `open` and `text`, over the JSON Lines framing in
+    `channel::wire`, which the dev socket shares, and no dev method. `oso mcp` comes next
+    (AC-2).
+  - `open` visits a file that exists, unshown, through `app/agent/open.rs`, and shows it at
+    its line once the loader has judged it ordinary and read it; one judged otherwise is
+    dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
+    the channel opened is marked, and `save-buffer` run for the agent asks the person before
+    saving it. `ArgSpec::Text` and `insert` take text; `dispatch::args` maps a given argument
+    for the dev socket and the channel alike. A count, which repeats a command's work, is at
+    most 10,000 either way, as ADR 0044 has it; a number such as a line is a value, and goes
+    as given. A reload of a file the channel opened checks it as `open` does, and a reload
+    that finds the file elsewhere makes the agent's save of it ask. An `oso dev` restart keeps
+    the mark: the buffer's handoff entry says `"opened_by_agent": true`, only when it is.
   - Each `Command` has a `reach` (`Look`, `Change`, `Person`), and the channel refuses `Person`
-    commands. Arguments are checked against the spec, which gains `Text`.
-  - Each connection waits for the person's yes. The channel runs nothing while a buffer that may
-    hold secrets is shown, while the person is in a prompt, a key sequence or a composition or
-    typed in the last second, or while its own question is open. A question it opens is answered
-    from the window. Its kills stay in oso's kill ring. It opens only files that exist, and a
-    save of a buffer the person did not visit asks the person.
-  - `oso-platform::control` is built in every build, and names the peer's process and its
-    parent for the connection question.
-  - `oso mcp` is a subcommand: JSON-RPC over stdio, with the tools `state`, `text`, `commands`,
-    `look`, `change` and `open`.
+    commands. `Dispatcher::run_for_agent` checks the argument against the spec and runs the
+    command inside `Editor::for_agent`, so the prompts it opens are the agent's.
+  - Each connection waits for the person's yes, asked on its first request: one that sends
+    nothing within 2 s is closed unasked, as probes do. Threads read and wait, and
+    `app/agent.rs` asks and answers on the UI thread. The channel runs nothing while a buffer
+    that may hold secrets is shown, while the person is in a prompt, a key sequence or a
+    composition or typed in the last second, or while its own question is open. A question it
+    causes is answered from the window. Its kills stay in oso's kill ring.
+  - The connection question names the process as it reports itself, and its parent, from
+    `ControlStream::peer`.
 - **Dev profile:** dependencies are optimized and oso is not, to keep the
   tip-crate rebuild within 2 s ([ADR 0024](adr/0024-dev-build-profile.md)).
 
