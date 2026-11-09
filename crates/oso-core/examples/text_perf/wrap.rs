@@ -124,4 +124,8 @@ pub(super) fn wrap_costs() {
             typing(label, text, cursors);
         }
     }
+    // Commands one after another, no job between, on a line ten times as long: what a
+    // provisional row costs must not grow with it.
+    let long = line_of("word and more ", 100 * MB);
+    typing("100 MB line, words", &long, 1000);
 }

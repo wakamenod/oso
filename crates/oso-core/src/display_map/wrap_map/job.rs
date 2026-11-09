@@ -97,8 +97,11 @@ impl WrapSnapshot {
                         *range = shifted(range, &splice.edit);
                     }
                 }
-                let (joined, range) =
-                    wrap.spent((&first.before, &last.after), changed_before(rest), delta);
+                let (joined, range) = wrap.spent(
+                    (&first.before, &last.after),
+                    changed_before(rest),
+                    (delta, 0),
+                );
                 stale.extend(range);
                 return (joined, stale);
             }
@@ -187,8 +190,16 @@ impl WrapJob {
         let wrap = match self.work {
             Work::Ranges(ranges) => {
                 let mut wrap = self.wrap;
+                // A rewrap that ran past later ranges, as on a line with tabs, did them too.
+                let mut reached = 0;
                 for range in ranges {
-                    wrap = wrap.rewrapped_unless(&self.display, range, &stop)?;
+                    if range.end <= reached {
+                        continue;
+                    }
+                    let start = range.start.max(reached);
+                    let (rewrapped, to) =
+                        wrap.rewrapped_unless(&self.display, start..range.end, &stop)?;
+                    (wrap, reached) = (rewrapped, to);
                 }
                 wrap
             }
@@ -220,9 +231,8 @@ impl fmt::Debug for WrapReport {
     }
 }
 
-/// What the edits since a job's snapshot changed: one range in the offsets now, and how much
-/// longer they made the text. What precedes it is as the job saw it, and what follows it moved
-/// by `delta`.
+/// What the edits since a job's snapshot changed in one place: a range in the offsets now,
+/// and how much longer they made it.
 #[derive(Clone, Copy)]
 struct Hull {
     start: usize,
@@ -230,23 +240,76 @@ struct Hull {
     delta: isize,
 }
 
-impl Hull {
-    /// The hull grown by `edit`, made after it.
-    fn grown(hull: Option<Self>, edit: &RopeEdit) -> Self {
+/// The places the edits since a job's snapshot changed, sorted and apart, at most
+/// [`MAX_STALE`], so that two far apart do not make all between them provisional.
+#[derive(Default)]
+struct Hulls(Vec<Hull>);
+
+impl Hulls {
+    /// Takes `edit`, made after those already kept.
+    fn grow(&mut self, edit: &RopeEdit) {
         let delta = edit.new.len() as isize - edit.old.len() as isize;
-        let Some(hull) = hull else {
-            return Self {
-                start: edit.new.start,
-                end: edit.new.end,
-                delta,
-            };
+        let mut grown = Hull {
+            start: edit.new.start,
+            end: edit.new.end,
+            delta,
         };
-        let moved = shifted(&(hull.start..hull.end), edit);
-        Self {
-            start: moved.start.min(edit.new.start),
-            end: moved.end.max(edit.new.end),
-            delta: hull.delta + delta,
+        let shift = |at: usize| at.checked_add_signed(delta).unwrap_or(0);
+        let mut kept = Vec::with_capacity(self.0.len() + 1);
+        for hull in self.0.drain(..) {
+            if hull.end < edit.old.start {
+                kept.push(hull);
+            } else if hull.start > edit.old.end {
+                kept.push(Hull {
+                    start: shift(hull.start),
+                    end: shift(hull.end),
+                    delta: hull.delta,
+                });
+            } else {
+                // They meet: one place.
+                grown.start = grown.start.min(hull.start);
+                grown.end = grown.end.max(shift(hull.end));
+                grown.delta += hull.delta;
+            }
         }
+        let at = kept.partition_point(|hull| hull.start < grown.start);
+        kept.insert(at, grown);
+        if kept.len() > MAX_STALE {
+            let nearest = (1..kept.len())
+                .min_by_key(|&index| kept[index].start - kept[index - 1].end)
+                .unwrap_or(1);
+            let next = kept.remove(nearest);
+            let hull = &mut kept[nearest - 1];
+            hull.end = next.end;
+            hull.delta += next.delta;
+        }
+        self.0 = kept;
+    }
+
+    /// Joins each place to `wrap`, rows made from `before`, with `display` the buffer now,
+    /// from the last back so that what precedes each reads as `before` showed it. Says the
+    /// stale ranges, in the offsets now.
+    fn join(
+        &self,
+        wrap: WrapSnapshot,
+        (before, display): (&DisplaySnapshot, &DisplaySnapshot),
+    ) -> (WrapSnapshot, Vec<Range<usize>>) {
+        let mut wrap = wrap;
+        let mut stale = Vec::new();
+        let mut base: isize = self.0.iter().map(|hull| hull.delta).sum();
+        for hull in self.0.iter().rev() {
+            base -= hull.delta;
+            let back = |at: usize| at.checked_add_signed(-base).unwrap_or(0);
+            let start = back(hull.start);
+            let end = back(hull.end)
+                .checked_add_signed(-hull.delta)
+                .unwrap_or(0)
+                .max(start);
+            let (joined, range) = wrap.spent((before, display), start..end, (hull.delta, base));
+            wrap = joined;
+            stale.extend(range);
+        }
+        (wrap, stale)
     }
 }
 
@@ -261,7 +324,7 @@ pub(crate) struct WrapMap {
     live: Arc<AtomicU64>,
     running: bool,
     /// What the commands since the running job's snapshot changed.
-    since: Option<Hull>,
+    since: Hulls,
 }
 
 #[cfg_attr(
@@ -277,7 +340,7 @@ impl WrapMap {
             wanted: None,
             live: Arc::new(AtomicU64::new(0)),
             running: false,
-            since: None,
+            since: Hulls::default(),
         }
     }
 
@@ -300,10 +363,18 @@ impl WrapMap {
                     *range = shifted(range, &splice.edit);
                 }
             }
+            // Ranges that grew to meet become one.
+            let shifted = std::mem::take(ranges);
+            for range in shifted {
+                match ranges.last_mut() {
+                    Some(last) if last.end >= range.start => last.end = last.end.max(range.end),
+                    _ => ranges.push(range),
+                }
+            }
         }
         if self.running {
             for splice in splices {
-                self.since = Some(Hull::grown(self.since, &splice.edit));
+                self.since.grow(&splice.edit);
             }
         }
         let mut budget = COMMAND_BUDGET;
@@ -366,7 +437,7 @@ impl WrapMap {
         };
         let generation = self.live.fetch_add(1, Ordering::Relaxed) + 1;
         self.running = true;
-        self.since = None;
+        self.since = Hulls::default();
         Some(WrapJob {
             wrap: self.wrap.clone(),
             display: display.clone(),
@@ -384,15 +455,10 @@ impl WrapMap {
             return false;
         }
         self.running = false;
-        let mut wrap = report.wrap;
-        if let Some(hull) = self.since.take() {
-            let old_end = hull.end.checked_add_signed(-hull.delta).unwrap_or(0);
-            let old = hull.start..old_end.max(hull.start);
-            let (joined, stale) = wrap.spent((&report.display, display), old, hull.delta);
-            wrap = joined;
-            if let Some(stale) = stale {
-                self.want_range(stale);
-            }
+        let since = std::mem::take(&mut self.since);
+        let (wrap, stale) = since.join(report.wrap, (&report.display, display));
+        for range in stale {
+            self.want_range(range);
         }
         self.wrap = wrap;
         true

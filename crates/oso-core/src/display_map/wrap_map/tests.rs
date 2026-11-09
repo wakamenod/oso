@@ -334,3 +334,37 @@ proptest! {
         prop_assert_eq!(shape(&plain, &display), shape(&scanned, &display));
     }
 }
+
+/// One edit with the budget already spent, against a wrap from scratch.
+fn spent_edit(text: &str, (start, end, insert): (usize, usize, &str), columns: usize) {
+    let mut rope = Rope::from(text);
+    let mut map = DisplayMap::new(&rope, TabWidth::new(4));
+    let before = map.snapshot();
+    let wrap = WrapSnapshot::new(&before, columns);
+    let edit = rope.replace(start..end, insert);
+    map.sync(&rope, &edit);
+    let after = map.snapshot();
+    let (edited, _) = wrap.edited_within(&before, &after, &edit, &mut 0);
+    let mut at = 0;
+    for index in 0..edited.row_count() {
+        let row = edited.row(&after, index);
+        assert_eq!(row.start, at, "rows tile");
+        at = row.end;
+    }
+    assert_eq!(at, after.len());
+    let lines = (0..edited.row_count())
+        .filter(|&index| !edited.row(&after, index).continues)
+        .count();
+    assert_eq!(lines, after.row_count(), "a row ends each line");
+}
+
+#[test]
+fn a_spent_edit_at_the_end_keeps_the_empty_last_line() {
+    spent_edit("abc", (3, 3, "\n"), 9);
+    spent_edit(&"word ".repeat(10), (50, 50, "\n"), 9);
+}
+
+#[test]
+fn a_spent_empty_edit_inside_a_line_break_keeps_the_rows_tiled() {
+    spent_edit("ab\n\r\n", (4, 4, ""), 9);
+}

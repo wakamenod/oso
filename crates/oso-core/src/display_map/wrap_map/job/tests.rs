@@ -179,6 +179,30 @@ fn a_command_that_empties_the_buffer_leaves_no_row_behind() {
     assert_eq!(window.rows(), window.fresh(9));
 }
 
+#[test]
+fn far_apart_places_typed_in_during_a_job_stay_apart_once_it_reports() {
+    let line = "word ".repeat(600);
+    let text = format!("{line}\n{line}\n{line}\n{line}\n");
+    let mut window = Window::new(&text, 30);
+    window.wrap.set_columns(12);
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    window.command(&[(10_000, 0, "x")]);
+    window.command(&[(1_000, 0, "x")]);
+    let report = job.run().expect("a report");
+    assert!(window.wrap.take_report(report, &window.map.snapshot()));
+    let Some(Work::Ranges(ranges)) = &window.wrap.wanted else {
+        panic!("stale ranges");
+    };
+    let stale: usize = ranges.iter().map(|range| range.len()).sum();
+    assert!(
+        ranges.len() >= 2 && stale < text.len() / 2,
+        "{} ranges, {stale} bytes",
+        ranges.len()
+    );
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(12));
+}
+
 /// Text with long lines of words and of CJK.
 fn text() -> impl Strategy<Value = String> {
     let pieces = prop::sample::select(

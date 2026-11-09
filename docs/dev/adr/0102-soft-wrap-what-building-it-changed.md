@@ -26,7 +26,9 @@ the measurements.
   - Past the budget, a splice joins the old rows at the first old row boundary past its
     rebuilt chunks: the rows between are one provisional row a line, and the old rows between
     splices stay as they were. That costs about 15 µs a splice on a long line, read from the
-    tree and a search of the span for line breaks, with no scan.
+    tree and a search of the span for line breaks, at most 4 KiB, past which its lines come
+    from the display map in O(log n). So a provisional row, however long, costs no more to join
+    to than a short one.
   - Past 64 such splices, the rest of the command is joined in one go: what it changed, each
     splice's range taken back through those applied before it, becomes one provisional span.
     So a command at a thousand cursors pays for its budget and 64 joins, not for each cursor.
@@ -45,14 +47,17 @@ the measurements.
   job rewraps from its start and goes on past its end until its rows meet the old ones.
 - **A job never stops where a tab follows on the line.** The old rows past a join were made
   before the edit, so a tab there may have had another column, and only a row with no tab
-  ahead of it fixes the rows after it.
+  ahead of it fixes the rows after it. A job skips the ranges its rewraps already passed, so a
+  line with a tab is rewrapped once, not once a range.
 - **Stale ranges are kept apart,** sorted, at most 64, the two nearest joining past that. Past
   4 MiB of stale bytes in all, a job wraps the whole buffer, which keeps no rows aside, rather
   than holding every row of the ranges.
-- **A report keeps no snapshot of the edits made while its job ran.** The window keeps one range
-  of what they changed and by how much, and joins it to the report's rows as one provisional
-  span, left stale for the next job. A report is never dropped, but when a newer job
-  supersedes it, so neither typing nor a long job keeps old trees alive or stops reports.
+- **A report keeps no snapshot of the edits made while its job ran.** The window keeps the
+  places they changed, sorted and apart, at most 64, each with how much longer it made the text,
+  and joins each to the report's rows, from the last back, left stale for the next job. A report
+  is never dropped, but when a newer job supersedes it, so neither typing nor a long job keeps
+  old trees alive or stops reports, and two places far apart do not make all between them
+  provisional.
 - **A line of printable ASCII and tabs that fits is found from its bytes,** with no cluster read.
 - **Columns are compared modulo the tab width only when a tab follows on the line.**
   - With none, a row's cells do not depend on where it starts.
@@ -96,8 +101,8 @@ becomes `Accepted, amended by 0102`.
   splice's join, the first 64 of a command one by one and the rest in one go.
 - ADR 0100, "Edits since the snapshot: the window keeps the rebuilt ranges of the commands since,
   up to 64 commands or 1 MiB … Past that bound, the report is dropped and the job runs again":
-  the window keeps one range of what they changed, joined to the report as one provisional
-  span; the report is never dropped but when superseded.
+  the window keeps the places they changed, at most 64, each joined to the report; the report
+  is never dropped but when superseded.
 - ADR 0100, "One more may take the mark's column": where the row may break after it, or before
   more spaces.
 - ADR 0100, "Kinsoku uses the core sets of JIS X 4051": and the characters above.
