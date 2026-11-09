@@ -1,6 +1,6 @@
 # 0057. The layout of a frame into regions
 
-- Status: Accepted
+- Status: Accepted, amended by 0097
 - Date: 2026-11-05
 
 ## Context

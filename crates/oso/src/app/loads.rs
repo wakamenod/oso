@@ -271,8 +271,11 @@ impl App {
                 shown
             }
             LoadUpdate::Failed(e) => {
-                let message = format!("Cannot open: {e}: {:?}", buffer.name());
-                self.editor.message(message);
+                // The agent hears why its open stopped; the person's echo area stays as it was.
+                if !self.agent_load_failed(id, &e) {
+                    let name = self.editor.buffer(id).map_or("", Buffer::name);
+                    self.editor.message(format!("Cannot open: {e}: {name:?}"));
+                }
                 self.editor.kill_buffer(id);
                 // What a notice waited on is over.
                 self.scan_for_copies = true;
@@ -350,6 +353,13 @@ impl App {
         let Some(buffer) = self.editor.buffer(id) else {
             return;
         };
+        // The channel's `open` refuses it, as ADR 0087 words it, and leaves nothing of it with
+        // the person: no message, and no question for their next `C-x C-f`.
+        if buffer.agent_pending() {
+            self.refuse_agent_open(id, super::agent::TOO_LARGE_FOR_THE_AGENT);
+            self.editor.kill_buffer(id);
+            return;
+        }
         let path = buffer.path().map(std::path::Path::to_path_buf);
         let message = format!(
             "{} is {}; C-x C-f asks to open it",

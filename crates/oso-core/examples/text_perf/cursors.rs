@@ -4,10 +4,10 @@
 //! Must not depend on: crate internals; it uses only the public API, and the text and
 //! timing helpers of `text_perf`.
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-use oso_core::buffer::Replacement;
-use oso_core::editor::Editor;
+use oso_core::buffer::{Buffer, Replacement};
+use oso_core::editor::{Editor, Toward};
 use oso_core::motion;
 use oso_core::selection::{MarkActive, Selection, SelectionSet};
 
@@ -97,6 +97,8 @@ fn marked_typing_costs(label: &str, text: &str, cursors: usize, shown: bool) {
 
 /// Typing at many cursors, bare, with marks and over regions (ADR 0091).
 pub(crate) fn cursor_costs() {
+    search_costs();
+    println!();
     println!("== Typing at many cursors, and undo (ADR 0091)");
     let text = file_text(100 * MB);
     let line = single_line(10 * MB);
@@ -111,5 +113,63 @@ pub(crate) fn cursor_costs() {
             marked_typing_costs(label, text, cursors, false);
             marked_typing_costs(label, text, cursors, true);
         }
+    }
+}
+
+/// What a key that adds cursors takes on the UI thread, and the worker after it, as
+/// `(key, worker)`. `key` runs it on an editor showing `text` with one cursor at `at`.
+fn search_time(text: &str, at: usize, key: impl Fn(&mut Editor)) -> (Duration, Duration) {
+    let mut editor = Editor::with_buffer(Buffer::from_text("text", text));
+    editor.current_mut().0.selections = SelectionSet::new(at);
+    let start = Instant::now();
+    key(&mut editor);
+    let on_key = start.elapsed();
+    let start = Instant::now();
+    if let Some(job) = editor.take_isearch_job() {
+        job.run(|report| {
+            let _ = editor.isearch_reported(report);
+        });
+    }
+    (on_key, start.elapsed())
+}
+
+/// Keys that add cursors where every match but the last is checked and rejected, and on
+/// every occurrence of a word in source (ADR 0091).
+fn search_costs() {
+    println!("== Searches for cursors: on the key, and on the worker");
+    for size in [64 * 1024, 256 * 1024, MB] {
+        let back = format!("{}i", "fix ".repeat(size / 4));
+        let (key, worker) = search_time(&back, back.len(), |editor| {
+            let _ = editor.mark_like_this(Toward::Previous, 1);
+        });
+        println!(
+            "{:>5} KB  C-< past rejected words  key {key:>9.2?}  worker {worker:>9.2?}",
+            size / 1024
+        );
+        let forward = format!("i{}", " fix".repeat(size / 4));
+        let (key, worker) = search_time(&forward, 0, |editor| {
+            let _ = editor.mark_like_this(Toward::Next, 1);
+        });
+        println!(
+            "{:>5} KB  C-> past rejected words  key {key:>9.2?}  worker {worker:>9.2?}",
+            size / 1024
+        );
+        let run = format!("a {}", "a".repeat(size));
+        let (key, worker) = search_time(&run, 0, |editor| {
+            let _ = editor.mark_like_this(Toward::Next, 1);
+        });
+        println!(
+            "{:>5} KB  C-> in a run of letters  key {key:>9.2?}  worker {worker:>9.2?}",
+            size / 1024
+        );
+        let source = file_text(size);
+        let main = source.find("main").unwrap_or(0);
+        let (key, worker) = search_time(&source, main, |editor| {
+            let _ = editor.mark_all_like_this();
+        });
+        println!(
+            "{:>5} KB  C-c C-< on source        key {key:>9.2?}  worker {worker:>9.2?}",
+            size / 1024
+        );
     }
 }

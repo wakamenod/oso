@@ -92,6 +92,9 @@ impl MarkActive {
     }
 }
 
+/// The most cursors a window has: the keys that add them add none past it (ADR 0091).
+pub const MAX_CURSORS: usize = 1000;
+
 /// The most marks a [`MarkRing`] keeps, as Emacs's `mark-ring-max`.
 pub const MARK_RING_SIZE: usize = 16;
 

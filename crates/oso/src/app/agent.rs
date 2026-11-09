@@ -25,6 +25,7 @@ use oso_platform::control::Peer;
 
 mod admit;
 mod open;
+pub(super) use open::TOO_LARGE_FOR_THE_AGENT;
 mod questions;
 
 use super::App;

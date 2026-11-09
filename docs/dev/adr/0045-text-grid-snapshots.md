@@ -1,6 +1,6 @@
 # 0045. Text-grid snapshots
 
-- Status: Accepted, amended by 0089
+- Status: Accepted, amended by 0089 and 0097
 - Date: 2026-11-04
 
 ## Context

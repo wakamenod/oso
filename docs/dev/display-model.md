@@ -106,7 +106,11 @@ The rules in detail ([ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md)):
   (2 cells) and `\200` to `\237` (4 cells). A lone `\r` is shown as `^M`.
 - An invalid byte of the file is shown as `\xNN` in 4 cells, in the escape
   color, so it is not mistaken for text that reads `\x41`.
-- A tab advances to the next tab stop. `\n` and `\r\n` end the row.
+- A tab advances to the next tab stop. `\n` and `\r\n` end the row. With whitespace
+  shown, a tab's first cell carries a dim `»`, a full-width space a `□` and the other
+  non-ASCII spaces a `·`, as labels in the whitespace face that only drawing sees. Whether
+  a row carries them is an argument to `row_clusters`, never set for `text_clusters`
+  ([ADR 0097](adr/0097-visual-aids.md)).
 - Text that is no buffer's, such as a modeline's, is one row: there a tab and a line
   break are escapes as well (`display_map::text_clusters`).
 - Cells stay in the logical order of the text, left to right, in every script, and no

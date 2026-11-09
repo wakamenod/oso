@@ -9,6 +9,7 @@
 //! logs the string: it can say something of a buffer that may hold secrets.
 
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
+use oso_core::editor::Toward;
 
 /// The commands of isearch.
 pub const COMMANDS: &[Command] = &[
@@ -96,6 +97,27 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Person,
         run: isearch_toggle_case_fold,
     },
+    Command {
+        name: "isearch-mark-next",
+        doc: "End the search with the current match as the region, and add a cursor at the next match.\n\nAs `mark-next-like-this` goes on after it, with the search's string and case.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_mark_next,
+    },
+    Command {
+        name: "isearch-mark-previous",
+        doc: "End the search with the current match as the region, and add a cursor at the previous match.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_mark_previous,
+    },
+    Command {
+        name: "isearch-mark-all",
+        doc: "End the search, and put a cursor on every match in the buffer.\n\nThe primary stays on the current match. With more than 1000 counted, the search goes on and none is added.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: isearch_mark_all,
+    },
 ];
 
 fn isearch_forward(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
@@ -180,6 +202,25 @@ fn isearch_ring_advance(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> 
 
 fn isearch_toggle_case_fold(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     searching(ctx, |ctx| ctx.editor.isearch_toggle_case())
+}
+
+fn isearch_mark_next(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    mark(ctx, Some(Toward::Next))
+}
+
+fn isearch_mark_previous(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    mark(ctx, Some(Toward::Previous))
+}
+
+fn isearch_mark_all(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    mark(ctx, None)
+}
+
+/// Adds cursors from the search's current match (ADR 0091).
+fn mark(ctx: &mut Ctx<'_>, toward: Option<Toward>) -> Result<(), CommandError> {
+    let done = ctx.editor.isearch_mark(toward);
+    ctx.request_redraw();
+    done.map_err(|error| CommandError::new(error.to_string()))
 }
 
 #[cfg(test)]

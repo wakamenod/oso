@@ -10,6 +10,7 @@
 mod agent;
 mod buffers;
 mod complete;
+mod cursors;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
@@ -40,6 +41,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 const TABLES: &[&[Command]] = &[
     agent::COMMANDS,
     complete::COMMANDS,
+    cursors::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
@@ -208,6 +210,9 @@ mod tests {
             "isearch-delete-char",
             "isearch-exit",
             "isearch-forward",
+            "isearch-mark-all",
+            "isearch-mark-next",
+            "isearch-mark-previous",
             "isearch-printing-char",
             "isearch-repeat-backward",
             "isearch-repeat-forward",

@@ -370,3 +370,21 @@ fn an_entry_that_does_not_say_was_not_opened_by_the_agent_and_a_bad_value_is_ref
     let bad = carrying(|state| state["buffers"][1]["opened_by_agent"] = json!("yes"));
     assert!(parse(&bad).unwrap_err().contains("opened_by_agent"));
 }
+
+#[test]
+fn a_file_the_agent_is_still_opening_is_not_handed_over() {
+    let path = absolute("/p/opened.txt");
+    let mut editor = visiting(&absolute("/p/notes.txt"), "abc\n");
+    let mut opening = Buffer::visiting(PathBuf::from(&path));
+    opening.set_agent_pending(true);
+    editor.add_buffer(opening);
+    let state = export(&editor, &[], None, None).unwrap();
+    let paths: Vec<&Value> = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|buffer| &buffer["path"])
+        .collect();
+    assert!(!paths.contains(&&json!(path)), "{paths:?}");
+    assert!(paths.contains(&&json!(absolute("/p/notes.txt"))));
+}
