@@ -256,6 +256,8 @@ impl App {
         self.editor.status_into(&mut self.status);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
+        #[cfg(feature = "dev")]
+        let rendering = Instant::now();
         let render_state = &mut view.render_state;
         let cells = &mut view.cells;
         let result = with_panes(&self.editor, &self.status, cells, |panes| {
@@ -274,6 +276,14 @@ impl App {
                 view.redraw_if(redraw);
                 #[cfg(feature = "dev")]
                 if view.render_state.presented_frames() > presented {
+                    let times = view.render_state.last_frame_times();
+                    self.timings.frame_spans(crate::dev::FrameSpans {
+                        started: frame,
+                        rendering,
+                        prepared: times.prepared,
+                        acquired: times.acquired,
+                        presented: times.presented,
+                    });
                     let complete = redraw == Redraw::NotNeeded;
                     let withheld = self.editor.shows_secret();
                     self.timings.frame_presented(complete, withheld);
