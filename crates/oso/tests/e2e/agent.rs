@@ -236,9 +236,13 @@ fn a_question_the_agent_caused_waits_for_the_person() {
 
     agent.run("delete-char", None, "change").unwrap();
     std::fs::write(&file, b"changed on disk\n").unwrap();
-    // The first save finds the file changed and keeps it; the next asks.
-    agent.run("save-buffer", None, "change").unwrap();
-    app.wait_for("the save", |state| state["buffer"]["saving"] == false);
+    // Once the editor knows, a save asks. Waiting for the watcher keeps a save that would
+    // find the change only as it writes out of the race.
+    app.wait_for("the warning", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("changed on disk"))
+    });
     let waiting = agent.run("save-buffer", None, "change").unwrap();
     let waiting = waiting["waiting"].as_str().unwrap();
     assert!(
