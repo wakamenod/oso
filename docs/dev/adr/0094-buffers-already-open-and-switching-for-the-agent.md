@@ -1,6 +1,6 @@
 # 0094. Buffers already open, and switching buffers, for the agent channel
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-09
 
 ## Context
@@ -19,6 +19,8 @@ opens. So the channel refuses it, and an agent can show a buffer only by opening
 ADR 0085 lets the channel give text only to a command whose argument is `ArgSpec::Text`.
 
 ## Decision
+
+The author accepted this on 2026-11-09, through the coordinator.
 
 ### `open` of a file already open
 

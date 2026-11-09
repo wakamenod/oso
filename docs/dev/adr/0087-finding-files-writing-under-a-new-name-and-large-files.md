@@ -1,6 +1,6 @@
 # 0087. Finding files, writing under a new name, and large files
 
-- Status: Accepted
+- Status: Accepted, amended by 0094
 - Date: 2026-11-08
 
 ## Context
