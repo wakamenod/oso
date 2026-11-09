@@ -473,6 +473,13 @@ where
         Method::Version => return success(&request.id, version()),
         Method::Ui(op) => op,
     };
+    // Only a file that is there opens: the channel starts no new file (ADR 0085). Looked at
+    // here, as the UI thread never waits on the file system.
+    if let Op::Open { path, .. } = &op
+        && let Err(why) = may_open(path)
+    {
+        return failure(&request.id, why);
+    }
     let (reply, replied) = mpsc::channel();
     let asked = Request {
         connection,
@@ -492,6 +499,28 @@ where
             failure(&request.id, "the editor dropped the request")
         }
     }
+}
+
+/// The largest file the channel opens, in bytes: an agent reads what it opens, and memory
+/// spent on a huge one is the person's.
+pub const MAX_OPEN_BYTES: u64 = 256 << 20;
+
+/// Why the file at `path` may not be opened for the channel, if it may not: there is none,
+/// it is no regular file, it is too large, or it has more than one name, so that its other
+/// names, which the secret patterns judge, are not seen (ADR 0085).
+fn may_open(path: &std::path::Path) -> Result<(), &'static str> {
+    let meta = std::fs::metadata(path).map_err(|_| "no file is at that path")?;
+    if !meta.is_file() {
+        return Err("that is not a regular file");
+    }
+    if meta.len() > MAX_OPEN_BYTES {
+        return Err("the file is larger than the agent may open; ask the person");
+    }
+    #[cfg(unix)]
+    if std::os::unix::fs::MetadataExt::nlink(&meta) > 1 {
+        return Err("the file has more than one name; ask the person");
+    }
+    Ok(())
 }
 
 /// The result of `version`.

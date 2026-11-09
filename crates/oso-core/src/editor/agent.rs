@@ -42,6 +42,9 @@ pub(super) struct Agent {
     allowed: bool,
     /// A command runs for the channel now: the prompts it opens are the agent's.
     running: bool,
+    /// The person just answered `y` to a question the agent caused, so what the answer runs
+    /// is the agent's too.
+    answered: bool,
     log: Option<BufferId>,
 }
 
@@ -85,9 +88,21 @@ impl Editor {
         out
     }
 
-    /// Whether the prompts opened now are the agent channel's.
-    pub(super) fn agent_opens_prompts(&self) -> bool {
+    /// Whether what runs now runs for the agent channel: a command it ran, or the command
+    /// the person's `y` to its question runs.
+    pub fn runs_for_agent(&self) -> bool {
         self.agent.running
+    }
+
+    /// The question just answered `y` was the agent's.
+    pub(super) fn note_agents_answer(&mut self, agents: bool) {
+        self.agent.answered = agents;
+    }
+
+    /// Whether the question just answered `y` was the agent's, once, for the dispatcher to
+    /// run its command as the agent's.
+    pub fn take_agents_answer(&mut self) -> bool {
+        std::mem::take(&mut self.agent.answered)
     }
 
     /// Asks `question` for the agent channel, as [`Self::ask_with`] does, as a prompt that is
@@ -125,8 +140,7 @@ impl Editor {
     }
 
     /// The buffer `*Agent*`, once something was logged there.
-    #[cfg(test)]
-    fn agent_log_buffer(&self) -> Option<BufferId> {
+    pub(super) fn agent_log_buffer(&self) -> Option<BufferId> {
         self.agent.log
     }
 }

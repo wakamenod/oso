@@ -8,6 +8,7 @@ mod buffers;
 mod complete;
 mod cursors;
 mod edit;
+mod files;
 mod isearch;
 mod kill;
 mod mark;
@@ -32,6 +33,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     complete::BINDINGS,
     cursors::BINDINGS,
     edit::BINDINGS,
+    files::BINDINGS,
     isearch::BINDINGS,
     kill::BINDINGS,
     mark::BINDINGS,

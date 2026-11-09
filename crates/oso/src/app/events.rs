@@ -47,10 +47,13 @@ impl App {
             UserEvent::Copies(event) => self.copies_event(event),
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             UserEvent::Search(report) => self.isearch_reported(report),
+            UserEvent::Listed => self.listed(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
             UserEvent::Agent(request) => self.handle_agent(event_loop, request),
             UserEvent::AgentStarted(started) => self.agent_started(started),
+            // `after_event` looks at the deadlines.
+            UserEvent::AgentDeadline => {}
         }
         self.after_event(event_loop);
         self.note_logging();

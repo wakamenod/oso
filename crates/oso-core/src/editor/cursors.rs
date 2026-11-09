@@ -7,9 +7,10 @@
 //! - The query is the primary cursor's region, or the word at each cursor, which the first
 //!   key selects. It can be secret text: its `Debug` prints none, nothing logs it, and
 //!   `oso dev` does not carry it.
-//! - Each command searches [`KEY_BUDGET`] of text on the UI thread, whatever its count, and
-//!   leaves the rest to isearch's worker. What the worker finds is taken in only if the
-//!   window's cursors and the text are as they were.
+//! - Each command reads [`KEY_BUDGET`] on the UI thread, whatever its count: the text the
+//!   matcher reads and what checking each match costs. It leaves the rest to isearch's
+//!   worker, in `worker`.
+//! - An occurrence starts and ends on display clusters, where a cursor can be.
 
 use std::fmt;
 use std::ops::{Range, RangeInclusive};
@@ -25,11 +26,13 @@ use crate::word;
 
 mod find;
 #[cfg(test)]
+mod isearch_tests;
+#[cfg(test)]
 mod tests;
 mod worker;
 
 pub use find::Toward;
-use find::{Text, Wanted};
+use find::{All, Text, Wanted};
 
 /// Why a key that adds cursors added none, or no more.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +55,8 @@ pub enum CursorError {
     NoMark,
     /// isearch has no current match: it fails, or a worker still looks for one.
     NoCurrentMatch,
+    /// isearch has not counted its matches yet, which a cursor on every one waits for.
+    Counting,
 }
 
 impl fmt::Display for CursorError {
@@ -68,6 +73,7 @@ impl fmt::Display for CursorError {
             Self::Loading => f.write_str("Buffer is still loading"),
             Self::NoMark => f.write_str("The mark is not set now"),
             Self::NoCurrentMatch => f.write_str("No current match"),
+            Self::Counting => f.write_str("Still counting matches"),
         }
     }
 }
@@ -75,7 +81,7 @@ impl fmt::Display for CursorError {
 impl std::error::Error for CursorError {}
 
 /// The query a window keeps for a run of the keys that add cursors, while it has several
-/// or its regions show and its text stays, and a search a worker does for it.
+/// cursors and its text stays, and a search a worker does for it.
 pub(super) struct Marking {
     window: usize,
     buffer: BufferId,
@@ -90,8 +96,8 @@ struct Pending {
     ask: Ask,
     /// The window's cursors when it was asked, which must still be its own.
     selections: SelectionSet,
-    /// The buffer was loading, and a piece the load appends moves nothing.
-    loading: bool,
+    /// How long the text was if it was loading, as a load only appends.
+    loading: Option<usize>,
 }
 
 /// What a search for cursors is for.
@@ -116,6 +122,7 @@ impl Editor {
     ///
     /// A [`CursorError`], after adding what it found when it found fewer.
     pub fn mark_like_this(&mut self, toward: Toward, count: isize) -> Result<(), CursorError> {
+        self.drop_cursor_search();
         match count {
             0 => self.skip_like_this(toward),
             ..0 => self.remove_cursors(toward, count.unsigned_abs()),
@@ -130,6 +137,7 @@ impl Editor {
     ///
     /// A [`CursorError`], and nothing changes.
     pub fn skip_like_this(&mut self, toward: Toward) -> Result<(), CursorError> {
+        self.drop_cursor_search();
         self.find_cursors(toward, 1, true)
     }
 
@@ -139,20 +147,26 @@ impl Editor {
     ///
     /// A [`CursorError`], and nothing changes but the words the query was taken from.
     pub fn mark_all_like_this(&mut self) -> Result<(), CursorError> {
+        self.drop_cursor_search();
         if self.current().1.loading().is_some() {
             return Err(CursorError::Loading);
         }
         let wanted = self.wanted()?;
+        self.all_cursors(wanted)
+    }
+
+    /// Puts a cursor on every occurrence of `wanted`, as far as one key reads, and leaves
+    /// the rest to the worker.
+    fn all_cursors(&mut self, wanted: Wanted) -> Result<(), CursorError> {
         let text = self.cursor_text();
-        if text.rope.len() <= KEY_BUDGET {
-            let matched = text.all(&wanted, &|| false).unwrap_or(Matched {
-                ranges: Vec::new(),
-                total: 0,
-            });
-            return self.put_all(&matched);
+        let mut left = KEY_BUDGET;
+        match text.all(&wanted, &mut left, &|| false) {
+            All::Done(matched) => self.put_all(&matched),
+            All::Stopped => {
+                self.ask_worker(Ask::All, 0, (text, wanted));
+                Ok(())
+            }
         }
-        self.ask_worker(Ask::All, 0, (text, wanted));
-        Ok(())
     }
 
     /// Puts one cursor on each line from the mark's to the primary cursor's, at the
@@ -163,6 +177,7 @@ impl Editor {
     ///
     /// [`CursorError::NoMark`] or [`CursorError::TooMany`], and nothing changes.
     pub fn edit_lines(&mut self) -> Result<(), CursorError> {
+        self.drop_cursor_search();
         let (window, buffer) = self.current();
         let primary = *window.selections.primary();
         let mark = primary.mark.ok_or(CursorError::NoMark)?;
@@ -196,50 +211,56 @@ impl Editor {
     }
 
     /// `C->` or `C-<` in isearch, `toward` either way, or `C-c C-<` with none: ends the
-    /// search as `RET` does, with its current match as the primary's region, and goes on
-    /// as those keys do with the search's string and case, not only whole words.
+    /// search as `RET` does, with its current match, on whole clusters, as the primary's
+    /// region in the search's direction, and goes on as those keys do with the search's
+    /// string and case, not only whole words.
     ///
     /// # Errors
     ///
-    /// [`CursorError::NoCurrentMatch`], and with every occurrence counted already, more
-    /// than [`MAX_CURSORS`] of them; the search goes on. Otherwise, after it ended, what
-    /// the key says.
+    /// [`CursorError::NoCurrentMatch`]; and for every match, while the buffer loads, the
+    /// count is not known, or it is over [`MAX_CURSORS`]. The search then goes on. Otherwise,
+    /// after it ended, what the key says.
     pub fn isearch_mark(&mut self, toward: Option<Toward>) -> Result<(), CursorError> {
-        let (query, current, total) = self
+        self.drop_cursor_search();
+        let (query, current, total, backward) = self
             .isearch_current_match()
             .ok_or(CursorError::NoCurrentMatch)?;
-        if toward.is_none()
-            && let Some(total) = total.filter(|&total| total > MAX_CURSORS)
-        {
-            return Err(CursorError::TooManyMatches(total));
+        if toward.is_none() {
+            if self.current().1.loading().is_some() {
+                return Err(CursorError::Loading);
+            }
+            match total {
+                None => return Err(CursorError::Counting),
+                Some(total) if total > MAX_CURSORS => {
+                    return Err(CursorError::TooManyMatches(total));
+                }
+                Some(_) => {}
+            }
         }
+        let display = self.current().1.display();
+        let start = motion::cluster_start(&display, current.start);
+        let end = motion::cluster_end(&display, current.end);
         self.isearch_exit();
-        let index = self.selected;
-        let (window, buffer) = self.current();
-        let (id, revision) = (window.buffer(), buffer.revision());
-        let selections = &mut self.windows[index].selections;
-        let at_start = selections.primary().cursor == current.start;
-        let (mark, cursor) = if at_start {
-            (current.end, current.start)
-        } else {
-            (current.start, current.end)
-        };
+        let (mark, cursor) = if backward { (end, start) } else { (start, end) };
+        let selections = &mut self.windows[self.selected].selections;
         selections.move_primary(cursor);
         selections.push_primary_mark(mark);
         selections.set_mark_active(MarkActive::Active);
+        let wanted = Wanted {
+            query,
+            whole_word: false,
+        };
+        let (window, buffer) = self.current();
         self.marking = Some(Marking {
-            window: index,
-            buffer: id,
-            revision,
-            wanted: Wanted {
-                query,
-                whole_word: false,
-            },
+            window: self.selected,
+            buffer: window.buffer(),
+            revision: buffer.revision(),
+            wanted: wanted.clone(),
             pending: None,
         });
         match toward {
-            Some(toward) => self.find_cursors(toward, 1, false),
-            None => self.mark_all_like_this(),
+            Some(toward) => self.found_cursors(wanted, toward, 1, false),
+            None => self.all_cursors(wanted),
         }
     }
 
@@ -251,6 +272,7 @@ impl Editor {
             return false;
         }
         selections.keep_primary();
+        self.drop_cursor_search();
         self.marking = None;
         true
     }
@@ -258,6 +280,18 @@ impl Editor {
     /// Adds `most` cursors `toward` either way, or with `skip` moves the one at that end.
     fn find_cursors(&mut self, toward: Toward, most: usize, skip: bool) -> Result<(), CursorError> {
         let wanted = self.wanted()?;
+        self.found_cursors(wanted, toward, most, skip)
+    }
+
+    /// Adds `most` occurrences of `wanted` `toward` either way, or with `skip` moves the one
+    /// at that end.
+    fn found_cursors(
+        &mut self,
+        wanted: Wanted,
+        toward: Toward,
+        most: usize,
+        skip: bool,
+    ) -> Result<(), CursorError> {
         let set = &self.windows[self.selected].selections;
         if !skip && set.len().saturating_add(most) > MAX_CURSORS {
             return Err(CursorError::TooMany);
@@ -270,12 +304,12 @@ impl Editor {
                 .map_or(0, |first| first.range().start),
         };
         let text = self.cursor_text();
-        let mut limit = KEY_BUDGET;
+        let mut left = KEY_BUDGET;
         let mut found = Vec::new();
         let resume = text.several(
             &wanted,
             (toward, from),
-            (most, &mut limit),
+            (most, &mut left),
             &|| false,
             &mut found,
         );
@@ -396,10 +430,9 @@ impl Editor {
         let (window, buffer) = self.current();
         let (id, revision) = (window.buffer(), buffer.revision());
         let selections = &window.selections;
-        let keeps = selections.len() > 1 || selections.mark_active().is_active();
         if let Some(marking) = &self.marking
             && (marking.window, marking.buffer, marking.revision) == (index, id, revision)
-            && keeps
+            && selections.len() > 1
         {
             return Ok(marking.wanted.clone());
         }

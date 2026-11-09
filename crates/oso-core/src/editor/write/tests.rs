@@ -45,7 +45,8 @@ fn a_buffer_with_no_file_is_written_with_its_final_newline_and_then_visits_it() 
         job.elsewhere,
         Some(Elsewhere {
             over: None,
-            open: Vec::new()
+            open: Vec::new(),
+            name: "*scratch*".to_owned()
         })
     );
     assert!(editor.current().1.is_saving());
@@ -230,4 +231,15 @@ fn another_buffers_file_is_refused_and_its_place_goes_to_the_host() {
         open,
         Some(vec![path("other.md"), PathBuf::from("/real/other.md")])
     );
+}
+
+#[test]
+fn a_path_ending_in_a_slash_takes_the_buffers_file_name_there() {
+    let mut editor = Editor::with_buffer(Buffer::from_text("a", "kept\n"));
+    let id = editor.window().buffer();
+    editor.buffer_mut(id).unwrap().set_path(path("a.md"));
+    editor
+        .start_write(PathBuf::from("/new/dir/"), false)
+        .unwrap();
+    assert_eq!(job(&mut editor).path, PathBuf::from("/new/dir/a.md"));
 }

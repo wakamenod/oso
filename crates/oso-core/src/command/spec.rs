@@ -21,6 +21,13 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
     },
+    /// Text, read in a prompt that says `prompt` and kept in the history named `history`
+    /// (ADR 0085). The agent channel gives it with the command, with no prompt. The command
+    /// reads it with [`Ctx::answer`](super::Ctx::answer).
+    Text {
+        prompt: &'static str,
+        history: &'static str,
+    },
     /// A passphrase, read in a prompt that says `prompt` and shows one `*` per character.
     /// It enters no history, and its buffer may hold secrets. The command reads it with
     /// [`Ctx::answer`](super::Ctx::answer), and must not keep it.
@@ -39,6 +46,13 @@ pub enum ArgSpec {
         prompt: &'static str,
         history: &'static str,
         purpose: BufferPurpose,
+    },
+    /// A path, read in a prompt that says `prompt` and completes by segments over listed
+    /// directories, starting at the buffer's directory, kept in the history named `history`
+    /// (ADR 0087). The command reads the whole path with [`Ctx::answer`](super::Ctx::answer).
+    File {
+        prompt: &'static str,
+        history: &'static str,
     },
     /// A mark of the selected window's, read in a prompt that says `prompt` and completes over
     /// the primary cursor's mark and its ring, with the buffer around the selected one beside

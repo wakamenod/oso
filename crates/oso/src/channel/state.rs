@@ -10,7 +10,7 @@
 use std::ops::Range;
 
 use oso_core::buffer::{Buffer, BufferId};
-use oso_core::command::{ArgSpec, Command, Reach};
+use oso_core::command::{ArgSpec, BufferPurpose, Command, Reach};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::{Editor, Status};
 use oso_core::minibuffer::Kind;
@@ -129,6 +129,7 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
 pub const fn kind(kind: Kind) -> &'static str {
     match kind {
         Kind::Number { .. } => "number",
+        Kind::Text { .. } => "text",
         Kind::Passphrase => "passphrase",
         Kind::Complete { .. } => "complete",
         Kind::Question { .. } => "question",
@@ -191,12 +192,20 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::None => "none",
                     ArgSpec::Count => "count",
                     ArgSpec::Number { .. } => "number",
-                    // A buffer's name is read in a prompt, which the channel never opens.
+                    ArgSpec::Text { .. } => "text",
+                    // The name of a buffer `C-x b` lists (ADR 0094).
+                    ArgSpec::Buffer {
+                        purpose: BufferPurpose::Switch,
+                        ..
+                    } => "buffer",
+                    // A kill's buffer, a mark or a path is read in a prompt, which the channel
+                    // never opens.
                     ArgSpec::Passphrase { .. }
                     | ArgSpec::CountAndClipboard
                     | ArgSpec::Command { .. }
                     | ArgSpec::Buffer { .. }
                     | ArgSpec::Mark { .. }
+                    | ArgSpec::File { .. }
                     | ArgSpec::Key => "person",
                 },
                 "reach": if command.reach == Reach::Change { "change" } else { "look" },

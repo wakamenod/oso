@@ -303,6 +303,67 @@ pub(crate) fn word_at(display: &DisplaySnapshot, offset: usize) -> bool {
         .is_some_and(|cluster| Kind::of(&cluster).is_word())
 }
 
+/// Whether a word starts at `offset`, as [`backward_word`] finds starts: the cluster there
+/// is a word's and no mark, and what comes before it, passing marks, is no word or splits
+/// from it. Reads only the clusters around `offset`, within `budget`, and says yes when it
+/// cannot tell, for a caller that checks with [`backward_word`] after (ADR 0091).
+pub(crate) fn may_start_word(
+    display: &DisplaySnapshot,
+    offset: usize,
+    budget: &mut WalkBudget,
+) -> bool {
+    let mut walk = budget.stop();
+    if !walk.spend(SEEK_COST) {
+        return true;
+    }
+    let point = display.offset_to_display_point(offset);
+    let mut clusters = display.clusters(point);
+    let Some(kind) = clusters.next().map(|cluster| Kind::of(&cluster)) else {
+        return false;
+    };
+    if kind.is_mark() {
+        return false;
+    }
+    let after = clusters
+        .next()
+        .map_or(Kind::NOT_WORD, |cluster| Kind::of(&cluster));
+    let before = if point.column == 0 {
+        Kind::NOT_WORD
+    } else {
+        kind_before_marks(display, point, &mut walk)
+    };
+    starts_word(before, kind, after)
+}
+
+/// Whether a word ends at `offset`, as [`forward_word`] finds ends: the last cluster before
+/// it, passing marks, is a word's, and the cluster at `offset` is no mark and no word, or
+/// splits from it, or the row ends there. Reads only the clusters around `offset`, within
+/// `budget`: marks past it before `offset` count as no word (ADR 0091).
+pub(crate) fn may_end_word(
+    display: &DisplaySnapshot,
+    offset: usize,
+    budget: &mut WalkBudget,
+) -> bool {
+    let mut walk = budget.stop();
+    if !walk.spend(SEEK_COST) {
+        return true;
+    }
+    let point = display.offset_to_display_point(offset);
+    if point.column == 0 {
+        return false;
+    }
+    let mut clusters = display.clusters(point);
+    let next = clusters.next().map(|cluster| Kind::of(&cluster));
+    if next.is_some_and(Kind::is_mark) {
+        return false;
+    }
+    let after = clusters
+        .next()
+        .map_or(Kind::NOT_WORD, |cluster| Kind::of(&cluster));
+    let before = kind_before_marks(display, point, &mut walk);
+    before.is_word() && next.is_none_or(|next| !next.is_word() || splits(before, next, after))
+}
+
 /// Where the first word that ends after `offset` ends: past what is not a word, and
 /// on to the word's end. The end of the buffer if there is none. It stops short if
 /// the stop or the command has read all it may.

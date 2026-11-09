@@ -5,10 +5,12 @@
 //! Must not depend on: `app`, `dispatch` or winit; the caller passes in the function that
 //! hands requests to the UI thread.
 
+pub mod mcp;
 pub mod protocol;
 pub mod question;
 pub mod server;
 pub mod state;
+pub mod text;
 pub mod wire;
 
 use std::io;

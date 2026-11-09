@@ -262,22 +262,28 @@ define_class!(
             }
         }
 
+        /// In the excerpt of the cursor's line, where the cursor is, or the caret or segment in
+        /// the text being composed there (ADR 0077).
         #[unsafe(method(selectedRange))]
         fn selected_range(&self) -> NSRange {
+            let offset = self.ivars().state.ime.borrow().excerpt_offset();
             if self.ivars().marked.borrow().is_empty() {
-                NSRange::new(0, 0)
+                NSRange::new(offset, 0)
             } else {
-                self.ivars().selected.get()
+                let selected = self.ivars().selected.get();
+                NSRange::new(offset.saturating_add(selected.location), selected.length)
             }
         }
 
+        /// The text being composed, at the cursor in the excerpt of its line.
         #[unsafe(method(markedRange))]
         fn marked_range(&self) -> NSRange {
             let marked = self.ivars().marked.borrow();
             if marked.is_empty() {
                 NSRange::new(not_found(), 0)
             } else {
-                NSRange::new(0, utf16::utf16_len(&marked))
+                let offset = self.ivars().state.ime.borrow().excerpt_offset();
+                NSRange::new(offset, utf16::utf16_len(&marked))
             }
         }
 
@@ -286,14 +292,30 @@ define_class!(
             !self.ivars().marked.borrow().is_empty()
         }
 
+        /// The excerpt of the cursor's line, with the text being composed at the cursor, as far
+        /// as the range asks and the excerpt goes; nothing while the IME is off (ADR 0070,
+        /// ADR 0077).
         #[unsafe(method_id(attributedSubstringForProposedRange:actualRange:))]
         fn attributed_substring(
             &self,
-            _range: NSRange,
-            _actual: NSRangePointer,
+            range: NSRange,
+            actual: NSRangePointer,
         ) -> Option<Retained<NSAttributedString>> {
-            // No text of a buffer yet: the cursor's line comes with the next step of ADR 0070.
-            None
+            let units = range.location..range.location.saturating_add(range.length);
+            let answer = {
+                let marked = self.ivars().marked.borrow();
+                self.ivars().state.ime.borrow().text(&marked, units)
+            };
+            answer.map(|(text, covered)| {
+                if !actual.is_null() {
+                    // SAFETY: AppKit passes null or a pointer to an `NSRange` it owns for the
+                    // length of the call, which is not null here.
+                    unsafe {
+                        actual.write(NSRange::new(covered.start, covered.end - covered.start));
+                    };
+                }
+                NSAttributedString::from_nsstring(&NSString::from_str(&text))
+            })
         }
 
         #[unsafe(method_id(validAttributesForMarkedText))]
@@ -348,18 +370,6 @@ impl OsoView {
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
         view.setWantsLayer(true);
         view
-    }
-
-    /// Whether the Metal layer presents each frame inside the Core Animation transaction that
-    /// changes the view, as during a live resize, and not on its own. wgpu reads it at each
-    /// frame.
-    pub(super) fn present_with_transaction(&self, with: bool) {
-        if let Some(layer) = self
-            .layer()
-            .and_then(|layer| layer.downcast::<CAMetalLayer>().ok())
-        {
-            layer.setPresentsWithTransaction(with);
-        }
     }
 
     fn scale(&self) -> f64 {
