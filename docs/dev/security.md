@@ -241,6 +241,10 @@ and below the row, and a label's glyphs keep their own cells
   - Screenshots, the restart handoff, timings and hot reload stay dev-only.
   - An agent it lets in reads any file oso can read, except files that may hold secrets, and
     edits the files oso has open. Any save of a buffer the person did not visit asks the person.
+    `C-x C-f`, `C-x C-w` and `kill-buffer` are the person's only. The channel switches buffers by
+    name, but never to one that may hold secrets
+    ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md),
+    [ADR 0088](adr/0088-switching-and-killing-buffers.md)).
 - Hooks are installed only by an explicit command that shows the settings
   change first.
 
@@ -248,7 +252,12 @@ and below the row, and a label's glyphs keep their own cells
 
 - Files load in the background, and the UI stays responsive on huge files and
   long lines. Only regular files are opened, so a pipe or a device cannot
-  block or feed the loader forever. Rendering shapes only the visible
+  block or feed the loader forever. Opening never blocks on a special file: the
+  loader opens without waiting and checks the open file
+  ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+  Directories for `C-x C-f` are listed on worker threads, at most 4, bounded to
+  100,000 names each, and no listed file is opened. A file of 2 GiB or more asks
+  before it is read, as running out of memory aborts with no emergency save. Rendering shapes only the visible
   columns of a row, and rasterizes a bounded number of new glyphs per frame
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - Parsing runs in the background with cancellation and timeouts.
@@ -287,13 +296,21 @@ and below the row, and a label's glyphs keep their own cells
   `oso dev` builds offline,
   so a changed lock file fetches nothing by itself
   ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
-- The state handoff holds paths and positions, never text, so it cannot carry a
-  secret buffer's content, and no position in one either, so a restart starts it
-  from the top ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md))
-  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)). A buffer with
-  unsaved edits holds the restart, and the refusal names it without quoting it. The
-  generation that guards `exit` is not reported while a file holds edits
-  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
+- The state handoff never carries a secret buffer's content, and no position in one
+  either, so a restart starts it from the top
+  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md))
+  ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)). It carries the
+  unsaved text of other buffers, and kills that came from neither a secret buffer nor
+  the clipboard, in pieces through the socket and memory only, never a file. A buffer
+  that may hold secrets with unsaved edits holds the restart, and the refusal names it
+  without quoting it ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md),
+  [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)). The new instance judges each
+  carried path again and withholds the buffer until then. Minibuffer histories are carried
+  too; they never hold an answer given around a secret buffer or a passphrase. The
+  fingerprints of secret kills are not carried, so a secret copied to the clipboard before a
+  restart yanks back as ordinary text after it, under `oso dev` only, unless the clipboard
+  kept the concealed mark. Build errors reach the editor as
+  cargo's message and span, never its rendered text with escape sequences.
 - Dev builds trust the same user: any process running as the same user can
   run any command through the socket. Release builds contain none of this, only the agent
   channel above, with its own socket and fewer methods.

@@ -306,6 +306,9 @@ impl App {
                 self.editor.reload_failed(id);
                 return false;
             }
+            // Only a carried buffer's path is judged alone (ADR 0090).
+            #[cfg(feature = "dev")]
+            LoadUpdate::Judged => return false,
             // A reload sends its text whole.
             LoadUpdate::Snapshot(snapshot) => {
                 self.disk.free(snapshot);

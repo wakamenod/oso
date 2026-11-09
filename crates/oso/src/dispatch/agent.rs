@@ -184,6 +184,12 @@ mod tests {
         assert!(refused("delete-char", Given::Nothing, Reach::Look).contains("changes"));
         assert!(refused("forward-char", Given::Nothing, Reach::Change).contains("only looks"));
         assert!(refused("goto-line", Given::Nothing, Reach::Look).contains("needs a number"));
+        // Its name would be read in a prompt, which the channel never opens.
+        assert!(refused("switch-to-buffer", Given::Nothing, Reach::Look).contains("buffer's name"));
+        assert!(
+            refused("switch-to-buffer", Given::Text("notes"), Reach::Look)
+                .contains("buffer's name")
+        );
         assert!(
             refused("mark-whole-buffer", Given::Count(1), Reach::Look)
                 .contains("takes no argument")

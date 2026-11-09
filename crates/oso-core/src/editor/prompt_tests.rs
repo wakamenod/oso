@@ -6,9 +6,12 @@
 use super::test_buffers::secret_buffer;
 use super::{Editor, Quit};
 use crate::buffer::{Buffer, Replacement};
+use crate::complete::Candidate;
+use crate::frame::CellRect;
 use crate::frame::{FrameSize, PixelGrid};
-use crate::minibuffer::{Kind, MAX_DEPTH, PromptError};
+use crate::minibuffer::{Kind, MAX_DEPTH, Outcome, PromptError};
 use crate::secret::Verdict;
+use crate::selection::{MarkActive, Selection, SelectionSet};
 
 const NUMBER: Kind = Kind::Number {
     history: Some("line"),
@@ -177,6 +180,102 @@ fn an_answer_given_once_a_secret_came_beneath_enters_no_history() {
 }
 
 #[test]
+fn a_region_in_the_answer_takes_its_cells_and_not_the_window_beneath() {
+    let mut editor = editor(3);
+    editor.open_prompt("Go to line: ", NUMBER).unwrap();
+    type_in_prompt(&mut editor, "12345");
+    let mut cells = Vec::new();
+    editor.prompt_region_cells(&mut cells);
+    assert!(cells.is_empty(), "no region yet");
+    let (window, _) = editor.current_mut();
+    let selection = Selection {
+        mark: Some(1),
+        ..Selection::at(4)
+    };
+    window.selections = SelectionSet::from_parts(vec![selection], 0).unwrap();
+    window.selections.set_mark_active(MarkActive::Active);
+    editor.prompt_region_cells(&mut cells);
+    let input = editor.prompt_layout().unwrap().input;
+    assert_eq!(
+        cells,
+        [CellRect {
+            row: input.row,
+            column: input.column + 1,
+            rows: 1,
+            columns: 3,
+        }]
+    );
+    editor.region_cells(&mut cells);
+    assert!(cells.is_empty(), "the window beneath has none");
+}
+
+#[test]
+fn a_completion_a_socket_request_opened_records_no_history() {
+    let items: std::sync::Arc<[Candidate]> = [Candidate::new("undo", "", "")].into();
+    let mut editor = editor(3);
+    let id = editor.open_completion("M-x", "command", items).unwrap();
+    editor.keep_out_of_history(id);
+    editor.submit_prompt().unwrap();
+    assert_eq!(editor.histories.entries("command").count(), 0);
+}
+
+#[test]
+fn beside_a_secret_an_empty_answer_takes_a_candidate_only_once_moved_to() {
+    let items: std::sync::Arc<[Candidate]> = ["undo", "yank"]
+        .map(|text| Candidate::new(text, "", ""))
+        .into();
+    let mut editor = editor(3);
+    let secret = editor.add_buffer(secret_buffer());
+    editor.show(secret);
+    editor.open_completion("M-x", "command", items).unwrap();
+    assert_eq!(editor.submit_prompt(), Err(PromptError::Invalid));
+    assert_eq!(
+        editor.prompt().unwrap().message(),
+        Some("Type a name, or move to one")
+    );
+    editor.move_completion(1).unwrap();
+    editor.submit_prompt().unwrap();
+    let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
+        panic!("no answer");
+    };
+    assert_eq!(text, "yank");
+}
+
+#[test]
+fn completion_beside_a_secret_neither_reads_nor_records_its_history() {
+    let items = || -> std::sync::Arc<[Candidate]> {
+        ["undo", "forward-char", "backward-char"]
+            .map(|text| Candidate::new(text, "", ""))
+            .into()
+    };
+    let first = |editor: &Editor| {
+        let candidates = editor.prompt().unwrap().candidates().unwrap();
+        candidates.selected_candidate().unwrap().text().to_owned()
+    };
+    let mut editor = editor(3);
+    editor.open_completion("M-x", "command", items()).unwrap();
+    type_in_prompt(&mut editor, "forward");
+    editor.match_completion();
+    editor.submit_prompt().unwrap();
+    editor.open_completion("M-x", "command", items()).unwrap();
+    assert_eq!(first(&editor), "forward-char", "the history comes first");
+    editor.quit();
+    let path = std::path::PathBuf::from("/tmp/.env");
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let secret = editor.add_buffer(buffer);
+    editor.show(secret);
+    editor.open_completion("M-x", "command", items()).unwrap();
+    assert_eq!(first(&editor), "undo", "no history beside a secret");
+    type_in_prompt(&mut editor, "backward");
+    editor.submit_prompt().unwrap();
+    assert_eq!(
+        editor.histories.entries("command").collect::<Vec<_>>(),
+        ["forward-char"]
+    );
+}
+
+#[test]
 fn an_answer_given_after_a_secret_came_beneath_and_went_enters_no_history() {
     let mut editor = editor(3);
     let plain = editor.window().buffer();
@@ -205,4 +304,22 @@ fn a_command_that_gets_a_passphrase_says_nothing_to_the_log() {
     let id = editor.messages_buffer();
     let kept = editor.buffer(id).unwrap().text().to_string();
     assert!(!kept.contains("Wrong passphrase"));
+}
+
+#[test]
+fn a_carried_history_goes_behind_what_is_there_and_keeps_its_bounds() {
+    let mut editor = editor(3);
+    editor.histories.record("line", "7");
+    let long = "9".repeat(crate::minibuffer::MAX_ENTRY_BYTES + 1);
+    let carried = ["3", "7", "", &long, "2"].map(String::from);
+    editor.carry_history("line", carried);
+    let (name, entries) = editor.histories().next().unwrap();
+    assert_eq!(name, "line");
+    assert_eq!(entries.collect::<Vec<_>>(), ["7", "3", "2"]);
+    let many = (0..crate::minibuffer::HISTORY_LENGTH + 5).map(|n| n.to_string());
+    editor.carry_history("other", many);
+    assert_eq!(
+        editor.histories.entries("other").count(),
+        crate::minibuffer::HISTORY_LENGTH
+    );
 }

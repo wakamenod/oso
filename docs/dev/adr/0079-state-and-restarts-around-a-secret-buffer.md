@@ -1,6 +1,6 @@
 # 0079. State and restarts around a secret buffer
 
-- Status: Accepted
+- Status: Accepted, amended by 0090
 - Date: 2026-11-08
 
 ## Context

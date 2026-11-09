@@ -1,6 +1,6 @@
 # 0075. A float as a panel attached to the top edge
 
-- Status: Accepted
+- Status: Accepted, amended by 0076 and 0089
 - Date: 2026-11-08
 
 ## Context

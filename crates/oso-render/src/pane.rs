@@ -29,6 +29,15 @@ const FIELD_OUTLINE: [f32; 4] = [0.159, 0.2384, 0.5089, 1.0];
 const KEY: [f32; 4] = [0.0908, 0.0953, 0.1413, 1.0];
 const KEY_TEXT: [f32; 4] = [0.73, 0.77, 0.88, 1.0];
 const REGION: [f32; 4] = [0.06, 0.10, 0.20, 1.0];
+// A completion's list (ADR 0076), on the text's background: the selected row a medium blue bar,
+// what matched in a warm accent, bindings in a light blue, annotations a dim blue-grey, and the
+// count and label in a teal accent. Every one at least 4.5:1 on the background and on the
+// selected row, which the tests check, until M2-23's theme.
+const SELECTED: [f32; 4] = [0.028, 0.058, 0.212, 1.0];
+const COMPLETION_MATCH: [f32; 4] = [1.0, 0.62, 0.20, 1.0];
+const ANNOTATION: [f32; 4] = [0.423, 0.479, 0.730, 1.0];
+const BINDING: [f32; 4] = [0.078, 0.546, 1.0, 1.0];
+const COMPLETION_PROMPT: [f32; 4] = [0.114, 0.680, 0.429, 1.0];
 // isearch's matches (ADR 0082): a muted amber for the others in view, and a strong one for
 // the current match, behind text that keeps its colour, until the themes (M2-23). The text
 // stays 4.6:1 on the strong one and 8:1 on the muted one, against ADR 0027's 4.5:1.
@@ -55,6 +64,14 @@ pub(crate) struct PanelStyle {
     /// How far a key's chip stays inside its cells, across and up and down.
     pub(crate) key_inset: [f32; 2],
     pub(crate) key_radius: f32,
+    /// How far the selected candidate's box reaches past its row's cells, across.
+    pub(crate) selected_reach: f32,
+    pub(crate) selected_radius: f32,
+    /// The border of a panel that has one, such as a completion's (ADR 0076), in place of the
+    /// hairline: its width, and its color in linear RGB, a muted slate a little lighter than the
+    /// text's background, which such a panel is filled with.
+    pub(crate) border_width: f32,
+    pub(crate) border: [f32; 4],
 }
 
 /// The panel's style until the theme.
@@ -69,6 +86,10 @@ pub(crate) const PANEL: PanelStyle = PanelStyle {
     field_outline: 1.0,
     key_inset: [1.0, 2.0],
     key_radius: 4.0,
+    selected_reach: 6.0,
+    selected_radius: 4.0,
+    border_width: 5.0,
+    border: [0.08, 0.085, 0.13, 1.0],
 };
 
 /// What a piece of the screen means. The renderer turns it into colors, and
@@ -106,6 +127,17 @@ pub enum Face {
     /// The region between a mark and its cursor (ADR 0071). Only its background
     /// is drawn, behind the text, which keeps its own face.
     Region,
+    /// The selected candidate's row in a float: its box's background, behind the text, which
+    /// keeps its own faces (ADR 0076).
+    CompletionSelected,
+    /// What the input matched in a candidate.
+    CompletionMatch,
+    /// What is said of a candidate at the end of its row, and a list's count.
+    CompletionAnnotation,
+    /// A key sequence after a candidate, such as a command's binding.
+    CompletionBinding,
+    /// A completion's count and label, at the start of its answer's row.
+    CompletionPrompt,
     /// An isearch match in view, drawn as the region is (ADR 0082).
     SearchMatch,
     /// The current isearch match, which stands out from the others.
@@ -121,8 +153,13 @@ impl Face {
             | Self::Preedit
             | Self::Float
             | Self::Region
+            | Self::CompletionSelected
             | Self::SearchMatch
             | Self::SearchCurrent => FOREGROUND,
+            Self::CompletionMatch => COMPLETION_MATCH,
+            Self::CompletionAnnotation => ANNOTATION,
+            Self::CompletionBinding => BINDING,
+            Self::CompletionPrompt => COMPLETION_PROMPT,
             Self::Escape | Self::Boxed => ESCAPE,
             Self::Cursor => BACKGROUND,
             Self::Warning => WARNING,
@@ -142,6 +179,12 @@ impl Face {
             Self::Modeline => MODELINE,
             Self::Preedit => FOREGROUND,
             Self::Float | Self::Prompt => FLOAT,
+            // A completion's float is filled with the text's background (ADR 0076).
+            Self::CompletionMatch
+            | Self::CompletionAnnotation
+            | Self::CompletionBinding
+            | Self::CompletionPrompt => BACKGROUND,
+            Self::CompletionSelected => SELECTED,
             Self::FloatBorder => FLOAT_HAIRLINE,
             Self::Key => KEY,
             Self::Region => REGION,
@@ -281,6 +324,13 @@ pub struct Panel<'a> {
     pub field_room: CellRect,
     /// Cells drawn as key chips, such as ` y ` and ` n `, in [`Face::Key`].
     pub keys: &'a [CellRect],
+    /// A row of cells drawn as the selected candidate's box, a little wider than they are,
+    /// in [`Face::CompletionSelected`] (ADR 0076).
+    pub selected: Option<CellRect>,
+    /// A completion's float (ADR 0076): filled with the text's background and framed by a
+    /// border in place of the hairline, with square corners and no shadow, and its selected row
+    /// a bar across the whole panel.
+    pub border: bool,
 }
 
 /// A region of the frame and what it shows. Nothing of it is drawn outside the
@@ -318,6 +368,36 @@ mod tests {
         assert_eq!(Face::Cursor.of_run(CellStyle::Text), Face::Cursor);
         assert_eq!(Face::Cursor.of_run(CellStyle::Escape), Face::Escape);
         assert_eq!(Face::Cursor.of_run(CellStyle::Boxed), Face::Boxed);
+    }
+
+    /// WCAG's contrast ratio of two linear colors.
+    fn contrast(a: [f32; 4], b: [f32; 4]) -> f32 {
+        let luminance = |c: [f32; 4]| 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let (a, b) = (luminance(a) + 0.05, luminance(b) + 0.05);
+        a.max(b) / a.min(b)
+    }
+
+    #[test]
+    fn a_lists_text_reads_on_the_fill_and_on_the_selected_row() {
+        // ADR 0027's floor; M2-23 raises what it can to 7:1.
+        for face in [
+            Face::Text,
+            Face::CompletionMatch,
+            Face::CompletionAnnotation,
+            Face::CompletionBinding,
+        ] {
+            for behind in [Face::Text, Face::CompletionSelected] {
+                let ratio = contrast(face.foreground(), behind.background());
+                assert!(ratio >= 4.5, "{face:?} on {behind:?}: {ratio:.2}");
+            }
+        }
+        let ratio = contrast(Face::CompletionPrompt.foreground(), Face::Text.background());
+        assert!(ratio >= 4.5, "the count and label: {ratio:.2}");
+        // The selected row stands apart from the background.
+        assert_ne!(
+            Face::CompletionSelected.background(),
+            Face::Text.background()
+        );
     }
 
     #[test]

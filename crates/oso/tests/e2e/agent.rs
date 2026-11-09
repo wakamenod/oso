@@ -1,8 +1,8 @@
 //! The agent channel in the running app (ADR 0085): off until the person turns it on, a
 //! connection let in only by the person's `y` after a quiet moment, commands refused by
 //! their reach, nothing run while a buffer that may hold secrets is shown, kills kept from
-//! the clipboard, a question the agent caused answered only by the person, and the channel
-//! closed by the person's command. The dev socket's keys stand in for the person's.
+//! the clipboard, a question the agent caused answered only by the person, a file it opened
+//! still its own after a restart, and the channel closed by the person's command. The dev socket's keys stand in for the person's.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The channel's
 //! limits and refusals have their own unit tests.
@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use oso_platform::control::{ControlDir, ControlStream, Socket};
 use serde_json::{Value, json};
 
+use super::handover::hand_over;
 use super::harness::{App, FAKE_SECRET, Scratch};
 
 /// How long the app takes no answer to the agent's question after a key, and a moment more.
@@ -551,4 +552,59 @@ fn a_question_that_follows_the_persons_yes_closes_when_the_agent_goes() {
         b"changed on disk\n",
         "nothing saved over it"
     );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_files_an_agent_opened_still_ask_before_its_saves_after_a_restart() {
+    let scratch = Scratch::new("agent-restart");
+    let notes = scratch.write("notes.txt", b"mine\n");
+    let read_again = scratch.write("read-again.txt", b"as on disk\n");
+    let carried = scratch.write("carried.txt", b"one\n");
+    let mut old = App::start(Some(&notes), scratch.path());
+    old.wait_until_ready();
+    let mut agent = let_in(&mut old);
+    for path in [&read_again, &carried] {
+        let opened = agent.call("open", Some(json!({ "path": path })));
+        assert!(opened.is_ok(), "{opened:?}");
+    }
+    let inserted = agent.call(
+        "run",
+        Some(json!({ "name": "insert", "arg": "new ", "reach": "change" })),
+    );
+    assert!(inserted.is_ok(), "{inserted:?}");
+    drop(agent);
+
+    let mut new = App::start(None, scratch.path());
+    new.wait_until_ready();
+    hand_over(&mut old, &mut new);
+    // Read again from its file, or carried unsaved: both are still the agent's.
+    let state = new.call("export-state", None);
+    let by_path = |path: &std::path::Path| {
+        state["buffers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|buffer| buffer["path"].as_str() == path.to_str())
+            .cloned()
+            .unwrap_or_else(|| panic!("no {}: {state}", path.display()))
+    };
+    assert_eq!(by_path(&read_again)["opened_by_agent"], true);
+    assert!(by_path(&read_again)["text"].is_null(), "read again");
+    assert_eq!(by_path(&carried)["opened_by_agent"], true);
+    assert!(by_path(&carried)["text"].is_object(), "carried");
+    assert_eq!(by_path(&notes).get("opened_by_agent"), None);
+
+    let mut agent = let_in(&mut new);
+    let waiting = agent.run("save-buffer", None, "change").unwrap();
+    let waiting = waiting["waiting"].as_str().unwrap();
+    assert!(
+        waiting.contains("carried.txt, which the agent opened?"),
+        "{waiting}"
+    );
+    assert_eq!(std::fs::read(&carried).unwrap(), b"one\n", "not yet");
+    thread::sleep(QUIET);
+    new.send_keys("y");
+    new.wait_for("the save", |state| state["buffer"]["modified"] == false);
+    assert_eq!(std::fs::read(&carried).unwrap(), b"new one\n");
 }
