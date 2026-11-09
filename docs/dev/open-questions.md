@@ -79,10 +79,9 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- `C-x C-f` builds and matches its candidates on the UI thread until ADR 0096's worker is built.
-  At its bound of 100,000 names, building the list takes 23–57 ms each time the directory changes
-  or looks come in, a key that narrows 1–3 ms, and a key in a regular-expression component up to
-  about 10 ms ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
+- `file_prompt_type_p99_ms`, typing into `C-x C-f` over 100,000 names, is reported only. Set its
+  threshold once the Mac mini has a baseline
+  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.

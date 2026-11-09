@@ -239,13 +239,102 @@ fn a_look_patches_its_row_without_a_job() {
 }
 
 #[test]
+fn a_prompt_covered_while_its_job_ran_is_matched_again_once_it_is_innermost() {
+    let mut editor = prompt(6000);
+    work(&mut editor);
+    typing(&mut editor, "0042");
+    let job = editor.take_completion_job().unwrap();
+    editor.ask("Go on?", "keyboard-quit").unwrap();
+    let report = job.run().unwrap();
+    assert!(!editor.completion_reported(report), "not the innermost");
+    editor.quit();
+    assert!(
+        editor.prompt().unwrap().candidates().is_some(),
+        "back to it"
+    );
+    editor.match_completion();
+    assert!(editor.completion_pending(), "asked for again");
+    work(&mut editor);
+    assert!(!editor.completion_pending());
+    assert_eq!(first(&editor), "file-0042.txt");
+}
+
+#[test]
+fn a_path_that_needs_a_listing_stops_the_build_for_the_path_before() {
+    let mut editor = prompt(6000);
+    let build = editor.take_completion_job().unwrap();
+    typing(&mut editor, "x/");
+    assert!(
+        !editor.completion_pending(),
+        "nothing pending is this path's"
+    );
+    assert!(build.run().is_none(), "the build for /big/ stops");
+}
+
+#[test]
+fn a_candidate_moved_to_while_the_match_was_on_its_way_stays_selected() {
+    let mut editor = prompt(6000);
+    work(&mut editor);
+    typing(&mut editor, "00");
+    editor.move_completion(2).unwrap();
+    let chosen = editor
+        .prompt()
+        .unwrap()
+        .candidates()
+        .unwrap()
+        .selected_candidate()
+        .map(|c| c.text().to_owned());
+    assert_eq!(chosen.as_deref(), Some("file-0002.txt"));
+    work(&mut editor);
+    let candidates = editor.prompt().unwrap().candidates().unwrap();
+    assert_eq!(
+        candidates.selected_candidate().map(|c| c.text()),
+        Some("file-0002.txt"),
+        "it still matches 00"
+    );
+}
+
+#[test]
+fn a_list_replaced_or_closed_is_freed_by_a_job_of_its_own() {
+    let mut editor = prompt(6000);
+    work(&mut editor);
+    deleting(&mut editor, "big/".len());
+    let jobs: Vec<_> = std::iter::from_fn(|| editor.take_completion_job()).collect();
+    assert!(jobs.iter().any(crate::complete::CompletionJob::frees_only));
+    assert!(jobs.into_iter().all(|job| job.run().is_none()));
+    typing(&mut editor, "big/");
+    work(&mut editor);
+    editor.quit();
+    let job = editor
+        .take_completion_job()
+        .expect("the list goes on the worker");
+    assert!(job.frees_only());
+}
+
+#[test]
+fn neither_a_job_nor_a_report_says_what_it_lists_or_what_is_typed() {
+    let mut editor = prompt(6000);
+    work(&mut editor);
+    typing(&mut editor, "0042");
+    let job = editor.take_completion_job().unwrap();
+    let shown = format!("{job:?}");
+    let report = job.run().unwrap();
+    let shown = format!("{shown} {report:?}");
+    assert!(
+        !shown.contains("0042") && !shown.contains("file-"),
+        "{shown}"
+    );
+}
+
+#[test]
 #[ignore = "a timing: run by hand in a release build"]
 fn the_ui_threads_share_of_a_key_at_100000_names_is_under_a_millisecond() {
     use std::time::{Duration, Instant};
     let mut editor = prompt(100_000);
     work(&mut editor);
     let mut slowest = Duration::ZERO;
-    for key in ["a", ".", "*", "9"] {
+    // Each keeps most names matching, then `DEL` goes back to them all.
+    for key in ["f", "i", "l", "e", ".", "*", "9"] {
         let started = Instant::now();
         typing(&mut editor, key);
         let job = editor.take_completion_job().unwrap();
@@ -256,5 +345,55 @@ fn the_ui_threads_share_of_a_key_at_100000_names_is_under_a_millisecond() {
         share += started.elapsed();
         slowest = slowest.max(share);
     }
+    assert!(slowest < Duration::from_millis(1), "{slowest:?}");
+}
+
+#[test]
+#[ignore = "a timing: run by hand in a release build"]
+fn taking_in_a_list_of_100000_in_place_of_another_is_under_a_millisecond() {
+    use std::time::{Duration, Instant};
+    let mut editor = prompt(100_000);
+    work(&mut editor);
+    let other: Arc<[Name]> = (0..100_000)
+        .map(|index| Name {
+            name: format!("ファイル-{index:05}.txt"),
+            kind: NameKind::File,
+        })
+        .collect();
+    let root: Arc<[Name]> = ["big", "other", "small"]
+        .map(|name| Name {
+            name: name.to_owned(),
+            kind: NameKind::Directory,
+        })
+        .into();
+    editor.file_listed(PathBuf::from("/"), Some(root), false);
+    let mut slowest = Duration::ZERO;
+    let mut built = 0;
+    for _ in 0..4 {
+        // Into `/other/`, a directory of its own, and back into `/big/`, each list taking the
+        // place of the other's.
+        for (to, from) in [("other/", "big/"), ("big/", "other/")] {
+            deleting(&mut editor, from.len());
+            work(&mut editor);
+            let started = Instant::now();
+            typing(&mut editor, to);
+            let mut share = started.elapsed();
+            if to == "other/" {
+                editor.file_listed(PathBuf::from("/other"), Some(Arc::clone(&other)), false);
+            }
+            let jobs: Vec<_> = std::iter::from_fn(|| editor.take_completion_job()).collect();
+            for job in jobs {
+                if let Some(report) = job.run() {
+                    let started = Instant::now();
+                    editor.completion_reported(report);
+                    share += started.elapsed();
+                    built += 1;
+                }
+            }
+            assert_eq!(count(&editor), 100_000, "{to}");
+            slowest = slowest.max(share);
+        }
+    }
+    assert_eq!(built, 8, "each list built on the worker");
     assert!(slowest < Duration::from_millis(1), "{slowest:?}");
 }

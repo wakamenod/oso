@@ -132,7 +132,7 @@ are rounded.
   directory as `~/`. A worker lists directories; the count shows `…` until it answers.
 - Past 5000 names, a worker builds the list and matches each key; the rows shown stay and the
   count shows `…` until it answers, and `RET` or `TAB` meanwhile waits for it. Any other key
-  drops that wait, `C-g` doing nothing more
+  drops that wait, a prefix too, and `C-g` then does nothing more
   ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Segments before the last are prefixes, and the last one matches as in `M-x`: `~/P/S/o` reaches
   `~/Projects/SideProjects/oso`. `~/` or `/` typed after a `/` starts over, the text before drawn dim.

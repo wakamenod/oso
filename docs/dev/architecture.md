@@ -453,7 +453,7 @@ The UI thread never blocks on I/O or parsing:
   (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
   by the next through a generation. The rows shown stay and the count says `…` until the result
   comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`). A look at a
-  row patches it, with no new list
+  row patches it, with no new list, and a long list replaced or closed is dropped on that thread
   ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends

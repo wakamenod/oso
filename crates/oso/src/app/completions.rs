@@ -5,9 +5,12 @@
 //! Must not depend on: key presses or how a frame is drawn. The build and the match run on
 //! the worker's thread over a snapshot, never here.
 //!
-//! - The thread starts with the first job and then waits for the next. A job sent while one
-//!   runs supersedes it within 1024 candidates, and jobs that queue meanwhile are dropped for
-//!   the newest, on the worker, which also frees their snapshots.
+//! - The thread starts with the first job and then runs each in turn. A job superseded before
+//!   it runs stops at its first look, and one superseded while it runs within 1024 candidates,
+//!   so jobs run in order cost the newest one little, and a job that only frees what a prompt
+//!   no longer holds is never skipped.
+//! - A job that panics is reported, so the prompt stops waiting and a held key is dropped; the
+//!   thread goes on. The panic hook writes no message, so nothing of the list is printed.
 //! - It shares nothing with isearch's worker: a prompt and isearch never run at once, and each
 //!   keeps its jobs and its generation its own.
 //! - Nothing here logs what a worker reports: a list can name files the person keeps private.
@@ -35,14 +38,18 @@ impl Completer {
             let spawned = thread::Builder::new()
                 .name("oso-complete".into())
                 .spawn(move || {
-                    while let Ok(mut job) = queue.recv() {
-                        // Only the newest is worth running.
-                        while let Ok(newer) = queue.try_recv() {
-                            job = newer;
-                        }
-                        if let Some(report) = job.run() {
-                            // It fails only once the event loop is gone.
-                            let _ = waker.send(UserEvent::Completion(report));
+                    while let Ok(job) = queue.recv() {
+                        let ran =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job.run()));
+                        // A send fails only once the event loop is gone.
+                        match ran {
+                            Ok(Some(report)) => {
+                                let _ = waker.send(UserEvent::Completion(report));
+                            }
+                            Ok(None) => {}
+                            Err(_) => {
+                                let _ = waker.send(UserEvent::CompletionFailed);
+                            }
                         }
                     }
                 });
@@ -59,18 +66,17 @@ impl Completer {
 }
 
 impl App {
-    /// Sends the job a prompt's list left, if any, to the worker. What it comes to comes back
-    /// as a [`UserEvent::Completion`].
+    /// Sends the jobs a prompt's list left, if any, to the worker, in order. What they come to
+    /// comes back as a [`UserEvent::Completion`].
     pub(super) fn start_completions(&mut self, event_loop: &Loop<'_>) {
-        let Some(job) = self.editor.take_completion_job() else {
-            return;
-        };
-        if let Err(job) = self.completer.send(job, &self.waker) {
-            // Slower, but the prompt still answers and a `RET` held for it still runs.
-            self.completer = Completer::default();
-            log::warn!("the completion thread could not start; matching on the UI thread");
-            if let Some(report) = job.run() {
-                self.completion_reported(event_loop, report);
+        while let Some(job) = self.editor.take_completion_job() {
+            if let Err(job) = self.completer.send(job, &self.waker) {
+                // Slower, but the prompt still answers and a `RET` held for it still runs.
+                self.completer = Completer::default();
+                log::warn!("the completion thread could not start; matching on the UI thread");
+                if let Some(report) = job.run() {
+                    self.completion_reported(event_loop, report);
+                }
             }
         }
     }
@@ -80,9 +86,28 @@ impl App {
         if self.editor.completion_reported(report) {
             self.request_redraw();
         }
-        let effects = self.dispatcher.run_held_completion(&mut self.editor);
-        self.apply(event_loop, effects);
+        self.run_held_completion(event_loop);
         // Taking a build in can leave a match of what was typed meanwhile.
         self.start_completions(event_loop);
+    }
+
+    /// A job panicked on the worker: the prompt stops waiting, and says so, and a key held for
+    /// it is dropped.
+    pub(super) fn completion_failed(&mut self) {
+        log::warn!("a completion job panicked");
+        self.dispatcher.drop_held_completion();
+        self.editor.completion_failed();
+        self.request_redraw();
+    }
+
+    /// Runs a `RET` or `TAB` held for a result once the prompt waits for nothing more, as a
+    /// report or a list built here ends the wait. Never once the app is leaving.
+    pub(super) fn run_held_completion(&mut self, event_loop: &Loop<'_>) {
+        if self.is_leaving(event_loop) {
+            self.dispatcher.drop_held_completion();
+            return;
+        }
+        let effects = self.dispatcher.run_held_completion(&mut self.editor);
+        self.apply(event_loop, effects);
     }
 }

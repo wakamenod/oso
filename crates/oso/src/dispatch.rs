@@ -73,7 +73,7 @@ pub struct Dispatcher {
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
     /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
-    completion_held: Option<held::Held>,
+    completion_held: Option<held::HeldTake>,
 }
 
 impl Dispatcher {
@@ -304,6 +304,18 @@ impl Dispatcher {
                 Err("a passphrase prompt is open; only keyboard-quit runs".into()),
             );
         }
+        // A command from the socket drops a key held for a result, as a key does, and does not
+        // take a candidate of the rows of an older input (ADR 0096).
+        self.completion_held = None;
+        if editor.completion_pending() && held::takes_the_selected(name) {
+            return (
+                Effects::default(),
+                Err(
+                    "the list is still being matched; wait until get-state says nothing is pending"
+                        .into(),
+                ),
+            );
+        }
         // Whether a command found a match would say something of an answer withheld beside a
         // buffer that may hold secrets (ADR 0076).
         let completing = editor
@@ -512,6 +524,8 @@ impl Dispatcher {
     }
 
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
+        let dropped = self.drop_held_completion();
         let reading = self.keymaps.reading();
         let layers = self.keymaps.active(&reading, self.prefix, editor);
         let (id, shifted) = match self.resolver.feed(&layers, key) {
@@ -568,7 +582,7 @@ impl Dispatcher {
             Key::Named(_) => None,
         };
         let args = Args::with_prefix(self.prefix.take());
-        if self.hold_for_completion(editor, id, args) {
+        if self.hold_for_completion(editor, id, args, dropped) {
             return Effects::default();
         }
         let invocation = Invocation {

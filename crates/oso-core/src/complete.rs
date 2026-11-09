@@ -170,8 +170,8 @@ pub struct Candidates {
     /// A worker is matching a newer input or building a newer list: the rows shown stay, and
     /// the count says so (ADR 0076, ADR 0096).
     pending: bool,
-    /// The candidates the input matches, in that order.
-    matches: Vec<u32>,
+    /// The candidates the input matches, in that order, shared with a worker's job.
+    matches: Arc<[u32]>,
     /// Where in `matches` an exact match of the input is, which shows first.
     exact: Option<usize>,
     query: Query,
@@ -203,7 +203,8 @@ impl Candidates {
         items: Arc<[Candidate]>,
         history: impl IntoIterator<Item = &'a str>,
     ) -> Self {
-        let order = order_of(&items, history);
+        let order = order_of(&items, history, &|| false);
+        let order = order.unwrap_or_else(|| (0..items.len()).map(offset_u32).collect());
         Self::with_order(items, order)
     }
 
@@ -224,7 +225,7 @@ impl Candidates {
 
     fn with_order(items: Arc<[Candidate]>, order: Arc<[u32]>) -> Self {
         Self {
-            matches: order.to_vec(),
+            matches: Arc::clone(&order),
             order,
             items,
             patched: HashMap::new(),
@@ -260,7 +261,7 @@ impl Candidates {
         next.previews = self.previews;
         next.last_segment = self.last_segment;
         next.given_order = self.given_order;
-        next.apply(matched);
+        next.apply(matched, false);
         next
     }
 
@@ -332,7 +333,7 @@ impl Candidates {
                 false
             })
         {
-            self.apply(matched);
+            self.apply(matched, false);
         }
     }
 
@@ -345,13 +346,18 @@ impl Candidates {
         Some(Matching {
             items: Arc::clone(&self.items),
             order: Arc::clone(&self.order),
-            before: Some((self.matches.clone(), self.query.clone())),
+            before: Some((Arc::clone(&self.matches), self.query.clone())),
             input: part.map(str::to_owned),
         })
     }
 
-    /// Takes in what matching an input came to, and selects the first match.
-    pub(crate) fn apply(&mut self, matched: Matched) {
+    /// Takes in what matching an input came to, and selects the first match. With `keep`, a
+    /// candidate moved to while the match was on its way stays selected if it still matches,
+    /// as it was chosen after the input was typed (ADR 0096).
+    pub(crate) fn apply(&mut self, matched: Matched, keep: bool) {
+        let kept = (keep && self.chosen && !self.on_input)
+            .then(|| self.item_at(self.selected))
+            .flatten();
         self.matches = matched.matches;
         self.exact = matched.exact;
         self.query = matched.query;
@@ -360,12 +366,20 @@ impl Candidates {
         self.top = 0;
         self.chosen = false;
         self.on_input = false;
+        if let Some(place) = kept.and_then(|index| self.place_of(index)) {
+            self.select(place);
+        }
+    }
+
+    /// Forgets that a candidate was moved to, as an input was typed after it.
+    pub(crate) fn forget_choice(&mut self) {
+        self.chosen = false;
     }
 
     /// Matches an input longer than [`MAX_INPUT_BYTES`], which nothing matches, without
     /// reading it.
     pub(crate) fn set_too_long(&mut self) {
-        self.matches.clear();
+        self.matches = Arc::from([]);
         self.exact = None;
         self.query = Query::too_long();
         self.input = None;
@@ -424,7 +438,14 @@ impl Candidates {
 
     /// The place where the item at `index` shows, if it matches.
     pub(crate) fn place_of(&self, index: usize) -> Option<usize> {
-        (0..self.len()).find(|place| self.item_at(*place) == Some(index))
+        let index = u32::try_from(index).ok()?;
+        let at = self.matches.iter().position(|&other| other == index)?;
+        // The inverse of `item_at`: an exact match shows first, and those before it one later.
+        Some(match self.exact {
+            Some(exact) if at == exact => 0,
+            Some(exact) if at < exact => at + 1,
+            _ => at,
+        })
     }
 
     /// Where the selected candidate shows, while any matches and what is typed is not selected.

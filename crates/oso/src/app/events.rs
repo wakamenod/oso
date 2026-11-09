@@ -48,6 +48,7 @@ impl App {
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Completion(report) => self.completion_reported(event_loop, report),
+            UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
@@ -69,6 +70,8 @@ impl App {
         // A load may have grown the buffer under isearch.
         self.start_searches();
         self.start_completions(event_loop);
+        // A list built here after a listing ends a wait with no report.
+        self.run_held_completion(event_loop);
         self.ask_for_a_frame_if_status_changed();
         self.note_logging();
     }

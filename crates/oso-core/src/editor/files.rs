@@ -216,6 +216,8 @@ impl Editor {
         self.file_list.plan = Some(plan);
         match reach {
             Reach::Need(directories) => {
+                // A list built for the path before is not this one's.
+                self.stop_completion_job();
                 let list = &mut self.file_list;
                 list.waiting.clone_from(&directories);
                 for directory in directories {
@@ -254,6 +256,7 @@ impl Editor {
         } else {
             Vec::new()
         };
+        let keep = self.selected_file().map(|(found, _)| found.path.clone());
         let listings = &self.file_list.listings;
         Build {
             reached: listed(reached, |directory| {
@@ -261,6 +264,7 @@ impl Editor {
             }),
             hidden,
             most: MAX_FOUND,
+            keep,
             history,
             input: matched_part(text, true).map(str::to_owned),
         }
@@ -271,23 +275,28 @@ impl Editor {
     /// of one name apart beside it. The row selected stays selected, by its path.
     pub(super) fn install_files(&mut self, built: Built, cut: bool, revision: u64) {
         self.file_list.cut = cut || built.more || self.file_list.listing_cut;
-        let selected = self.selected_file().map(|(found, _)| found.path.clone());
-        if let Some(prompt) = self.prompts.last_mut()
-            && let Some((candidates, seen)) = prompt.completion.as_mut()
+        let Some((candidates, seen)) = self
+            .prompts
+            .last_mut()
+            .and_then(|prompt| prompt.completion.as_mut())
+        else {
+            return;
+        };
+        let on_input = candidates.on_input();
+        let next = candidates.rebuilt(built.items, built.order, built.matched);
+        let before = std::mem::replace(candidates, next);
+        *seen = revision;
+        if let Some(place) = built.kept.and_then(|index| candidates.place_of(index))
+            && place > 0
+            && !on_input
         {
-            let on_input = candidates.on_input();
-            *candidates = candidates.rebuilt(built.items, built.order, built.matched);
-            *seen = revision;
-            let index =
-                selected.and_then(|path| built.found.iter().position(|found| found.path == path));
-            if let Some(place) = index.and_then(|index| candidates.place_of(index))
-                && place > 0
-                && !on_input
-            {
-                candidates.select(place);
-            }
+            candidates.select(place);
         }
-        self.file_list.found = built.found;
+        let found = std::mem::replace(&mut self.file_list.found, built.found);
+        // The list before is dropped on the worker when it is long (ADR 0096).
+        if before.total() > WORKER_PAST {
+            self.free_on_the_worker(Box::new((before, found)));
+        }
         self.keep_selection_in_view();
     }
 
@@ -515,7 +524,19 @@ impl Editor {
     /// Forgets the prompt that read a path, once it has closed.
     pub(super) fn forget_files(&mut self, closed: PromptId) {
         if self.file_list.prompt == Some(closed) {
-            self.file_list = FileList::default();
+            let list = std::mem::take(&mut self.file_list);
+            // Its 100,000 paths are dropped on the worker (ADR 0096).
+            if list.found.len() > WORKER_PAST {
+                self.free_on_the_worker(Box::new(list));
+            }
+        }
+    }
+
+    /// Forgets the plan of the prompt `id` that reads a path, so that it is planned and its
+    /// list built again.
+    pub(super) fn forget_file_plan(&mut self, id: PromptId) {
+        if self.file_list.prompt == Some(id) {
+            self.file_list.plan = None;
         }
     }
 }

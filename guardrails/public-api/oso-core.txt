@@ -1226,6 +1226,7 @@ pub fn oso_core::editor::Editor::take_clipboard_write(&mut self) -> core::option
 pub fn oso_core::editor::Editor::take_from_clipboard(&mut self, oso_core::rope::Rope, bool, oso_core::kill::Fingerprint)
 pub fn oso_core::editor::Editor::yank(&mut self, usize, bool) -> core::result::Result<(), oso_core::editor::YankError>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::completion_failed(&mut self)
 pub fn oso_core::editor::Editor::completion_pending(&self) -> bool
 pub fn oso_core::editor::Editor::completion_reported(&mut self, oso_core::complete::CompletionReport) -> bool
 pub fn oso_core::editor::Editor::take_completion_job(&mut self) -> core::option::Option<oso_core::complete::CompletionJob>

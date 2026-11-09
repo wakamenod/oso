@@ -34,19 +34,30 @@ The author decided this on 2026-11-09, through the coordinator.
 
 ### Where it runs
 
-- **On a thread of its own, `oso-complete`.** It starts with the first job and then waits for the
-  next. A job sent while one runs supersedes it, and the jobs that queue meanwhile are dropped for
-  the newest, on the worker, which also frees their snapshots. This is how isearch's `oso-search`
-  works ([ADR 0082](0082-isearch.md)). The host side is `crates/oso/src/app/completions.rs`.
-  The two threads share nothing: a prompt and isearch never run at once, and keeping them apart
-  leaves each one's jobs and generations its own.
+- **On a thread of its own, `oso-complete`.** It starts with the first job and then runs each in
+  turn. A job sent while one runs supersedes it. A job superseded before it runs stops at its
+  first look, so running jobs in order costs the newest little, and its snapshots are freed on
+  the worker. The host side is `crates/oso/src/app/completions.rs`, built as isearch's
+  `oso-search` is ([ADR 0082](0082-isearch.md)). The two threads share nothing: a prompt and
+  isearch never run at once, and keeping them apart leaves each one's jobs and generations its
+  own.
+- **What a long list leaves is freed there too.** A list past 5000 that a new one replaces, the
+  list of a prompt that closes, and a report dropped go to the worker as a job that only frees, so
+  100,000 names are never dropped on the UI thread. A newer job never takes the place of one that
+  frees.
+- **A job that panics is reported,** as the lister's and the loader's are caught: the prompt stops
+  waiting and says so, a held key is dropped, and the thread goes on. If the thread cannot start,
+  the job runs on the UI thread, slower but answering.
 - **Past 5000 candidates, decided for each list.** A list of at most 5000 is built and matched on the
   UI thread as now, so `M-x`, `C-x b` and small directories take no thread and no `…`. For `C-x C-f`,
   the size is the sum of the listings the path's segments reach, counted before anything is
   expanded.
-- **Both the build and the matching move.** A job to build gets the path's plan, the listings it
-  reaches as the `Arc<[Name]>` the lister gave, what the looks found, the history, and the input. On
-  the worker, it expands the plan, makes the candidates, orders them, and matches the input. A job to
+- **Both the build and the matching move.** A job to build gets the directories the path's
+  segments reach with the `Arc<[Name]>` the lister gave each, the history, the input, and the path
+  of the row selected. On the worker, it makes the candidates, orders them, matches the input, and
+  finds the row selected in the new list, so it stays selected. Reaching the directories stays on
+  the UI thread, as it looks only at the names of directories on the way, without allocating for
+  each, and orders only the first past the 32 it keeps. A job to
   match gets the list's `Arc` snapshot, its order, the input, and the matches of the input before it
   when the new input only narrows that one (ADR 0076's narrowing). It gives back the matches.
 - **A look patches its rows.** The annotations that looks find, and a link found to lead to a
@@ -54,52 +65,69 @@ The author decided this on 2026-11-09, through the coordinator.
   whether `RET` goes into them, never the list's order or what matches. So it needs no job, and
   costs the UI thread only its rows.
 - **The bound stays 100,000 names,** for memory: a worker makes the time no longer the reason, but
-  the list and its snapshot are still held twice while a build runs.
+  the list and its snapshot are still held twice while a build runs. It holds as the list is made,
+  so 32 directories of 100,000 names make no name past it.
 
 ### The job and its report
 
 - **`oso_core::complete` makes the job and takes in the report.** The host only runs one and hands
   the other back, as isearch's are (ADR 0082). Two public types go in that public module,
   `CompletionJob` and `CompletionReport`, with `Candidates::pending` for the count. The editor
-  gains `Editor::take_completion_job`, `Editor::completion_reported`, and
-  `Editor::completion_pending` for the count and the keys held. The job depends on nothing of
+  gains `Editor::take_completion_job`, `Editor::completion_reported`, `Editor::completion_failed`,
+  and `Editor::completion_pending` for the count and the keys held. The job depends on nothing of
   the editor, which ADR 0076 kept `complete` free of for this.
 - **The generation is shared with the worker.** The UI raises it with each job, and the worker reads
-  it every 1024 candidates and between the build's steps. A job superseded midway stops there and
-  reports nothing.
+  it before a job starts, every 1024 candidates of each step, every 1024 comparisons of the sort,
+  and once more before it reports. A job superseded midway stops there and reports nothing.
 - **A report is taken only if its prompt is still the innermost, its generation is the newest, and
-  the list it matched is the one the prompt has.** Any other report is dropped. A build's report
-  keeps the selected row by its path, as a new listing does now (ADR 0087).
+  the list it matched is the one the prompt has.** Any other report is dropped. A report for a
+  prompt that another covers is dropped, and that prompt is matched again, or its list built
+  again, once it is the innermost, so it never waits for a result that cannot come. A path that
+  needs a listing stops the build for the path before, as that list is not its.
 - **`Debug` of a job or a report gives its generation only,** and nothing logs what a worker
   reports. A list can name files the person keeps private.
 
 ### Keys while a result is pending
 
 - **The rows shown stay, and the count shows `…`** (ADR 0076). `C-n` and `C-p` move over the rows
-  shown.
+  shown, and a row moved to stays selected when the result comes if it still matches, as it was
+  chosen after the input was typed.
 - **`RET` and `TAB`, which take the selected candidate, are held** while a result is pending, and
   run when the newest result comes. With a cached build that is within about 10 ms at 100,000 names.
   `M-RET` gives what is typed, needs no candidate, and is not held.
-- **A further edit to the input drops the held key,** as it asks for a new result. **`C-g` drops
-  it** and does nothing more, as `C-g` does one thing at a time
-  ([ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md)). A second `C-g` quits the
-  prompt. A move with `C-n` or `C-p` drops it too, as it changes the candidate the key was to take.
+- **Any other key drops the held key,** as it comes and before it is resolved: an edit asks for a
+  new result, a move with `C-n` or `C-p` changes the candidate the key was to take, and a prefix
+  or an unbound key begins something else. Text typed drops it too. **`C-g` drops it** and does
+  nothing more, as `C-g` does one thing at a time
+  ([ADR 0072](0072-floating-windows-the-minibuffer-and-questions.md)); a second `C-g` quits the
+  prompt.
 - **A held key runs as it would have, on the new result:** `RET` on a directory goes into it, `RET`
   on no match gives the typed path when the prompt takes any text, and `TAB` puts the candidate in.
-  A held key is never run by a result for another prompt.
+  A held key is never run by a result for another prompt, nor once the app is leaving. It also
+  runs when the wait ends with no report, as when a listing comes and the list it brings is
+  short enough to build at once.
+- **A key from the dev socket is never held:** it runs on the rows shown, and a client that wants
+  the newest waits until `get-state` says nothing is pending. A key held and run later would open
+  what it opens outside the request that sent it. `run-command` of `RET`'s or `TAB`'s command is
+  refused while a result is pending.
 
 ### Tests and measurement
 
 - **Unit tests run the job synchronously:** they take the job from the editor, run it on the test's
   thread, and hand the report back. The tests cover:
-  - a superseded generation dropped;
-  - a closed prompt;
+  - a superseded generation dropped, and a superseded job stopping;
+  - a closed prompt, and one covered by another and matched again once it is the innermost;
   - a narrowing job that gives what a full pass gives;
-  - a held `RET` and `TAB`, and an edit, `C-g` or a move dropping them;
+  - a held `RET` and `TAB`, and an edit, a move, a prefix, an unbound key or `C-g` dropping them;
+  - a row moved to while waiting, kept by the result;
   - a look patching rows without a job;
-  - the 5000 line, crossed both ways as the path changes.
-- **An ignored test, run by hand in a release build,** checks that the UI thread's share of a key at
-  100,000 names, which makes and sends the job and takes the report in, is under 1 ms.
+  - the 5000 line, crossed both ways as the path changes;
+  - a list replaced or closed freed by a job of its own;
+  - the bound holding as the list is made;
+  - no name or input in `Debug`.
+- **Ignored tests, run by hand in a release build,** check that the UI thread's share is under
+  1 ms at 100,000 names: of a key, which makes and sends the job and takes the report in, and of
+  taking in a list in place of another. On a MacBook they measure about 60 µs and 35 µs.
 - **`just perf` gains `file_prompt_type_p99_ms`, reported only,** until the author sets a threshold.
   It fills a temporary directory with 100,000 empty files whose names mix ASCII, Japanese and
   accented letters. It then opens `C-x C-f` in that directory and types keys in turn, a
@@ -124,7 +152,7 @@ The author decided this on 2026-11-09, through the coordinator.
 - A key in a long list shows its result a few milliseconds later than it would on the UI thread. In
   exchange, the frame for the key, the cursor and the typed text is never late.
 - A key held by `RET` or `TAB` shows nothing until the result comes. The count's `…` says why.
-- `complete` gains two public types and a method, and the editor three public methods. The host
+- `complete` gains two public types and a method, and the editor four public methods. The host
   needs a `UserEvent` and a file of its own, and the dispatcher a file for the keys it holds.
 
 ## Alternatives considered

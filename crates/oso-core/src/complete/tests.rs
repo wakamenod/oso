@@ -423,7 +423,7 @@ fn a_match_on_the_worker_gives_what_matching_here_gives() {
         let Some(CompletionReport(Report::Matched { matched, .. })) = job.run() else {
             panic!("matched");
         };
-        there.apply(matched);
+        there.apply(matched, false);
         assert_eq!(here.matches, there.matches, "{input:?}");
         assert_eq!(here.exact, there.exact, "{input:?}");
     }
