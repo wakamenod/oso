@@ -8,9 +8,9 @@
 //! code anyway. New dependencies are not fetched: the build is offline.
 //!
 //! On a change it runs an incremental build, shown in the terminal. If that
-//! fails, the instance keeps running. If it succeeds, and no buffer holds unsaved
-//! edits, the new binary starts, takes over the old instance's state, and only
-//! then does the old one exit. A new binary that cannot start is closed and the
+//! fails, the instance keeps running, and its echo area and `*Messages*` say why.
+//! If it succeeds, and nothing holds the restart, the new binary starts and takes
+//! over the old instance's state and unsaved text. Only then does the old one exit. A new binary that cannot start is closed and the
 //! old one kept. One that refuses the state stays open beside the old one until
 //! the next build, which closes it unless it has been edited.
 //!
@@ -33,17 +33,18 @@ use oso_platform::control::ControlDir;
 use oso_platform::process::{Executable, Sink, Spawn, spawn};
 use serde_json::{Value, json};
 
+use super::build_errors;
 use super::ctl;
 use super::protocol::{self, EXIT_REFUSED};
-use super::restart::{CHECK, Instance, Instances, NotStopped, restart};
+use super::restart::{CHECK, Instance, Instances, NotStopped, restart, tell};
 use super::watch::Sources;
 
 const USAGE: &str = "\
 usage: oso dev [FILE]
 
 Runs oso, rebuilds it when a Rust source changes, and restarts it with the same
-buffers, cursors and window. A buffer with unsaved edits holds the restart: save
-it, and the next build goes through. Ctrl-C ends this but leaves the window open.
+buffers, unsaved text, cursors and window. Unsaved edits in a buffer that may hold
+secrets hold the restart: save it, and the next build goes through. Ctrl-C ends this but leaves the window open.
 Run it from the repository root (`just dev`).";
 
 /// How often to look at the sources and the instance.
@@ -190,8 +191,12 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
         let started = Instant::now();
         let (built, fresh) = match build(&cargo, &root) {
             Ok(Build::Built { path, fresh }) => (path, fresh),
-            Ok(Build::Failed) => {
+            Ok(Build::Failed(errors)) => {
                 log::warn!("oso dev: the build failed; the running instance stays");
+                let told = build_errors::messages(&errors);
+                for instance in instances.current.iter_mut().chain(&mut instances.beside) {
+                    told.iter().for_each(|message| tell(instance, message));
+                }
                 continue;
             }
             Err(e) => {
@@ -266,6 +271,8 @@ struct Running {
     dir: ControlDir,
     /// Which build made its binary.
     build: u64,
+    /// The generation its import reported, if it took over a state.
+    imported: Option<u64>,
 }
 
 impl Running {
@@ -290,6 +297,7 @@ impl Running {
             child,
             dir: dir.clone(),
             build,
+            imported: None,
         })
     }
 
@@ -370,19 +378,28 @@ impl Instance for Running {
     fn stop(&mut self, generation: u64) -> Result<(), NotStopped> {
         self.stop_within(generation, EXIT_TIMEOUT)
     }
+
+    fn imported(&self) -> Option<u64> {
+        self.imported
+    }
+
+    fn set_imported(&mut self, generation: Option<u64>) {
+        self.imported = generation;
+    }
 }
 
 /// What a build came to.
 #[derive(Debug, PartialEq, Eq)]
 enum Build {
-    /// Errors, which cargo has shown in the terminal.
-    Failed,
+    /// The errors, each as one row, which the terminal has shown in full.
+    Failed(Vec<String>),
     /// The binary, here. `fresh` means cargo rebuilt nothing, as after an edit
     /// to an integration test.
     Built { path: PathBuf, fresh: bool },
 }
 
-/// Runs the incremental build. Errors go straight to the terminal, in color.
+/// Runs the incremental build. What the compiler says goes to the terminal, in color, as
+/// cargo would show it.
 fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
     let args = [
         "build",
@@ -392,7 +409,7 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         "oso",
         "--features",
         "dev",
-        "--message-format=json-render-diagnostics",
+        "--message-format=json-diagnostic-rendered-ansi",
     ]
     .map(OsString::from);
     let mut child = spawn(&Spawn {
@@ -406,22 +423,40 @@ fn build(cargo: &Executable, root: &Path) -> io::Result<Build> {
         own_process_group: false,
     })?;
     let mut artifact = None;
+    let mut errors = Vec::new();
     if let Some(stdout) = child.stdout.take() {
         for line in BufReader::new(stdout).lines() {
-            artifact = oso_artifact(&line?).or(artifact);
+            let Ok(message) = serde_json::from_str::<Value>(&line?) else {
+                continue;
+            };
+            artifact = oso_artifact(&message).or(artifact);
+            if let Some(diagnostic) = build_errors::diagnostic(&message) {
+                show(diagnostic.rendered.as_deref());
+                errors.extend(diagnostic.error);
+            }
         }
     }
     if !child.wait()?.success() {
-        return Ok(Build::Failed);
+        return Ok(Build::Failed(errors));
     }
     let (path, fresh) = artifact.ok_or_else(|| io::Error::other("cargo reported no oso binary"))?;
     Ok(Build::Built { path, fresh })
 }
 
-/// The oso binary's path and whether cargo rebuilt nothing, if this line of
+/// Shows what the compiler said in the terminal, as cargo would have.
+#[expect(
+    clippy::disallowed_macros,
+    reason = "`oso dev` is a command-line tool: the compiler's output goes to stderr"
+)]
+fn show(rendered: Option<&str>) {
+    if let Some(rendered) = rendered {
+        eprint!("{rendered}");
+    }
+}
+
+/// The oso binary's path and whether cargo rebuilt nothing, if this message of
 /// cargo's JSON output reports it.
-fn oso_artifact(line: &str) -> Option<(PathBuf, bool)> {
-    let message: Value = serde_json::from_str(line).ok()?;
+fn oso_artifact(message: &Value) -> Option<(PathBuf, bool)> {
     if message["reason"] != "compiler-artifact" || message["target"]["name"] != "oso" {
         return None;
     }
@@ -445,7 +480,6 @@ mod tests {
                 "executable": executable,
                 "fresh": fresh,
             })
-            .to_string()
         };
         assert_eq!(
             oso_artifact(&line("oso", false, json!("/t/oso"))),
@@ -457,8 +491,7 @@ mod tests {
         );
         assert_eq!(oso_artifact(&line("oso", false, json!(null))), None);
         assert_eq!(oso_artifact(&line("oso-core", false, json!("/t/x"))), None);
-        assert_eq!(oso_artifact(r#"{"reason":"build-finished"}"#), None);
-        assert_eq!(oso_artifact("not json"), None);
+        assert_eq!(oso_artifact(&json!({ "reason": "build-finished" })), None);
     }
 
     /// An instance that is a long sleep, not an editor, and whose control socket
@@ -509,6 +542,7 @@ mod tests {
                 child,
                 dir: dir.clone(),
                 build: 0,
+                imported: None,
             }
         }
 

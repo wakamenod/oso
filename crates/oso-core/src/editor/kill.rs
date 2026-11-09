@@ -84,6 +84,15 @@ impl Editor {
         &self.kills.ring
     }
 
+    /// Puts entries another instance's ring held in front of what this one holds, given the
+    /// newest first, as `oso dev` carries them (ADR 0090). They hold no secret and nothing
+    /// from the clipboard, as those are never carried. The bounds of the ring apply.
+    pub fn carry_kills(&mut self, newest_first: Vec<Vec<Piece>>) {
+        for pieces in newest_first.into_iter().rev() {
+            self.kills.ring.push(pieces, false);
+        }
+    }
+
     /// Kills the text in `ranges` of the selected window's buffer, one range for each
     /// cursor, gone `direction` from it: puts it in the ring, and deletes it unless
     /// `copy_only` is set, as `M-w` does. The text is taken as rope slices, so this costs
@@ -311,4 +320,27 @@ fn yank_texts(entry: &KillEntry, cursors: usize) -> Result<Vec<String>, YankErro
     } else {
         vec![entry.joined()]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Editor;
+    use crate::kill::Piece;
+    use crate::rope::Rope;
+
+    #[test]
+    fn carried_kills_go_in_front_in_their_order_and_count_as_no_secret() {
+        let mut editor = Editor::with_buffer(crate::buffer::Buffer::new("*scratch*"));
+        editor
+            .kills
+            .ring
+            .push(vec![Piece::from(Rope::from("mine"))], true);
+        let piece = |text: &str| Piece::from(Rope::from(text));
+        editor.carry_kills(vec![vec![piece("newest")], vec![piece("a"), piece("b")]]);
+        let ring = editor.kill_ring();
+        let joined: Vec<String> = ring.iter().map(|entry| entry.joined()).collect();
+        assert_eq!(joined, ["newest", "a\nb", "mine"]);
+        assert!(ring.iter().take(2).all(|entry| !entry.is_secret()));
+        assert!(ring.iter().all(|entry| !entry.came_from_clipboard()));
+    }
 }

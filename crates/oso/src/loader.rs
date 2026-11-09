@@ -69,6 +69,10 @@ pub enum LoadUpdate {
     Reloaded(Box<Reloaded>),
     /// The file could not be read. Nothing more follows.
     Failed(LoadError),
+    /// The path has been judged, and nothing is read: the buffer holds text carried from
+    /// another instance (ADR 0090). Nothing more follows.
+    #[cfg(feature = "dev")]
+    Judged,
 }
 
 impl std::fmt::Debug for LoadUpdate {
@@ -85,6 +89,8 @@ impl std::fmt::Debug for LoadUpdate {
                 .field("changed", &reloaded.is_changed())
                 .finish_non_exhaustive(),
             Self::Failed(e) => f.debug_tuple("Failed").field(e).finish(),
+            #[cfg(feature = "dev")]
+            Self::Judged => f.write_str("Judged"),
         }
     }
 }
@@ -205,6 +211,36 @@ where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
     spawn_reading(buffer, wake, move |shared, post| load(&path, shared, post))
+}
+
+/// Starts judging `path` for `buffer` on a background thread, which holds text carried from
+/// another instance (ADR 0090): the thread opens the file and resolves the path as a load
+/// does, and reads nothing, so the text stays the one carried. It records no baseline, as
+/// the buffer brought its own, and never fails: a path it cannot tell counts as secret, and
+/// so does one whose thread panicked. `wake` is as for [`spawn`].
+#[cfg(feature = "dev")]
+pub fn spawn_judging<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHandle>
+where
+    W: Fn(BufferId) -> bool + Send + 'static,
+{
+    let shared = Arc::new(Shared::default());
+    let thread_shared = Arc::clone(&shared);
+    thread::Builder::new()
+        .name("oso-judge".into())
+        .spawn(move || {
+            let judged = std::panic::catch_unwind(|| {
+                let opened = open(&path);
+                let file = opened
+                    .as_ref()
+                    .ok()
+                    .map(|(file, metadata)| (file, metadata));
+                verdict_of_opened(resolve(&path), file)
+            });
+            *thread_shared.resolved() = Some(judged.unwrap_or(Resolved::Unknown(Vec::new())));
+            *thread_shared.slot() = Some(LoadUpdate::Judged);
+            wake(buffer);
+        })?;
+    Ok(LoadHandle { buffer, shared })
 }
 
 /// Starts reading `path` again into `buffer`, whose text is `old`, on a background thread, as

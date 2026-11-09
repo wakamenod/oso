@@ -283,6 +283,27 @@ impl Editor {
         Some((first, &place.selections, place.scroll))
     }
 
+    /// Puts `selections` and `scroll` in the place the tiled window keeps for `buffer`, which
+    /// it no longer shows, for positions a state handoff brought that waited for their file
+    /// (ADR 0090). Showing it again clips them to its text. Returns whether the window keeps
+    /// such a place.
+    pub fn restore_kept_place(
+        &mut self,
+        buffer: BufferId,
+        selections: SelectionSet,
+        scroll: Scroll,
+    ) -> bool {
+        let index = self.tiled_index();
+        match self.windows[index].places_mut().get_mut(buffer) {
+            Some(place) => {
+                place.selections = selections;
+                place.scroll = scroll;
+                true
+            }
+            None => false,
+        }
+    }
+
     /// Shows the internal buffer `id`, to come back from later. If the window has already come
     /// through it, this goes back to it, so that going between two of them cannot grow the way.
     pub(super) fn go_to_internal(&mut self, id: BufferId) {

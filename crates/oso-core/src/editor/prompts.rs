@@ -270,6 +270,18 @@ impl Editor {
         self.outcome.take()
     }
 
+    /// Each history's name and answers, the newest first, which `oso dev` carries to the
+    /// instance that replaces this one (ADR 0090).
+    pub fn histories(&self) -> impl Iterator<Item = (&str, impl Iterator<Item = &str>)> {
+        self.histories.all()
+    }
+
+    /// Puts answers another instance's history `name` held behind what this one holds, the
+    /// newest first, leaving out what a history would not keep (ADR 0090).
+    pub fn carry_history(&mut self, name: &str, newest_first: impl IntoIterator<Item = String>) {
+        self.histories.extend_older(name, newest_first);
+    }
+
     /// Puts the answer `older` steps from where the innermost prompt's history walk is in
     /// its buffer, as `M-p` and `M-n` do. Past the newest, what was typed comes back.
     ///
