@@ -581,7 +581,8 @@ Full details are in [`security.md`](security.md).
     `channel::wire`, which the dev socket shares, and no dev method.
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `commands`, `look`,
-    `change` and `open`. It connects on the first tool call, asks the channel's `version`
+    `change`, `open` and `cancel`, which takes back a question the agent's change opened
+    (ADR 0093). It connects on the first tool call, asks the channel's `version`
     first, and connects again after oso restarts. It looks through every instance's socket
     only while it knows none to use, at most once each 5 s, since each look counts toward each
     instance's connections a minute. stdin is read on a thread of its own
