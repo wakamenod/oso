@@ -65,7 +65,8 @@ impl App {
         }
         *opened += 1;
         let name = path.file_name().map(std::ffi::OsStr::to_owned);
-        let Some(buffer) = self.visit_with(path, true) else {
+        // It reads no file of 2 GiB or more, which the person must agree to (ADR 0087).
+        let Some(buffer) = self.visit_with(path, crate::loader::UNASKED, true) else {
             return refused("the file could not start loading");
         };
         if let Some(buffer) = self.editor.buffer_mut(buffer) {

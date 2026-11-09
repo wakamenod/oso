@@ -277,7 +277,7 @@ impl App {
 
     /// The result of `open-file`: visits a file in the selected window.
     fn open_file(&mut self, path: PathBuf) -> dev::Reply {
-        let visited = self.visit(path);
+        let visited = self.visit(path, crate::loader::UNASKED);
         let result = visited
             .map(|buffer| {
                 self.editor.show(buffer);
