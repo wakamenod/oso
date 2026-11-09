@@ -300,6 +300,9 @@ pub struct KillRing {
     /// The fingerprints secret entries went to the clipboard with, or came from it with,
     /// the newest last.
     secrets_written: VecDeque<Fingerprint>,
+    /// What the clipboard was last seen to hold: an entry it got from the ring, or text it
+    /// gave it, wherever that entry is in the ring now.
+    clipboard: Option<Fingerprint>,
 }
 
 impl KillRing {
@@ -408,6 +411,7 @@ impl KillRing {
     /// Records what the clipboard got for the entry `id`, if it is still in the ring and
     /// has not grown since.
     pub fn note_written(&mut self, id: u64, fingerprint: Fingerprint) {
+        self.clipboard = Some(fingerprint);
         if let Some(entry) = self.entries.iter_mut().find(|entry| entry.id == id) {
             entry.written = Some(fingerprint);
             if entry.secret {
@@ -423,10 +427,10 @@ impl KillRing {
         self.secrets_written.push_back(fingerprint);
     }
 
-    /// What the clipboard last held of the newest entry: what it got from the ring, or
-    /// gave it.
-    pub fn newest_written(&self) -> Option<Fingerprint> {
-        self.entries.front().and_then(|entry| entry.written)
+    /// Whether the clipboard holds what it was last seen to: what it got from the ring, or
+    /// gave it, as Emacs compares the selection with the last one it saw.
+    pub(crate) fn clipboard_seen(&self, fingerprint: Fingerprint) -> bool {
+        self.clipboard == Some(fingerprint)
     }
 
     /// Whether a secret entry went to the clipboard as text with this fingerprint, or came
@@ -436,15 +440,17 @@ impl KillRing {
         self.secrets_written.contains(&fingerprint)
     }
 
-    /// Makes the newest entry secret, as the same text came back from the clipboard marked
-    /// so.
-    pub fn make_newest_secret(&mut self) {
-        if let Some(entry) = self.entries.front_mut() {
+    /// Makes the entry that went to the clipboard or came from it as `fingerprint` secret,
+    /// as the same text came back from the clipboard marked so.
+    pub(crate) fn make_written_secret(&mut self, fingerprint: Fingerprint) {
+        let written = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.written == Some(fingerprint));
+        if let Some(entry) = written {
             entry.secret = true;
-            if let Some(written) = entry.written {
-                self.remember_secret(written);
-            }
         }
+        self.remember_secret(fingerprint);
     }
 
     /// Drops the oldest entries past the bounds, but never the newest.
@@ -612,7 +618,7 @@ mod tests {
             .append(pieces(&["c"]), Direction::Forward, false)
             .unwrap();
         assert_eq!(
-            ring.newest_written(),
+            ring.get(0).unwrap().fingerprint(),
             None,
             "a grown entry waits for its own"
         );

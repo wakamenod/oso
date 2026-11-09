@@ -1940,9 +1940,7 @@ pub fn oso_core::kill::KillRing::holds_secret(&self, oso_core::kill::Fingerprint
 pub fn oso_core::kill::KillRing::is_empty(&self) -> bool
 pub fn oso_core::kill::KillRing::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::kill::KillEntry>
 pub fn oso_core::kill::KillRing::len(&self) -> usize
-pub fn oso_core::kill::KillRing::make_newest_secret(&mut self)
 pub fn oso_core::kill::KillRing::new() -> Self
-pub fn oso_core::kill::KillRing::newest_written(&self) -> core::option::Option<oso_core::kill::Fingerprint>
 pub fn oso_core::kill::KillRing::note_written(&mut self, u64, oso_core::kill::Fingerprint)
 pub fn oso_core::kill::KillRing::push(&mut self, alloc::vec::Vec<oso_core::kill::Piece>, bool) -> u64
 pub fn oso_core::kill::KillRing::push_from_clipboard(&mut self, oso_core::rope::Rope, bool) -> u64

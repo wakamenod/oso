@@ -490,6 +490,27 @@ mod tests {
     }
 
     #[test]
+    fn a_copy_seen_already_stays_where_a_pick_moved_it_past() {
+        let mut editor = editor("", &[(&["one"], false), (&["two"], false)]);
+        let copied = crate::kill::Fingerprint { len: 6, hash: 7 };
+        editor.take_from_clipboard(Rope::from("pasted"), false, copied);
+        pick(&mut editor, 2).unwrap();
+        // The next yank reads the clipboard again, which another app has not changed.
+        editor.take_from_clipboard(Rope::from("pasted"), false, copied);
+        let ring = editor.kill_ring();
+        let texts: Vec<String> = ring.iter().map(KillEntry::joined).collect();
+        assert_eq!(texts, ["one", "pasted", "two"]);
+        // Marked concealed when it comes back, it is the copy that turns secret.
+        editor.take_from_clipboard(Rope::from("pasted"), true, copied);
+        let secret: Vec<bool> = editor
+            .kill_ring()
+            .iter()
+            .map(KillEntry::is_secret)
+            .collect();
+        assert_eq!(secret, [false, true, false]);
+    }
+
+    #[test]
     fn anything_typed_hides_a_secret_row_whatever_it_asks() {
         let mut editor = editor("", KILLS);
         editor.open_kill_list("Yank from kill ring:").unwrap();

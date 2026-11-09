@@ -166,15 +166,15 @@ impl Editor {
     }
 
     /// Puts text another app put on the clipboard in the ring as an entry of one piece, as
-    /// Emacs's `interprogram-paste-function` does, for a yank to insert, unless the newest
-    /// entry is that text already. It counts as secret if the clipboard marks it concealed,
+    /// Emacs's `interprogram-paste-function` does, for a yank to insert, unless the clipboard
+    /// holds what it was last seen to, wherever `M-y` has moved that entry. It counts as secret if the clipboard marks it concealed,
     /// as a password manager does, or if a secret entry went to the clipboard as the same
     /// text, so a round trip through another app does not wash it (ADR 0074).
     pub fn take_from_clipboard(&mut self, text: Rope, concealed: bool, fingerprint: Fingerprint) {
         let ring = &mut self.kills.ring;
-        if ring.newest_written() == Some(fingerprint) {
+        if ring.clipboard_seen(fingerprint) {
             if concealed {
-                ring.make_newest_secret();
+                ring.make_written_secret(fingerprint);
             }
             return;
         }
