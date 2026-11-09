@@ -118,9 +118,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   invalid bytes), its file information, its loading progress and its undo
   history. A window
   (`oso_core::window`) shows one buffer with its own selection set and
-  scroll position. With soft wrap (M2-25) it also holds its wrap of the
-  buffer, and its top becomes an offset
-  ([ADR 0100](adr/0100-soft-wrap.md)). There is one window until splits (M3). See
+  scroll position. While its buffer wraps (M2-25) it also holds its wrap of
+  the buffer, which it drops when it shows another, and its top is an offset
+  ([ADR 0100](adr/0100-soft-wrap.md), [ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
+  The app runs the wraps' jobs on one thread, as it runs isearch's. There is one window until splits (M3). See
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md). A pure function,
   `oso_core::frame::layout`, divides the frame into whole cells: its size is the
   window's text area, above a modeline row and the echo area
@@ -153,8 +154,10 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   mouse wheel set the window's top row with `Window::set_top`, the one
   place that moves cursors left behind into view. `Editor::restore_positions`
   puts back cursors and a view saved together and then follows the cursor.
-  With soft wrap, scrolling counts view rows and the top is an offset, while
-  motion stays on logical lines ([ADR 0100](adr/0100-soft-wrap.md)). A
+  The top is an offset, which follows edits as a marker; scrolling counts view
+  rows, which are logical lines unless the buffer wraps, while motion stays on
+  logical lines ([ADR 0100](adr/0100-soft-wrap.md),
+  [ADR 0103](adr/0103-soft-wrap-in-a-window.md)). A
   selected window that gets taller also pulls its top row back by at most the rows
   it gained, to fill empty rows below the last one, so one that was short at the
   end of a buffer shows its text again. `Editor::scroll_view_sideways`, for the wheel,
