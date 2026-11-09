@@ -51,15 +51,37 @@ impl SecretWatch {
     }
 }
 
+/// Where the frame being presented spent its time, from when it started: the app tells
+/// these just before [`Timings::frame_presented`], so that each key it shows can say where
+/// its own time went.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameSpans {
+    /// When the app began the frame, and so took in what the loads had, and when it
+    /// handed the frame to the renderer.
+    pub started: Instant,
+    pub rendering: Instant,
+    /// From `rendering`: prepared on the CPU, given its drawable, and presented.
+    pub prepared: Duration,
+    pub acquired: Duration,
+    pub presented: Duration,
+}
+
 /// The app's timings. The app owns one and updates it on the UI thread.
 #[derive(Debug)]
 pub struct Timings {
     started: Instant,
     frames: u64,
     first_frame: Option<FirstFrame>,
-    /// When each key still waiting for a frame was received.
-    waiting_keys: Vec<Instant>,
+    /// When each key still waiting for a frame was received, and when it was handled.
+    waiting_keys: Vec<(Instant, Instant)>,
     key_latency_us: Vec<u32>,
+    /// For each key sampled, where its latency went, in microseconds: received to handled,
+    /// handled to the frame's start, taking in the loads and the status before rendering,
+    /// then the renderer's preparing, waiting for its drawable, and presenting. A sample
+    /// each, taken by `take` with `key_latency_us`.
+    key_spans_us: Vec<[u32; 6]>,
+    /// The spans of the frame about to be reported presented.
+    frame_spans: Option<FrameSpans>,
     dropped_keys: u64,
     load: LoadTimes,
 }
@@ -103,6 +125,8 @@ impl Timings {
             first_frame: None,
             waiting_keys: Vec::new(),
             key_latency_us: Vec::new(),
+            key_spans_us: Vec::new(),
+            frame_spans: None,
             dropped_keys: 0,
             load: LoadTimes::default(),
         }
@@ -121,7 +145,7 @@ impl Timings {
             return;
         }
         if self.waiting_keys.len() < MAX_KEY_SAMPLES {
-            self.waiting_keys.push(received);
+            self.waiting_keys.push((received, Instant::now()));
         } else {
             self.dropped_keys += 1;
         }
@@ -140,6 +164,11 @@ impl Timings {
         if self.load.began == Some(began) {
             self.load.done.get_or_insert_with(|| began.elapsed());
         }
+    }
+
+    /// Where the frame about to be reported presented spent its time.
+    pub fn frame_spans(&mut self, spans: FrameSpans) {
+        self.frame_spans = Some(spans);
     }
 
     /// A frame was presented, reflecting every key handled so far. `complete`
@@ -164,16 +193,25 @@ impl Timings {
                 self.load.first_screen_after_start = Some(self.started.elapsed());
             }
         }
+        let spans = self.frame_spans.take();
         if withheld {
             self.waiting_keys.clear();
             return;
         }
         self.frames += 1;
-        for received in self.waiting_keys.drain(..) {
+        for (received, handled) in self.waiting_keys.drain(..) {
             if self.key_latency_us.len() < MAX_KEY_SAMPLES {
-                let micros = received.elapsed().as_micros();
-                self.key_latency_us
-                    .push(u32::try_from(micros).unwrap_or(u32::MAX));
+                self.key_latency_us.push(micros_u32(received.elapsed()));
+                if let Some(frame) = spans {
+                    self.key_spans_us.push([
+                        micros_u32(handled.saturating_duration_since(received)),
+                        micros_u32(frame.started.saturating_duration_since(handled)),
+                        micros_u32(frame.rendering.saturating_duration_since(frame.started)),
+                        micros_u32(frame.prepared),
+                        micros_u32(frame.acquired.saturating_sub(frame.prepared)),
+                        micros_u32(frame.presented.saturating_sub(frame.acquired)),
+                    ]);
+                }
             } else {
                 self.dropped_keys += 1;
             }
@@ -184,6 +222,7 @@ impl Timings {
     /// the next call reports only newer ones; everything else stays.
     pub fn take(&mut self) -> Value {
         let keys = std::mem::take(&mut self.key_latency_us);
+        let spans = std::mem::take(&mut self.key_spans_us);
         let dropped = std::mem::take(&mut self.dropped_keys);
         json!({
             "startup_us": self.first_frame.map(|frame| micros(frame.after_start)),
@@ -191,6 +230,7 @@ impl Timings {
             "frames": self.frames,
             "keys_waiting": self.waiting_keys.len(),
             "key_latency_us": keys,
+            "key_spans_us": spans,
             "dropped_keys": dropped,
             "load": {
                 "first_content_us": self.load.first_content.map(micros),
@@ -200,6 +240,10 @@ impl Timings {
             },
         })
     }
+}
+
+fn micros_u32(duration: Duration) -> u32 {
+    u32::try_from(duration.as_micros()).unwrap_or(u32::MAX)
 }
 
 fn micros(duration: Duration) -> u64 {
@@ -214,7 +258,7 @@ fn unix_now() -> Duration {
 
 #[cfg(test)]
 mod tests {
-    use super::{HandledKey, MAX_KEY_SAMPLES, Timings};
+    use super::{FrameSpans, HandledKey, MAX_KEY_SAMPLES, Timings};
     use serde_json::{Value, json};
     use std::time::{Duration, Instant};
 
@@ -239,6 +283,36 @@ mod tests {
         let samples = result["key_latency_us"].as_array().unwrap();
         assert_eq!(samples.len(), 1);
         assert!(samples[0].as_u64().unwrap() >= 2000, "{samples:?}");
+    }
+
+    #[test]
+    fn a_sampled_key_says_where_its_time_went_and_a_withheld_frame_says_nothing() {
+        let mut timings = timings();
+        let received = Instant::now();
+        timings.key_handled(received, key(true, false));
+        std::thread::sleep(Duration::from_millis(2));
+        let started = Instant::now();
+        let spans = FrameSpans {
+            started,
+            rendering: started + Duration::from_micros(300),
+            prepared: Duration::from_micros(400),
+            acquired: Duration::from_micros(1400),
+            presented: Duration::from_micros(1500),
+        };
+        timings.frame_spans(spans);
+        timings.frame_presented(true, false);
+        let taken = timings.take();
+        let sample = &taken["key_spans_us"][0];
+        assert!(
+            sample[1].as_u64().unwrap() >= 2000,
+            "waited for the frame: {sample}"
+        );
+        assert_eq!(sample.as_array().unwrap()[2..], [300, 400, 1000, 100]);
+        assert_eq!(timings.take()["key_spans_us"], json!([]), "taken");
+        timings.key_handled(Instant::now(), key(true, false));
+        timings.frame_spans(spans);
+        timings.frame_presented(true, true);
+        assert_eq!(timings.take()["key_spans_us"], json!([]));
     }
 
     #[test]
