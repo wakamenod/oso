@@ -53,6 +53,9 @@ pub struct Elsewhere {
     /// Where the other buffers' files are, which the new place must not be: one file is never
     /// in two buffers (ADR 0087).
     pub open: Vec<PathBuf>,
+    /// The name the text takes in the path if it is a directory: the buffer's file's, or the
+    /// buffer's own (ADR 0087).
+    pub name: String,
 }
 
 /// A file a write found at a new place, which the person agreed to write over.

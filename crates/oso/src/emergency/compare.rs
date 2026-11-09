@@ -83,10 +83,12 @@ fn open_the_file(location: &Path) -> io::Result<(File, Metadata)> {
     if !looked.is_file() {
         return Err(io::Error::other("it is not a regular file"));
     }
-    let file = File::open(location)?;
-    let metadata = file.metadata()?;
-    if !metadata.is_file() || !same_file(&looked, &metadata) {
-        return Err(io::Error::other("it changed as it was opened"));
+    // Opened without waiting, so that a pipe swapped in after the look cannot hold the thread.
+    let changed = || io::Error::other("it changed as it was opened");
+    let (file, metadata) =
+        oso_platform::file_meta::open_for_reading(location)?.ok_or_else(changed)?;
+    if !same_file(&looked, &metadata) {
+        return Err(changed());
     }
     Ok((file, metadata))
 }

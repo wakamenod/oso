@@ -52,7 +52,7 @@ impl Editor {
         // A prompt over a search ends it, as a key it does not bind does (ADR 0082).
         self.isearch_abandon();
         let depth = self.prompts.len() + 1;
-        let from_agent = self.agent_opens_prompts();
+        let from_agent = self.runs_for_agent();
         let mut label = label.into();
         if kind.is_question() {
             label.push_str(minibuffer::QUESTION_END);
@@ -180,6 +180,10 @@ impl Editor {
         let completes = matches!(self.prompt().map(Prompt::kind), Some(Kind::Complete { .. }));
         // What was typed last is matched first.
         self.match_completion();
+        // A prompt that reads a path gives a path (ADR 0087).
+        if let Some(given) = self.submit_path(typed) {
+            return given;
+        }
         // Around a secret no history orders the list, so its first candidate is no choice: an
         // empty answer takes one only once the person moved to it (ADR 0076).
         // A list in an order of its own, as buffers most recent first, needs no history to make
@@ -238,6 +242,19 @@ impl Editor {
             self.prompt_says("Not a number");
             return Err(PromptError::Invalid);
         }
+        self.give_answer(text)
+    }
+
+    /// Gives `text` as the innermost prompt's answer, records it in its history, and closes
+    /// the prompt.
+    ///
+    /// # Errors
+    ///
+    /// [`PromptError::NoPrompt`] if the innermost prompt is a question or there is none.
+    pub(super) fn give_answer(&mut self, text: String) -> Result<(), PromptError> {
+        let Some(prompt) = self.prompts.last().filter(|p| !p.kind.is_question()) else {
+            return Err(PromptError::NoPrompt);
+        };
         let id = prompt.id;
         // Also not if a buffer that may hold secrets came beneath it since it opened.
         let records = !prompt.around_secret && !prompt.from_socket && !self.shows_secret();
@@ -263,8 +280,10 @@ impl Editor {
         let Some(Kind::Question { yes: command, .. }) = self.prompt().map(Prompt::kind) else {
             return Err(PromptError::NoPrompt);
         };
+        let agents = self.prompt().is_some_and(Prompt::from_agent);
         self.close_innermost();
         if yes {
+            self.note_agents_answer(agents);
             self.outcome = Some(Outcome::Run(command));
         } else {
             self.reset_exit_guard();
@@ -399,6 +418,7 @@ impl Editor {
         }
         let prompt = self.prompts.pop()?;
         self.forget_marks(prompt.id);
+        self.forget_files(prompt.id);
         self.windows.pop();
         self.selected = prompt.beneath;
         let id = prompt.buffer;

@@ -123,7 +123,7 @@ pub struct Written {
     /// The file is in place, but its quarantine flag could not be kept.
     quarantine_lost: Option<io::Error>,
     /// The text went to a new place, which the buffer now visits (`C-x C-w`).
-    moved: Option<elsewhere::Moved>,
+    moved: Option<Box<elsewhere::Moved>>,
 }
 
 /// What the disk did not confirm.

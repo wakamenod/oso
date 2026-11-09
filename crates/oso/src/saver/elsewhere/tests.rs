@@ -100,7 +100,7 @@ fn a_file_changed_after_the_question_is_kept_and_asked_about_again() {
 }
 
 #[test]
-fn a_directory_is_refused_and_nothing_is_written() {
+fn a_directory_that_holds_the_name_already_asks_and_writes_nothing() {
     let scratch = Scratch::new("elsewhere-directory");
     let old = scratch.file("old.md", b"old\n");
     let mut editor = visit(&old);
@@ -108,11 +108,12 @@ fn a_directory_is_refused_and_nothing_is_written() {
     let names = scratch.names();
     write_to(&mut editor, scratch.path(), false).unwrap();
     assert!(
-        last_message(&editor).contains("it is a directory"),
+        last_message(&editor).contains("C-x C-w asks to write over it"),
         "{}",
         last_message(&editor)
     );
     assert_eq!(scratch.names(), names);
+    assert_eq!(fs::read_to_string(&old).unwrap(), "old\n");
     assert!(editor.current().1.is_modified());
 }
 
@@ -226,4 +227,26 @@ fn a_new_file_is_put_in_place_under_its_name_only() {
     let target = scratch.path().join("new.md");
     temporary.put_where_nothing_is(&target).unwrap();
     assert_eq!(scratch.names(), ["new.md"]);
+}
+
+#[test]
+fn a_directory_takes_the_buffers_file_name() {
+    let scratch = Scratch::new("elsewhere-into");
+    let old = scratch.file("old.md", b"old\n");
+    let into = scratch.path().join("into");
+    fs::create_dir(&into).unwrap();
+    let mut editor = visit(&old);
+    type_in(&mut editor, "mine");
+    write_to(&mut editor, &into, false).unwrap();
+    assert_eq!(fs::read_to_string(into.join("old.md")).unwrap(), "mine\n");
+    assert_eq!(
+        editor.current().1.path(),
+        Some(into.join("old.md").as_path())
+    );
+    let named = into.join("old.md").display().to_string();
+    assert!(
+        last_message(&editor).ends_with(&named),
+        "{}",
+        last_message(&editor)
+    );
 }

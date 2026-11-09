@@ -3,6 +3,8 @@
 //!
 //! Must not depend on: the run loop's hooks or the delegates, which call in here.
 
+use objc2_quartz_core::CAMetalLayer;
+
 use super::{Delivery, State, pixels};
 use crate::window::Event;
 
@@ -45,8 +47,13 @@ impl State {
             resize.end();
         }
         self.live_resize.set(resize);
-        if let Some((_, view, _)) = self.window.get() {
-            view.present_with_transaction(live);
+        // During one, the Metal layer presents each frame inside the Core Animation transaction
+        // that changes the view, and not on its own. wgpu reads it at each frame.
+        let layer = (self.window.get())
+            .and_then(|(_, view, _)| view.layer())
+            .and_then(|layer| layer.downcast::<CAMetalLayer>().ok());
+        if let Some(layer) = layer {
+            layer.setPresentsWithTransaction(live);
         }
     }
 

@@ -196,6 +196,16 @@ impl App {
             context.map_or(serde_json::Value::Null, |(given, _)| given.into());
         state["ime"]["current_input_context"] =
             context.map_or(serde_json::Value::Null, |(_, current)| current.into());
+        // How much of the cursor's line the window holds for the input method, never its
+        // text, and none where none is given or while a buffer that may hold secrets is shown,
+        // as `area` is withheld (ADR 0044, ADR 0070).
+        let extent = (self.view.as_ref())
+            .and_then(|view| view.window.ime_excerpt_extent())
+            .filter(|_| !self.editor.shows_secret());
+        state["ime"]["excerpt"] = extent.map_or(
+            serde_json::Value::Null,
+            |(len, cursor)| json!({ "len": len, "cursor": cursor }),
+        );
         // Whether secure input is wanted, held by oso, and on for any process in the system
         // (ADR 0073): nothing a process of the same user cannot read already (ADR 0044).
         let secure = self
@@ -267,7 +277,7 @@ impl App {
 
     /// The result of `open-file`: visits a file in the selected window.
     fn open_file(&mut self, path: PathBuf) -> dev::Reply {
-        let visited = self.visit(path);
+        let visited = self.visit(path, crate::loader::UNASKED);
         let result = visited
             .map(|buffer| {
                 self.editor.show(buffer);

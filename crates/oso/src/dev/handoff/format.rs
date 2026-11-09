@@ -76,12 +76,15 @@ impl State {
     }
 }
 
-/// A buffer to open again: a file's absolute path, or `None` for `*scratch*`, and the text
-/// it held unsaved, if any.
+/// A buffer to open again: a file's absolute path, or `None` for `*scratch*`, the text it
+/// held unsaved, if any, and whether the agent channel opened it, so that its saves still ask
+/// the person (ADR 0085). An entry says `"opened_by_agent": true` only when it is; one that
+/// does not say was not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BufferEntry {
     pub path: Option<PathBuf>,
     pub carried: Option<Carried>,
+    pub opened_by_agent: bool,
 }
 
 /// The text a buffer held unsaved, and what it knew of its file.
@@ -375,7 +378,16 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         }),
         Some(_) => return Err("a buffer's text is not an object".into()),
     };
-    Ok(BufferEntry { path, carried })
+    let opened_by_agent = match entry.get("opened_by_agent") {
+        None => false,
+        Some(Value::Bool(opened)) => *opened,
+        Some(_) => return Err("a buffer's opened_by_agent is not true or false".into()),
+    };
+    Ok(BufferEntry {
+        path,
+        carried,
+        opened_by_agent,
+    })
 }
 
 fn parse_facts(text: &Map<String, Value>) -> Result<FileFacts, String> {

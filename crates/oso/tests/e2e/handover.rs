@@ -18,7 +18,7 @@ const UNSAVED_KEYS: &str = "C A R R I E D - E 2 E - T E X T";
 /// Hands `old`'s state to `new` as `oso dev` does: exports it, moves each item a piece at a
 /// time, imports it, and exits `old` with the export's generation. Returns the state and how
 /// many pieces went across.
-fn hand_over(old: &mut App, new: &mut App) -> (Value, usize) {
+pub(super) fn hand_over(old: &mut App, new: &mut App) -> (Value, usize) {
     let state = old.call("export-state", None);
     let mut pieces = 0;
     let items = state["items"]
