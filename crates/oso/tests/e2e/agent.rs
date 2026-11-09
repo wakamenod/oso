@@ -472,7 +472,7 @@ fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
         "no response to the notification: {output}"
     );
     assert_eq!(responses[0]["result"]["serverInfo"]["name"], "oso");
-    assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 6);
+    assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 7);
     let text = |response: &Value| {
         response["result"]["content"][0]["text"]
             .as_str()
