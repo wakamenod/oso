@@ -154,12 +154,14 @@ item notes when it must be settled.
   size limit, so sharing needs room there.
 - Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
   budget by itself. Applying a batch of splices in one tree pass instead of one
-  `Rope::replace` each is the next step. M2-21 does that and caps the cursors at 1000; if 1000
-  still miss the budget, the bound goes back to the author
+  `Rope::replace` each is the next step. M2-21 does that and caps the cursors at 1000, aiming at
+  key press to photon p99 ≤ 8 ms with the edit's share at p99 ≤ 4 ms; if 1000 still miss the
+  budget, the bound goes back to the author
   ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)). A command also clones the selection
   set for its undo group, and an edit a few times more, which counts with that many cursors.
 - Every window showing a buffer clips all its cursors after each edit, though only those
-  in the edited chunks can change. Limit it to those before splits (M3) bring more windows.
+  in the edited chunks can change. M2-21 clips only those, in every window, in the batched pass
+  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
