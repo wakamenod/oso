@@ -161,7 +161,10 @@ fn replace_at<T: Item>(
             child_summaries,
             ..
         } => {
-            let (&index, rest) = path.split_first()?;
+            let Some((&index, rest)) = path.split_first() else {
+                debug_assert!(false, "a path ends at a leaf");
+                return None;
+            };
             let overflow = replace_at(&mut children[index], rest, range, items);
             child_summaries[index] = children[index].summary().clone();
             if let Some(sibling) = overflow {

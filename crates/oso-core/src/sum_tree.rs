@@ -1010,6 +1010,38 @@ mod tests {
             }
         }
 
+        /// Edits in place one after another, as a command's at many cursors, leave what
+        /// `Vec::splice` would and a valid tree, and a clone taken between them keeps what
+        /// it held (ADR 0091).
+        #[test]
+        fn replacing_in_place_again_and_again_is_splicing(
+            values in prop::collection::vec(0u32..10, 0..200),
+            edits in prop::collection::vec(
+                (0usize..220, 0usize..6, prop::collection::vec(0u32..10, 0..20)),
+                1..40,
+            ),
+            snapshot_at in 0usize..40,
+        ) {
+            let mut tree = tree_of(&values);
+            let mut model = values;
+            let mut snapshot = None;
+            for (index, (at, len, items)) in edits.into_iter().enumerate() {
+                if index == snapshot_at {
+                    snapshot = Some((tree.clone(), model.clone()));
+                }
+                let start = at.min(model.len());
+                let end = (start + len).min(model.len());
+                model.splice(start..end, items.iter().copied());
+                tree.replace_items(Count(start)..Count(end), items.into_iter().map(Num).collect());
+                tree.check_invariants();
+                prop_assert_eq!(contents(&tree), model.clone());
+            }
+            if let Some((tree, model)) = snapshot {
+                tree.check_invariants();
+                prop_assert_eq!(contents(&tree), model);
+            }
+        }
+
         #[test]
         fn building_matches_the_input(values in prop::collection::vec(0u32..10, 0..300)) {
             let tree = tree_of(&values);
