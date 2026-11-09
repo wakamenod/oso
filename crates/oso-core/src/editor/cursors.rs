@@ -26,6 +26,8 @@ use crate::word;
 
 mod find;
 #[cfg(test)]
+mod isearch_tests;
+#[cfg(test)]
 mod tests;
 mod worker;
 
@@ -51,6 +53,10 @@ pub enum CursorError {
     Loading,
     /// The primary cursor has no mark.
     NoMark,
+    /// isearch has no current match: it fails, or a worker still looks for one.
+    NoCurrentMatch,
+    /// isearch has not counted its matches yet, which a cursor on every one waits for.
+    Counting,
 }
 
 impl fmt::Display for CursorError {
@@ -66,6 +72,8 @@ impl fmt::Display for CursorError {
             Self::OnlyOne => f.write_str("Only one cursor"),
             Self::Loading => f.write_str("Buffer is still loading"),
             Self::NoMark => f.write_str("The mark is not set now"),
+            Self::NoCurrentMatch => f.write_str("No current match"),
+            Self::Counting => f.write_str("Still counting matches"),
         }
     }
 }
@@ -144,6 +152,12 @@ impl Editor {
             return Err(CursorError::Loading);
         }
         let wanted = self.wanted()?;
+        self.all_cursors(wanted)
+    }
+
+    /// Puts a cursor on every occurrence of `wanted`, as far as one key reads, and leaves
+    /// the rest to the worker.
+    fn all_cursors(&mut self, wanted: Wanted) -> Result<(), CursorError> {
         let text = self.cursor_text();
         let mut left = KEY_BUDGET;
         match text.all(&wanted, &mut left, &|| false) {
@@ -196,6 +210,60 @@ impl Editor {
         Ok(())
     }
 
+    /// `C->` or `C-<` in isearch, `toward` either way, or `C-c C-<` with none: ends the
+    /// search as `RET` does, with its current match, on whole clusters, as the primary's
+    /// region in the search's direction, and goes on as those keys do with the search's
+    /// string and case, not only whole words.
+    ///
+    /// # Errors
+    ///
+    /// [`CursorError::NoCurrentMatch`]; and for every match, while the buffer loads, the
+    /// count is not known, or it is over [`MAX_CURSORS`]. The search then goes on. Otherwise,
+    /// after it ended, what the key says.
+    pub fn isearch_mark(&mut self, toward: Option<Toward>) -> Result<(), CursorError> {
+        self.drop_cursor_search();
+        let (query, current, total, backward) = self
+            .isearch_current_match()
+            .ok_or(CursorError::NoCurrentMatch)?;
+        if toward.is_none() {
+            if self.current().1.loading().is_some() {
+                return Err(CursorError::Loading);
+            }
+            match total {
+                None => return Err(CursorError::Counting),
+                Some(total) if total > MAX_CURSORS => {
+                    return Err(CursorError::TooManyMatches(total));
+                }
+                Some(_) => {}
+            }
+        }
+        let display = self.current().1.display();
+        let start = motion::cluster_start(&display, current.start);
+        let end = motion::cluster_end(&display, current.end);
+        self.isearch_exit();
+        let (mark, cursor) = if backward { (end, start) } else { (start, end) };
+        let selections = &mut self.windows[self.selected].selections;
+        selections.move_primary(cursor);
+        selections.push_primary_mark(mark);
+        selections.set_mark_active(MarkActive::Active);
+        let wanted = Wanted {
+            query,
+            whole_word: false,
+        };
+        let (window, buffer) = self.current();
+        self.marking = Some(Marking {
+            window: self.selected,
+            buffer: window.buffer(),
+            revision: buffer.revision(),
+            wanted: wanted.clone(),
+            pending: None,
+        });
+        match toward {
+            Some(toward) => self.found_cursors(wanted, toward, 1, false),
+            None => self.all_cursors(wanted),
+        }
+    }
+
     /// Leaves the selected window the primary cursor alone, if it has more, as the last
     /// step of `C-g`.
     pub(super) fn quit_cursors(&mut self) -> bool {
@@ -212,6 +280,18 @@ impl Editor {
     /// Adds `most` cursors `toward` either way, or with `skip` moves the one at that end.
     fn find_cursors(&mut self, toward: Toward, most: usize, skip: bool) -> Result<(), CursorError> {
         let wanted = self.wanted()?;
+        self.found_cursors(wanted, toward, most, skip)
+    }
+
+    /// Adds `most` occurrences of `wanted` `toward` either way, or with `skip` moves the one
+    /// at that end.
+    fn found_cursors(
+        &mut self,
+        wanted: Wanted,
+        toward: Toward,
+        most: usize,
+        skip: bool,
+    ) -> Result<(), CursorError> {
         let set = &self.windows[self.selected].selections;
         if !skip && set.len().saturating_add(most) > MAX_CURSORS {
             return Err(CursorError::TooMany);
@@ -308,22 +388,33 @@ impl Editor {
     }
 
     /// Puts a cursor on each of `matched`, the primary on the one at its own region.
+    ///
+    /// When no occurrence covers the primary's own region, as a search's current match
+    /// widened to whole clusters may not, that region is one more cursor, the primary.
     fn put_all(&mut self, matched: &Matched) -> Result<(), CursorError> {
-        if matched.total > MAX_CURSORS {
-            return Err(CursorError::TooManyMatches(matched.total));
+        let own = *self.windows[self.selected].selections.primary();
+        let mut ranges = matched.ranges.clone();
+        let mut total = matched.total;
+        let covered = |range: &Range<usize>| range.contains(&own.cursor) || range.end == own.cursor;
+        let primary = match ranges.iter().position(covered) {
+            Some(index) => index,
+            None if own.mark.is_some_and(|mark| mark != own.cursor) => {
+                let region = own.range();
+                let index = ranges.partition_point(|range| range.start < region.start);
+                ranges.insert(index, region);
+                total += 1;
+                index
+            }
+            None => 0,
+        };
+        if total > MAX_CURSORS {
+            return Err(CursorError::TooManyMatches(total));
         }
-        if matched.ranges.is_empty() {
+        if ranges.is_empty() {
             return Err(CursorError::NoMore);
         }
-        let own = *self.windows[self.selected].selections.primary();
         let forward = forward(&own);
-        let primary = matched
-            .ranges
-            .iter()
-            .position(|range| range.contains(&own.cursor) || range.end == own.cursor)
-            .unwrap_or(0);
-        let parts = matched
-            .ranges
+        let parts = ranges
             .iter()
             .map(|range| oriented(range, forward))
             .collect();

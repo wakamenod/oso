@@ -11,12 +11,12 @@ use crate::minibuffer::Kind;
 use crate::search::KEY_BUDGET;
 use crate::selection::{Goal, MAX_CURSORS, MarkActive, Selection, SelectionSet};
 
-fn editor(text: &str) -> Editor {
+pub(super) fn editor(text: &str) -> Editor {
     Editor::with_buffer(Buffer::from_text("notes.txt", text))
 }
 
 /// The cursors' regions, as `(mark, cursor)`, in order, and which is primary.
-fn regions(editor: &Editor) -> (Vec<(usize, usize)>, usize) {
+pub(super) fn regions(editor: &Editor) -> (Vec<(usize, usize)>, usize) {
     let set = &editor.window().selections;
     let regions = set
         .iter()
@@ -38,7 +38,7 @@ fn last_message(editor: &Editor) -> String {
     kept.lines().last().unwrap_or_default().to_owned()
 }
 
-fn cursors(editor: &Editor) -> Vec<usize> {
+pub(super) fn cursors(editor: &Editor) -> Vec<usize> {
     editor
         .window()
         .selections
@@ -48,7 +48,7 @@ fn cursors(editor: &Editor) -> Vec<usize> {
 }
 
 /// One cursor at `cursor`, with its region from `mark` shown.
-fn region(editor: &mut Editor, mark: usize, cursor: usize) {
+pub(super) fn region(editor: &mut Editor, mark: usize, cursor: usize) {
     let mut set = SelectionSet::from_parts(
         vec![Selection {
             cursor,
@@ -62,13 +62,13 @@ fn region(editor: &mut Editor, mark: usize, cursor: usize) {
     editor.windows[0].selections = set;
 }
 
-fn at(editor: &mut Editor, cursors: &[usize]) {
+pub(super) fn at(editor: &mut Editor, cursors: &[usize]) {
     let parts = cursors.iter().copied().map(Selection::at).collect();
     editor.windows[0].selections = SelectionSet::from_parts(parts, 0).unwrap();
 }
 
 /// Runs the worker's jobs in place, as the host's thread would, and takes in what they report.
-fn drain(editor: &mut Editor) {
+pub(super) fn drain(editor: &mut Editor) {
     while let Some(job) = editor.take_isearch_job() {
         let mut reports = Vec::new();
         job.run(|report| reports.push(report));
