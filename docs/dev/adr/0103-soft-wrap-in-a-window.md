@@ -117,17 +117,20 @@ the public API in outline.
 ### The sockets and the handoff
 
 - **The agent channel's state** gains `wrapped` for each buffer. `first_row` and the rows stay
-  logical lines. The state's version stays 1: a new field is a compatible change, and its version
+  logical lines. While a buffer that may hold secrets is shown, its `wrapped` is withheld, as a
+  person toggles it there (ADR 0079). The state's version stays 1: a new field is a compatible change, and its version
   goes up only for incompatible ones (ADR 0085).
 - **The dev socket's state** gives the top's offset as `scroll.start` and its view row as
   `scroll.top`, and `wrapped` for each buffer. The offset and the row are withheld for a buffer
-  that may hold secrets, as its other positions are. `text.rows` stay logical lines until the
+  that may hold secrets, as its other positions are, and its `wrapped` while one is shown. `text.rows` stay logical lines until the
   renderer's step.
 - **The handoff's state is version 3:**
   - the top is an offset, `scroll.start`;
   - a buffer that wraps says `"wraps": true`.
 
-  It still reads versions 1 and 2, whose top is a row, as the start of that logical line.
+  It still reads versions 1 and 2, whose top is a row, as the start of that logical line. A row
+  top still waiting for its file is exported as `scroll.top`, a row, so that a second restart
+  reads it right. An imported top goes to the start of the cluster it is in.
 - **`Debug` on a `Window` prints no offsets** (ADR 0100).
 
 ### The public API
