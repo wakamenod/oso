@@ -186,6 +186,8 @@ pub(crate) struct Rows {
     placer: Placer,
     /// Rows shaped since the cache was created, for tests and logs.
     shaped: u64,
+    /// Whether a buffer's rows mark whitespace (ADR 0097).
+    whitespace: bool,
 }
 
 impl Rows {
@@ -193,6 +195,16 @@ impl Rows {
     pub(crate) fn invalidate(&mut self) {
         self.rows.clear();
         self.pieces.clear();
+    }
+
+    /// Marks whitespace in a buffer's rows, or not. A change shapes every row again, as the
+    /// revision says nothing of it.
+    pub(crate) fn set_whitespace(&mut self, whitespace: bool) {
+        if self.whitespace != whitespace {
+            self.whitespace = whitespace;
+            self.rows.clear();
+            self.pieces.clear();
+        }
     }
 
     /// Starts a frame of `buffer` at `revision`: another buffer's rows and
@@ -330,7 +342,9 @@ impl Rows {
             }
             let first = self.graphemes.len();
             let shown = if own { Face::Preedit } else { Face::Text };
-            let cut = self.push_cluster(&cluster, shown, budget, &mut spent);
+            // A preedit is drawn as it is composed, with no marks.
+            let whitespace = self.whitespace && !own;
+            let cut = self.push_cluster(&cluster, shown, whitespace, budget, &mut spent);
             self.break_at(first, cut, &mut face);
             ControlFlow::Continue(())
         });
@@ -353,7 +367,7 @@ impl Rows {
                 }
                 column = cluster.column.saturating_add(cluster.cells);
                 let first = self.graphemes.len();
-                let cut = self.push_cluster(&cluster, span.face, budget, &mut spent);
+                let cut = self.push_cluster(&cluster, span.face, false, budget, &mut spent);
                 self.break_at(first, cut, &mut face);
             }
         }
@@ -393,12 +407,13 @@ impl Rows {
         &mut self,
         cluster: &DisplayCluster<'_>,
         face: Face,
+        whitespace: bool,
         budget: usize,
         spent: &mut usize,
     ) -> bool {
         let whole = *spent < budget;
         let mut cut = false;
-        cluster.for_each_run(|run| {
+        cluster.for_each_run_with(whitespace, |run| {
             let mut face = face.of_run(run.style);
             let mut text = run.text;
             if !whole && first_char(run.text).len() < run.text.len() {

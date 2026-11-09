@@ -522,6 +522,8 @@ fn preview_panes<'a>(
                 cursor_style: CursorStyle::Hollow,
                 preedit: None,
                 fills: &[],
+                // Floats have no visual aids (ADR 0097).
+                whitespace: false,
             };
             let number = u32::try_from(id.get()).unwrap_or(u32::MAX);
             pane(
@@ -577,5 +579,6 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) ->
         cursor_style: CursorStyle::Box,
         preedit: editor.preedit(),
         fills: &lines.fills,
+        whitespace: false,
     })
 }

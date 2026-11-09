@@ -502,6 +502,7 @@ fn draw_text<G: GlyphSource>(
     glyphs: &mut G,
 ) {
     let display = &view.display;
+    rows.set_whitespace(view.whitespace);
     rows.begin(view.buffer, view.revision);
     let columns = layout.shaped_columns();
     let top = view.scroll.top;
@@ -626,6 +627,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: None,
             fills: &[],
+            whitespace: false,
         })
     }
 
@@ -723,6 +725,7 @@ mod tests {
                     cursor_style: CursorStyle::Box,
                     preedit: None,
                     fills: &[],
+                    whitespace: false,
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -796,6 +799,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: None,
             fills: &[],
+            whitespace: false,
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
@@ -1044,6 +1048,7 @@ mod tests {
             cursor_style: CursorStyle::Hollow,
             preedit: None,
             fills: &[],
+            whitespace: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1136,6 +1141,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: None,
             fills: &[],
+            whitespace: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 120), 0, content)];
         let limits = Limits {
@@ -1168,6 +1174,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: None,
             fills: &[],
+            whitespace: false,
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1194,6 +1201,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: None,
             fills: &[(Face::Region, &region)],
+            whitespace: false,
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
@@ -1232,6 +1240,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: Some(&preedit),
             fills: &[],
+            whitespace: false,
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1270,6 +1279,7 @@ mod tests {
                 cursor_style: CursorStyle::Box,
                 preedit: None,
                 fills: &[],
+                whitespace: false,
             })
         };
         let mut scene = Scene::new(LIMITS, theme());
@@ -1299,6 +1309,46 @@ mod tests {
     }
 
     #[test]
+    fn turning_whitespace_on_shapes_the_rows_again_and_draws_the_marks() {
+        let buffer = Buffer::from_text("t", "a\tb");
+        let content = |whitespace| {
+            PaneContent::Text(TextView {
+                display: buffer.display(),
+                buffer: id(),
+                revision: 1,
+                scroll: Scroll::default(),
+                cursor: DisplayPoint::new(1000, 0),
+                cursor_style: CursorStyle::Box,
+                preedit: None,
+                fills: &[],
+                whitespace,
+            })
+        };
+        let mut scene = Scene::new(LIMITS, theme());
+        let mut atlas = FakeAtlas::default();
+        build(
+            &mut scene,
+            &[pane(0, rect(0, 0, 1, 20), 0, content(false))],
+            &mut atlas,
+        );
+        let plain = scene.quads().len();
+        // The same revision: only the switch changed, and the row is shaped again.
+        let system = build(
+            &mut scene,
+            &[pane(0, rect(0, 0, 1, 20), 0, content(true))],
+            &mut atlas,
+        );
+        assert!(
+            system.shaped.iter().any(|piece| piece == "»"),
+            "{:?}",
+            system.shaped
+        );
+        assert_eq!(scene.quads().len(), plain + 1, "the tab's mark");
+        let mark = scene.quads()[1].color();
+        assert_eq!(mark, theme().foreground(Face::Whitespace));
+    }
+
+    #[test]
     fn a_box_followed_by_another_ends_a_pixel_short() {
         let buffer = Buffer::from_text("t", "\u{202e}\u{202e}a\u{202e}");
         let content = PaneContent::Text(TextView {
@@ -1310,6 +1360,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: None,
             fills: &[],
+            whitespace: false,
         });
         let mut scene = Scene::new(LIMITS, theme());
         build(
@@ -1341,6 +1392,7 @@ mod tests {
                 cursor_style: CursorStyle::Box,
                 preedit: None,
                 fills: &[],
+                whitespace: false,
             })
         };
         let panes = |first, second_id| {
@@ -1501,6 +1553,7 @@ mod tests {
             cursor_style: CursorStyle::Box,
             preedit: None,
             fills: &[],
+            whitespace: false,
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);

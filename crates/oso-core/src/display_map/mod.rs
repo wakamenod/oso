@@ -109,7 +109,35 @@ impl DisplayCluster<'_> {
     /// a space across a tab's cells, or an escape's label with one run per
     /// cell. Everything that draws the grid goes through here, so the
     /// renderer and the text-grid snapshots agree (ADR 0045).
-    pub fn for_each_run(&self, mut run: impl FnMut(CellRun<'_>)) {
+    pub fn for_each_run(&self, run: impl FnMut(CellRun<'_>)) {
+        self.for_each_run_with(false, run);
+    }
+
+    /// As [`Self::for_each_run`], with whitespace marked if `whitespace` is set: a tab's
+    /// first cell as `»`, a full-width space as `□` and another non-ASCII space as `·`
+    /// (ADR 0097). The marks are only drawn: the buffer's text is what it was.
+    pub fn for_each_run_with(&self, whitespace: bool, mut run: impl FnMut(CellRun<'_>)) {
+        if whitespace && let Some(mark) = self.whitespace_mark() {
+            run(CellRun {
+                column: self.column,
+                cells: if self.kind == CellKind::Tab {
+                    1
+                } else {
+                    self.cells
+                },
+                text: mark,
+                style: CellStyle::Whitespace,
+            });
+            if self.kind == CellKind::Tab && self.cells > 1 {
+                run(CellRun {
+                    column: self.column + 1,
+                    cells: self.cells - 1,
+                    text: " ",
+                    style: CellStyle::Text,
+                });
+            }
+            return;
+        }
         let text = match self.kind {
             CellKind::Text => self.text,
             // A space keeps ligatures from forming across the tab, and
@@ -143,6 +171,21 @@ impl DisplayCluster<'_> {
             text,
             style: CellStyle::Text,
         });
+    }
+}
+
+impl DisplayCluster<'_> {
+    /// The mark whitespace shows in this cluster's place, if it is whitespace that has one.
+    fn whitespace_mark(&self) -> Option<&'static str> {
+        match self.kind {
+            CellKind::Tab => Some("»"),
+            CellKind::Text => match self.text.chars().next()? {
+                '\u{3000}' => Some("□"),
+                '\u{a0}' | '\u{2000}'..='\u{200a}' | '\u{202f}' | '\u{205f}' => Some("·"),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 }
 
@@ -713,6 +756,45 @@ pub(crate) mod tests {
                 cell(14, 1, "2", CellStyle::Boxed),
                 cell(15, 1, "E", CellStyle::Boxed),
             ]
+        );
+    }
+
+    #[test]
+    fn whitespace_shown_marks_tabs_and_wide_and_other_spaces_and_nothing_else() {
+        let text = "a\tb\u{3000}c\u{a0}d\u{2009} e\u{200b}";
+        let snapshot = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
+        let drawn = |whitespace| {
+            let mut runs = Vec::new();
+            for cluster in snapshot.clusters(DisplayPoint::new(0, 0)) {
+                cluster.for_each_run_with(whitespace, |run| {
+                    runs.push((run.column, run.cells, run.text.to_owned(), run.style));
+                });
+            }
+            runs
+        };
+        let marks: Vec<_> = drawn(true)
+            .into_iter()
+            .filter(|run| run.3 == CellStyle::Whitespace)
+            .collect();
+        let mark =
+            |column, cells, text: &str| (column, cells, text.to_owned(), CellStyle::Whitespace);
+        // A tab's first cell, a full-width space across its two cells, and the no-break and
+        // thin spaces; neither a half-width space nor the zero-width space, which is boxed.
+        assert_eq!(
+            marks,
+            [
+                mark(1, 1, "»"),
+                mark(9, 2, "□"),
+                mark(12, 1, "·"),
+                mark(14, 1, "·")
+            ]
+        );
+        let tab_rest = drawn(true).into_iter().find(|run| run.0 == 2).unwrap();
+        assert_eq!(tab_rest, (2, 6, " ".to_owned(), CellStyle::Text));
+        assert!(
+            drawn(false)
+                .iter()
+                .all(|run| run.3 != CellStyle::Whitespace)
         );
     }
 

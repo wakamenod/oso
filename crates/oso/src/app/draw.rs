@@ -22,11 +22,14 @@ use crate::text;
 mod float;
 
 /// The cells a frame fills behind the text, kept from frame to frame so they are not
-/// allocated again: the regions' (ADR 0071) and isearch's matches' (ADR 0082).
+/// allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), and the current
+/// line's band and trailing whitespace (ADR 0097).
 #[derive(Default)]
 pub(super) struct Cells {
     region: Vec<frame::CellRect>,
     matches: MatchCells,
+    band: Vec<frame::CellRect>,
+    trailing: Vec<frame::CellRect>,
 }
 
 /// Calls `draw` with what the frame shows, for the renderer. The cells behind the text go
@@ -58,8 +61,14 @@ pub(super) fn with_panes<R>(
     ];
     editor.region_cells(&mut cells.region);
     editor.isearch_cells(&mut cells.matches);
-    // The current match first, so that it always has room, and the regions over the matches.
+    editor.trailing_cells(&mut cells.trailing);
+    cells.band.clear();
+    cells.band.extend(editor.current_line_cells());
+    // From the back: the current line's band, trailing whitespace, then the current match
+    // first, so that it always has room, and the regions over the matches.
     let fills = [
+        (Face::CurrentLine, &cells.band[..]),
+        (Face::TrailingWhitespace, &cells.trailing[..]),
         (Face::SearchCurrent, &cells.matches.current[..]),
         (Face::SearchMatch, &cells.matches.others[..]),
         (Face::Region, &cells.region[..]),
@@ -106,6 +115,7 @@ fn panes<'a>(
         },
         preedit: editor.preedit().filter(|_| !beneath),
         fills,
+        whitespace: editor.visual_aids().whitespace,
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),

@@ -8,6 +8,7 @@
 //! host-owned state and does not know its keys.
 
 mod agent;
+mod aids;
 mod buffers;
 mod complete;
 #[cfg(feature = "dev")]
@@ -38,6 +39,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    aids::COMMANDS,
     agent::COMMANDS,
     complete::COMMANDS,
     #[cfg(feature = "dev")]

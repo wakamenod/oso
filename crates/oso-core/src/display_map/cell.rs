@@ -80,6 +80,9 @@ pub enum CellStyle {
     /// The label of a boxed character: invisible (`U+202E`), or past a display
     /// cluster's limits (`U+0301`).
     Boxed,
+    /// A mark where whitespace is, drawn only while whitespace is shown (ADR 0097): `»` in
+    /// a tab's first cell, `□` across a full-width space, `·` on another non-ASCII space.
+    Whitespace,
 }
 
 /// Classifies a grapheme cluster and gives its width in cells. A tab's width

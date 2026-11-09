@@ -71,6 +71,12 @@ enum Name {
     Hairline,
     Border,
     Shadow,
+    /// Whitespace's marks: dim, to notice rather than read.
+    FgWhitespace,
+    /// Trailing whitespace's fill.
+    BgTrailing,
+    /// The current line's band.
+    BgCurrentLine,
 }
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
@@ -212,7 +218,7 @@ impl Theme {
 }
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 21] = [
+const FACES: [Face; 24] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -234,6 +240,9 @@ const FACES: [Face; 21] = [
     Face::CompletionPrompt,
     Face::SearchMatch,
     Face::SearchCurrent,
+    Face::Whitespace,
+    Face::TrailingWhitespace,
+    Face::CurrentLine,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -261,6 +270,9 @@ const fn index(face: Face) -> usize {
         Face::CompletionPrompt => 18,
         Face::SearchMatch => 19,
         Face::SearchCurrent => 20,
+        Face::Whitespace => 21,
+        Face::TrailingWhitespace => 22,
+        Face::CurrentLine => 23,
     }
 }
 
@@ -291,6 +303,9 @@ fn faces(face: Face) -> (Name, Name) {
         Face::CompletionPrompt => (Teal, BgMain),
         Face::SearchMatch => (FgMain, BgMatch),
         Face::SearchCurrent => (FgMain, BgCurrent),
+        Face::Whitespace => (FgWhitespace, BgMain),
+        Face::TrailingWhitespace => (FgMain, BgTrailing),
+        Face::CurrentLine => (FgMain, BgCurrentLine),
     }
 }
 
@@ -319,6 +334,9 @@ fn dark(name: Name) -> Color {
         Slate => rgb(0x9fabd2),
         Azure => rgb(0x6cc4ff),
         Teal => rgb(0x5ad6ae),
+        FgWhitespace => rgb(0x9aa0b8),
+        BgTrailing => rgb(0x3a1b22),
+        BgCurrentLine => rgb(0x181a22),
         Hairline => rgba(0xffffff, 0.05),
         Border => rgb(0x30344a),
         Shadow => rgba(0x000000, 0.6),
@@ -349,6 +367,9 @@ fn light(name: Name) -> Color {
         Slate => rgb(0x46507a),
         Azure => rgb(0x0058b0),
         Teal => rgb(0x006b52),
+        FgWhitespace => rgb(0x5f6577),
+        BgTrailing => rgb(0xf5d6d6),
+        BgCurrentLine => rgb(0xeeefe8),
         Hairline => rgba(0x000000, 0.08),
         Border => rgb(0xc2c6d4),
         Shadow => rgba(0x1a1f33, 0.18),
@@ -381,6 +402,9 @@ fn dusk(name: Name) -> Color {
         Slate => rgb(0xaeb8de),
         Azure => rgb(0x4fc3ff),
         Teal => rgb(0x5fd7af),
+        FgWhitespace => rgb(0xa3a7bd),
+        BgTrailing => rgb(0x5d3a46),
+        BgCurrentLine => rgb(0x4a4a52),
         Hairline => rgba(0xffffff, 0.035),
         Border => rgb(0x505265),
         Shadow => rgba(0x08090e, 0.55),
@@ -487,10 +511,13 @@ pub(crate) mod tests {
     fn pairs(face: Face) -> &'static [(Face, f32)] {
         const READ: f32 = 7.0;
         const LABEL: f32 = 4.5;
+        // Marks to notice, not text to read (ADR 0097).
+        const MARK: f32 = 3.0;
         const LIST: [Face; 2] = [Face::Text, Face::CompletionSelected];
         match face {
             Face::Text => &[
                 (Face::Text, READ),
+                (Face::CurrentLine, READ),
                 (Face::Region, READ),
                 (Face::SearchMatch, READ),
                 (Face::SearchCurrent, READ),
@@ -506,6 +533,7 @@ pub(crate) mod tests {
             // modeline's name and on a float.
             Face::Escape => &[
                 (Face::Text, LABEL),
+                (Face::CurrentLine, LABEL),
                 (Face::Region, LABEL),
                 (Face::SearchMatch, LABEL),
                 (Face::SearchCurrent, LABEL),
@@ -520,6 +548,15 @@ pub(crate) mod tests {
                 &[(LIST[0], LABEL), (LIST[1], LABEL)]
             }
             Face::CompletionPrompt => &[(Face::Text, LABEL)],
+            // A mark sits on everything behind buffer text.
+            Face::Whitespace => &[
+                (Face::Text, MARK),
+                (Face::CurrentLine, MARK),
+                (Face::TrailingWhitespace, MARK),
+                (Face::Region, MARK),
+                (Face::SearchMatch, MARK),
+                (Face::SearchCurrent, MARK),
+            ],
             // Drawn as fills or lines, checked as such below.
             Face::Preedit
             | Face::FloatBorder
@@ -527,7 +564,9 @@ pub(crate) mod tests {
             | Face::Region
             | Face::CompletionSelected
             | Face::SearchMatch
-            | Face::SearchCurrent => &[],
+            | Face::SearchCurrent
+            | Face::TrailingWhitespace
+            | Face::CurrentLine => &[],
         }
     }
 
@@ -665,9 +704,38 @@ pub(crate) mod tests {
                 // A key's chip and an input field sit on a float's fill.
                 (Face::Key, float),
                 (Face::Field, float),
+                (Face::CurrentLine, behind_text),
+                (Face::TrailingWhitespace, behind_text),
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
+            }
+        }
+    }
+
+    #[test]
+    fn what_fills_a_line_stands_apart_from_the_current_lines_band() {
+        for theme in &themes() {
+            let band = theme.background(Face::CurrentLine);
+            for face in [
+                Face::Region,
+                Face::SearchMatch,
+                Face::SearchCurrent,
+                Face::TrailingWhitespace,
+            ] {
+                let apart = distance(theme.background(face), band);
+                assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
+            }
+        }
+    }
+
+    #[test]
+    fn a_whitespace_mark_is_in_no_colour_text_is_drawn_in() {
+        for theme in &themes() {
+            let mark = theme.foreground(Face::Whitespace);
+            for face in [Face::Text, Face::Escape, Face::Boxed, Face::Warning] {
+                let apart = distance(mark, theme.foreground(face));
+                assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
             }
         }
     }

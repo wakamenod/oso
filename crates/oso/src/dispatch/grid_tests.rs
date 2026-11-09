@@ -42,7 +42,7 @@ use oso_core::window::{Scroll, ViewSize};
 use super::Dispatcher;
 
 mod rows;
-use rows::{draw_row, draw_run};
+use rows::{Style, draw_row, draw_run};
 
 /// The frame's screen: its regions from the top, one line per row and one per
 /// marked row.
@@ -308,7 +308,12 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
                     let start = cells.column - preview.column;
                     start..start + cells.columns
                 });
-            let (text, marks) = draw_row(&display, row, scroll, preview.columns, cursor, None, 'o');
+            let style = Style {
+                cursor: 'o',
+                whitespace: false,
+            };
+            let (text, marks) =
+                draw_row(&display, row, scroll, preview.columns, cursor, None, style);
             // The cursor's mark shows in the text, as the row of marks is the list's.
             text.chars()
                 .zip(marks)
@@ -349,7 +354,19 @@ fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
         let start = cells.column - area.column;
         start..start + cells.columns
     });
-    draw_row(&display, point.row, scroll, area.columns, cursor, None, '^')
+    let style = Style {
+        cursor: '^',
+        whitespace: false,
+    };
+    draw_row(
+        &display,
+        point.row,
+        scroll,
+        area.columns,
+        cursor,
+        None,
+        style,
+    )
 }
 
 /// The tiled window's rows. Beneath a prompt, its cursor is hollow and it shows no preedit.
@@ -369,6 +386,9 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let mut found = oso_core::editor::MatchCells::default();
     editor.isearch_cells(&mut found);
     let (current, matches) = (found.current, found.others);
+    let (mut trailing, band) = (Vec::new(), editor.current_line_cells());
+    editor.trailing_cells(&mut trailing);
+    let whitespace = editor.visual_aids().whitespace;
     for index in 0..area.rows {
         let row = scroll.top + index;
         let cursor = cursor
@@ -380,15 +400,26 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
         let spliced = preedit
             .filter(|_| row == point.row)
             .map(|preedit| (point.column, preedit));
-        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor, spliced, mark);
+        let style = Style {
+            cursor: mark,
+            whitespace,
+        };
+        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor, spliced, style);
         lines.push(format!("│{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
             lines.push(format!(":{marks}:"));
         }
         let mut marks = vec![' '; area.columns];
-        // In the renderer's order, so a region shows over a match.
-        for (cells, mark) in [(&current, '#'), (&matches, '~'), (&region, '*')] {
+        // In the renderer's order, so a region shows over a match, and both over the band.
+        let band = band.as_slice();
+        let fills = [
+            (band, 'l'),
+            (&trailing[..], 't'),
+            (&current, '#'),
+            (&matches, '~'),
+        ];
+        for (cells, mark) in fills.into_iter().chain([(&region[..], '*')]) {
             for cells in cells.iter().filter(|cells| cells.row == area.row + index) {
                 let start = cells.column - area.column;
                 marks[start..start + cells.columns].fill(mark);
@@ -471,9 +502,21 @@ fn describe(bytes: &[u8]) -> String {
     out
 }
 
-/// An editor showing `bytes` in a window of `rows` by `columns`.
+/// Turns the visual aids off, so that a scenario shows only the aids it turns on
+/// (ADR 0097).
+fn aids_off(editor: &mut Editor) {
+    editor.set_visual_aids(oso_core::editor::VisualAids {
+        whitespace: false,
+        current_line: false,
+        flash: false,
+        line_numbers: false,
+    });
+}
+
+/// An editor showing `bytes` in a window of `rows` by `columns`, with the visual aids off.
 fn open(bytes: &[u8], (rows, columns): (usize, usize)) -> Editor {
     let mut editor = Editor::with_buffer(Buffer::from_bytes("test", bytes));
+    aids_off(&mut editor);
     editor.set_view_size(ViewSize::new(rows, columns));
     editor
 }
@@ -501,6 +544,7 @@ fn check_bytes(name: &str, bytes: &[u8], size: (usize, usize), steps: &[&str]) {
 /// it reserves come out of them.
 fn check_frame(name: &str, text: &str, (rows, columns): (usize, usize), steps: &[&str]) {
     let mut editor = Editor::with_buffer(Buffer::from_bytes("test", text.as_bytes()));
+    aids_off(&mut editor);
     editor.set_frame_size(FrameSize { rows, columns });
     check_editor(name, text.as_bytes(), editor, steps);
 }
@@ -574,6 +618,30 @@ mod scenarios {
             "bell\x07 del\x7f nul\0\nc1\u{85} esc\x1b[31m",
             (2, 24),
             &[""],
+        );
+    }
+
+    /// The keys that run `command` from `M-x`.
+    fn m_x(command: &str) -> String {
+        let typed: Vec<String> = command.chars().map(String::from).collect();
+        format!("M-x {} RET", typed.join(" "))
+    }
+
+    #[test]
+    fn whitespace_marks_tabs_and_spaces_and_fills_trailing_runs_but_the_cursors() {
+        let text = "a\tb\u{3000}c\u{a0}d  \ne\t \nf  \n";
+        let on = m_x("global-whitespace-mode");
+        check("whitespace_marks", text, (4, 24), &["", &on, "C-n"]);
+    }
+
+    #[test]
+    fn the_current_line_band_follows_the_primary_cursor() {
+        let on = m_x("global-hl-line-mode");
+        check(
+            "current_line_band",
+            "one\ntwo\nthree\n",
+            (4, 12),
+            &[&on, "C-n"],
         );
     }
 
@@ -710,6 +778,7 @@ mod scenarios {
     #[test]
     fn c_x_b_previews_the_selected_buffer_but_never_one_that_may_hold_secrets() {
         let mut editor = Editor::with_buffer(Buffer::from_text("plan.md", "budget\nhiring\n"));
+        aids_off(&mut editor);
         editor.set_frame_size(FrameSize {
             rows: 24,
             columns: 100,
@@ -997,6 +1066,7 @@ mod scenarios {
         let text = "a\u{202e}b\n";
         let mut frames = Vec::new();
         let mut editor = Editor::with_buffer(Buffer::from_bytes("test", text.as_bytes()));
+        aids_off(&mut editor);
         editor.message("Wrote test");
         for rows in [4, 3, 2, 1, 0] {
             editor.set_frame_size(FrameSize { rows, columns: 40 });
@@ -1009,6 +1079,7 @@ mod scenarios {
     fn a_long_name_cannot_push_a_warning_off_the_row() {
         let name = format!("{}.md", "very-long-name-".repeat(10));
         let mut editor = Editor::with_buffer(Buffer::from_text(name, "\u{2066}\n"));
+        aids_off(&mut editor);
         editor.set_frame_size(FrameSize {
             rows: 4,
             columns: 50,
@@ -1021,6 +1092,7 @@ mod scenarios {
     fn a_name_from_disk_is_escaped_on_the_modeline() {
         let name = "a\nb\u{202e}\u{1b}c\tいe\u{301}.txt";
         let mut editor = Editor::with_buffer(Buffer::from_text(name, ""));
+        aids_off(&mut editor);
         editor.message(format!("Wrote {name}"));
         editor.set_frame_size(FrameSize {
             rows: 3,
@@ -1041,6 +1113,7 @@ mod scenarios {
         buffer.apply_load(oso_core::load::decode_all(text, Default::default()));
         buffer.judge_secret(Some(&[path]));
         let mut editor = Editor::with_buffer(buffer);
+        aids_off(&mut editor);
         editor.set_frame_size(FrameSize {
             rows: 4,
             columns: 40,
@@ -1057,6 +1130,7 @@ mod scenarios {
         buffer.judge_secret(Some(&[path]));
         buffer.set_copy_waits(true);
         let mut editor = Editor::with_buffer(buffer);
+        aids_off(&mut editor);
         editor.set_frame_size(FrameSize {
             rows: 4,
             columns: 60,
@@ -1077,6 +1151,7 @@ mod scenarios {
             "a\\nb\\u{202e}.txt     2 days ago  ?          88 B  not open         /home/me/a\\nb\\u{202e}.txt\n",
         );
         let mut editor = Editor::default();
+        aids_off(&mut editor);
         editor.set_frame_size(FrameSize {
             rows: 6,
             columns: 110,

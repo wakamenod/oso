@@ -60,6 +60,13 @@ pub enum Face {
     SearchMatch,
     /// The current isearch match, which stands out from the others.
     SearchCurrent,
+    /// A whitespace mark: `»`, `□` or `·` (ADR 0097). Used by nothing else, so a mark is
+    /// never taken for text that reads the same.
+    Whitespace,
+    /// Trailing whitespace's fill, behind the text.
+    TrailingWhitespace,
+    /// The band on the primary cursor's row, at the back of the fills.
+    CurrentLine,
 }
 
 impl Face {
@@ -70,6 +77,7 @@ impl Face {
             CellStyle::Text => self,
             CellStyle::Escape => Self::Escape,
             CellStyle::Boxed => Self::Boxed,
+            CellStyle::Whitespace => Self::Whitespace,
         }
     }
 }
@@ -146,6 +154,8 @@ pub struct TextView<'a> {
     /// marks and cursors (ADR 0071), as `Editor::isearch_cells` and `frame::region_cells`
     /// give them.
     pub fills: &'a [(Face, &'a [CellRect])],
+    /// Whether whitespace is marked (ADR 0097). A change shapes the rows in view again.
+    pub whitespace: bool,
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its

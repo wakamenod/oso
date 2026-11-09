@@ -620,6 +620,7 @@ pub enum oso_core::display_map::cell::CellStyle
 pub oso_core::display_map::cell::CellStyle::Boxed
 pub oso_core::display_map::cell::CellStyle::Escape
 pub oso_core::display_map::cell::CellStyle::Text
+pub oso_core::display_map::cell::CellStyle::Whitespace
 impl core::clone::Clone for oso_core::display_map::cell::CellStyle
 pub fn oso_core::display_map::cell::CellStyle::clone(&self) -> oso_core::display_map::cell::CellStyle
 impl core::cmp::Eq for oso_core::display_map::cell::CellStyle
@@ -763,6 +764,7 @@ pub enum oso_core::display_map::CellStyle
 pub oso_core::display_map::CellStyle::Boxed
 pub oso_core::display_map::CellStyle::Escape
 pub oso_core::display_map::CellStyle::Text
+pub oso_core::display_map::CellStyle::Whitespace
 impl core::clone::Clone for oso_core::display_map::cell::CellStyle
 pub fn oso_core::display_map::cell::CellStyle::clone(&self) -> oso_core::display_map::cell::CellStyle
 impl core::cmp::Eq for oso_core::display_map::cell::CellStyle
@@ -800,6 +802,7 @@ pub oso_core::display_map::DisplayCluster::offset: usize
 pub oso_core::display_map::DisplayCluster::text: &'a str
 impl oso_core::display_map::DisplayCluster<'_>
 pub fn oso_core::display_map::DisplayCluster<'_>::for_each_run(&self, impl core::ops::function::FnMut(oso_core::display_map::CellRun<'_>))
+pub fn oso_core::display_map::DisplayCluster<'_>::for_each_run_with(&self, bool, impl core::ops::function::FnMut(oso_core::display_map::CellRun<'_>))
 impl<'a> core::clone::Clone for oso_core::display_map::DisplayCluster<'a>
 pub fn oso_core::display_map::DisplayCluster<'a>::clone(&self) -> oso_core::display_map::DisplayCluster<'a>
 impl<'a> core::cmp::Eq for oso_core::display_map::DisplayCluster<'a>
@@ -1232,6 +1235,11 @@ pub fn oso_core::editor::Editor::start_save(&mut self) -> core::result::Result<b
 pub fn oso_core::editor::Editor::start_save_over(&mut self) -> core::result::Result<bool, oso_core::editor::SaveRefused>
 pub fn oso_core::editor::Editor::take_save_jobs(&mut self) -> alloc::vec::Vec<oso_core::editor::SaveJob>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::current_line_cells(&self) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::editor::Editor::set_visual_aids(&mut self, oso_core::editor::VisualAids)
+pub fn oso_core::editor::Editor::trailing_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::editor::Editor::visual_aids(&self) -> oso_core::editor::VisualAids
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_area(&self, oso_core::frame::PixelGrid) -> core::option::Option<oso_core::frame::PixelRect>
 pub fn oso_core::editor::Editor::deactivate_mark(&mut self) -> bool
 pub fn oso_core::editor::Editor::follow_cursor(&mut self) -> bool
@@ -1434,6 +1442,22 @@ pub fn oso_core::editor::Status::default() -> oso_core::editor::Status
 impl core::fmt::Debug for oso_core::editor::Status
 pub fn oso_core::editor::Status::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Status
+pub struct oso_core::editor::VisualAids
+pub oso_core::editor::VisualAids::current_line: bool
+pub oso_core::editor::VisualAids::flash: bool
+pub oso_core::editor::VisualAids::line_numbers: bool
+pub oso_core::editor::VisualAids::whitespace: bool
+impl core::clone::Clone for oso_core::editor::VisualAids
+pub fn oso_core::editor::VisualAids::clone(&self) -> oso_core::editor::VisualAids
+impl core::cmp::Eq for oso_core::editor::VisualAids
+impl core::cmp::PartialEq for oso_core::editor::VisualAids
+pub fn oso_core::editor::VisualAids::eq(&self, &oso_core::editor::VisualAids) -> bool
+impl core::default::Default for oso_core::editor::VisualAids
+pub fn oso_core::editor::VisualAids::default() -> Self
+impl core::fmt::Debug for oso_core::editor::VisualAids
+pub fn oso_core::editor::VisualAids::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::VisualAids
+impl core::marker::StructuralPartialEq for oso_core::editor::VisualAids
 pub const oso_core::editor::SCRATCH: &str
 pub fn oso_core::editor::row_text(&str) -> alloc::string::String
 pub mod oso_core::frame

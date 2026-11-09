@@ -37,6 +37,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 mod agent;
+mod aids;
 mod completion;
 mod copies;
 mod excerpt;
@@ -57,6 +58,7 @@ mod write;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use agent::AgentChannel;
+pub use aids::VisualAids;
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use files::Looked;
@@ -183,6 +185,7 @@ pub struct Editor {
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
     reverts: Vec<(BufferId, ContentId)>,
     themes: themes::Themes,
+    aids: VisualAids,
 }
 
 impl Default for Editor {
@@ -238,6 +241,7 @@ impl Editor {
             search_job: None,
             reverts: Vec::new(),
             themes: themes::Themes::default(),
+            aids: VisualAids::default(),
         };
         let id = editor.add_buffer(buffer);
         editor.windows.push(Window::new(id));

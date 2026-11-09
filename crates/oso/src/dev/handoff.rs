@@ -31,7 +31,7 @@ use std::hash::{Hash, Hasher};
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
 use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
-use oso_core::editor::{Editor, SCRATCH};
+use oso_core::editor::{Editor, SCRATCH, VisualAids};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::kill::KillEntry;
@@ -148,6 +148,8 @@ pub fn export(
         // The theme drawn in, so a restart right after a switch does not wait for the
         // remembered one to be written (ADR 0089).
         "theme": editor.theme_name(),
+        // The visual aids, which nothing else remembers until configuration (ADR 0097).
+        "visual_aids": aids_state(editor.visual_aids()),
         "frame": frame.map(|frame| json!({
             "x": frame.position.map(|position| position.0),
             "y": frame.position.map(|position| position.1),
@@ -554,6 +556,38 @@ fn export_value(
 
 #[cfg(test)]
 mod internal_tests;
+/// The visual aids as a state holds them.
+pub(crate) fn aids_state(aids: VisualAids) -> Value {
+    json!({
+        "whitespace": aids.whitespace,
+        "current_line": aids.current_line,
+        "flash": aids.flash,
+        "line_numbers": aids.line_numbers,
+    })
+}
+
+/// The visual aids, if the state has them. A state from before them has none, and the
+/// new instance keeps ADR 0026's defaults.
+fn parse_aids(state: &Map<String, Value>) -> Result<Option<VisualAids>, String> {
+    let Some(aids) = state.get("visual_aids").filter(|aids| !aids.is_null()) else {
+        return Ok(None);
+    };
+    let aids = aids
+        .as_object()
+        .ok_or("the visual aids are not an object")?;
+    let on = |name: &str| {
+        aids.get(name)
+            .and_then(Value::as_bool)
+            .ok_or_else(|| format!("the visual aids have no {name}"))
+    };
+    Ok(Some(VisualAids {
+        whitespace: on("whitespace")?,
+        current_line: on("current_line")?,
+        flash: on("flash")?,
+        line_numbers: on("line_numbers")?,
+    }))
+}
+
 /// The theme's name, if the state has one, as the built-in themes are named: up to 32
 /// lower-case letters, digits and `-`. A state from before themes has none.
 fn parse_theme(state: &Map<String, Value>) -> Result<Option<String>, String> {
