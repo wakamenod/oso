@@ -127,6 +127,21 @@ impl core::marker::StructuralPartialEq for oso_render::Bands
 pub struct oso_render::Capture
 impl oso_render::Capture
 pub fn oso_render::Capture::wait(self) -> core::result::Result<oso_render::Image, oso_render::CaptureError>
+pub struct oso_render::FrameTimes
+pub oso_render::FrameTimes::acquired: core::time::Duration
+pub oso_render::FrameTimes::prepared: core::time::Duration
+pub oso_render::FrameTimes::presented: core::time::Duration
+impl core::clone::Clone for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::clone(&self) -> oso_render::FrameTimes
+impl core::cmp::Eq for oso_render::FrameTimes
+impl core::cmp::PartialEq for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::eq(&self, &oso_render::FrameTimes) -> bool
+impl core::default::Default for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::default() -> oso_render::FrameTimes
+impl core::fmt::Debug for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::FrameTimes
+impl core::marker::StructuralPartialEq for oso_render::FrameTimes
 pub struct oso_render::GpuInfo
 pub oso_render::GpuInfo::kind: &'static str
 pub oso_render::GpuInfo::name: alloc::string::String
@@ -202,6 +217,7 @@ pub fn oso_render::RenderState::capture(&mut self, &[oso_render::Pane<'_>]) -> c
 impl oso_render::RenderState
 pub fn oso_render::RenderState::cell_metrics(&self) -> oso_platform::text::CellMetrics
 pub fn oso_render::RenderState::frame_size(&self) -> oso_core::frame::FrameSize
+pub fn oso_render::RenderState::last_frame_times(&self) -> oso_render::FrameTimes
 pub async fn oso_render::RenderState::new(alloc::sync::Arc<dyn wgpu::api::surface::DisplayAndWindowHandle>, u32, u32, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> Self
 pub fn oso_render::RenderState::pixel_grid(&self) -> oso_core::frame::PixelGrid
 pub fn oso_render::RenderState::presented_frames(&self) -> u64

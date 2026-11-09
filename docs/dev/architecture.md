@@ -118,7 +118,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   invalid bytes), its file information, its loading progress and its undo
   history. A window
   (`oso_core::window`) shows one buffer with its own selection set and
-  scroll position. There is one window until splits (M3). See
+  scroll position. With soft wrap (M2-25) it also holds its wrap of the
+  buffer, and its top becomes an offset
+  ([ADR 0100](adr/0100-soft-wrap.md)). There is one window until splits (M3). See
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md). A pure function,
   `oso_core::frame::layout`, divides the frame into whole cells: its size is the
   window's text area, above a modeline row and the echo area
@@ -149,7 +151,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   that show the cursor (`scroll-conservatively` 101). `C-v`, `M-v` and the
   mouse wheel set the window's top row with `Window::set_top`, the one
   place that moves cursors left behind into view. `Editor::restore_positions`
-  puts back cursors and a view saved together and then follows the cursor. A
+  puts back cursors and a view saved together and then follows the cursor.
+  With soft wrap, scrolling counts view rows and the top is an offset, while
+  motion stays on logical lines ([ADR 0100](adr/0100-soft-wrap.md)). A
   selected window that gets taller also pulls its top row back by at most the rows
   it gained, to fill empty rows below the last one, so one that was short at the
   end of a buffer shows its text again. `Editor::scroll_view_sideways`, for the wheel,
@@ -271,7 +275,9 @@ through a stack of transforms. It supports folding, virtual text, soft wrap
 (off by default), block decorations and variable row heights. Today only
 the TabMap exists (`oso_core::display_map`): it expands tabs, measures
 grapheme clusters on the cell grid and shows invalid bytes as `\xNN`, and
-rows are buffer lines. See
+rows are buffer lines. Soft wrap (M2-25) keeps a `DisplayPoint`'s row a
+logical line and adds each window's WrapMap, whose view rows are what the
+window shows ([ADR 0100](adr/0100-soft-wrap.md)). See
 [`display-model.md`](display-model.md),
 [ADR 0006](adr/0006-display-model.md) and
 [ADR 0035](adr/0035-sumtree-rope-and-cell-grid.md). The M2 screen layout is in
@@ -303,7 +309,8 @@ null text system: the cursor is drawn on the grid, and no text. See
   while its font is loaded.
 - **Per frame**, only visible rows are drawn, and of each only the visible
   columns, widened to 64-column steps, are shaped. Shaping is cached by
-  display row. An entry is reused without looking at the buffer while the
+  display row, the row's place on the screen, which soft wrap makes a view
+  row ([ADR 0100](adr/0100-soft-wrap.md)). An entry is reused without looking at the buffer while the
   revision holds. After a change, the row's shaped columns are read again
   and it is reused if the shaper's input is the same: the text and each
   cluster's column, cells and face. That is what "the bytes it covers and
