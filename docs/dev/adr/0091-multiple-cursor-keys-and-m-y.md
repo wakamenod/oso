@@ -1,6 +1,6 @@
 # 0091. Multiple-cursor keys and `M-y`
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-09
 
 ## Context
@@ -46,7 +46,9 @@ cursors after each edit. The editor has no mouse clicks yet.
 ## Decision
 
 The author chose on 2026-11-09 the first option of each question under [Questions](#questions),
-which the text below describes. The rest are defaults put to them with this ADR.
+which the text below describes. The rest are defaults put to them with this ADR. They accepted
+this ADR, with the rest as written and the new public items it names, on 2026-11-09, through
+the coordinator.
 
 ### Adding cursors
 
