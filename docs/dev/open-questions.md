@@ -261,6 +261,10 @@ item notes when it must be settled.
 - Remove `Editor::set_view_size` and `FrameSize::holding` from the public API once
   M2-9 has merged. Production uses only `set_frame_size`, and the rest are test helpers
   ([ADR 0057](adr/0057-frame-layout.md)).
+- Any input-method report, even an empty preedit or `Disabled` with no composition open,
+  counts as the person typing and restarts the 500 ms wait before a question the agent caused
+  takes an answer. It could count only text or the end of a composition that was open. Kept
+  for now, as the cautious side ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 ## M3
 
