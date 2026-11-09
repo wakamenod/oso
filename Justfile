@@ -141,6 +141,9 @@ release-safety:
     # Dev method names too: with serde_json shipping, they show that no dev method got into
     # the agent channel (ADR 0085).
     markers="oso-dev-control-socket oso-dev-process-spawn send-keys export-state"
+    # On macOS, the window layer's dev-only Carbon import, for the dev socket's secure input
+    # check (ADR 0070, ADR 0073).
+    if [ "$(uname -s)" = Darwin ]; then markers="$markers IsSecureEventInputEnabled"; fi
     tree() {
         cargo tree --locked --workspace --target all -e normal,build --prefix none \
             --format '{p} [{f}]' "$@" | sort -u

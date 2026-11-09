@@ -79,7 +79,8 @@ the window.
 ## Layers
 
 ```
-OS events (winit, through app/shell.rs)
+OS events (oso_platform::window through app/native.rs on macOS,
+           winit through app/shell.rs elsewhere)
    │
    ▼
 Input: key translation into oso_core::key::KeyPress

@@ -157,21 +157,21 @@ and below the row, and a label's glyphs keep their own cells
 - The OS input method is off in a buffer that may hold secrets, as in macOS password
   fields, and gets no cursor area there. A preedit is in no buffer, copy, handoff or log
   ([ADR 0069](adr/0069-macos-input-method.md)).
-- With oso's own macOS window layer, a buffer that may hold secrets gets secure input while it
-  is selected and oso is in front with the keyboard, as a password field does: keystrokes
-  stay with oso. The window layer holds one enable at a time and releases it when any of that
-  stops, when the loop ends and after a panic in the handler
+- On macOS, a buffer that may hold secrets gets secure input while it is selected and oso is
+  in front with the keyboard, as a password field does: keystrokes stay with oso. The window
+  layer holds one enable at a time and releases it when any of that stops, when the loop
+  ends and after a panic in the handler
   ([ADR 0073](adr/0073-secure-input-in-secret-buffers.md)).
-- With oso's own macOS window layer, the input method's process, and the system's other text
-  services that read a view the same way, can read up to 2000 bytes of the cursor's line on
-  each side of the cursor while the IME is on, from a buffer whose verdict is `Ordinary`
-  only, and never from an internal buffer or a prompt: nothing is read from any other. The
-  window layer drops the excerpt when the IME goes off and after a panic in the handler.
-  Writing Tools are off for the view, and while the IME is off it gives no input context.
-  The excerpt is never logged, and the dev socket says only how long it is and where the
-  cursor is in it, and nothing while a buffer that may hold secrets is shown. The guard is
-  the buffer's verdict alone: text yanked from a secret buffer into an ordinary one goes to
-  the input method from there, as it would through the clipboard
+- On macOS, the input method's process, and the system's other text services that read a
+  view the same way, can read up to 2000 bytes of the cursor's line on each side of the
+  cursor while the IME is on, from a buffer whose verdict is `Ordinary` only, and never from
+  an internal buffer or a prompt: nothing is read from any other. The window layer drops the
+  excerpt when the IME goes off and after a panic in the handler. Writing Tools are off for
+  the view, and while the IME is off it gives no input context. The excerpt is never logged,
+  and the dev socket says only how long it is and where the cursor is in it, and nothing
+  while a buffer that may hold secrets is shown. The guard is the buffer's verdict alone:
+  text yanked from a secret buffer into an ordinary one goes to the input method from there,
+  as it would through the clipboard
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. oso reads the

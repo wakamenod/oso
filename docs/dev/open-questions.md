@@ -246,9 +246,9 @@ item notes when it must be settled.
   composition committed when the IME turns off, the candidate window following the segment
   being converted, also near the right edge, nothing typed from the Emoji & Symbols palette
   while the IME is off, a Dock quit asking the exit question, and a live resize with no text
-  stretched or smeared and `get-state`'s `live_resize` showing a frame for each step. Not
-  checked: Writing Tools, as Apple Intelligence is off on the author's machine; and a real
-  Log Out, which the e2e flow sends as the system's Apple event
+  stretched or smeared and `get-state`'s `live_resize` showing a frame for each step.
+  Accepted unchecked by the author: Writing Tools, and a real Log Out, which the e2e flow
+  covers with the system's own Apple event
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0073](adr/0073-secure-input-in-secret-buffers.md),
   [ADR 0084](adr/0084-a-persons-quit-asks-as-c-x-c-c-does.md),
@@ -259,7 +259,7 @@ item notes when it must be settled.
   ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
 - The cursor's line for the input method and typing in one long line: on the native layer,
   typing and deleting in a 10 MB line were about 0.3 ms slower per key once the excerpt was
-  given, in every run on the Mac mini on 2026-11-09, far under the 5 ms gate. Cutting the
+  given, in every run on a second Mac on 2026-11-09, far under the 5 ms gate. Cutting the
   excerpt there takes about 3 µs, with or without an edit before it, handing it to the window
   is a swap, and motion keys, which give a new excerpt too, did not move. Find where the time
   goes with the same build run against itself with no excerpt given

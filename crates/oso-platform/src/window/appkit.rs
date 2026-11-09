@@ -1,6 +1,6 @@
-//! The native macOS window layer (ADR 0070, stage 2): `NSApplication`'s run loop, one
-//! `NSWindow` and a view of oso's own that takes keys and the input method, reported as
-//! `window`'s events to a [`Handler`].
+//! oso's own macOS window layer, the window system there since ADR 0070's stage 3:
+//! `NSApplication`'s run loop, one `NSWindow` and a view of oso's own that takes keys and the
+//! input method, reported as `window`'s events to a [`Handler`].
 //!
 //! Must not depend on: `text`, `control`, `process` or any workspace crate.
 //!
