@@ -239,7 +239,7 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
   on a tab (built in M1-6).
 - With multiple cursors, secondary cursors use a dimmer color.
 - After a large jump or scroll, the cursor position flashes briefly
-  (beacon-style).
+  (beacon-style, [ADR 0097](adr/0097-visual-aids.md)).
 
 ## Themes
 
@@ -308,14 +308,24 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 
 ## Visual aids
 
-On by default and toggleable from the toggle menu:
+On by default, each toggled by an `M-x` command for every buffer, and from the toggle
+menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
 
-- **Whitespace visualization**: full-width spaces shown as `□`, plus trailing
-  whitespace and tabs.
-- **Cursor flash** after large jumps.
-- **Current line highlight.**
+- **Whitespace** (`whitespace-mode`):
+  - a full-width space shows as `□`, and a tab as a dim `»` in its first cell;
+  - trailing spaces and tabs get a fill, except on a line with a cursor;
+  - half-width spaces are not marked.
+- **Current line** (`global-hl-line-mode`): a band across the window on the primary
+  cursor's row, behind the region and isearch's matches.
+- **Cursor flash** (`beacon-mode`): after the cursor moves 5 or more rows, the window
+  scrolls, or another buffer or window is shown, a band from the cursor to the window's
+  edge fades out over about 0.4 s. The next key ends it.
 
-Off by default: line numbers.
+Off by default: **line numbers** (`display-line-numbers-mode`). They are absolute, the
+current one brighter, in a gutter as wide as the line count's digits plus one, at least
+3 digits.
+
+None of these is remembered across starts until configuration exists (M3).
 
 ## Bidirectional and invisible characters
 

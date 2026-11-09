@@ -305,6 +305,11 @@ item notes when it must be settled.
 
 ## M3
 
+- The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
+  modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
+  every buffer by `M-x` and start from ADR 0026's defaults
+  ([ADR 0097](adr/0097-visual-aids.md)).
+
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration
   names the default theme and `<f5>`'s pair
