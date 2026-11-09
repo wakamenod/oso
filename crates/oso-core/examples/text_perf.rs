@@ -25,6 +25,8 @@ use oso_core::word;
 
 #[path = "text_perf/cursors.rs"]
 mod cursors;
+#[path = "text_perf/words.rs"]
+mod words;
 
 const MB: usize = 1024 * 1024;
 const QUERIES: usize = 100_000;
@@ -318,8 +320,8 @@ fn word_count_costs(label: &str, text: &str) {
     );
 }
 
-/// What word motion costs, on ordinary text and on runs with no boundary. Run with
-/// the argument `words` for this alone.
+/// What word motion costs, on ordinary text and on runs with no boundary, and at several
+/// cursors with TAB beside it. Run with the argument `words` for this alone.
 fn word_motion_costs() {
     println!("== Word motion, one key at a time");
     word_costs("100 MB file", &file_text(100 * MB));
@@ -353,6 +355,8 @@ fn word_motion_costs() {
     word_count_costs("10 MB line of 語", &"語".repeat(10 * MB / 3));
     let chain = ["👨"; 8].join("\u{200d}");
     word_count_costs("10 MB of ZWJ chains", &chain.repeat(10 * MB / chain.len()));
+    println!();
+    words::cursor_costs();
 }
 
 #[expect(

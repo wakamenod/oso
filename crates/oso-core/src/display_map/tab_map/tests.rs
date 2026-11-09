@@ -1,6 +1,7 @@
 //! Tests that a TabMap whose chunks keep checkpoints (ADR 0099) answers as a scan of every
 //! chunk from its start does: points, offsets, clusters and rows, with invalid bytes, any
-//! tab width, after edits, in snapshots taken before them, and read from several threads.
+//! tab width, after edits, in snapshots taken before them, and read from several threads;
+//! and the columns after an insertion that `column_after` tells (ADR 0101).
 //!
 //! Must not depend on: the editor or a window.
 
@@ -177,6 +178,72 @@ proptest! {
             map.sync(&rope, &edit);
             answers_as_scanned(&map, &rope, &invalid, tab_width)?;
             answers_as_scanned(&before, &before_rope, &invalid, tab_width)?;
+        }
+    }
+}
+
+/// Whether [`TabMap::column_after`] answers as a walk of the clusters between does, for
+/// every pair of cluster starts on one line, `to` also at the line's end, with `from` at
+/// each column in `columns`.
+fn columns_after_answer_as_walked(
+    map: &TabMap,
+    clusters: &[Scanned],
+    tab_width: TabWidth,
+    columns: &[usize],
+) -> Result<(), TestCaseError> {
+    for (index, from) in clusters.iter().enumerate() {
+        if from.kind == CellKind::LineBreak {
+            continue;
+        }
+        for &column in columns {
+            let mut walked = column;
+            for to in &clusters[index..] {
+                prop_assert_eq!(
+                    map.column_after(from.start, column, to.start),
+                    walked,
+                    "from {} at {} to {}",
+                    from.start,
+                    column,
+                    to.start
+                );
+                if to.kind == CellKind::LineBreak {
+                    break;
+                }
+                walked = match to.kind {
+                    CellKind::Tab => tab_width.next_stop(walked),
+                    _ => walked + to.cells,
+                };
+            }
+            if clusters[index..]
+                .iter()
+                .all(|to| to.kind != CellKind::LineBreak)
+            {
+                let end = clusters.last().map_or(0, |last| last.end);
+                prop_assert_eq!(map.column_after(from.start, column, end), walked);
+            }
+        }
+    }
+    Ok(())
+}
+
+proptest! {
+    // Each case checks every pair of cluster starts on a line.
+    #![proptest_config(ProptestConfig::with_cases(64))]
+
+    #[test]
+    fn column_after_answers_as_a_walk_between(
+        text in pieces(),
+        tab_width in 1u32..10,
+        columns in prop::collection::vec(0usize..40, 1..4),
+    ) {
+        let tab_width = TabWidth::new(tab_width);
+        let rope = Rope::from(text.as_str());
+        let invalid = invalid_in(&text, 1);
+        let map = TabMap::with_invalid(&rope, &invalid, tab_width);
+        let (clusters, _) = scanned(&rope, &invalid, tab_width);
+        // Twice, so that the second pass reads chunks that have made their checkpoints.
+        for _ in 0..2 {
+            columns_after_answer_as_walked(&map, &clusters, tab_width, &columns)?;
         }
     }
 }

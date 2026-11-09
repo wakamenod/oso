@@ -136,3 +136,18 @@ fn a_sequence_under_c_c_that_isearch_does_not_bind_runs_its_own_command() {
         "the search ended at 2, then C-c C-e ran"
     );
 }
+
+#[test]
+fn the_longest_word_a_query_holds_is_found_whole_both_ways() {
+    // A word of the most characters a query holds, each of four bytes, as the display map
+    // reads them outside oso-core's tests: its checks fit their caps (ADR 0101).
+    let word = "\u{20000}".repeat(1024);
+    let start = |index: usize| index * (word.len() + 1);
+    let all = format!("{word} {word} {word}");
+    let (mut d, mut editor) = at(&all, &[0]);
+    send(&mut d, &mut editor, "C->");
+    assert_eq!(cursors(&editor), [start(1) - 1, start(2) - 1]);
+    let (mut d, mut editor) = at(&all, &[all.len()]);
+    send(&mut d, &mut editor, "C-<");
+    assert_eq!(cursors(&editor), [start(2) - 1, all.len()]);
+}

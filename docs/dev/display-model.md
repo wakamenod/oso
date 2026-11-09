@@ -55,7 +55,11 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
 - **`DisplayMap` and `DisplaySnapshot`.** The API callers use: offset ↔
   `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
   clusters, row widths, and the clusters of a row from any column, for
-  rendering. A snapshot is O(1) to take and can go to another thread.
+  rendering. A snapshot is O(1) to take and can go to another thread. Word
+  motion reads clusters by offset instead, forward and back with no columns, and
+  `column_after` gives an offset's column once an earlier one on its line moved,
+  from the summaries between, for `TAB` at several cursors
+  ([ADR 0101](adr/0101-word-checks-by-offset-and-reading-shared-by-cursors.md)).
 - **`DisplayCluster::for_each_run`** says what a cluster puts on the grid. The
   renderer and the text-grid snapshots both draw through it
   ([ADR 0045](adr/0045-text-grid-snapshots.md)).
