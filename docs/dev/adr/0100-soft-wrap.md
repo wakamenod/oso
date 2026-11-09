@@ -1,6 +1,6 @@
 # 0100. Soft wrap
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-09
 
 ## Context
@@ -348,8 +348,8 @@ the first.
 
 ## Changes to accepted ADRs
 
-The passages below stay in their ADR as written; what holds now follows each. Once this ADR is
-accepted, the status of each becomes `Accepted, amended by … 0100`.
+The passages below stay in their ADR as written; what holds now follows each. The status of each
+is now `Accepted, amended by … 0100`.
 
 - [ADR 0035](0035-sumtree-rope-and-cell-grid.md), "A `DisplayPoint` is a row and a cell column.
   Rows are buffer lines": they stay logical lines. What a window shows is in view rows, which the
