@@ -129,6 +129,7 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
 pub const fn kind(kind: Kind) -> &'static str {
     match kind {
         Kind::Number { .. } => "number",
+        Kind::Text { .. } => "text",
         Kind::Passphrase => "passphrase",
         Kind::Complete { .. } => "complete",
         Kind::Question { .. } => "question",
@@ -191,6 +192,7 @@ pub fn commands<'a>(commands: impl Iterator<Item = &'a Command>) -> Value {
                     ArgSpec::None => "none",
                     ArgSpec::Count => "count",
                     ArgSpec::Number { .. } => "number",
+                    ArgSpec::Text { .. } => "text",
                     // A buffer's name is read in a prompt, which the channel never opens.
                     ArgSpec::Passphrase { .. }
                     | ArgSpec::CountAndClipboard
