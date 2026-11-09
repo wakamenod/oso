@@ -5,6 +5,7 @@
 //! Must not depend on: the channel's socket or protocol, or `app`; the host decides when the
 //! channel may run anything at all.
 
+use oso_core::buffer::{BufferId, Mode};
 use oso_core::command::{ArgSpec, BufferPurpose, Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
 
@@ -95,8 +96,25 @@ impl Dispatcher {
                 "the text times the cursors is more than {MAX_INSERTED} bytes"
             ));
         }
-        if let Some(why) = shows_what_it_may(editor, command.args, given) {
-            return refused(why.into());
+        // A buffer to show, by its name: resolved once, here, and shown as it is, so that
+        // nothing makes a buffer for the agent (ADR 0094, ADR 0095).
+        if let (
+            ArgSpec::Buffer {
+                purpose: BufferPurpose::Switch,
+                ..
+            },
+            Given::Text(name),
+        ) = (command.args, given)
+        {
+            let shown = showable(editor, name).map_err(|why| Refused(why.into()))?;
+            return Ok(self.as_input(editor, |_, editor| {
+                editor.for_agent(|editor| editor.show(shown));
+                let effects = Effects {
+                    redraw: true,
+                    ..Effects::default()
+                };
+                (effects, Ok(()))
+            }));
         }
         // Whatever the person's keys left stays theirs: the agent's command never takes it.
         let mapped = args::map(name, command.args, given, None).map_err(Refused)?;
@@ -121,27 +139,28 @@ impl Dispatcher {
     }
 }
 
-/// Why the buffer the agent names to show may not be shown, if it may not: it must be one
-/// `C-x b` lists, as the channel makes no buffer, and not one that may hold secrets
-/// (ADR 0094). The reason never quotes the name, which is the agent's text.
-fn shows_what_it_may(editor: &Editor, spec: ArgSpec, given: Given<'_>) -> Option<&'static str> {
-    let (
-        ArgSpec::Buffer {
-            purpose: BufferPurpose::Switch,
-            ..
-        },
-        Given::Text(name),
-    ) = (spec, given)
+/// The buffer named `name`, if the agent may show it: one `C-x b` lists, as the channel
+/// makes no buffer (ADR 0094); not one that may hold secrets or is still loading; and one
+/// whose keys are the ordinary ones, so that the person's typing never reaches the bare keys
+/// of a list such as `*Emergency Copies*` (ADR 0095). The reason never quotes the name, which
+/// is the agent's text.
+fn showable(editor: &Editor, name: &str) -> Result<BufferId, &'static str> {
+    let Some((id, buffer)) = editor
+        .buffer_named(name)
+        .and_then(|id| Some((id, editor.buffer(id)?)))
     else {
-        return None;
+        return Err("no buffer by that name; the channel makes none");
     };
-    match editor.buffer_named(name).and_then(|id| editor.buffer(id)) {
-        None => Some("no buffer by that name; the channel makes none"),
-        Some(buffer) if buffer.is_secret() => {
-            Some("that buffer may hold secrets, so it is not shown; ask the person")
-        }
-        Some(_) => None,
+    if buffer.is_secret() {
+        return Err("that buffer may hold secrets, so it is not shown; ask the person");
     }
+    if buffer.loading().is_some() {
+        return Err("that buffer is still loading; try again");
+    }
+    if buffer.mode() != Mode::Fundamental {
+        return Err("that buffer's keys are the person's; ask the person");
+    }
+    Ok(id)
 }
 
 #[cfg(test)]
@@ -233,6 +252,89 @@ mod tests {
             buffers,
             "the channel made no buffer"
         );
+    }
+
+    /// Runs `switch-to-buffer` for the agent with `name`, and returns why it was refused.
+    fn refused_switch(dispatcher: &mut Dispatcher, editor: &mut Editor, name: &str) -> String {
+        refusal(
+            dispatcher,
+            editor,
+            "switch-to-buffer",
+            Given::Text(name),
+            Reach::Look,
+        )
+    }
+
+    /// A loaded buffer visiting `path`, judged by the names it resolved to.
+    fn visited(path: &str, resolved: &[&str]) -> Buffer {
+        use oso_core::display_map::TabWidth;
+        use oso_core::load::decode_all;
+        let mut buffer = Buffer::visiting(std::path::PathBuf::from(path));
+        let resolved: Vec<_> = resolved.iter().map(std::path::PathBuf::from).collect();
+        buffer.judge_secret(Some(&resolved));
+        buffer.apply_load(decode_all(b"x\n", TabWidth::default()));
+        buffer
+    }
+
+    #[test]
+    fn a_name_c_x_b_does_not_list_is_no_buffer_even_when_ordinary() {
+        use oso_core::buffer::Mode;
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let view = editor.add_internal_buffer("*copy of notes.txt*", Mode::CopyView);
+        assert!(!editor.buffer(view).unwrap().is_secret(), "judged ordinary");
+        let why = refused_switch(&mut dispatcher, &mut editor, "*copy of notes.txt*");
+        assert!(why.contains("no buffer by that name"), "{why}");
+        assert_ne!(editor.window().buffer(), view);
+    }
+
+    #[test]
+    fn the_list_of_emergency_copies_is_the_persons() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let notes = editor.window().buffer();
+        editor.toggle_copies();
+        editor.toggle_copies();
+        assert!(editor.has_copies_list());
+        assert_eq!(editor.window().buffer(), notes);
+        let why = refused_switch(&mut dispatcher, &mut editor, "*Emergency Copies*");
+        assert!(why.contains("the person's"), "{why}");
+        assert_eq!(editor.window().buffer(), notes);
+    }
+
+    #[test]
+    fn of_two_files_of_one_name_only_the_ordinary_one_shows() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let work = editor.add_buffer(visited("/work/notes.md", &["/work/notes.md"]));
+        // A name a link gave it: the file may hold secrets.
+        let home = editor.add_buffer(visited("/home/notes.md", &["/home/.env"]));
+        assert!(editor.buffer(home).unwrap().is_secret());
+        let name = |editor: &Editor, id| editor.buffer(id).unwrap().name().to_owned();
+        let (work_name, home_name) = (name(&editor, work), name(&editor, home));
+        assert_ne!(work_name, home_name, "told apart");
+        let (_, result) = dispatcher
+            .run_for_agent(
+                &mut editor,
+                "switch-to-buffer",
+                Given::Text(&work_name),
+                Reach::Look,
+            )
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(editor.window().buffer(), work, "exactly that one");
+        let why = refused_switch(&mut dispatcher, &mut editor, &home_name);
+        assert!(why.contains("may hold secrets"), "{why}");
+        assert_eq!(editor.window().buffer(), work);
+    }
+
+    #[test]
+    fn a_buffer_still_loading_is_not_shown() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let mut loading = Buffer::visiting(std::path::PathBuf::from("/tmp/big.log"));
+        loading.judge_secret(Some(&[std::path::PathBuf::from("/tmp/big.log")]));
+        assert!(loading.loading().is_some() && !loading.is_secret());
+        let id = editor.add_buffer(loading);
+        let why = refused_switch(&mut dispatcher, &mut editor, "big.log");
+        assert!(why.contains("still loading"), "{why}");
+        assert_ne!(editor.window().buffer(), id);
     }
 
     #[test]

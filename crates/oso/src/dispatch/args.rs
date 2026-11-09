@@ -4,7 +4,7 @@
 //!
 //! Must not depend on: the socket, the channel or `app`; this only maps a spec and a value.
 
-use oso_core::command::{ArgSpec, Args, BufferPurpose, Prefix};
+use oso_core::command::{ArgSpec, Args, Prefix};
 
 /// An argument given with a command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,15 +49,9 @@ pub fn map(
         (ArgSpec::Command { .. }, _) => Err(format!(
             "{name} reads a command's name; run the command itself"
         )),
-        // The agent channel gives a buffer's name to show as text; its host checks the name
-        // names a buffer that may be shown (ADR 0094). A kill's name only a person gives.
-        (
-            ArgSpec::Buffer {
-                purpose: BufferPurpose::Switch,
-                ..
-            },
-            Given::Text(name),
-        ) => answered(name.to_owned()),
+        // Only its prompt reads a buffer's name. The agent channel's switch to a buffer by name
+        // never comes here: `Dispatcher::run_for_agent` resolves the name to a buffer it may
+        // show, and shows it (ADR 0094, ADR 0095).
         (ArgSpec::Buffer { .. }, _) => Err(format!(
             "{name} reads a buffer's name, which only its prompt takes, from keys"
         )),
@@ -170,8 +164,7 @@ mod tests {
             history: "buffer",
             purpose: BufferPurpose::Switch,
         };
-        let switched = map("switch-to-buffer", buffer, Given::Text("notes"), None).unwrap();
-        assert_eq!(switched.answer.as_deref(), Some("notes"));
+        assert!(refused(buffer, Given::Text("notes")).contains("buffer's name"));
         assert!(refused(buffer, Given::Nothing).contains("buffer's name"));
         assert!(refused(buffer, Given::Count(1)).contains("buffer's name"));
         let kill = ArgSpec::Buffer {

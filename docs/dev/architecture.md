@@ -595,7 +595,9 @@ Full details are in [`security.md`](security.md).
     dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
     saving it. `ArgSpec::Text` and `insert` take text, and `switch-to-buffer` a buffer's name that
-    `C-x b` lists and that may be shown (ADR 0094); `dispatch::args` maps a given argument
+    `C-x b` lists: `Dispatcher::run_for_agent` resolves it once and shows that buffer, unless it
+    may hold secrets, is still loading or has keys of its own, such as `*Emergency Copies*`
+    (ADR 0094, ADR 0095); `dispatch::args` maps a given argument
     for the dev socket and the channel alike. A count, which repeats a command's work, is at
     most 10,000 either way, as ADR 0044 has it; a number such as a line is a value, and goes
     as given. A reload of a file the channel opened checks it as `open` does, and a reload
