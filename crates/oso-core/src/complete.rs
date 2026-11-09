@@ -46,6 +46,8 @@ pub struct Candidate {
     annotation: Box<str>,
     folded: Folded,
     folded_annotation: Folded,
+    /// It shows only while nothing is typed, as a secret kill does (ADR 0091).
+    hidden_by_input: bool,
 }
 
 impl Candidate {
@@ -63,6 +65,16 @@ impl Candidate {
             text,
             binding: binding.into(),
             annotation,
+            hidden_by_input: false,
+        }
+    }
+
+    /// The same, shown only while nothing is typed: any input hides it, whatever it asks,
+    /// so that what it stands for is never matched against (ADR 0091).
+    pub fn hidden_by_input(self) -> Self {
+        Self {
+            hidden_by_input: true,
+            ..self
         }
     }
 
@@ -456,6 +468,12 @@ impl Candidates {
     /// The selected candidate, while any matches.
     pub fn selected_candidate(&self) -> Option<&Candidate> {
         self.get(self.selected()?)
+    }
+
+    /// Where the selected candidate is in the items given, while any matches, for a list
+    /// whose rows may read alike.
+    pub(crate) fn selected_item(&self) -> Option<usize> {
+        self.item_at(self.selected()?)
     }
 
     /// Selects the match at `place`, or the last if there are fewer.

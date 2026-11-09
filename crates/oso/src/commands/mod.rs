@@ -10,6 +10,7 @@
 mod agent;
 mod buffers;
 mod complete;
+mod cursors;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
@@ -40,6 +41,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 const TABLES: &[&[Command]] = &[
     agent::COMMANDS,
     complete::COMMANDS,
+    cursors::COMMANDS,
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
@@ -203,17 +205,24 @@ mod tests {
             "universal-argument",
             // The OS clipboard.
             "yank",
+            // Pick a kill from a list, or go through them right after a yank (ADR 0091).
+            "consult-yank-pop",
+            "yank-pop",
             // isearch, which reads keys (ADR 0082).
             "isearch-backward",
             "isearch-delete-char",
             "isearch-exit",
             "isearch-forward",
+            "isearch-mark-all",
+            "isearch-mark-next",
+            "isearch-mark-previous",
             "isearch-printing-char",
             "isearch-repeat-backward",
             "isearch-repeat-forward",
             "isearch-ring-advance",
             "isearch-ring-retreat",
             "isearch-toggle-case-fold",
+            "isearch-yank-pop",
             "isearch-yank-kill",
             "isearch-yank-word-or-char",
         ];

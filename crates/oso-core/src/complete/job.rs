@@ -69,6 +69,9 @@ pub(crate) fn match_over(
     };
     let empty = Query::default();
     let query = Query::parse_after(input, before.map_or(&empty, |(_, query)| query));
+    // A candidate shown only while nothing is typed never matches an input (ADR 0091).
+    let typed = !input.is_empty();
+    let shows = |item: &Candidate| !(typed && item.hidden_by_input);
     let mut matches = Vec::new();
     match before {
         // Only what changed is checked again: the rest matched before.
@@ -77,7 +80,8 @@ pub(crate) fn match_over(
                 if at % STOP_EVERY == STOP_EVERY - 1 && stop() {
                     return None;
                 }
-                if query.matches_after(&items[index as usize], before) {
+                let item = &items[index as usize];
+                if shows(item) && query.matches_after(item, before) {
                     matches.push(index);
                 }
             }
@@ -87,7 +91,8 @@ pub(crate) fn match_over(
                 if at % STOP_EVERY == STOP_EVERY - 1 && stop() {
                     return None;
                 }
-                if query.matches(&items[index as usize]) {
+                let item = &items[index as usize];
+                if shows(item) && query.matches(item) {
                     matches.push(index);
                 }
             }

@@ -12,6 +12,7 @@
 mod agent;
 mod buffers;
 mod complete;
+mod cursors;
 mod files;
 mod handover;
 mod harness;
@@ -25,6 +26,7 @@ mod recovery;
 mod reload;
 #[cfg(all(target_os = "macos", feature = "native-window"))]
 mod secure;
+mod yank_pop;
 
 use std::fmt::Write as _;
 use std::fs;

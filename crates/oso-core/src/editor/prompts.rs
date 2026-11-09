@@ -28,6 +28,8 @@ pub enum Quit {
     SearchStep,
     /// It ended isearch, and put the cursors and the view back as they were.
     Search,
+    /// It left the selected window its primary cursor alone (ADR 0091).
+    Cursors,
     /// Nothing was in progress.
     Nothing,
 }
@@ -256,6 +258,7 @@ impl Editor {
         let id = prompt.id;
         // Also not if a buffer that may hold secrets came beneath it since it opened.
         let records = !prompt.around_secret && !prompt.from_socket && !self.shows_secret();
+        self.note_kill_pick();
         if let Some(prompt) = self.close_innermost()
             && records
             && let Some(name) = prompt.kind.history()
@@ -416,6 +419,7 @@ impl Editor {
         }
         let mut prompt = self.prompts.pop()?;
         self.forget_marks(prompt.id);
+        self.forget_kill_list(prompt.id);
         self.forget_files(prompt.id);
         self.forget_completion_work(prompt.id);
         // A list of 100,000 is dropped on the worker (ADR 0096).
@@ -447,6 +451,9 @@ impl Editor {
         }
         if let Some(quit) = self.isearch_quit() {
             return quit;
+        }
+        if self.quit_cursors() {
+            return Quit::Cursors;
         }
         Quit::Nothing
     }

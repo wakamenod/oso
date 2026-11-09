@@ -91,7 +91,12 @@ pub fn export(
     carried_bytes(editor)?;
     let mut items = Vec::new();
     let mut buffers = Vec::new();
-    for (id, buffer) in editor.buffers() {
+    // A file the agent channel is still opening goes with its open: the next instance would
+    // hold it as an ordinary buffer, unchecked (ADR 0094).
+    for (id, buffer) in editor
+        .buffers()
+        .filter(|(_, buffer)| !buffer.agent_pending())
+    {
         buffers.push(buffer_state(id, buffer, &mut items)?);
     }
     // Internal buffers are not handed over (ADR 0051). A window on one with nothing to go

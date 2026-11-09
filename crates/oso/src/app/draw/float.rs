@@ -15,10 +15,16 @@ use oso_core::complete::{self, Candidates};
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
 use oso_core::minibuffer::{self, Kind, PromptLayout, cells_of};
-use oso_core::window::Scroll;
 use oso_render::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
+
+mod preview;
+
+use preview::preview_panes;
+
+/// What a line break in a `M-y` row reads as, drawn in the annotation's face (ADR 0091).
+const LINE_BREAK: &str = "⤶";
 
 /// The most panes a float takes.
 pub(super) const MAX_PANES: usize = 9;
@@ -35,6 +41,10 @@ pub(super) struct Parts<'a> {
     list: Option<(&'a Candidates, String)>,
     /// The cells of a region in the answer.
     region: Vec<CellRect>,
+    /// A kill's lines in the preview (ADR 0091).
+    kill: Vec<String>,
+    /// Whether the rows are kills, whose line breaks show as [`LINE_BREAK`] (ADR 0091).
+    breaks: bool,
 }
 
 impl<'a> Parts<'a> {
@@ -65,6 +75,13 @@ impl<'a> Parts<'a> {
         });
         let mut region = Vec::new();
         editor.prompt_region_cells(&mut region);
+        let preview = layout.regions.preview;
+        let kill = match editor.preview() {
+            Some(Preview::Text { entry }) => {
+                editor.kill_preview(entry, preview.rows, preview.columns)
+            }
+            _ => Vec::new(),
+        };
         Some(Self {
             layout,
             label: prompt.label(),
@@ -73,6 +90,8 @@ impl<'a> Parts<'a> {
             mask,
             list,
             region,
+            kill,
+            breaks: editor.kill_list_open(),
         })
     }
 
@@ -99,7 +118,7 @@ impl<'a> Parts<'a> {
             .shown(shown.rows)
             .map(|(_, candidate)| {
                 candidates.query().highlights(candidate, &mut highlights);
-                candidate_spans(candidate, &highlights, shown.columns, column)
+                candidate_spans(candidate, &highlights, (shown.columns, column), self.breaks)
             })
             .collect();
         (rows, count)
@@ -153,6 +172,16 @@ impl<'a> Parts<'a> {
             divider,
             withheld,
             region: &self.region,
+            kill: self
+                .kill
+                .iter()
+                .map(|line| {
+                    [Span {
+                        text: line,
+                        face: Face::Float,
+                    }]
+                })
+                .collect(),
         }
     }
 
@@ -232,13 +261,14 @@ fn blank<'a>() -> Span<'a> {
 }
 
 /// The spans of a candidate's row of `columns` cells: its text with what matched in
-/// [`Face::CompletionMatch`], its binding in parentheses, and its annotation at `column`, as
-/// `minibuffer::candidate_row` places them.
+/// [`Face::CompletionMatch`], each [`LINE_BREAK`] in the annotation's face if `breaks` is set,
+/// its binding in parentheses, and its annotation at `column`, as `minibuffer::candidate_row`
+/// places them.
 fn candidate_spans<'a>(
     candidate: &'a oso_core::complete::Candidate,
     highlights: &[Range<usize>],
-    columns: usize,
-    column: usize,
+    (columns, column): (usize, usize),
+    breaks: bool,
 ) -> Vec<Span<'a>> {
     let text = candidate.text();
     let (binding, annotation) = (candidate.binding(), candidate.annotation());
@@ -251,20 +281,14 @@ fn candidate_spans<'a>(
         if start >= end {
             continue;
         }
-        spans.push(Span {
-            text: &shown[at..start],
-            face: Face::Float,
-        });
+        push_text(&mut spans, &shown[at..start], breaks);
         spans.push(Span {
             text: &shown[start..end],
             face: Face::CompletionMatch,
         });
         at = end;
     }
-    spans.push(Span {
-        text: &shown[at..],
-        face: Face::Float,
-    });
+    push_text(&mut spans, &shown[at..], breaks);
     let mut used = cells_of(shown);
     if row.text_cut {
         spans.push(Span {
@@ -299,6 +323,28 @@ fn candidate_spans<'a>(
     spans
 }
 
+/// Pushes `text` in [`Face::Float`], with each [`LINE_BREAK`] in it in the annotation's face
+/// if `breaks` is set.
+fn push_text<'a>(spans: &mut Vec<Span<'a>>, text: &'a str, breaks: bool) {
+    let mut rest = text;
+    while breaks && let Some(at) = rest.find(LINE_BREAK) {
+        let end = at + LINE_BREAK.len();
+        spans.push(Span {
+            text: &rest[..at],
+            face: Face::Float,
+        });
+        spans.push(Span {
+            text: &rest[at..end],
+            face: Face::CompletionAnnotation,
+        });
+        rest = &rest[end..];
+    }
+    spans.push(Span {
+        text: rest,
+        face: Face::Float,
+    });
+}
+
 /// The spans of a float's rows, which its lines borrow.
 pub(super) struct Spans<'a> {
     label: Vec<[Span<'a>; 2]>,
@@ -312,6 +358,7 @@ pub(super) struct Spans<'a> {
     withheld: [Span<'a>; 1],
     /// The cells of a region in the answer.
     region: &'a [CellRect],
+    kill: Vec<[Span<'a>; 1]>,
 }
 
 /// The column between the candidates and a preview, one cell a row.
@@ -332,6 +379,7 @@ impl<'a> Spans<'a> {
             divider: vec![&self.divider[..]; complete::ROWS],
             withheld: [&self.withheld],
             fills: [(Face::Region, self.region)],
+            kill: self.kill.iter().map(|row| &row[..]).collect(),
         }
     }
 }
@@ -348,6 +396,7 @@ pub(super) struct Lines<'a> {
     withheld: [&'a [Span<'a>]; 1],
     /// What the answer's pane fills behind its text: its region (ADR 0076).
     fills: [(Face, &'a [CellRect]); 1],
+    kill: Vec<&'a [Span<'a>]>,
 }
 
 /// Adds the float's panes to `list`, after the tiled ones.
@@ -468,70 +517,6 @@ fn list_panes<'a>(parts: &'a Parts<'a>, lines: &'a Lines<'a>, list: &mut Vec<Pan
             content: PaneContent::Lines(&lines.candidates),
         });
     }
-}
-
-/// The base of a preview pane's id: each previewed buffer's pane has its own, so that the rows
-/// shaped for it are kept while that buffer stays selected (ADR 0088).
-const PREVIEW_PANES: u32 = 1 << 20;
-
-/// Adds a preview's panes to `list`: the column that divides it from the candidates, and the
-/// selected buffer from where its window was, read-only with its cursor hollow, or what is
-/// said of a buffer that may hold secrets in its place (ADR 0088).
-fn preview_panes<'a>(
-    editor: &'a Editor,
-    parts: &'a Parts<'a>,
-    lines: &'a Lines<'a>,
-    list: &mut Vec<Pane<'a>>,
-) {
-    let regions = parts.layout.regions;
-    let preview = regions.preview;
-    if parts.list.is_none() || preview.rows == 0 || preview.columns == 0 {
-        return;
-    }
-    let pane = |id, region, content| Pane {
-        id: PaneId(id),
-        region,
-        layer: Layer::FLOAT_CONTENT,
-        background: None,
-        panel: None,
-        bands: Bands::NONE,
-        content,
-    };
-    let divider = CellRect {
-        column: preview.column - 1,
-        columns: 1,
-        ..preview
-    };
-    let rows = &lines.divider[..preview.rows.min(lines.divider.len())];
-    list.push(pane(10, divider, PaneContent::Lines(rows)));
-    let content = match editor.preview() {
-        None => return,
-        Some(Preview::Withheld) => pane(11, preview, PaneContent::Lines(&lines.withheld)),
-        Some(Preview::Buffer { id, top, cursor }) => {
-            let Some(buffer) = editor.buffer(id) else {
-                return;
-            };
-            let display = buffer.display();
-            let cursor = display.offset_to_display_point(cursor);
-            let view = TextView {
-                display,
-                buffer: id,
-                revision: buffer.revision(),
-                scroll: Scroll { top, left: 0 },
-                cursor,
-                cursor_style: CursorStyle::Hollow,
-                preedit: None,
-                fills: &[],
-            };
-            let number = u32::try_from(id.get()).unwrap_or(u32::MAX);
-            pane(
-                PREVIEW_PANES.saturating_add(number),
-                preview,
-                PaneContent::Text(view),
-            )
-        }
-    };
-    list.push(content);
 }
 
 /// The cells of the selected candidate's row, while it shows, or of the answer's row while what

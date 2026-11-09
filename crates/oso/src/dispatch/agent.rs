@@ -5,7 +5,7 @@
 //! Must not depend on: the channel's socket or protocol, or `app`; the host decides when the
 //! channel may run anything at all.
 
-use oso_core::buffer::{BufferId, Mode};
+use oso_core::buffer::{Buffer, BufferId, Mode};
 use oso_core::command::{ArgSpec, BufferPurpose, Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
 
@@ -151,16 +151,44 @@ fn showable(editor: &Editor, name: &str) -> Result<BufferId, &'static str> {
     else {
         return Err("no buffer by that name; the channel makes none");
     };
+    match unshowable(buffer) {
+        None => Ok(id),
+        Some(Unshowable::Secret) => {
+            Err("that buffer may hold secrets, so it is not shown; ask the person")
+        }
+        Some(Unshowable::Opening) => Err("that buffer is still opening; try again"),
+        Some(Unshowable::Loading) => Err("that buffer is still loading; try again"),
+        Some(Unshowable::OwnKeys) => Err("that buffer's keys are the person's; ask the person"),
+    }
+}
+
+/// Why the agent channel may not show a buffer that exists, whether by name or for an `open` of
+/// a file it already holds (ADR 0094, ADR 0095).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Unshowable {
+    /// It may hold secrets, or is not judged yet.
+    Secret,
+    /// The channel is still opening it: it is shown only once its open checked it.
+    Opening,
+    /// It is still loading.
+    Loading,
+    /// It has keys of its own, which the person's typing would then reach.
+    OwnKeys,
+}
+
+/// Why the channel may not show `buffer`, if it may not. One check for every way it shows one.
+pub fn unshowable(buffer: &Buffer) -> Option<Unshowable> {
     if buffer.is_secret() {
-        return Err("that buffer may hold secrets, so it is not shown; ask the person");
+        Some(Unshowable::Secret)
+    } else if buffer.agent_pending() {
+        Some(Unshowable::Opening)
+    } else if buffer.loading().is_some() {
+        Some(Unshowable::Loading)
+    } else if buffer.mode() != Mode::Fundamental {
+        Some(Unshowable::OwnKeys)
+    } else {
+        None
     }
-    if buffer.loading().is_some() {
-        return Err("that buffer is still loading; try again");
-    }
-    if buffer.mode() != Mode::Fundamental {
-        return Err("that buffer's keys are the person's; ask the person");
-    }
-    Ok(id)
 }
 
 #[cfg(test)]
@@ -334,6 +362,17 @@ mod tests {
         let id = editor.add_buffer(loading);
         let why = refused_switch(&mut dispatcher, &mut editor, "big.log");
         assert!(why.contains("still loading"), "{why}");
+        assert_ne!(editor.window().buffer(), id);
+    }
+
+    #[test]
+    fn a_buffer_the_channel_is_still_opening_is_not_shown_by_name() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
+        let mut opening = visited("/tmp/plain.txt", &["/tmp/plain.txt"]);
+        opening.set_agent_pending(true);
+        let id = editor.add_buffer(opening);
+        let why = refused_switch(&mut dispatcher, &mut editor, "plain.txt");
+        assert!(why.contains("still opening"), "{why}");
         assert_ne!(editor.window().buffer(), id);
     }
 

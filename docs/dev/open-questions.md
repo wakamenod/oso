@@ -79,22 +79,13 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- `file_prompt_type_p99_ms`, typing into `C-x C-f` over 100,000 names, is reported only. Set its
-  threshold once the Mac mini has a baseline
+- `file_prompt_type_p99_ms`, typing into `C-x C-f` over 100,000 names, is reported only until a few
+  runs exist. Its first run on the Mac mini, on 2026-11-09, gave 4.1–7.1 ms, against 38.6–39.8 ms
+  for the same scenario before the worker. Set its threshold from those runs
   ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.
-- The agent channel's `open` of a file of 2 GiB or more is refused, as the load stops before
-  reading it, but the reply is the generic "the file could not be opened", not ADR 0087's
-  "2 GiB or more; ask the person to open it". Give the reply that wording
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md),
-  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- The agent channel's `open` does not yet follow ADR 0087's one buffer per file: until the
-  channel has shown the buffer it opens, that buffer is neither dropped for another one on the
-  same file nor shown in place of one, as the channel checks what it may show first
-  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)). The agent channel's ADR 0094, proposed,
-  settles how its `open` reuses a buffer that is open already.
 - `C-x C-f` leaves out names that are not UTF-8, as a path made from a lossy copy of one would
   name another file. Keep the name as the system gives it if they turn out to matter.
 - `C-x C-f` reads a path with `/` between its parts and starts an absolute one at `/`, so on
@@ -298,6 +289,12 @@ item notes when it must be settled.
   `save-some-buffers` ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 ## M3
+
+- The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
+  modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
+  every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start
+  from ADR 0026's defaults
+  ([ADR 0097](adr/0097-visual-aids.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration

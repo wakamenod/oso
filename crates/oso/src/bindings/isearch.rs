@@ -1,6 +1,6 @@
 //! Default key bindings of isearch (ADR 0033, ADR 0082): the keys that start it, and its own
 //! keymap, which takes the place of the others while it is on. A key that keymap does not
-//! bind ends the search and then runs, in the dispatcher.
+//! bind, or a sequence under its `C-c`, ends the search and then runs, in the dispatcher.
 //!
 //! Must not depend on: `dispatch`, `app` or winit; bindings are data.
 
@@ -15,9 +15,14 @@ pub const ISEARCH: &[(&str, &str)] = &[
     ("RET", "isearch-exit"),
     ("C-w", "isearch-yank-word-or-char"),
     ("C-y", "isearch-yank-kill"),
+    ("M-y", "isearch-yank-pop"),
     ("M-p", "isearch-ring-retreat"),
     ("M-n", "isearch-ring-advance"),
     ("M-c", "isearch-toggle-case-fold"),
+    // Cursors from the search (ADR 0091); `C-c` is its only prefix.
+    ("C->", "isearch-mark-next"),
+    ("C-<", "isearch-mark-previous"),
+    ("C-c C-<", "isearch-mark-all"),
     ("C-g", "keyboard-quit"),
 ];
 

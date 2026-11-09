@@ -21,7 +21,7 @@ use crate::sum_tree::Bias;
 
 mod job;
 
-pub(crate) use job::{Find, Report};
+pub(crate) use job::{Find, MatchWork, Matched, Report};
 pub use job::{SearchJob, SearchReport};
 
 /// The most characters a search string holds. What is added past it is cut, so that what a
