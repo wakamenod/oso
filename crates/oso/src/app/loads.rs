@@ -190,19 +190,14 @@ impl App {
         let id = self.loads[index].handle.buffer();
         // The tiled window, also beneath a prompt.
         let shown = self.editor.tiled().0.buffer() == id;
-        let Some(buffer) = self.editor.buffer_mut(id) else {
+        if self.editor.buffer(id).is_none() {
             self.loads.swap_remove(index);
             return false;
+        }
+        self.take_what_was_found(index, id);
+        let Some(buffer) = self.editor.buffer_mut(id) else {
+            return false;
         };
-        if let Some(resolved) = self.loads[index].handle.take_resolved() {
-            resolved.judge(buffer);
-        }
-        if let Some(baseline) = self.loads[index].handle.take_baseline() {
-            buffer.set_baseline(baseline);
-        }
-        if let Some(spelling) = self.loads[index].handle.take_own_spelling() {
-            buffer.set_own_spelling(spelling);
-        }
         let mut no_baseline = false;
         let redraw = match update {
             LoadUpdate::Snapshot(snapshot) => {
@@ -279,6 +274,29 @@ impl App {
         #[cfg(feature = "dev")]
         let redraw = self.try_restore_positions() || redraw;
         redraw
+    }
+
+    /// Takes in what the load at `index` found of `id`'s file before its content: the verdict,
+    /// the baseline and the file's own spelling.
+    fn take_what_was_found(&mut self, index: usize, id: BufferId) {
+        let handle = &self.loads[index].handle;
+        let (resolved, baseline, spelling) = (
+            handle.take_resolved(),
+            handle.take_baseline(),
+            handle.take_own_spelling(),
+        );
+        let Some(buffer) = self.editor.buffer_mut(id) else {
+            return;
+        };
+        if let Some(resolved) = resolved {
+            resolved.judge(buffer);
+        }
+        if let Some(spelling) = spelling {
+            buffer.set_own_spelling(spelling);
+        }
+        if let Some(baseline) = baseline {
+            buffer.set_baseline(baseline);
+        }
     }
 
     /// A load of `id` stopped before reading, as its file holds `bytes`, 2 GiB or more: the
