@@ -271,7 +271,9 @@ impl App {
                 shown
             }
             LoadUpdate::Failed(e) => {
-                let message = format!("Cannot open: {e}: {:?}", buffer.name());
+                self.agent_load_failed(id, &e);
+                let name = self.editor.buffer(id).map_or("", Buffer::name);
+                let message = format!("Cannot open: {e}: {name:?}");
                 self.editor.message(message);
                 self.editor.kill_buffer(id);
                 // What a notice waited on is over.
@@ -347,6 +349,13 @@ impl App {
     /// A load of `id` stopped before reading, as its file holds `bytes`, 2 GiB or more: the
     /// buffer goes, and the next `C-x C-f` of that file asks (ADR 0087).
     fn stopped_as_large(&mut self, id: BufferId, bytes: u64) {
+        let Some(buffer) = self.editor.buffer(id) else {
+            return;
+        };
+        // The channel's `open` refuses it, as ADR 0087 words it; only the person agrees to one.
+        if buffer.agent_pending() {
+            self.refuse_agent_open(id, "the file is 2 GiB or more; ask the person to open it");
+        }
         let Some(buffer) = self.editor.buffer(id) else {
             return;
         };

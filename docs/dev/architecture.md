@@ -593,7 +593,9 @@ Full details are in [`security.md`](security.md).
     agent-channel-start` in oso, and `y` to the question when Claude Code first calls a tool.
   - `open` visits a file that exists, unshown, through `app/agent/open.rs`, and shows it at
     its line once the loader has judged it ordinary and read it; one judged otherwise is
-    dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
+    dropped. A file a buffer already holds, by its path at once or by device and inode once
+    loaded, is shown in that buffer instead, if it is judged ordinary and read, and that
+    buffer keeps its mark (ADR 0094). `text` copies rows or the region off the UI thread (`channel::text`). A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
     saving it. `ArgSpec::Text` and `insert` take text, and `switch-to-buffer` a buffer's name that
     `C-x b` lists: `Dispatcher::run_for_agent` resolves it once and shows that buffer, unless it

@@ -643,3 +643,50 @@ fn the_files_an_agent_opened_still_ask_before_its_saves_after_a_restart() {
     new.wait_for("the save", |state| state["buffer"]["modified"] == false);
     assert_eq!(std::fs::read(&carried).unwrap(), b"new one\n");
 }
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agents_open_of_a_file_already_open_shows_that_buffer_if_it_may() {
+    let scratch = Scratch::new("agent-reuse");
+    let notes = scratch.write("notes.txt", b"one\n");
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let config = scratch.symlink("config.txt", &env);
+    let alias = scratch.symlink("alias", scratch.path());
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+    let persons = app.state()["buffer"]["id"].clone();
+    let buffers = |app: &mut App| app.state()["buffers"].as_array().map(Vec::len);
+    let before = buffers(&mut app);
+    assert!(before.is_some());
+
+    // By its path at once, and by another spelling once loaded: the person's buffer, no other.
+    for path in [notes.clone(), alias.join("notes.txt")] {
+        let opened = agent.call("open", Some(json!({ "path": path, "line": 1 })));
+        let opened = opened.unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        assert_eq!(opened["buffer"], persons, "{}", path.display());
+        assert_eq!(buffers(&mut app), before, "no second buffer");
+    }
+    // The person visited it, so the agent's save of it does not ask (ADR 0085).
+    let params = json!({ "name": "insert", "arg": "new ", "reach": "change" });
+    assert!(agent.call("run", Some(params)).is_ok());
+    let saved = agent.run("save-buffer", None, "change").unwrap();
+    assert!(saved.get("waiting").is_none(), "{saved}");
+    app.wait_for("the save", |state| state["buffer"]["modified"] == false);
+    assert_eq!(std::fs::read(&notes).unwrap(), b"new one\n");
+
+    // A file open in a buffer that may hold secrets is not shown for the agent.
+    app.open_file(&config);
+    let state = app.wait_until_ready();
+    assert_eq!(state["buffer"]["secret"], true);
+    app.send_keys("C-x b RET");
+    app.wait_for("notes.txt", |state| state["buffer"]["name"] == "notes.txt");
+    thread::sleep(AFTER_TYPING);
+    let refused = agent
+        .call("open", Some(json!({ "path": config })))
+        .unwrap_err();
+    assert!(refused.contains("may hold secrets"), "{refused}");
+    assert_eq!(app.state()["buffer"]["name"], "notes.txt");
+    let state = agent.call("state", None).unwrap();
+    assert!(!state.to_string().contains(FAKE_SECRET));
+}
