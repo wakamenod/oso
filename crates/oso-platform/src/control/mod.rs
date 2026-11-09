@@ -113,7 +113,10 @@ impl PeerProcess {
     pub(crate) fn clean_name(raw: &str) -> Option<String> {
         let mut name = String::new();
         for c in raw.chars() {
-            let piece = if c == ' ' || c.is_ascii_graphic() {
+            // Quotes and parentheses would let a name close the quote the question puts
+            // around it and speak for the question.
+            let plain = c == ' ' || (c.is_ascii_graphic() && !matches!(c, '"' | '(' | ')'));
+            let piece = if plain {
                 c.to_string()
             } else {
                 c.escape_unicode().to_string()
@@ -210,6 +213,10 @@ mod tests {
             );
         }
         assert_eq!(name("\u{3042}"), Some("\\u{3042}".to_owned()));
+        assert_eq!(
+            name("claude\" (pid 1)"),
+            Some("claude\\u{22} \\u{28}pid 1\\u{29}".to_owned())
+        );
         assert_eq!(name("   "), None);
         let long = name(&"é".repeat(40)).unwrap();
         assert!(long.len() <= 64 && long.ends_with('}'), "{long}");

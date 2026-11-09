@@ -25,6 +25,7 @@ use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod agent;
 mod buffers;
 pub(crate) use buffers::size;
 mod clipboard;
@@ -128,6 +129,12 @@ impl Dispatcher {
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
+    }
+
+    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
+    /// takes no more digits, which the next command would take.
+    pub fn keys_in_progress(&self) -> bool {
+        !self.resolver.pending().is_empty() || self.prefix.is_some()
     }
 
     /// Whether the next key is read as a key rather than typed: a prefix key is
@@ -327,11 +334,7 @@ impl Dispatcher {
             // A buffer's name, a mark's row or a path is text, which `run-command` does not carry
             // yet.
             (ArgSpec::Buffer { .. } | ArgSpec::Mark { .. } | ArgSpec::File { .. }, _) => {
-                let what = match command.args {
-                    ArgSpec::Buffer { .. } => "a buffer's name",
-                    ArgSpec::Mark { .. } => "a mark",
-                    _ => "a path",
-                };
+                let what = buffers::read_in_prompt(command.args);
                 let refused = format!("{name} reads {what} in a prompt, through send-keys");
                 return (Effects::default(), Err(refused));
             }

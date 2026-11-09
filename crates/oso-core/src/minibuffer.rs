@@ -173,6 +173,8 @@ pub struct Prompt {
     pub(crate) walk: Option<usize>,
     /// What was typed before the walk began, for `M-n` past the newest.
     pub(crate) typed: Option<String>,
+    /// The agent channel caused it, and its label says so (ADR 0085).
+    pub(crate) from_agent: bool,
     /// Its candidates, for a prompt that completes, and the revision of its buffer they
     /// were last matched against.
     pub(crate) completion: Option<(Candidates, u64)>,
@@ -220,6 +222,12 @@ impl Prompt {
     /// out what it holds.
     pub fn around_secret(&self) -> bool {
         self.around_secret
+    }
+
+    /// Whether the agent channel caused it: its label starts with `Agent: `, after its
+    /// depth, and only the person answers it (ADR 0085).
+    pub fn from_agent(&self) -> bool {
+        self.from_agent
     }
 }
 
