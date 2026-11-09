@@ -581,6 +581,8 @@ mod edit_tests;
 #[cfg(test)]
 mod emergency_tests;
 #[cfg(test)]
+mod file_tests;
+#[cfg(test)]
 mod grid_tests;
 #[cfg(test)]
 mod ime_tests;
@@ -773,7 +775,7 @@ mod tests {
             &"C-x".parse::<KeySequence>().unwrap().0[..]
         );
         assert_eq!(
-            send(&mut dispatcher, &mut editor, "C-f"),
+            send(&mut dispatcher, &mut editor, "C-t"),
             Effects::default()
         );
         assert_eq!(cursor(&editor), 3);

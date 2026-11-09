@@ -25,14 +25,23 @@ pub struct Moved {
     pub(super) resolved: Resolved,
     /// The file's own spelling there.
     pub(super) spelling: Option<PathBuf>,
+    /// The path written, which the buffer now visits: the one given, or the buffer's file's
+    /// name in it if it was a directory.
+    pub(super) path: PathBuf,
 }
 
 /// Writes `job`'s text to its path, as `elsewhere` says what may be there.
 pub(super) fn write(job: &SaveJob, elsewhere: &Elsewhere) -> Result<Option<Written>, SaveError> {
-    if fs::metadata(&job.path).is_ok_and(|metadata| metadata.is_dir()) {
+    // A directory takes the buffer's file's name, as Emacs's `write-file` does.
+    let path = if fs::metadata(&job.path).is_ok_and(|metadata| metadata.is_dir()) {
+        job.path.join(&elsewhere.name)
+    } else {
+        job.path.clone()
+    };
+    if fs::metadata(&path).is_ok_and(|metadata| metadata.is_dir()) {
         return Err(SaveError::Io(std::io::Error::other("it is a directory")));
     }
-    let location = location(&job.path)?;
+    let location = location(&path)?;
     if is_open_elsewhere(&location, &elsewhere.open) {
         return Err(SaveError::OpenElsewhere);
     }
@@ -44,7 +53,7 @@ pub(super) fn write(job: &SaveJob, elsewhere: &Elsewhere) -> Result<Option<Writt
     }
     let located = SaveJob {
         buffer: job.buffer,
-        path: job.path.clone(),
+        path: path.clone(),
         text: job.text.clone(),
         bom: job.bom,
         content: job.content,
@@ -62,11 +71,12 @@ pub(super) fn write(job: &SaveJob, elsewhere: &Elsewhere) -> Result<Option<Writt
         }
         other => other?,
     };
-    written.moved = Some(Moved {
-        resolved: resolve(&job.path),
+    written.moved = Some(Box::new(Moved {
+        resolved: resolve(&path),
         spelling: own_spelling(&location),
         location,
-    });
+        path,
+    }));
     Ok(Some(written))
 }
 

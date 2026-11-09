@@ -57,6 +57,10 @@ pub fn map(
         (ArgSpec::Mark { .. }, _) => Err(format!(
             "{name} reads a mark, which only its prompt takes, from keys"
         )),
+        // A path read with completion opens or writes a file the person typed (ADR 0087).
+        (ArgSpec::File { .. }, _) => Err(format!(
+            "{name} reads a path, which only its prompt takes, from keys"
+        )),
         (ArgSpec::None, Given::Nothing) => plain(Args::with_prefix(prefix)),
         (ArgSpec::None, _) => Err(format!("{name} takes no argument")),
         (ArgSpec::Count | ArgSpec::Key | ArgSpec::CountAndClipboard, Given::Nothing) => {
@@ -164,5 +168,10 @@ mod tests {
             prompt: "Go to mark: ",
         };
         assert!(refused(mark, Given::Nothing).contains("mark"));
+        let file = ArgSpec::File {
+            prompt: "Find file:",
+            history: "file",
+        };
+        assert!(refused(file, Given::Text("/etc/hosts")).contains("path"));
     }
 }

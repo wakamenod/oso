@@ -13,6 +13,7 @@ mod complete;
 #[cfg(feature = "dev")]
 mod dev_tools;
 mod edit;
+mod files;
 mod isearch;
 mod kill;
 mod mark;
@@ -41,6 +42,7 @@ const TABLES: &[&[Command]] = &[
     #[cfg(feature = "dev")]
     dev_tools::COMMANDS,
     edit::COMMANDS,
+    files::COMMANDS,
     isearch::COMMANDS,
     kill::COMMANDS,
     mark::COMMANDS,
@@ -175,6 +177,12 @@ mod tests {
             "revert-buffer",
             // Picking a mark in a list, which `C-u C-SPC` reaches from the channel (ADR 0088).
             "consult-mark",
+            // Opening and writing files by a path the person typed (ADR 0087); the channel has
+            // its own `open`.
+            "find-file",
+            "open-large-file",
+            "write-file",
+            "write-file-over",
             // Killing a buffer, which can lose unsaved text (ADR 0088).
             "kill-buffer",
             "kill-buffer-anyway",

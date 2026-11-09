@@ -101,6 +101,8 @@ impl Editor {
     /// since they were last matched. The dispatcher calls it as each command ends, so what a
     /// command typed is matched once.
     pub fn match_completion(&mut self) {
+        // A path's segments decide the list before its last is matched (ADR 0087).
+        self.refresh_files();
         let Some(prompt) = self.prompts.last() else {
             return;
         };
@@ -198,6 +200,8 @@ impl Editor {
     /// As [`Editor::move_completion`].
     pub fn insert_completion(&mut self) -> Result<(), PromptError> {
         let text = self.selected_completion()?;
+        // A path goes in whole, the segments it expanded too, as `~/` from the home directory.
+        let text = self.selected_file().map_or(text, |(_, form)| form);
         let Some(prompt) = self.prompts.last() else {
             return Err(PromptError::NoPrompt);
         };
