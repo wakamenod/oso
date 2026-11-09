@@ -1,4 +1,30 @@
 pub mod oso_render
+pub mod oso_render::theme
+pub enum oso_render::theme::Kind
+pub oso_render::theme::Kind::Dark
+pub oso_render::theme::Kind::Light
+impl core::clone::Clone for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::clone(&self) -> oso_render::theme::Kind
+impl core::cmp::Eq for oso_render::theme::Kind
+impl core::cmp::PartialEq for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::eq(&self, &oso_render::theme::Kind) -> bool
+impl core::fmt::Debug for oso_render::theme::Kind
+pub fn oso_render::theme::Kind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::theme::Kind
+impl core::marker::StructuralPartialEq for oso_render::theme::Kind
+pub struct oso_render::theme::Theme
+impl oso_render::theme::Theme
+pub fn oso_render::theme::Theme::kind(&self) -> oso_render::theme::Kind
+pub fn oso_render::theme::Theme::name(&self) -> &'static str
+impl core::clone::Clone for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::clone(&self) -> oso_render::theme::Theme
+impl core::cmp::PartialEq for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::eq(&self, &oso_render::theme::Theme) -> bool
+impl core::fmt::Debug for oso_render::theme::Theme
+pub fn oso_render::theme::Theme::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::theme::Theme
+impl core::marker::StructuralPartialEq for oso_render::theme::Theme
+pub fn oso_render::theme::themes() -> alloc::vec::Vec<oso_render::theme::Theme>
 pub enum oso_render::CaptureError
 pub oso_render::CaptureError::Gpu(alloc::string::String)
 pub oso_render::CaptureError::UnsupportedFormat(alloc::string::String)
@@ -37,9 +63,11 @@ pub oso_render::Face::Key
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt
+pub oso_render::Face::Question
 pub oso_render::Face::Region
 pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
+pub oso_render::Face::SecondaryCursor
 pub oso_render::Face::Text
 pub oso_render::Face::Warning
 impl core::clone::Clone for oso_render::Face
@@ -96,6 +124,21 @@ impl core::marker::StructuralPartialEq for oso_render::Bands
 pub struct oso_render::Capture
 impl oso_render::Capture
 pub fn oso_render::Capture::wait(self) -> core::result::Result<oso_render::Image, oso_render::CaptureError>
+pub struct oso_render::FrameTimes
+pub oso_render::FrameTimes::acquired: core::time::Duration
+pub oso_render::FrameTimes::prepared: core::time::Duration
+pub oso_render::FrameTimes::presented: core::time::Duration
+impl core::clone::Clone for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::clone(&self) -> oso_render::FrameTimes
+impl core::cmp::Eq for oso_render::FrameTimes
+impl core::cmp::PartialEq for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::eq(&self, &oso_render::FrameTimes) -> bool
+impl core::default::Default for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::default() -> oso_render::FrameTimes
+impl core::fmt::Debug for oso_render::FrameTimes
+pub fn oso_render::FrameTimes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_render::FrameTimes
+impl core::marker::StructuralPartialEq for oso_render::FrameTimes
 pub struct oso_render::GpuInfo
 pub oso_render::GpuInfo::kind: &'static str
 pub oso_render::GpuInfo::name: alloc::string::String
@@ -171,12 +214,14 @@ pub fn oso_render::RenderState::capture(&mut self, &[oso_render::Pane<'_>]) -> c
 impl oso_render::RenderState
 pub fn oso_render::RenderState::cell_metrics(&self) -> oso_platform::text::CellMetrics
 pub fn oso_render::RenderState::frame_size(&self) -> oso_core::frame::FrameSize
+pub fn oso_render::RenderState::last_frame_times(&self) -> oso_render::FrameTimes
 pub async fn oso_render::RenderState::new(alloc::sync::Arc<dyn wgpu::api::surface::DisplayAndWindowHandle>, u32, u32, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> Self
 pub fn oso_render::RenderState::pixel_grid(&self) -> oso_core::frame::PixelGrid
 pub fn oso_render::RenderState::presented_frames(&self) -> u64
 pub fn oso_render::RenderState::render(&mut self, &[oso_render::Pane<'_>], &dyn core::ops::function::Fn() -> (u32, u32)) -> core::result::Result<oso_render::Redraw, oso_render::RenderError>
 pub fn oso_render::RenderState::resize(&mut self, u32, u32) -> oso_render::Redraw
 pub fn oso_render::RenderState::set_text_system(&mut self, alloc::boxed::Box<dyn oso_platform::text::TextSystem>) -> oso_render::Redraw
+pub fn oso_render::RenderState::set_theme(&mut self, &str) -> core::option::Option<oso_render::Redraw>
 pub fn oso_render::RenderState::surface_size(&self) -> (u32, u32)
 impl oso_render::RenderState
 pub fn oso_render::RenderState::gpu_info(&self) -> oso_render::GpuInfo
@@ -189,6 +234,7 @@ pub oso_render::TextView::cursor: oso_core::display_map::DisplayPoint
 pub oso_render::TextView::cursor_style: oso_render::CursorStyle
 pub oso_render::TextView::display: oso_core::display_map::DisplaySnapshot
 pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::CellRect])]
+pub oso_render::TextView::others: &'a [oso_core::frame::CellRect]
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64
 pub oso_render::TextView::scroll: oso_core::window::Scroll

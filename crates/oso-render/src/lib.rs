@@ -14,6 +14,7 @@ mod rows;
 mod scene;
 mod shape;
 mod text;
+pub mod theme;
 use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
@@ -21,6 +22,7 @@ use paint::Painter;
 pub use pane::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
+use theme::{Theme, themes};
 
 use std::sync::Arc;
 
@@ -156,6 +158,9 @@ pub struct RenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     painter: Painter,
+    /// The built-in themes, and which one is drawn (ADR 0089).
+    themes: Vec<Theme>,
+    theme: usize,
     /// Shapes and rasterizes text; see `oso_platform::text`.
     text_system: Box<dyn TextSystem>,
     /// Frames in a row that failed to draw; see `count_failed_frame`.
@@ -164,6 +169,22 @@ pub struct RenderState {
     presented: u64,
     #[cfg(feature = "dev")]
     adapter: wgpu::AdapterInfo,
+    /// When the last presented frame had been prepared, had its drawable and was presented,
+    /// each from the frame's start, for the dev socket's timings.
+    #[cfg(feature = "dev")]
+    last_frame: FrameTimes,
+}
+
+/// Where a presented frame's time went, each from its start (dev builds only).
+#[cfg(feature = "dev")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FrameTimes {
+    /// The CPU work: shaping, rasterizing and building quads.
+    pub prepared: std::time::Duration,
+    /// The next drawable had come back from the surface, which may wait for the display.
+    pub acquired: std::time::Duration,
+    /// The frame was encoded, submitted and presented.
+    pub presented: std::time::Duration,
 }
 
 impl RenderState {
@@ -248,7 +269,14 @@ impl RenderState {
         );
 
         // 6. Initialize the shape and text renderers.
-        let painter = Painter::new(&device, surface_format, width as f32, height as f32);
+        let themes = themes();
+        let painter = Painter::new(
+            &device,
+            surface_format,
+            width as f32,
+            height as f32,
+            themes[0],
+        );
 
         Self {
             target,
@@ -258,11 +286,15 @@ impl RenderState {
             queue,
             config,
             painter,
+            themes,
+            theme: 0,
             text_system,
             failed_frames: 0,
             presented: 0,
             #[cfg(feature = "dev")]
             adapter: info,
+            #[cfg(feature = "dev")]
+            last_frame: FrameTimes::default(),
         }
     }
 
@@ -278,6 +310,19 @@ impl RenderState {
         self.text_system = text_system;
         self.painter.invalidate();
         Redraw::Needed
+    }
+
+    /// Draws from the next frame on in the theme called `name`, one of [`theme::themes`].
+    /// Nothing is shaped or rasterized again, so a switch costs one frame (ADR 0089).
+    /// `None` if there is no theme of that name, and nothing changes.
+    pub fn set_theme(&mut self, name: &str) -> Option<Redraw> {
+        let index = self.themes.iter().position(|theme| theme.name() == name)?;
+        if index == self.theme {
+            return Some(Redraw::NotNeeded);
+        }
+        self.painter.set_theme(&self.queue, self.themes[index]);
+        self.theme = index;
+        Some(Redraw::Needed)
     }
 
     /// Where the frame's cells are on the surface.
@@ -296,6 +341,12 @@ impl RenderState {
     /// window is hidden does not count.
     pub fn presented_frames(&self) -> u64 {
         self.presented
+    }
+
+    /// Where the last presented frame's time went (dev builds only).
+    #[cfg(feature = "dev")]
+    pub fn last_frame_times(&self) -> FrameTimes {
+        self.last_frame
     }
 
     /// The size of the surface in physical pixels, as last configured.
@@ -391,13 +442,15 @@ impl RenderState {
         let started = std::time::Instant::now();
         let mut budget = RasterBudget::new(GLYPHS_PER_FRAME);
         self.prepare_frame(panes, &mut budget);
-        log::trace!("frame prepared in {:?}", started.elapsed());
+        let prepared = started.elapsed();
+        log::trace!("frame prepared in {prepared:?}");
 
         // Acquire the next surface texture, or recover as wgpu documents.
         let current = self
             .surface
             .as_ref()
             .map(wgpu::Surface::get_current_texture);
+        let acquired = started.elapsed();
         let action = surface_action(current.as_ref());
         let output = match current {
             Some(
@@ -421,7 +474,18 @@ impl RenderState {
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        log::trace!("frame presented {:?} after it started", started.elapsed());
+        let presented = started.elapsed();
+        log::trace!("frame presented {presented:?} after it started");
+        #[cfg(feature = "dev")]
+        {
+            self.last_frame = FrameTimes {
+                prepared,
+                acquired,
+                presented,
+            };
+        }
+        #[cfg(not(feature = "dev"))]
+        let _ = (prepared, acquired);
 
         self.failed_frames = 0;
         self.presented += 1;

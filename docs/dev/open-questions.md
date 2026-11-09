@@ -79,11 +79,10 @@ item notes when it must be settled.
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- `C-x C-f` matches its candidates on the UI thread, as ADR 0076's worker path past 5000 is not
-  built: the list is capped at 100,000, which takes about 20 ms a key to match at that size, and a
-  change of directory over 100,000 names about 26 ms to build. Move both to a worker
-  ([ADR 0076](adr/0076-completion-and-m-x.md),
-  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- `file_prompt_type_p99_ms`, typing into `C-x C-f` over 100,000 names, is reported only until a few
+  runs exist. Its first run on the Mac mini, on 2026-11-09, gave 4.1–7.1 ms, against 38.6–39.8 ms
+  for the same scenario before the worker. Set its threshold from those runs
+  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.
@@ -165,16 +164,16 @@ item notes when it must be settled.
   Redoing takes 1.4 ms. Sharing the slice's chunks with the rope, and keeping display items
   with the undo group, would make it O(log n). Decide before M2-14. `rope.rs` is at its
   size limit, so sharing needs room there.
-- Typing with 1000 cursors takes about 15 ms per key (1.3 ms with 100), over the 8 ms
-  budget by itself. Applying a batch of splices in one tree pass instead of one
-  `Rope::replace` each is the next step. M2-21 does that and caps the cursors at 1000, aiming at
-  key press to photon p99 ≤ 8 ms with the edit's share at p99 ≤ 4 ms; if 1000 still miss the
-  budget, the bound goes back to the author
-  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)). A command also clones the selection
-  set for its undo group, and an edit a few times more, which counts with that many cursors.
-- Every window showing a buffer clips all its cursors after each edit, though only those
-  in the edited chunks can change. M2-21 clips only those, in every window, in the batched pass
-  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
+- Typing at 1000 cursors, which took 17 to 26 ms a key at p99, takes about 3 ms on 100 MB and
+  3.3 to 4.7 ms on a 10 MB line of minified JSON since M2-21 edits a leaf in place and clips only
+  what is near an edit, in every window (`text_perf -- cursors`,
+  [ADR 0092](adr/0092-edits-in-place-for-many-cursors.md)). On a 10 MB line dense with CJK, emoji
+  and combining marks it still takes 5.6 to 9.3 ms, over the edit's 4 ms share: each rebuilt
+  chunk's summary walks its clusters through the grapheme segmenter. A faster walk over
+  characters that cannot join their neighbours is the next step; the author keeps the bound at
+  1000 meanwhile. `just perf` has no scenario of 1000 cursors yet, since its thresholds are guard
+  files. A command still clones the selection set for its undo group, and an edit a few times
+  more; a profile at 1000 cursors does not show it.
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
   scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
@@ -271,10 +270,6 @@ item notes when it must be settled.
   Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
   have ([ADR 0069](adr/0069-macos-input-method.md)).
-- By M2-18: matching on a worker thread past 5000 candidates, with the generation and the
-  snapshot ADR 0076 fixes, for large directories. The worker gives back matches; where the list
-  is scrolled to stays with the prompt
-  ([ADR 0076](adr/0076-completion-and-m-x.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
   pixels outside the box, so ink above or below the row or in a ligature's other
   cells is drawn in the background color. Split the quad at the box
@@ -289,8 +284,18 @@ item notes when it must be settled.
   counts as the person typing and restarts the 500 ms wait before a question the agent caused
   takes an answer. It could count only text or the end of a composition that was open. Kept
   for now, as the cautious side ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
+- The rule that a channel save of a buffer the agent opened asks the person lives in
+  `save-buffer`, the only writer the channel reaches. Move it into `Editor::start_save`, as a
+  `SaveRefused` the person's `y` gets past, once the channel reaches a second writer, such as a
+  `save-some-buffers` ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 
 ## M3
+
+- The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
+  modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
+  every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start
+  from ADR 0026's defaults
+  ([ADR 0097](adr/0097-visual-aids.md)).
 
 - Whether users can define their own themes, or override a built-in one's palette entries
   and mappings, and in what format. Themes are data to keep it possible. Configuration

@@ -62,6 +62,7 @@ Below a row that needs it, a line between `:` marks its cells:
 | `<>` | the two cells of a wide cluster |
 | `~` | a cell of an escape (`^M`, `\xFF`) |
 | `#` | a cell of a boxed character: invisible (`U+202E`), or past a display cluster's limits (`U+0301`) |
+| `]` | a boxed character's last cell, so that two boxes side by side read as two ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)) |
 
 Below the row with an input method's preedit, a line between `_` marks its
 underline with `-`, and the segment being converted with `=`
@@ -74,8 +75,8 @@ with `#` and the other matches in view with `~`, from `Editor::search_cells`
 ([ADR 0082](adr/0082-isearch.md)).
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
-Text that reads like an escape has no mark, which is how the two differ. `#`
-does not show where one box ends and the next begins. The
+Text that reads like an escape has no mark, which is how the two differ. `]`
+shows where one box ends and the next begins, as the renderer's 1-pixel gap does. The
 padding before the closing `│` shows the row's width whatever font the diff is
 read in.
 
@@ -300,9 +301,10 @@ failure on Linux is real. There are no stored images to compare. Once M2-16 draw
 a flow can take over.
 
 **Themes** ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)): a unit test checks
-the contrast of every face's pairs in every theme, with no GPU. A pixel test keeps each theme's
-text gamma curve, and a sample frame for each theme is drawn off screen as PNGs for the author
-to choose colours from.
+the contrast of every face's pairs in every theme, with no GPU. A pixel test keeps the text
+gamma curve. `OSO_THEME_SAMPLES=<dir> cargo test -p oso-render -- --ignored theme_samples` draws
+two sample frames of every face in each theme off screen, with the OS's font, and writes their
+RGBA pixels and a table of each pair's contrast, for choosing colours.
 
 The socket's methods, for flows and for agents following `verify-in-app`, over
 the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md),
@@ -356,7 +358,11 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
   ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)).
 - `oso [FILE]` and `open-file` open a file, so test files (generated in a scratch
   directory, never committed) can be driven this way.
-- `take-timings` reads key latency, startup and load times for benchmarks. It records no
+- `take-timings` reads key latency, startup and load times for benchmarks. Each key's
+  latency, and where it went (`key_spans_us`: handled, waiting for the frame, taking in the
+  loads, preparing, waiting for a drawable, presenting), is a sample handed over once, as is
+  `dropped_keys`; the next call has only newer ones. `frames` counts since the start, so
+  only its difference says how many were drawn between two calls. It records no
   key if a secret-pattern buffer is shown just before or after it or when its frame is
   presented, and no frames while one is shown, but the first frame. A file counts as secret
   until it is judged ([ADR 0060](adr/0060-timings-while-a-secret-buffer-is-shown.md)). The load
@@ -412,6 +418,7 @@ OS and architecture. Nothing is built or installed there.
 | `ime_preedit_p99_ms` | an input method's preedit report to the frame that draws it, there, through the dev socket's stand-in, as a word grows, converts and clears; reported only (ADR 0069) | 5, 400 reports each |
 | `prompt_type_p99_ms` | digits typed into `goto-line`'s open prompt to the frames that draw them, there; reported only (ADR 0072) | 5, 400 keys each |
 | `mx_type_p99_ms` | a letter and `DEL` typed in turn into `M-x` listing every command, to the frames that draw them; reported only (ADR 0076) | 5, 400 keys each |
+| `file_prompt_type_p99_ms` | a letter, `.`, `*`, a digit and four `DEL` typed in turn into `C-x C-f` over a directory of 100,000 empty files whose names mix ASCII, accented and Japanese letters, to the frames that draw them, while a worker builds and matches the list; making the files takes about 4 s and removing them about 4 s, once per run of the benchmark; reported only (ADR 0096) | 5, 400 keys each |
 | `open_first_screen_ms`, `open_full_load_ms` | opening 100 MB with the window up, to a complete screen and to all of it loaded | 5 |
 | `big_*`, `line_*` | a 1 GB file and a 10 MB line: keys during and after loading, an unbound key's trip through the UI thread, typing and `DEL` in the middle of the file and near the end of the line, and edits without a window | 3, 160 keys each |
 | `dev_build_ms` | `just build-time`: one changed file in the tip crate, an incremental dev build | 5 |
@@ -431,7 +438,8 @@ OS and architecture. Nothing is built or installed there.
 - Key latency ends when `present` returns, so it leaves out the GPU's work as
   well as the display and the compositor.
 - `crates/oso-core/examples/text_perf.rs` remains for looking closely at the
-  rope and the display model.
+  rope and the display model. `-- cursors` runs only typing and undo at 1, 100 and 1000
+  cursors, bare, with marks and over regions (ADR 0091).
 
 ## Fuzzing
 

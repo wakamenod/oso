@@ -215,7 +215,7 @@ search or auto-revert yet. Everyday use starts after M2-14 and M2-18.
   gamma, and gaps between invisible boxes ([ADR 0027](adr/0027-theme.md),
   [ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)).
 - **M2-24** (after M2-23): visual aids: whitespace, current line, cursor flash and
-  line numbers.
+  line numbers ([ADR 0097](adr/0097-visual-aids.md)).
 - **M2-25** (after M2-9 and M2-24): soft wrap, with the WrapMap
   ([ADR 0006](adr/0006-display-model.md)).
 
@@ -226,7 +226,7 @@ alongside the steps above, after M2-16:
   `state`, `text`, `commands` and `cancel`, `ArgSpec::Text` and `insert`, the connection question,
   the `Agent` segment and `*Agent*`, and the change to `just release-safety`.
 - **AC-2** (after AC-1): `oso mcp`, the stdio bridge, with the tools `state`, `text`, `commands`,
-  `look`, `change` and `open`.
+  `look`, `change` and `open`, and then `cancel` ([ADR 0093](adr/0093-a-cancel-tool-in-oso-mcp.md)).
 - Each later step gives its commands a reach, such as `C-x C-f`, `C-x b` and window splits.
 
 ### M3 — Coding

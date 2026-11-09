@@ -25,6 +25,13 @@ impl Editor {
     /// Takes in what a worker found, unless a newer job has taken its place. Returns whether
     /// what shows changed.
     pub fn isearch_reported(&mut self, report: SearchReport) -> bool {
+        let report = match report.0 {
+            Report::Matches {
+                generation,
+                matched,
+            } => return self.cursors_reported(generation, matched),
+            report => report,
+        };
         let live = self.search_live.load(Ordering::Relaxed);
         if self.isearch_follow_text() {
             return true;
@@ -32,7 +39,7 @@ impl Editor {
         let Some(state) = &mut self.isearch else {
             return false;
         };
-        match report.0 {
+        match report {
             Report::Found { generation, at } if generation == live => {
                 let Some((asked, _)) = state.searching.take() else {
                     return false;
@@ -166,7 +173,7 @@ impl Editor {
     }
 
     /// Ends whatever a worker is doing, and returns the generation of the next job.
-    pub(super) fn supersede_search(&mut self) -> u64 {
+    pub(in crate::editor) fn supersede_search(&mut self) -> u64 {
         self.search_job = None;
         let generation = self.search_live.load(Ordering::Relaxed).wrapping_add(1);
         self.search_live.store(generation, Ordering::Relaxed);

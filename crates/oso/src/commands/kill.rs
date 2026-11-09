@@ -69,7 +69,39 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Person,
         run: yank,
     },
+    Command {
+        name: "consult-yank-pop",
+        doc: "Yank a kill picked from the kill ring, with its text beside the list.\n\nThe clipboard is read first, as `yank` reads it. Right after a yank, the kill picked takes the place of what it inserted. The kill picked goes to the front of the ring. A kill from a buffer that may hold secrets is listed with no text.",
+        args: ArgSpec::KillEntry {
+            prompt: "Yank from kill ring:",
+        },
+        reach: Reach::Person,
+        run: consult_yank_pop,
+    },
+    Command {
+        name: "yank-pop",
+        doc: "Right after a yank, put the next older kill in place of what it inserted.\n\nRepeated, go further back, round to the newest. Kills from a buffer that may hold secrets are passed over.",
+        args: ArgSpec::None,
+        reach: Reach::Person,
+        run: yank_pop,
+    },
 ];
+
+fn consult_yank_pop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ctx.editor
+        .yank_picked()
+        .map_err(|error| CommandError::new(error.to_string()))?;
+    ctx.request_redraw();
+    Ok(())
+}
+
+fn yank_pop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
+    ctx.editor
+        .yank_pop()
+        .map_err(|error| CommandError::new(error.to_string()))?;
+    ctx.request_redraw();
+    Ok(())
+}
 
 /// Kills from every cursor of the selected window across `n` words, backward if `n` is
 /// negative. The buffer's edge stops it with no signal, as in Emacs. A cursor the budget

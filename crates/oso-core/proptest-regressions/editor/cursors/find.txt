@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 871d8e7718e4ece87e958b1dbdb9d92d87edcf5ec82651b684870211f450db27 # shrinks to atoms = ["日本語", "ab"], query = "ab", whole_word = true

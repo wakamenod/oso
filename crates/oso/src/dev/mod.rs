@@ -31,7 +31,7 @@ use serde_json::json;
 pub use protocol::{ClipboardOp, ImeReport, Reply, UiOp};
 pub use server::UiRequest;
 pub use state::{ImeFacts, get_state, get_text, ime_state, screenshot_allowed, show_buffer};
-pub use timing::{HandledKey, SecretWatch, Timings};
+pub use timing::{FrameSpans, HandledKey, SecretWatch, Timings};
 
 /// The option that sends emergency copies elsewhere, so that the end-to-end flows can
 /// read them, and never touch the real ones. Only a dev build knows it.

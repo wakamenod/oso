@@ -269,6 +269,13 @@ impl App {
         self.try_restore_positions();
         self.dispatcher
             .restore_pending(&mut self.editor, &state.pending_keys);
+        // A theme this build does not have leaves the one it read at its start.
+        if let Some(theme) = state
+            .theme
+            .filter(|theme| self.editor.theme_name() != Some(theme))
+        {
+            let _ = self.editor.load_theme(&theme);
+        }
         self.request_redraw();
     }
 

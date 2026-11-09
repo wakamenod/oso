@@ -11,10 +11,22 @@ use std::sync::Arc;
 
 use super::Editor;
 use super::completion::CompletionStyle;
-use crate::buffer::Replacement;
-use crate::complete::Candidate;
-use crate::complete::path::{self, Expanded, Found, Name, Plan};
+use crate::buffer::{BufferId, Replacement};
+use crate::complete::path::{self, Found, Name, Plan, Reach, Reached};
+use crate::complete::{Build, Built, Candidate, WORKER_PAST, listed, matched_part};
 use crate::minibuffer::{PromptError, PromptId};
+
+/// What the host found of a path a row shows, for its annotation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Looked {
+    /// What the row says after the name, as the host wrote it: mode, size, age, where a link
+    /// leads.
+    pub annotation: String,
+    /// Its size, which decides whether opening it asks first.
+    pub bytes: u64,
+    /// It is a directory, or a link to one, which `RET` goes into.
+    pub directory: bool,
+}
 
 /// The most candidates a prompt that reads a path lists, as a listing keeps of one directory.
 pub const MAX_FOUND: usize = 100_000;
@@ -42,6 +54,13 @@ pub(super) struct FileList {
     listing_cut: bool,
     /// The candidates shown, in the order of their items.
     found: Vec<Found>,
+    /// What a look found of each path, for its row's annotation and its size (ADR 0087).
+    looks: HashMap<PathBuf, Looked>,
+    /// The paths asked to be looked at and not answered yet.
+    looking: HashSet<PathBuf>,
+    /// The directories the prompt started in and those that hold it, which exist, so a segment
+    /// naming one whole needs no listing of the one above (ADR 0087).
+    known: Vec<PathBuf>,
 }
 
 impl Editor {
@@ -70,8 +89,10 @@ impl Editor {
         {
             candidates.match_last_segment();
         }
+        let start = path::as_typed(&path::plan(initial, self.home.as_deref(), &base));
         self.file_list = FileList {
             prompt: Some(id),
+            known: start.ancestors().map(Path::to_path_buf).collect(),
             base,
             ..FileList::default()
         };
@@ -182,14 +203,21 @@ impl Editor {
             return;
         }
         let list = &self.file_list;
-        let expanded = path::expand(&plan, |directory| {
-            list.listings
-                .get(directory)
-                .map(|names| names.as_deref().unwrap_or(&[]))
-        });
+        let reach = path::reach(
+            &plan,
+            &|directory| {
+                list.listings
+                    .get(directory)
+                    .map(|names| names.as_deref().unwrap_or(&[]))
+            },
+            |directory| list.known.iter().any(|known| known == directory),
+        );
+        let hidden = plan.last.starts_with('.');
         self.file_list.plan = Some(plan);
-        match expanded {
-            Expanded::Need(directories) => {
+        match reach {
+            Reach::Need(directories) => {
+                // A list built for the path before is not this one's.
+                self.stop_completion_job();
                 let list = &mut self.file_list;
                 list.waiting.clone_from(&directories);
                 for directory in directories {
@@ -198,56 +226,110 @@ impl Editor {
                     }
                 }
             }
-            Expanded::Ready(mut found, cut) => {
+            Reach::Ready(reached, cut) => {
                 self.file_list.waiting.clear();
-                // Matching runs on the UI thread, so the list is bounded until it runs on a
-                // worker past 5000 (ADR 0076, ADR 0087).
-                let more = found.len() > MAX_FOUND;
-                found.truncate(MAX_FOUND);
-                self.file_list.cut = cut || more || self.file_list.listing_cut;
-                self.show_files(found);
+                let build = self.file_build(reached, hidden, &text);
+                let revision = self.prompt_revision().unwrap_or_default();
+                // How many names it will have is known before it is made (ADR 0096).
+                if build.size() > WORKER_PAST {
+                    self.leave_build(build, revision, cut);
+                } else {
+                    // A list that is not built on a worker is no job's to stop.
+                    self.stop_completion_job();
+                    if let Some(built) = build.run(&|| false) {
+                        self.install_files(built, cut, revision);
+                    }
+                }
             }
         }
     }
 
-    /// Makes `found` the innermost prompt's candidates: each its name, matched by the last
-    /// segment, with the directories that tell rows of one name apart beside it. The row
-    /// selected stays selected, by its path.
-    fn show_files(&mut self, found: Vec<Found>) {
-        let items: Arc<[Candidate]> = found
-            .iter()
-            .map(|found| Candidate::new(found.name.as_str(), "", found.context.as_str()))
-            .collect();
-        let history = self
-            .prompts
-            .last()
+    /// The list of the directories `reached`, for the innermost prompt's answer `text`.
+    fn file_build(&self, reached: Vec<Reached>, hidden: bool, text: &str) -> Build {
+        let prompt = self.prompts.last();
+        let history = prompt
             .and_then(|prompt| prompt.kind.history())
             .unwrap_or("");
-        let records = self
-            .prompts
-            .last()
-            .is_some_and(|prompt| !prompt.around_secret);
-        let entries: Vec<String> = if records {
+        let records = prompt.is_some_and(|prompt| !prompt.around_secret);
+        let history = if records {
             self.histories.entries(history).map(str::to_owned).collect()
         } else {
             Vec::new()
         };
-        let selected = self.selected_file().map(|(found, _)| found.path.clone());
-        if let Some(prompt) = self.prompts.last_mut()
-            && let Some((candidates, _)) = prompt.completion.as_mut()
+        let keep = self.selected_file().map(|(found, _)| found.path.clone());
+        let listings = &self.file_list.listings;
+        Build {
+            reached: listed(reached, |directory| {
+                listings.get(directory).cloned().flatten()
+            }),
+            hidden,
+            most: MAX_FOUND,
+            keep,
+            history,
+            input: matched_part(text, true).map(str::to_owned),
+        }
+    }
+
+    /// Makes the list `built` the innermost prompt's candidates, as matched for its answer at
+    /// `revision`: each a name, matched by the last segment, with the directories that tell rows
+    /// of one name apart beside it. The row selected stays selected, by its path.
+    pub(super) fn install_files(&mut self, built: Built, cut: bool, revision: u64) {
+        self.file_list.cut = cut || built.more || self.file_list.listing_cut;
+        let Some((candidates, seen)) = self
+            .prompts
+            .last_mut()
+            .and_then(|prompt| prompt.completion.as_mut())
+        else {
+            return;
+        };
+        let on_input = candidates.on_input();
+        let next = candidates.rebuilt(built.items, built.order, built.matched);
+        let before = std::mem::replace(candidates, next);
+        *seen = revision;
+        if let Some(place) = built.kept.and_then(|index| candidates.place_of(index))
+            && place > 0
+            && !on_input
         {
-            let on_input = candidates.on_input();
-            *candidates = candidates.with_items(items, entries.iter().map(String::as_str));
-            let index = selected.and_then(|path| found.iter().position(|found| found.path == path));
-            if let Some(place) = index.and_then(|index| candidates.place_of(index))
-                && place > 0
-                && !on_input
-            {
-                candidates.select(place);
+            candidates.select(place);
+        }
+        let found = std::mem::replace(&mut self.file_list.found, built.found);
+        // The list before is dropped on the worker when it is long (ADR 0096).
+        if before.total() > WORKER_PAST {
+            self.free_on_the_worker(Box::new((before, found)));
+        }
+        self.keep_selection_in_view();
+    }
+
+    /// Shows on the rows in view what looks found of them, in place of their candidates, unless
+    /// they show it already: the list's order and what matches stay (ADR 0096).
+    pub(super) fn patch_looks(&mut self) {
+        if !self.reads_path() {
+            return;
+        }
+        let rows = self.candidate_rows();
+        let list = &self.file_list;
+        let Some((candidates, _)) = self
+            .prompts
+            .last_mut()
+            .and_then(|prompt| prompt.completion.as_mut())
+        else {
+            return;
+        };
+        let top = candidates.top();
+        for place in top..(top + rows).min(candidates.len()) {
+            let Some(index) = candidates.item_at(place) else {
+                continue;
+            };
+            if candidates.is_patched(index) {
+                continue;
+            }
+            let Some(found) = list.found.get(index) else {
+                continue;
+            };
+            if let Some(looked) = list.looks.get(&found.path) {
+                candidates.patch(index, row(found, looked));
             }
         }
-        self.file_list.found = found;
-        self.keep_selection_in_view();
     }
 
     /// The path the innermost prompt's selected candidate stands for, with whether it is a
@@ -259,7 +341,9 @@ impl Editor {
         let candidates = self.prompts.last()?.candidates()?;
         let index = candidates.item_at(candidates.selected()?)?;
         let found = self.file_list.found.get(index)?;
-        let typed = path::typed_form(&found.path, found.directory, self.home.as_deref());
+        let looked = self.file_list.looks.get(&found.path);
+        let directory = found.directory || looked.is_some_and(|looked| looked.directory);
+        let typed = path::typed_form(&found.path, directory, self.home.as_deref());
         Some((found, typed))
     }
 
@@ -293,11 +377,17 @@ impl Editor {
             && !on_input
             && let Some((found, _)) = self.selected_file()
         {
-            if found.directory {
+            let looked = self.file_list.looks.get(&found.path);
+            if found.directory || looked.is_some_and(|looked| looked.directory) {
                 return Some(self.insert_completion());
             }
-            let path = found.path.display().to_string();
-            return Some(self.give_answer(path));
+            // A look that found 2 GiB or more makes the command ask at once (ADR 0087).
+            let bytes = looked.map_or(0, |looked| looked.bytes);
+            let path = found.path.clone();
+            if bytes >= crate::load::LARGE {
+                self.remember_large(path.clone(), bytes);
+            }
+            return Some(self.give_answer(path.display().to_string()));
         }
         let path = self.typed_file()?;
         // A path typed with `/` at its end names a directory, which `C-x C-w` writes into.
@@ -315,11 +405,11 @@ impl Editor {
 
     /// Asks the host to visit `path` in the selected window, reading at most `limit` bytes, as a
     /// command cannot start a load itself. A buffer that visits that path already is shown at
-    /// once instead.
+    /// once instead, unless the agent channel is still opening it.
     pub fn request_visit(&mut self, path: PathBuf, limit: u64) {
         let open = self
             .buffers()
-            .find(|(_, buffer)| buffer.path() == Some(path.as_path()))
+            .find(|(_, buffer)| !buffer.agent_pending() && buffer.path() == Some(path.as_path()))
             .map(|(id, _)| id);
         match open {
             Some(id) => self.show(id),
@@ -362,12 +452,109 @@ impl Editor {
         self.start_directory = directory;
     }
 
+    /// The rows shown that nobody has looked at yet, by directory, for the host to look at and
+    /// answer with [`Editor::file_looked`]. Each is given once.
+    pub fn take_file_looks(&mut self) -> Vec<(PathBuf, Vec<String>)> {
+        if !self.reads_path() {
+            return Vec::new();
+        }
+        let rows = self.candidate_rows();
+        let Some(candidates) = self.prompts.last().and_then(|prompt| prompt.candidates()) else {
+            return Vec::new();
+        };
+        let list = &self.file_list;
+        let mut asked: Vec<(PathBuf, Vec<String>)> = Vec::new();
+        let mut paths = Vec::new();
+        let top = candidates.top();
+        for place in top..(top + rows).min(candidates.len()) {
+            let Some(found) = candidates
+                .item_at(place)
+                .and_then(|index| list.found.get(index))
+            else {
+                continue;
+            };
+            if list.looks.contains_key(&found.path) || list.looking.contains(&found.path) {
+                continue;
+            }
+            let (Some(directory), Some(name)) = (found.path.parent(), found.path.file_name())
+            else {
+                continue;
+            };
+            let name = name.to_string_lossy().into_owned();
+            match asked.iter_mut().find(|(other, _)| other == directory) {
+                Some((_, names)) => names.push(name),
+                None => asked.push((directory.to_path_buf(), vec![name])),
+            }
+            paths.push(found.path.clone());
+        }
+        self.file_list.looking.extend(paths);
+        asked
+    }
+
+    /// Takes in what looking at the names in `directory` found, and shows it on their rows.
+    pub fn file_looked(&mut self, directory: &Path, looks: Vec<(String, Looked)>) {
+        if self.file_list.prompt.is_none() {
+            return;
+        }
+        for (name, looked) in looks {
+            let path = directory.join(name);
+            self.file_list.looking.remove(&path);
+            self.file_list.looks.insert(path, looked);
+        }
+        self.patch_looks();
+    }
+
+    /// Another buffer that visits the very file `id` loaded, by its device and inode, as a link
+    /// or a second spelling of an open file leads to it (ADR 0087). A buffer the agent channel
+    /// is still opening is neither, as the channel checks what it may show before it shows
+    /// anything (ADR 0085); once shown, it is like any other.
+    pub fn visiting_same_file(&self, id: BufferId) -> Option<BufferId> {
+        let buffer = self.buffer(id).filter(|buffer| !buffer.agent_pending())?;
+        let identity = buffer.baseline()?.file?.identity?;
+        self.buffers().map(|(other, _)| other).find(|other| {
+            *other != id
+                && self
+                    .buffer(*other)
+                    .filter(|buffer| !buffer.agent_pending())
+                    .and_then(|buffer| buffer.baseline()?.file?.identity)
+                    == Some(identity)
+        })
+    }
+
     /// Forgets the prompt that read a path, once it has closed.
     pub(super) fn forget_files(&mut self, closed: PromptId) {
         if self.file_list.prompt == Some(closed) {
-            self.file_list = FileList::default();
+            let list = std::mem::take(&mut self.file_list);
+            // Its 100,000 paths are dropped on the worker (ADR 0096).
+            if list.found.len() > WORKER_PAST {
+                self.free_on_the_worker(Box::new(list));
+            }
         }
     }
+
+    /// Forgets the plan of the prompt `id` that reads a path, so that it is planned and its
+    /// list built again.
+    pub(super) fn forget_file_plan(&mut self, id: PromptId) {
+        if self.file_list.prompt == Some(id) {
+            self.file_list.plan = None;
+        }
+    }
+}
+
+/// The row of `found` once a look found `looked` of it.
+fn row(found: &Found, looked: &Looked) -> Candidate {
+    let note = if found.context.is_empty() {
+        looked.annotation.clone()
+    } else {
+        format!("{}  {}", found.context, looked.annotation)
+    };
+    // A link that leads to a directory reads as one.
+    let name = if looked.directory && !found.name.ends_with('/') {
+        format!("{}/", found.name)
+    } else {
+        found.name.clone()
+    };
+    Candidate::new(name, "", note)
 }
 
 #[cfg(test)]

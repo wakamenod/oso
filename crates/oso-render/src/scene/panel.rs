@@ -1,14 +1,16 @@
-//! A float's panel as rounded boxes: the panel, its field, its selected candidate and its keys, in pixels around
-//! their cells, colored by their faces and sized by a [`PanelStyle`] (ADR 0075). Each box's
-//! quad is cut to the pane's region here, on the CPU, as everything else a frame draws is
-//! (ADR 0061), so the GPU draws nothing outside it.
+//! A float's panel as rounded boxes: the panel, its field, its selected candidate and its
+//! keys, in pixels around their cells, colored by their faces and sized by the theme's
+//! [`PanelStyle`] (ADR 0075, ADR 0089). Each box's quad is cut to the pane's region here, on
+//! the CPU, as everything else a frame draws is (ADR 0061), so the GPU draws nothing outside
+//! it.
 //!
 //! Must not depend on: `paint`, `capture` or a font backend.
 
 use oso_core::frame::{CellRect, PixelGrid, PixelRect};
 
-use crate::pane::{Face, Panel, PanelStyle};
+use crate::pane::{Face, Panel};
 use crate::shape::Rounded;
+use crate::theme::{PanelStyle, Theme};
 
 /// One point in pixels: the cell's height over 16, so that what is sized in points follows
 /// the font's size as well as the display's scale.
@@ -27,8 +29,9 @@ pub(super) fn boxes(
     panel: &Panel<'_>,
     region: CellRect,
     cell: [f32; 2],
-    style: &PanelStyle,
+    theme: &Theme,
 ) -> impl Iterator<Item = Rounded> {
+    let style = theme.panel();
     let grid = PixelGrid::new(cell[0], cell[1]);
     let pt = point(cell[1]);
     let clip = to_edge(grid.rect(region), region.row == 0);
@@ -40,13 +43,13 @@ pub(super) fn boxes(
     let top = if attached { 0.0 } else { radius };
     let (outline, hairline, background) = if panel.border {
         let width = whole(style.border_width, pt);
-        (style.border, width, Face::Text.background())
+        (style.border, width, theme.background(Face::Text))
     } else {
         let width = whole(style.hairline, pt);
         (
-            Face::FloatBorder.background(),
+            theme.background(Face::FloatBorder),
             width,
-            Face::Float.background(),
+            theme.background(Face::Float),
         )
     };
     let (shadow, down, sigma) = if panel.border {
@@ -71,14 +74,14 @@ pub(super) fn boxes(
     .cut(3.0 * sigma + hairline + 1.0, down, clip);
     let field = panel
         .field
-        .and_then(|field| field_box(field, panel.field_room, &grid, pt, style, clip));
+        .and_then(|field| field_box(field, panel.field_room, &grid, pt, theme, clip));
     let keys = panel
         .keys
         .iter()
-        .filter_map(move |key| key_chip(*key, &grid, pt, style, clip));
+        .filter_map(move |key| key_chip(*key, &grid, pt, theme, clip));
     let selected = panel
         .selected
-        .and_then(|row| selected_box(row, panel.border, &grid, pt, style, fill, clip));
+        .and_then(|row| selected_box(row, panel.border, &grid, pt, theme, fill, clip));
     frame
         .into_iter()
         .chain(body)
@@ -113,9 +116,10 @@ fn field_box(
     room: CellRect,
     grid: &PixelGrid,
     pt: f32,
-    style: &PanelStyle,
+    theme: &Theme,
     clip: PixelRect,
 ) -> Option<Rounded> {
+    let style = theme.panel();
     if field.rows == 0 || field.columns == 0 {
         return None;
     }
@@ -140,8 +144,8 @@ fn field_box(
     Rounded {
         rect: corners(inside),
         radii: [style.field_radius * pt; 4],
-        fill: Face::Field.background(),
-        outline: Face::Field.foreground(),
+        fill: theme.background(Face::Field),
+        outline: theme.foreground(Face::Field),
         shadow: [0.0; 4],
         params: [outline, 0.0, 0.0, 0.0],
         bounds: [0.0; 4],
@@ -154,9 +158,10 @@ fn key_chip(
     cells: CellRect,
     grid: &PixelGrid,
     pt: f32,
-    style: &PanelStyle,
+    theme: &Theme,
     clip: PixelRect,
 ) -> Option<Rounded> {
+    let style = theme.panel();
     if cells.rows == 0 || cells.columns == 0 {
         return None;
     }
@@ -170,7 +175,7 @@ fn key_chip(
             (cells.height - 2.0 * up).max(0.0),
         ],
         radii: [style.key_radius * pt; 4],
-        fill: Face::Key.background(),
+        fill: theme.background(Face::Key),
         outline: [0.0; 4],
         shadow: [0.0; 4],
         params: [0.0; 4],
@@ -186,10 +191,11 @@ fn selected_box(
     bar: bool,
     grid: &PixelGrid,
     pt: f32,
-    style: &PanelStyle,
+    theme: &Theme,
     fill: PixelRect,
     clip: PixelRect,
 ) -> Option<Rounded> {
+    let style = theme.panel();
     if row.rows == 0 || row.columns == 0 {
         return None;
     }
@@ -211,7 +217,7 @@ fn selected_box(
     Rounded {
         rect: corners(wide),
         radii: [radius; 4],
-        fill: Face::CompletionSelected.background(),
+        fill: theme.background(Face::CompletionSelected),
         outline: [0.0; 4],
         shadow: [0.0; 4],
         params: [0.0; 4],

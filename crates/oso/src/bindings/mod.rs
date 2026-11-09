@@ -6,6 +6,7 @@
 
 mod buffers;
 mod complete;
+mod cursors;
 mod edit;
 mod files;
 mod isearch;
@@ -19,6 +20,7 @@ mod recovery;
 mod save;
 mod scroll;
 mod session;
+mod theme;
 
 use oso_core::command::Registry;
 use oso_core::keymap::Keymap;
@@ -30,6 +32,7 @@ use oso_core::keymap::Keymap;
 #[rustfmt::skip]
 const TABLES: &[&[(&str, &str)]] = &[
     complete::BINDINGS,
+    cursors::BINDINGS,
     edit::BINDINGS,
     files::BINDINGS,
     isearch::BINDINGS,
@@ -45,6 +48,7 @@ const TABLES: &[&[(&str, &str)]] = &[
     save::BINDINGS,
     scroll::BINDINGS,
     session::BINDINGS,
+    theme::BINDINGS,
 ];
 
 /// The default global keymap, over the commands in `registry`.

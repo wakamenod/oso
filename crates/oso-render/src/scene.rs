@@ -24,12 +24,11 @@ use oso_core::window::Scroll;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
 use crate::atlas::AtlasGlyph;
-use crate::pane::{
-    CursorStyle, Face, Layer, Masked, PANEL, Pane, PaneContent, PaneId, Span, TextView,
-};
+use crate::pane::{CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Span, TextView};
 use crate::rows::{Rows, ShapedRow};
 use crate::shape::{MAX_ROUNDED, Rect, Rounded};
 use crate::text::{GlyphInstance, Layout};
+use crate::theme::Theme;
 
 mod panel;
 
@@ -67,6 +66,8 @@ struct Draws {
     quads: Vec<GlyphInstance>,
     /// Rectangles held back for what is filled last, such as a cursor box.
     held: usize,
+    /// What colours the faces take (ADR 0089). Switching it reshapes and rasterizes nothing.
+    theme: Theme,
 }
 
 impl Draws {
@@ -77,7 +78,7 @@ impl Draws {
             self.rects.push(Rect {
                 position: [rect.x, rect.y],
                 size: [rect.width, rect.height],
-                color: face.background(),
+                color: self.theme.background(face),
             });
         }
     }
@@ -91,8 +92,20 @@ impl Draws {
         system: &mut dyn TextSystem,
         glyphs: &mut G,
     ) -> bool {
-        for &(column, cells) in &shaped.boxes {
-            self.fill(layout.display_cells(row, column, cells), Face::Boxed);
+        for (i, &(column, cells)) in shaped.boxes.iter().enumerate() {
+            // A box followed by another ends a pixel short, so two never read as one
+            // (ADR 0051, ADR 0089).
+            let joined = shaped
+                .boxes
+                .get(i + 1)
+                .is_some_and(|&(next, _)| next == column + cells);
+            let rect = layout
+                .display_cells(row, column, cells)
+                .map(|rect| PixelRect {
+                    width: rect.width - if joined { 1.0 } else { 0.0 },
+                    ..rect
+                });
+            self.fill(rect.filter(|rect| rect.width > 0.0), Face::Boxed);
         }
         // Only glyphs in the pane's columns are looked up, so nothing out of
         // view is rasterized: a glyph paints only its own cells.
@@ -110,7 +123,7 @@ impl Draws {
             let Some(entry) = glyphs.get(system, glyph.key) else {
                 continue;
             };
-            if let Some(quad) = layout.quad(row, glyph, &entry) {
+            if let Some(quad) = layout.quad(row, glyph, &entry, &self.theme) {
                 self.quads.push(quad);
             }
         }
@@ -131,7 +144,7 @@ pub(crate) struct Scene {
 }
 
 impl Scene {
-    pub(crate) fn new(limits: Limits) -> Self {
+    pub(crate) fn new(limits: Limits, theme: Theme) -> Self {
         Self {
             rows: Vec::new(),
             order: Vec::new(),
@@ -141,9 +154,19 @@ impl Scene {
                 rounded: Vec::new(),
                 quads: Vec::new(),
                 held: 0,
+                theme,
             },
             layers: Vec::new(),
         }
+    }
+
+    /// Draws the next frame in `theme`'s colours. Nothing is shaped or rasterized again.
+    pub(crate) fn set_theme(&mut self, theme: Theme) {
+        self.draws.theme = theme;
+    }
+
+    pub(crate) fn theme(&self) -> &Theme {
+        &self.draws.theme
     }
 
     /// Forgets every pane's shaping, for when the font changes.
@@ -306,7 +329,7 @@ fn draw_pane<G: GlyphSource>(
         let cell = [metrics.width, metrics.height];
         draws
             .rounded
-            .extend(panel::boxes(panel, pane.region, cell, &PANEL).take(room));
+            .extend(panel::boxes(panel, pane.region, cell, &draws.theme).take(room));
     }
     match &pane.content {
         PaneContent::Text(view) => {
@@ -323,6 +346,7 @@ fn draw_pane<G: GlyphSource>(
             }
             draw_text(draws, view, pane, &layout, rows, system, glyphs);
             draws.held -= held;
+            outline_others(draws, view, &layout, metrics);
             underline_preedit(draws, view, &layout, metrics);
             if let Some(cells) = cursor {
                 fill_cursor(draws, &layout, cells, hollow, metrics);
@@ -390,6 +414,21 @@ fn outline(rect: PixelRect, width: f32) -> [PixelRect; 4] {
             ..rect
         },
     ]
+}
+
+/// Draws the outlines of `view`'s other cursors, over the glyphs and under the primary's
+/// box (ADR 0091).
+fn outline_others(draws: &mut Draws, view: &TextView<'_>, layout: &Layout, metrics: CellMetrics) {
+    let line = line_width(metrics);
+    for rect in view
+        .others
+        .iter()
+        .filter_map(|cells| layout.frame_cells(*cells))
+    {
+        for side in outline(rect, line) {
+            draws.fill(Some(side), Face::SecondaryCursor);
+        }
+    }
 }
 
 /// Fills the cursor box over `cells`, or only its outline for a hollow one.
@@ -576,6 +615,10 @@ mod tests {
         }
     }
 
+    fn theme() -> Theme {
+        crate::theme::themes()[0]
+    }
+
     fn rect(row: usize, column: usize, rows: usize, columns: usize) -> CellRect {
         CellRect {
             row,
@@ -597,6 +640,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         })
@@ -648,7 +692,7 @@ mod tests {
                 bitmap: Some(([8, 60], 1, 60)),
                 ..FakeAtlas::default()
             };
-            let mut scene = Scene::new(LIMITS);
+            let mut scene = Scene::new(LIMITS, theme());
             build(&mut scene, panes, &mut atlas);
             scene.quads()[0].position()[1]
         };
@@ -694,6 +738,7 @@ mod tests {
                     scroll: Scroll { top, left },
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     cursor_style: CursorStyle::Box,
+                    others: &[],
                     preedit: None,
                     fills: &[],
                 })
@@ -704,7 +749,7 @@ mod tests {
                 bitmap: Some(([width, height], bitmap_left, bitmap_top)),
                 ..FakeAtlas::default()
             };
-            let mut scene = Scene::new(LIMITS);
+            let mut scene = Scene::new(LIMITS, theme());
             build(&mut scene, &panes, &mut atlas);
             let (x0, y0) = (8.0 + column as f32 * 10.0, 8.0 + row as f32 * 20.0);
             let (x1, y1) = (x0 + columns as f32 * 10.0, y0 + rows as f32 * 20.0);
@@ -733,7 +778,7 @@ mod tests {
             })
             .window
             .text;
-            let mut scene = Scene::new(LIMITS);
+            let mut scene = Scene::new(LIMITS, theme());
             let panes = [pane(0, area, 0, view(&buffer))];
             let system = build(&mut scene, &panes, &mut FakeAtlas::default());
             assert_eq!(system.shaped.len(), area.rows, "a frame of {frame_rows}");
@@ -745,7 +790,7 @@ mod tests {
     fn a_pane_draws_only_in_its_region() {
         let buffer = Buffer::from_text("t", &"abcdefgh\n".repeat(10));
         let panes = [pane(0, rect(2, 3, 2, 4), 0, view(&buffer))];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let cells = quad_cells(&scene, 0..scene.quads().len() as u32);
         let mut expected = Vec::new();
@@ -767,11 +812,12 @@ mod tests {
             scroll: Scroll { top: 3, left: 64 },
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
-        let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
+        let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
         build(&mut scene, &panes, &mut atlas);
         assert!(scene.quads().is_empty());
         assert!(atlas.looked_up.is_empty());
@@ -786,7 +832,7 @@ mod tests {
             pane(1, rect(1, 0, 1, 10), 0, PaneContent::Lines(&b)),
             pane(2, rect(0, 0, 1, 10), 3, PaneContent::Lines(&b)),
         ];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let layers = scene.layers();
         assert_eq!(layers.len(), 2);
@@ -803,7 +849,7 @@ mod tests {
             pane(0, rect(0, 0, 1, 10), 5, PaneContent::Lines(&front)),
             pane(1, rect(0, 0, 1, 10), 0, PaneContent::Lines(&back)),
         ];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         assert_eq!(scene.layers()[0].quads.len(), 1);
         assert_eq!(scene.layers()[1].quads.len(), 2);
@@ -819,7 +865,7 @@ mod tests {
             pane(1, rect(1, 2, 1, 4), 1, PaneContent::Lines(&text)),
         ];
         panes[1].background = Some(Face::Text);
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let (back, front) = (&scene.layers()[0], &scene.layers()[1]);
         let colors = |rects: &Range<u32>| -> Vec<[f32; 4]> {
@@ -828,8 +874,8 @@ mod tests {
                 .map(|r| r.color)
                 .collect()
         };
-        assert_eq!(colors(&back.rects), [Face::Boxed.background()]);
-        assert_eq!(colors(&front.rects), [Face::Text.background()]);
+        assert_eq!(colors(&back.rects), [theme().background(Face::Boxed)]);
+        assert_eq!(colors(&front.rects), [theme().background(Face::Text)]);
         assert_eq!(quad_cells(&scene, front.quads.clone()), [(1, 2)]);
         // The opaque background is the whole region, in pixels.
         let filled = scene.rects()[front.rects.start as usize];
@@ -851,7 +897,7 @@ mod tests {
             }),
             ..pane(0, rect(0, 0, 6, 12), 16, PaneContent::Lines(&[]))
         }];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         assert!(scene.rects().is_empty(), "no background, no border");
         let rounded = scene.rounded();
@@ -878,9 +924,9 @@ mod tests {
             field.rect,
             [48.0 - 7.0, 48.0 - 4.0, 60.0 + 14.0, 20.0 + 8.0]
         );
-        assert_eq!(field.fill, Face::Field.background());
-        assert_eq!(field.outline, Face::Field.foreground());
-        assert_eq!(rounded[2].fill, Face::Key.background());
+        assert_eq!(field.fill, theme().background(Face::Field));
+        assert_eq!(field.outline, theme().foreground(Face::Field));
+        assert_eq!(rounded[2].fill, theme().background(Face::Key));
     }
 
     #[test]
@@ -898,7 +944,7 @@ mod tests {
             }),
             ..pane(0, rect(0, 0, 2, 12), 16, PaneContent::Lines(&[]))
         }];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rounded = scene.rounded();
         assert_eq!(rounded.len(), 2, "the key below the region is dropped");
@@ -921,12 +967,12 @@ mod tests {
             }),
             ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
         }];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rounded = scene.rounded();
         assert_eq!(rounded.len(), 2);
         let [panel, row] = [rounded[0], rounded[1]];
-        assert_eq!(row.fill, Face::CompletionSelected.background());
+        assert_eq!(row.fill, theme().background(Face::CompletionSelected));
         // The row's cells are x 28..108; the box reaches past them, and stays in the panel.
         let [x, y, width, height] = row.rect;
         let [px, _, pwidth, _] = panel.rect;
@@ -947,22 +993,25 @@ mod tests {
             }),
             ..pane(0, rect(0, 0, 8, 12), 16, PaneContent::Lines(&[]))
         }];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rounded = scene.rounded();
         // The border is a square box behind the panel, 5 points of a 20 px cell: 6.25 px, in
         // whole pixels, past it on every side.
         let (frame, panel) = (rounded[0], rounded[1]);
-        assert_eq!((frame.fill, frame.radii), (PANEL.border, [0.0; 4]));
+        assert_eq!(
+            (frame.fill, frame.radii),
+            (theme().panel().border, [0.0; 4])
+        );
         assert_eq!(frame.rect[0], panel.rect[0] - 6.0);
         assert_eq!(frame.rect[2], panel.rect[2] + 12.0);
         // Square, on the text's background, with no shadow and no outline of its own.
         assert_eq!(panel.radii, [0.0; 4]);
-        assert_eq!(panel.fill, Face::Text.background());
+        assert_eq!(panel.fill, theme().background(Face::Text));
         assert_eq!((panel.shadow[3], panel.params[0]), (0.0, 0.0));
         // The selected row is a bar across the whole panel.
         let bar = rounded[2];
-        assert_eq!(bar.fill, Face::CompletionSelected.background());
+        assert_eq!(bar.fill, theme().background(Face::CompletionSelected));
         assert_eq!((bar.rect[0], bar.rect[2]), (panel.rect[0], panel.rect[2]));
         assert_eq!(bar.radii, [0.0; 4]);
     }
@@ -980,13 +1029,13 @@ mod tests {
             }),
             ..pane(0, rect(0, 0, 3, 12), 16, PaneContent::Lines(&[]))
         }];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let panel = scene.rounded()[0];
         // The panel ends at y 48 and the pane at 68: the shadow's reach fits in 20 px.
         let [_, down, sigma, _] = panel.params;
         assert!(3.0 * sigma + down <= 20.0 + 1e-3, "{sigma} {down}");
-        assert!(panel.shadow[3] < PANEL.shadow[3]);
+        assert!(panel.shadow[3] < theme().panel().shadow[3]);
     }
 
     #[test]
@@ -996,10 +1045,45 @@ mod tests {
             background: Some(Face::Text),
             ..pane(0, rect(0, 0, 3, 10), 0, PaneContent::Lines(&lines))
         }];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         assert!(scene.rounded().is_empty());
         assert!(scene.layers().iter().all(|layer| layer.rounded.is_empty()));
+    }
+
+    #[test]
+    fn other_cursors_are_dim_outlines_under_the_primarys_box() {
+        let buffer = Buffer::from_text("t", "abc");
+        let others = [rect(0, 2, 1, 1)];
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
+            others: &others,
+            preedit: None,
+            fills: &[],
+        });
+        let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
+        let mut scene = Scene::new(LIMITS, theme());
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects = scene.rects();
+        let dim = theme().background(Face::SecondaryCursor);
+        let outline: Vec<_> = rects.iter().filter(|r| r.color == dim).collect();
+        assert_eq!(outline.len(), 4, "four sides");
+        assert_eq!(
+            (outline[0].position, outline[0].size),
+            ([28.0, 8.0], [10.0, 1.0])
+        );
+        let last = rects.last().unwrap();
+        assert_eq!(
+            last.color,
+            theme().background(Face::Cursor),
+            "the primary's box last"
+        );
+        assert_eq!(scene.quads().len(), 3, "every glyph still shows");
     }
 
     #[test]
@@ -1012,15 +1096,20 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Hollow,
+            others: &[],
             preedit: None,
             fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rects = scene.rects();
         assert_eq!(rects.len(), 4);
-        assert!(rects.iter().all(|r| r.color == Face::Cursor.background()));
+        assert!(
+            rects
+                .iter()
+                .all(|r| r.color == theme().background(Face::Cursor))
+        );
         assert_eq!(
             (rects[0].position, rects[0].size),
             ([18.0, 8.0], [10.0, 1.0])
@@ -1039,7 +1128,7 @@ mod tests {
             cursor: 3,
         });
         let panes = [pane(0, rect(0, 0, 1, 5), 17, content)];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         let system = build(&mut scene, &panes, &mut FakeAtlas::default());
         assert_eq!(scene.quads().len(), 3);
         assert!(
@@ -1049,7 +1138,7 @@ mod tests {
                 .all(|text| text.chars().all(|c| c == '*'))
         );
         let last = scene.rects().last().unwrap();
-        assert_eq!(last.color, Face::Cursor.background());
+        assert_eq!(last.color, theme().background(Face::Cursor));
         assert_eq!((last.position, last.size), ([38.0, 8.0], [10.0, 20.0]));
     }
 
@@ -1078,7 +1167,7 @@ mod tests {
                 bitmap: Some(([8, 40], 1, 22)),
                 ..FakeAtlas::default()
             };
-            let mut scene = Scene::new(LIMITS);
+            let mut scene = Scene::new(LIMITS, theme());
             build(&mut scene, &panes, &mut atlas);
             let quad = &scene.quads()[0];
             reach.push([quad.position()[1], quad.position()[1] + quad.size()[1]]);
@@ -1100,6 +1189,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
@@ -1108,17 +1198,17 @@ mod tests {
             rects: 8,
             quads: 1000,
         };
-        let mut scene = Scene::new(limits);
+        let mut scene = Scene::new(limits, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rects = scene.rects();
         assert_eq!(rects.len(), limits.rects, "the boxes took all they could");
         assert!(
             rects[..rects.len() - 1]
                 .iter()
-                .all(|r| r.color == Face::Boxed.background())
+                .all(|r| r.color == theme().background(Face::Boxed))
         );
         let last = rects.last().unwrap();
-        assert_eq!(last.color, Face::Cursor.background());
+        assert_eq!(last.color, theme().background(Face::Cursor));
         assert_eq!((last.position, last.size), ([8.0, 8.0], [60.0, 20.0]));
     }
 
@@ -1132,14 +1222,15 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let last = scene.rects().last().unwrap();
-        assert_eq!(last.color, Face::Cursor.background());
+        assert_eq!(last.color, theme().background(Face::Cursor));
         // The cursor is on a 6-cell label, cut to the 3 cells of the region.
         assert_eq!(last.position, [18.0, 28.0]);
         assert_eq!(last.size, [30.0, 20.0]);
@@ -1158,12 +1249,13 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(1, 1),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[(Face::Region, &region)],
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rects: Vec<_> = scene
             .rects()
@@ -1173,11 +1265,11 @@ mod tests {
         assert_eq!(
             rects,
             [
-                ([18.0, 28.0], [80.0, 40.0], Face::Text.background()),
-                ([18.0, 28.0], [80.0, 20.0], Face::Region.background()),
-                ([18.0, 48.0], [80.0, 20.0], Face::Region.background()),
-                ([18.0, 28.0], [60.0, 20.0], Face::Boxed.background()),
-                ([28.0, 48.0], [10.0, 20.0], Face::Cursor.background()),
+                ([18.0, 28.0], [80.0, 40.0], theme().background(Face::Text)),
+                ([18.0, 28.0], [80.0, 20.0], theme().background(Face::Region)),
+                ([18.0, 48.0], [80.0, 20.0], theme().background(Face::Region)),
+                ([18.0, 28.0], [60.0, 20.0], theme().background(Face::Boxed)),
+                ([28.0, 48.0], [10.0, 20.0], theme().background(Face::Cursor)),
             ],
             "the second row of the region is cut to the pane"
         );
@@ -1196,24 +1288,25 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: Some(&preedit),
             fills: &[],
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let rects: Vec<_> = scene
             .rects()
             .iter()
             .map(|rect| (rect.position, rect.size, rect.color))
             .collect();
-        let line = Face::Preedit.background();
+        let line = theme().background(Face::Preedit);
         assert_eq!(
             rects,
             [
                 ([18.0, 27.0], [40.0, 1.0], line),
                 ([38.0, 26.0], [20.0, 2.0], line),
-                ([58.0, 8.0], [10.0, 20.0], Face::Cursor.background()),
+                ([58.0, 8.0], [10.0, 20.0], theme().background(Face::Cursor)),
             ],
             "the box is on b, pushed to column 5"
         );
@@ -1221,6 +1314,77 @@ mod tests {
             quad_cells(&scene, 0..scene.quads().len() as u32),
             [(0, 0), (0, 1), (0, 3), (0, 5), (0, 6)]
         );
+    }
+
+    #[test]
+    fn a_switch_of_theme_shapes_and_rasterizes_nothing_again() {
+        let buffer = Buffer::from_text("t", "text\u{202e}");
+        let content = || {
+            PaneContent::Text(TextView {
+                display: buffer.display(),
+                buffer: id(),
+                revision: 1,
+                scroll: Scroll::default(),
+                cursor: DisplayPoint::new(0, 0),
+                cursor_style: CursorStyle::Box,
+                others: &[],
+                preedit: None,
+                fills: &[],
+            })
+        };
+        let mut scene = Scene::new(LIMITS, theme());
+        let mut atlas = FakeAtlas::default();
+        build(
+            &mut scene,
+            &[pane(0, rect(0, 0, 2, 12), 0, content())],
+            &mut atlas,
+        );
+        let (glyphs, before) = (atlas.looked_up.len(), scene.rects()[0].color);
+        let other = theme().swapped();
+        scene.set_theme(other);
+        let system = build(
+            &mut scene,
+            &[pane(0, rect(0, 0, 2, 12), 0, content())],
+            &mut atlas,
+        );
+        assert!(system.shaped.is_empty(), "{:?}", system.shaped);
+        assert_eq!(
+            atlas.looked_up.len(),
+            2 * glyphs,
+            "the same glyphs, from the atlas"
+        );
+        assert_eq!(scene.rects()[0].color, other.background(Face::Boxed));
+        assert_ne!(scene.rects()[0].color, before);
+        assert_eq!(scene.quads()[0].color(), other.foreground(Face::Cursor));
+    }
+
+    #[test]
+    fn a_box_followed_by_another_ends_a_pixel_short() {
+        let buffer = Buffer::from_text("t", "\u{202e}\u{202e}a\u{202e}");
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: Scroll::default(),
+            cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
+            others: &[],
+            preedit: None,
+            fills: &[],
+        });
+        let mut scene = Scene::new(LIMITS, theme());
+        build(
+            &mut scene,
+            &[pane(0, rect(0, 0, 1, 20), 0, content)],
+            &mut FakeAtlas::default(),
+        );
+        let boxes: Vec<_> = scene
+            .rects()
+            .iter()
+            .map(|r| (r.position[0], r.size[0]))
+            .collect();
+        // Two labels of 6 cells side by side, then a letter and a third, past the margin.
+        assert_eq!(boxes, [(8.0, 59.0), (68.0, 60.0), (138.0, 60.0)]);
     }
 
     #[test]
@@ -1236,6 +1400,7 @@ mod tests {
                 scroll: Scroll::default(),
                 cursor: DisplayPoint::new(1000, 0),
                 cursor_style: CursorStyle::Box,
+                others: &[],
                 preedit: None,
                 fills: &[],
             })
@@ -1246,7 +1411,7 @@ mod tests {
                 pane(1, rect(1, 0, 1, 10), 0, content(&two, second_id)),
             ]
         };
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         let mut atlas = FakeAtlas::default();
         // Two buffers side by side: if the panes shared a cache, each frame
         // would drop the other's rows and shape both again.
@@ -1266,7 +1431,7 @@ mod tests {
             pane(0, rect(0, 0, 1, 10), 0, PaneContent::Lines(&text)),
             pane(1, rect(1, 0, 1, 10), 0, PaneContent::Lines(&text)),
         ];
-        let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
+        let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
         build(&mut scene, &with, &mut atlas);
         let without = [pane(1, rect(1, 0, 1, 10), 0, PaneContent::Lines(&text))];
         let system = build(&mut scene, &without, &mut atlas);
@@ -1285,7 +1450,7 @@ mod tests {
             pane(0, rect(0, 0, 1, 10), 0, PaneContent::Lines(&text)),
             pane(1, rect(1, 0, 1, 10), 0, PaneContent::Lines(&text)),
         ];
-        let (mut scene, mut atlas) = (Scene::new(LIMITS), FakeAtlas::default());
+        let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
         build(&mut scene, &panes, &mut atlas);
         scene.invalidate();
         let system = build(&mut scene, &panes, &mut atlas);
@@ -1307,7 +1472,7 @@ mod tests {
             full_after: Some(6),
             ..FakeAtlas::default()
         };
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut atlas);
         assert_eq!(atlas.generation, 1, "it was cleared once");
         assert_eq!(scene.quads().len(), 12, "nothing is drawn twice");
@@ -1334,7 +1499,7 @@ mod tests {
             rects: 1000,
             quads: 20,
         };
-        let mut scene = Scene::new(limits);
+        let mut scene = Scene::new(limits, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         assert_eq!(scene.quads().len(), 20);
         let (back, front) = (&scene.layers()[0], &scene.layers()[1]);
@@ -1360,7 +1525,7 @@ mod tests {
             budget: Some(4),
             ..FakeAtlas::default()
         };
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut atlas);
         assert_eq!(scene.layers().len(), 2);
         assert!(scene.layers()[0].quads.is_empty(), "the back waits");
@@ -1380,10 +1545,10 @@ mod tests {
             rects: 1,
             quads: 10,
         };
-        let mut scene = Scene::new(limits);
+        let mut scene = Scene::new(limits, theme());
         build(&mut scene, &[back, front], &mut FakeAtlas::default());
         assert_eq!(scene.rects().len(), 1);
-        assert_eq!(scene.rects()[0].color, Face::Cursor.background());
+        assert_eq!(scene.rects()[0].color, theme().background(Face::Cursor));
     }
 
     #[test]
@@ -1396,6 +1561,7 @@ mod tests {
             scroll: Scroll::default(),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
+            others: &[],
             preedit: None,
             fills: &[],
         });
@@ -1405,13 +1571,13 @@ mod tests {
             rects: 5,
             quads: 1000,
         };
-        let mut scene = Scene::new(limits);
+        let mut scene = Scene::new(limits, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let colors: Vec<_> = scene.rects().iter().map(|r| r.color).collect();
         assert_eq!(colors.len(), 5);
-        assert_eq!(colors[0], Face::Modeline.background());
-        assert_eq!(colors[1..4], [Face::Boxed.background(); 3]);
-        assert_eq!(colors[4], Face::Cursor.background());
+        assert_eq!(colors[0], theme().background(Face::Modeline));
+        assert_eq!(colors[1..4], [theme().background(Face::Boxed); 3]);
+        assert_eq!(colors[4], theme().background(Face::Cursor));
     }
 
     #[test]
@@ -1422,10 +1588,10 @@ mod tests {
             rects: 5,
             quads: 1000,
         };
-        let mut scene = Scene::new(limits);
+        let mut scene = Scene::new(limits, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let colors: Vec<_> = scene.rects().iter().map(|r| r.color).collect();
-        assert_eq!(colors, [Face::Boxed.background(); 5]);
+        assert_eq!(colors, [theme().background(Face::Boxed); 5]);
     }
 
     #[test]
@@ -1439,7 +1605,7 @@ mod tests {
             pane(2, rect(0, 0, 0, 0), 0, PaneContent::Lines(&spans)),
         ];
         panes[2].background = Some(Face::Text);
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         let system = build(&mut scene, &panes, &mut FakeAtlas::default());
         assert!(system.shaped.is_empty());
         assert!(scene.quads().is_empty());
@@ -1465,7 +1631,11 @@ mod tests {
             pane(0, rect(0, 0, 2, 10), 0, PaneContent::Lines(&[])),
             pane(1, rect(1, 0, 2, 10), 0, PaneContent::Lines(&[])),
         ];
-        build(&mut Scene::new(LIMITS), &panes, &mut FakeAtlas::default());
+        build(
+            &mut Scene::new(LIMITS, theme()),
+            &panes,
+            &mut FakeAtlas::default(),
+        );
     }
 
     #[test]
@@ -1474,7 +1644,11 @@ mod tests {
             pane(0, rect(0, 0, 2, 10), 0, PaneContent::Lines(&[])),
             pane(1, rect(1, 0, 2, 10), 1, PaneContent::Lines(&[])),
         ];
-        build(&mut Scene::new(LIMITS), &panes, &mut FakeAtlas::default());
+        build(
+            &mut Scene::new(LIMITS, theme()),
+            &panes,
+            &mut FakeAtlas::default(),
+        );
     }
 
     #[test]
@@ -1485,12 +1659,16 @@ mod tests {
             pane(0, rect(0, 0, 1, 10), 0, PaneContent::Lines(&[])),
             pane(0, rect(1, 0, 1, 10), 0, PaneContent::Lines(&[])),
         ];
-        build(&mut Scene::new(LIMITS), &panes, &mut FakeAtlas::default());
+        build(
+            &mut Scene::new(LIMITS, theme()),
+            &panes,
+            &mut FakeAtlas::default(),
+        );
     }
 
     #[test]
     fn no_panes_draw_nothing() {
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &[], &mut FakeAtlas::default());
         assert!(scene.layers().is_empty());
     }
@@ -1500,7 +1678,7 @@ mod tests {
         let (one, two) = (line("one"), line("two"));
         let lines: [&[Span<'_>]; 2] = [&one, &two];
         let panes = [pane(0, rect(0, 0, 1, 10), 0, PaneContent::Lines(&lines))];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         let system = build(&mut scene, &panes, &mut FakeAtlas::default());
         assert_eq!(system.shaped, ["one"]);
     }
@@ -1510,7 +1688,7 @@ mod tests {
         let text = line("abcdefgh");
         let text: [&[Span<'_>]; 1] = [&text];
         let panes = [pane(0, rect(0, 2, 1, 3), 0, PaneContent::Lines(&text))];
-        let mut scene = Scene::new(LIMITS);
+        let mut scene = Scene::new(LIMITS, theme());
         build(&mut scene, &panes, &mut FakeAtlas::default());
         let cells = quad_cells(&scene, 0..scene.quads().len() as u32);
         assert_eq!(cells, [(0, 2), (0, 3), (0, 4)]);

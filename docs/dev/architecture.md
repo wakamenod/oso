@@ -129,8 +129,8 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   goal column for vertical motion and its own mark. The set says whether the
   regions show, for all of them, and keeps the primary's mark ring. See
   [ADR 0007](adr/0007-multi-cursor.md) and [ADR 0071](adr/0071-mark-and-region.md).
-  Every window's cursors follow an edit of the buffer it shows, and are clipped
-  to display clusters. In the selected window a cursor at an insertion ends after
+  Every window's cursors follow an edit of the buffer it shows, and those in the
+  chunks the edit rebuilt are clipped to display clusters (`display-model.md`). In the selected window a cursor at an insertion ends after
   it; in others it stays before, as an Emacs marker. Marks follow as markers in
   every window, and an edit hides the regions.
 - **Edits** go through `Editor::apply_edits`, but for an internal buffer's, which have no undo
@@ -418,8 +418,8 @@ before running it, and a command that has to ask leaves a question whose `y` run
 command of its own, which checks again. `C-g` does one thing at a time, in
 `Editor::quit` ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)). A prompt that
 completes keeps its candidates in the editor (`oso_core::complete`): orderless matching in an
-order fixed as it opens, matched once each command ends, on the UI thread up to 5000 candidates,
-in a float at the center of the frame.
+order fixed as it opens, matched once each command ends, on the UI thread up to 5000 candidates
+and on a worker past that, in a float at the center of the frame.
 `M-x` reads a command's name through `ArgSpec::Command`, and the dispatcher runs that command
 with `M-x`'s prefix argument ([ADR 0076](adr/0076-completion-and-m-x.md)).
 
@@ -450,6 +450,12 @@ The UI thread never blocks on I/O or parsing:
   one per directory and at most 4, and their names come back as a snapshot with the
   input's generation, which the prompt takes only if it is still the newest
   ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
+- A prompt's list past 5000 candidates is built and matched on a thread of its own
+  (`app/completions.rs`), from a job `oso_core::complete` makes over `Arc` snapshots, superseded
+  by the next through a generation. The rows shown stay and the count says `…` until the result
+  comes, and the dispatcher holds `RET` and `TAB` until then (`dispatch/held.rs`). A look at a
+  row patches it, with no new list, and a long list replaced or closed is dropped on that thread
+  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Files save on a background thread (`crates/oso/src/saver.rs`), from an O(1)
   snapshot of the rope. The thread frees what only the snapshot held, then sends
   its report ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)).
@@ -582,7 +588,8 @@ Full details are in [`security.md`](security.md).
     `channel::wire`, which the dev socket shares, and no dev method.
   - `oso mcp` (`channel/mcp.rs`) is a subcommand of the oso binary that opens no window: MCP's
     JSON-RPC on stdin and stdout, with the tools `state`, `text`, `commands`, `look`,
-    `change` and `open`. It connects on the first tool call, asks the channel's `version`
+    `change`, `open` and `cancel`, which takes back a question the agent's change opened
+    (ADR 0093). It connects on the first tool call, asks the channel's `version`
     first, and connects again after oso restarts. It looks through every instance's socket
     only while it knows none to use, at most once each 5 s, since each look counts toward each
     instance's connections a minute. stdin is read on a thread of its own
@@ -593,9 +600,16 @@ Full details are in [`security.md`](security.md).
     agent-channel-start` in oso, and `y` to the question when Claude Code first calls a tool.
   - `open` visits a file that exists, unshown, through `app/agent/open.rs`, and shows it at
     its line once the loader has judged it ordinary and read it; one judged otherwise is
-    dropped. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
+    dropped. A file a buffer already holds, by its path at once or by device, inode, time and
+    size once loaded, is shown in that buffer instead, if the channel may show it
+    (`dispatch::unshowable`, which `switch-to-buffer` asks too), and that buffer keeps its
+    mark (ADR 0094). Until its open is done, a buffer the channel is opening is left out of
+    `state`, `text`, `switch-to-buffer` and the dev restart's handoff. `text` copies rows or the region off the UI thread (`channel::text`). A buffer
     the channel opened is marked, and `save-buffer` run for the agent asks the person before
-    saving it. `ArgSpec::Text` and `insert` take text; `dispatch::args` maps a given argument
+    saving it. `ArgSpec::Text` and `insert` take text, and `switch-to-buffer` a buffer's name that
+    `C-x b` lists: `Dispatcher::run_for_agent` resolves it once and shows that buffer, unless it
+    may hold secrets, is still loading or has keys of its own, such as `*Emergency Copies*`
+    (ADR 0094, ADR 0095); `dispatch::args` maps a given argument
     for the dev socket and the channel alike. A count, which repeats a command's work, is at
     most 10,000 either way, as ADR 0044 has it; a number such as a line is a value, and goes
     as given. A reload of a file the channel opened checks it as `open` does, and a reload

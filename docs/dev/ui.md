@@ -130,6 +130,10 @@ are rounded.
 
 - The centred float, `Find file:` (or `Write file:`), starting at the buffer's directory, the home
   directory as `~/`. A worker lists directories; the count shows `…` until it answers.
+- Past 5000 names, a worker builds the list and matches each key; the rows shown stay and the
+  count shows `…` until it answers, and `RET` or `TAB` meanwhile waits for it. Any other key
+  drops that wait, a prefix too, and `C-g` then does nothing more
+  ([ADR 0096](adr/0096-completion-on-a-worker-past-5000-candidates.md)).
 - Segments before the last are prefixes, and the last one matches as in `M-x`: `~/P/S/o` reaches
   `~/Projects/SideProjects/oso`. `~/` or `/` typed after a `/` starts over, the text before drawn dim.
   Names starting with `.` show only when the last segment starts with `.`.
@@ -237,9 +241,11 @@ plan.txt        2 days ago  exit      420 B  not open         /home/me/notes/pla
 - A **box** cursor that does **not blink**. It covers its character's
   cells: two for a full-width character, the whole escape for `\xFF`, one
   on a tab (built in M1-6).
-- With multiple cursors, secondary cursors use a dimmer color.
+- With multiple cursors, every cursor but the primary is drawn as an outline of its box in
+  a dimmer colour, the theme's prompt colour, over the glyph as it is; the primary keeps its
+  filled box ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 - After a large jump or scroll, the cursor position flashes briefly
-  (beacon-style).
+  (beacon-style, [ADR 0097](adr/0097-visual-aids.md)).
 
 ## Themes
 
@@ -269,6 +275,38 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
   overlap merge into one.
 - During a composition the region stays, and the preedit pushes it as it pushes the text.
 
+## Multiple cursors
+
+As multiple-cursors.el ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
+
+- `C->` and `C-<` add a cursor at the next or previous occurrence of the region, or of the
+  word at point, which the first key selects; a string from a word matches whole words only,
+  and case always matters. The new cursor's region covers the match, and it becomes the
+  primary. There is no wrap: past the end the echo area says "No more matches".
+- `C-M->` and `C-M-<` skip: they move the last (first) cursor on to the next occurrence. `M--`
+  before `C->` or `C-<` removes the cursor at that end.
+- `C-c C-<` puts a cursor on every occurrence in the buffer, and `C-x SPC` one on each line from
+  the mark's to the cursor's, at the cursor's column.
+- A window has at most 1000 cursors. A key that would pass it adds none, and `C-c C-<` says how
+  many occurrences there are.
+- A far occurrence is found on a worker thread, and the echo area says `Searching…` meanwhile.
+- `C-g` first hides the regions, then leaves the primary cursor alone.
+
+## `M-y`
+
+As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
+
+- `M-y` reads the clipboard as `C-y` does, then lists the kill ring in the centred float,
+  the newest first, each text once. A row is the first 1 KiB of a kill, a line break drawn
+  as `⤶` in the annotation's face, and says how many lines and pieces it has. The selected kill's lines show beside
+  the list.
+- A kill from a buffer that may hold secrets is listed with only its line count, no text and
+  no preview, and anything typed hides it. It is never compared with another kill.
+- `RET` yanks the kill picked as `C-y` would, in place of what a yank just inserted, and
+  puts it first in the ring.
+- In a prompt and in isearch, `M-y` right after a yank puts the next older kill in its place,
+  passing secret ones.
+
 ## isearch
 
 - `C-s` and `C-r` search for the literal string as it is typed, with smart case: case matters
@@ -282,7 +320,10 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
   search history, and `RET` ends the search there and pushes where it began onto the mark ring.
 - `C-g` first takes away a failing part, then goes back where the search began. Any other key
   ends the search and runs.
-- Only the primary cursor searches; the others stay.
+- Only the primary cursor searches; the others stay. `C->` and `C-<` end the search with the
+  match as the region and add a cursor at the next or previous match, and `C-c C-<` puts one on
+  every match, with the search's string and case
+  ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
 
 ## Input method (IME)
 
@@ -308,14 +349,27 @@ As Emacs with `transient-mark-mode` and `shift-select-mode`
 
 ## Visual aids
 
-On by default and toggleable from the toggle menu:
+On by default, each toggled by an `M-x` command for every buffer, which a prefix argument
+turns on (positive) or off (zero or negative) as Emacs's minor modes do, and from the
+toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
 
-- **Whitespace visualization**: full-width spaces shown as `□`, plus trailing
-  whitespace and tabs.
-- **Cursor flash** after large jumps.
-- **Current line highlight.**
+- **Whitespace** (`global-whitespace-mode`):
+  - a full-width space shows as `□`, a tab as a dim `»` in its first cell, and the other
+    non-ASCII spaces (such as U+00A0) as a dim `·`;
+  - trailing spaces and tabs get a fill, except on a line with a cursor;
+  - half-width spaces are not marked.
+- **Current line** (`global-hl-line-mode`): a band across the text area on the primary
+  cursor's row, behind the region and isearch's matches.
+- **Cursor flash** (`beacon-mode`): after the cursor moves 5 or more rows, a command
+  scrolls the window (`C-v`, `M-v`, `C-l`, `M-<`, `M->`), or another buffer or window is
+  shown, a band from the cursor to the window's edge fades out over about 0.4 s. The
+  scrolling that follows the cursor and the wheel do not flash. The next key ends it.
 
-Off by default: line numbers.
+Off by default: **line numbers** (`global-display-line-numbers-mode`). They are absolute, the
+current one brighter, in a gutter as wide as the line count's digits plus one, at least
+3 digits. Floats keep their place when it appears.
+
+None of these is remembered across starts until configuration exists (M3).
 
 ## Bidirectional and invisible characters
 

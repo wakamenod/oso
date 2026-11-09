@@ -10,8 +10,6 @@
 
 use std::fmt::Write;
 
-#[cfg(any(test, feature = "dev"))]
-use oso_core::command::ArgSpec;
 use oso_core::command::{
     Args, CommandId, Ctx, Effects, ExecuteError, Invocation, Prefix, Registry,
 };
@@ -28,11 +26,16 @@ use crate::{bindings, commands};
 mod agent;
 mod args;
 mod buffers;
+pub use agent::{Unshowable, unshowable};
 pub use args::Given;
+pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
+mod held;
 mod keymaps;
 mod prompts;
+#[cfg(any(test, feature = "dev"))]
+mod run_command;
 
 use keymaps::Keymaps;
 
@@ -70,6 +73,8 @@ pub struct Dispatcher {
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
+    /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
+    completion_held: Option<held::HeldTake>,
 }
 
 impl Dispatcher {
@@ -109,6 +114,7 @@ impl Dispatcher {
             publisher: None,
             waiting: None,
             from_socket: false,
+            completion_held: None,
         }
     }
 
@@ -249,95 +255,6 @@ impl Dispatcher {
         effects
     }
 
-    /// Runs the command named `name`, as the control socket's `run-command`
-    /// does, with `arg` as its numeric argument, or else a prefix argument left by
-    /// the keys before it. Returns what the host should do, which matters even if
-    /// the command failed: a motion that hits the buffer end still moves as far as
-    /// it can.
-    #[cfg(any(test, feature = "dev"))]
-    pub fn run_command(
-        &mut self,
-        editor: &mut Editor,
-        name: &str,
-        arg: Option<isize>,
-    ) -> (Effects, Result<(), String>) {
-        if self.waits_for_clipboard() {
-            return (
-                Effects::default(),
-                Err("a yank is waiting for the clipboard".into()),
-            );
-        }
-        self.as_input(editor, |this, editor| this.run_named(editor, name, arg))
-    }
-
-    #[cfg(any(test, feature = "dev"))]
-    fn run_named(
-        &mut self,
-        editor: &mut Editor,
-        name: &str,
-        arg: Option<isize>,
-    ) -> (Effects, Result<(), String>) {
-        let found = self
-            .registry
-            .lookup(name)
-            .and_then(|id| Some((id, self.registry.get(id)?)));
-        let Some((id, command)) = found else {
-            return (
-                Effects::default(),
-                Err(format!("no command named {name:?}")),
-            );
-        };
-        // A reply could say something of what is typed there.
-        // Any open one, also beneath a prompt opened from it.
-        let passphrase = editor
-            .prompts()
-            .iter()
-            .any(|prompt| prompt.kind() == oso_core::minibuffer::Kind::Passphrase);
-        if passphrase && name != "keyboard-quit" {
-            return (
-                Effects::default(),
-                Err("a passphrase prompt is open; only keyboard-quit runs".into()),
-            );
-        }
-        // Whether a command found a match would say something of an answer withheld beside a
-        // buffer that may hold secrets (ADR 0076).
-        let completing = editor
-            .prompts()
-            .iter()
-            .any(|prompt| prompt.candidates().is_some());
-        if completing && editor.around_secret() && name != "keyboard-quit" {
-            return (
-                Effects::default(),
-                Err("a prompt that completes is open beside a secret buffer; only keyboard-quit runs".into()),
-            );
-        }
-        // The socket never opens a prompt that waits for a person: it gives the answer.
-        let given = arg.map_or(args::Given::Nothing, args::Given::Count);
-        let mapped = match args::map(name, command.args, given, self.prefix) {
-            Ok(mapped) => mapped,
-            Err(refused) => return (Effects::default(), Err(refused)),
-        };
-        // The prefix the keys left is the command's now, or was replaced by the argument.
-        self.prefix = None;
-        let invocation = Invocation {
-            answer: mapped.answer.as_deref(),
-            ..Invocation::default()
-        };
-        let args = mapped.args;
-        // A command isearch's keys do not run ends a search first, as a key would
-        // (ADR 0082).
-        let ended_search = !self.isearch_commands.contains(&id) && editor.isearch_exit();
-        // A yank waits for the clipboard as it does from a key, and replies at once.
-        let (effects, result) = if command.args == ArgSpec::CountAndClipboard {
-            self.run_or_read(editor, id, args, invocation)
-        } else {
-            self.execute(editor, id, args, invocation, Step::MayJoin)
-        };
-        let mut effects = effects.union(self.after_prompts(editor));
-        effects.redraw |= ended_search;
-        (effects, result.map_err(|e| e.to_string()))
-    }
-
     /// Inserts `text`, which may hold several characters, as a key that types
     /// them would: through the text command of the active keymaps, as one command
     /// and one undo step. A pending prefix makes it an undefined key sequence.
@@ -372,6 +289,8 @@ impl Dispatcher {
     }
 
     fn run_text(&mut self, editor: &mut Editor, text: &str, step: Step) -> Effects {
+        // Text changes the input, so a key held for its older result is dropped (ADR 0096).
+        self.drop_held_completion();
         // Text answers no question, and says so, as another key does.
         if editor
             .prompt()
@@ -505,6 +424,8 @@ impl Dispatcher {
     }
 
     fn resolve_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        // Any key drops a `RET` or `TAB` held for a result, a prefix's too (ADR 0096).
+        let dropped = self.drop_held_completion();
         let reading = self.keymaps.reading();
         let layers = self.keymaps.active(&reading, self.prefix, editor);
         let (id, shifted) = match self.resolver.feed(&layers, key) {
@@ -515,15 +436,19 @@ impl Dispatcher {
                 log::debug!("{}-", display_keys(self.resolver.pending()));
                 return Effects::default();
             }
-            Resolution::Unbound(keys) if editor.isearch().is_some() && keys.len() == 1 => {
-                // It ends the search where it is, and then does what it would have
-                // (ADR 0082). isearch binds no prefix, so this is the key alone.
+            Resolution::Unbound(keys) if editor.isearch().is_some() => {
+                // It ends the search, and the key, or a sequence under isearch's `C-c`, does
+                // what it would have (ADR 0082, ADR 0091).
+                let keys = keys.to_vec();
                 editor.isearch_exit();
-                let ran = self.resolve_key(editor, key);
-                return ran.union(Effects {
+                let mut ran = Effects {
                     redraw: true,
                     ..Effects::default()
-                });
+                };
+                for key in keys {
+                    ran = ran.union(self.resolve_key(editor, key));
+                }
+                return ran;
             }
             Resolution::Unbound(keys) => {
                 // A key that types a character may be text meant for the buffer,
@@ -547,6 +472,7 @@ impl Dispatcher {
             }
             Resolution::Cancelled => {
                 log::debug!("Quit");
+                editor.drop_cursor_search();
                 editor.echo("Quit");
                 self.forget_keys(editor);
                 return Effects::default();
@@ -561,6 +487,9 @@ impl Dispatcher {
             Key::Named(_) => None,
         };
         let args = Args::with_prefix(self.prefix.take());
+        if self.hold_for_completion(editor, id, args, dropped) {
+            return Effects::default();
+        }
         let invocation = Invocation {
             input,
             key_char,
@@ -577,6 +506,8 @@ mod buffer_tests;
 #[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
+mod cursor_tests;
+#[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
 mod emergency_tests;
@@ -584,6 +515,8 @@ mod emergency_tests;
 mod file_tests;
 #[cfg(test)]
 mod grid_tests;
+#[cfg(test)]
+mod held_tests;
 #[cfg(test)]
 mod ime_tests;
 #[cfg(test)]
@@ -604,6 +537,8 @@ mod recovery_tests;
 mod save_tests;
 #[cfg(test)]
 mod status_tests;
+#[cfg(test)]
+mod yank_pop_tests;
 
 #[cfg(test)]
 mod tests {

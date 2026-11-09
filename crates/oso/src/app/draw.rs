@@ -26,6 +26,8 @@ mod float;
 #[derive(Default)]
 pub(super) struct Cells {
     region: Vec<frame::CellRect>,
+    /// The boxes of the cursors other than the primary (ADR 0091).
+    others: Vec<frame::CellRect>,
     matches: MatchCells,
 }
 
@@ -57,6 +59,7 @@ pub(super) fn with_panes<R>(
         span(&status.echo[..], Face::Text),
     ];
     editor.region_cells(&mut cells.region);
+    editor.other_cursor_cells(&mut cells.others);
     editor.isearch_cells(&mut cells.matches);
     // The current match first, so that it always has room, and the regions over the matches.
     let fills = [
@@ -65,7 +68,7 @@ pub(super) fn with_panes<R>(
         (Face::Region, &cells.region[..]),
     ];
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
-    let tiled = panes(editor, &fills, &modeline, &echo);
+    let tiled = panes(editor, (&fills, &cells.others), &modeline, &echo);
     let Some(parts) = float::Parts::of(editor) else {
         return draw(&tiled);
     };
@@ -84,7 +87,7 @@ pub(super) fn with_panes<R>(
 /// not selected (ADR 0072).
 fn panes<'a>(
     editor: &'a Editor,
-    fills: &'a [(Face, &'a [frame::CellRect])],
+    (fills, others): (&'a [(Face, &'a [frame::CellRect])], &'a [frame::CellRect]),
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -104,6 +107,7 @@ fn panes<'a>(
         } else {
             CursorStyle::Box
         },
+        others,
         preedit: editor.preedit().filter(|_| !beneath),
         fills,
     });
@@ -139,6 +143,8 @@ pub(super) struct View {
     started: Option<Instant>,
     /// The cells behind the text, kept from frame to frame.
     cells: Cells,
+    /// The theme the renderer draws in, by name (ADR 0089).
+    theme: Option<&'static str>,
 }
 
 impl View {
@@ -157,6 +163,7 @@ impl View {
             render_state,
             started: Some(started),
             cells: Cells::default(),
+            theme: None,
         }
     }
 
@@ -178,6 +185,8 @@ impl App {
                 log::debug!("resumed {:?} after start", started.elapsed());
             }
             self.view = Some(View::open(event_loop));
+            // Before the first frame, so that it is drawn in the remembered theme.
+            self.take_remembered_theme();
             // At once: it costs under 1 µs and does not slow the first frame.
             self.sync_ime(event_loop);
             self.sync_secure_input();
@@ -237,11 +246,22 @@ impl App {
         let Some(view) = self.view.as_mut() else {
             return;
         };
+        // A switch of theme costs this frame only: nothing is shaped again (ADR 0089). The
+        // editor's names are the renderer's, so it never refuses one.
+        let wanted = self.editor.theme_name();
+        if let Some(name) = wanted.filter(|_| wanted != view.theme) {
+            match view.render_state.set_theme(name) {
+                Some(_) => view.theme = Some(name),
+                None => debug_assert!(false, "the renderer has no theme named {name}"),
+            }
+        }
         let window = &view.window;
         let window_size = || window.inner_size();
         self.editor.status_into(&mut self.status);
         #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
+        #[cfg(feature = "dev")]
+        let rendering = Instant::now();
         let render_state = &mut view.render_state;
         let cells = &mut view.cells;
         let result = with_panes(&self.editor, &self.status, cells, |panes| {
@@ -260,6 +280,14 @@ impl App {
                 view.redraw_if(redraw);
                 #[cfg(feature = "dev")]
                 if view.render_state.presented_frames() > presented {
+                    let times = view.render_state.last_frame_times();
+                    self.timings.frame_spans(crate::dev::FrameSpans {
+                        started: frame,
+                        rendering,
+                        prepared: times.prepared,
+                        acquired: times.acquired,
+                        presented: times.presented,
+                    });
                     let complete = redraw == Redraw::NotNeeded;
                     let withheld = self.editor.shows_secret();
                     self.timings.frame_presented(complete, withheld);

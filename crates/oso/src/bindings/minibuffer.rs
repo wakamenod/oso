@@ -9,6 +9,8 @@ pub const MINIBUFFER: &[(&str, &str)] = &[
     ("C-g", "keyboard-quit"),
     ("M-p", "previous-history-element"),
     ("M-n", "next-history-element"),
+    // Right after a yank, the next older kill: no list opens over a prompt (ADR 0091).
+    ("M-y", "yank-pop"),
 ];
 
 /// The keys of a question, in place of the global keymap: no other key reaches a command.

@@ -35,7 +35,8 @@ use oso_core::window::Window;
 use serde_json::{Value, json};
 
 use super::Reply;
-use crate::channel::state::{slice, visible_rows};
+use crate::channel::state::visible_rows;
+use crate::channel::text::{row_range, row_texts};
 
 /// The most visible text `get-state` returns, in bytes. A cell usually holds
 /// a few bytes but can hold dozens (combining marks), and a response this
@@ -232,9 +233,10 @@ fn prompts_state(editor: &Editor) -> Value {
                 "message": prompt.message().filter(|_| shown && !prompt.message_withheld()),
                 "region": region,
                 // Only the innermost shows its rows and keeps them in view.
+                // `M-y`'s rows are kills, also another app's copy: none of them (ADR 0091).
                 "completion": prompt
                     .candidates()
-                    .filter(|_| shown && index + 1 == count)
+                    .filter(|_| shown && index + 1 == count && !editor.kill_list_open())
                     .map(|candidates| completion_state(editor, candidates)),
             })
         })
@@ -252,7 +254,7 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         .collect::<Vec<_>>();
     let preview = match editor.preview() {
         Some(Preview::Buffer { id, .. }) => Some(id.get()),
-        Some(Preview::Withheld) | None => None,
+        Some(Preview::Withheld | Preview::Text { .. }) | None => None,
     };
     json!({
         "count": candidates.len(),
@@ -266,7 +268,7 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         "directory": editor
             .file_directory()
             .map(|directory| oso_core::complete::typed_form(directory, true, editor.home())),
-        "pending": editor.files_pending(),
+        "pending": editor.files_pending() || editor.completion_pending(),
     })
 }
 
@@ -479,8 +481,7 @@ impl TextJob {
             ));
         }
         let row_count = display.row_count();
-        let end_row = self.start_row.saturating_add(self.rows).min(row_count);
-        let range = self.start_row.min(end_row)..end_row;
+        let range = row_range(display, self.start_row, self.rows);
         if !range.is_empty() {
             let bytes =
                 motion::line_end(display, range.end - 1) - motion::line_start(display, range.start);
@@ -493,14 +494,8 @@ impl TextJob {
             }
         }
         let start_row = range.start;
-        let rows: Vec<String> = range
-            .map(|row| {
-                slice(
-                    &self.text,
-                    motion::line_start(display, row)..motion::line_end(display, row),
-                )
-            })
-            .collect();
+        // Refused above when too long, so nothing is cut short here.
+        let (rows, _) = row_texts(&self.text, display, range, usize::MAX);
         Ok(json!({
             "buffer": self.buffer,
             "start_row": start_row,
@@ -511,12 +506,16 @@ impl TextJob {
 }
 
 /// Refuses a screenshot while any window shows a buffer that may hold
-/// secrets, or while anything `get-state` leaves out for having been around one is on the
-/// screen. Checked on the UI thread right before the capture, so nothing
+/// secrets, while anything `get-state` leaves out for having been around one is on the
+/// screen, or while the kill ring is listed (ADR 0091). Checked on the UI thread right before the capture, so nothing
 /// can switch the buffer in between.
 pub fn screenshot_allowed(editor: &Editor) -> Result<(), String> {
     if editor.shows_secret() || editor.around_secret() {
         return Err(WITHHELD.into());
+    }
+    // The `M-y` list shows what `get-state` leaves out (ADR 0091).
+    if editor.kill_list_open() {
+        return Err("no screenshot while the kill ring is listed".into());
     }
     Ok(())
 }
@@ -1150,5 +1149,20 @@ mod tests {
         assert_eq!(window["selections"][0]["mark"], mark);
         assert_eq!(window["mark_active"], true);
         assert_eq!(window["mark_ring"], json!([0]));
+    }
+
+    #[test]
+    fn the_kill_ring_listed_gives_no_rows_and_no_pixels() {
+        let mut editor = editor("", 20, 80);
+        let piece = |text| oso_core::kill::Piece::from(oso_core::rope::Rope::from(text));
+        // The newest is in `kill_ring` anyway; only the list's rows would tell the older one.
+        editor.carry_kills(vec![vec![piece("NEWEST")], vec![piece("OLDER-KILL")]]);
+        editor.open_kill_list("Yank from kill ring:").unwrap();
+        let state = state(&editor, &[]);
+        assert_eq!(state["prompts"][0]["completion"], json!(null));
+        assert!(!state.to_string().contains("OLDER-KILL"));
+        assert!(screenshot_allowed(&editor).is_err());
+        editor.quit();
+        assert!(screenshot_allowed(&editor).is_ok());
     }
 }

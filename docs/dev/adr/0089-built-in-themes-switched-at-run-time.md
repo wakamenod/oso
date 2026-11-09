@@ -1,6 +1,6 @@
 # 0089. Built-in themes, switched at run time
 
-- Status: Accepted
+- Status: Accepted, amended by 0097
 - Date: 2026-11-08
 
 ## Context
@@ -132,6 +132,12 @@ WCAG's, from linear colours; a colour with alpha is first laid over what it sits
 - The terms are tuned against native macOS text in screenshots side by side, and a pixel test
   keeps the curve.
 - Rasters stay coverage with no colour, so a switch rasterizes nothing again.
+- Erratum (2026-11-09, as built): the correction is not a gamma and a contrast term. From the
+  luminance of the glyph's colour and of its face's background, it gives the coverage that,
+  blended in linear light, matches blending in sRGB, scaled by one strength per theme. A fill
+  under the glyph that differs from its face's background, such as the region, makes it a
+  little off. Every theme ships with a strength of 0 until a pixel test keeps thin marks
+  visible on every fill and the strength is picked beside native text.
 
 ### A switch costs one frame
 

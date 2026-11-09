@@ -20,7 +20,9 @@
 //! being converted with `=` (ADR 0069). A line between `+` below a row marks with `*`
 //! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
 //! (ADR 0071), and with `#` and `~` the current isearch match and the others in view,
-//! from `Editor::isearch_cells` (ADR 0082).
+//! from `Editor::isearch_cells` (ADR 0082). On the line between `:`, `.` marks the cells
+//! of the boxes of the cursors other than the primary, drawn as dim outlines, from
+//! `Editor::other_cursor_cells` (ADR 0091).
 //!
 //! An open prompt's float comes after the frame, as the innermost prompt's cells from its
 //! place: its ring as a box of `┌─┐`, and inside it the label, the answer and a message
@@ -30,11 +32,7 @@
 use oso_core::buffer::Buffer;
 use std::ops::Range;
 
-use std::ops::ControlFlow;
-
-use oso_core::display_map::{
-    CellRun, CellStyle, DisplayPoint, DisplaySnapshot, Preedit, row_clusters, text_clusters,
-};
+use oso_core::display_map::{Preedit, text_clusters};
 use oso_core::editor::Preview;
 use oso_core::editor::{Editor, Status};
 use oso_core::frame::{self, CellRect, FrameSize};
@@ -45,10 +43,8 @@ use oso_core::window::{Scroll, ViewSize};
 
 use super::Dispatcher;
 
-/// The left half of a wide cluster cut off by the right edge of the window.
-const LEFT_HALF: char = '▌';
-/// The right half of a wide cluster cut off by the left edge of the window.
-const RIGHT_HALF: char = '▐';
+mod rows;
+use rows::{draw_row, draw_run};
 
 /// The frame's screen: its regions from the top, one line per row and one per
 /// marked row.
@@ -325,6 +321,12 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
             let (text, _) = spans_row(&["may hold secrets"], preview.columns);
             text
         }
+        // A kill's lines, as the float draws them (ADR 0091).
+        Some(Preview::Text { entry }) => {
+            let lines = editor.kill_preview(entry, preview.rows, preview.columns);
+            let line = lines.get(index).map_or("", String::as_str);
+            spans_row(&[line], preview.columns).0
+        }
         _ => " ".repeat(preview.columns),
     };
     format!("│{text}")
@@ -372,6 +374,8 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let cursor = frame::cursor_rect(area, scroll, place, cells);
     let mut region = Vec::new();
     editor.region_cells(&mut region);
+    let mut others = Vec::new();
+    editor.other_cursor_cells(&mut others);
     let mut found = oso_core::editor::MatchCells::default();
     editor.isearch_cells(&mut found);
     let (current, matches) = (found.current, found.others);
@@ -386,7 +390,12 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
         let spliced = preedit
             .filter(|_| row == point.row)
             .map(|preedit| (point.column, preedit));
-        let (text, marks) = draw_row(&display, row, scroll, area.columns, cursor, spliced, mark);
+        let (text, mut marks) =
+            draw_row(&display, row, scroll, area.columns, cursor, spliced, mark);
+        for cells in others.iter().filter(|cells| cells.row == area.row + index) {
+            let start = cells.column - area.column;
+            marks[start..start + cells.columns].fill('.');
+        }
         lines.push(format!("│{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
@@ -462,67 +471,6 @@ fn spans_row(spans: &[&str], columns: usize) -> (String, Vec<char>) {
     }
     text.extend(std::iter::repeat_n(' ', columns - drawn));
     (text, marks)
-}
-
-/// The text of one row of `columns` cells and a mark for each of them. `cursor`
-/// holds the cells under the cursor box, counted from the row's left edge, which get
-/// `mark`. A `preedit` goes in at its column.
-fn draw_row(
-    display: &DisplaySnapshot,
-    row: usize,
-    scroll: Scroll,
-    columns: usize,
-    cursor: Range<usize>,
-    preedit: Option<(usize, &Preedit)>,
-    mark: char,
-) -> (String, Vec<char>) {
-    let view = scroll.left..scroll.left + columns;
-    let mut text = String::new();
-    let mut marks = vec![' '; columns];
-    let mut drawn = view.start;
-    row_clusters(
-        display,
-        DisplayPoint::new(row, view.start),
-        preedit,
-        |cluster, _| {
-            if cluster.column >= view.end {
-                return ControlFlow::Break(());
-            }
-            cluster.for_each_run(|run| {
-                let start = run.column.max(view.start);
-                let end = (run.column + run.cells).min(view.end);
-                if start < end {
-                    let cells = &mut marks[start - view.start..end - view.start];
-                    draw_run(&run, start, cells, &mut text);
-                    drawn = end;
-                }
-            });
-            ControlFlow::Continue(())
-        },
-    );
-    text.extend(std::iter::repeat_n(' ', view.end - drawn));
-    marks[cursor].fill(mark);
-    (text, marks)
-}
-
-/// Writes the visible part of `run`, which starts on screen at column `start`
-/// and takes the cells of `marks`.
-fn draw_run(run: &CellRun<'_>, start: usize, marks: &mut [char], text: &mut String) {
-    if run.text == " " {
-        text.extend(std::iter::repeat_n(' ', marks.len()));
-    } else if run.cells == marks.len() {
-        text.push_str(run.text);
-        match (run.style, &mut *marks) {
-            (CellStyle::Text, [first, second]) => (*first, *second) = ('<', '>'),
-            (CellStyle::Escape, _) => marks.fill('~'),
-            (CellStyle::Boxed, _) => marks.fill('#'),
-            (CellStyle::Text, _) => {}
-        }
-    } else if start == run.column {
-        text.push(LEFT_HALF);
-    } else {
-        text.push(RIGHT_HALF);
-    }
 }
 
 /// How `bytes` reads in a snapshot's description: no raw invisible characters
@@ -1189,6 +1137,39 @@ mod scenarios {
         editor.set_preedit(None);
         frames.push(format!("cleared\n{}", text_grid(&editor)));
         assert_frames("preedit_in_its_row", text.as_bytes(), &frames);
+    }
+
+    #[test]
+    fn other_cursors_are_marked_over_their_cells() {
+        // Cursors on `b`, `日` and the empty row; the primary on `c`.
+        let text = "ab日本c\n\nline three\n";
+        let mut editor = open(text.as_bytes(), (4, 12));
+        let parts = [1, 2, 9, 11]
+            .into_iter()
+            .map(oso_core::selection::Selection::at)
+            .collect();
+        editor.current_mut().0.selections =
+            oso_core::selection::SelectionSet::from_parts(parts, 2).unwrap();
+        check_editor("other_cursors", text.as_bytes(), editor, &["", "C-f"]);
+    }
+
+    #[test]
+    fn m_y_lists_the_kills_with_the_selected_ones_text_beside() {
+        // Two kills: the first line with its break, then a word.
+        let text = "first\nsecond line\nthird\n";
+        let mut editor = open(text.as_bytes(), (22, 100));
+        let mut dispatcher = Dispatcher::new();
+        let mut frames = Vec::new();
+        for keys in ["C-k C-f M-d", "M-y", "C-n"] {
+            let sequence: KeySequence = keys.parse().unwrap();
+            dispatcher.handle_keys(&mut editor, sequence.0);
+            // The clipboard holds what oso wrote, as the host would answer.
+            if dispatcher.take_clipboard_request().is_some() {
+                dispatcher.clipboard_answered(&mut editor, &oso_core::kill::FromClipboard::Own);
+            }
+            frames.push(format!("keys: {keys}\n{}", text_grid(&editor)));
+        }
+        assert_frames("kill_list", text.as_bytes(), &frames);
     }
 
     #[test]
