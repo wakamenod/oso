@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 2f2782fc3aa48440437f4648b6e6a4b7798875e38ca301a9ad1c85dfdc5afd6e # shrinks to text = "\n👍日本語aa\n\n"
+cc ec334c4025487929da1e7ccfb42599912649579d09ce7265121739f6fe312657 # shrinks to text = "\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}", tab_width = 1, every = 1
+cc 8bb2222ab3ab7922026385de63bcb6add8fd0a94e101846fc12cef72a19e2bcd # shrinks to text = "", edits = [(0, 0, "\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}\u{301}")], tab_width = 1

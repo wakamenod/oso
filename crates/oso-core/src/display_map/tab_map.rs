@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use super::DisplayCluster;
 use super::cell::{CellKind, Clusters, TabWidth, holds_bidi_control};
+use super::checkpoints::{self, Checkpoint, Kept, clusters_from};
 use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::{Bias, Cursor, Dimension, Item, SumTree, Summary};
@@ -46,7 +47,7 @@ impl TabPoint {
 /// fixed number of cells (`after_tab`), because every tab stop is a multiple
 /// of the tab width.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct ColumnFn {
+pub(super) struct ColumnFn {
     /// Cells before the first tab.
     lead: usize,
     /// Cells from the first tab's stop to the end, if there is a tab.
@@ -54,7 +55,17 @@ struct ColumnFn {
 }
 
 impl ColumnFn {
-    fn apply(self, column: usize, tab_width: TabWidth) -> usize {
+    /// A function of `lead` cells before the first tab and `after_tab` from its stop.
+    pub(super) fn new(lead: usize, after_tab: Option<usize>) -> Self {
+        Self { lead, after_tab }
+    }
+
+    /// Its cells before the first tab, and from its stop.
+    pub(super) fn parts(self) -> (usize, Option<usize>) {
+        (self.lead, self.after_tab)
+    }
+
+    pub(super) fn apply(self, column: usize, tab_width: TabWidth) -> usize {
         let column = column.saturating_add(self.lead);
         match self.after_tab {
             None => column,
@@ -76,7 +87,7 @@ impl ColumnFn {
         }
     }
 
-    fn then_cells(self, cells: usize) -> ColumnFn {
+    pub(super) fn then_cells(self, cells: usize) -> ColumnFn {
         // Without a tab in `next`, `then` does not use the tab width.
         self.then(
             ColumnFn {
@@ -87,7 +98,7 @@ impl ColumnFn {
         )
     }
 
-    fn then_tab(self, tab_width: TabWidth) -> ColumnFn {
+    pub(super) fn then_tab(self, tab_width: TabWidth) -> ColumnFn {
         self.then(
             ColumnFn {
                 lead: 0,
@@ -174,11 +185,26 @@ impl Dimension<TabSummary> for TabPoint {
     }
 }
 
-/// One item: a rope chunk's text and its summary.
+/// One item: a rope chunk's text, its summary, and the checkpoints of its long lines
+/// (ADR 0099), made once scans have read the chunk often.
 #[derive(Clone, Debug)]
 struct TabChunk {
     text: Arc<str>,
     summary: TabSummary,
+    checkpoints: Kept,
+}
+
+impl TabChunk {
+    /// The last checkpoint at or before `offset` in the chunk, which starts at `base`.
+    fn checkpoint_before(&self, base: usize, map: &TabMap, offset: usize) -> Option<&Checkpoint> {
+        checkpoints::before_offset(self.checkpoints(base, map)?, offset)
+    }
+
+    /// Its checkpoints, if scans have read it often enough. It starts at `base`.
+    fn checkpoints(&self, base: usize, map: &TabMap) -> Option<&[Checkpoint]> {
+        self.checkpoints
+            .get(&self.text, base, &map.invalid, map.tab_width)
+    }
 }
 
 impl Item for TabChunk {
@@ -224,8 +250,9 @@ impl TabMap {
             let summary = TabSummary::from_text(text, base, invalid, tab_width);
             base += text.len();
             TabChunk {
-                summary,
                 text: Arc::clone(text),
+                summary,
+                checkpoints: Kept::default(),
             }
         })
     }
@@ -275,17 +302,39 @@ impl TabMap {
         let Some(item) = cursor.item() else {
             return point;
         };
-        // Skip to the line of `offset` within the chunk.
+        // Skip to the line of `offset` within the chunk, and on to its last checkpoint
+        // before `offset` (ADR 0099).
         let bytes = &item.text.as_bytes()[..offset - start];
         let mut from = 0;
-        if let Some(newline) = bytes.iter().rposition(|&byte| byte == b'\n') {
-            point.row += bytes.iter().filter(|&&byte| byte == b'\n').count();
-            point.column = 0;
-            from = newline + 1;
+        let mut past_limit_until = None;
+        let line = bytes
+            .iter()
+            .rposition(|&byte| byte == b'\n')
+            .map(|newline| newline + 1);
+        match item.checkpoint_before(start, self, offset - start) {
+            Some(checkpoint) if line.is_none_or(|line| usize::from(checkpoint.at) >= line) => {
+                let rows = usize::from(checkpoint.rows);
+                if rows > 0 {
+                    point.row += rows;
+                    point.column = checkpoint.column().apply(0, self.tab_width);
+                } else {
+                    point.column = checkpoint.column().apply(point.column, self.tab_width);
+                }
+                from = usize::from(checkpoint.at);
+                past_limit_until = Some(usize::from(checkpoint.past_limit_until));
+            }
+            _ => {
+                if let Some(line) = line {
+                    point.row += bytes.iter().filter(|&&byte| byte == b'\n').count();
+                    point.column = 0;
+                    from = line;
+                }
+            }
         }
-        let clusters = Clusters::with_invalid(&item.text[from..], start + from, &self.invalid);
+        let (clusters, shift) =
+            clusters_from(&item.text, start, from, past_limit_until, &self.invalid);
         for (index, cluster, kind, cells) in clusters {
-            if start + from + index + cluster.len() > offset {
+            if start + shift + index + cluster.len() > offset {
                 break;
             }
             self.advance(&mut point, kind, cells);
@@ -305,19 +354,35 @@ impl TabMap {
         let Some(item) = cursor.item() else {
             return (start, start);
         };
-        let before = &item.text.as_bytes()[..offset - start];
-        // Two ASCII characters but CR LF always have a cluster boundary between them, and
-        // the clusters after it are as from the chunk's start, so the scan starts at the
-        // nearest one.
-        let from = before
-            .windows(2)
-            .rposition(|pair| {
+        // Two ASCII characters but CR LF always have a cluster boundary between them, past
+        // which the clusters are as from the chunk's start, so the scan starts at the nearest
+        // such pair within a stride, found from the bytes alone. Without one, it starts at the
+        // last checkpoint before `offset` (ADR 0099), or the nearest pair after it.
+        let pair = |bytes: &[u8]| {
+            bytes.windows(2).rposition(|pair| {
                 pair[0] == b'\n' || (pair[0].is_ascii() && pair[1].is_ascii() && pair != b"\r\n")
             })
-            .map_or(0, |index| index + 1);
-        let clusters = Clusters::with_invalid(&item.text[from..], start + from, &self.invalid);
+        };
+        let near = (offset - start).saturating_sub(checkpoints::STRIDE);
+        let (from, past_limit_until) = match pair(&item.text.as_bytes()[near..offset - start]) {
+            Some(index) => (near + index + 1, None),
+            None => {
+                let checkpoint = item.checkpoint_before(start, self, offset - start);
+                let (at, past) = checkpoint.map_or((0, None), |checkpoint| {
+                    let past = usize::from(checkpoint.past_limit_until);
+                    (usize::from(checkpoint.at), Some(past))
+                });
+                // A checkpoint within the stride already searched needs no search after it.
+                match pair(&item.text.as_bytes()[at.min(near)..near]) {
+                    Some(index) => (at.min(near) + index + 1, None),
+                    None => (at, past),
+                }
+            }
+        };
+        let (clusters, shift) =
+            clusters_from(&item.text, start, from, past_limit_until, &self.invalid);
         for (index, cluster, _, _) in clusters {
-            let at = start + from + index;
+            let at = start + shift + index;
             if at >= offset {
                 break;
             }
@@ -339,7 +404,7 @@ impl TabMap {
 
     /// [`TabMap::to_offset`], the point of the offset it returns, and the buffer
     /// offset before which characters are past a display cluster's limits, as
-    /// they were when the scan reached that offset.
+    /// they were when the scan reached that offset, 0 for none.
     fn locate(&self, target: TabPoint, bias: Bias) -> (usize, TabPoint, usize) {
         let mut cursor = self.tree.cursor::<(TabPoint, usize)>();
         cursor.seek(&target, Bias::Right);
@@ -347,20 +412,34 @@ impl TabMap {
         let Some(item) = cursor.item() else {
             return (start, point, 0);
         };
-        // Skip to the start of the target row within the chunk.
+        // Skip to the start of the target row within the chunk, and on to its last
+        // checkpoint at or before the target column (ADR 0099).
         let text = &*item.text;
         let mut from = 0;
+        let rows = target.row.saturating_sub(point.row);
         if target.row > point.row
-            && let Some((newline, _)) = text.match_indices('\n').nth(target.row - point.row - 1)
+            && let Some((newline, _)) = text.match_indices('\n').nth(rows - 1)
         {
             from = newline + 1;
             point = TabPoint::new(target.row, 0);
         }
-        let mut clusters = Clusters::with_invalid(&text[from..], start + from, &self.invalid);
+        let mut past_limit_until = None;
+        if let Some((checkpoint, column)) =
+            self.checkpoint_on_row((item, start), rows, point.column, target.column)
+        {
+            from = usize::from(checkpoint.at);
+            point.column = column;
+            past_limit_until = Some(usize::from(checkpoint.past_limit_until));
+        }
+        let (mut clusters, shift) =
+            clusters_from(text, start, from, past_limit_until, &self.invalid);
         while let Some((index, cluster, kind, cells)) = clusters.next() {
-            let offset = start + from + index;
+            let offset = start + shift + index;
             let past_limit_until =
-                |clusters: &Clusters<'_>| start + from + clusters.past_limit_until_at(index);
+                |clusters: &Clusters<'_>| match clusters.past_limit_until_at(index) {
+                    0 => 0,
+                    until => start + shift + until,
+                };
             if point.row == target.row {
                 if kind == CellKind::LineBreak || point.column >= target.column {
                     return (offset, point, past_limit_until(&clusters));
@@ -377,6 +456,20 @@ impl TabMap {
             self.advance(&mut point, kind, cells);
         }
         (start + text.len(), point, 0)
+    }
+
+    /// The last checkpoint of `item`, which starts at `base`, on its row `rows` breaks in
+    /// whose column is at most `target`, with that column, `column` being where the row's part
+    /// in the chunk starts.
+    fn checkpoint_on_row<'a>(
+        &self,
+        (item, base): (&'a TabChunk, usize),
+        rows: usize,
+        column: usize,
+        target: usize,
+    ) -> Option<(&'a Checkpoint, usize)> {
+        let checkpoints = item.checkpoints(base, self)?;
+        checkpoints::on_row(checkpoints, (rows, column), target, self.tab_width)
     }
 
     /// Moves `point` past one cluster.
@@ -429,6 +522,9 @@ impl TabMap {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Iterates over the clusters of one row. See [`TabMap::clusters`].
 pub struct RowClusters<'a> {

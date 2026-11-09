@@ -47,7 +47,11 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   the column function of its last line, so the column of any offset is found in
   O(log n) plus a scan of one chunk, even on a 10 MB line full of tabs, and
   whether a buffer holds a bidi control in O(1). The tab width is a parameter;
-  changing it rebuilds only the TabMap.
+  changing it rebuilds only the TabMap. A chunk read often keeps checkpoints in its
+  lines longer than 128 bytes, cluster starts every 128 bytes where a scan can begin
+  in the state a scan from the chunk's start has there, so a scan in a long line reads
+  at most a stride and a cluster, plus what the segmenter looks back over
+  ([ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
 - **`DisplayMap` and `DisplaySnapshot`.** The API callers use: offset ↔
   `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
   clusters, row widths, and the clusters of a row from any column, for

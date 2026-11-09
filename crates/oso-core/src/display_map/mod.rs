@@ -33,6 +33,7 @@
 //! [`DisplaySnapshot::clusters`].
 
 pub mod cell;
+mod checkpoints;
 mod preedit;
 pub mod tab_map;
 pub mod wrap_map;
