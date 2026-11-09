@@ -100,11 +100,10 @@ pub fn envelope(line: &str) -> Result<Envelope, BadRequest> {
 impl Envelope {
     /// The error for a method no one knows, quoting a short prefix of its name.
     pub fn unknown(&self) -> BadRequest {
-        let mut shown: String = self.method.chars().take(MAX_ECHO).collect();
-        if shown.len() < self.method.len() {
-            shown.push('…');
-        }
-        BadRequest::new(&self.id, format!("unknown method {shown:?}"))
+        BadRequest::new(
+            &self.id,
+            format!("unknown method {:?}", short(&self.method)),
+        )
     }
 }
 
@@ -140,7 +139,6 @@ pub fn bounded(id: &Value, line: String) -> String {
 /// These never occur outside a JSON string, and an escape there means the same character,
 /// so the line parses to the same value.
 fn escape_unsafe(line: String) -> String {
-    let is_unsafe = |c: char| matches!(c, '\u{7f}'..='\u{9f}') || is_invisible(c);
     if !line.contains(is_unsafe) {
         return line;
     }
@@ -156,6 +154,34 @@ fn escape_unsafe(line: String) -> String {
         }
     }
     escaped
+}
+
+/// A name a client sent, cut short to echo in an error.
+pub fn short(name: &str) -> String {
+    let mut shown: String = name.chars().take(MAX_ECHO).collect();
+    if shown.len() < name.len() {
+        shown.push('…');
+    }
+    shown
+}
+
+/// What [`escape_unsafe`] writes as `\uXXXX`.
+fn is_unsafe(c: char) -> bool {
+    matches!(c, '\u{7f}'..='\u{9f}') || is_invisible(c)
+}
+
+/// At most the bytes `text` takes as a JSON string in a line of this protocol, its quotes
+/// left out: a request or a response that carries it, escapes and all, is no longer.
+#[cfg(feature = "dev")]
+pub fn escaped_len(text: &str) -> usize {
+    text.chars()
+        .map(|c| match c {
+            '"' | '\\' | '\n' | '\t' | '\r' | '\u{8}' | '\u{c}' => 2,
+            c if c < ' ' => 6,
+            c if is_unsafe(c) => 6 * c.len_utf16(),
+            c => c.len_utf8(),
+        })
+        .sum()
 }
 
 /// The result in a response line, or its error message. Anything else is an error too, so

@@ -21,6 +21,8 @@ mod control;
 mod copies;
 mod draw;
 mod events;
+#[cfg(feature = "dev")]
+mod handover;
 mod ime;
 mod input;
 mod loads;
@@ -133,10 +135,10 @@ pub struct App {
     /// Questions a control socket request opened, which keys from the window do not answer.
     #[cfg(feature = "dev")]
     remote_questions: Vec<oso_core::minibuffer::PromptId>,
-    /// Positions handed over from the previous instance, until their file has
-    /// loaded.
+    /// What a restart under `oso dev` keeps: positions still to restore, the latest export,
+    /// and what an import has brought so far.
     #[cfg(feature = "dev")]
-    restore: Option<dev::handoff::Restore>,
+    handover: handover::Handover,
 }
 
 impl App {
@@ -185,7 +187,7 @@ impl App {
             #[cfg(feature = "dev")]
             remote_questions: Vec::new(),
             #[cfg(feature = "dev")]
-            restore: None,
+            handover: handover::Handover::default(),
         }
     }
 

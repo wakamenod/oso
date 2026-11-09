@@ -108,12 +108,6 @@ item notes when it must be settled.
   ([ADR 0059](adr/0059-safe-save-and-the-exit-guard.md)). M2-18 closes both: one file opens in one
   buffer, found by device and inode, and `write-file` is the person's only, keeping a secret
   verdict wherever it writes ([ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
-- By M2-15: the generation that guards `exit` does not change on a save between the
-  export and the exit, and does not cover marks, the kill ring or file information
-  ([ADR 0055](adr/0055-oso-dev-never-loses-unsaved-text.md)). Decide what it must cover
-  once the state carries them. Marks and the mark ring now exist and a restart drops them
-  ([ADR 0071](adr/0071-mark-and-region.md)): M2-15 decides whether a region shown at the
-  restart comes back shown.
 - By M2-19: a window that shows another buffer loses its marks and its mark ring, as it
   loses its cursors. Decide where a window keeps a buffer's places when `C-x b` comes back
   to it ([ADR 0071](adr/0071-mark-and-region.md)). M2-19 closes this: a window keeps a place
@@ -173,8 +167,6 @@ item notes when it must be settled.
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), which `draw_pane` tells as
   a tiled pane of `Lines` with one row for now, and what a float shows keeps both bands in its
   padding, told by its layer ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- `C-h e` while a handed-over file loads ends the wait for its positions, so they are not restored
-  (`handoff.rs`). Decide with M2-15, which carries more through a restart.
 - Identical messages are not merged in `*Messages*`, so holding a key that fails evicts its older rows in
   about 35 s. Emacs counts repeats on one row.
 - With `*Messages*` at its 1000 rows, each new message moves what someone is reading there, as the
