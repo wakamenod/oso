@@ -50,9 +50,13 @@ impl Editor {
         // A prompt over a search ends it, as a key it does not bind does (ADR 0082).
         self.isearch_abandon();
         let depth = self.prompts.len() + 1;
+        let from_agent = self.agent_opens_prompts();
         let mut label = label.into();
         if kind.is_question() {
             label.push_str(minibuffer::QUESTION_END);
+        }
+        if from_agent {
+            label.insert_str(0, super::agent::AGENT_LABEL);
         }
         if depth > 1 {
             label = format!("[{depth}] {label}");
@@ -77,6 +81,7 @@ impl Editor {
             from_socket: false,
             walk: None,
             typed: None,
+            from_agent,
             completion: None,
         });
         self.relayout_prompt();

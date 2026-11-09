@@ -110,6 +110,11 @@ impl ControlStream {
     }
 
     /// Unreachable: no `ControlStream` exists.
+    pub fn shutdown(&self) {
+        match self.never {}
+    }
+
+    /// Unreachable: no `ControlStream` exists.
     pub fn try_clone(&self) -> io::Result<Self> {
         match self.never {}
     }

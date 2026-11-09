@@ -47,10 +47,12 @@ similar = { version = "3.2", default-features = false, features = ["std"] }
 # Text-grid snapshots (ADR 0037). Tests only, never in a release build.
 insta = { version = "1.49", default-features = false }
 
-# Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
-# JSON Lines for the control socket (ADR 0023); used through `Value` only, so
-# without serde's derive macros.
+# JSON Lines for the control sockets (ADR 0023): the dev one, and the agent
+# channel in release builds too (ADR 0085). Used through `Value` only, so without
+# serde's derive macros.
 serde_json = "1"
+
+# Dev-only (the `dev` features, ADR 0016). Release builds never contain them.
 # Deflate for screenshot PNGs. Pure Rust, forbids `unsafe`.
 miniz_oxide = "0.9"
 # Peer credentials and the effective user ID for the control socket.
