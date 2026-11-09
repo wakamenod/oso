@@ -215,6 +215,46 @@ fn window_typing(label: &str, text: &str, cursors: usize, (wraps, settled): (boo
     println!("window {label:<22} {how:>9} {cursors:>5} cursors  p50 {p50:>9.2?} p99 {p99:>9.2?}");
 }
 
+/// Times undoing 20 keys typed at `cursors` places, joined in one undo group, in a window on
+/// `text`, wrapped or not: one command of 20 times as many splices.
+fn window_undo(label: &str, text: &str, cursors: usize, wraps: bool) {
+    let mut editor = window_on(text, text.len() / 2);
+    let id = editor.window().buffer();
+    let mut rng = Lcg(13);
+    let rope = editor.current().1.text().clone();
+    let mut places: Vec<usize> = (0..cursors)
+        .map(|_| rope.clip_offset(rng.below(rope.len()), Bias::Left))
+        .collect();
+    places.sort_unstable();
+    places.dedup();
+    let selections = places.iter().copied().map(Selection::at).collect();
+    let set = SelectionSet::from_parts(selections, places.len() / 2).unwrap_or_default();
+    editor.restore_positions(set, Scroll::default());
+    editor.set_wraps(id, wraps);
+    for job in editor.take_wrap_jobs() {
+        if let Some(report) = job.run() {
+            editor.take_wrap_report(report);
+        }
+    }
+    for _ in 0..20 {
+        editor.begin_undo_group();
+        editor.allow_undo_join();
+        let replacements: Vec<Replacement<'_>> = (editor.window().selections.iter())
+            .map(|selection| Replacement {
+                range: selection.cursor..selection.cursor,
+                text: "x",
+            })
+            .collect();
+        let _ = editor.apply_edits(id, &replacements);
+        editor.end_undo_group();
+    }
+    editor.begin_undo_group();
+    let (_, undone) = time(|| editor.undo());
+    editor.end_undo_group();
+    let how = if wraps { "wrapped" } else { "truncated" };
+    println!("undo   {label:<22} {how:>9} {cursors:>5} cursors x 20 keys  {undone:>9.2?}");
+}
+
 /// Every timing of soft wrap; with `1g`, wrapping 1 GB of source too.
 pub(super) fn wrap_costs() {
     println!("== Soft wrap");
@@ -268,5 +308,7 @@ pub(super) fn wrap_costs() {
             window_typing(label, text, cursors, (true, true));
             window_typing(label, text, cursors, (true, false));
         }
+        window_undo(label, text, 1000, false);
+        window_undo(label, text, 1000, true);
     }
 }

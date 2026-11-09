@@ -16,7 +16,8 @@
 //! - A command's rewraps read at most a budget; past it, rows are provisional and stale, and
 //!   a [`WrapJob`] rewraps them, or a new width, off the UI thread (`job.rs`, ADR 0102).
 //! - Until a job reports, the rows near a window's view are wrapped from an anchor, and the
-//!   rest count one row a logical line (`view.rs`, ADR 0103).
+//!   rest count one row a logical line (`realize.rs`, ADR 0103). A window holds them in a
+//!   `WrapMap` (`map.rs`).
 //!
 //! No `Debug` here prints an offset, as where rows break tells how long words are in a
 //! buffer that may hold secrets.
@@ -25,15 +26,17 @@ mod breaks;
 mod builder;
 mod edit;
 mod job;
-mod view;
+mod map;
+mod realize;
 
 use std::fmt;
 use std::sync::Arc;
 
 use self::breaks::{Cluster, RowEnd, Rows};
 use self::builder::Builder;
-pub(crate) use self::job::WrapMap;
+pub(crate) use self::job::SPLICES_READ;
 pub use self::job::{COMMAND_BUDGET, Splice, WrapJob, WrapReport};
+pub(crate) use self::map::WrapMap;
 use super::{DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::sum_tree::{Bias, Dimension, Item, SumTree, Summary};
 

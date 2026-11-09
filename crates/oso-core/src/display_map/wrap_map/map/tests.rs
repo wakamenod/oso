@@ -173,6 +173,18 @@ fn a_narrower_window_edited_and_wrapped_near_its_view_before_the_report_settles_
 }
 
 #[test]
+fn a_report_of_the_width_before_a_resize_is_not_taken() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    window.wrap.set_columns(12, &window.map.snapshot());
+    let report = job.run().expect("no newer job yet");
+    assert!(!window.wrap.take_report(report, &window.map.snapshot()));
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(12));
+}
+
+#[test]
 fn a_reset_drops_the_running_jobs_report_and_its_next_job_supersedes_it() {
     let mut window = Window::new(&"word ".repeat(40), 30);
     window.wrap.set_columns(20, &window.map.snapshot());

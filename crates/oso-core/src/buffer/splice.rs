@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use super::Replacement;
 use crate::display_map::DisplayMap;
-use crate::display_map::wrap_map::Splice as WrapSplice;
+use crate::display_map::wrap_map::{SPLICES_READ, Splice as WrapSplice};
 use crate::rope::{Rope, RopeEdit};
 use crate::selection::{OffsetEdit, follow_ranges};
 use crate::undo::{Batch, Splice};
@@ -107,7 +107,10 @@ pub(super) fn apply<T: SpliceText>(
 /// still where a cursor can be (ADR 0091).
 ///
 /// With `wraps`, each splice also goes there with the display before and after it, in the
-/// order they apply, for the windows' wraps to follow (ADR 0102).
+/// order they apply, for the windows' wraps to follow (ADR 0102). Past [`SPLICES_READ`] of
+/// them, which is as many as a rewrap reads, each holds the snapshot from there as a
+/// placeholder, and only the last one's `after` is the display after it, so that a thousand
+/// cursors keep no copy of the display map's path for each (ADR 0103).
 pub(super) fn apply_marking<T: SpliceText>(
     splices: &[Splice<T>],
     text: &mut Rope,
@@ -130,12 +133,20 @@ pub(super) fn apply_marking<T: SpliceText>(
         let range = splice.start..splice.start + splice.len;
         let removed = (!range.is_empty()).then(|| text.slice(range.clone()));
         let edit = splice.text.replace_in(text, range);
-        let before = wraps.is_some().then(|| display.snapshot());
+        let read = wraps
+            .as_ref()
+            .is_some_and(|wraps| wraps.len() < SPLICES_READ);
+        let before = read.then(|| display.snapshot());
         display.sync(text, &edit);
-        if let (Some(wraps), Some(before)) = (wraps.as_deref_mut(), before) {
+        if let Some(wraps) = wraps.as_deref_mut() {
+            let (before, after) = match (before, wraps.last()) {
+                (Some(before), _) => (before, display.snapshot()),
+                (None, Some(last)) => (last.after.clone(), last.after.clone()),
+                (None, None) => (display.snapshot(), display.snapshot()),
+            };
             wraps.push(WrapSplice {
                 before,
-                after: display.snapshot(),
+                after,
                 edit: edit.clone(),
             });
         }
@@ -150,6 +161,10 @@ pub(super) fn apply_marking<T: SpliceText>(
         });
     }
     undo.reverse();
+    // The last one's display is the real one, whatever stood in before it.
+    if let Some(last) = wraps.and_then(|wraps| wraps.last_mut()) {
+        last.after = display.snapshot();
+    }
     // A splice's chunks can reach back past those of the splices below it, so their
     // starts go through the whole batch, in order.
     let mut order: Vec<usize> = (0..starts.len()).collect();

@@ -202,17 +202,18 @@ impl App {
         }
     }
 
-    /// How many view rows the tiled window, also beneath a prompt, shows of `id`, if it
-    /// shows it.
+    /// How many rows the tiled window, also beneath a prompt, draws of `id`, if it shows it:
+    /// logical lines, until the renderer draws view rows (ADR 0100).
     fn rows_shown(&self, id: BufferId) -> Option<usize> {
         let (window, buffer) = self.editor.tiled();
-        (window.buffer() == id).then(|| window.row_count(&buffer.display()))
+        (window.buffer() == id).then(|| buffer.display().row_count())
     }
 
-    /// Whether the tiled window's view reaches its view row `row` or those after it.
+    /// Whether the tiled window's view reaches its drawn row `row` or those after it.
     fn reaches_row(&self, row: usize) -> bool {
         let (window, buffer) = self.editor.tiled();
-        window::reaches(window.top_row(&buffer.display()), window.size(), row)
+        let top = window.drawn_top(&buffer.display()).row;
+        window::reaches(top, window.size(), row)
     }
 
     /// Applies one update of `self.loads[index]`. Returns whether a frame

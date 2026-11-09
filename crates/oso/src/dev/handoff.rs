@@ -516,8 +516,11 @@ impl Restore {
         };
         let selections = self.selections.iter();
         let marks = selections.flat_map(|s| [Some(s.cursor), s.mark]).flatten();
+        // The top too, once it is an offset.
+        let top = (!self.top_is_row).then_some(self.scroll.start);
         let needed = marks
             .chain(self.selections.mark_ring().iter())
+            .chain(top)
             .max()
             .unwrap_or(0);
         if buffer.loading().is_some() && buffer.text().len() < needed {

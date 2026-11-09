@@ -232,3 +232,67 @@ fn nothing_scrolls_sideways_while_wrapped() {
     assert!(!editor.scroll_view_sideways(10));
     assert_eq!(editor.window().scroll().left, 0);
 }
+
+#[test]
+fn many_cursors_typing_and_undoing_keep_the_rows_in_step() {
+    use crate::selection::Selection;
+    let text = format!(
+        "{}\n{}",
+        "word and more ".repeat(60),
+        "日本語の文章です。".repeat(20)
+    );
+    let (mut editor, id) = wrapped(&text, ViewSize::new(10, 16));
+    // More splices to a command than a rewrap reads the snapshots of.
+    let places: Vec<usize> = (0..40).map(|i| i * 20).collect();
+    let selections = places.iter().copied().map(Selection::at).collect();
+    editor.current_mut().0.selections = SelectionSet::from_parts(selections, 0).unwrap();
+    for _ in 0..3 {
+        editor.begin_undo_group();
+        editor.allow_undo_join();
+        let edits: Vec<_> = (editor.window().selections.iter())
+            .map(|selection| edit(selection.cursor..selection.cursor, "xy"))
+            .collect();
+        editor.apply_edits(id, &edits).unwrap();
+        editor.end_undo_group();
+    }
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor));
+    editor.begin_undo_group();
+    editor.undo().unwrap();
+    editor.end_undo_group();
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor), "and undoing them as one");
+}
+
+#[test]
+fn messages_logged_to_a_wrapped_messages_buffer_keep_its_rows_in_step() {
+    let (mut editor, _) = editor_with("text");
+    editor.set_view_size(ViewSize::new(5, 20));
+    editor.toggle_messages();
+    let messages = editor.window().buffer();
+    assert!(editor.set_wraps(messages, true));
+    for count in 0..5 {
+        editor.message(format!(
+            "message {count} {}",
+            "said at length ".repeat(count)
+        ));
+    }
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor));
+}
+
+#[test]
+fn a_whole_text_put_back_into_a_wrapped_buffer_starts_its_wrap_over() {
+    let (mut editor, id) = wrapped(&"word ".repeat(60), ViewSize::new(5, 20));
+    settle(&mut editor);
+    let copy = editor.add_buffer(Buffer::from_text("copy", &"other words ".repeat(50)));
+    editor.replace_text_from(id, copy).unwrap();
+    let jobs = editor.take_wrap_jobs();
+    assert_eq!(jobs.len(), 1, "a job for the new text");
+    for job in jobs {
+        let report = job.run().expect("a report");
+        assert!(editor.take_wrap_report(report));
+    }
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor));
+}

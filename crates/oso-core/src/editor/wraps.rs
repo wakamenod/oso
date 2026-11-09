@@ -43,6 +43,7 @@ impl Editor {
     /// Brings the windows showing `id` along with text that a load put in, which no splice
     /// led to: a wrap starts over, its top in the text as before.
     pub fn loaded(&mut self, id: BufferId) {
+        self.refill_wraps();
         for index in 0..self.tiled_count() {
             if self.windows[index].buffer() == id {
                 self.sync_wrap(index);
@@ -70,14 +71,17 @@ impl Editor {
             }
             (false, true) => window.set_wrap(None, &display, revision),
             (true, true) => {
-                let stale = window.wrapped_revision() != revision;
+                let stale = window.wrap_revision() != revision;
                 if let Some(wrap) = window.wrap_map_mut() {
                     if stale {
                         wrap.reset(&display);
                     }
                     wrap.set_columns(columns, &display);
                 }
-                window.set_wrapped_revision(revision);
+                window.set_wrap_revision(revision);
+                if stale {
+                    window.realize_top(&display);
+                }
             }
             (false, false) => {}
         }
@@ -105,10 +109,13 @@ impl Editor {
         rewrap: &Rewrap,
     ) -> MovedViews {
         let mut moved = Vec::new();
+        let revision = self.buffer(id).map_or(0, |buffer| buffer.revision());
         for (index, window) in self.windows.iter().enumerate() {
             if window.buffer() != id {
                 continue;
             }
+            // A wrap that missed a change since cannot follow this one's splices.
+            let whole = window.wrap_revision() != revision;
             let mut scroll = window.scroll();
             for edits in steps {
                 scroll.start = follow_offset(scroll.start, edits, Bias::Left);
@@ -116,8 +123,8 @@ impl Editor {
             let wrap = window.wrap_map().map(|wrap| {
                 let mut wrap = wrap.clone();
                 match rewrap {
-                    Rewrap::Splices(splices) => wrap.edit(splices),
-                    Rewrap::Whole => wrap.reset(display),
+                    Rewrap::Splices(splices) if !whole => wrap.edit(splices),
+                    _ => wrap.reset(display),
                 }
                 // A provisional row at the top is wrapped, so that the view does not show
                 // from its logical line's start.
@@ -169,6 +176,8 @@ impl Editor {
             return false;
         };
         self.refill_wraps();
+        // A wrap that missed a change starts over, and drops the report.
+        self.sync_wrap(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         let taken = window

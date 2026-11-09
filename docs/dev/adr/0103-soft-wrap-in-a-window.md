@@ -62,7 +62,9 @@ the public API in outline.
   wrapped there:
   - the cursor's row;
   - the rows in view and a screen below them;
-  - the rows a command or the wheel scrolls to.
+  - the rows a command or the wheel scrolls to, and going up, those just above the top first,
+    from an anchor before it, so that a provisional row there does not take the top to its
+    line's start.
 - **Wrapping goes forward from an anchor:**
   - the start of the row that holds what is wanted, if it is at most 64 KiB back;
   - otherwise past a run of spaces near that point;
@@ -73,7 +75,7 @@ the public API in outline.
   real only from a real break on, but they are not wrapped again before the report.
 - **It shares the command's budget with the command's edits (author),** 128 KiB and 2 KiB a call
   (ADR 0102).
-  - A command, a wheel scroll, a resize and a report each start a budget.
+  - A command, a wheel scroll, a resize, a load's part and a report each start a budget.
   - After a thousand cursors spend it, the view can stay provisional until the report, as ADR 0102
     already says.
 
@@ -95,10 +97,19 @@ the public API in outline.
 - **Edits, undo and redo, `*Messages*` and recovery hand each window's wrap their splices,** each
   with the display before and after it. The splices are collected only while the buffer wraps.
 - **Each window follows them on a clone of its wrap,** put in with the buffer's text in ADR 0053's
-  step, which cannot panic.
+  step, which cannot panic. A wrap that missed a change since starts over instead.
+- **A command keeps the displays of at most its first 129 splices,** as many as a rewrap reads:
+  each splice charges the budget at least 2 KiB, and 64 join one by one after it is spent. The
+  rest hold a placeholder, but the last, whose display is the one after it. So a thousand cursors
+  keep no copy of the display map's path for each.
+- **The rest of a spent command joins in one go in O(splices),** one range grown over each splice
+  in turn, where ADR 0102's took each splice's range back through those before it, which costs
+  the square of their number: undoing 20 keys typed at 1000 cursors made 20,000 splices.
 
 ### The jobs
 
+- **A new width supersedes the running job at once,** so that its report, at the old width, is
+  not taken.
 - **A job holds a weak reference to its map's generation, and a report names its map.**
   - A map takes only its own reports, and a clone of a map counts as the same map.
   - A job whose map is gone stops at its next check: after a toggle off, or when its window shows
@@ -182,8 +193,9 @@ becomes `Accepted, amended by 0102 and 0103`.
   window about 0.2 ms (`text_perf -- wrap`, a MacBook). The job then wraps the line in about
   110 ms.
 - Once the report is in, a key at one cursor in a wrapped 10 MB line of words costs about 24 µs at
-  p50, and 89 µs in CJK. A thousand cursors add about 2.5 ms to the 3 to 6 ms the edit costs
-  truncated.
+  p50, and 89 µs in CJK. A thousand cursors add about 1.5 ms to the 3.5 to 5.5 ms the edit costs
+  truncated. Undoing 20 keys typed at a thousand cursors takes about 67 ms wrapped and 57 ms
+  truncated, 117 and 107 in CJK.
 - Before the report, a key in a long provisional line costs up to the budget, about 2 ms, since
   its rewrap reads into the provisional row. So does a line that repeats one short piece of text,
   whose shifted breaks may never meet the old ones; its rest waits for the worker.

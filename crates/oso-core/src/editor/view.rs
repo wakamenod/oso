@@ -260,6 +260,7 @@ impl Editor {
     pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
         // The tiled window, also beneath a prompt, whose own window shows only its buffer.
         let index = self.tiled_index();
+        self.sync_wrap(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         window.restore_positions(selections, scroll, &display);
@@ -283,6 +284,9 @@ impl Editor {
         // The rows the wheel reaches, wrapped first if provisional (ADR 0103).
         let count = rows.unsigned_abs();
         if rows < 0 {
+            // The rows just above the top first, from an anchor before it, so that a
+            // provisional row there does not take the top to its line's start.
+            window.realize(&display, window.scroll().start.saturating_sub(1), 0);
             let row = window.top_row(&display).saturating_sub(count);
             let at = window.rows(&display).start(row);
             window.realize(&display, at, count);
@@ -318,6 +322,8 @@ impl Editor {
             let reach = window.size().rows.saturating_add(count);
             window.realize(&display, window.scroll().start, reach);
         } else {
+            // As the wheel does going up.
+            window.realize(&display, window.scroll().start.saturating_sub(1), 0);
             let row = window.top_row(&display).saturating_sub(count);
             let at = window.rows(&display).start(row);
             window.realize(&display, at, count);

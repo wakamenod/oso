@@ -14,7 +14,8 @@
 use std::ops::Range;
 
 use super::edit::{Fresh, provisional};
-use super::job::{SPLICE_COST, WrapMap};
+use super::job::SPLICE_COST;
+use super::map::WrapMap;
 use super::{Builder, Bytes, Row, RowStream, WrapSnapshot};
 use crate::display_map::DisplaySnapshot;
 
@@ -159,7 +160,7 @@ impl WrapMap {
     pub(crate) fn realize(&mut self, display: &DisplaySnapshot, at: usize, rows: usize) -> bool {
         let mut changed = false;
         for _ in 0..PASSES {
-            if !self.wrap.wraps() || self.budget == 0 || self.unreal.is_empty() {
+            if !self.wrap.wraps() || self.budget == 0 || self.unrealized.is_empty() {
                 break;
             }
             let at = at.min(display.len());
@@ -167,23 +168,23 @@ impl WrapMap {
             let last = first.saturating_add(rows).min(self.wrap.row_count() - 1);
             let start = self.wrap.row_span(display, first).0;
             let end = self.wrap.row_span(display, last).1.max(start + 1);
-            let index = self.unreal.partition_point(|range| range.end <= start);
-            let Some(unreal) = (self.unreal.get(index))
+            let index = self.unrealized.partition_point(|range| range.end <= start);
+            let Some(unrealized) = (self.unrealized.get(index))
                 .filter(|range| range.start < end)
                 .cloned()
             else {
                 break;
             };
-            let target = at.max(unreal.start).min(display.len());
+            let target = at.max(unrealized.start).min(display.len());
             let before = self.wrap.row_of(display, target).saturating_sub(first);
-            let anchor = self.wrap.anchor(display, target, unreal.start);
-            let wanted = (target, rows.saturating_sub(before), unreal.end);
+            let anchor = self.wrap.anchor(display, target, unrealized.start);
+            let wanted = (target, rows.saturating_sub(before), unrealized.end);
             let (wrap, reached, join) =
                 self.wrap
                     .realized(display, anchor, wanted, &mut self.budget);
             self.wrap = wrap;
             changed = true;
-            remove(&mut self.unreal, anchor..reached.max(anchor));
+            remove(&mut self.unrealized, anchor..reached.max(anchor));
             if join > reached {
                 self.want_range(reached..join);
             }

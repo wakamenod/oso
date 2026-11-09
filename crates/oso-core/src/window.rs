@@ -45,8 +45,9 @@ pub struct Scroll {
     pub left: usize,
 }
 
-/// The first row a window shows and its left column, as the rules of scrolling and
-/// the frame's cells count them.
+/// The first row a window shows and its left column. The rules of scrolling count it in view
+/// rows. The frame's cells and the renderer count it in logical lines, from
+/// [`Window::drawn_top`], until the renderer draws view rows (ADR 0100's next step).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ViewTop {
     pub row: usize,
@@ -142,7 +143,7 @@ pub struct Window {
     /// The rows of its buffer at its width, while the buffer wraps (ADR 0100).
     wrap: Option<WrapMap>,
     /// The buffer's revision the wrap follows.
-    wrapped: u64,
+    wrap_revision: u64,
 }
 
 impl fmt::Debug for Window {
@@ -167,7 +168,7 @@ impl Window {
             size: ViewSize::default(),
             places: Places::default(),
             wrap: None,
-            wrapped: 0,
+            wrap_revision: 0,
         }
     }
 
@@ -252,7 +253,7 @@ impl Window {
         revision: u64,
     ) {
         self.wrap = wrap;
-        self.wrapped = revision;
+        self.wrap_revision = revision;
         if self.wrap.is_some() {
             self.scroll.left = 0;
             self.realize_top(display);
@@ -260,20 +261,20 @@ impl Window {
     }
 
     /// The revision of its buffer that its wrap follows.
-    pub(crate) fn wrapped_revision(&self) -> u64 {
-        self.wrapped
+    pub(crate) fn wrap_revision(&self) -> u64 {
+        self.wrap_revision
     }
 
     /// Notes that its wrap follows its buffer at `revision`.
-    pub(crate) fn set_wrapped_revision(&mut self, revision: u64) {
-        self.wrapped = revision;
+    pub(crate) fn set_wrap_revision(&mut self, revision: u64) {
+        self.wrap_revision = revision;
     }
 
     /// Puts in the wrap and the view that followed a change of its buffer, which is now at
     /// `revision`. Nothing here can panic (ADR 0053).
     pub(crate) fn follow_change(&mut self, wrap: Option<WrapMap>, scroll: Scroll, revision: u64) {
         self.wrap = wrap;
-        self.wrapped = revision;
+        self.wrap_revision = revision;
         self.scroll = scroll;
     }
 
@@ -360,8 +361,8 @@ impl Window {
     }
 
     /// Puts back cursors and a view that were saved together. The top stays within the
-    /// buffer, which may have changed since. The cursor may end up out of view, so
-    /// `Editor::restore_positions` follows it afterwards.
+    /// buffer, which may have changed since. The cursor may end up out of view, and rows
+    /// there may be provisional, so the editor follows it afterwards, which wraps them.
     pub(crate) fn restore_positions(
         &mut self,
         selections: SelectionSet,
@@ -373,7 +374,6 @@ impl Window {
             start: scroll.start.min(display.len()),
             left: if self.wrap.is_some() { 0 } else { scroll.left },
         };
-        self.realize_view(display);
     }
 
     /// The cursor a frame draws, and the view follows: the primary one.
