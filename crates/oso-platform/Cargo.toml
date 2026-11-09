@@ -28,8 +28,8 @@ objc2-quartz-core = { workspace = true, optional = true }
 raw-window-handle = { workspace = true, optional = true }
 
 [features]
-# The dev control socket transport (ADR 0016) and process spawning (ADR 0010).
-# Enabled only by `oso/dev`.
+# Process spawning (ADR 0010, ADR 0047) and the log lines of the dev tooling. The
+# control sockets' transport is in every build (ADR 0085). Enabled only by `oso/dev`.
 dev = ["dep:log"]
 # oso's own window layer in place of winit, on macOS (ADR 0070, stage 2). Off by default
 # until it is at parity; the tip crate's `native-window` turns it on.

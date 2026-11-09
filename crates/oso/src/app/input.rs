@@ -65,6 +65,9 @@ impl App {
             } else {
                 self.answering = answers_once(mode, question, key).then_some(key);
             }
+            if self.note_key_for_agent(key) {
+                return;
+            }
             #[cfg(feature = "dev")]
             if self.asked_remotely(key) {
                 return;
@@ -113,6 +116,7 @@ impl App {
 
     /// Handles text from one key press that types several characters.
     fn handle_text(&mut self, event_loop: &Loop<'_>, text: &str) {
+        self.person_typed();
         let started = Instant::now();
         #[cfg(feature = "dev")]
         let mut watch = dev::SecretWatch::new(&self.editor);

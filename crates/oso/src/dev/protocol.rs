@@ -1,21 +1,21 @@
-//! The control socket's JSON Lines protocol (ADR 0023).
+//! The dev control socket's methods (ADR 0023), over the JSON Lines framing it shares with
+//! the agent channel (`channel::wire`).
 //!
 //! Must not depend on: sockets, threads or editor state; it only parses and
 //! formats messages.
 //!
 //! - Request: `{"id": 1, "method": "send-keys", "params": {"keys": "C-x"}}`.
-//!   `id` is optional and may be a number, a string or null. `params` is
-//!   optional.
-//! - Response: `{"id": 1, "result": ...}` or
-//!   `{"id": 1, "error": {"message": "..."}}`, echoing the request's `id`.
 
 use std::ops::Range;
 use std::path::PathBuf;
 
-use oso_core::display_map::cell::is_invisible;
 use oso_core::key::{KeyPress, KeySequence};
-use serde_json::{Map, Value, json};
-use std::fmt::Write as _;
+use serde_json::{Map, Value};
+
+use crate::channel::wire::short;
+pub use crate::channel::wire::{
+    BadRequest, MAX_LINE, escaped_len, failure, request, response_result, success,
+};
 
 use super::handoff::carry::CarriedPiece;
 use super::handoff::{self, State};
@@ -24,18 +24,8 @@ use super::handoff::{self, State};
 /// changes.
 pub const PROTOCOL_VERSION: u32 = 1;
 
-/// The longest request or response line, without its newline.
-pub const MAX_LINE: usize = 1 << 20;
-
 /// The most keys one `send-keys` request may send.
 pub const MAX_KEYS: usize = 4096;
-
-/// The longest string `id`, in bytes. Ids are echoed, so this keeps
-/// responses small.
-pub const MAX_ID: usize = 256;
-
-/// The most characters of a method name echoed in an error.
-const MAX_ECHO: usize = 64;
 
 /// The longest command name `run-command` accepts, in bytes. Names are
 /// echoed in errors, so this keeps responses small.
@@ -188,51 +178,12 @@ pub struct Request {
     pub method: Method,
 }
 
-/// A request that cannot be handled: the `id` to answer with, if one was
-/// found, and the error message.
-#[derive(Debug, Clone, PartialEq)]
-pub struct BadRequest {
-    pub id: Value,
-    pub message: String,
-}
-
 /// Parses one request line.
 pub fn parse(line: &str) -> Result<Request, BadRequest> {
-    let bad = |id: &Value, message: String| BadRequest {
-        id: id.clone(),
-        message,
-    };
-    let value: Value =
-        serde_json::from_str(line).map_err(|e| bad(&Value::Null, format!("invalid JSON: {e}")))?;
-    let Value::Object(request) = value else {
-        return Err(bad(&Value::Null, "the request is not a JSON object".into()));
-    };
-    let id = match request.get("id") {
-        None => Value::Null,
-        Some(Value::String(id)) if id.len() > MAX_ID => {
-            return Err(bad(
-                &Value::Null,
-                format!("id is longer than {MAX_ID} bytes"),
-            ));
-        }
-        Some(id @ (Value::Null | Value::Number(_) | Value::String(_))) => id.clone(),
-        Some(_) => {
-            return Err(bad(
-                &Value::Null,
-                "id must be a number, a string or null".into(),
-            ));
-        }
-    };
-    let Some(Value::String(method)) = request.get("method") else {
-        return Err(bad(&id, "method must be a string".into()));
-    };
-    let empty = Map::new();
-    let params = match request.get("params") {
-        None | Some(Value::Null) => &empty,
-        Some(Value::Object(params)) => params,
-        Some(_) => return Err(bad(&id, "params must be an object".into())),
-    };
-    let op = match method.as_str() {
+    let parts = crate::channel::wire::envelope(line)?;
+    let bad = |id: &Value, message: String| BadRequest::new(id, message);
+    let (id, method, params) = (parts.id.clone(), parts.method.as_str(), &parts.params);
+    let op = match method {
         "version" => {
             return Ok(Request {
                 id,
@@ -266,9 +217,9 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
             UiOp::ImportState(Box::new(handoff::parse(state).map_err(|m| bad(&id, m))?))
         }
         "exit" => UiOp::Exit {
-            generation: parse_generation(&request, params).map_err(|m| bad(&id, m))?,
+            generation: parse_generation(&parts.rest, params).map_err(|m| bad(&id, m))?,
         },
-        other => return Err(bad(&id, unknown(other))),
+        _ => return Err(parts.unknown()),
     };
     Ok(Request {
         id,
@@ -278,11 +229,7 @@ pub fn parse(line: &str) -> Result<Request, BadRequest> {
 
 /// Why `method` is refused, quoting only its start.
 fn unknown(method: &str) -> String {
-    let mut shown: String = method.chars().take(MAX_ECHO).collect();
-    if shown.len() < method.len() {
-        shown.push('…');
-    }
-    format!("unknown method {shown:?}")
+    format!("unknown method {:?}", short(method))
 }
 
 /// The methods only `oso dev` sends: those that carry text through a restart, and
@@ -486,90 +433,13 @@ fn parse_size(params: &Map<String, Value>, method: &str, name: &str) -> Result<u
         .ok_or_else(|| format!("{method} needs a non-negative integer parameter {name:?}"))
 }
 
-/// A success response line, without the newline.
-pub fn success(id: &Value, result: Value) -> String {
-    escape_unsafe(json!({ "id": id, "result": result }).to_string())
-}
-
-/// An error response line, without the newline.
-pub fn failure(id: &Value, message: &str) -> String {
-    escape_unsafe(json!({ "id": id, "error": { "message": message } }).to_string())
-}
-
-/// `line` with what JSON leaves raw, but a terminal or a reader should not
-/// see raw, as `\uXXXX`: DEL, the C1 controls (U+009B starts an escape
-/// sequence on some terminals), and what the editor itself draws as a boxed
-/// code point, such as bidi controls and invisible tag characters. File text
-/// reaches `oso ctl`'s output, so a file must not be able to act on the
-/// terminal, or to say something its reader cannot see (security.md, T3).
-///
-/// These never occur outside a JSON string, and an escape there means the
-/// same character, so the line parses to the same value.
-fn escape_unsafe(line: String) -> String {
-    if !line.contains(is_unsafe) {
-        return line;
-    }
-    let mut escaped = String::with_capacity(line.len());
-    for c in line.chars() {
-        if is_unsafe(c) {
-            let mut units = [0; 2];
-            for unit in c.encode_utf16(&mut units) {
-                write!(escaped, "\\u{unit:04x}").expect("writing to a String cannot fail");
-            }
-        } else {
-            escaped.push(c);
-        }
-    }
-    escaped
-}
-
-/// What [`escape_unsafe`] writes as `\uXXXX`.
-fn is_unsafe(c: char) -> bool {
-    matches!(c, '\u{7f}'..='\u{9f}') || is_invisible(c)
-}
-
-/// At most the bytes `text` takes as a JSON string in a line of this protocol, its quotes
-/// left out: a request or a response that carries it, escapes and all, is no longer.
-pub fn escaped_len(text: &str) -> usize {
-    text.chars()
-        .map(|c| match c {
-            '"' | '\\' | '\n' | '\t' | '\r' | '\u{8}' | '\u{c}' => 2,
-            c if c < ' ' => 6,
-            c if is_unsafe(c) => 6 * c.len_utf16(),
-            c => c.len_utf8(),
-        })
-        .sum()
-}
-
-/// The result in a response line, or its error message. Anything else is an
-/// error too, so that a response this build does not understand never reads as
-/// a confirmation.
-pub fn response_result(line: &str) -> Result<Value, String> {
-    let mut response: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
-    if let Some(message) = response["error"]["message"].as_str() {
-        return Err(message.to_owned());
-    }
-    match response.get_mut("result") {
-        Some(result) => Ok(result.take()),
-        None => Err("a response with no result".to_owned()),
-    }
-}
-
-/// Builds a request line, without the newline. For `oso ctl` and tests.
-pub fn request(id: u64, method: &str, params: Option<Value>) -> String {
-    let mut request = json!({ "id": id, "method": method });
-    if let Some(params) = params {
-        request["params"] = params;
-    }
-    request.to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        ClipboardOp, ImeReport, MAX_COMMAND_ARG, MAX_ID, MAX_KEYS, MAX_LINE, Method, Request, UiOp,
+        ClipboardOp, ImeReport, MAX_COMMAND_ARG, MAX_KEYS, MAX_LINE, Method, Request, UiOp,
         failure, parse, request, success,
     };
+    use crate::channel::wire::MAX_ID;
     use serde_json::{Value, json};
 
     fn parsed(line: &str) -> Request {

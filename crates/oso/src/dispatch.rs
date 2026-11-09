@@ -25,6 +25,7 @@ use oso_core::keymap::{KeyResolver, Keymap, Resolution, display_keys};
 use crate::emergency::Publisher;
 use crate::{bindings, commands};
 
+mod agent;
 mod buffers;
 mod clipboard;
 mod extended;
@@ -127,6 +128,12 @@ impl Dispatcher {
     #[cfg(any(test, feature = "dev"))]
     pub fn pending(&self) -> &[KeyPress] {
         self.resolver.pending()
+    }
+
+    /// Whether keys are in progress at all: a prefix key, or a prefix argument, even one that
+    /// takes no more digits, which the next command would take.
+    pub fn keys_in_progress(&self) -> bool {
+        !self.resolver.pending().is_empty() || self.prefix.is_some()
     }
 
     /// Whether the next key is read as a key rather than typed: a prefix key is

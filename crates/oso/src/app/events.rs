@@ -23,6 +23,13 @@ fn keeps_state_true(event: &Event<'_>) -> bool {
 }
 
 impl App {
+    /// What follows every event, before the next is read: the input method's part, then the
+    /// agent channel's (ADR 0069, ADR 0085).
+    pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
+        self.sync_ime_after_event(event_loop);
+        self.sync_agent();
+    }
+
     /// A thread sent the event loop something.
     pub(super) fn handle_user_event(&mut self, event_loop: &Loop<'_>, event: UserEvent) {
         self.begin_logging();
@@ -42,6 +49,8 @@ impl App {
             UserEvent::Search(report) => self.isearch_reported(report),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
+            UserEvent::Agent(request) => self.handle_agent(event_loop, request),
+            UserEvent::AgentStarted(started) => self.agent_started(started),
         }
         self.after_event(event_loop);
         self.note_logging();
