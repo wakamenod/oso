@@ -78,7 +78,7 @@ impl Editor {
         // where a cursor can be too (ADR 0071).
         let display = shown.display();
         selections.set_mark_active(MarkActive::Inactive);
-        clip_selections(&mut selections, &display, &[], false);
+        clip_selections(&mut selections, &display, &[], false, None);
         window.restore_positions(selections, scroll, &display);
         self.follow_window(index);
     }

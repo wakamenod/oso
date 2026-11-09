@@ -9,7 +9,7 @@ use std::ops::Range;
 use super::Replacement;
 use crate::display_map::DisplayMap;
 use crate::rope::{Rope, RopeEdit};
-use crate::selection::OffsetEdit;
+use crate::selection::{OffsetEdit, follow_ranges};
 use crate::undo::{Batch, Splice};
 
 /// The new text of a [`Splice`]: borrowed for an edit, a rope or nothing for undo
@@ -91,12 +91,29 @@ fn overlap<T>(last: &Splice<T>, next: &Splice<T>) -> bool {
 /// Applies one batch to `text` and `display`, in descending offset order so
 /// that each splice leaves the offsets below it valid. Returns the batch that
 /// undoes it.
+#[cfg(test)]
 pub(super) fn apply<T: SpliceText>(
     splices: &[Splice<T>],
     text: &mut Rope,
     display: &mut DisplayMap,
 ) -> Batch {
+    apply_marking(splices, text, display, &mut Vec::new())
+}
+
+/// As [`apply`], and sets `changed` to where the text may now break into display
+/// clusters otherwise than before: the chunks the splices rebuilt, in the offsets
+/// after the whole batch, ascending and apart. A cursor or mark anywhere else is
+/// still where a cursor can be (ADR 0091).
+pub(super) fn apply_marking<T: SpliceText>(
+    splices: &[Splice<T>],
+    text: &mut Rope,
+    display: &mut DisplayMap,
+    changed: &mut Vec<Range<usize>>,
+) -> Batch {
     let mut undo: Batch = Vec::with_capacity(splices.len());
+    // Where each splice's rebuilt chunks start before the splices below it apply,
+    // and where they are once all have.
+    let mut rebuilt = Vec::with_capacity(splices.len());
     // What the splices below the current one take, before and after them.
     let mut old_below: usize = splices.iter().map(|splice| splice.len).sum();
     let mut new_below: usize = splices.iter().map(|s| s.text.byte_len()).sum();
@@ -108,12 +125,70 @@ pub(super) fn apply<T: SpliceText>(
         let removed = (!range.is_empty()).then(|| text.slice(range.clone()));
         let edit = splice.text.replace_in(text, range);
         display.sync(text, &edit);
+        let start = splice.start - old_below + new_below;
+        let before = splice.start.saturating_sub(edit.new.start);
+        let after = edit.new.end.saturating_sub(splice.start + new_len);
+        rebuilt.push((
+            edit.new.start,
+            start.saturating_sub(before)..start + new_len + after,
+        ));
         undo.push(Splice {
-            start: splice.start - old_below + new_below,
+            start,
             len: new_len,
             text: removed,
         });
     }
     undo.reverse();
+    rebuilt.reverse();
+    changed.clear();
+    for (index, (first, range)) in rebuilt.into_iter().enumerate() {
+        // Chunks that reach back into the splice below were rebuilt again by it, so the
+        // two count as one run from where that one's starts.
+        let joins = index
+            .checked_sub(1)
+            .is_some_and(|below| first <= splices[below].start + splices[below].len);
+        match changed.last_mut() {
+            Some(last) if joins || range.start <= last.end => last.end = last.end.max(range.end),
+            _ => changed.push(range),
+        }
+    }
     undo
+}
+
+/// Applies the batches of an undo group, last first, as an undo or a redo crosses it.
+/// Returns what cursors follow, batch by batch, the batches that undo them, and where
+/// [`apply_marking`] says clusters may have changed, once all have applied.
+pub(super) fn apply_group(
+    group: &[Batch],
+    text: &mut Rope,
+    display: &mut DisplayMap,
+) -> (Vec<Vec<OffsetEdit>>, Vec<Batch>, Vec<Range<usize>>) {
+    let mut steps = Vec::with_capacity(group.len());
+    let mut batches = Vec::with_capacity(group.len());
+    let (mut changed, mut more) = (Vec::new(), Vec::new());
+    for batch in group.iter().rev() {
+        let step: Vec<_> = batch.iter().map(offset_edit).collect();
+        // What earlier batches changed moves with this one.
+        follow_ranges(&mut changed, &step);
+        steps.push(step);
+        batches.push(apply_marking(batch, text, display, &mut more));
+        changed = union(changed, std::mem::take(&mut more));
+    }
+    (steps, batches, changed)
+}
+
+/// The union of two lists of ranges that are each ascending and apart, also ascending
+/// and apart.
+fn union(a: Vec<Range<usize>>, b: Vec<Range<usize>>) -> Vec<Range<usize>> {
+    let mut all = a;
+    all.extend(b);
+    all.sort_unstable_by_key(|range| range.start);
+    let mut merged: Vec<Range<usize>> = Vec::with_capacity(all.len());
+    for range in all {
+        match merged.last_mut() {
+            Some(last) if range.start <= last.end => last.end = last.end.max(range.end),
+            _ => merged.push(range),
+        }
+    }
+    merged
 }

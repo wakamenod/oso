@@ -362,7 +362,13 @@ impl Editor {
             return Ok(());
         };
         let opening = self.opening(id, buffer);
-        let moved = self.moved_selections(id, &staged.display(), staged.steps(), Selected::Edited);
+        let moved = self.moved_selections(
+            id,
+            &staged.display(),
+            staged.steps(),
+            staged.changed(),
+            Selected::Edited,
+        );
         let after = moved
             .iter()
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
@@ -520,7 +526,13 @@ impl Editor {
         let buffer = self.buffer(id).ok_or(EditError::NoSuchBuffer)?;
         let staged = buffer.stage_crossing(direction)?;
         let selected = Selected::Restored(staged.selections());
-        let moved = self.moved_selections(id, &staged.display(), staged.steps(), selected);
+        let moved = self.moved_selections(
+            id,
+            &staged.display(),
+            staged.steps(),
+            staged.changed(),
+            selected,
+        );
 
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {

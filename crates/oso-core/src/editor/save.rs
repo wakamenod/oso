@@ -259,7 +259,7 @@ impl Editor {
             Ok::<(), ()>(())
         });
         // A `\n` after a lone `\r` makes one cluster of the two.
-        clip_selections(selections, &display, &[], true);
+        clip_selections(selections, &display, &[], true, None);
     }
 
     /// The saves queued and not yet taken, each with the text it is to write.

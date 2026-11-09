@@ -334,7 +334,7 @@ impl Editor {
                 Ok::<(), ()>(())
             });
             set.update_ring(map);
-            clip_selections(&mut set, display, &[], true);
+            clip_selections(&mut set, display, &[], true, None);
             moved.push((index, set));
         }
         moved

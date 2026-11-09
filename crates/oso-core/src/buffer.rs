@@ -43,7 +43,7 @@ pub use baseline::{Baseline, DiskState, FileStamp};
 pub use carried::FileFacts;
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
-use splice::{SpliceText, apply, normalized, offset_edit};
+use splice::{SpliceText, apply_group, apply_marking, normalized, offset_edit};
 
 /// Identifies a buffer in its [`Editor`](crate::editor::Editor).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -126,6 +126,7 @@ pub(crate) struct StagedEdit {
     display: DisplayMap,
     edits: Vec<OffsetEdit>,
     undo: Batch,
+    changed: Vec<Range<usize>>,
 }
 
 impl StagedEdit {
@@ -137,6 +138,11 @@ impl StagedEdit {
     pub(crate) fn steps(&self) -> &[Vec<OffsetEdit>] {
         slice::from_ref(&self.edits)
     }
+
+    /// Where cursors may no longer be at a cluster's start, afterwards (ADR 0091).
+    pub(crate) fn changed(&self) -> &[Range<usize>] {
+        &self.changed
+    }
 }
 
 /// An undo or a redo made on clones, not yet in the buffer.
@@ -146,6 +152,7 @@ pub(crate) struct StagedCrossing {
     steps: Vec<Vec<OffsetEdit>>,
     direction: Direction,
     crossed: Group,
+    changed: Vec<Range<usize>>,
 }
 
 impl StagedCrossing {
@@ -156,6 +163,11 @@ impl StagedCrossing {
     /// What cursors follow, batch by batch.
     pub(crate) fn steps(&self) -> &[Vec<OffsetEdit>] {
         &self.steps
+    }
+
+    /// Where cursors may no longer be at a cluster's start, afterwards (ADR 0091).
+    pub(crate) fn changed(&self) -> &[Range<usize>] {
+        &self.changed
     }
 
     /// The cursors of the state this returns to, if the group has them.
@@ -427,12 +439,14 @@ impl Buffer {
     fn stage_splices<T: SpliceText>(&self, splices: &[Splice<T>]) -> StagedEdit {
         let mut text = self.text.clone();
         let mut display = self.display.clone();
-        let undo = apply(splices, &mut text, &mut display);
+        let mut changed = Vec::new();
+        let undo = apply_marking(splices, &mut text, &mut display, &mut changed);
         StagedEdit {
             text,
             display,
             edits: splices.iter().map(offset_edit).collect(),
             undo,
+            changed,
         }
     }
 
@@ -475,18 +489,14 @@ impl Buffer {
         let group = self.next_crossing(direction)?;
         let mut text = self.text.clone();
         let mut display = self.display.clone();
-        let mut steps = Vec::with_capacity(group.batches.len());
-        let mut batches = Vec::with_capacity(group.batches.len());
-        for batch in group.batches.iter().rev() {
-            steps.push(batch.iter().map(offset_edit).collect());
-            batches.push(apply(batch, &mut text, &mut display));
-        }
+        let (steps, batches, changed) = apply_group(&group.batches, &mut text, &mut display);
         Ok(StagedCrossing {
             text,
             display,
             steps,
             direction,
             crossed: group.crossed(batches),
+            changed,
         })
     }
 
@@ -586,6 +596,7 @@ impl Buffer {
 
 #[cfg(test)]
 mod tests {
+    use super::splice::apply;
     use super::*;
     use crate::decode::LineEnding;
     use crate::load::Builder;

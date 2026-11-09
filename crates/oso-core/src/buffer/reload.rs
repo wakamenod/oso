@@ -184,6 +184,8 @@ impl Buffer {
                 len: new_end - start,
                 text: (old_end > start).then(|| self.text.slice(start..old_end)),
             }],
+            // The text was read again whole, with its own display map.
+            changed: std::iter::once(0..snapshot.text.len()).collect(),
         })
     }
 
