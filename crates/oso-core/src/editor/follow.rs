@@ -40,6 +40,13 @@ pub(super) fn clip_selections(
     clear_goals: bool,
     near: Option<&[Range<usize>]>,
 ) {
+    // Every test that clips near edits checks that clipping everything gives the same.
+    #[cfg(test)]
+    let full = near.map(|_| {
+        let mut full = set.clone();
+        clip_selections(&mut full, display, ends, clear_goals, None);
+        full
+    });
     let clips = |offset: usize| {
         near.is_none_or(|ranges| {
             let index = ranges.partition_point(|range| range.end < offset);
@@ -69,6 +76,13 @@ pub(super) fn clip_selections(
         Ok::<(), ()>(())
     });
     set.update_ring(start);
+    #[cfg(test)]
+    if let Some(full) = full {
+        assert_eq!(
+            *set, full,
+            "clipping near {near:?} differs from clipping all"
+        );
+    }
 }
 
 impl Editor {

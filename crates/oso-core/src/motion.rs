@@ -797,19 +797,53 @@ mod tests {
         assert_eq!(line_after_fraction(&d, 33, 5), 22, "the second line's end");
     }
 
+    /// The rope tests' atoms, and characters that join others in ways of their own: Prepend
+    /// marks, lone regional indicators, ZWJ and emoji, a virama, Hangul jamo, a keycap, a
+    /// tag and a BOM.
+    fn atom() -> impl Strategy<Value = &'static str> {
+        const MORE: &[&str] = &[
+            "\u{600}",
+            "\u{d4e}",
+            "\u{1f1ef}",
+            "\u{1f1f5}",
+            "\u{200d}",
+            "\u{1f468}",
+            "\u{915}\u{94d}",
+            "\u{915}",
+            "\u{94d}",
+            "\u{301}",
+            "\r",
+            "\n",
+            "a",
+            "#",
+            "\u{fe0f}",
+            "\u{20e3}",
+            "\u{1100}",
+            "\u{1161}",
+            "\u{11a8}",
+            "\u{ac00}",
+            "\u{e0001}",
+            "\u{feff}",
+        ];
+        prop_oneof![
+            prop::sample::select(crate::rope::tests::ATOMS),
+            prop::sample::select(MORE),
+        ]
+    }
+
     proptest! {
         /// A cluster's start and end, found in one scan, are what a display point and
         /// back finds, and the next cluster after the start, at every offset of a text
         /// whose chunks edits have cut anywhere (ADR 0091).
         #[test]
         fn prop_a_cluster_is_found_as_through_a_display_point(
-            text in crate::rope::tests::text_strategy(40),
-            edits in prop::collection::vec((0usize..300, crate::rope::tests::text_strategy(6)), 0..6),
+            atoms in prop::collection::vec(atom(), 0..60),
+            edits in prop::collection::vec((0usize..400, prop::collection::vec(atom(), 0..4)), 0..6),
         ) {
-            let mut rope = Rope::from(text.as_str());
+            let mut rope = Rope::from(atoms.concat().as_str());
             for (at, insert) in edits {
                 let at = crate::rope::tests::floor_boundary(&rope.to_string(), at);
-                rope.insert(at, &insert);
+                rope.insert(at, &insert.concat());
             }
             let map = DisplayMap::new(&rope, TabWidth::new(4));
             let d = map.snapshot();

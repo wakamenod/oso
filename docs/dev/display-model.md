@@ -64,9 +64,14 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)).
 - **Cursor stops** are display clusters (`oso_core::motion`), so motion,
   hit testing and drawing agree on every cluster. An edit can move those
-  boundaries, for example a combining mark joining the letter before it, so every
-  cursor is clipped to a cluster start after each edit
-  ([ADR 0053](adr/0053-edit-core.md)).
+  boundaries, for example a combining mark joining the letter before it, so the
+  cursors and marks in the chunks an edit rebuilt are clipped to a cluster start
+  after it ([ADR 0053](adr/0053-edit-core.md), [ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)).
+  Clipping no others is sound because **a display cluster depends only on the text of
+  its rope chunk and where that chunk starts**: the rope rebuilds the chunks around an
+  edit out to grapheme boundaries, and the clusters of every other chunk stay as they
+  were. FoldMap and InlayMap must keep this, or say what an edit changed beyond its
+  chunks.
 - FoldMap and InlayMap will go below the TabMap; its items then mirror
   InlayMap chunks. WrapMap and BlockMap will go above it; a display point
   then differs from a TabMap point. There are no placeholder layers.
