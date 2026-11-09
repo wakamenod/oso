@@ -1,4 +1,4 @@
-//! `oso mcp`'s tools (ADR 0085): what each takes, whether it only reads, and the channel's
+//! `oso mcp`'s tools (ADR 0085, ADR 0093): what each takes, whether it only reads, and the channel's
 //! method each becomes; and what `initialize` says.
 //!
 //! Must not depend on: the socket or stdio; these only describe and map.
@@ -34,6 +34,7 @@ pub(super) fn channel_request(
         "look" => ("run", run("look")?),
         "change" => ("run", run("change")?),
         "open" => ("open", only(&["path", "line"])?),
+        "cancel" => ("cancel", only(&[])?),
         _ => return Err(format!("no tool {:?}", short(name))),
     })
 }
@@ -161,6 +162,14 @@ fn acting_tools() -> Vec<Value> {
                 "line": { "type": "integer", "minimum": 1 },
             }),
             &["path"],
+            false,
+            false,
+        ),
+        tool(
+            "cancel",
+            "Take back the question this agent's last change opened for the person, such as saving a file it opened, so that it can go on. Closes nothing else.",
+            json!({}),
+            &[],
             false,
             false,
         ),
