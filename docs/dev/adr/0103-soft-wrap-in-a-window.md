@@ -144,7 +144,7 @@ The items are listed in the pull request and the API snapshot:
   - `Preview::Buffer`'s `start`;
 - `Buffer::wraps`;
 - in `oso-render`, `TextView::scroll` as a `ViewTop`;
-- `frame`'s cell functions taking a `ViewTop`.
+- `frame`'s cell functions and `window::follow` taking a `ViewTop`.
 
 ## Changes to accepted ADRs
 

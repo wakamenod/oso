@@ -26,6 +26,7 @@ mod recovery;
 mod reload;
 #[cfg(all(target_os = "macos", feature = "native-window"))]
 mod secure;
+mod wrap;
 mod yank_pop;
 
 use std::fmt::Write as _;
