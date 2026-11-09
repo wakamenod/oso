@@ -26,6 +26,7 @@ use crate::{bindings, commands};
 mod agent;
 mod args;
 mod buffers;
+pub use agent::{Unshowable, unshowable};
 pub use args::Given;
 pub(crate) use buffers::size;
 mod clipboard;

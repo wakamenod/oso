@@ -40,14 +40,17 @@ pub fn state(editor: &Editor, buffer_offset: usize) -> Value {
     let tiled = editor.windows().len() - editor.prompts().len();
     let mut state = json!({
         "version": STATE_VERSION,
+        // A buffer the channel is still opening is not there yet for the agent: its open
+        // checks it first (ADR 0094).
         "buffers": editor
             .buffers()
+            .filter(|(_, buffer)| !buffer.agent_pending())
             .skip(buffer_offset)
             .take(MAX_BUFFERS)
             .map(|(id, buffer)| buffer_state(id, buffer))
             .collect::<Vec<_>>(),
         "buffer_offset": buffer_offset,
-        "buffer_count": editor.buffers().count(),
+        "buffer_count": editor.buffers().filter(|(_, b)| !b.agent_pending()).count(),
         "windows": editor
             .windows()
             .take(tiled)
@@ -228,6 +231,23 @@ mod tests {
         let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", text));
         editor.set_view_size(ViewSize::new(10, 40));
         editor
+    }
+
+    #[test]
+    fn a_file_the_channel_is_still_opening_is_not_listed() {
+        let mut editor = editor("one");
+        let mut opening = Buffer::visiting(PathBuf::from("/tmp/plain.txt"));
+        opening.set_agent_pending(true);
+        editor.add_buffer(opening);
+        let state = state(&editor, 0);
+        let names: Vec<_> = state["buffers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|buffer| buffer["name"].clone())
+            .collect();
+        assert!(!names.contains(&json!("plain.txt")), "{names:?}");
+        assert_eq!(state["buffer_count"], names.len());
     }
 
     #[test]
