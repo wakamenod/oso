@@ -140,6 +140,18 @@ O(log n). This is cheaper than retrofitting variable heights later.
 
 Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
+[ADR 0100](adr/0100-soft-wrap.md) designs it:
+
+- `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer. Each window
+  wraps at its own width, less a column for the `↩` that marks a row that
+  continues.
+- Rows break after spaces, between CJK clusters, and with basic kinsoku, only
+  between display clusters.
+- The WrapMap is the window's. A `DisplayPoint` keeps meaning a logical line,
+  so motion, kills and `TAB` read it as before; what draws and scrolls reads
+  view rows.
+- An edit rewraps near itself. A width change or a load wraps on a worker, with
+  the rows in view wrapped at once from the window's top, an offset.
 
 ## Decorations
 
