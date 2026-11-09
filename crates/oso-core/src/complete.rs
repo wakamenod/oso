@@ -19,10 +19,15 @@ use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
+pub(crate) use job::{Build, Built, Matched, Matching, Report, WORKER_PAST, listed, matched_part};
+pub use job::{CompletionJob, CompletionReport};
 pub use path::{Name, NameKind, typed_form};
 pub(crate) use query::MAX_INPUT_BYTES;
 pub use query::Query;
 
+use job::{match_over, order_of};
+
+mod job;
 pub(crate) mod path;
 mod query;
 
@@ -170,9 +175,15 @@ fn changes_when_folded(c: char) -> bool {
 pub struct Candidates {
     items: Arc<[Candidate]>,
     /// Every candidate, by its index in `items`, in the order they show.
-    order: Box<[u32]>,
-    /// The candidates the input matches, in that order.
-    matches: Vec<u32>,
+    order: Arc<[u32]>,
+    /// Rows a look found more of since the list was made, by their index in `items`: they
+    /// show in place of those items, and match as they did (ADR 0096).
+    patched: HashMap<u32, Candidate>,
+    /// A worker is matching a newer input or building a newer list: the rows shown stay, and
+    /// the count says so (ADR 0076, ADR 0096).
+    pending: bool,
+    /// The candidates the input matches, in that order, shared with a worker's job.
+    matches: Arc<[u32]>,
     /// Where in `matches` an exact match of the input is, which shows first.
     exact: Option<usize>,
     query: Query,
@@ -204,34 +215,15 @@ impl Candidates {
         items: Arc<[Candidate]>,
         history: impl IntoIterator<Item = &'a str>,
     ) -> Self {
-        let mut recent: HashMap<&str, usize> = HashMap::new();
-        for (place, text) in history.into_iter().enumerate() {
-            // The newest of an answer given twice decides.
-            recent.entry(text).or_insert(place);
-        }
-        let mut keyed: Vec<(usize, usize, u32)> = (0..items.len())
-            .map(|index| {
-                let text = items[index].text();
-                (
-                    recent.get(text).copied().unwrap_or(usize::MAX),
-                    text.chars().count(),
-                    offset_u32(index),
-                )
-            })
-            .collect();
-        keyed.sort_by(|a, b| {
-            (a.0, a.1)
-                .cmp(&(b.0, b.1))
-                .then_with(|| items[a.2 as usize].text().cmp(items[b.2 as usize].text()))
-        });
-        let order: Box<[u32]> = keyed.into_iter().map(|(_, _, index)| index).collect();
+        let order = order_of(&items, history, &|| false);
+        let order = order.unwrap_or_else(|| (0..items.len()).map(offset_u32).collect());
         Self::with_order(items, order)
     }
 
     /// `items` in the order given, every one matching, as buffers show most recent first
     /// (ADR 0088).
     pub(crate) fn in_given_order(items: Arc<[Candidate]>) -> Self {
-        let order: Box<[u32]> = (0..items.len()).map(offset_u32).collect();
+        let order: Arc<[u32]> = (0..items.len()).map(offset_u32).collect();
         let mut candidates = Self::with_order(items, order);
         candidates.given_order = true;
         candidates
@@ -243,11 +235,13 @@ impl Candidates {
         self.given_order
     }
 
-    fn with_order(items: Arc<[Candidate]>, order: Box<[u32]>) -> Self {
+    fn with_order(items: Arc<[Candidate]>, order: Arc<[u32]>) -> Self {
         Self {
-            matches: order.to_vec(),
+            matches: Arc::clone(&order),
             order,
             items,
+            patched: HashMap::new(),
+            pending: false,
             exact: None,
             query: Query::default(),
             input: Some(String::new()),
@@ -267,24 +261,46 @@ impl Candidates {
         self.last_segment = true;
     }
 
-    /// The same candidates' settings over `items`, in the order [`Candidates::new`] gives them
-    /// with `history`, matched against what this matched last.
-    pub(crate) fn with_items<'a>(
+    /// The same candidates' settings over a list built anew, with the input it matched.
+    pub(crate) fn rebuilt(
         &self,
         items: Arc<[Candidate]>,
-        history: impl IntoIterator<Item = &'a str>,
+        order: Arc<[u32]>,
+        matched: Matched,
     ) -> Self {
-        let mut next = Self::new(items, history);
+        let mut next = Self::with_order(items, order);
         next.takes_input = self.takes_input;
         next.previews = self.previews;
         next.last_segment = self.last_segment;
         next.given_order = self.given_order;
-        // Matched from scratch: the list is not the one this narrowed.
-        next.input = None;
-        if let Some(input) = &self.input {
-            next.set_input(input);
-        }
+        next.apply(matched, false);
         next
+    }
+
+    /// The candidates, matching or not, in the order of their indexes.
+    pub(crate) fn items(&self) -> &Arc<[Candidate]> {
+        &self.items
+    }
+
+    /// Whether a worker is matching a newer input or building a newer list, so that the rows
+    /// shown are those of an older one.
+    pub fn pending(&self) -> bool {
+        self.pending
+    }
+
+    pub(crate) fn set_pending(&mut self, pending: bool) {
+        self.pending = pending;
+    }
+
+    /// Shows `candidate` in place of the item at `index`, as a look found more of its row. What
+    /// matches and the order stay.
+    pub(crate) fn patch(&mut self, index: usize, candidate: Candidate) {
+        self.patched.insert(offset_u32(index), candidate);
+    }
+
+    /// Whether the item at `index` shows a patch.
+    pub(crate) fn is_patched(&self, index: usize) -> bool {
+        self.patched.contains_key(&offset_u32(index))
     }
 
     /// Shows the selected candidate beside the list.
@@ -316,55 +332,66 @@ impl Candidates {
     /// Matches `input`, looking only at what matched before where it narrows that, and
     /// selects the first match. Nothing changes for the input matched last.
     pub(crate) fn set_input(&mut self, input: &str) {
-        let input = if self.last_segment {
-            input.rfind('/').map_or(input, |slash| &input[slash + 1..])
-        } else {
-            input
-        };
-        if input.len() > MAX_INPUT_BYTES {
+        let Some(part) = matched_part(input, self.last_segment) else {
             self.set_too_long();
             return;
-        }
-        if self.input.as_deref() == Some(input) {
+        };
+        if self.input.as_deref() == Some(part) {
             return;
         }
-        let query = Query::parse_after(input, &self.query);
-        let items = &self.items;
-        let typed = !input.is_empty();
-        if query.narrows(&self.query) {
-            // Only what changed is checked again: the rest matched before.
-            let before = &self.query;
-            self.matches.retain(|&index| {
-                let item = &items[index as usize];
-                !(typed && item.hidden_by_input) && query.matches_after(item, before)
-            });
-        } else {
-            self.matches.clear();
-            self.matches
-                .extend(self.order.iter().copied().filter(|&index| {
-                    let item = &items[index as usize];
-                    !(typed && item.hidden_by_input) && query.matches(item)
-                }));
+        let before = (&self.matches[..], &self.query);
+        if let Some(matched) =
+            match_over(&self.items, &self.order, Some(before), Some(part), &|| {
+                false
+            })
+        {
+            self.apply(matched, false);
         }
-        self.exact = self
-            .matches
-            .iter()
-            .position(|&index| items[index as usize].text() == input);
-        self.query = query;
-        match &mut self.input {
-            Some(kept) => input.clone_into(kept),
-            None => self.input = Some(input.to_owned()),
+    }
+
+    /// What a worker needs to match `input`, unless it is the input matched last.
+    pub(crate) fn matching(&self, input: &str) -> Option<Matching> {
+        let part = matched_part(input, self.last_segment);
+        if part.is_some() && self.input.as_deref() == part {
+            return None;
         }
+        Some(Matching {
+            items: Arc::clone(&self.items),
+            order: Arc::clone(&self.order),
+            before: Some((Arc::clone(&self.matches), self.query.clone())),
+            input: part.map(str::to_owned),
+        })
+    }
+
+    /// Takes in what matching an input came to, and selects the first match. With `keep`, a
+    /// candidate moved to while the match was on its way stays selected if it still matches,
+    /// as it was chosen after the input was typed (ADR 0096).
+    pub(crate) fn apply(&mut self, matched: Matched, keep: bool) {
+        let kept = (keep && self.chosen && !self.on_input)
+            .then(|| self.item_at(self.selected))
+            .flatten();
+        self.matches = matched.matches;
+        self.exact = matched.exact;
+        self.query = matched.query;
+        self.input = matched.input;
         self.selected = 0;
         self.top = 0;
         self.chosen = false;
         self.on_input = false;
+        if let Some(place) = kept.and_then(|index| self.place_of(index)) {
+            self.select(place);
+        }
+    }
+
+    /// Forgets that a candidate was moved to, as an input was typed after it.
+    pub(crate) fn forget_choice(&mut self) {
+        self.chosen = false;
     }
 
     /// Matches an input longer than [`MAX_INPUT_BYTES`], which nothing matches, without
     /// reading it.
     pub(crate) fn set_too_long(&mut self) {
-        self.matches.clear();
+        self.matches = Arc::from([]);
         self.exact = None;
         self.query = Query::too_long();
         self.input = None;
@@ -403,7 +430,11 @@ impl Candidates {
     /// The match shown at `place`, from 0: an exact match of the input first, then the rest
     /// in their order.
     pub fn get(&self, place: usize) -> Option<&Candidate> {
-        self.items.get(self.item_at(place)?)
+        let index = self.item_at(place)?;
+        match self.patched.get(&offset_u32(index)) {
+            Some(patched) => Some(patched),
+            None => self.items.get(index),
+        }
     }
 
     /// The index in the items given of the match shown at `place`, for a caller that keeps
@@ -419,7 +450,14 @@ impl Candidates {
 
     /// The place where the item at `index` shows, if it matches.
     pub(crate) fn place_of(&self, index: usize) -> Option<usize> {
-        (0..self.len()).find(|place| self.item_at(*place) == Some(index))
+        let index = u32::try_from(index).ok()?;
+        let at = self.matches.iter().position(|&other| other == index)?;
+        // The inverse of `item_at`: an exact match shows first, and those before it one later.
+        Some(match self.exact {
+            Some(exact) if at == exact => 0,
+            Some(exact) if at < exact => at + 1,
+            _ => at,
+        })
     }
 
     /// Where the selected candidate shows, while any matches and what is typed is not selected.

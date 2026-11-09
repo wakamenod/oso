@@ -417,10 +417,13 @@ impl Editor {
         if self.prompts.last()?.kind == Kind::Passphrase {
             self.window_moves_on();
         }
-        let prompt = self.prompts.pop()?;
+        let mut prompt = self.prompts.pop()?;
         self.forget_marks(prompt.id);
         self.forget_kill_list(prompt.id);
         self.forget_files(prompt.id);
+        self.forget_completion_work(prompt.id);
+        // A list of 100,000 is dropped on the worker (ADR 0096).
+        self.free_prompts_list(&mut prompt);
         self.windows.pop();
         self.selected = prompt.beneath;
         let id = prompt.buffer;

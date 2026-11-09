@@ -120,6 +120,8 @@ pub struct Editor {
     write_over_asked: Option<write::WriteOver>,
     /// What the prompt that reads a path keeps beside its candidates (ADR 0087).
     file_list: files::FileList,
+    /// What a prompt that completes waits for from the worker (ADR 0096).
+    completion_work: completion::CompletionWork,
     /// Files commands asked to visit, with the most bytes each may read, for the host.
     visits: Vec<(std::path::PathBuf, u64)>,
     /// A file a load stopped before reading as too large, with its size, which `C-x C-f` asks
@@ -218,6 +220,7 @@ impl Editor {
             mark_list: None,
             kill_list: None,
             file_list: files::FileList::default(),
+            completion_work: completion::CompletionWork::default(),
             visits: Vec::new(),
             large: None,
             start_directory: std::path::PathBuf::from("/"),

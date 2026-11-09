@@ -12,6 +12,8 @@
 
 use std::path::{Path, PathBuf};
 
+use super::job::STOP_EVERY;
+
 /// The most directories one segment expands into.
 pub const MAX_EXPANDED: usize = 32;
 
@@ -59,12 +61,23 @@ pub struct Found {
 }
 
 /// What expanding a plan came to.
+#[cfg(test)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Expanded {
     /// These directories must be listed first.
     Need(Vec<PathBuf>),
     /// The candidates, and whether a segment matched more directories than are kept.
     Ready(Vec<Found>, bool),
+}
+
+/// Which directories a plan's segments reach.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Reach {
+    /// These directories must be listed first.
+    Need(Vec<PathBuf>),
+    /// The directories reached, each with what its rows show before a name, all listed, and
+    /// whether a segment matched more directories than are kept.
+    Ready(Vec<Reached>, bool),
 }
 
 /// Where `input` starts after it was started over: right after `//`, or at `~/` typed right
@@ -111,11 +124,16 @@ pub fn plan(input: &str, home: Option<&Path>, base: &Path) -> Plan {
 }
 
 /// Whether `name` starts with `prefix`, ignoring case unless `prefix` has an upper-case letter.
-fn has_prefix(name: &str, prefix: &str) -> bool {
-    if prefix.chars().any(char::is_uppercase) {
-        name.starts_with(prefix)
-    } else {
-        name.to_lowercase().starts_with(&prefix.to_lowercase())
+/// `lower` is the prefix in lower case, made once, or `None` when it has an upper-case letter.
+/// Nothing is allocated for a name, as a segment can go through 100,000 of them on the UI
+/// thread (ADR 0096).
+fn has_prefix(name: &str, prefix: &str, lower: Option<&str>) -> bool {
+    match lower {
+        None => name.starts_with(prefix),
+        Some(lower) => {
+            let mut folded = name.chars().flat_map(char::to_lowercase);
+            lower.chars().all(|c| folded.next() == Some(c))
+        }
     }
 }
 
@@ -125,26 +143,51 @@ fn may_be_directory(kind: NameKind) -> bool {
 }
 
 /// A directory a plan has reached, with what its rows show before a name.
-type Reached = (PathBuf, String);
+pub type Reached = (PathBuf, String);
 
 /// The candidates of `plan`, given what is listed of each directory, or the directories that
-/// must be listed first. A directory `known` to exist, such as one the prompt started in, is
-/// gone into by a segment that names it whole without listing the one it is in. Names starting
-/// with `.` are left out unless the last segment starts with `.`.
+/// must be listed first: [`reach`], then [`found_in`].
+#[cfg(test)]
 pub fn expand<'a>(
     plan: &Plan,
     listing: impl Fn(&Path) -> Option<&'a [Name]>,
     known: impl Fn(&Path) -> bool,
 ) -> Expanded {
+    match reach(plan, &listing, known) {
+        Reach::Need(need) => Expanded::Need(need),
+        Reach::Ready(reached, cut) => {
+            let listed = reached.iter().map(|(directory, shown)| {
+                (
+                    directory.as_path(),
+                    shown.as_str(),
+                    listing(directory).unwrap_or(&[]),
+                )
+            });
+            let found = found_in(listed, plan.last.starts_with('.'), usize::MAX, &|| false);
+            Expanded::Ready(found.unwrap_or_default(), cut)
+        }
+    }
+}
+
+/// The directories `plan`'s segments reach, given what is listed of each directory, or the
+/// directories that must be listed first. A directory `known` to exist, such as one the prompt
+/// started in, is gone into by a segment that names it whole without listing the one it is in.
+/// This looks only at the names of directories on the way, so it costs little beside
+/// [`found_in`], and tells how many names the list will have before it is made (ADR 0096).
+pub fn reach<'a>(
+    plan: &Plan,
+    listing: &impl Fn(&Path) -> Option<&'a [Name]>,
+    known: impl Fn(&Path) -> bool,
+) -> Reach {
     let mut reached: Vec<Reached> = vec![(plan.root.clone(), String::new())];
     let mut cut = false;
     for segment in &plan.segments {
-        match step(&reached, segment, &listing, &known) {
+        match step(&reached, segment, listing, &known) {
             Ok((next, more)) => {
                 reached = next;
                 cut |= more;
             }
-            Err(need) => return Expanded::Need(need),
+            Err(need) => return Reach::Need(need),
         }
     }
     let need: Vec<PathBuf> = reached
@@ -152,14 +195,33 @@ pub fn expand<'a>(
         .filter(|(directory, _)| listing(directory).is_none())
         .map(|(directory, _)| directory.clone())
         .collect();
-    if !need.is_empty() {
-        return Expanded::Need(need);
+    if need.is_empty() {
+        Reach::Ready(reached, cut)
+    } else {
+        Reach::Need(need)
     }
-    let hidden = plan.last.starts_with('.');
+}
+
+/// The candidates in the directories `reached`, each given with what its rows show before a
+/// name and its listing, at most `most`. Names starting with `.` are left out unless `hidden`.
+/// `None` if `stop` says so first, which it is asked every [`STOP_EVERY`] names.
+pub fn found_in<'a>(
+    reached: impl IntoIterator<Item = (&'a Path, &'a str, &'a [Name])>,
+    hidden: bool,
+    most: usize,
+    stop: &dyn Fn() -> bool,
+) -> Option<Vec<Found>> {
     let mut found = Vec::new();
-    for (directory, shown) in &reached {
-        let names = listing(directory).unwrap_or(&[]);
+    let mut seen = 0_usize;
+    for (directory, shown, names) in reached {
         for name in names {
+            seen += 1;
+            if seen.is_multiple_of(STOP_EVERY) && stop() {
+                return None;
+            }
+            if found.len() == most {
+                return Some(found);
+            }
             if name.name.starts_with('.') && !hidden {
                 continue;
             }
@@ -167,13 +229,13 @@ pub fn expand<'a>(
             let slash = if is_directory { "/" } else { "" };
             found.push(Found {
                 name: format!("{}{slash}", name.name),
-                context: shown.clone(),
+                context: shown.to_owned(),
                 path: directory.join(&name.name),
                 directory: is_directory,
             });
         }
     }
-    Expanded::Ready(found, cut)
+    Some(found)
 }
 
 /// The directories one `segment` reaches from those `reached`, and whether some were left out
@@ -201,12 +263,13 @@ fn step<'a>(
             .collect();
         return Ok((up, false));
     }
-    let mut next: Vec<(PathBuf, String, String)> = Vec::new();
+    let lower = (!segment.chars().any(char::is_uppercase)).then(|| segment.to_lowercase());
+    // Each directory reached, by its place in `reached`, which is in order, and its name.
+    let mut next: Vec<(usize, &str)> = Vec::new();
     let mut need = Vec::new();
-    for (directory, shown) in reached {
-        let whole = directory.join(segment);
-        if known(&whole) {
-            next.push((whole, shown.clone(), segment.to_owned()));
+    for (at, (directory, _)) in reached.iter().enumerate() {
+        if known(&directory.join(segment)) {
+            next.push((at, segment));
             continue;
         }
         let Some(names) = listing(directory) else {
@@ -214,39 +277,47 @@ fn step<'a>(
             continue;
         };
         let into = |name: &&Name| may_be_directory(name.kind);
-        let whole: Vec<&Name> = names
-            .iter()
-            .filter(into)
-            .filter(|name| name.name == segment)
-            .collect();
-        let matched = if whole.is_empty() {
+        let before = next.len();
+        next.extend(
             names
                 .iter()
                 .filter(into)
-                .filter(|name| has_prefix(&name.name, segment))
-                .collect()
-        } else {
-            whole
-        };
-        for name in matched {
-            next.push((directory.join(&name.name), shown.clone(), name.name.clone()));
+                .filter(|name| name.name == segment)
+                .map(|name| (at, name.name.as_str())),
+        );
+        if next.len() == before {
+            next.extend(
+                names
+                    .iter()
+                    .filter(into)
+                    .filter(|name| has_prefix(&name.name, segment, lower.as_deref()))
+                    .map(|name| (at, name.name.as_str())),
+            );
         }
     }
     if !need.is_empty() {
         return Err(need);
     }
-    next.sort_by(|a, b| a.0.cmp(&b.0));
+    // Only the first past the most are put in order, and only those kept are joined.
+    let order = |a: &(usize, &str), b: &(usize, &str)| a.cmp(b);
+    if next.len() > MAX_EXPANDED + 1 {
+        next.select_nth_unstable_by(MAX_EXPANDED, order);
+        next.truncate(MAX_EXPANDED + 1);
+    }
+    next.sort_unstable_by(order);
     let cut = next.len() > MAX_EXPANDED;
     next.truncate(MAX_EXPANDED);
     let several = next.len() > 1;
     let next = next
         .into_iter()
-        .map(|(directory, mut shown, name)| {
+        .map(|(at, name)| {
+            let (directory, shown) = &reached[at];
+            let mut shown = shown.clone();
             if several || !shown.is_empty() {
-                shown.push_str(&name);
+                shown.push_str(name);
                 shown.push('/');
             }
-            (directory, shown)
+            (directory.join(name), shown)
         })
         .collect();
     Ok((next, cut))

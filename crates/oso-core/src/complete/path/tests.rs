@@ -231,3 +231,19 @@ fn a_candidate_joined_on_any_host_is_typed_with_slashes_and_planned_back() {
     let under = typed_form(&home().join("a").join("b"), false, Some(home()));
     assert_eq!(under, "~/a/b");
 }
+
+#[test]
+fn found_in_stops_at_the_most_it_keeps() {
+    let names: Vec<Name> = (0..10)
+        .map(|index| Name {
+            name: format!("n{index}"),
+            kind: NameKind::File,
+        })
+        .collect();
+    let listed = [
+        (Path::new("/a"), "", &names[..]),
+        (Path::new("/b"), "", &names[..]),
+    ];
+    let found = found_in(listed, false, 13, &|| false).unwrap();
+    assert_eq!(found.len(), 13, "no name past the most is made");
+}
