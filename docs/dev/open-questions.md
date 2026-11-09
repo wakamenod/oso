@@ -89,6 +89,9 @@ item notes when it must be settled.
   expansion stops at such mounts.
 - `C-x C-f` leaves out names that are not UTF-8, as a path made from a lossy copy of one would
   name another file. Keep the name as the system gives it if they turn out to matter.
+- `C-x C-f` reads a path with `/` between its parts and starts an absolute one at `/`, so on
+  Windows a path with a drive, such as `C:/Users`, is read as relative. Decide how a drive or a
+  UNC share is typed once Windows draws text.
 - `C-x C-f` matches file names code point by code point, so a name stored decomposed (NFD), as older
   macOS volumes and zip archives keep them, does not match the composed form an input method types.
   Normalizing needs `unicode-normalization`, a dependency; decide once it is seen to matter

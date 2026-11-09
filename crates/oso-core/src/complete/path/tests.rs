@@ -208,3 +208,14 @@ fn plan_relative() -> Plan {
 fn the_root_is_typed_as_one_slash() {
     assert_eq!(typed_form(Path::new("/"), true, None), "/");
 }
+
+#[test]
+fn a_candidate_joined_on_any_host_is_typed_with_slashes_and_planned_back() {
+    let joined = Path::new("/notes").join("plans").join("q3");
+    let typed = typed_form(&joined, true, None);
+    assert_eq!(typed, "/notes/plans/q3/");
+    let back = plan(&typed, None, Path::new("/work"));
+    assert_eq!(back.segments, ["notes", "plans", "q3"]);
+    let under = typed_form(&home().join("a").join("b"), false, Some(home()));
+    assert_eq!(under, "~/a/b");
+}

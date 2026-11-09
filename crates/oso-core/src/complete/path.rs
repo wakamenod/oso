@@ -252,8 +252,19 @@ pub fn typed_form(path: &Path, directory: bool, home: Option<&Path>) -> String {
     };
     match home.and_then(|home| path.strip_prefix(home).ok()) {
         Some(rest) if rest.as_os_str().is_empty() => "~/".to_owned(),
-        Some(rest) => format!("~/{}{slash}", rest.display()),
-        None => format!("{}{slash}", path.display()),
+        Some(rest) => format!("~/{}{slash}", with_slashes(rest)),
+        None => format!("{}{slash}", with_slashes(path)),
+    }
+}
+
+/// `path` as text with `/` between its parts, which is what [`plan`] splits on. A host whose
+/// separator is another character cannot have that character in a name.
+fn with_slashes(path: &Path) -> String {
+    let text = path.display().to_string();
+    if std::path::MAIN_SEPARATOR == '/' {
+        text
+    } else {
+        text.replace(std::path::MAIN_SEPARATOR, "/")
     }
 }
 
