@@ -306,9 +306,11 @@ the first.
   1. The WrapMap, its rules and `text_perf`, after ADR 0099 (PR #123)
      merges. Its result does not depend on the checkpoints, which are exact; its cost
      does.
-  2. The offset top, the window's wrap and the toggle.
-  3. The renderer, the frame, isearch and the input method.
-  4. The worker.
+  2. The worker and the UI thread's budget, with the stale tail, before anything shows wrapped
+     rows: an edit rewraps the chunks the rope rebuilt around it, about 700 bytes, so a
+     thousand cursors would rewrap about 700 KB a key without the budget.
+  3. The offset top, the window's wrap and the toggle.
+  4. The renderer, the frame, isearch and the input method.
 
 ### Tests and measures
 
