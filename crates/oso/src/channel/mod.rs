@@ -9,6 +9,7 @@ pub mod protocol;
 pub mod question;
 pub mod server;
 pub mod state;
+pub mod text;
 pub mod wire;
 
 use std::io;

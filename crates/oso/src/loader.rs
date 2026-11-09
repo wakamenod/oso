@@ -41,14 +41,19 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use oso_core::buffer::{Baseline, BufferId, FileStamp};
+use oso_core::buffer::{Baseline, BufferId};
 use oso_core::display_map::TabWidth;
 use oso_core::load::{Builder, LoadSnapshot, Reloaded};
 use oso_core::rope::Rope;
 
+mod identity;
 mod resolve;
 mod watch;
 
+#[cfg(test)]
+use identity::same_stamp;
+pub use identity::stamp_of;
+pub(crate) use identity::{same_file, surely_same_file};
 pub use resolve::{Resolved, location, own_spelling, parent, resolve};
 pub use watch::Watcher;
 
@@ -112,6 +117,15 @@ pub enum LoadError {
     Io(io::Error),
     /// The loading thread panicked.
     Panicked,
+    /// The file opened has more than one name, which a load for the agent channel refuses:
+    /// its other names, which the secret patterns judge, are not seen (ADR 0085).
+    #[cfg_attr(
+        not(unix),
+        expect(dead_code, reason = "only Unix counts a file's names")
+    )]
+    SeveralNames,
+    /// The file opened is larger than a load for the agent channel takes (ADR 0085).
+    TooLargeForTheAgent,
 }
 
 impl std::fmt::Display for LoadError {
@@ -122,6 +136,8 @@ impl std::fmt::Display for LoadError {
             Self::TooLarge(bytes) => write!(f, "{}, too large to open without asking", gib(*bytes)),
             Self::Io(e) => write!(f, "{e}"),
             Self::Panicked => f.write_str("loading failed"),
+            Self::SeveralNames => f.write_str("the file has more than one name"),
+            Self::TooLargeForTheAgent => f.write_str("the file is larger than the agent may open"),
         }
     }
 }
@@ -219,7 +235,25 @@ where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
     spawn_reading(buffer, wake, move |shared, post| {
-        load(&path, limit, shared, post)
+        load(&path, limit, shared, post, false)
+    })
+}
+
+/// [`spawn`], for the agent channel: the file opened must have one name, by the open file
+/// itself, so that no file swapped in after the channel looked can be a second name of a
+/// secret (ADR 0085). One with more fails with [`LoadError::SeveralNames`]. It reads at most
+/// `limit` bytes, as [`spawn`] does.
+pub fn spawn_one_name<W>(
+    buffer: BufferId,
+    path: PathBuf,
+    limit: u64,
+    wake: W,
+) -> io::Result<LoadHandle>
+where
+    W: Fn(BufferId) -> bool + Send + 'static,
+{
+    spawn_reading(buffer, wake, move |shared, post| {
+        load(&path, limit, shared, post, true)
     })
 }
 
@@ -261,6 +295,7 @@ pub fn spawn_reload<W>(
     buffer: BufferId,
     path: PathBuf,
     old: Rope,
+    for_agent: bool,
     wake: W,
 ) -> io::Result<LoadHandle>
 where
@@ -268,6 +303,10 @@ where
 {
     spawn_reading(buffer, wake, move |shared, post| {
         let (file, metadata) = open_and_record(&path, shared, || {})?;
+        // A buffer the agent opened is read again only as it may be opened (ADR 0085).
+        if for_agent {
+            for_the_agent(&metadata)?;
+        }
         let Some((builder, _)) = read_all(file, metadata.len(), shared, |_| true)? else {
             return Ok(());
         };
@@ -328,33 +367,6 @@ where
     spawn_reading(buffer, wake, move |shared, post| {
         let file = open().map_err(LoadError::Io)?;
         read_into(file, limit, shared, post)
-    })
-}
-
-/// What a save records of a file, from its metadata, with its device and inode. Loading and saving must agree on
-/// it, or every save would report a conflict.
-///
-/// # Errors
-///
-/// On a system or file system that keeps no modification time.
-pub fn stamp_of(metadata: &Metadata) -> io::Result<FileStamp> {
-    #[cfg(unix)]
-    let mode = std::os::unix::fs::PermissionsExt::mode(&metadata.permissions());
-    #[cfg(not(unix))]
-    let mode = 0;
-    #[cfg(unix)]
-    let identity = {
-        use std::os::unix::fs::MetadataExt;
-        Some((metadata.dev(), metadata.ino()))
-    };
-    // `std` keeps a file's identity unstable here.
-    #[cfg(not(unix))]
-    let identity = None;
-    Ok(FileStamp {
-        modified: metadata.modified()?,
-        len: metadata.len(),
-        mode,
-        identity,
     })
 }
 
@@ -436,41 +448,6 @@ fn verdict_of_opened(resolved: Resolved, file: Option<(&File, &Metadata)>) -> Re
     }
 }
 
-/// Whether two sets of metadata are of one file: its device and inode.
-#[cfg(unix)]
-pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    use std::os::unix::fs::MetadataExt;
-    a.dev() == b.dev() && a.ino() == b.ino()
-}
-
-/// Whether two sets of metadata are known to be of one file. Unlike [`same_file`], this does
-/// not guess: where the system cannot say, two files are two.
-#[cfg(unix)]
-pub(crate) fn surely_same_file(a: &Metadata, b: &Metadata) -> bool {
-    same_file(a, b)
-}
-
-/// `std` keeps a file's identity unstable here, so nothing can be sure.
-#[cfg(not(unix))]
-pub(crate) fn surely_same_file(_: &Metadata, _: &Metadata) -> bool {
-    false
-}
-
-/// `std` keeps a file's identity unstable here, so this goes by what a save compares.
-#[cfg(not(unix))]
-pub(crate) fn same_file(a: &Metadata, b: &Metadata) -> bool {
-    same_stamp(a, b)
-}
-
-/// Whether two sets of metadata show one modification time and size.
-#[cfg(any(not(unix), test))]
-fn same_stamp(a: &Metadata, b: &Metadata) -> bool {
-    match (stamp_of(a), stamp_of(b)) {
-        (Ok(a), Ok(b)) => a.same_content(b),
-        _ => false,
-    }
-}
-
 /// Reads, decodes and sends the file. Returns early, without an error,
 /// when cancelled or when the UI is gone.
 ///
@@ -481,8 +458,9 @@ fn load(
     limit: u64,
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
+    one_name: bool,
 ) -> Result<(), LoadError> {
-    load_around(path, limit, shared, send, || {})
+    load_around(path, limit, shared, send, || {}, one_name)
 }
 
 /// [`load`], running `after_open` right after the open, for a test.
@@ -492,12 +470,30 @@ fn load_around(
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
     after_open: impl FnOnce(),
+    one_name: bool,
 ) -> Result<(), LoadError> {
     let (file, metadata) = open_and_record(path, shared, after_open)?;
     if metadata.len() > limit {
         return Err(LoadError::TooLarge(metadata.len()));
     }
+    if one_name {
+        for_the_agent(&metadata)?;
+    }
     read_into(file, metadata.len(), shared, send)
+}
+
+/// What a load for the agent channel checks on the file it opened, so that no file swapped
+/// in after the channel looked gets past: one name only, and no more than the channel opens
+/// (ADR 0085).
+fn for_the_agent(metadata: &Metadata) -> Result<(), LoadError> {
+    #[cfg(unix)]
+    if std::os::unix::fs::MetadataExt::nlink(metadata) > 1 {
+        return Err(LoadError::SeveralNames);
+    }
+    if metadata.len() > crate::channel::server::MAX_OPEN_BYTES {
+        return Err(LoadError::TooLargeForTheAgent);
+    }
+    Ok(())
 }
 
 /// Opens `path`, runs `after_open`, and records where the path leads, the verdict, the file's own
@@ -797,7 +793,7 @@ mod tests {
         };
         let judged = |after_open: &dyn Fn()| {
             let shared = Shared::default();
-            load_around(&link, UNASKED, &shared, &|_| true, after_open).unwrap();
+            load_around(&link, UNASKED, &shared, &|_| true, after_open, false).unwrap();
             let resolved = shared.resolved().take().unwrap();
             secret_by(&link, &resolved)
         };
@@ -885,6 +881,33 @@ mod tests {
         std::fs::remove_file(other).unwrap();
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_load_for_the_agent_refuses_a_file_with_another_name() {
+        let path = scratch_file("one-name.txt", b"abc");
+        let shared = Shared::default();
+        assert!(
+            load(&path, UNASKED, &shared, &|_| true, true).is_ok(),
+            "one name"
+        );
+        let second = path.with_extension("second");
+        let _ = std::fs::remove_file(&second);
+        std::fs::hard_link(&path, &second).unwrap();
+        let shared = Shared::default();
+        let refused = load(&second, UNASKED, &shared, &|_| true, true);
+        assert!(
+            matches!(refused, Err(LoadError::SeveralNames)),
+            "{refused:?}"
+        );
+        let shared = Shared::default();
+        assert!(
+            load(&second, UNASKED, &shared, &|_| true, false).is_ok(),
+            "a person's load reads it"
+        );
+        std::fs::remove_file(&second).unwrap();
+        std::fs::remove_file(&path).unwrap();
+    }
+
     #[test]
     fn stamps_tell_another_file_by_its_time_or_size() {
         let path = scratch_file("stamp.txt", b"abc");
@@ -944,7 +967,8 @@ mod tests {
         let path = scratch_file("reload.txt", content.as_bytes());
         let old = Rope::from("head\nother\n");
         let (tx, rx) = mpsc::channel();
-        let handle = spawn_reload(id(), path.clone(), old, move |_| tx.send(()).is_ok()).unwrap();
+        let handle =
+            spawn_reload(id(), path.clone(), old, false, move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(handle.take_resolved().is_some());
         assert!(handle.take_baseline().unwrap().file.is_some());
@@ -959,6 +983,42 @@ mod tests {
         };
         assert!(reloaded.is_changed());
         assert!(handle.take().is_none(), "one update only");
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn a_load_for_the_agent_refuses_a_file_grown_past_its_limit() {
+        let path = scratch_file("agent-large.txt", b"");
+        // Sparse: it takes no room, but says it is that large.
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        file.set_len(crate::channel::server::MAX_OPEN_BYTES + 1)
+            .unwrap();
+        let shared = Shared::default();
+        let refused = load(&path, UNASKED, &shared, &|_| true, true);
+        assert!(
+            matches!(refused, Err(LoadError::TooLargeForTheAgent)),
+            "{refused:?}"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_reload_for_the_agent_refuses_a_file_given_a_second_name() {
+        let path = scratch_file("reload-agent.txt", b"plain\n");
+        let second = path.with_extension("key");
+        let _ = std::fs::remove_file(&second);
+        std::fs::hard_link(&path, &second).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let wake = move |_| tx.send(()).is_ok();
+        let handle = spawn_reload(id(), path.clone(), Rope::from(""), true, wake).unwrap();
+        rx.recv_timeout(Duration::from_secs(10)).unwrap();
+        let update = handle.take().unwrap();
+        assert!(
+            matches!(update, LoadUpdate::Failed(LoadError::SeveralNames)),
+            "no text comes: {update:?}"
+        );
+        std::fs::remove_file(&second).unwrap();
         std::fs::remove_file(path).unwrap();
     }
 }

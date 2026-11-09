@@ -5,14 +5,14 @@
 //! Must not depend on: the channel's socket or protocol, or `app`; the host decides when the
 //! channel may run anything at all.
 
-use oso_core::command::{ArgSpec, Args, Invocation, Reach};
+use oso_core::command::{Invocation, MAX_REMOTE_COUNT, Reach};
 use oso_core::editor::Editor;
 
+use super::args::{self, Given};
 use super::{Dispatcher, Effects, Step};
 
-/// The largest count the channel passes on, in either direction: a command runs on the UI
-/// thread and may repeat its work this many times (ADR 0044).
-pub const MAX_AGENT_COUNT: isize = 10_000;
+/// The most bytes a text argument may come to, times the cursors it goes in at (ADR 0085).
+pub const MAX_INSERTED: usize = 1 << 20;
 
 /// Why the channel did not run a command. Its message names only a registered command.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,9 +24,9 @@ impl Dispatcher {
         self.registry.iter().map(|(_, command)| command)
     }
 
-    /// Runs the command `name` for the agent channel, if its reach is `reach`, with `arg` as
-    /// its count or number. No prompt opens for an argument: a `Number` command without one
-    /// is refused. Returns what the host should do, and whether the command succeeded, as
+    /// Runs the command `name` for the agent channel, if its reach is `reach`, with `given` as
+    /// its count, number or text. No prompt opens for an argument: a command without the one
+    /// its spec reads is refused. Returns what the host should do, and whether the command succeeded, as
     /// `run-command` does.
     ///
     /// # Errors
@@ -37,7 +37,7 @@ impl Dispatcher {
         &mut self,
         editor: &mut Editor,
         name: &str,
-        arg: Option<isize>,
+        given: Given<'_>,
         reach: Reach,
     ) -> Result<(Effects, Result<(), String>), Refused> {
         let refused = |why: String| Err(Refused(why));
@@ -61,40 +61,30 @@ impl Dispatcher {
         if self.waits_for_clipboard() {
             return refused("a yank is waiting for the clipboard".into());
         }
-        if arg.is_some_and(|n| n.unsigned_abs() > MAX_AGENT_COUNT.unsigned_abs()) {
-            return refused(format!("{name}'s argument is beyond ±{MAX_AGENT_COUNT}"));
+        // A count repeats the command's work; a number, such as a line, is only a value.
+        let repeats = !matches!(command.args, oso_core::command::ArgSpec::Number { .. });
+        if let Given::Count(n) = given
+            && repeats
+            && n.unsigned_abs() > MAX_REMOTE_COUNT.unsigned_abs()
+        {
+            return refused(format!("{name}'s argument is beyond ±{MAX_REMOTE_COUNT}"));
         }
-        let answer;
-        let mut invocation = Invocation::default();
-        let args = match (command.args, arg) {
-            (ArgSpec::None, None) => Args::NONE,
-            (ArgSpec::None, Some(_)) => return refused(format!("{name} takes no argument")),
-            (ArgSpec::Count, arg) => arg.map_or(Args::NONE, Args::numeric),
-            (ArgSpec::Number { .. }, Some(n)) => {
-                answer = n.to_string();
-                invocation.answer = Some(&answer);
-                Args::NONE
-            }
-            (ArgSpec::Number { .. }, None) => return refused(format!("{name} needs a number")),
-            // The channel never opens a prompt, and gives no buffer's name yet.
-            (ArgSpec::Buffer { .. }, _) => {
-                return refused(format!("{name} reads a buffer's name; ask the person"));
-            }
-            // `Person` commands, refused above; listed so that a new spec must be decided.
-            (
-                ArgSpec::Passphrase { .. }
-                | ArgSpec::CountAndClipboard
-                | ArgSpec::Command { .. }
-                | ArgSpec::Mark { .. }
-                | ArgSpec::File { .. }
-                | ArgSpec::Key,
-                _,
-            ) => {
-                return refused(format!("{name} needs a person at the keyboard"));
-            }
+        // Text goes in at every cursor, so its size times theirs is what it costs.
+        let cursors = editor.window().selections.len();
+        if let Given::Text(text) = given
+            && text.len().saturating_mul(cursors) > MAX_INSERTED
+        {
+            return refused(format!(
+                "the text times the cursors is more than {MAX_INSERTED} bytes"
+            ));
+        }
+        // Whatever the person's keys left stays theirs: the agent's command never takes it.
+        let mapped = args::map(name, command.args, given, None).map_err(Refused)?;
+        let invocation = Invocation {
+            answer: mapped.answer.as_deref(),
+            ..Invocation::default()
         };
-        // Whatever the person's keys left, the agent's command starts afresh.
-        self.prefix = None;
+        let args = mapped.args;
         // Its kill joins no kill of the person's, before or after it, so that what reaches the
         // OS clipboard from a person's kill never holds the agent's text (ADR 0085).
         editor.forget_kills();
@@ -113,9 +103,10 @@ impl Dispatcher {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_AGENT_COUNT, Refused};
+    use super::{Given, Refused};
     use crate::dispatch::Dispatcher;
     use oso_core::buffer::Buffer;
+    use oso_core::command::MAX_REMOTE_COUNT;
     use oso_core::command::Reach;
     use oso_core::editor::Editor;
     use oso_core::window::ViewSize;
@@ -134,10 +125,10 @@ mod tests {
         dispatcher: &mut Dispatcher,
         editor: &mut Editor,
         name: &str,
-        arg: Option<isize>,
+        given: Given<'_>,
         reach: Reach,
     ) -> String {
-        match dispatcher.run_for_agent(editor, name, arg, reach) {
+        match dispatcher.run_for_agent(editor, name, given, reach) {
             Err(Refused(why)) => why,
             Ok(outcome) => panic!("{name} ran: {outcome:?}"),
         }
@@ -147,12 +138,12 @@ mod tests {
     fn runs_a_look_command_with_a_count() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abcdef"));
         let (_, result) = dispatcher
-            .run_for_agent(&mut editor, "forward-char", Some(3), Reach::Look)
+            .run_for_agent(&mut editor, "forward-char", Given::Count(3), Reach::Look)
             .unwrap();
         assert_eq!(result, Ok(()));
         assert_eq!(cursor(&editor), 3);
         let (_, result) = dispatcher
-            .run_for_agent(&mut editor, "goto-line", Some(1), Reach::Look)
+            .run_for_agent(&mut editor, "goto-line", Given::Count(1), Reach::Look)
             .unwrap();
         assert_eq!(result, Ok(()));
         assert!(editor.prompt().is_none());
@@ -164,23 +155,31 @@ mod tests {
         let mut refused =
             |name, arg, reach| refusal(&mut dispatcher, &mut editor, name, arg, reach);
         assert_eq!(
-            refused("no-such", None, Reach::Look),
+            refused("no-such", Given::Nothing, Reach::Look),
             "no command by that name"
         );
-        assert!(refused("yank", None, Reach::Change).contains("needs a person"));
+        assert!(refused("yank", Given::Nothing, Reach::Change).contains("needs a person"));
         assert!(
-            refused("save-buffers-kill-terminal", None, Reach::Change).contains("needs a person")
+            refused("save-buffers-kill-terminal", Given::Nothing, Reach::Change)
+                .contains("needs a person")
         );
-        assert!(refused("answer-yes", None, Reach::Look).contains("needs a person"));
-        assert!(refused("delete-char", None, Reach::Look).contains("changes"));
-        assert!(refused("forward-char", None, Reach::Change).contains("only looks"));
-        assert!(refused("goto-line", None, Reach::Look).contains("needs a number"));
+        assert!(refused("answer-yes", Given::Nothing, Reach::Look).contains("needs a person"));
+        assert!(refused("delete-char", Given::Nothing, Reach::Look).contains("changes"));
+        assert!(refused("forward-char", Given::Nothing, Reach::Change).contains("only looks"));
+        assert!(refused("goto-line", Given::Nothing, Reach::Look).contains("needs a number"));
         // Its name would be read in a prompt, which the channel never opens.
-        assert!(refused("switch-to-buffer", None, Reach::Look).contains("buffer's name"));
-        assert!(refused("mark-whole-buffer", Some(1), Reach::Look).contains("takes no argument"));
-        let beyond = Some(MAX_AGENT_COUNT + 1);
+        assert!(refused("switch-to-buffer", Given::Nothing, Reach::Look).contains("buffer's name"));
+        assert!(
+            refused("switch-to-buffer", Given::Text("notes"), Reach::Look)
+                .contains("buffer's name")
+        );
+        assert!(
+            refused("mark-whole-buffer", Given::Count(1), Reach::Look)
+                .contains("takes no argument")
+        );
+        let beyond = Given::Count(MAX_REMOTE_COUNT + 1);
         assert!(refused("forward-char", beyond, Reach::Look).contains("beyond"));
-        assert!(refused("forward-char", Some(isize::MIN), Reach::Look).contains("beyond"));
+        assert!(refused("forward-char", Given::Count(isize::MIN), Reach::Look).contains("beyond"));
         assert_eq!(editor.current().1.text().to_string(), "abc");
     }
 
@@ -191,7 +190,7 @@ mod tests {
             &mut dispatcher,
             &mut editor,
             "\u{202e}evil",
-            None,
+            Given::Nothing,
             Reach::Look,
         );
         assert!(!why.contains("evil"), "{why}");
@@ -206,7 +205,7 @@ mod tests {
         let first = editor.take_clipboard_write().unwrap();
         assert_eq!(first.text(), "aaa");
         let (_, result) = dispatcher
-            .run_for_agent(&mut editor, "kill-word", None, Reach::Change)
+            .run_for_agent(&mut editor, "kill-word", Given::Nothing, Reach::Change)
             .unwrap();
         assert_eq!(result, Ok(()));
         drop(editor.take_clipboard_write());
@@ -233,11 +232,112 @@ mod tests {
     }
 
     #[test]
+    fn insert_takes_its_text_with_the_command_and_nothing_else() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("ab"));
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "forward-char", Given::Count(1), Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "insert", Given::Text("XY"), Reach::Change)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(editor.current().1.text().to_string(), "aXYb");
+        assert!(editor.prompt().is_none(), "no prompt opened");
+        let mut refused =
+            |given| refusal(&mut dispatcher, &mut editor, "insert", given, Reach::Change);
+        assert!(refused(Given::Nothing).contains("needs text"));
+        assert!(refused(Given::Count(3)).contains("needs text"));
+        editor.undo().unwrap();
+        assert_eq!(editor.current().1.text().to_string(), "ab");
+    }
+
+    /// Asks once, and again when its question is answered `y`.
+    fn ask_again(
+        ctx: &mut oso_core::command::Ctx<'_>,
+        _: oso_core::command::Args,
+    ) -> Result<(), oso_core::command::CommandError> {
+        let question = if ctx.confirmed() { "Again?" } else { "First?" };
+        ctx.editor
+            .ask(question, "ask-again")
+            .map_err(|e| oso_core::command::CommandError::new(e.to_string()))?;
+        Ok(())
+    }
+
+    #[test]
+    fn what_the_persons_yes_to_the_agents_question_opens_is_the_agents() {
+        use oso_core::command::{ArgSpec, Command, Registry};
+        let mut registry = Registry::new();
+        registry
+            .register(Command {
+                name: "ask-again",
+                doc: "Ask, and ask again.",
+                args: ArgSpec::None,
+                reach: Reach::Look,
+                run: ask_again,
+            })
+            .unwrap();
+        let mut dispatcher = Dispatcher::with(registry, oso_core::keymap::Keymap::default());
+        let mut editor = editor("");
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "ask-again", Given::Nothing, Reach::Look)
+            .unwrap();
+        assert_eq!(result, Ok(()));
+        assert!(
+            editor
+                .prompt()
+                .unwrap()
+                .label()
+                .starts_with("Agent: First?")
+        );
+        // The person answers, outside anything the agent runs.
+        editor.answer_question(true).unwrap();
+        dispatcher.after_prompts(&mut editor);
+        let again = editor.prompt().unwrap();
+        assert!(again.from_agent(), "{}", again.label());
+        assert!(again.label().starts_with("Agent: Again?"));
+        // A person's own question stays the person's.
+        editor.answer_question(false).unwrap();
+        editor.ask("Mine?", "ask-again").unwrap();
+        editor.answer_question(true).unwrap();
+        dispatcher.after_prompts(&mut editor);
+        assert!(!editor.prompt().unwrap().from_agent());
+    }
+
+    #[test]
+    fn text_times_the_cursors_is_bounded() {
+        let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("a\nb\nc"));
+        let text = "x".repeat(super::MAX_INSERTED / 2 + 1);
+        let (_, result) = dispatcher
+            .run_for_agent(&mut editor, "insert", Given::Text(&text), Reach::Change)
+            .unwrap();
+        assert_eq!(result, Ok(()), "one cursor");
+        editor.undo().unwrap();
+        let two = oso_core::selection::SelectionSet::from_parts(
+            vec![
+                oso_core::selection::Selection::at(0),
+                oso_core::selection::Selection::at(2),
+            ],
+            0,
+        )
+        .unwrap();
+        editor.current_mut().0.selections = two;
+        let why = refusal(
+            &mut dispatcher,
+            &mut editor,
+            "insert",
+            Given::Text(&text),
+            Reach::Change,
+        );
+        assert!(why.contains("times the cursors"), "{why}");
+    }
+
+    #[test]
     fn a_change_runs_as_an_undo_step_of_its_own() {
         let (mut dispatcher, mut editor) = (Dispatcher::new(), editor("abc"));
         for _ in 0..2 {
             let (_, result) = dispatcher
-                .run_for_agent(&mut editor, "delete-char", None, Reach::Change)
+                .run_for_agent(&mut editor, "delete-char", Given::Nothing, Reach::Change)
                 .unwrap();
             assert_eq!(result, Ok(()));
         }

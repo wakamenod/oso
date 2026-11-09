@@ -14,14 +14,14 @@ keys: M-x
 =-- test  1:0  Fundamental  UTF-8 LF                                             =
 "                                                                                "
 float at row 0, column 15: 7 x 49
-│ 1/58  M-x                                       │
+│ 1/60  M-x                                       │
 :           ^                                     :
 │>undo (C-z)           Undo the last N changes t… │
 │ yank (C-y)           Insert the newest kill at… │
+│ insert               Insert text at every curs… │
 │ newline (RET)        Insert a line break at ev… │
 │ find-file (C-x C-f)  Visit a file, its path re… │
 │ goto-line (M-g g)    Move point to the start o… │
-│ kill-line (C-k)      Kill the rest of the line… │
 
 keys: C-v
 │notes                                                                           │
@@ -35,11 +35,11 @@ keys: C-v
 =-- test  1:0  Fundamental  UTF-8 LF                                             =
 "                                                                                "
 float at row 0, column 15: 7 x 49
-│ 7/58  M-x                                       │
+│ 7/60  M-x                                       │
 :           ^                                     :
 │ yank (C-y)           Insert the newest kill at… │
+│ insert               Insert text at every curs… │
 │ newline (RET)        Insert a line break at ev… │
 │ find-file (C-x C-f)  Visit a file, its path re… │
 │ goto-line (M-g g)    Move point to the start o… │
-│ kill-line (C-k)      Kill the rest of the line… │
-│>kill-word (M-d)      Kill from every cursor to… │
+│>kill-line (C-k)      Kill the rest of the line… │

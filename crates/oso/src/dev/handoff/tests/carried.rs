@@ -333,3 +333,40 @@ fn piece_lengths_that_overflow_are_refused_without_a_panic() {
     let state = carrying(|s| s["kills"][0]["pieces"] = json!([u64::MAX, 2]));
     assert!(parse(&state).unwrap_err().contains("add up"));
 }
+
+#[test]
+fn a_buffer_the_agent_opened_says_so_read_again_or_carried() {
+    let path = absolute("/p/opened.txt");
+    let mut editor = visiting(&path, "abc\n");
+    let id = editor.window().buffer();
+    let entry = |editor: &Editor| export(editor, &[], None, None).unwrap()["buffers"][1].clone();
+    assert_eq!(
+        entry(&editor).get("opened_by_agent"),
+        None,
+        "said only when true"
+    );
+    editor.buffer_mut(id).unwrap().mark_opened_by_agent();
+    let read_again = export(&editor, &[], None, None).unwrap();
+    assert_eq!(read_again["buffers"][1]["opened_by_agent"], true);
+    let parsed = parse(&read_again).unwrap();
+    assert!(parsed.buffers[1].carried.is_none());
+    assert!(parsed.buffers[1].opened_by_agent);
+    type_text(&mut editor);
+    let carried = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert!(carried.buffers[1].carried.is_some());
+    assert!(carried.buffers[1].opened_by_agent);
+    assert!(!carried.buffers[0].opened_by_agent, "*scratch* was not");
+}
+
+#[test]
+fn an_entry_that_does_not_say_was_not_opened_by_the_agent_and_a_bad_value_is_refused() {
+    let state = carrying(|state| {
+        state["buffers"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove("opened_by_agent");
+    });
+    assert!(!parse(&state).unwrap().buffers[1].opened_by_agent);
+    let bad = carrying(|state| state["buffers"][1]["opened_by_agent"] = json!("yes"));
+    assert!(parse(&bad).unwrap_err().contains("opened_by_agent"));
+}

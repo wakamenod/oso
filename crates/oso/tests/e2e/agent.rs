@@ -1,8 +1,8 @@
 //! The agent channel in the running app (ADR 0085): off until the person turns it on, a
 //! connection let in only by the person's `y` after a quiet moment, commands refused by
 //! their reach, nothing run while a buffer that may hold secrets is shown, kills kept from
-//! the clipboard, a question the agent caused answered only by the person, and the channel
-//! closed by the person's command. The dev socket's keys stand in for the person's.
+//! the clipboard, a question the agent caused answered only by the person, a file it opened
+//! still its own after a restart, and the channel closed by the person's command. The dev socket's keys stand in for the person's.
 //!
 //! Must not depend on: the app's internals, or logic a lower layer can test. The channel's
 //! limits and refusals have their own unit tests.
@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use oso_platform::control::{ControlDir, ControlStream, Socket};
 use serde_json::{Value, json};
 
+use super::handover::hand_over;
 use super::harness::{App, FAKE_SECRET, Scratch};
 
 /// How long the app takes no answer to the agent's question after a key, and a moment more.
@@ -235,9 +236,13 @@ fn a_question_the_agent_caused_waits_for_the_person() {
 
     agent.run("delete-char", None, "change").unwrap();
     std::fs::write(&file, b"changed on disk\n").unwrap();
-    // The first save finds the file changed and keeps it; the next asks.
-    agent.run("save-buffer", None, "change").unwrap();
-    app.wait_for("the save", |state| state["buffer"]["saving"] == false);
+    // Once the editor knows, a save asks. Waiting for the watcher keeps a save that would
+    // find the change only as it writes out of the race.
+    app.wait_for("the warning", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("changed on disk"))
+    });
     let waiting = agent.run("save-buffer", None, "change").unwrap();
     let waiting = waiting["waiting"].as_str().unwrap();
     assert!(
@@ -277,4 +282,236 @@ fn a_question_the_agent_caused_waits_for_the_person() {
         b"changed on disk\n",
         "nothing saved over it"
     );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
+    let scratch = Scratch::new("agent-open");
+    let notes = scratch.write("notes.txt", b"one\n");
+    let other = scratch.write("other.txt", b"first\nsecond\nthird\n");
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let link = scratch.symlink("plain.txt", &env);
+    let alias = scratch.symlink("alias.txt", &other);
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+    let open = |agent: &mut Agent, path: &std::path::Path, line: Option<u64>| {
+        agent.call("open", Some(json!({ "path": path, "line": line })))
+    };
+
+    let missing = scratch.path().join("missing.txt");
+    assert!(
+        open(&mut agent, &missing, None)
+            .unwrap_err()
+            .contains("no file")
+    );
+    assert!(
+        open(&mut agent, &env, None)
+            .unwrap_err()
+            .contains("may hold secrets")
+    );
+    let linked = open(&mut agent, &link, None).unwrap_err();
+    assert!(linked.contains("stays closed"), "{linked}");
+    let aliased = open(&mut agent, &alias, None).unwrap_err();
+    assert!(aliased.contains("another name"), "{aliased}");
+    assert!(!missing.exists(), "the channel starts no new file");
+
+    let opened = open(&mut agent, &other, Some(2)).unwrap();
+    assert_eq!(opened["name"], "other.txt");
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "other.txt");
+    assert_eq!(state["cursor"]["row"], 1, "at its line");
+    let names: Vec<_> = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["name"].clone())
+        .collect();
+    assert!(
+        !names.contains(&json!("plain.txt")),
+        "the linked secret was dropped: {names:?}"
+    );
+    let text = agent
+        .call("text", Some(json!({ "buffer": opened["buffer"] })))
+        .unwrap();
+    assert_eq!(text["rows"], json!(["first", "second", "third", ""]));
+
+    agent.run("insert", None, "change").unwrap_err();
+    let inserted = agent.call(
+        "run",
+        Some(json!({ "name": "insert", "arg": "new ", "reach": "change" })),
+    );
+    assert!(inserted.is_ok(), "{inserted:?}");
+    let waiting = agent.run("save-buffer", None, "change").unwrap();
+    let waiting = waiting["waiting"].as_str().unwrap();
+    assert!(
+        waiting.contains("Agent: Save ") && waiting.contains("other.txt, which the agent opened?"),
+        "{waiting}"
+    );
+    assert_eq!(
+        std::fs::read(&other).unwrap(),
+        b"first\nsecond\nthird\n",
+        "not yet"
+    );
+    thread::sleep(QUIET);
+    app.send_keys("y");
+    app.wait_for("the save", |state| state["buffer"]["modified"] == false);
+    assert_eq!(
+        std::fs::read(&other).unwrap(),
+        b"first\nnew second\nthird\n"
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_file_the_person_visited_that_reloads_from_elsewhere_saves_for_the_agent_only_with_a_yes() {
+    let scratch = Scratch::new("agent-relinked");
+    let first = scratch.write("first.txt", b"first\n");
+    let elsewhere = scratch.write("elsewhere.txt", b"elsewhere\n");
+    let link = scratch.symlink("notes.txt", &first);
+    let mut app = App::start(Some(&link), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+
+    // The link now leads elsewhere, and the watcher reads the file again.
+    std::fs::remove_file(&link).unwrap();
+    std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+    app.wait_for("the reload", |state| {
+        state["text"]["rows"][0] == "elsewhere"
+    });
+
+    let inserted = agent.call(
+        "run",
+        Some(json!({ "name": "insert", "arg": "new ", "reach": "change" })),
+    );
+    assert!(inserted.is_ok(), "{inserted:?}");
+    let waiting = agent.run("save-buffer", None, "change").unwrap();
+    let waiting = waiting["waiting"].as_str().unwrap().to_owned();
+    assert!(
+        waiting.contains("elsewhere.txt, which the agent opened?"),
+        "{waiting}"
+    );
+    assert_eq!(
+        std::fs::read(&elsewhere).unwrap(),
+        b"elsewhere\n",
+        "nothing written yet"
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn a_question_that_follows_the_persons_yes_closes_when_the_agent_goes() {
+    let scratch = Scratch::new("agent-follow-up");
+    let notes = scratch.write("notes.txt", b"one\n");
+    let other = scratch.write("other.txt", b"first\n");
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+    agent.call("open", Some(json!({ "path": other }))).unwrap();
+    agent
+        .call(
+            "run",
+            Some(json!({ "name": "insert", "arg": "x", "reach": "change" })),
+        )
+        .unwrap();
+    // The file changes under the agent's edit.
+    let new = other.with_extension("new");
+    std::fs::write(&new, b"changed on disk\n").unwrap();
+    std::fs::rename(&new, &other).unwrap();
+    app.wait_for("the warning", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.contains("changed on disk"))
+    });
+
+    // Each save asks the person first, as the agent opened the file; the person's yes then
+    // finds the file changed, and asks again, for the agent.
+    let mut follow_up = None;
+    for _ in 0..3 {
+        thread::sleep(AFTER_TYPING);
+        let asked = agent.run("save-buffer", None, "change").unwrap();
+        assert!(
+            asked["waiting"]
+                .as_str()
+                .is_some_and(|w| w.contains("which the agent opened?")),
+            "{asked}"
+        );
+        thread::sleep(QUIET);
+        app.send_keys("y");
+        let state = app.state();
+        if let Some(label) = state["prompts"][0]["prompt"].as_str() {
+            follow_up = Some(label.to_owned());
+            break;
+        }
+    }
+    let follow_up = follow_up.expect("the person's yes asked again");
+    assert!(
+        follow_up.starts_with("Agent: "),
+        "the follow-up is the agent's: {follow_up}"
+    );
+
+    drop(agent);
+    let state = app.wait_for("the question closed", |state| state["prompts"] == json!([]));
+    assert_eq!(state["prompts"], json!([]));
+    assert_eq!(
+        std::fs::read(&other).unwrap(),
+        b"changed on disk\n",
+        "nothing saved over it"
+    );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn the_files_an_agent_opened_still_ask_before_its_saves_after_a_restart() {
+    let scratch = Scratch::new("agent-restart");
+    let notes = scratch.write("notes.txt", b"mine\n");
+    let read_again = scratch.write("read-again.txt", b"as on disk\n");
+    let carried = scratch.write("carried.txt", b"one\n");
+    let mut old = App::start(Some(&notes), scratch.path());
+    old.wait_until_ready();
+    let mut agent = let_in(&mut old);
+    for path in [&read_again, &carried] {
+        let opened = agent.call("open", Some(json!({ "path": path })));
+        assert!(opened.is_ok(), "{opened:?}");
+    }
+    let inserted = agent.call(
+        "run",
+        Some(json!({ "name": "insert", "arg": "new ", "reach": "change" })),
+    );
+    assert!(inserted.is_ok(), "{inserted:?}");
+    drop(agent);
+
+    let mut new = App::start(None, scratch.path());
+    new.wait_until_ready();
+    hand_over(&mut old, &mut new);
+    // Read again from its file, or carried unsaved: both are still the agent's.
+    let state = new.call("export-state", None);
+    let by_path = |path: &std::path::Path| {
+        state["buffers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|buffer| buffer["path"].as_str() == path.to_str())
+            .cloned()
+            .unwrap_or_else(|| panic!("no {}: {state}", path.display()))
+    };
+    assert_eq!(by_path(&read_again)["opened_by_agent"], true);
+    assert!(by_path(&read_again)["text"].is_null(), "read again");
+    assert_eq!(by_path(&carried)["opened_by_agent"], true);
+    assert!(by_path(&carried)["text"].is_object(), "carried");
+    assert_eq!(by_path(&notes).get("opened_by_agent"), None);
+
+    let mut agent = let_in(&mut new);
+    let waiting = agent.run("save-buffer", None, "change").unwrap();
+    let waiting = waiting["waiting"].as_str().unwrap();
+    assert!(
+        waiting.contains("carried.txt, which the agent opened?"),
+        "{waiting}"
+    );
+    assert_eq!(std::fs::read(&carried).unwrap(), b"one\n", "not yet");
+    thread::sleep(QUIET);
+    new.send_keys("y");
+    new.wait_for("the save", |state| state["buffer"]["modified"] == false);
+    assert_eq!(std::fs::read(&carried).unwrap(), b"new one\n");
 }

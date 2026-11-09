@@ -192,6 +192,7 @@ impl App {
             .zip(carried)
             .enumerate()
         {
+            let opened_by_agent = entry.opened_by_agent;
             let buffer = match (entry.path, carried) {
                 // The old instance held it, so it opens without asking, whatever its size
                 // (ADR 0087).
@@ -215,6 +216,10 @@ impl App {
             };
             if buffer != scratch {
                 added.push(buffer);
+                // Its saves still ask the person, as before the restart (ADR 0085).
+                if opened_by_agent && let Some(buffer) = self.editor.buffer_mut(buffer) {
+                    buffer.mark_opened_by_agent();
+                }
             }
             if index == state.shown {
                 shown = buffer;
