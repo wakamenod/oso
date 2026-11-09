@@ -322,10 +322,10 @@ proptest! {
     fn once_settled_the_rows_are_a_wrap_from_scratch(
         text in text(),
         steps in prop::collection::vec(
-            (0_usize..5, prop::collection::vec((0_usize..300, 0_usize..4, text()), 1..4), 8_usize..20),
+            (0_usize..5, prop::collection::vec((0_usize..300, 0_usize..4, text()), 1..4), 4_usize..20),
             1..8,
         ),
-        columns in 8_usize..20,
+        columns in 4_usize..20,
         provisional in any::<bool>(),
     ) {
         let mut window = if provisional {
@@ -368,4 +368,29 @@ proptest! {
         window.settle();
         prop_assert_eq!(window.rows(), window.fresh(columns));
     }
+}
+
+/// Found by the window integration: below the narrowest width nothing wraps, so a row is a
+/// whole line, and a report's places on one line must join as one.
+#[test]
+fn places_on_one_unwrapped_line_join_as_one() {
+    let text = "日本語word ababword word  word word word word abcdefghijword word word word ababab";
+    let rope = Rope::from(text);
+    let map = DisplayMap::new(&rope, TabWidth::new(4));
+    let wrap = WrapMap::new(&map.snapshot(), 4);
+    let mut window = Window { rope, map, wrap };
+    window.command(&[(3, 0, "。。word ab日本語abcdefghij。")]);
+    window.command(&[(0, 0, "。。abab\n\t 。\tword 。。。日本語。。\nword word word 日本語word 日本語word word word  abcdefghij abab\t")]);
+    let held = window.wrap.take_job(&window.map.snapshot());
+    window.command(&[(120, 0, "")]);
+    let held = window.wrap.take_job(&window.map.snapshot()).or(held);
+    window.command(&[
+        (105, 0, "\nabcdefghij日本語abcdefghijword\n\nabword日本語"),
+        (0, 0, ""),
+    ]);
+    if let Some(report) = held.and_then(WrapJob::run) {
+        window.wrap.take_report(report, &window.map.snapshot());
+    }
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(4));
 }
