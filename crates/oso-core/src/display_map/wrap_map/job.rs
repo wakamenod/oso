@@ -287,25 +287,42 @@ impl Hulls {
     }
 
     /// Joins each place to `wrap`, rows made from `before`, with `display` the buffer now,
-    /// from the last back so that what precedes each reads as `before` showed it. Says the
-    /// stale ranges, in the offsets now.
+    /// from the last back so that what precedes each reads as `before` showed it. Places whose
+    /// rows meet, a row before one reaching the next one's rows, join as one. Says the stale
+    /// ranges, in the offsets now.
     fn join(
         &self,
         wrap: WrapSnapshot,
         (before, display): (&DisplaySnapshot, &DisplaySnapshot),
     ) -> (WrapSnapshot, Vec<Range<usize>>) {
-        let mut wrap = wrap;
-        let mut stale = Vec::new();
-        let mut base: isize = self.0.iter().map(|hull| hull.delta).sum();
-        for hull in self.0.iter().rev() {
-            base -= hull.delta;
-            let back = |at: usize| at.checked_add_signed(-base).unwrap_or(0);
+        // Each place in the offsets `before` has, with how much longer it made the text.
+        let mut places: Vec<(usize, usize, isize)> = Vec::with_capacity(self.0.len());
+        let mut lower: isize = 0;
+        for hull in &self.0 {
+            let back = |at: usize| at.checked_add_signed(-lower).unwrap_or(0);
             let start = back(hull.start);
             let end = back(hull.end)
                 .checked_add_signed(-hull.delta)
                 .unwrap_or(0)
                 .max(start);
-            let (joined, range) = wrap.spent((before, display), start..end, (hull.delta, base));
+            lower += hull.delta;
+            // The first row a join here reads: the row before the one that holds it.
+            let row = wrap.row_of(before, start).saturating_sub(1);
+            let first = wrap.row_span(before, row).0;
+            match places.last_mut() {
+                Some(last) if wrap.old_boundary(before, last.1) >= first => {
+                    last.1 = last.1.max(end);
+                    last.2 += hull.delta;
+                }
+                _ => places.push((start, end, hull.delta)),
+            }
+        }
+        let mut wrap = wrap;
+        let mut stale = Vec::new();
+        let mut base: isize = places.iter().map(|place| place.2).sum();
+        for &(start, end, delta) in places.iter().rev() {
+            base -= delta;
+            let (joined, range) = wrap.spent((before, display), start..end, (delta, base));
             wrap = joined;
             stale.extend(range);
         }

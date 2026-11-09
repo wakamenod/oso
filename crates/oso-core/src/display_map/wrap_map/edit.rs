@@ -199,7 +199,7 @@ impl WrapSnapshot {
 
     /// The first place at or after `near` where a row started in `before`, which these rows
     /// were made with. Reads the tree alone in an item of rows.
-    fn old_boundary(&self, before: &DisplaySnapshot, near: usize) -> usize {
+    pub(super) fn old_boundary(&self, before: &DisplaySnapshot, near: usize) -> usize {
         let mut cursor = self.tree.cursor::<(Bytes, Start)>();
         cursor.seek(&Bytes(near), Bias::Right);
         let start = cursor.start().1;
