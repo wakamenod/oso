@@ -205,6 +205,9 @@ mod tests {
             "universal-argument",
             // The OS clipboard.
             "yank",
+            // Pick a kill from a list, or go through them right after a yank (ADR 0091).
+            "consult-yank-pop",
+            "yank-pop",
             // isearch, which reads keys (ADR 0082).
             "isearch-backward",
             "isearch-delete-char",
@@ -219,6 +222,7 @@ mod tests {
             "isearch-ring-advance",
             "isearch-ring-retreat",
             "isearch-toggle-case-fold",
+            "isearch-yank-pop",
             "isearch-yank-kill",
             "isearch-yank-word-or-char",
         ];

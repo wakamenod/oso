@@ -11,4 +11,6 @@ pub const BINDINGS: &[(&str, &str)] = &[
     ("M-d", "kill-word"),
     ("M-DEL", "backward-kill-word"),
     ("C-y", "yank"),
+    // consult-yank-pop, as the author's Emacs binds it (ADR 0091).
+    ("M-y", "consult-yank-pop"),
 ];

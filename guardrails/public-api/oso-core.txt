@@ -240,6 +240,8 @@ pub oso_core::command::ArgSpec::File
 pub oso_core::command::ArgSpec::File::history: &'static str
 pub oso_core::command::ArgSpec::File::prompt: &'static str
 pub oso_core::command::ArgSpec::Key
+pub oso_core::command::ArgSpec::KillEntry
+pub oso_core::command::ArgSpec::KillEntry::prompt: &'static str
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
 pub oso_core::command::ArgSpec::None
@@ -492,6 +494,7 @@ pub struct oso_core::complete::Candidate
 impl oso_core::complete::Candidate
 pub fn oso_core::complete::Candidate::annotation(&self) -> &str
 pub fn oso_core::complete::Candidate::binding(&self) -> &str
+pub fn oso_core::complete::Candidate::hidden_by_input(self) -> Self
 pub fn oso_core::complete::Candidate::new(impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>) -> Self
 pub fn oso_core::complete::Candidate::text(&self) -> &str
 impl core::fmt::Debug for oso_core::complete::Candidate
@@ -1006,6 +1009,8 @@ pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
 pub oso_core::editor::Preview::Buffer::id: oso_core::buffer::BufferId
 pub oso_core::editor::Preview::Buffer::top: usize
+pub oso_core::editor::Preview::Text
+pub oso_core::editor::Preview::Text::entry: u64
 pub oso_core::editor::Preview::Withheld
 impl core::clone::Clone for oso_core::editor::Preview
 pub fn oso_core::editor::Preview::clone(&self) -> oso_core::editor::Preview
@@ -1116,6 +1121,22 @@ impl core::fmt::Display for oso_core::editor::YankError
 pub fn oso_core::editor::YankError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::YankError
 impl core::marker::StructuralPartialEq for oso_core::editor::YankError
+pub enum oso_core::editor::YankPopError
+pub oso_core::editor::YankPopError::NoOther
+pub oso_core::editor::YankPopError::NotAfterYank
+pub oso_core::editor::YankPopError::Yank(oso_core::editor::YankError)
+impl core::clone::Clone for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::clone(&self) -> oso_core::editor::YankPopError
+impl core::cmp::Eq for oso_core::editor::YankPopError
+impl core::cmp::PartialEq for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::eq(&self, &oso_core::editor::YankPopError) -> bool
+impl core::error::Error for oso_core::editor::YankPopError
+impl core::fmt::Debug for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for oso_core::editor::YankPopError
+pub fn oso_core::editor::YankPopError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::YankPopError
+impl core::marker::StructuralPartialEq for oso_core::editor::YankPopError
 pub struct oso_core::editor::ClipboardWrite
 pub oso_core::editor::ClipboardWrite::id: u64
 pub oso_core::editor::ClipboardWrite::pieces: alloc::vec::Vec<oso_core::kill::Piece>
@@ -1333,7 +1354,6 @@ pub fn oso_core::editor::Editor::isearch_exit(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_history(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_repeat(&mut self, bool)
 pub fn oso_core::editor::Editor::isearch_toggle_case(&mut self)
-pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
 pub fn oso_core::editor::Editor::isearch_yank_word(&mut self)
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_cells(&self, &mut oso_core::editor::MatchCells)
@@ -1341,6 +1361,15 @@ impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::isearch_follow_text(&mut self) -> bool
 pub fn oso_core::editor::Editor::isearch_reported(&mut self, oso_core::editor::SearchReport) -> bool
 pub fn oso_core::editor::Editor::take_isearch_job(&mut self) -> core::option::Option<oso_core::editor::SearchJob>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::isearch_yank_kill(&mut self)
+pub fn oso_core::editor::Editor::isearch_yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::kill_list_open(&self) -> bool
+pub fn oso_core::editor::Editor::kill_preview(&self, u64, usize, usize) -> alloc::vec::Vec<alloc::string::String>
+pub fn oso_core::editor::Editor::open_kill_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::yank_picked(&mut self) -> core::result::Result<(), oso_core::editor::YankError>
+pub fn oso_core::editor::Editor::yank_pop(&mut self) -> core::result::Result<(), oso_core::editor::YankPopError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::load_theme(&mut self, &str) -> core::result::Result<(), oso_core::editor::NoSuchTheme>
 pub fn oso_core::editor::Editor::set_themes(&mut self, alloc::vec::Vec<(&'static str, &'static str)>, usize)
@@ -1911,9 +1940,7 @@ pub fn oso_core::kill::KillRing::holds_secret(&self, oso_core::kill::Fingerprint
 pub fn oso_core::kill::KillRing::is_empty(&self) -> bool
 pub fn oso_core::kill::KillRing::iter(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::kill::KillEntry>
 pub fn oso_core::kill::KillRing::len(&self) -> usize
-pub fn oso_core::kill::KillRing::make_newest_secret(&mut self)
 pub fn oso_core::kill::KillRing::new() -> Self
-pub fn oso_core::kill::KillRing::newest_written(&self) -> core::option::Option<oso_core::kill::Fingerprint>
 pub fn oso_core::kill::KillRing::note_written(&mut self, u64, oso_core::kill::Fingerprint)
 pub fn oso_core::kill::KillRing::push(&mut self, alloc::vec::Vec<oso_core::kill::Piece>, bool) -> u64
 pub fn oso_core::kill::KillRing::push_from_clipboard(&mut self, oso_core::rope::Rope, bool) -> u64

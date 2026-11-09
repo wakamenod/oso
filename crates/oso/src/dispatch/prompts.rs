@@ -10,10 +10,12 @@
 //! drops what waited for it. A question's `y` runs the command it names, confirmed, which
 //! checks again what is true by then.
 
+use oso_core::buffer::EditError;
 use oso_core::command::{
     ArgSpec, Args, BufferPurpose, CommandId, Effects, ExecuteError, Invocation, Prefix,
 };
 use oso_core::editor::{CompletionStyle, Editor};
+use oso_core::kill::FromClipboard;
 use oso_core::minibuffer::{Kind, Outcome, PromptError, PromptId};
 
 use super::{Dispatcher, Step, buffers, extended};
@@ -79,7 +81,7 @@ impl Dispatcher {
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
-                self.wait_for_clipboard(editor, id, args, &invocation);
+                self.wait_unless_refused(editor, (id, spec), args, &invocation);
                 return (Effects::default(), Ok(()));
             }
             Some(ArgSpec::Command { prompt, history } | ArgSpec::Theme { prompt, history }) => {
@@ -206,6 +208,64 @@ impl Dispatcher {
             Err(error) => editor.prompt_says(error.to_string()),
         }
         (effects, Ok(()))
+    }
+
+    /// Keeps the command `id` waiting for the clipboard, unless it is `M-y` where it could not
+    /// yank, which refuses before it reads anything (ADR 0091).
+    fn wait_unless_refused(
+        &mut self,
+        editor: &mut Editor,
+        (id, spec): (CommandId, ArgSpec),
+        args: Args,
+        invocation: &Invocation<'_>,
+    ) {
+        if matches!(spec, ArgSpec::KillEntry { .. }) {
+            let refused = if editor.prompt().is_some() {
+                Some("Not in the minibuffer".to_owned())
+            } else {
+                let read_only = editor.current().1.read_only();
+                read_only.map(|reason| EditError::ReadOnly(reason).to_string())
+            };
+            if let Some(refused) = refused {
+                editor.message(refused);
+                return;
+            }
+        }
+        self.wait_for_clipboard(editor, id, args, invocation);
+    }
+
+    /// Takes what the clipboard held into the ring, as a yank does, and opens the `M-y` list
+    /// for the command `id` (ADR 0091).
+    pub(super) fn read_kill(
+        &mut self,
+        editor: &mut Editor,
+        (id, prefix): (CommandId, Option<Prefix>),
+        prompt: &'static str,
+        answer: &FromClipboard,
+    ) -> Effects {
+        if let FromClipboard::Text {
+            text,
+            concealed,
+            fingerprint,
+        } = answer
+        {
+            editor.take_from_clipboard(text.clone(), *concealed, *fingerprint);
+        }
+        match editor.open_kill_list(prompt) {
+            Ok(prompt) => self.reading.push(Reading {
+                id,
+                prefix,
+                prompt,
+                passphrase: false,
+                runs_answer: false,
+            }),
+            Err(PromptError::Invalid) => editor.message("Kill ring is empty"),
+            Err(error) => editor.prompt_says(error.to_string()),
+        }
+        Effects {
+            redraw: true,
+            ..Effects::default()
+        }
     }
 
     /// Opens the prompt that reads a buffer for the command `id`, unless a prompt is selected,

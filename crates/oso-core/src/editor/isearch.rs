@@ -26,6 +26,7 @@ use state::{Asked, Step};
 mod cells;
 mod state;
 mod worker;
+mod yank;
 
 pub use cells::MatchCells;
 pub use state::Isearch;
@@ -188,34 +189,6 @@ impl Editor {
         let end = end.min(from.saturating_add(most));
         let piece: String = buffer.text().slice(from..end).chunks().collect();
         self.isearch_add(&piece);
-    }
-
-    /// `C-y`: adds the newest kill, its pieces joined by line breaks. A kill from a buffer
-    /// that may hold secrets makes the searched buffer one, as a yank does (ADR 0074), so that
-    /// where the search goes says no more of the kill than its text would.
-    pub fn isearch_yank_kill(&mut self) {
-        let Some(state) = &self.isearch else {
-            return;
-        };
-        let room = state.room();
-        let Some(entry) = self.kills.ring.get(0) else {
-            return;
-        };
-        let (text, secret) = (kill_text(entry, room), entry.is_secret());
-        if secret {
-            let id = state.buffer;
-            if let Some(state) = &mut self.isearch {
-                state.around_secret = true;
-            }
-            if self
-                .buffer_mut(id)
-                .is_some_and(|buffer| buffer.treat_as_secret())
-            {
-                self.note_secret_shown();
-                self.message("Buffer now treated as secret");
-            }
-        }
-        self.isearch_add(&text);
     }
 
     /// `M-p` (`older`) and `M-n`: the string becomes an older or newer one of the history,

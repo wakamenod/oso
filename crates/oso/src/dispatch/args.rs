@@ -61,6 +61,9 @@ pub fn map(
         (ArgSpec::Mark { .. }, _) => Err(format!(
             "{name} reads a mark, which only its prompt takes, from keys"
         )),
+        (ArgSpec::KillEntry { .. }, _) => Err(format!(
+            "{name} reads a kill, which only its prompt takes, from keys"
+        )),
         // A path read with completion opens or writes a file the person typed (ADR 0087).
         (ArgSpec::File { .. }, _) => Err(format!(
             "{name} reads a path, which only its prompt takes, from keys"

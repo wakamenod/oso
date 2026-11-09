@@ -21,7 +21,7 @@
 use std::collections::VecDeque;
 
 use oso_core::buffer::BufferId;
-use oso_core::command::{Args, CommandId, Effects, Invocation};
+use oso_core::command::{ArgSpec, Args, CommandId, Effects, Invocation};
 use oso_core::editor::Editor;
 use oso_core::key::KeyPress;
 use oso_core::kill::FromClipboard;
@@ -122,7 +122,17 @@ impl Dispatcher {
         let Some(waiting) = self.waiting.take() else {
             return Effects::default();
         };
-        let mut effects = if waiting.place == Place::of(editor) {
+        let spec = self.registry.get(waiting.id).map(|command| command.args);
+        let mut effects = if waiting.place != Place::of(editor) {
+            editor.message("Yank dropped: the window changed while the clipboard was read");
+            Effects::default()
+        } else if let Some(ArgSpec::KillEntry { prompt }) = spec {
+            // `M-y` lists the ring, with what the clipboard held in it (ADR 0091).
+            let command = (waiting.id, waiting.args.raw());
+            self.as_input(editor, |this, editor| {
+                this.read_kill(editor, command, prompt, answer)
+            })
+        } else {
             self.as_input(editor, |this, editor| {
                 let invocation = Invocation {
                     key_char: waiting.key_char,
@@ -133,9 +143,6 @@ impl Dispatcher {
                 this.execute(editor, waiting.id, waiting.args, invocation, Step::MayJoin)
                     .0
             })
-        } else {
-            editor.message("Yank dropped: the window changed while the clipboard was read");
-            Effects::default()
         };
         let before = self.from_socket;
         let mut held = waiting.held;
