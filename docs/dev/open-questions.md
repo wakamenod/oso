@@ -87,6 +87,11 @@ item notes when it must be settled.
 - A segment of `C-x C-f` that matches several directories lists each, which can reach an
   automounted or cloud-synced folder the person did not name, and wait there. Decide whether
   expansion stops at such mounts.
+- The agent channel's `open` of a file of 2 GiB or more is refused, as the load stops before
+  reading it, but the reply is the generic "the file could not be opened", not ADR 0087's
+  "2 GiB or more; ask the person to open it". Give the reply that wording
+  ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md),
+  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - `C-x C-f` leaves out names that are not UTF-8, as a path made from a lossy copy of one would
   name another file. Keep the name as the system gives it if they turn out to matter.
 - `C-x C-f` matches file names code point by code point, so a name stored decomposed (NFD), as older
