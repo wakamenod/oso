@@ -6,10 +6,11 @@
 //! dispatcher reads the clipboard before it opens the list.
 //!
 //! - A row is the first [`ROW_BYTES`] of an entry, its pieces joined by line breaks, each
-//!   drawn as `⤶`, and the rest escaped as `*Messages*` escapes a row. Its annotation says
-//!   how many lines and pieces it has, when more than one.
-//! - A secret entry is listed with no text, and hidden as soon as anything is typed; its
-//!   preview is withheld. An entry equal to a newer one is listed once.
+//!   drawn as `⤶`, and the rest escaped as `*Messages*` escapes a row, then cut again to
+//!   [`ROW_BYTES`]. Its annotation says how many lines and pieces it has, when more than one.
+//! - A secret entry is listed with no text and only its line count, and hidden as soon as
+//!   anything is typed; its preview is withheld. An entry equal to a newer one is listed
+//!   once, unless either is secret.
 //! - What a yank inserted is remembered with the revision it left, so that a yank picked
 //!   right after it, with the text and cursors as it left them, takes its place.
 
@@ -27,7 +28,8 @@ use crate::kill::{KillEntry, PIECE_SEPARATOR};
 use crate::minibuffer::{Prompt, PromptError, PromptId};
 use crate::selection::{MarkActive, Selection, SelectionSet};
 
-/// The most bytes of an entry a row shows, and what the input matches against.
+/// The most bytes of an entry a row shows, and of the row once escaped, which is what the
+/// input matches against.
 pub(crate) const ROW_BYTES: usize = 1024;
 
 /// What a line break reads as in a row.
@@ -68,8 +70,11 @@ impl Editor {
         let mut items = Vec::new();
         for entry in self.kills.ring.iter() {
             // The same text again is listed once, at its newest; only small texts are
-            // compared whole, and large ones by what the clipboard got of them.
-            let again = if entry.len() <= ROW_BYTES {
+            // compared whole, and large ones by what the clipboard got of them. A secret one
+            // is never compared, so that no row it hides tells what it holds.
+            let again = if entry.is_secret() {
+                false
+            } else if entry.len() <= ROW_BYTES {
                 !seen_text.insert(entry.joined())
             } else {
                 entry
@@ -159,19 +164,34 @@ impl Editor {
         lines.iter().map(|line| row_text(line)).collect()
     }
 
-    /// Notes which entry a `M-y` list's selected row named as `closed` closes, and forgets
-    /// the list.
-    pub(super) fn forget_kill_list(&mut self, closed: &Prompt) {
+    /// Notes which entry the selected row names, as the innermost prompt is answered while it
+    /// is a `M-y` list.
+    pub(super) fn note_kill_pick(&mut self) {
+        let index = self
+            .prompt()
+            .and_then(Prompt::candidates)
+            .and_then(|list| list.selected_item());
+        let innermost = self.prompt().map(Prompt::id);
         let Some(list) = self
             .kill_list
             .as_mut()
-            .filter(|list| list.prompt == closed.id())
+            .filter(|list| Some(list.prompt) == innermost)
         else {
             return;
         };
-        let index = closed.candidates().and_then(|list| list.selected_item());
         list.picked = index.and_then(|index| list.entries.get(index).copied());
-        list.entries.clear();
+    }
+
+    /// Forgets a `M-y` list as `closed` closes, all of it unless it was answered.
+    pub(super) fn forget_kill_list(&mut self, closed: PromptId) {
+        let Some(list) = self.kill_list.as_mut().filter(|list| list.prompt == closed) else {
+            return;
+        };
+        if list.picked.is_some() {
+            list.entries.clear();
+        } else {
+            self.kill_list = None;
+        }
     }
 
     /// Yanks the entry a `M-y` list picked, as `C-y` yanks, in place of what the last yank
@@ -306,15 +326,18 @@ fn candidate(entry: &KillEntry) -> Candidate {
     if entry.is_secret() {
         said.push("secret".to_owned());
     }
+    // A secret row says how many lines it has (ADR 0091), and nothing more.
     if lines > 1 {
         said.push(format!("{lines} lines"));
+    } else if entry.is_secret() {
+        said.push("1 line".to_owned());
     }
-    if pieces > 1 {
+    if pieces > 1 && !entry.is_secret() {
         said.push(format!("{pieces} cursors"));
     }
     let annotation = said.join(" · ");
     if entry.is_secret() {
-        return Candidate::new("", "", annotation).unmatched();
+        return Candidate::new("", "", annotation).hidden_by_input();
     }
     let mut text = String::with_capacity(ROW_BYTES);
     'read: for (index, piece) in entry.pieces().iter().enumerate() {
@@ -328,11 +351,18 @@ fn candidate(entry: &KillEntry) -> Candidate {
             }
         }
     }
-    let shown: String = text
+    // A `⤶` of the text's own is escaped, so that each one shown is a line break.
+    let mut shown: String = text
         .split('\n')
-        .map(row_text)
+        .map(|line| row_text(line).replace(LINE_BREAK, &LINE_BREAK.escape_unicode().to_string()))
         .collect::<Vec<_>>()
         .join(&LINE_BREAK.to_string());
+    // Escaping can make a row several times longer, and each frame and key reads it whole.
+    let mut end = shown.len().min(ROW_BYTES);
+    while !shown.is_char_boundary(end) {
+        end -= 1;
+    }
+    shown.truncate(end);
     Candidate::new(shown, "", annotation)
 }
 
@@ -413,11 +443,50 @@ mod tests {
             [
                 row("one", ""),
                 row("x⤶y", "2 lines · 2 cursors"),
-                row("", "secret"),
+                row("", "secret · 1 line"),
                 row("a⤶b", "2 lines"),
             ]
         );
         assert!(editor.kill_list_open());
+    }
+
+    #[test]
+    fn a_row_escaped_longer_than_its_bytes_is_cut_to_them() {
+        let long = "\u{1}".repeat(ROW_BYTES);
+        let mut editor = editor("", &[(&[long.as_str()], false)]);
+        editor.open_kill_list("Yank from kill ring:").unwrap();
+        let (text, _) = rows(&editor).remove(0);
+        assert!(
+            text.len() <= ROW_BYTES && text.len() > ROW_BYTES - 8,
+            "{}",
+            text.len()
+        );
+        assert!(text.starts_with(&row_text("\u{1}")));
+    }
+
+    #[test]
+    fn a_list_closed_unanswered_picks_nothing() {
+        let mut editor = editor("", KILLS);
+        editor.open_kill_list("Yank from kill ring:").unwrap();
+        editor.quit();
+        assert_eq!(editor.yank_picked(), Err(YankError::Empty));
+        assert!(editor.kill_list.is_none());
+    }
+
+    #[test]
+    fn a_secret_hides_no_row_and_says_only_its_lines() {
+        let kills: &[(&[&str], bool)] = &[(&["one"], false), (&["one", "two"], true)];
+        let mut editor = editor("", kills);
+        editor.open_kill_list("Yank from kill ring:").unwrap();
+        let row = |text: &str, said: &str| (text.to_owned(), said.to_owned());
+        assert_eq!(rows(&editor), [row("", "secret · 2 lines"), row("one", "")]);
+    }
+
+    #[test]
+    fn a_line_break_of_the_text_itself_is_escaped() {
+        let mut editor = editor("", &[(&["a⤶b\nc"], false)]);
+        editor.open_kill_list("Yank from kill ring:").unwrap();
+        assert_eq!(rows(&editor)[0].0, "a\\u{2936}b⤶c");
     }
 
     #[test]

@@ -494,9 +494,9 @@ pub struct oso_core::complete::Candidate
 impl oso_core::complete::Candidate
 pub fn oso_core::complete::Candidate::annotation(&self) -> &str
 pub fn oso_core::complete::Candidate::binding(&self) -> &str
+pub fn oso_core::complete::Candidate::hidden_by_input(self) -> Self
 pub fn oso_core::complete::Candidate::new(impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>, impl core::convert::Into<alloc::boxed::Box<str>>) -> Self
 pub fn oso_core::complete::Candidate::text(&self) -> &str
-pub fn oso_core::complete::Candidate::unmatched(self) -> Self
 impl core::fmt::Debug for oso_core::complete::Candidate
 pub fn oso_core::complete::Candidate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::complete::Candidates

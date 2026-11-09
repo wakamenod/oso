@@ -292,13 +292,13 @@ As consult-yank-pop ([ADR 0091](adr/0091-multiple-cursor-keys-and-m-y.md)):
 
 - `M-y` reads the clipboard as `C-y` does, then lists the kill ring in the centred float,
   the newest first, each text once. A row is the first 1 KiB of a kill, a line break drawn
-  as `⤶`, and says how many lines and pieces it has. The selected kill's lines show beside
+  as `⤶` in the annotation's face, and says how many lines and pieces it has. The selected kill's lines show beside
   the list.
-- A kill from a buffer that may hold secrets is listed with no text and no preview, and
-  anything typed hides it.
+- A kill from a buffer that may hold secrets is listed with only its line count, no text and
+  no preview, and anything typed hides it. It is never compared with another kill.
 - `RET` yanks the kill picked as `C-y` would, in place of what a yank just inserted, and
   puts it first in the ring.
-- In a prompt and in isearch, `M-y` right after `C-y` puts the next older kill in its place,
+- In a prompt and in isearch, `M-y` right after a yank puts the next older kill in its place,
   passing secret ones.
 
 ## isearch

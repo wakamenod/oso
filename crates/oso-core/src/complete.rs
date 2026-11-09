@@ -42,7 +42,7 @@ pub struct Candidate {
     folded: Folded,
     folded_annotation: Folded,
     /// It shows only while nothing is typed, as a secret kill does (ADR 0091).
-    unmatched: bool,
+    hidden_by_input: bool,
 }
 
 impl Candidate {
@@ -60,15 +60,15 @@ impl Candidate {
             text,
             binding: binding.into(),
             annotation,
-            unmatched: false,
+            hidden_by_input: false,
         }
     }
 
     /// The same, shown only while nothing is typed: any input hides it, whatever it asks,
     /// so that what it stands for is never matched against (ADR 0091).
-    pub fn unmatched(self) -> Self {
+    pub fn hidden_by_input(self) -> Self {
         Self {
-            unmatched: true,
+            hidden_by_input: true,
             ..self
         }
     }
@@ -336,14 +336,14 @@ impl Candidates {
             let before = &self.query;
             self.matches.retain(|&index| {
                 let item = &items[index as usize];
-                !(typed && item.unmatched) && query.matches_after(item, before)
+                !(typed && item.hidden_by_input) && query.matches_after(item, before)
             });
         } else {
             self.matches.clear();
             self.matches
                 .extend(self.order.iter().copied().filter(|&index| {
                     let item = &items[index as usize];
-                    !(typed && item.unmatched) && query.matches(item)
+                    !(typed && item.hidden_by_input) && query.matches(item)
                 }));
         }
         self.exact = self

@@ -23,6 +23,9 @@ mod preview;
 
 use preview::preview_panes;
 
+/// What a line break in a `M-y` row reads as, drawn in the annotation's face (ADR 0091).
+const LINE_BREAK: &str = "⤶";
+
 /// The most panes a float takes.
 pub(super) const MAX_PANES: usize = 9;
 
@@ -40,6 +43,8 @@ pub(super) struct Parts<'a> {
     region: Vec<CellRect>,
     /// A kill's lines in the preview (ADR 0091).
     kill: Vec<String>,
+    /// Whether the rows are kills, whose line breaks show as [`LINE_BREAK`] (ADR 0091).
+    breaks: bool,
 }
 
 impl<'a> Parts<'a> {
@@ -86,6 +91,7 @@ impl<'a> Parts<'a> {
             list,
             region,
             kill,
+            breaks: editor.kill_list_open(),
         })
     }
 
@@ -112,7 +118,7 @@ impl<'a> Parts<'a> {
             .shown(shown.rows)
             .map(|(_, candidate)| {
                 candidates.query().highlights(candidate, &mut highlights);
-                candidate_spans(candidate, &highlights, shown.columns, column)
+                candidate_spans(candidate, &highlights, (shown.columns, column), self.breaks)
             })
             .collect();
         (rows, count)
@@ -255,13 +261,14 @@ fn blank<'a>() -> Span<'a> {
 }
 
 /// The spans of a candidate's row of `columns` cells: its text with what matched in
-/// [`Face::CompletionMatch`], its binding in parentheses, and its annotation at `column`, as
-/// `minibuffer::candidate_row` places them.
+/// [`Face::CompletionMatch`], each [`LINE_BREAK`] in the annotation's face if `breaks` is set,
+/// its binding in parentheses, and its annotation at `column`, as `minibuffer::candidate_row`
+/// places them.
 fn candidate_spans<'a>(
     candidate: &'a oso_core::complete::Candidate,
     highlights: &[Range<usize>],
-    columns: usize,
-    column: usize,
+    (columns, column): (usize, usize),
+    breaks: bool,
 ) -> Vec<Span<'a>> {
     let text = candidate.text();
     let (binding, annotation) = (candidate.binding(), candidate.annotation());
@@ -274,20 +281,14 @@ fn candidate_spans<'a>(
         if start >= end {
             continue;
         }
-        spans.push(Span {
-            text: &shown[at..start],
-            face: Face::Float,
-        });
+        push_text(&mut spans, &shown[at..start], breaks);
         spans.push(Span {
             text: &shown[start..end],
             face: Face::CompletionMatch,
         });
         at = end;
     }
-    spans.push(Span {
-        text: &shown[at..],
-        face: Face::Float,
-    });
+    push_text(&mut spans, &shown[at..], breaks);
     let mut used = cells_of(shown);
     if row.text_cut {
         spans.push(Span {
@@ -320,6 +321,28 @@ fn candidate_spans<'a>(
         }
     }
     spans
+}
+
+/// Pushes `text` in [`Face::Float`], with each [`LINE_BREAK`] in it in the annotation's face
+/// if `breaks` is set.
+fn push_text<'a>(spans: &mut Vec<Span<'a>>, text: &'a str, breaks: bool) {
+    let mut rest = text;
+    while breaks && let Some(at) = rest.find(LINE_BREAK) {
+        let end = at + LINE_BREAK.len();
+        spans.push(Span {
+            text: &rest[..at],
+            face: Face::Float,
+        });
+        spans.push(Span {
+            text: &rest[at..end],
+            face: Face::CompletionAnnotation,
+        });
+        rest = &rest[end..];
+    }
+    spans.push(Span {
+        text: rest,
+        face: Face::Float,
+    });
 }
 
 /// The spans of a float's rows, which its lines borrow.

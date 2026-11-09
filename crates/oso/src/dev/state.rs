@@ -1150,4 +1150,19 @@ mod tests {
         assert_eq!(window["mark_active"], true);
         assert_eq!(window["mark_ring"], json!([0]));
     }
+
+    #[test]
+    fn the_kill_ring_listed_gives_no_rows_and_no_pixels() {
+        let mut editor = editor("", 20, 80);
+        let piece = |text| oso_core::kill::Piece::from(oso_core::rope::Rope::from(text));
+        // The newest is in `kill_ring` anyway; only the list's rows would tell the older one.
+        editor.carry_kills(vec![vec![piece("NEWEST")], vec![piece("OLDER-KILL")]]);
+        editor.open_kill_list("Yank from kill ring:").unwrap();
+        let state = state(&editor, &[]);
+        assert_eq!(state["prompts"][0]["completion"], json!(null));
+        assert!(!state.to_string().contains("OLDER-KILL"));
+        assert!(screenshot_allowed(&editor).is_err());
+        editor.quit();
+        assert!(screenshot_allowed(&editor).is_ok());
+    }
 }

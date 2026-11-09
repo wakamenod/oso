@@ -258,6 +258,7 @@ impl Editor {
         let id = prompt.id;
         // Also not if a buffer that may hold secrets came beneath it since it opened.
         let records = !prompt.around_secret && !prompt.from_socket && !self.shows_secret();
+        self.note_kill_pick();
         if let Some(prompt) = self.close_innermost()
             && records
             && let Some(name) = prompt.kind.history()
@@ -418,7 +419,7 @@ impl Editor {
         }
         let prompt = self.prompts.pop()?;
         self.forget_marks(prompt.id);
-        self.forget_kill_list(&prompt);
+        self.forget_kill_list(prompt.id);
         self.forget_files(prompt.id);
         self.windows.pop();
         self.selected = prompt.beneath;
