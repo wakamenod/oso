@@ -231,7 +231,8 @@ A panicking command is caught at the command boundary
   `Dispatcher::commit_text`, which keeps it an undo step of its own
   ([ADR 0051](adr/0051-m2-plan-decisions.md), [ADR 0056](adr/0056-typing.md),
   [ADR 0069](adr/0069-macos-input-method.md)).
-- The input method is winit's, reported through `app/shell.rs` and handled in `app/ime.rs`
+- The input method is the window layer's, reported through `app/shell.rs` on winit or
+  `app/native.rs` on oso's own layer, and handled in `app/ime.rs`
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
@@ -239,7 +240,12 @@ A panicking command is caught at the command boundary
   typing goes then, on oso's own layer if it would go in as typed there
   (`Dispatcher::types_text`), and otherwise waits for it to end, as always on winit, which
   cannot commit one ([ADR 0069](adr/0069-macos-input-method.md),
-  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
+  [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)). The app gives the window
+  the cursor's cell when it moves and, during a composition, where it is drawn: its first
+  cell, and where each of its characters is (`Editor::preedit_layout`). On oso's own layer
+  the view only keeps them, and answers the input method's question about a range with that
+  place, so the candidate window follows the segment being converted. While the IME is off
+  it gives no input context, so no text service reads it, and Writing Tools are off for it.
 - `Layers` holds the active keymaps, highest priority first: keymap at
   point, minor modes, major mode, global. The first keymap that binds the
   whole key sequence decides. So far the global layer exists, a minor mode layer of
@@ -510,12 +516,18 @@ Full details are in [`security.md`](security.md).
   ([ADR 0023](adr/0023-control-socket-protocol-and-restart.md)).
   - It polls the sources, and spawns cargo and the new binary through
     `oso-platform::process`.
-  - The state holds paths and positions and never text, so the new instance
-    reads every file from disk. Unsaved content joins it with M2-15
-    ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)); undo history
-    does not ([ADR 0051](adr/0051-m2-plan-decisions.md)).
-  - Until then a modified buffer holds the restart, as a running save does, and the
-    supervisor asks before it starts anything. An instance goes only when it says so itself: the supervisor
+  - The state holds paths and positions, and the new instance reads every file
+    without edits from disk ([ADR 0047](adr/0047-process-spawning-and-restart-handoff.md)).
+    The text of modified buffers, the marks, the kill ring and the histories are
+    carried as items the state names by length: `export-text` gives them in pieces
+    from an O(1) snapshot, the supervisor relays one piece at a time, and
+    `import-text` builds them off the UI thread. Undo history is not carried
+    ([ADR 0051](adr/0051-m2-plan-decisions.md),
+    [ADR 0090](adr/0090-oso-dev-carries-unsaved-text.md)).
+  - A modified buffer that may hold secrets holds the restart, as a running save
+    does, and the supervisor asks before it starts anything. Why a restart waits, and
+    a failed build's errors, reach the echo area and `*Messages*` through
+    `dev-message`. An instance goes only when it says so itself: the supervisor
     never kills, the `exit` it sends carries the generation of the export, and an
     instance whose text has changed since refuses. If the old one refuses, the new
     one goes unless it has been edited too, and then both stay. Instances run in

@@ -120,10 +120,18 @@ pub struct FloatRegions {
     /// Whether a row of padding goes right above the answer's row: between the label and the
     /// answer, or at the top of a completion's float.
     pub gap: bool,
-    /// The rows of candidates below the answer's padding, as wide as `inner` (ADR 0076).
-    /// Empty with none, or where the frame has no room for them.
+    /// The rows of candidates below the answer's padding, as wide as `inner` (ADR 0076), or
+    /// its left 2/5 beside a preview (ADR 0088). Empty with none, or where the frame has no
+    /// room for them.
     pub candidates: CellRect,
+    /// Where the selected candidate's preview goes, right of the candidates past a column
+    /// that divides them, in the candidates' rows (ADR 0088). Empty with none, or where the
+    /// candidates would get fewer than [`MIN_LIST_COLUMNS`].
+    pub preview: CellRect,
 }
+
+/// The fewest columns the candidates keep beside a preview; with fewer, the preview goes.
+pub const MIN_LIST_COLUMNS: usize = 20;
 
 impl FloatRegions {
     /// Whether a row of padding goes right below what it shows: below the answer, before any
@@ -175,7 +183,11 @@ const COMPLETION_HUNDREDTHS: usize = 62;
 /// whatever matches. It takes 62% of the columns, at least 40, and never comes closer than 2 to
 /// an edge, with a column of padding at each side. A small frame gives up candidate rows. It is
 /// never taller than the text area.
-pub(crate) fn completion_regions(frame: &FrameLayout, candidates: usize) -> FloatRegions {
+pub(crate) fn completion_regions(
+    frame: &FrameLayout,
+    candidates: usize,
+    previews: bool,
+) -> FloatRegions {
     let text = frame.window.text;
     let columns = float_columns(text.columns, COMPLETION_HUNDREDTHS, 100);
     let side = usize::from(columns >= 5);
@@ -193,16 +205,32 @@ pub(crate) fn completion_regions(frame: &FrameLayout, candidates: usize) -> Floa
         columns: columns - 2 * side,
         ..outer
     };
-    let candidates = CellRect {
+    let mut candidates = CellRect {
         row: inner.row + 1,
         rows: shown,
         ..inner
     };
+    let mut preview = CellRect {
+        rows: 0,
+        columns: 0,
+        ..candidates
+    };
+    // The list takes 2/5, a column divides, and the preview takes the rest.
+    let list = inner.columns * 2 / 5;
+    if previews && shown > 0 && list >= MIN_LIST_COLUMNS && inner.columns > list + 1 {
+        candidates.columns = list;
+        preview = CellRect {
+            column: inner.column + list + 1,
+            columns: inner.columns - list - 1,
+            ..candidates
+        };
+    }
     FloatRegions {
         outer,
         inner,
         gap: false,
         candidates,
+        preview,
     }
 }
 
@@ -257,6 +285,11 @@ fn answer_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
         inner,
         gap,
         candidates: CellRect {
+            rows: 0,
+            columns: 0,
+            ..inner
+        },
+        preview: CellRect {
             rows: 0,
             columns: 0,
             ..inner
@@ -465,6 +498,11 @@ impl PixelGrid {
         ]
     }
 
+    /// How wide a cell is, in physical pixels.
+    pub(crate) fn cell_width(self) -> f32 {
+        self.cell[0]
+    }
+
     /// Where `cells` are, in physical pixels.
     pub fn rect(self, cells: CellRect) -> PixelRect {
         let [x, y] = self.cell(cells.row as i64, cells.column as i64);
@@ -526,7 +564,7 @@ mod tests {
     #[test]
     fn a_completion_is_centered_with_its_rows_right_below_the_answer() {
         // 40 text rows: the answer and 18 rows, centered.
-        let regions = completion_regions(&frame(42, 100), 18);
+        let regions = completion_regions(&frame(42, 100), 18, false);
         assert_eq!(regions.outer, rect(10, 19, 19, 62));
         assert_eq!(regions.inner, rect(10, 20, 1, 60));
         assert_eq!(regions.candidates, rect(11, 20, 18, 60));
@@ -534,9 +572,23 @@ mod tests {
     }
 
     #[test]
+    fn a_preview_takes_three_fifths_past_a_dividing_column_or_goes_when_narrow() {
+        let regions = completion_regions(&frame(42, 100), 18, true);
+        assert_eq!(regions.inner, rect(10, 20, 1, 60));
+        assert_eq!(regions.candidates, rect(11, 20, 18, 24));
+        assert_eq!(regions.preview, rect(11, 45, 18, 35));
+        // At 62% of 80 columns the list would get 19, under its 20.
+        let narrow = completion_regions(&frame(42, 80), 18, true);
+        assert_eq!(narrow.candidates.columns, narrow.inner.columns);
+        assert_eq!(narrow.preview.columns, 0);
+        let none = completion_regions(&frame(42, 100), 18, false);
+        assert_eq!(none.preview.columns, 0);
+    }
+
+    #[test]
     fn a_short_frame_gives_up_a_completions_rows() {
         let shape = |rows: usize| {
-            let regions = completion_regions(&frame(rows + 2, 100), 18);
+            let regions = completion_regions(&frame(rows + 2, 100), 18, false);
             (regions.outer.rows, regions.candidates.rows)
         };
         assert_eq!(shape(10), (10, 9));
@@ -890,7 +942,7 @@ mod tests {
             let regions = if listed == 0 {
                 float_regions(&layout, content)
             } else {
-                completion_regions(&layout, listed)
+                completion_regions(&layout, listed, false)
             };
             let FloatRegions { outer, inner, candidates, .. } = regions;
             // The candidates, inside the float and below what it shows, never over it.

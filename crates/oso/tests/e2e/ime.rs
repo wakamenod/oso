@@ -64,9 +64,8 @@ fn a_preedit_draws_in_the_window_and_a_commit_is_one_undo_step() {
     assert_eq!(state["ime"]["preedit"], Value::Null);
     assert_visible_row(&state, 0, "日本abc");
     assert_eq!(cursor(&state), (0, 4));
-    // Now what holds a restart is the edit, which a file can carry.
-    let refused = app.try_call("check-handover", None).unwrap_err();
-    assert!(refused.contains("unsaved edits"), "{refused}");
+    // With the composition over, the edit is text a restart carries (ADR 0090).
+    assert!(app.call("check-handover", None)["generation"].is_u64());
 
     app.send_keys("x");
     ime(&mut app, json!({ "commit": "、" })).unwrap();
@@ -165,6 +164,46 @@ fn the_ime_is_off_where_keys_are_read_as_keys_and_turning_off_keeps_the_text() {
     assert_eq!(state["ime"]["area"], Value::Null);
     app.show_buffer(&notes);
     assert!(allowed(&mut app));
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn no_input_context_is_given_while_the_ime_is_off() {
+    let scratch = Scratch::new("ime-context");
+    let file = scratch.write("notes.txt", b"abc\n");
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let mut app = App::start(Some(&file), scratch.path());
+    let notes = app.wait_until_ready()["buffer"]["id"].clone();
+    // oso's own layer gives none while the IME is off, so no text service reads the view
+    // then (ADR 0070); winit keeps its own, and the socket reports none.
+    // The window applies what the app asks once the app's handler returns, and a request of
+    // the socket may come in the same turn, so each is waited for.
+    let native = cfg!(all(target_os = "macos", feature = "native-window"));
+    let given = |app: &mut App, on: bool, what: &str| {
+        let context = if native { json!(on) } else { Value::Null };
+        app.wait_for(what, |state| state["ime"]["input_context"] == context);
+    };
+    given(&mut app, true, "a context at first");
+    app.send_keys("C-x");
+    given(&mut app, false, "no context after a prefix key");
+    app.send_keys("C-g");
+    given(&mut app, true, "a context again");
+    app.open_file(&env);
+    app.wait_until_ready();
+    given(
+        &mut app,
+        false,
+        "no context in a buffer that may hold secrets",
+    );
+    // A request through the socket is no event AppKit dispatched, and for a buffer that may
+    // hold secrets the window layer has AppKit read the context again at once; other flips
+    // wait for AppKit's update after the next event.
+    let current = if native { json!(false) } else { Value::Null };
+    app.wait_for("AppKit's current context gone at once", |state| {
+        state["ime"]["current_input_context"] == current
+    });
+    app.show_buffer(&notes);
+    given(&mut app, true, "a context back from it");
 }
 
 #[test]

@@ -105,9 +105,10 @@ under [Questions](#questions), which the text below describes. The new public it
   or at its start.
 - **The window's places are in the order it showed the buffers,** the most recent first. That order
   is `C-x b`'s and `M-,`'s. A killed buffer's place goes.
-- **`C-h e` and `C-h r` go back through it:** the same key on `*Messages*` or `*Emergency Copies*`
-  shows the buffer shown before it, at its place. ADR 0063's `way_back` and its `Place` go. A window
-  on `*Messages*` hands over, at a restart, the buffer before it in the order, as ADR 0063 says.
+- **`C-h e` and `C-h r` go back as before,** through the internal buffers the window went through,
+  to the buffer it came from: ADR 0063's way back keeps only which buffers, and the window's places
+  say where it was in each, so its own `Place` goes. A window on `*Messages*` hands over, at a
+  restart, the buffer it came from and its place, as ADR 0063 says.
 - Places stay in memory and are not carried by a restart, beyond what ADR 0063 hands over. Positions
   in a buffer that may hold secrets are withheld from `get-state` as before (ADR 0058).
 
@@ -165,9 +166,9 @@ under [Questions](#questions), which the text below describes. The new public it
   buffer around the selected mark, with that mark drawn as a hollow cursor.
 - **`RET`** leaves one cursor at the mark, with the region hidden, and puts where the cursor was
   in the ring, as `C-u C-SPC` does.
-- It previews the buffer that is shown, also one that may hold secrets, as nothing new reaches the
-  screen; its rows and its preview are withheld from `get-state` as every prompt beside such a
-  buffer is (ADR 0072, ADR 0076).
+- It previews the buffer the tiled window shows, but never one that may hold secrets, as no
+  preview does; its rows are withheld from `get-state` as every prompt beside such a buffer is
+  (ADR 0072, ADR 0076). It refuses inside a prompt, whose own buffer is no list of marks.
 
 ### Reach and the sockets
 
@@ -189,7 +190,8 @@ under [Questions](#questions), which the text below describes. The new public it
 ### Where it lives
 
 - **`oso-core`:** `ArgSpec::Buffer` and `BufferPurpose`; a window's places and their order in
-  `window/places.rs`, which `editor/messages.rs`'s `Place` gives way to; distinct names as a pure
+  `window/places.rs` (`window::Place`, `Window::places`), which `editor/messages.rs`'s `Place`
+  gives way to; distinct names as a pure
   function in `buffer/names.rs`; `Editor`'s switching, killing, previous and next buffer in
   `editor/switch.rs`; the preview's cells in `frame::completion_regions` (`FloatRegions::preview`).
 - **`oso`:** the commands in `commands/buffers.rs`, their keys in `bindings`, the candidates in
@@ -252,8 +254,8 @@ accepted, the status of ADR 0040, ADR 0044, ADR 0063 and ADR 0071 gains `amended
 - [ADR 0063](0063-modeline-echo-area-and-internal-buffers.md), "`kill_buffer` leaves it. M2-19's
   `kill-buffer` decides whether a person may": a person may not; `*Emergency Copies*` and `*Agent*`
   are kept the same way.
-- ADR 0063, "the same key goes back to where the window was" through a `Place`: it goes back
-  through the window's places, which replace the `Place` and the way back.
+- ADR 0063, "the same key goes back to where the window was" through a `Place`: the way back keeps
+  only the buffers, and the window's places, which replace the `Place`, say where it was.
 - [ADR 0071](0071-mark-and-region.md), "a window that shows another buffer loses its marks and its
   mark ring, as it loses its cursors" (recorded in `open-questions.md`): the window keeps them with
   the buffer's place, and coming back restores them.
@@ -266,13 +268,14 @@ accepted, the status of ADR 0040, ADR 0044, ADR 0063 and ADR 0071 gains `amended
   in `M-x`.
 - A window keeps a place for every buffer it showed, a selection set and a mark ring each, which
   is small next to the buffers.
-- `C-h e` and `C-h r` lose their own way back, and use the window's order.
+- `C-h e` and `C-h r` keep their way back, and take where the window was from its places.
 - An agent can switch to any buffer by name, but not to one that may hold secrets, and cannot kill
   one.
 - Killing a buffer of any size costs the UI thread little, and a load it had stops at once.
-- `oso-core`'s public API gains `ArgSpec::Buffer`, `BufferPurpose`, `FloatRegions::preview` and
-  `Editor`'s switching, killing and cycling methods; `Editor::place_behind_messages` gives the
-  window's previous place instead of the way back's.
+- `oso-core`'s public API gains `ArgSpec::Buffer`, `BufferPurpose`, `FloatRegions::preview`,
+  `window::Place`, `Window::places`, `KillRefused`, and `Editor`'s switching, killing and walking
+  methods (`walk_buffers`, `kill_by_person`, `kill_asked`, `take_freed`);
+  `Editor::place_behind_internal` reads its place from the window's places.
 
 ## Alternatives considered
 

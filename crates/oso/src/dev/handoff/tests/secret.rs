@@ -2,7 +2,9 @@
 //!
 //! Must not depend on: a window or the file system; a state is a plain value.
 
-use super::super::{Restore, SECRET_SHOWN, State, check, exit_allowed, export, generation, parse};
+use super::super::{
+    Restore, SECRET_SHOWN, State, check, exit_allowed, export_value as export, generation, parse,
+};
 use super::{TYPED, absolute, type_text, visiting};
 use crate::dev::protocol::EXIT_REFUSED;
 use oso_core::buffer::Buffer;
@@ -39,8 +41,8 @@ fn a_secret_file_behind_messages_comes_back_unshown_with_no_position() {
     editor.toggle_messages();
     let exported = export(&editor, &[], None, None).unwrap();
     let state = parse(&exported).unwrap();
-    assert_eq!(state.buffers[state.shown], None);
-    assert!(state.buffers.contains(&Some(PathBuf::from(&path))));
+    assert_eq!(state.paths()[state.shown], None);
+    assert!(state.paths().contains(&Some(PathBuf::from(&path))));
     assert_eq!(state.selections, SelectionSet::default());
     assert_eq!(state.scroll, Scroll::default());
 }
@@ -51,7 +53,7 @@ fn imported(state: &State) -> Editor {
     let mut editor = Editor::default();
     let scratch = editor.window().buffer();
     let mut shown = scratch;
-    for (index, path) in state.buffers.iter().enumerate() {
+    for (index, path) in state.paths().iter().enumerate() {
         let id = path.as_ref().map_or(scratch, |path| {
             let mut buffer = Buffer::visiting(path.clone());
             buffer.apply_load(decode_all(b"KEY=1\n", TabWidth::default()));
@@ -180,4 +182,51 @@ fn a_saved_file_a_secret_kill_was_yanked_into_is_refused() {
         assert!(message.contains("notes.txt"), "{message}");
         assert!(!message.contains("KEY"), "{message}");
     }
+}
+
+#[test]
+fn an_unsaved_secret_kill_yanked_in_holds_the_restart_and_no_kill_of_it_is_carried() {
+    let mut editor = visiting(&absolute("/p/notes.txt"), "on disk\n");
+    let fingerprint = oso_core::kill::Fingerprint { len: 3, hash: 1 };
+    editor.take_from_clipboard(oso_core::rope::Rope::from("KEY"), true, fingerprint);
+    editor.yank(0, false).unwrap();
+    editor.toggle_messages();
+    for message in [
+        export(&editor, &[], None, None).unwrap_err(),
+        check(&editor).unwrap_err(),
+    ] {
+        assert!(message.contains("notes.txt"), "{message}");
+        assert!(message.contains("may hold secrets"), "{message}");
+        assert!(!message.contains("KEY"), "{message}");
+    }
+}
+
+#[test]
+fn a_modified_file_not_judged_yet_holds_the_restart() {
+    let mut editor = Editor::default();
+    let mut buffer = Buffer::visiting(PathBuf::from(absolute("/p/notes.txt")));
+    buffer.apply_load(decode_all(b"on disk\n", TabWidth::default()));
+    let id = editor.add_buffer(buffer);
+    editor.show(id);
+    type_text(&mut editor);
+    let message = check(&editor).unwrap_err();
+    assert!(message.contains("may hold secrets"), "{message}");
+}
+
+#[test]
+fn kills_from_a_secret_buffer_or_the_clipboard_are_never_carried() {
+    use oso_core::kill::{Direction, Fingerprint};
+    let mut editor = visiting(&absolute("/p/.env"), "SECRET-VALUE\n");
+    editor
+        .kill(std::iter::once(0..6), Direction::Forward, true)
+        .unwrap();
+    let fingerprint = Fingerprint { len: 6, hash: 1 };
+    editor.take_from_clipboard(oso_core::rope::Rope::from("PASTED"), false, fingerprint);
+    editor.toggle_messages();
+    let ring = editor.kill_ring();
+    assert!(ring.iter().any(|entry| entry.is_secret()));
+    assert!(ring.iter().any(|entry| entry.came_from_clipboard()));
+    let state = export(&editor, &[], None, None).unwrap();
+    assert_eq!(state["kills"], serde_json::json!([]));
+    assert!(!state.to_string().contains("SECRET"));
 }

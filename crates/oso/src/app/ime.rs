@@ -51,6 +51,13 @@ pub(super) struct ImeState {
     /// The cursor area last given, with the scale factor it was given at, since the window
     /// system keeps it in logical units.
     area: Option<(PixelRect, f64)>,
+    /// The composition as last laid out for the window (ADR 0077): its text, empty with none,
+    /// its first cell, and where each of its characters is from that cell's left.
+    laid_out: String,
+    first: Option<PixelRect>,
+    positions: Vec<f32>,
+    /// The next layout is worked out here, so that a key of a composition allocates nothing.
+    scratch: Vec<f32>,
 }
 
 impl App {
@@ -78,8 +85,9 @@ impl App {
     /// What follows every event, before the next is read, as the window system hands a key to the
     /// input method before it reaches oso (ADR 0069): a composition ends if a buffer that
     /// may hold secrets is selected, whatever selected it, then the IME is allowed as
-    /// wanted, and the OS gets the cursor's cell if it changed, so that a composition
-    /// started by the next key opens its candidate window there.
+    /// wanted, and the window gets the cursor's cell if it changed, so that a composition
+    /// started by the next key opens its candidate window there, and where each character of
+    /// a composition is drawn.
     pub(super) fn after_event(&mut self, event_loop: &Loop<'_>) {
         // What follows logs, and the event may have brought a secret buffer into view.
         self.note_logging();
@@ -93,6 +101,7 @@ impl App {
         self.sync_ime(event_loop);
         self.sync_secure_input();
         self.give_cursor_area();
+        self.give_preedit_layout();
     }
 
     /// Asks the window for secure input while the selected buffer may hold secrets, as a
@@ -223,6 +232,34 @@ impl App {
         }
         view.window.set_ime_cursor_area(area);
         self.ime.area = Some((area, scale));
+    }
+
+    /// Gives the window where the composition is drawn, so that the input method's question
+    /// about a range of it gets that place, and its candidate window follows the segment being
+    /// converted (ADR 0077). It is worked out after each event during a composition, as the
+    /// view may scroll or the grid change, and given only when it changed. None once the
+    /// composition ends.
+    fn give_preedit_layout(&mut self) {
+        let Some(view) = &self.view else {
+            return;
+        };
+        let mut positions = std::mem::take(&mut self.ime.scratch);
+        let first = self
+            .editor
+            .preedit_layout(view.render_state.pixel_grid(), &mut positions);
+        let text = first
+            .and(self.editor.preedit())
+            .map_or("", |preedit| preedit.text());
+        let ime = &mut self.ime;
+        if first != ime.first || positions != ime.positions || text != ime.laid_out {
+            let laid_out = first.map(|first| (text, first, positions.as_slice()));
+            view.window.set_ime_preedit(laid_out);
+            ime.first = first;
+            ime.laid_out.clear();
+            ime.laid_out.push_str(text);
+            std::mem::swap(&mut ime.positions, &mut positions);
+        }
+        ime.scratch = positions;
     }
 }
 
