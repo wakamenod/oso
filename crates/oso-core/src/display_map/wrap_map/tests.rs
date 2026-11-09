@@ -87,6 +87,17 @@ fn a_long_line_spans_many_items() {
 }
 
 #[test]
+fn a_tab_across_the_edge_goes_to_the_next_row_with_its_width() {
+    let text = "abcdefg\thi";
+    let display = display(text);
+    let wrap = WrapSnapshot::new(&display, 8);
+    assert_eq!(rows(&wrap, &display, text), ["abcdefg|", "\thi"]);
+    // It keeps the one cell it has at column 7 of its line.
+    let row = wrap.row(&display, 1);
+    assert_eq!(row.column, 7);
+}
+
+#[test]
 fn debug_prints_no_offsets() {
     let display = display("one two three four");
     let wrap = WrapSnapshot::new(&display, 9);
@@ -207,5 +218,100 @@ proptest! {
         let after = map.snapshot();
         let fresh = WrapSnapshot::new(&after, columns);
         prop_assert_eq!(shape(&wrap, &after), shape(&fresh, &after));
+    }
+}
+
+proptest! {
+    /// Rows cover a text with invalid bytes, which show as `\\xNN` and make it read-only,
+    /// so that it is wrapped but never edited.
+    #[test]
+    fn rows_cover_a_text_with_invalid_bytes(
+        pieces in prop::collection::vec(
+            prop_oneof![wrap_text(3).prop_map(String::into_bytes), Just(b"\xff".to_vec()), Just(b"\xc3".to_vec())],
+            0..30,
+        ),
+        columns in 8_usize..24,
+        tab_width in 1_u32..13,
+    ) {
+        // As a load does: each invalid byte a U+FFFD, noted before the text that holds it.
+        let mut text = String::new();
+        let mut invalid = Vec::new();
+        for piece in &pieces {
+            match std::str::from_utf8(piece) {
+                Ok(valid) => text.push_str(valid),
+                Err(_) => {
+                    invalid.push((text.len(), piece[0]));
+                    text.push('\u{fffd}');
+                }
+            }
+        }
+        let mut rope = Rope::new();
+        let mut map = DisplayMap::new(&rope, TabWidth::new(tab_width));
+        map.extend_invalid(0, &invalid);
+        let edit = rope.push_str(&text);
+        map.sync(&rope, &edit);
+        let display = map.snapshot();
+        let wrap = WrapSnapshot::new(&display, columns);
+        let mut at = 0;
+        for index in 0..wrap.row_count() {
+            let row = wrap.row(&display, index);
+            prop_assert_eq!(row.start, at);
+            at = row.end;
+        }
+        prop_assert_eq!(at, text.len());
+    }
+
+    /// Edits keep the rows a wrap from scratch gives at any tab width.
+    #[test]
+    fn edits_at_any_tab_width_rewrap_as_a_wrap_from_scratch(
+        text in wrap_text(50),
+        insert in wrap_text(4),
+        start in 0_usize..300,
+        len in 0_usize..10,
+        columns in 8_usize..24,
+        tab_width in 1_u32..13,
+    ) {
+        let mut rope = Rope::from(text.as_str());
+        let mut map = DisplayMap::new(&rope, TabWidth::new(tab_width));
+        let before = map.snapshot();
+        let wrap = WrapSnapshot::new(&before, columns);
+        let start = crate::rope::tests::floor_boundary(&text, start);
+        let end = crate::rope::tests::floor_boundary(&text, start + len);
+        let edit = rope.replace(start..end, &insert);
+        map.sync(&rope, &edit);
+        let after = map.snapshot();
+        let edited = wrap.edited(&before, &after, &edit);
+        let fresh = WrapSnapshot::new(&after, columns);
+        prop_assert_eq!(shape(&edited, &after), shape(&fresh, &after));
+    }
+
+    /// Several splices of one command, applied from the end back as the editor applies them,
+    /// keep the rows a wrap from scratch gives, with no budget to run out of.
+    #[test]
+    fn a_command_of_several_splices_rewraps_as_a_wrap_from_scratch(
+        text in wrap_text(50),
+        places in prop::collection::vec((0_usize..300, 0_usize..5, wrap_text(2)), 1..6),
+        columns in 8_usize..20,
+    ) {
+        let mut rope = Rope::from(text.as_str());
+        let mut map = DisplayMap::new(&rope, TabWidth::new(4));
+        let wrap = WrapSnapshot::new(&map.snapshot(), columns);
+        let mut places = places;
+        places.sort_by_key(|&(start, ..)| std::cmp::Reverse(start));
+        let mut splices = Vec::new();
+        for (start, len, insert) in places {
+            let now = rope.to_string();
+            let start = crate::rope::tests::floor_boundary(&now, start);
+            let end = crate::rope::tests::floor_boundary(&now, start + len);
+            let edit = rope.replace(start..end, &insert);
+            let before = map.snapshot();
+            map.sync(&rope, &edit);
+            splices.push(Splice { before, after: map.snapshot(), edit });
+        }
+        let after = map.snapshot();
+        let mut unlimited = usize::MAX;
+        let (edited, stale) = wrap.edited_command(&splices, &mut unlimited);
+        prop_assert!(stale.is_empty());
+        prop_assert_eq!(shape(&edited, &after), shape(&WrapSnapshot::new(&after, columns), &after));
     }
 }

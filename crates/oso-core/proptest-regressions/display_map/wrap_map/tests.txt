@@ -1,9 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc d6d8cc94ed9eaebfd58f3a800264dd98c7d404274460dacf2821089dc1376fa8 # shrinks to text = "👍\r\n日本a日本語awordaaa日本a👍\r\naa\r\naa👍aa日本日本,aaa\r\nabcdefghijklabcdefghijkl👍🏽日本語日本語a👍🏽,a\r\nの👍\u{85}\r語\t👨\u{200d}👩\u{200d}👧\u{202e}日本語\n", insert = " ", start = 69, len = 4, columns = 8, wrapped = true
-cc 8dcf5c8b560abd57329355dfe6d4307f3ab65cd5c63bc0fe37763abcc7df6361 # shrinks to text = "\r\n\n日本語日本語a👍🏽\rwordaaword\r日本語日本語aaaaaword\r  👍abcdefghijkl日本語\r\r\n👨\u{200d}👩\u{200d}👧日本語の\n", insert = "", start = 0, len = 1, columns = 8, wrapped = false
-cc bfca67753f10c90f2309c3da1d2428dc01351469920b8e1dc90aa26b371b3ee7 # shrinks to text = "👍日本語a日本日本語\r👍🏽\u{202e}\rabcdefghijkl", edits = [(4, 0, "日本語"), (50, 0, "abcdefghijkl"), (0, 4, "語\t"), (56, 0, "\t"), (4, 0, "\r")], columns = 9

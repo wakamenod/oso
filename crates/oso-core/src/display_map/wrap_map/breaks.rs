@@ -79,10 +79,13 @@ fn is_cjk(c: char) -> bool {
     )
 }
 
-/// Whether a row may not start with `next`, after `before` (JIS X 4051's core sets).
+/// Whether a row may not start with `next`, after `before` (JIS X 4051's core sets, with
+/// iteration marks, the wave dash, closing quotes and their halfwidth forms).
 fn starts_badly(before: &Cluster, next: &Cluster) -> bool {
-    const CJK: &str =
-        "、。，．・：；？！ー）］｝〕〉》」』】ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ";
+    const CJK: &str = concat!(
+        "、。，．・：；？！ー）］｝〕〉》」』】ぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ",
+        "々ゝゞヽヾ〜‼”’｡｣､･ｧｨｩｪｫｬｭｮｯｰ",
+    );
     CJK.contains(next.first)
         || (before.class == Class::Cjk && ",.:;?!)]}".contains(next.first))
         || matches!(u32::from(next.first), 0x31f0..=0x31ff)
@@ -90,7 +93,7 @@ fn starts_badly(before: &Cluster, next: &Cluster) -> bool {
 
 /// Whether a row may not end with `last`, before `next`.
 fn ends_badly(last: &Cluster, next: &Cluster) -> bool {
-    "（［｛〔〈《「『【".contains(last.first)
+    "（［｛〔〈《「『【“‘｢".contains(last.first)
         || (next.class == Class::Cjk && "([{".contains(last.first))
 }
 
@@ -196,10 +199,18 @@ impl<I: Iterator<Item = Cluster>> Rows<I> {
     fn break_before(&self, overflow: usize) -> usize {
         let pending = &self.pending;
         let at = |index: usize| &pending[index];
-        // One space may hang into the mark's column.
+        // One space may hang into the mark's column, if the row may break after it or more
+        // spaces follow, which start the next row.
         let start = self.row_column().unwrap_or(0);
         let over = at(overflow);
-        if overflow > 0 && over.class == Class::Space && over.column - start == self.width {
+        let breaks_after = pending.get(overflow + 1).is_none_or(|next| {
+            next.class == Class::Space || (may_break(over, next) && keeps_kinsoku(over, next))
+        });
+        if overflow > 0
+            && over.class == Class::Space
+            && over.column - start == self.width
+            && breaks_after
+        {
             return overflow + 1;
         }
         if overflow == 0 {
@@ -265,6 +276,12 @@ impl<I: Iterator<Item = Cluster>> Iterator for Rows<I> {
             }
             let cluster = self.pending[index];
             if cluster.column - start + cluster.cells > self.width {
+                // Whether a space may hang depends on what follows it.
+                if index + 1 == self.pending.len()
+                    && let Some(next) = self.clusters.next()
+                {
+                    self.pending.push_back(next);
+                }
                 let kept = self.break_before(index);
                 return Some(self.take(kept));
             }
@@ -358,6 +375,30 @@ mod tests {
     #[test]
     fn a_cluster_wider_than_a_row_has_a_row_of_its_own() {
         assert_eq!(rows("日a", 1), ["日", "a"]);
+    }
+
+    #[test]
+    fn a_space_hangs_only_where_the_row_may_break_after_it() {
+        // Before a no-break space, it does not, and the word breaks at the edge.
+        assert_eq!(rows("abcdefg \u{a0}xy", 7), ["abcdefg", " \u{a0}xy"]);
+        // Before `。`, it does not either, so no row starts with `。`.
+        assert_eq!(rows("日本語で 。すね", 8), ["日本語", "で 。す", "ね"]);
+    }
+
+    #[test]
+    fn an_ideographic_space_never_hangs() {
+        assert_eq!(rows("日本語あ\u{3000}い", 8), ["日本語あ", "\u{3000}い"]);
+    }
+
+    #[test]
+    fn the_other_no_break_spaces_hold_their_neighbours_together() {
+        assert_eq!(rows("ab cd\u{202f}ef", 6), ["ab ", "cd\u{202f}ef"]);
+        assert_eq!(rows("ab cd\u{2007}ef", 6), ["ab ", "cd\u{2007}ef"]);
+    }
+
+    #[test]
+    fn an_opening_bracket_before_cjk_does_not_end_a_row() {
+        assert_eq!(rows("日本(日本", 6), ["日本", "(日本"]);
     }
 
     #[test]

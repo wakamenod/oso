@@ -7,9 +7,11 @@
 
 use super::breaks;
 use super::{Builder, Bytes, Row, RowStream, Start, WrapItem, WrapSnapshot};
-use crate::display_map::{DisplaySnapshot, MAX_CLUSTER_BYTES};
+use crate::display_map::{DisplayPoint, DisplaySnapshot, MAX_CLUSTER_BYTES};
 use crate::rope::RopeEdit;
 use crate::sum_tree::{Bias, Cursor};
+
+use std::ops::Range;
 
 impl WrapSnapshot {
     /// The rows after `edit`, which made `display` from `before`, the snapshot these rows
@@ -22,24 +24,78 @@ impl WrapSnapshot {
         display: &DisplaySnapshot,
         edit: &RopeEdit,
     ) -> Self {
+        let mut unlimited = usize::MAX;
+        self.edited_within(before, display, edit, &mut unlimited).0
+    }
+
+    /// [`WrapSnapshot::edited`] reading at most `budget` bytes of rows, which it takes from.
+    /// Past the budget it keeps the old rows, joined to the new ones by provisional rows, and
+    /// returns the stale range, from where it stopped to the end of that line, for a
+    /// [`WrapJob`](super::WrapJob) to rewrap (ADR 0100). A window takes a command's budget
+    /// from [`COMMAND_BUDGET`](super::COMMAND_BUDGET).
+    pub fn edited_within(
+        &self,
+        before: &DisplaySnapshot,
+        display: &DisplaySnapshot,
+        edit: &RopeEdit,
+        budget: &mut usize,
+    ) -> (Self, Option<Range<usize>>) {
+        let never = || false;
+        self.edited_unless(before, display, edit, budget, &never)
+            .unwrap_or_else(|| (self.clone(), Some(edit.new.clone())))
+    }
+
+    /// [`WrapSnapshot::edited_within`], or `None` once `stop` says so, which it asks every
+    /// [`STOP_ROWS`](super::STOP_ROWS) rows.
+    fn edited_unless(
+        &self,
+        before: &DisplaySnapshot,
+        display: &DisplaySnapshot,
+        edit: &RopeEdit,
+        budget: &mut usize,
+        stop: &dyn Fn() -> bool,
+    ) -> Option<(Self, Option<Range<usize>>)> {
         let old_end = self.tree.summary().bytes;
         if old_end == 0 {
             // An empty buffer's one row has no bytes to place a splice by.
-            return Self::with_width(display, self.width);
+            return Some((Self::with_width(display, self.width), None));
         }
         let delta = edit.new.len() as isize - edit.old.len() as isize;
         let from = self.rewrap_start(display, edit.old.start.min(old_end));
-        let mut stream = RowStream::new(display, from, self.width);
         let mut fresh = Vec::new();
         // Where the old rows take over, in the old offsets, or the end.
         let mut until = old_end;
-        while let Some(row) = stream.next() {
-            fresh.push(row);
-            let (at, column) = stream.position();
-            if at > edit.new.end {
-                let old = at.checked_add_signed(-delta).unwrap_or(0);
-                if self.starts_row_at((before, display), (old, at), column) {
-                    until = old;
+        let mut stale = None;
+        if *budget == 0 {
+            let (wrap, range) = self.spent((before, display), edit.old.clone(), delta);
+            return Some((wrap, Some(range)));
+        } else {
+            *budget = budget.saturating_sub(super::job::SPLICE_COST);
+            let mut stream = RowStream::new(display, from, self.width);
+            let mut tabs = None;
+            while let Some(row) = stream.next() {
+                if fresh.len() % super::STOP_ROWS == super::STOP_ROWS - 1 && stop() {
+                    return None;
+                }
+                fresh.push(Fresh::Row(row));
+                *budget = budget.saturating_sub(row.len as usize);
+                let (at, column) = stream.position();
+                if at > edit.new.end {
+                    let old = at.checked_add_signed(-delta).unwrap_or(0);
+                    if self.starts_row_at((before, display), (old, at), column, &mut tabs) {
+                        until = old;
+                        break;
+                    }
+                }
+                if *budget == 0 && at < display.len() {
+                    let near = if at > edit.new.end {
+                        at.checked_add_signed(-delta).unwrap_or(0)
+                    } else {
+                        edit.old.end
+                    };
+                    let (join, range) =
+                        self.join_old((before, display), (at, near), delta, &mut fresh);
+                    (until, stale) = (join, Some(range));
                     break;
                 }
             }
@@ -47,15 +103,117 @@ impl WrapSnapshot {
         let mut tree = self.tree.clone();
         let (first, last, items) = self.splice(display, (from, until), (delta, &fresh));
         tree.replace_items(Bytes(first)..Bytes(last), items);
-        Self {
+        let wrap = Self {
             tree,
             width: self.width,
+        };
+        Some((wrap, stale))
+    }
+
+    /// The rows after edits of `old`, rows that `before` showed, which changed its length by
+    /// `delta` and made `display`, with a command's budget spent: the edits' rows are
+    /// provisional at once, read by no rule. Returns them and the stale range.
+    pub(super) fn spent(
+        &self,
+        (before, display): (&DisplaySnapshot, &DisplaySnapshot),
+        old: Range<usize>,
+        delta: isize,
+    ) -> (Self, Range<usize>) {
+        let from = self.rewrap_start(display, old.start.min(self.tree.summary().bytes));
+        let mut fresh = Vec::new();
+        let (until, range) = self.join_old((before, display), (from, old.end), delta, &mut fresh);
+        let mut tree = self.tree.clone();
+        let (first, last, items) = self.splice(display, (from, until), (delta, &fresh));
+        tree.replace_items(Bytes(first)..Bytes(last), items);
+        let wrap = Self {
+            tree,
+            width: self.width,
+        };
+        (wrap, range)
+    }
+
+    /// Joins the new rows, which reach `at`, to the old ones at the first old row boundary at
+    /// or after `near`, with provisional rows between. Returns that boundary, in the old
+    /// offsets, and the stale range a job should rewrap: to the end of the line if it goes on
+    /// across the boundary.
+    fn join_old(
+        &self,
+        (before, display): (&DisplaySnapshot, &DisplaySnapshot),
+        (at, near): (usize, usize),
+        delta: isize,
+        fresh: &mut Vec<Fresh>,
+    ) -> (usize, Range<usize>) {
+        let old_end = self.tree.summary().bytes;
+        let (join, continues) = self.old_boundary(before, near.min(old_end));
+        let join_new = join.checked_add_signed(delta).unwrap_or(0).max(at);
+        provisional(display, (at, join_new), continues, fresh);
+        let stale_end = if continues {
+            let line = display.offset_to_display_point(join_new).row;
+            super::line_end(display, line, display.len())
+        } else {
+            join_new
+        };
+        (join, at..stale_end.max(at))
+    }
+
+    /// The rows with those of `range` in `display` wrapped again, as a stale range is, or
+    /// `None` once `stop` says so.
+    pub(super) fn rewrapped_unless(
+        &self,
+        display: &DisplaySnapshot,
+        range: Range<usize>,
+        stop: &dyn Fn() -> bool,
+    ) -> Option<Self> {
+        let edit = RopeEdit {
+            old: range.clone(),
+            new: range,
+        };
+        let mut unlimited = usize::MAX;
+        let (wrap, _) = self.edited_unless(display, display, &edit, &mut unlimited, stop)?;
+        Some(wrap)
+    }
+
+    /// The first place at or after `near` where a row started in `before`, which these rows
+    /// were made with, and whether a logical line goes on across it.
+    fn old_boundary(&self, before: &DisplaySnapshot, near: usize) -> (usize, bool) {
+        let line_start = |at: usize| before.offset_to_display_point(at).column == 0;
+        let mut cursor = self.tree.cursor::<(Bytes, Start)>();
+        cursor.seek(&Bytes(near), Bias::Right);
+        let start = cursor.start().1;
+        match cursor.item() {
+            None => (self.tree.summary().bytes, false),
+            Some(WrapItem::Lines { .. }) => {
+                if line_start(near) {
+                    (near, false)
+                } else {
+                    let line = before.offset_to_display_point(near).row;
+                    (super::line_end(before, line, before.len()), false)
+                }
+            }
+            Some(WrapItem::Rows(rows)) => {
+                let mut at = start.bytes;
+                let mut goes_on = None;
+                for row in rows.iter() {
+                    if at >= near {
+                        return (at, goes_on.unwrap_or_else(|| !line_start(at)));
+                    }
+                    at += row.len as usize;
+                    goes_on = Some(row.continues);
+                }
+                (at, goes_on.unwrap_or(false))
+            }
         }
     }
 
     /// Where a rewrap for an edit at `at` starts: the row before the one that holds `at`,
     /// on the same logical line, and further back while those rows hold too few clusters for
     /// kinsoku's reach. `at` and what precedes it read the same in `display` as before.
+    ///
+    /// That holds because `at` starts the chunks the rope rebuilt, which takes the chunk that
+    /// ends at the edit too, and no display cluster crosses into them from before: an
+    /// invisible or an escape is a cluster of its own. A row before `at` can then change only
+    /// at its end, where kinsoku and a hanging space read up to [`breaks::KINSOKU_REACH`]
+    /// clusters into the next row, which the rows stepped back over cover.
     fn rewrap_start(&self, display: &DisplaySnapshot, at: usize) -> usize {
         let mut row = self.row_of(display, at);
         let mut start = self.row_span(display, row).0;
@@ -91,6 +249,7 @@ impl WrapSnapshot {
         (before, display): (&DisplaySnapshot, &DisplaySnapshot),
         (old, at): (usize, usize),
         column: usize,
+        tabs: &mut Option<(usize, TabAhead)>,
     ) -> bool {
         let mut cursor = self.tree.cursor::<(Bytes, Start)>();
         cursor.seek(&Bytes(old), Bias::Right);
@@ -104,7 +263,7 @@ impl WrapSnapshot {
                 let mut row_start = start.bytes;
                 for index in 0..rows.len() {
                     if row_start == old {
-                        if !self.tab_follows(&mut cursor, index) {
+                        if !Self::tab_follows(&mut cursor, (index, old), tabs) {
                             return true;
                         }
                         let tab_width = display.tab_width().get() as usize;
@@ -118,33 +277,54 @@ impl WrapSnapshot {
         }
     }
 
-    /// Whether a row from `index` of the item at `cursor` to the end of its logical line holds
-    /// a tab. Reads whole items past the first by their summaries.
-    fn tab_follows(&self, cursor: &mut Cursor<'_, WrapItem, (Bytes, Start)>, index: usize) -> bool {
+    /// Whether a row from `index` of the item at `cursor`, which starts at `old`, to the end
+    /// of its logical line holds a tab. What it found holds for later rows of one rewrap, kept
+    /// in `known`, so that a long line is walked once.
+    fn tab_follows(
+        cursor: &mut Cursor<'_, WrapItem, (Bytes, Start)>,
+        (index, old): (usize, usize),
+        known: &mut Option<(usize, TabAhead)>,
+    ) -> bool {
+        match *known {
+            Some((from, TabAhead::At(tab))) if from <= old && old <= tab => return true,
+            Some((from, TabAhead::None(until))) if from <= old && old < until => return false,
+            _ => {}
+        }
+        let ahead = Self::tab_ahead(cursor, (index, old));
+        *known = Some((old, ahead));
+        matches!(ahead, TabAhead::At(_))
+    }
+
+    /// Where the first row from `index` of the item at `cursor`, which starts at `old`, holds a
+    /// tab on the same line, or where that line ends with none.
+    fn tab_ahead(
+        cursor: &mut Cursor<'_, WrapItem, (Bytes, Start)>,
+        (index, old): (usize, usize),
+    ) -> TabAhead {
         let mut first = Some(index);
+        let mut at = old;
         while let Some(item) = cursor.item() {
             let WrapItem::Rows(rows) = item else {
-                return false;
+                return TabAhead::None(at);
             };
             let skip = first.take().unwrap_or(0);
-            let ends_line = rows[skip..].iter().any(|row| !row.continues);
-            if !ends_line && skip == 0 {
-                if cursor.item_summary().is_some_and(|summary| summary.tabs) {
-                    return true;
-                }
+            let whole = skip == 0 && rows.iter().all(|row| row.continues);
+            if whole && !cursor.item_summary().is_some_and(|summary| summary.tabs) {
+                at += cursor.item_summary().map_or(0, |summary| summary.bytes);
             } else {
                 for row in &rows[skip..] {
                     if row.tabs {
-                        return true;
+                        return TabAhead::At(at);
                     }
+                    at += row.len as usize;
                     if !row.continues {
-                        return false;
+                        return TabAhead::None(at);
                     }
                 }
             }
             cursor.next();
         }
-        false
+        TabAhead::None(at)
     }
 
     /// The items that replace the old rows from `from` to `until`, both old offsets where a
@@ -154,7 +334,7 @@ impl WrapSnapshot {
         &self,
         display: &DisplaySnapshot,
         (from, until): (usize, usize),
-        (delta, fresh): (isize, &[Row]),
+        (delta, fresh): (isize, &[Fresh]),
     ) -> (usize, usize, Vec<WrapItem>) {
         let mut cursor = self.tree.cursor::<(Bytes, Start)>();
         cursor.seek(&Bytes(from), Bias::Right);
@@ -181,8 +361,11 @@ impl WrapSnapshot {
             }
             _ => {}
         }
-        for row in fresh {
-            builder.row(*row);
+        for piece in fresh {
+            match *piece {
+                Fresh::Row(row) => builder.row(row),
+                Fresh::Lines(lines, bytes) => builder.lines(lines, bytes),
+            }
         }
         let old_end = self.tree.summary().bytes;
         let mut last = old_end;
@@ -248,4 +431,62 @@ impl WrapSnapshot {
         }
         lines
     }
+}
+
+/// What a rewrap puts in place of old rows: rows, or provisional lines of one row each.
+#[derive(Clone, Copy)]
+enum Fresh {
+    Row(Row),
+    Lines(u32, usize),
+}
+
+/// Provisional rows over `range` of `display`, a row's start to an old row's: each logical
+/// line one row, unwrapped, the last going on past `range` if `continues`.
+fn provisional(
+    display: &DisplaySnapshot,
+    range: (usize, usize),
+    continues: bool,
+    fresh: &mut Vec<Fresh>,
+) {
+    let (mut at, end) = range;
+    let row = |len: usize, continues: bool| {
+        Fresh::Row(Row {
+            len: u32::try_from(len).unwrap_or(u32::MAX),
+            continues,
+            // Unknown, so a later resync here compares columns.
+            tabs: true,
+        })
+    };
+    if at >= end {
+        return;
+    }
+    let first = display.offset_to_display_point(at).row;
+    let first_end = super::line_end(display, first, display.len());
+    if end <= first_end {
+        fresh.push(row(end - at, continues && end < first_end));
+        return;
+    }
+    fresh.push(row(first_end - at, false));
+    at = first_end;
+    let last = display.offset_to_display_point(end).row;
+    let last_start = display.display_point_to_offset(DisplayPoint::new(last, 0), Bias::Left);
+    let whole = last - display.offset_to_display_point(at).row;
+    if whole > 0 {
+        fresh.push(Fresh::Lines(
+            u32::try_from(whole).unwrap_or(u32::MAX),
+            last_start - at,
+        ));
+    }
+    if end > last_start {
+        fresh.push(row(end - last_start, continues));
+    }
+}
+
+/// What follows a row on its line, as [`WrapSnapshot::tab_follows`] keeps it.
+#[derive(Clone, Copy)]
+enum TabAhead {
+    /// A row with a tab starts at this old offset.
+    At(usize),
+    /// No tab before the line ends at this old offset.
+    None(usize),
 }

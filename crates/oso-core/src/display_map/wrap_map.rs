@@ -17,12 +17,16 @@
 //! buffer that may hold secrets.
 
 mod breaks;
+mod builder;
 mod edit;
+mod job;
 
 use std::fmt;
 use std::sync::Arc;
 
 use self::breaks::{Cluster, RowEnd, Rows};
+use self::builder::Builder;
+pub use self::job::{COMMAND_BUDGET, Splice, WrapJob, WrapReport};
 use super::{DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::sum_tree::{Bias, Dimension, Item, SumTree, Summary};
 
@@ -36,6 +40,9 @@ const ROWS_PER_ITEM: usize = 64;
 #[cfg(test)]
 const ROWS_PER_ITEM: usize = 3;
 
+/// How many rows a job wraps between two checks of whether it was superseded.
+const STOP_ROWS: usize = 4096;
+
 /// The most logical lines an item of lines that fit holds.
 #[cfg(not(test))]
 const LINES_PER_ITEM: u32 = 256;
@@ -43,8 +50,8 @@ const LINES_PER_ITEM: u32 = 256;
 #[cfg(test)]
 const LINES_PER_ITEM: u32 = 2;
 
-/// One view row of a line that wraps: its length in bytes, and where it starts on its
-/// logical line, modulo the tab width.
+/// One view row in an item of rows: its length in bytes, and whether its line goes on and
+/// it holds a tab.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Row {
     len: u32,
@@ -59,7 +66,7 @@ struct Row {
 enum WrapItem {
     /// Whole logical lines, each in one row.
     Lines { lines: u32, bytes: usize },
-    /// Consecutive rows of one logical line.
+    /// Consecutive rows, of one logical line or several.
     Rows(Arc<[Row]>),
 }
 
@@ -194,6 +201,9 @@ struct RowStream<'a> {
     /// The logical line being read, and its rows.
     line: usize,
     rows: Option<Rows<Clustered<'a>>>,
+    /// A line in one row, found with no cluster read: where it ends and whether it holds a
+    /// tab.
+    whole: Option<(usize, bool)>,
     /// Where the next row starts, and its cell column on its line.
     at: usize,
     column: usize,
@@ -209,6 +219,7 @@ impl<'a> RowStream<'a> {
             width,
             line: point.row,
             rows: None,
+            whole: None,
             at: start,
             column: point.column,
             end: buffer_end(display),
@@ -220,8 +231,45 @@ impl<'a> RowStream<'a> {
     /// Starts reading the line of `point` from its column.
     fn open(&mut self, point: DisplayPoint) {
         let line_end = line_end(self.display, point.row, self.end);
+        if point.column == 0
+            && let Some(tabs) = self.fits_plainly((self.at, line_end))
+        {
+            self.whole = Some((line_end, tabs));
+            self.rows = None;
+            return;
+        }
         let clusters: Clustered<'a> = self.display.clusters(point).map(Cluster::of);
         self.rows = Some(Rows::new(clusters, self.width, line_end));
+    }
+
+    /// Whether the line from `start` to `end`, its line break included, fits in a row with no
+    /// rule to read: always unwrapped, and otherwise when it is printable ASCII and tabs, each
+    /// character a cluster of its own. Says too whether it holds a tab.
+    fn fits_plainly(&self, (start, end): (usize, usize)) -> Option<bool> {
+        if self.width == usize::MAX {
+            return Some(true);
+        }
+        if end - start > self.width.saturating_mul(1) + 2 {
+            return None;
+        }
+        let tab_width = self.display.tab_width().get() as usize;
+        let (mut column, mut tabs) = (0, false);
+        let text: String = self.display.text_in(start..end).collect();
+        let body = text
+            .strip_suffix("\r\n")
+            .or_else(|| text.strip_suffix('\n'))
+            .unwrap_or(&text);
+        for byte in body.bytes() {
+            match byte {
+                b'\t' => {
+                    tabs = true;
+                    column += tab_width - column % tab_width.max(1);
+                }
+                0x20..=0x7e => column += 1,
+                _ => return None,
+            }
+        }
+        (column <= self.width).then_some(tabs)
     }
 
     /// Where the next row will start, and its cell column on its line.
@@ -235,6 +283,20 @@ impl Iterator for RowStream<'_> {
 
     fn next(&mut self) -> Option<Row> {
         loop {
+            if let Some((end, tabs)) = self.whole.take() {
+                let row = Row {
+                    len: u32::try_from(end - self.at).unwrap_or(u32::MAX),
+                    continues: false,
+                    tabs,
+                };
+                self.at = end;
+                self.column = 0;
+                if self.line + 1 < self.display.row_count() {
+                    self.line += 1;
+                    self.open(DisplayPoint::new(self.line, 0));
+                }
+                return Some(row);
+            }
             let rows = self.rows.as_mut()?;
             let Some(RowEnd {
                 end,
@@ -282,79 +344,6 @@ fn line_end(display: &DisplaySnapshot, line: usize, end: usize) -> usize {
     }
 }
 
-/// Gathers rows and runs of lines into bounded items.
-#[derive(Default)]
-struct Builder {
-    items: Vec<WrapItem>,
-    /// Lines that fit, not yet in an item.
-    run: (u32, usize),
-    /// Rows of the line being read, not yet in an item.
-    rows: Vec<Row>,
-    /// Whether the rows being gathered started at a logical line's start.
-    line_started: bool,
-}
-
-impl Builder {
-    /// A builder whose first row starts a logical line if `starts_line`.
-    fn new(starts_line: bool) -> Self {
-        Self {
-            line_started: starts_line,
-            ..Self::default()
-        }
-    }
-
-    fn flush_run(&mut self) {
-        let (lines, bytes) = std::mem::take(&mut self.run);
-        if lines > 0 {
-            self.items.push(WrapItem::Lines { lines, bytes });
-        }
-    }
-
-    fn flush_rows(&mut self) {
-        if !self.rows.is_empty() {
-            self.flush_run();
-            self.items
-                .push(WrapItem::Rows(std::mem::take(&mut self.rows).into()));
-        }
-    }
-
-    /// Adds `lines` whole lines of `bytes`, each one row.
-    fn lines(&mut self, lines: u32, bytes: usize) {
-        self.flush_rows();
-        if self.run.0 + lines > LINES_PER_ITEM {
-            self.flush_run();
-        }
-        self.run.0 += lines;
-        self.run.1 += bytes;
-        self.line_started = true;
-    }
-
-    /// Adds one row.
-    fn row(&mut self, row: Row) {
-        if !row.continues && self.rows.is_empty() && self.line_started {
-            // A whole line in one row.
-            self.lines(1, row.len as usize);
-            return;
-        }
-        self.rows.push(row);
-        if !row.continues {
-            self.flush_rows();
-            self.line_started = true;
-        } else {
-            self.line_started = false;
-            if self.rows.len() == ROWS_PER_ITEM {
-                self.flush_rows();
-            }
-        }
-    }
-
-    fn finish(mut self) -> Vec<WrapItem> {
-        self.flush_rows();
-        self.flush_run();
-        self.items
-    }
-}
-
 impl WrapSnapshot {
     /// The view rows of `display` in a window `columns` cells wide: each row holds one
     /// column less, for the mark. O(n), so a large buffer is wrapped off the UI thread.
@@ -368,14 +357,45 @@ impl WrapSnapshot {
     }
 
     fn with_width(display: &DisplaySnapshot, width: usize) -> Self {
+        let never = || false;
+        Self::with_width_unless(display, width, &never).unwrap_or_else(|| Self {
+            tree: SumTree::new(),
+            width,
+        })
+    }
+
+    /// [`WrapSnapshot::with_width`], or `None` once `stop` says so, which it asks every
+    /// [`STOP_ROWS`] rows.
+    fn with_width_unless(
+        display: &DisplaySnapshot,
+        width: usize,
+        stop: &dyn Fn() -> bool,
+    ) -> Option<Self> {
         let mut builder = Builder::new(true);
-        for row in RowStream::new(display, 0, width) {
+        for (index, row) in RowStream::new(display, 0, width).enumerate() {
+            if index % STOP_ROWS == STOP_ROWS - 1 && stop() {
+                return None;
+            }
             builder.row(row);
         }
-        Self {
+        Some(Self {
             tree: builder.finish().into_iter().collect(),
             width,
-        }
+        })
+    }
+
+    /// About how many bytes of memory its rows take, its items and their summaries, for
+    /// measuring (ADR 0100).
+    pub fn heap_bytes(&self) -> usize {
+        let item = std::mem::size_of::<WrapItem>() + std::mem::size_of::<WrapSummary>();
+        self.tree
+            .iter()
+            .map(|entry| match entry {
+                WrapItem::Lines { .. } => item,
+                // An `Arc<[Row]>` has two counts before its rows.
+                WrapItem::Rows(rows) => item + 16 + rows.len() * std::mem::size_of::<Row>(),
+            })
+            .sum()
     }
 
     /// Whether rows wrap at all.
@@ -418,12 +438,13 @@ impl WrapSnapshot {
             Some(WrapItem::Rows(rows)) => {
                 let index = row - start.rows;
                 let before: usize = rows[..index].iter().map(|row| row.len as usize).sum();
+                let ended = rows[..index].iter().filter(|row| !row.continues).count();
                 let offset = start.bytes + before;
                 let this = rows[index];
                 ViewRow {
                     start: offset,
                     end: offset + this.len as usize,
-                    line: start.lines,
+                    line: start.lines + ended,
                     column: display.offset_to_display_point(offset).column,
                     continues: this.continues,
                 }

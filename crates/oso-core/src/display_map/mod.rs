@@ -252,6 +252,11 @@ impl DisplaySnapshot {
         self.tab_map.invalid()
     }
 
+    /// The text of `range`, a piece at a time. Its ends must fall on characters' boundaries.
+    pub(crate) fn text_in(&self, range: std::ops::Range<usize>) -> impl Iterator<Item = &str> + '_ {
+        self.tab_map.text_in(range)
+    }
+
     /// The buffer's length in bytes.
     pub(crate) fn len(&self) -> usize {
         self.tab_map.summary().bytes
