@@ -100,7 +100,7 @@ fn tab_puts_the_whole_path_in_and_ret_on_a_directory_goes_into_it() {
     let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
         panic!("answered");
     };
-    assert_eq!(text, "/home/me/notes/plan.md");
+    assert_eq!(Path::new(&text), Path::new("/home/me/notes/plan.md"));
 }
 
 #[test]
@@ -120,7 +120,7 @@ fn a_path_that_matches_nothing_is_given_as_typed() {
     let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
         panic!("answered");
     };
-    assert_eq!(text, "/home/me/new.md");
+    assert_eq!(Path::new(&text), Path::new("/home/me/new.md"));
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn m_ret_gives_what_is_typed_while_a_name_matches() {
     let Some(Outcome::Answered { text, .. }) = editor.take_prompt_outcome() else {
         panic!("answered");
     };
-    assert_eq!(text, "/home/me/to");
+    assert_eq!(Path::new(&text), Path::new("/home/me/to"));
 }
 
 #[test]
