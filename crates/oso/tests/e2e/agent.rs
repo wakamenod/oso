@@ -183,6 +183,26 @@ fn an_agent_drives_only_once_the_person_lets_it_in_and_by_reach() {
     thread::sleep(AFTER_TYPING);
     assert!(agent.run("forward-char", None, "look").is_ok());
 
+    // It shows a buffer C-x b lists by its name, and makes none for a name that matches none.
+    let switch = |agent: &mut Agent, name: &str| {
+        let params = json!({ "name": "switch-to-buffer", "arg": name, "reach": "look" });
+        agent.call("run", Some(params))
+    };
+    let switched = switch(&mut agent, "*Messages*");
+    assert!(switched.is_ok(), "{switched:?}");
+    assert_eq!(app.state()["buffer"]["name"], "*Messages*");
+    let buffers = app.state()["buffers"].as_array().map(Vec::len);
+    let missing = switch(&mut agent, "missing.md").unwrap_err();
+    assert!(missing.contains("no buffer by that name"), "{missing}");
+    let state = app.state();
+    assert_eq!(state["buffer"]["name"], "*Messages*");
+    assert_eq!(
+        state["buffers"].as_array().map(Vec::len),
+        buffers,
+        "no buffer made"
+    );
+    assert!(buffers.is_some());
+
     // The person turns it off: the agent's connection closes, and so does the socket.
     app.run_command("agent-channel-stop", None).unwrap();
     assert!(agent.reply().is_none(), "the connection closed");
@@ -222,6 +242,17 @@ fn the_agent_keeps_kills_from_the_clipboard_and_runs_nothing_beside_a_secret() {
     assert!(refused.contains("may hold secrets"), "{refused}");
     let state = agent.call("state", None).unwrap();
     assert_eq!(state["text"], Value::Null);
+    assert!(!state.to_string().contains(FAKE_SECRET));
+
+    // Once the person goes back, the agent cannot bring the secret buffer back by its name.
+    app.send_keys("C-x b RET");
+    app.wait_for("notes.txt", |state| state["buffer"]["name"] == "notes.txt");
+    thread::sleep(AFTER_TYPING);
+    let params = json!({ "name": "switch-to-buffer", "arg": ".env", "reach": "look" });
+    let refused = agent.call("run", Some(params)).unwrap_err();
+    assert!(refused.contains("may hold secrets"), "{refused}");
+    assert_eq!(app.state()["buffer"]["name"], "notes.txt");
+    let state = agent.call("state", None).unwrap();
     assert!(!state.to_string().contains(FAKE_SECRET));
 }
 
@@ -363,6 +394,30 @@ fn an_agent_opens_reads_and_edits_and_saves_its_own_files_only_with_a_yes() {
     );
 }
 
+/// What the flow's agent sends `oso mcp`, a line each: it starts, lists the tools, looks,
+/// tries what needs a person, and reads the state.
+fn mcp_requests() -> String {
+    let request = |id: u64, method: &str, params: Value| {
+        json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }).to_string()
+    };
+    let tool = |id: u64, name: &str, arguments: Value| {
+        request(
+            id,
+            "tools/call",
+            json!({ "name": name, "arguments": arguments }),
+        )
+    };
+    let lines = [
+        request(1, "initialize", json!({ "protocolVersion": "2025-06-18" })),
+        json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }).to_string(),
+        request(2, "tools/list", json!({})),
+        tool(3, "look", json!({ "name": "forward-word" })),
+        tool(4, "change", json!({ "name": "save-buffers-kill-terminal" })),
+        tool(5, "state", json!({})),
+    ];
+    format!("{}\n", lines.join("\n"))
+}
+
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_file_the_person_visited_that_reloads_from_elsewhere_saves_for_the_agent_only_with_a_yes() {
@@ -397,6 +452,79 @@ fn a_file_the_person_visited_that_reloads_from_elsewhere_saves_for_the_agent_onl
         b"elsewhere\n",
         "nothing written yet"
     );
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn oso_mcp_drives_the_editor_once_the_person_lets_it_in() {
+    use std::io::Read;
+    let scratch = Scratch::new("agent-mcp");
+    let file = scratch.write("notes.txt", b"one two\n");
+    let mut app = App::start(Some(&file), scratch.path());
+    app.wait_until_ready();
+    app.run_command("agent-channel-start", None).unwrap();
+    app.wait_for("the channel", |state| {
+        state["modeline"]
+            .as_str()
+            .is_some_and(|modeline| modeline.starts_with("Agent  "))
+    });
+    let requests = scratch.write("requests.jsonl", mcp_requests().as_bytes());
+    let mut bridge = app.mcp(&requests);
+
+    // The first tool call asks the person, who lets it in after a quiet moment.
+    let state = app.wait_for("the question", |state| {
+        state["prompts"]
+            .as_array()
+            .is_some_and(|prompts| !prompts.is_empty())
+    });
+    let label = state["prompts"][0]["prompt"].as_str().unwrap().to_owned();
+    assert!(
+        label.contains("through oso mcp"),
+        "the bridge runs this program: {label}"
+    );
+    thread::sleep(QUIET);
+    app.send_keys("y");
+
+    let mut output = String::new();
+    bridge
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut output)
+        .unwrap();
+    assert!(bridge.wait().unwrap().success());
+    let responses: Vec<Value> = output
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(
+        responses.len(),
+        5,
+        "no response to the notification: {output}"
+    );
+    assert_eq!(responses[0]["result"]["serverInfo"]["name"], "oso");
+    assert_eq!(responses[1]["result"]["tools"].as_array().unwrap().len(), 7);
+    let text = |response: &Value| {
+        response["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    // The person typed `y` just now, so the agent waits; either way nothing ran unasked.
+    let looked = &responses[2];
+    assert!(
+        looked["result"]["isError"] == false || text(looked).contains("typing"),
+        "{looked}"
+    );
+    assert_eq!(responses[3]["result"]["isError"], true);
+    assert!(text(&responses[3]).contains("needs a person"));
+    let state: Value = serde_json::from_str(&text(&responses[4])).unwrap();
+    let buffers = state["buffers"].as_array().unwrap();
+    assert!(
+        buffers.iter().any(|buffer| buffer["name"] == "notes.txt"),
+        "{buffers:?}"
+    );
+    assert_eq!(app.state()["prompts"], json!([]), "the editor runs on");
 }
 
 #[test]

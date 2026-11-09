@@ -36,8 +36,9 @@ pub fn open_copy(path: &Path) -> io::Result<File> {
 pub(in crate::emergency) fn open_checked(path: &Path) -> io::Result<(File, Metadata)> {
     let not_plain = || io::Error::other("it is not a plain file of this user's");
     let looked = plain_own_file(path).ok_or_else(not_plain)?;
-    let file = File::open(path)?;
-    let metadata = file.metadata()?;
+    // Opened without waiting, so that a pipe swapped in after the look cannot hold the thread.
+    let (file, metadata) =
+        oso_platform::file_meta::open_for_reading(path)?.ok_or_else(not_plain)?;
     let still_plain = metadata.is_file() && is_this_users(&metadata) && has_one_name(&metadata);
     if !still_plain || !same_file(&looked, &metadata) {
         return Err(not_plain());

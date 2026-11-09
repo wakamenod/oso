@@ -28,6 +28,10 @@ use super::{App, UserEvent};
 /// (ADR 0069, ADR 0077).
 pub(super) const COMMITS_WHEN_TURNED_OFF: bool = false;
 
+/// winit gives the input method one rectangle and no text, so the app works out neither the
+/// composition's layout nor the excerpt for it (ADR 0077).
+pub(super) const ANSWERS_INPUT_METHOD: bool = false;
+
 /// Runs the event loop until it ends. `start` makes the app, given the waker other threads
 /// reach it through, before the window opens. `started` is when the process started.
 pub fn run(started: Instant, start: impl FnOnce(Waker) -> App) {
@@ -207,6 +211,15 @@ impl Window {
     /// winit gives the input method one rectangle, the cursor area's, so where a composition
     /// is drawn goes nowhere (ADR 0077).
     pub(super) fn set_ime_preedit(&self, _laid_out: Option<(&str, PixelRect, &[f32])>) {}
+
+    /// winit gives the input method no text of a buffer (ADR 0070).
+    pub(super) fn set_ime_excerpt(&self, _excerpt: &mut String, _cursor: Option<usize>) {}
+
+    /// winit holds no excerpt, so the dev socket reports none.
+    #[cfg(feature = "dev")]
+    pub(super) fn ime_excerpt_extent(&self) -> Option<(usize, usize)> {
+        None
+    }
 }
 
 impl ApplicationHandler<UserEvent> for App {

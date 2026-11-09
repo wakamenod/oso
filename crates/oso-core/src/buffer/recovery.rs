@@ -132,6 +132,7 @@ impl Buffer {
                 len: new_len,
                 text: (old_len > 0).then(|| self.text.clone()),
             }],
+            changed: std::iter::once(0..new_len).collect(),
         })
     }
 

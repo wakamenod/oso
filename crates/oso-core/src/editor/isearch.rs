@@ -348,7 +348,7 @@ impl Editor {
         let (window, buffer) = self.window_mut(index);
         if window.buffer() == state.buffer {
             let display = buffer.display();
-            super::follow::clip_selections(&mut selections, &display, &[], false);
+            super::follow::clip_selections(&mut selections, &display, &[], false, None);
             window.restore_positions(selections, scroll, &display);
             self.follow_window(index);
         }

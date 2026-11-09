@@ -35,7 +35,8 @@ use oso_core::window::Window;
 use serde_json::{Value, json};
 
 use super::Reply;
-use crate::channel::state::{slice, visible_rows};
+use crate::channel::state::visible_rows;
+use crate::channel::text::{row_range, row_texts};
 
 /// The most visible text `get-state` returns, in bytes. A cell usually holds
 /// a few bytes but can hold dozens (combining marks), and a response this
@@ -261,6 +262,12 @@ fn completion_state(editor: &Editor, candidates: &Candidates) -> Value {
         "typed": candidates.on_input(),
         "rows": rows,
         "preview": preview,
+        // A prompt that reads a path: the directory it starts from, and whether a listing is
+        // on its way (ADR 0087).
+        "directory": editor
+            .file_directory()
+            .map(|directory| oso_core::complete::typed_form(directory, true, editor.home())),
+        "pending": editor.files_pending(),
     })
 }
 
@@ -473,8 +480,7 @@ impl TextJob {
             ));
         }
         let row_count = display.row_count();
-        let end_row = self.start_row.saturating_add(self.rows).min(row_count);
-        let range = self.start_row.min(end_row)..end_row;
+        let range = row_range(display, self.start_row, self.rows);
         if !range.is_empty() {
             let bytes =
                 motion::line_end(display, range.end - 1) - motion::line_start(display, range.start);
@@ -487,14 +493,8 @@ impl TextJob {
             }
         }
         let start_row = range.start;
-        let rows: Vec<String> = range
-            .map(|row| {
-                slice(
-                    &self.text,
-                    motion::line_start(display, row)..motion::line_end(display, row),
-                )
-            })
-            .collect();
+        // Refused above when too long, so nothing is cut short here.
+        let (rows, _) = row_texts(&self.text, display, range, usize::MAX);
         Ok(json!({
             "buffer": self.buffer,
             "start_row": start_row,

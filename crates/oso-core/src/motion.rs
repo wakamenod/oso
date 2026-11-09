@@ -130,18 +130,14 @@ impl StopWalk<'_> {
 /// The start of the display cluster at `offset`, where a cursor can be; the
 /// end of the buffer past it.
 pub fn cluster_start(display: &DisplaySnapshot, offset: usize) -> usize {
-    display.display_point_to_offset(display.offset_to_display_point(offset), Bias::Left)
+    display.cluster_at(offset).0
 }
 
 /// The end of the display cluster `offset` is inside, where a cursor can be;
 /// `offset` itself if it starts a cluster. A cursor just after typed text goes
 /// here when the text joined what follows, so what it typed stays before it.
 pub fn cluster_end(display: &DisplaySnapshot, offset: usize) -> usize {
-    let start = cluster_start(display, offset);
-    if start >= offset {
-        return start;
-    }
-    next_cluster(display, start).unwrap_or(start)
+    display.cluster_at(offset).1
 }
 
 /// The offset after the display cluster at `offset`, or the start of the
@@ -801,7 +797,69 @@ mod tests {
         assert_eq!(line_after_fraction(&d, 33, 5), 22, "the second line's end");
     }
 
+    /// The rope tests' atoms, and characters that join others in ways of their own: Prepend
+    /// marks, lone regional indicators, ZWJ and emoji, a virama, Hangul jamo, a keycap, a
+    /// tag and a BOM.
+    fn atom() -> impl Strategy<Value = &'static str> {
+        const MORE: &[&str] = &[
+            "\u{600}",
+            "\u{d4e}",
+            "\u{1f1ef}",
+            "\u{1f1f5}",
+            "\u{200d}",
+            "\u{1f468}",
+            "\u{915}\u{94d}",
+            "\u{915}",
+            "\u{94d}",
+            "\u{301}",
+            "\r",
+            "\n",
+            "a",
+            "#",
+            "\u{fe0f}",
+            "\u{20e3}",
+            "\u{1100}",
+            "\u{1161}",
+            "\u{11a8}",
+            "\u{ac00}",
+            "\u{e0001}",
+            "\u{feff}",
+        ];
+        prop_oneof![
+            prop::sample::select(crate::rope::tests::ATOMS),
+            prop::sample::select(MORE),
+        ]
+    }
+
     proptest! {
+        /// A cluster's start and end, found in one scan, are what a display point and
+        /// back finds, and the next cluster after the start, at every offset of a text
+        /// whose chunks edits have cut anywhere (ADR 0091).
+        #[test]
+        fn prop_a_cluster_is_found_as_through_a_display_point(
+            atoms in prop::collection::vec(atom(), 0..60),
+            edits in prop::collection::vec((0usize..400, prop::collection::vec(atom(), 0..4)), 0..6),
+        ) {
+            let mut rope = Rope::from(atoms.concat().as_str());
+            for (at, insert) in edits {
+                let at = crate::rope::tests::floor_boundary(&rope.to_string(), at);
+                rope.insert(at, &insert.concat());
+            }
+            let map = DisplayMap::new(&rope, TabWidth::new(4));
+            let d = map.snapshot();
+            let text = rope.to_string();
+            for offset in (0..=text.len() + 2).filter(|&offset| offset > text.len() || text.is_char_boundary(offset)) {
+                let start = d.display_point_to_offset(d.offset_to_display_point(offset), Bias::Left);
+                let end = if start >= offset.min(text.len()) {
+                    start
+                } else {
+                    next_cluster(&d, start).unwrap_or(start)
+                };
+                prop_assert_eq!(cluster_start(&d, offset), start, "start at {}", offset);
+                prop_assert_eq!(cluster_end(&d, offset), end, "end at {}", offset);
+            }
+        }
+
         /// Forward and backward stops are the same, each one maps to a
         /// display point and back, and no stop is inside a character.
         #[test]

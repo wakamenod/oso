@@ -273,6 +273,13 @@ impl DisplaySnapshot {
         self.tab_map.to_tab_point(offset).into()
     }
 
+    /// The display cluster around `offset`: where it starts and ends, `offset` twice where
+    /// one starts, and the end of the buffer twice past it. As
+    /// [`DisplaySnapshot::offset_to_display_point`] and back finds, for less.
+    pub(crate) fn cluster_at(&self, offset: usize) -> (usize, usize) {
+        self.tab_map.cluster_at(offset)
+    }
+
     /// The buffer offset of a display point. A column past the end of its
     /// row gives the end of the row, before the line break; a row past the
     /// last gives the end of the buffer. A column inside a cluster that

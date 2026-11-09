@@ -234,6 +234,9 @@ pub oso_core::command::ArgSpec::Command::history: &'static str
 pub oso_core::command::ArgSpec::Command::prompt: &'static str
 pub oso_core::command::ArgSpec::Count
 pub oso_core::command::ArgSpec::CountAndClipboard
+pub oso_core::command::ArgSpec::File
+pub oso_core::command::ArgSpec::File::history: &'static str
+pub oso_core::command::ArgSpec::File::prompt: &'static str
 pub oso_core::command::ArgSpec::Key
 pub oso_core::command::ArgSpec::Mark
 pub oso_core::command::ArgSpec::Mark::prompt: &'static str
@@ -466,6 +469,20 @@ pub fn oso_core::command::Registry::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 pub const oso_core::command::MAX_REMOTE_COUNT: isize
 pub type oso_core::command::CommandFn = fn(&mut oso_core::command::Ctx<'_>, oso_core::command::Args) -> core::result::Result<(), oso_core::command::CommandError>
 pub mod oso_core::complete
+pub enum oso_core::complete::NameKind
+pub oso_core::complete::NameKind::Directory
+pub oso_core::complete::NameKind::File
+pub oso_core::complete::NameKind::Link
+pub oso_core::complete::NameKind::Other
+impl core::clone::Clone for oso_core::complete::NameKind
+pub fn oso_core::complete::NameKind::clone(&self) -> oso_core::complete::NameKind
+impl core::cmp::Eq for oso_core::complete::NameKind
+impl core::cmp::PartialEq for oso_core::complete::NameKind
+pub fn oso_core::complete::NameKind::eq(&self, &oso_core::complete::NameKind) -> bool
+impl core::fmt::Debug for oso_core::complete::NameKind
+pub fn oso_core::complete::NameKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::complete::NameKind
+impl core::marker::StructuralPartialEq for oso_core::complete::NameKind
 pub struct oso_core::complete::Candidate
 impl oso_core::complete::Candidate
 pub fn oso_core::complete::Candidate::annotation(&self) -> &str
@@ -479,6 +496,7 @@ impl oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::get(&self, usize) -> core::option::Option<&oso_core::complete::Candidate>
 pub fn oso_core::complete::Candidates::in_order_given(&self) -> bool
 pub fn oso_core::complete::Candidates::is_empty(&self) -> bool
+pub fn oso_core::complete::Candidates::item_at(&self, usize) -> core::option::Option<usize>
 pub fn oso_core::complete::Candidates::len(&self) -> usize
 pub fn oso_core::complete::Candidates::on_input(&self) -> bool
 pub fn oso_core::complete::Candidates::previews(&self) -> bool
@@ -491,6 +509,17 @@ pub fn oso_core::complete::Candidates::top(&self) -> usize
 pub fn oso_core::complete::Candidates::total(&self) -> usize
 impl core::fmt::Debug for oso_core::complete::Candidates
 pub fn oso_core::complete::Candidates::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::complete::Name
+pub oso_core::complete::Name::kind: oso_core::complete::NameKind
+pub oso_core::complete::Name::name: alloc::string::String
+impl core::clone::Clone for oso_core::complete::Name
+pub fn oso_core::complete::Name::clone(&self) -> oso_core::complete::Name
+impl core::cmp::Eq for oso_core::complete::Name
+impl core::cmp::PartialEq for oso_core::complete::Name
+pub fn oso_core::complete::Name::eq(&self, &oso_core::complete::Name) -> bool
+impl core::fmt::Debug for oso_core::complete::Name
+pub fn oso_core::complete::Name::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for oso_core::complete::Name
 pub struct oso_core::complete::Query
 impl oso_core::complete::Query
 pub fn oso_core::complete::Query::highlights(&self, &oso_core::complete::Candidate, &mut alloc::vec::Vec<core::ops::range::Range<usize>>)
@@ -505,6 +534,7 @@ impl core::fmt::Debug for oso_core::complete::Query
 pub fn oso_core::complete::Query::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::complete::Query
 pub const oso_core::complete::ROWS: usize
+pub fn oso_core::complete::typed_form(&std::path::Path, bool, core::option::Option<&std::path::Path>) -> alloc::string::String
 pub mod oso_core::decode
 pub enum oso_core::decode::LineEnding
 pub oso_core::decode::LineEnding::Crlf
@@ -1213,6 +1243,24 @@ pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::Fram
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
+pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::file_directory(&self) -> core::option::Option<&std::path::Path>
+pub fn oso_core::editor::Editor::file_listed(&mut self, std::path::PathBuf, core::option::Option<alloc::sync::Arc<[oso_core::complete::Name]>>, bool)
+pub fn oso_core::editor::Editor::file_prompt_open(&self) -> bool
+pub fn oso_core::editor::Editor::files_cut(&self) -> bool
+pub fn oso_core::editor::Editor::files_pending(&self) -> bool
+pub fn oso_core::editor::Editor::large_file(&self, &std::path::Path) -> core::option::Option<u64>
+pub fn oso_core::editor::Editor::open_file_prompt(&mut self, &str, &'static str, &str, std::path::PathBuf) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
+pub fn oso_core::editor::Editor::remember_large(&mut self, std::path::PathBuf, u64)
+pub fn oso_core::editor::Editor::request_visit(&mut self, std::path::PathBuf, u64)
+pub fn oso_core::editor::Editor::set_start_directory(&mut self, std::path::PathBuf)
+pub fn oso_core::editor::Editor::start_directory(&self) -> &std::path::Path
+pub fn oso_core::editor::Editor::take_file_requests(&mut self) -> alloc::vec::Vec<std::path::PathBuf>
+pub fn oso_core::editor::Editor::take_large(&mut self) -> core::option::Option<(std::path::PathBuf, u64)>
+pub fn oso_core::editor::Editor::take_visits(&mut self) -> alloc::vec::Vec<(std::path::PathBuf, u64)>
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::files_seen(&mut self, &[(oso_core::buffer::BufferId, oso_core::buffer::DiskState)], bool, impl core::ops::function::Fn(oso_core::buffer::BufferId) -> bool) -> alloc::vec::Vec<oso_core::buffer::BufferId>
 pub fn oso_core::editor::Editor::judge_reload(&mut self, oso_core::buffer::BufferId, core::result::Result<&[std::path::PathBuf], &[std::path::PathBuf]>)
 pub fn oso_core::editor::Editor::reload(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
@@ -1251,6 +1299,7 @@ pub fn oso_core::editor::Editor::status_into(&self, &mut oso_core::editor::Statu
 impl core::default::Default for oso_core::editor::Editor
 pub fn oso_core::editor::Editor::default() -> Self
 pub struct oso_core::editor::Elsewhere
+pub oso_core::editor::Elsewhere::name: alloc::string::String
 pub oso_core::editor::Elsewhere::open: alloc::vec::Vec<std::path::PathBuf>
 pub oso_core::editor::Elsewhere::over: core::option::Option<oso_core::editor::Over>
 impl core::clone::Clone for oso_core::editor::Elsewhere
@@ -1852,7 +1901,10 @@ impl oso_core::load::Reloaded
 pub fn oso_core::load::Reloaded::is_changed(&self) -> bool
 impl core::clone::Clone for oso_core::load::Reloaded
 pub fn oso_core::load::Reloaded::clone(&self) -> oso_core::load::Reloaded
+pub const oso_core::load::LARGE: u64
+pub const oso_core::load::UNASKED: u64
 pub fn oso_core::load::decode_all(&[u8], oso_core::display_map::cell::TabWidth) -> oso_core::load::LoadSnapshot
+pub fn oso_core::load::gib(u64) -> alloc::string::String
 pub mod oso_core::minibuffer
 pub enum oso_core::minibuffer::Kind
 pub oso_core::minibuffer::Kind::Complete

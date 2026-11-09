@@ -10,7 +10,7 @@
 //!   echoing the request's `id`.
 
 use std::fmt::Write as _;
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Read};
 use std::time::{Duration, Instant};
 
 use oso_core::display_map::cell::is_invisible;
@@ -138,7 +138,7 @@ pub fn bounded(id: &Value, line: String) -> String {
 ///
 /// These never occur outside a JSON string, and an escape there means the same character,
 /// so the line parses to the same value.
-fn escape_unsafe(line: String) -> String {
+pub fn escape_unsafe(line: String) -> String {
     if !line.contains(is_unsafe) {
         return line;
     }
@@ -188,14 +188,35 @@ pub fn escaped_len(text: &str) -> usize {
 /// that a response this build does not understand never reads as a confirmation.
 #[cfg(any(test, feature = "dev"))]
 pub fn response_result(line: &str) -> Result<Value, String> {
+    parse_response(line)?
+}
+
+/// A response line's result or its error message, or why the line is no response at all.
+///
+/// # Errors
+///
+/// The line is not JSON, or has neither a result nor an error message.
+pub fn parse_response(line: &str) -> Result<Result<Value, String>, String> {
     let mut response: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
     if let Some(message) = response["error"]["message"].as_str() {
-        return Err(message.to_owned());
+        return Ok(Err(message.to_owned()));
     }
     match response.get_mut("result") {
-        Some(result) => Ok(result.take()),
+        Some(result) => Ok(Ok(result.take())),
         None => Err("a response with no result".to_owned()),
     }
+}
+
+/// Reads up to a newline into `line`, at most [`MAX_LINE`] + 1 bytes, and returns how many,
+/// with no time limit: for a client, which waits as long as the other end takes.
+///
+/// # Errors
+///
+/// What reading gave.
+pub fn read_bounded_line(reader: &mut impl BufRead, line: &mut Vec<u8>) -> io::Result<usize> {
+    reader
+        .take(u64::try_from(MAX_LINE + 1).unwrap_or(u64::MAX))
+        .read_until(b'\n', line)
 }
 
 /// Builds a request line, without the newline. For clients and tests.

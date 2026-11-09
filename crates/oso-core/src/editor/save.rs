@@ -53,6 +53,9 @@ pub struct Elsewhere {
     /// Where the other buffers' files are, which the new place must not be: one file is never
     /// in two buffers (ADR 0087).
     pub open: Vec<PathBuf>,
+    /// The name the text takes in the path if it is a directory: the buffer's file's, or the
+    /// buffer's own (ADR 0087).
+    pub name: String,
 }
 
 /// A file a write found at a new place, which the person agreed to write over.
@@ -259,7 +262,7 @@ impl Editor {
             Ok::<(), ()>(())
         });
         // A `\n` after a lone `\r` makes one cluster of the two.
-        clip_selections(selections, &display, &[], true);
+        clip_selections(selections, &display, &[], true, None);
     }
 
     /// The saves queued and not yet taken, each with the text it is to write.

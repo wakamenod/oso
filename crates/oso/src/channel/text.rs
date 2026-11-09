@@ -105,6 +105,34 @@ fn snapshot(editor: &Editor, id: BufferId, what: What) -> Result<TextJob, String
     })
 }
 
+/// The rows `start_row` to `start_row + rows` of `display` that are there: none past the
+/// last.
+pub fn row_range(display: &DisplaySnapshot, start_row: usize, rows: usize) -> Range<usize> {
+    let end = start_row.saturating_add(rows).min(display.row_count());
+    start_row.min(end)..end
+}
+
+/// The text of each row of `range`, without its line break, and whether it stopped short, as
+/// the next row would take the text past `budget` bytes. The dev socket's `get-text` and the
+/// channel's `text` both read rows so (ADR 0044, ADR 0085).
+pub fn row_texts(
+    text: &Rope,
+    display: &DisplaySnapshot,
+    range: Range<usize>,
+    mut budget: usize,
+) -> (Vec<String>, bool) {
+    let mut out = Vec::new();
+    for row in range {
+        let bytes = motion::line_start(display, row)..motion::line_end(display, row);
+        if bytes.len() > budget {
+            return (out, true);
+        }
+        budget -= bytes.len();
+        out.push(slice(text, bytes));
+    }
+    (out, false)
+}
+
 impl TextJob {
     /// Copies the text on a thread of its own, which replies. If the thread cannot start,
     /// the reply sender is dropped, which the client sees as an error.
@@ -127,20 +155,10 @@ impl TextJob {
             })),
             What::Rows { start_row, rows } => {
                 let display = &self.display;
-                let end = start_row.saturating_add(*rows).min(display.row_count());
-                let start = (*start_row).min(end);
-                let mut budget = MAX_ROWS_TEXT;
-                let mut out = Vec::new();
-                let mut truncated = false;
-                for row in start..end {
-                    let range = motion::line_start(display, row)..motion::line_end(display, row);
-                    if range.len() > budget {
-                        truncated = true;
-                        break;
-                    }
-                    budget -= range.len();
-                    out.push(slice(&self.text, range));
-                }
+                let range = row_range(display, *start_row, *rows);
+                let start = range.start;
+                // Cut short where the next row would take the text past its limit.
+                let (out, truncated) = row_texts(&self.text, display, range, MAX_ROWS_TEXT);
                 Ok(json!({
                     "buffer": self.buffer,
                     "start_row": start,
@@ -155,7 +173,7 @@ impl TextJob {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_REGION, start};
+    use super::{MAX_REGION, row_range, row_texts, start};
     use crate::channel::protocol::TextOf;
     use oso_core::buffer::Buffer;
     use oso_core::editor::Editor;
@@ -167,6 +185,25 @@ mod tests {
         let mut editor = Editor::with_buffer(Buffer::from_text("notes.md", text));
         editor.set_view_size(ViewSize::new(10, 40));
         editor
+    }
+
+    #[test]
+    fn rows_stop_at_the_last_and_at_the_budget() {
+        let editor = editor("one\ntwo\nthree");
+        let buffer = editor.current().1;
+        let (text, display) = (buffer.text(), buffer.display());
+        assert_eq!(row_range(&display, 1, 10), 1..3, "none past the last");
+        assert_eq!(row_range(&display, 9, 2), 3..3);
+        let all = row_range(&display, 0, 3);
+        assert_eq!(
+            row_texts(text, &display, all.clone(), usize::MAX),
+            (vec!["one".into(), "two".into(), "three".into()], false)
+        );
+        // "one" and "two" take 6 bytes; "three" would take the text past 8.
+        assert_eq!(
+            row_texts(text, &display, all, 8),
+            (vec!["one".into(), "two".into()], true)
+        );
     }
 
     /// An active region from `mark` to `cursor`.

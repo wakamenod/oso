@@ -100,6 +100,10 @@ impl std::fmt::Debug for LoadUpdate {
     }
 }
 
+#[cfg(test)]
+use oso_core::load::LARGE;
+pub use oso_core::load::{UNASKED, gib};
+
 /// Why a file could not be loaded.
 #[derive(Debug)]
 pub enum LoadError {
@@ -107,6 +111,8 @@ pub enum LoadError {
     NotFound,
     /// A directory, a device or a pipe: only regular files are opened.
     NotAFile,
+    /// The file holds this many bytes, more than the load may read. Nothing was read.
+    TooLarge(u64),
     /// Reading failed.
     Io(io::Error),
     /// The loading thread panicked.
@@ -127,6 +133,7 @@ impl std::fmt::Display for LoadError {
         match self {
             Self::NotFound => f.write_str("no such file"),
             Self::NotAFile => f.write_str("not a regular file"),
+            Self::TooLarge(bytes) => write!(f, "{}, too large to open without asking", gib(*bytes)),
             Self::Io(e) => write!(f, "{e}"),
             Self::Panicked => f.write_str("loading failed"),
             Self::SeveralNames => f.write_str("the file has more than one name"),
@@ -219,27 +226,34 @@ impl Drop for LoadHandle {
     }
 }
 
-/// Starts loading `path` into `buffer` on a background thread. `wake`
-/// tells the UI thread that an update waits in the handle, and returns
-/// false once the UI is gone, which stops the load.
-pub fn spawn<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHandle>
+/// Starts loading `path` into `buffer` on a background thread, refusing a file of more than
+/// `limit` bytes before reading any of it: [`UNASKED`], or the size the person agreed to.
+/// `wake` tells the UI thread that an update waits in the handle, and returns false once the
+/// UI is gone, which stops the load.
+pub fn spawn<W>(buffer: BufferId, path: PathBuf, limit: u64, wake: W) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
     spawn_reading(buffer, wake, move |shared, post| {
-        load(&path, shared, post, false)
+        load(&path, limit, shared, post, false)
     })
 }
 
 /// [`spawn`], for the agent channel: the file opened must have one name, by the open file
 /// itself, so that no file swapped in after the channel looked can be a second name of a
-/// secret (ADR 0085). One with more fails with [`LoadError::SeveralNames`].
-pub fn spawn_one_name<W>(buffer: BufferId, path: PathBuf, wake: W) -> io::Result<LoadHandle>
+/// secret (ADR 0085). One with more fails with [`LoadError::SeveralNames`]. It reads at most
+/// `limit` bytes, as [`spawn`] does.
+pub fn spawn_one_name<W>(
+    buffer: BufferId,
+    path: PathBuf,
+    limit: u64,
+    wake: W,
+) -> io::Result<LoadHandle>
 where
     W: Fn(BufferId) -> bool + Send + 'static,
 {
     spawn_reading(buffer, wake, move |shared, post| {
-        load(&path, shared, post, true)
+        load(&path, limit, shared, post, true)
     })
 }
 
@@ -356,23 +370,16 @@ where
     })
 }
 
-/// Opens `path` if it is a regular file. Returns it with its metadata, read from the open
-/// file, so it describes what is read even if the path now leads elsewhere.
+/// Opens `path` if it is a regular file, never waiting on anything else (ADR 0087). Returns
+/// it with its metadata, read from the open file, so it describes what is read even if the
+/// path now leads elsewhere.
 fn open(path: &Path) -> Result<(File, Metadata), LoadError> {
-    let not_found = |e: io::Error| match e.kind() {
-        io::ErrorKind::NotFound => LoadError::NotFound,
-        _ => LoadError::Io(e),
-    };
-    // Checked before opening, which blocks on a pipe.
-    if !std::fs::metadata(path).map_err(not_found)?.is_file() {
-        return Err(LoadError::NotAFile);
+    match oso_platform::file_meta::open_for_reading(path) {
+        Ok(Some(opened)) => Ok(opened),
+        Ok(None) => Err(LoadError::NotAFile),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Err(LoadError::NotFound),
+        Err(e) => Err(LoadError::Io(e)),
     }
-    let file = File::open(path).map_err(not_found)?;
-    let metadata = file.metadata().map_err(LoadError::Io)?;
-    if !metadata.is_file() {
-        return Err(LoadError::NotAFile);
-    }
-    Ok((file, metadata))
 }
 
 /// The baseline of `path`, given how opening it went. `None` if it cannot be resolved, or
@@ -448,22 +455,27 @@ fn verdict_of_opened(resolved: Resolved, file: Option<(&File, &Metadata)>) -> Re
 /// appending to (a log) cannot be read forever.
 fn load(
     path: &Path,
+    limit: u64,
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
     one_name: bool,
 ) -> Result<(), LoadError> {
-    load_around(path, shared, send, || {}, one_name)
+    load_around(path, limit, shared, send, || {}, one_name)
 }
 
 /// [`load`], running `after_open` right after the open, for a test.
 fn load_around(
     path: &Path,
+    limit: u64,
     shared: &Shared,
     send: &dyn Fn(LoadUpdate) -> bool,
     after_open: impl FnOnce(),
     one_name: bool,
 ) -> Result<(), LoadError> {
     let (file, metadata) = open_and_record(path, shared, after_open)?;
+    if metadata.len() > limit {
+        return Err(LoadError::TooLarge(metadata.len()));
+    }
     if one_name {
         for_the_agent(&metadata)?;
     }
@@ -591,8 +603,13 @@ mod tests {
     /// Loads `path` and collects the updates the UI would take, until the
     /// last one.
     fn events(path: PathBuf) -> Vec<LoadUpdate> {
+        events_up_to(path, UNASKED)
+    }
+
+    /// [`events`], with a load that reads at most `limit` bytes.
+    fn events_up_to(path: PathBuf, limit: u64) -> Vec<LoadUpdate> {
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path, limit, move |_| tx.send(()).is_ok()).unwrap();
         let mut updates = Vec::new();
         while rx.recv_timeout(Duration::from_secs(10)).is_ok() {
             // Slow down, as a busy UI would, so updates pile up.
@@ -629,6 +646,40 @@ mod tests {
     }
 
     #[test]
+    fn a_file_over_the_limit_is_not_read() {
+        let path = scratch_file("over.txt", b"made up");
+        let over = events_up_to(path.clone(), 6);
+        assert!(matches!(
+            over[..],
+            [LoadUpdate::Failed(LoadError::TooLarge(7))]
+        ));
+        let Some(LoadUpdate::Snapshot(at)) = events_up_to(path.clone(), 7).pop() else {
+            panic!("a file at the limit loads");
+        };
+        assert_eq!(at.text().to_string(), "made up");
+        // A sparse file of 2 GiB is refused without reading it.
+        std::fs::File::create(&path)
+            .unwrap()
+            .set_len(LARGE)
+            .unwrap();
+        let large = events(path.clone());
+        assert!(matches!(
+            large[..],
+            [LoadUpdate::Failed(LoadError::TooLarge(LARGE))]
+        ));
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn sizes_read_in_tenths_of_a_gib_rounded_down() {
+        assert_eq!(gib(LARGE), "2.0 GiB");
+        assert_eq!(gib(UNASKED), "1.9 GiB");
+        assert_eq!(gib(3_435_973_837), "3.2 GiB");
+        assert_eq!(gib(0), "0.0 GiB");
+        assert_eq!(gib(u64::MAX), "17179869183.9 GiB");
+    }
+
+    #[test]
     fn a_missing_file_and_a_directory_fail() {
         let missing = events(std::env::temp_dir().join("oso-no-such-file-here"));
         assert!(matches!(
@@ -655,7 +706,7 @@ mod tests {
     fn the_resolved_path_is_there_before_the_first_update() {
         let path = scratch_file("resolved.txt", b"abc");
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let resolved = handle.take_resolved().unwrap();
         // Where the system cannot name an open file, nobody can tell.
@@ -674,7 +725,7 @@ mod tests {
     fn a_missing_file_is_resolved_too() {
         let (tx, rx) = mpsc::channel();
         let path = std::env::temp_dir().join("oso-no-such-file-here");
-        let handle = spawn(id(), path, move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path, UNASKED, move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(matches!(
             handle.take_resolved(),
@@ -687,7 +738,7 @@ mod tests {
         let path = scratch_file("baseline.txt", b"abc");
         let metadata = std::fs::metadata(&path).unwrap();
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         assert_eq!(
             handle.take_baseline(),
@@ -742,7 +793,7 @@ mod tests {
         };
         let judged = |after_open: &dyn Fn()| {
             let shared = Shared::default();
-            load_around(&link, &shared, &|_| true, after_open, false).unwrap();
+            load_around(&link, UNASKED, &shared, &|_| true, after_open, false).unwrap();
             let resolved = shared.resolved().take().unwrap();
             secret_by(&link, &resolved)
         };
@@ -835,19 +886,22 @@ mod tests {
     fn a_load_for_the_agent_refuses_a_file_with_another_name() {
         let path = scratch_file("one-name.txt", b"abc");
         let shared = Shared::default();
-        assert!(load(&path, &shared, &|_| true, true).is_ok(), "one name");
+        assert!(
+            load(&path, UNASKED, &shared, &|_| true, true).is_ok(),
+            "one name"
+        );
         let second = path.with_extension("second");
         let _ = std::fs::remove_file(&second);
         std::fs::hard_link(&path, &second).unwrap();
         let shared = Shared::default();
-        let refused = load(&second, &shared, &|_| true, true);
+        let refused = load(&second, UNASKED, &shared, &|_| true, true);
         assert!(
             matches!(refused, Err(LoadError::SeveralNames)),
             "{refused:?}"
         );
         let shared = Shared::default();
         assert!(
-            load(&second, &shared, &|_| true, false).is_ok(),
+            load(&second, UNASKED, &shared, &|_| true, false).is_ok(),
             "a person's load reads it"
         );
         std::fs::remove_file(&second).unwrap();
@@ -878,7 +932,7 @@ mod tests {
     fn a_missing_file_has_a_baseline_with_no_file() {
         let (tx, rx) = mpsc::channel();
         let path = std::env::temp_dir().join("oso-no-such-file-here");
-        let handle = spawn(id(), path.clone(), move |_| tx.send(()).is_ok()).unwrap();
+        let handle = spawn(id(), path.clone(), UNASKED, move |_| tx.send(()).is_ok()).unwrap();
         rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let directory = std::fs::canonicalize(std::env::temp_dir()).unwrap();
         assert_eq!(
@@ -894,7 +948,7 @@ mod tests {
     fn a_closed_ui_stops_the_load() {
         let path = scratch_file("closed.txt", &vec![b'a'; READ_SIZE * 4]);
         let (tx, rx) = mpsc::channel();
-        let handle = spawn(id(), path.clone(), move |_| {
+        let handle = spawn(id(), path.clone(), UNASKED, move |_| {
             let _ = tx.send(());
             false
         })
@@ -940,7 +994,7 @@ mod tests {
         file.set_len(crate::channel::server::MAX_OPEN_BYTES + 1)
             .unwrap();
         let shared = Shared::default();
-        let refused = load(&path, &shared, &|_| true, true);
+        let refused = load(&path, UNASKED, &shared, &|_| true, true);
         assert!(
             matches!(refused, Err(LoadError::TooLargeForTheAgent)),
             "{refused:?}"

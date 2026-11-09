@@ -218,6 +218,64 @@ pub fn open_for_writing(path: &Path) -> io::Result<File> {
     options.open(path)
 }
 
+/// Opens the file at `path` for reading if it is a regular file, and gives it with its metadata, read
+/// from the open file. `None` for anything else: a directory, a device or a pipe. The path is looked at
+/// first, so such a thing is not opened at all, and then opened without waiting and without taking a
+/// terminal as the controlling one, so that one swapped in after the look cannot hold the thread
+/// (ADR 0087). Once the open file is known to be regular, it waits again, as a file usually does. Links
+/// are followed. It touches the disk, so it belongs off the UI thread.
+///
+/// # Errors
+///
+/// If the path cannot be looked at or opened, with `NotFound` if nothing is there, or if the file's
+/// flags cannot be read or set.
+pub fn open_for_reading(path: &Path) -> io::Result<Option<(File, std::fs::Metadata)>> {
+    open_for_reading_around(path, || {})
+}
+
+/// [`open_for_reading`], running `between` after the look and before the open, for a test.
+fn open_for_reading_around(
+    path: &Path,
+    between: impl FnOnce(),
+) -> io::Result<Option<(File, std::fs::Metadata)>> {
+    if !std::fs::metadata(path)?.is_file() {
+        return Ok(None);
+    }
+    between();
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(
+        &mut options,
+        libc::O_NONBLOCK | libc::O_NOCTTY,
+    );
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+    #[cfg(unix)]
+    clear_nonblocking(&file)?;
+    Ok(Some((file, metadata)))
+}
+
+/// Takes `O_NONBLOCK` off `file`.
+#[cfg(unix)]
+fn clear_nonblocking(file: &File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let fd = file.as_raw_fd();
+    // SAFETY: `fd` is open for as long as `file` is borrowed, and `F_GETFL` reads only its flags.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: as above; `F_SETFL` changes only the status flags of this open file.
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) } < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
 /// Makes `file`, which this process has just created, grant nothing but what its mode says. Call
 /// this before anything goes in. On macOS it removes every access list entry and makes sure none
 /// is left. On Linux a new file made with a mode that gives its group nothing already grants
@@ -255,7 +313,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU32, Ordering};
 
-    use super::open_for_writing;
+    use super::{open_for_reading, open_for_reading_around, open_for_writing};
 
     struct Scratch(PathBuf);
 
@@ -309,5 +367,61 @@ mod tests {
         // SAFETY: `name` is NUL-terminated, outlives the call and is only read.
         assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
         assert!(open_for_writing(&pipe).is_err());
+    }
+
+    #[test]
+    fn opening_for_reading_gives_a_regular_file_that_waits() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("f");
+        fs::write(&path, b"made up").unwrap();
+        let link = scratch.0.join("link");
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        for path in [&path, &link] {
+            let (mut file, metadata) = open_for_reading(path).unwrap().unwrap();
+            assert_eq!(metadata.len(), 7);
+            // SAFETY: the descriptor is open while `file` is, and only its flags are read.
+            let flags =
+                unsafe { libc::fcntl(std::os::fd::AsRawFd::as_raw_fd(&file), libc::F_GETFL) };
+            assert_eq!(flags & libc::O_NONBLOCK, 0, "the flag is cleared");
+            let mut read = String::new();
+            std::io::Read::read_to_string(&mut file, &mut read).unwrap();
+            assert_eq!(read, "made up");
+        }
+        assert_eq!(
+            open_for_reading(&scratch.0.join("missing"))
+                .unwrap_err()
+                .kind(),
+            ErrorKind::NotFound
+        );
+    }
+
+    #[test]
+    fn opening_for_reading_refuses_what_is_no_regular_file_without_waiting() {
+        let scratch = Scratch::new();
+        let pipe = scratch.0.join("pipe");
+        let name = CString::new(pipe.as_os_str().as_bytes()).unwrap();
+        // SAFETY: `name` is NUL-terminated, outlives the call and is only read.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(open_for_reading(&pipe).unwrap().is_none());
+        assert!(open_for_reading(&scratch.0).unwrap().is_none());
+        assert!(
+            open_for_reading(std::path::Path::new("/dev/null"))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn a_pipe_swapped_in_after_the_look_is_refused_without_waiting() {
+        let scratch = Scratch::new();
+        let path = scratch.0.join("f");
+        fs::write(&path, b"made up").unwrap();
+        let name = CString::new(path.as_os_str().as_bytes()).unwrap();
+        let swap = || {
+            fs::remove_file(&path).unwrap();
+            // SAFETY: `name` is NUL-terminated, outlives the call and is only read.
+            assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        };
+        assert!(open_for_reading_around(&path, swap).unwrap().is_none());
     }
 }

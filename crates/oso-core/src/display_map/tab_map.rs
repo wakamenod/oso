@@ -236,13 +236,8 @@ impl TabMap {
         if edit.old.is_empty() && edit.new.is_empty() {
             return;
         }
-        let items: SumTree<TabChunk> =
-            Self::items(buffer, &self.invalid, edit.new.clone(), self.tab_width).collect();
-        let (mut tree, _) = self.tree.split(&edit.old.start, Bias::Right);
-        let (_, right) = self.tree.split(&edit.old.end, Bias::Right);
-        tree.append(items);
-        tree.append(right);
-        self.tree = tree;
+        let items = Self::items(buffer, &self.invalid, edit.new.clone(), self.tab_width).collect();
+        self.tree.replace_items(edit.old.clone(), items);
     }
 
     /// The buffer's invalid bytes.
@@ -296,6 +291,41 @@ impl TabMap {
             self.advance(&mut point, kind, cells);
         }
         point
+    }
+
+    /// The display cluster around `offset`, as where it starts and where it ends: `offset`
+    /// twice where a cluster starts, and the end of the buffer twice past it. One seek and
+    /// a scan from the nearest place before `offset` where a cluster must start, with no
+    /// columns to count and no second seek to come back from them, as a display point
+    /// and back would take (ADR 0091).
+    pub(crate) fn cluster_at(&self, offset: usize) -> (usize, usize) {
+        let mut cursor = self.tree.cursor::<usize>();
+        cursor.seek(&offset, Bias::Right);
+        let start = *cursor.start();
+        let Some(item) = cursor.item() else {
+            return (start, start);
+        };
+        let before = &item.text.as_bytes()[..offset - start];
+        // Two ASCII characters but CR LF always have a cluster boundary between them, and
+        // the clusters after it are as from the chunk's start, so the scan starts at the
+        // nearest one.
+        let from = before
+            .windows(2)
+            .rposition(|pair| {
+                pair[0] == b'\n' || (pair[0].is_ascii() && pair[1].is_ascii() && pair != b"\r\n")
+            })
+            .map_or(0, |index| index + 1);
+        let clusters = Clusters::with_invalid(&item.text[from..], start + from, &self.invalid);
+        for (index, cluster, _, _) in clusters {
+            let at = start + from + index;
+            if at >= offset {
+                break;
+            }
+            if at + cluster.len() > offset {
+                return (at, at + cluster.len());
+            }
+        }
+        (offset, offset)
     }
 
     /// The buffer offset of a point. A column past the end of its row gives

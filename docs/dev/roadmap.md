@@ -226,7 +226,7 @@ alongside the steps above, after M2-16:
   `state`, `text`, `commands` and `cancel`, `ArgSpec::Text` and `insert`, the connection question,
   the `Agent` segment and `*Agent*`, and the change to `just release-safety`.
 - **AC-2** (after AC-1): `oso mcp`, the stdio bridge, with the tools `state`, `text`, `commands`,
-  `look`, `change` and `open`.
+  `look`, `change` and `open`, and then `cancel` ([ADR 0093](adr/0093-a-cancel-tool-in-oso-mcp.md)).
 - Each later step gives its commands a reach, such as `C-x C-f`, `C-x b` and window splits.
 
 ### M3 — Coding
