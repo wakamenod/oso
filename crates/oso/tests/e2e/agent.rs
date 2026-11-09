@@ -727,16 +727,13 @@ fn an_agents_open_never_shows_a_buffer_open_that_may_hold_secrets() {
     }
     let state = agent.call("state", None).unwrap();
     assert!(!state.to_string().contains(FAKE_SECRET));
-    let log = state["buffers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|buffer| buffer["name"] == "*Agent*")
-        .map(|buffer| buffer["id"].clone())
-        .expect("*Agent* is listed");
-    let logged = agent
-        .call("text", Some(json!({ "buffer": log, "rows": 1000 })))
-        .unwrap();
+    // `*Agent*`, an internal buffer the channel may show by name, holds none of it either.
+    let params = json!({ "name": "switch-to-buffer", "arg": "*Agent*", "reach": "look" });
+    let shown = agent.call("run", Some(params));
+    assert!(shown.is_ok(), "{shown:?}");
+    assert_eq!(app.state()["buffer"]["name"], "*Agent*");
+    let logged = app.call("get-text", Some(json!({ "start_row": 0, "rows": 1000 })));
+    assert!(!logged["rows"].as_array().unwrap().is_empty(), "{logged}");
     assert!(!logged.to_string().contains(FAKE_SECRET), "{logged}");
 }
 
