@@ -646,17 +646,15 @@ fn the_files_an_agent_opened_still_ask_before_its_saves_after_a_restart() {
 
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
-fn an_agents_open_of_a_file_already_open_shows_that_buffer_if_it_may() {
+fn an_agents_open_of_a_file_already_open_shows_that_buffer_with_its_mark() {
     let scratch = Scratch::new("agent-reuse");
     let notes = scratch.write("notes.txt", b"one\n");
-    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
-    let config = scratch.symlink("config.txt", &env);
+    let other = scratch.write("other.txt", b"first\n");
     let alias = scratch.symlink("alias", scratch.path());
     let mut app = App::start(Some(&notes), scratch.path());
     app.wait_until_ready();
     let mut agent = let_in(&mut app);
     let persons = app.state()["buffer"]["id"].clone();
-    let buffers = |app: &mut App| app.state()["buffers"].as_array().map(Vec::len);
     let before = buffers(&mut app);
     assert!(before.is_some());
 
@@ -668,25 +666,88 @@ fn an_agents_open_of_a_file_already_open_shows_that_buffer_if_it_may() {
         assert_eq!(buffers(&mut app), before, "no second buffer");
     }
     // The person visited it, so the agent's save of it does not ask (ADR 0085).
-    let params = json!({ "name": "insert", "arg": "new ", "reach": "change" });
-    assert!(agent.call("run", Some(params)).is_ok());
+    insert(&mut agent, "new ");
     let saved = agent.run("save-buffer", None, "change").unwrap();
     assert!(saved.get("waiting").is_none(), "{saved}");
     app.wait_for("the save", |state| state["buffer"]["modified"] == false);
     assert_eq!(std::fs::read(&notes).unwrap(), b"new one\n");
 
-    // A file open in a buffer that may hold secrets is not shown for the agent.
-    app.open_file(&config);
-    let state = app.wait_until_ready();
-    assert_eq!(state["buffer"]["secret"], true);
-    app.send_keys("C-x b RET");
-    app.wait_for("notes.txt", |state| state["buffer"]["name"] == "notes.txt");
-    thread::sleep(AFTER_TYPING);
-    let refused = agent
-        .call("open", Some(json!({ "path": config })))
+    // A buffer the agent opened, reached by a second spelling, is still the agent's.
+    let opened = agent.call("open", Some(json!({ "path": other }))).unwrap();
+    let again = agent
+        .call("open", Some(json!({ "path": alias.join("other.txt") })))
+        .unwrap();
+    assert_eq!(again["buffer"], opened["buffer"]);
+    insert(&mut agent, "x");
+    let asked = agent.run("save-buffer", None, "change").unwrap();
+    let asked = asked["waiting"].as_str().unwrap_or_default().to_owned();
+    assert!(asked.contains("which the agent opened?"), "{asked}");
+    assert_eq!(agent.call("cancel", None).unwrap()["cancelled"], true);
+    assert_eq!(std::fs::read(&other).unwrap(), b"first\n");
+
+    // While the person is in the middle of a key sequence, nothing is shown for the agent.
+    app.send_keys("C-x");
+    let busy = agent
+        .call("open", Some(json!({ "path": notes })))
         .unwrap_err();
-    assert!(refused.contains("may hold secrets"), "{refused}");
-    assert_eq!(app.state()["buffer"]["name"], "notes.txt");
+    assert!(busy.contains("key sequence"), "{busy}");
+}
+
+#[test]
+#[ignore = "opens windows; run with `just e2e`"]
+fn an_agents_open_never_shows_a_buffer_open_that_may_hold_secrets() {
+    let scratch = Scratch::new("agent-reuse-secret");
+    let notes = scratch.write("notes.txt", b"one\n");
+    let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
+    let config = scratch.symlink("config.txt", &env);
+    let plain = scratch.write("plain.txt", format!("{FAKE_SECRET}\n").as_bytes());
+    let key = scratch.symlink("secret.key", &plain);
+    let mut app = App::start(Some(&notes), scratch.path());
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+    // By its path, and where only the file's inode tells: the person opened secret.key, a link
+    // to plain.txt, and the agent asks for plain.txt, whose own name is plain.
+    for (opened, asked) in [(&config, &config), (&key, &plain)] {
+        app.open_file(opened);
+        assert_eq!(app.wait_until_ready()["buffer"]["secret"], true);
+        app.send_keys("C-x b RET");
+        app.wait_for("notes.txt", |state| state["buffer"]["name"] == "notes.txt");
+        thread::sleep(AFTER_TYPING);
+        let count = buffers(&mut app);
+        let refused = agent
+            .call("open", Some(json!({ "path": asked })))
+            .unwrap_err();
+        assert!(
+            refused.contains("is open in a buffer that may hold secrets"),
+            "{}: {refused}",
+            asked.display()
+        );
+        assert_eq!(buffers(&mut app), count, "its own load went too");
+        assert_eq!(app.state()["buffer"]["name"], "notes.txt");
+    }
     let state = agent.call("state", None).unwrap();
     assert!(!state.to_string().contains(FAKE_SECRET));
+    let log = state["buffers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|buffer| buffer["name"] == "*Agent*")
+        .map(|buffer| buffer["id"].clone())
+        .expect("*Agent* is listed");
+    let logged = agent
+        .call("text", Some(json!({ "buffer": log, "rows": 1000 })))
+        .unwrap();
+    assert!(!logged.to_string().contains(FAKE_SECRET), "{logged}");
+}
+
+/// How many buffers the app has.
+fn buffers(app: &mut App) -> Option<usize> {
+    app.state()["buffers"].as_array().map(Vec::len)
+}
+
+/// Inserts `text` for the agent.
+fn insert(agent: &mut Agent, text: &str) {
+    let params = json!({ "name": "insert", "arg": text, "reach": "change" });
+    let inserted = agent.call("run", Some(params));
+    assert!(inserted.is_ok(), "{inserted:?}");
 }
