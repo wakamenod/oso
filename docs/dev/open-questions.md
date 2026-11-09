@@ -325,9 +325,6 @@ item notes when it must be settled.
   [ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Which review and worktree tools join `oso mcp`, and the reach of each
   ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
-- Whether `oso mcp` gets a tool for the channel's `cancel`, so that an agent can take back a
-  question its `change` caused, such as saving a file it opened; today only the person answers
-  or closes it ([ADR 0085](adr/0085-agent-channel-and-oso-mcp.md)).
 - Whether to add native permission dialogs (PermissionRequest hook), a
   read-only transcript viewer, or `claude -p` one-shot features later.
 - OSC 7501 is a draft; track its revisions.
