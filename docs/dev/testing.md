@@ -371,6 +371,12 @@ process spawning, the state format, the order of a restart and the source
 watcher, so CI runs them on Linux and macOS. Windows is not supported yet
 (ADR 0032).
 
+The agent channel's flows (`tests/e2e/agent.rs`, ADR 0085) talk to the channel's own socket
+as an agent would, with the dev socket's keys standing in for the person's. The one for
+`oso mcp` gives the bridge its requests in a file, with the dev-only `oso mcp --requests FILE`:
+a child that `oso_platform::process` starts gets a closed stdin, by design. So the path where
+stdin stays open while the person decides is tested only in the bridge's unit tests.
+
 ### Level 3: snapshot tests (after text rendering lands)
 
 - Render headlessly and compare PNGs with a tolerance.
