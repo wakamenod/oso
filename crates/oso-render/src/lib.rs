@@ -14,6 +14,7 @@ mod rows;
 mod scene;
 mod shape;
 mod text;
+pub mod theme;
 use atlas::RasterBudget;
 #[cfg(feature = "dev")]
 pub use capture::{Capture, CaptureError, GpuInfo, Image};
@@ -21,6 +22,7 @@ use paint::Painter;
 pub use pane::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
+use theme::{Theme, themes};
 
 use std::sync::Arc;
 
@@ -156,6 +158,9 @@ pub struct RenderState {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     painter: Painter,
+    /// The built-in themes, and which one is drawn (ADR 0089).
+    themes: Vec<Theme>,
+    theme: usize,
     /// Shapes and rasterizes text; see `oso_platform::text`.
     text_system: Box<dyn TextSystem>,
     /// Frames in a row that failed to draw; see `count_failed_frame`.
@@ -248,7 +253,14 @@ impl RenderState {
         );
 
         // 6. Initialize the shape and text renderers.
-        let painter = Painter::new(&device, surface_format, width as f32, height as f32);
+        let themes = themes();
+        let painter = Painter::new(
+            &device,
+            surface_format,
+            width as f32,
+            height as f32,
+            themes[0],
+        );
 
         Self {
             target,
@@ -258,6 +270,8 @@ impl RenderState {
             queue,
             config,
             painter,
+            themes,
+            theme: 0,
             text_system,
             failed_frames: 0,
             presented: 0,
@@ -278,6 +292,19 @@ impl RenderState {
         self.text_system = text_system;
         self.painter.invalidate();
         Redraw::Needed
+    }
+
+    /// Draws from the next frame on in the theme called `name`, one of [`theme::themes`].
+    /// Nothing is shaped or rasterized again, so a switch costs one frame (ADR 0089).
+    /// `None` if there is no theme of that name, and nothing changes.
+    pub fn set_theme(&mut self, name: &str) -> Option<Redraw> {
+        let index = self.themes.iter().position(|theme| theme.name() == name)?;
+        if index == self.theme {
+            return Some(Redraw::NotNeeded);
+        }
+        self.painter.set_theme(&self.queue, self.themes[index]);
+        self.theme = index;
+        Some(Redraw::Needed)
     }
 
     /// Where the frame's cells are on the surface.
