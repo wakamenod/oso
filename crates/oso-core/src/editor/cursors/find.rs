@@ -134,7 +134,10 @@ impl Text {
         if len < 2 || !before.is_ascii_alphanumeric() || !here.is_ascii_alphanumeric() {
             return false;
         }
-        if after.is_some_and(|after| !after.is_ascii()) {
+        // A character of several bytes after `at` is cut off by the range, which ends inside
+        // it: no ASCII either, and not the end of the text.
+        let cut_off = after.is_none() && at + 1 < self.rope.len();
+        if cut_off || after.is_some_and(|after| !after.is_ascii()) {
             return false;
         }
         let splits = (lower(before) && here.is_ascii_uppercase())
@@ -284,6 +287,52 @@ mod tests {
         }
     }
 
+    /// Whether the checks with their caps take each match of `query` in `string` as checks
+    /// with no bound take it: on clusters, and if wanted as a word, found whole by `M-f`
+    /// and `M-b`.
+    fn decide_as_unbounded(string: &str, query: &str, whole_word: bool) {
+        let text = text(string);
+        let wanted = Wanted {
+            query: Query::new(query, true).unwrap(),
+            whole_word,
+        };
+        let mut from = 0;
+        while let Found::Match(range) = find_forward(
+            &text.rope,
+            &text.invalid,
+            &wanted.query,
+            from,
+            usize::MAX,
+            &|| false,
+        ) {
+            let display = &text.display;
+            let on_clusters = display.cluster_at(range.start).0 == range.start
+                && display.cluster_at(range.end).0 == range.end;
+            let mut budget = WalkBudget::new();
+            let whole = word::word_at(display, range.start)
+                && word::forward_word(display, range.start, &mut budget) == range.end
+                && word::backward_word(display, range.end, &mut budget) == range.start;
+            let expected = on_clusters && (!whole_word || whole);
+            let mut left = usize::MAX;
+            assert_eq!(
+                text.accepts(&wanted, &range, &mut left),
+                expected,
+                "{string:?} at {range:?}"
+            );
+            from = text.rope.clip_offset(range.start + 1, Bias::Right);
+        }
+    }
+
+    /// The last of a run of capitals starts a word before a lower-case letter of several
+    /// bytes too, which the three bytes read after a match do not hold whole.
+    #[test]
+    fn a_capital_before_one_that_starts_a_word_ends_its_own() {
+        decide_as_unbounded("aBZé", "B", true);
+        decide_as_unbounded("aBZe\u{301}", "B", true);
+        decide_as_unbounded("BZ日", "B", true);
+        decide_as_unbounded("aBZ", "B", true);
+    }
+
     proptest! {
         /// The checks with their caps take what checks with no bound take: every match on
         /// clusters, and of those wanted as a word, those `M-f` and `M-b` find whole.
@@ -302,25 +351,7 @@ mod tests {
             query in prop::sample::select(&["ab", "a", "b", "日本", "の", "\u{301}", "HTTP", "Server", "B"][..]),
             whole_word in any::<bool>(),
         ) {
-            let string = atoms.concat();
-            let text = text(&string);
-            let wanted = Wanted { query: Query::new(query, true).unwrap(), whole_word };
-            let mut from = 0;
-            while let Found::Match(range) =
-                find_forward(&text.rope, &text.invalid, &wanted.query, from, usize::MAX, &|| false)
-            {
-                let display = &text.display;
-                let on_clusters = display.cluster_at(range.start).0 == range.start
-                    && display.cluster_at(range.end).0 == range.end;
-                let mut budget = WalkBudget::new();
-                let whole = word::word_at(display, range.start)
-                    && word::forward_word(display, range.start, &mut budget) == range.end
-                    && word::backward_word(display, range.end, &mut budget) == range.start;
-                let expected = on_clusters && (!whole_word || whole);
-                let mut left = usize::MAX;
-                prop_assert_eq!(text.accepts(&wanted, &range, &mut left), expected);
-                from = text.rope.clip_offset(range.start + 1, Bias::Right);
-            }
+            decide_as_unbounded(&atoms.concat(), query, whole_word);
         }
     }
 }
