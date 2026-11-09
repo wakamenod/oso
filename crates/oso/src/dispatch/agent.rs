@@ -24,22 +24,18 @@ impl Dispatcher {
         self.registry.iter().map(|(_, command)| command)
     }
 
-    /// Runs the command `name` for the agent channel, if its reach is `reach`, with `given` as
-    /// its count, number or text. No prompt opens for an argument: a command without the one
-    /// its spec reads is refused. Returns what the host should do, and whether the command succeeded, as
-    /// `run-command` does.
+    /// The command `name`, if the channel may run it with `reach`: it is there, it is no
+    /// `Person` command, and `reach` is its own. Asked before anything waits for the person,
+    /// so that an agent hears at once what it may never run.
     ///
     /// # Errors
     ///
-    /// [`Refused`] before anything runs: no such command, a `Person` command, a reach other
-    /// than `reach`, an argument its spec does not take, or a yank waiting for the clipboard.
-    pub fn run_for_agent(
-        &mut self,
-        editor: &mut Editor,
+    /// [`Refused`], naming only a registered command.
+    pub fn by_reach(
+        &self,
         name: &str,
-        given: Given<'_>,
         reach: Reach,
-    ) -> Result<(Effects, Result<(), String>), Refused> {
+    ) -> Result<(oso_core::command::CommandId, oso_core::command::Command), Refused> {
         let refused = |why: String| Err(Refused(why));
         let Some(id) = self.registry.lookup(name) else {
             return refused("no command by that name".into());
@@ -58,6 +54,27 @@ impl Dispatcher {
             };
             return refused(format!("{name} {other}; ask for its reach"));
         }
+        Ok((id, command))
+    }
+
+    /// Runs the command `name` for the agent channel, if its reach is `reach`, with `given` as
+    /// its count, number or text. No prompt opens for an argument: a command without the one
+    /// its spec reads is refused. Returns what the host should do, and whether the command succeeded, as
+    /// `run-command` does.
+    ///
+    /// # Errors
+    ///
+    /// [`Refused`] before anything runs: no such command, a `Person` command, a reach other
+    /// than `reach`, an argument its spec does not take, or a yank waiting for the clipboard.
+    pub fn run_for_agent(
+        &mut self,
+        editor: &mut Editor,
+        name: &str,
+        given: Given<'_>,
+        reach: Reach,
+    ) -> Result<(Effects, Result<(), String>), Refused> {
+        let refused = |why: String| Err(Refused(why));
+        let (id, command) = self.by_reach(name, reach)?;
         if self.waits_for_clipboard() {
             return refused("a yank is waiting for the clipboard".into());
         }

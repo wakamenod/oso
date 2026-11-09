@@ -15,13 +15,13 @@
 //! - The window system's reports arrive as [`ImeEvent`], from winit's adapter or the native
 //!   layer, and the calls go through its window (ADR 0070), so nothing here knows which.
 
-use oso_core::buffer::Buffer;
+use oso_core::buffer::{Buffer, BufferId};
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
 use oso_platform::window::ImeEvent;
 
 use super::App;
-use super::shell::{COMMITS_WHEN_TURNED_OFF, Loop};
+use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
 
 /// Whether oso wants the IME on in `buffer`: unless the next letter is a key, or
 /// cannot type (ADR 0069), or a prompt is selected (ADR 0072) or isearch is on (ADR 0082),
@@ -58,6 +58,12 @@ pub(super) struct ImeState {
     positions: Vec<f32>,
     /// The next layout is worked out here, so that a key of a composition allocates nothing.
     scratch: Vec<f32>,
+    /// The excerpt of the cursor's line is worked out here and handed to the window, which
+    /// leaves the one it held here, emptied at once and kept for its room. Never logged.
+    excerpt: String,
+    /// What the excerpt last given was worked out from ([`Editor::excerpt_stamp`]), or none
+    /// while the IME is off.
+    excerpt_for: Option<(BufferId, u64, usize)>,
 }
 
 impl App {
@@ -101,6 +107,9 @@ impl App {
             }
         }
         self.sync_ime(event_loop);
+        // Before the OS hears of secure input, so that no excerpt is held for a buffer that
+        // may hold secrets while it does.
+        self.give_excerpt();
         self.sync_secure_input();
         self.give_cursor_area();
         self.give_preedit_layout();
@@ -242,7 +251,7 @@ impl App {
     /// view may scroll or the grid change, and given only when it changed. None once the
     /// composition ends.
     fn give_preedit_layout(&mut self) {
-        let Some(view) = &self.view else {
+        let Some(view) = self.view.as_ref().filter(|_| ANSWERS_INPUT_METHOD) else {
             return;
         };
         let mut positions = std::mem::take(&mut self.ime.scratch);
@@ -262,6 +271,38 @@ impl App {
             std::mem::swap(&mut ime.positions, &mut positions);
         }
         ime.scratch = positions;
+    }
+
+    /// Gives the window the excerpt of the cursor's line, which the input method may read for
+    /// reconversion and better predictions (ADR 0070, ADR 0077): only while the IME is on,
+    /// only where [`Editor::excerpt_stamp`] says one is given, and again when that changes.
+    /// None while the IME is off.
+    fn give_excerpt(&mut self) {
+        let Some(view) = self.view.as_ref().filter(|_| ANSWERS_INPUT_METHOD) else {
+            return;
+        };
+        let excerpt_for = self
+            .ime
+            .allowed
+            .then(|| self.editor.excerpt_stamp())
+            .flatten();
+        if excerpt_for == self.ime.excerpt_for {
+            return;
+        }
+        // During a composition the excerpt the input method reads stays as it was, so that
+        // the composition's place in it does not move under the input method, as a reload or
+        // an edit in another window would move it. It is dropped at once where none is given.
+        if excerpt_for.is_some() && self.ime.excerpt_for.is_some() && self.composing() {
+            return;
+        }
+        self.ime.excerpt_for = excerpt_for;
+        let cursor = match excerpt_for {
+            Some(_) => self.editor.cursor_excerpt(&mut self.ime.excerpt),
+            None => None,
+        };
+        view.window.set_ime_excerpt(&mut self.ime.excerpt, cursor);
+        // What comes back is the excerpt the window held before: no text of a buffer stays.
+        self.ime.excerpt.clear();
     }
 }
 
