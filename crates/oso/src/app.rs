@@ -14,6 +14,7 @@ use oso_core::command::Effects;
 use oso_core::editor::{Editor, Status};
 use oso_core::window::WheelRemainder;
 
+mod agent;
 mod clipboard;
 #[cfg(feature = "dev")]
 mod control;
@@ -73,6 +74,10 @@ pub enum UserEvent {
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
+    /// Something from a connection of the agent channel (ADR 0085).
+    Agent(crate::channel::Request),
+    /// The agent channel started, or could not, off the UI thread.
+    AgentStarted(std::io::Result<crate::channel::Channel>),
 }
 
 /// Top-level application state.
@@ -125,6 +130,8 @@ pub struct App {
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
+    /// The agent channel, once the person turns it on (ADR 0085).
+    agent: agent::Agent,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -185,6 +192,7 @@ impl App {
             searcher: searches::Searcher::default(),
             lister,
             log_gate,
+            agent: agent::Agent::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]

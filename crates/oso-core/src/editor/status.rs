@@ -40,11 +40,17 @@ const COPY_WARNING: &str = "[emergency copy] ";
 const MIN_NAME_CELLS: usize = 20;
 /// The blank cells after a part of the modeline.
 const GAP: &str = "  ";
+/// Says that the agent channel is on (ADR 0085).
+const AGENT: &str = "Agent  ";
 
 /// The text of the modeline and the echo area. Comparing two says whether a frame
 /// would differ there.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Status {
+    /// `Agent` while the agent channel is on, first on the row (ADR 0085).
+    pub agent: &'static str,
+    /// An agent is connected, so the host draws [`Self::agent`] bright.
+    pub agent_connected: bool,
     /// The warnings, each with a blank after it. They come first on the row, and on
     /// the echo row of a frame with no modeline.
     pub warnings: String,
@@ -64,7 +70,7 @@ pub struct Status {
 impl Status {
     /// The modeline as one string.
     pub fn modeline(&self) -> String {
-        format!("{}{}{}", self.warnings, self.name, self.state)
+        format!("{}{}{}{}", self.agent, self.warnings, self.name, self.state)
     }
 
     /// The warnings that go first on the echo row: all of them in a frame with no
@@ -166,6 +172,13 @@ impl Editor {
     pub fn status_into(&self, status: &mut Status) {
         // A prompt has no modeline: it speaks of the window beneath (ADR 0072).
         let (window, buffer) = self.tiled();
+        let agent = self.agent_channel();
+        status.agent = if agent == super::AgentChannel::Off {
+            ""
+        } else {
+            AGENT
+        };
+        status.agent_connected = agent == super::AgentChannel::Connected;
         status.warnings.clear();
         if buffer.has_bidi_controls() {
             status.warnings.push_str(BIDI_WARNING);
@@ -183,7 +196,12 @@ impl Editor {
 
         let marker = marker(buffer);
         // These parts are ASCII, so their bytes are their cells.
-        let others = status.warnings.len() + marker.len() + 1 + GAP.len() + status.state.len();
+        let others = status.agent.len()
+            + status.warnings.len()
+            + marker.len()
+            + 1
+            + GAP.len()
+            + status.state.len();
         let columns = self.frame.window.modeline.columns;
         let cells = columns.saturating_sub(others).max(MIN_NAME_CELLS);
         status.name.clear();
@@ -208,6 +226,7 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::buffer::Replacement;
+    use crate::editor::AgentChannel;
     use crate::frame::FrameSize;
     use crate::load::Builder;
     use crate::selection::{Selection, SelectionSet};
@@ -257,6 +276,20 @@ mod tests {
         assert_eq!(status.name, "-- notes.md  ");
         assert_eq!(status.state, "2:1  Fundamental  UTF-8 LF");
         assert_eq!(status.modeline(), "-- notes.md  2:1  Fundamental  UTF-8 LF");
+    }
+
+    #[test]
+    fn the_agent_channel_shows_first_while_it_is_on() {
+        let mut editor = editor("ab");
+        assert_eq!(status(&editor).agent, "");
+        editor.set_agent_channel(AgentChannel::On);
+        let on = status(&editor);
+        assert_eq!(on.agent, "Agent  ");
+        assert!(!on.agent_connected);
+        assert!(on.modeline().starts_with("Agent  -- notes.md  "));
+        editor.set_agent_channel(AgentChannel::Connected);
+        assert!(status(&editor).agent_connected);
+        assert_ne!(status(&editor), on);
     }
 
     #[test]

@@ -36,6 +36,7 @@ use follow::Selected;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
+mod agent;
 mod completion;
 mod copies;
 mod files;
@@ -53,6 +54,7 @@ mod view;
 mod write;
 
 pub use crate::search::{SearchJob, SearchReport};
+pub use agent::AgentChannel;
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use isearch::{Isearch, MatchCells};
@@ -166,6 +168,8 @@ pub struct Editor {
     save_over_asked: Option<BufferId>,
     /// The kill ring, and whether the command before killed (ADR 0074).
     kills: kill::Kills,
+    /// What the editor knows of the agent channel (ADR 0085).
+    agent: agent::Agent,
     /// The isearch under way in the selected window (ADR 0082).
     isearch: Option<Isearch>,
     /// The generation of the search job that may run, which a worker checks to stop.
@@ -223,6 +227,7 @@ impl Editor {
             passphrase_command: false,
             save_over_asked: None,
             kills: kill::Kills::default(),
+            agent: agent::Agent::default(),
             isearch: None,
             search_live: Arc::new(AtomicU64::new(0)),
             search_job: None,

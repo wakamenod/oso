@@ -40,6 +40,16 @@ fn annotation(buffer: &Buffer, home: Option<&Path>) -> String {
     }
 }
 
+/// What a command with `spec` reads in a prompt, as a refusal names it.
+#[cfg(any(test, feature = "dev"))]
+pub(super) fn read_in_prompt(spec: oso_core::command::ArgSpec) -> &'static str {
+    match spec {
+        oso_core::command::ArgSpec::Buffer { .. } => "a buffer's name",
+        oso_core::command::ArgSpec::Mark { .. } => "a mark",
+        _ => "a path",
+    }
+}
+
 /// A size as `ls -h` writes it: `812`, `1.2k`, `34M`.
 pub(super) fn size(bytes: usize) -> String {
     const UNITS: [&str; 4] = ["k", "M", "G", "T"];
