@@ -17,7 +17,7 @@ keys: M-x b u f
 =-- test  1:0  Fundamental  UTF-8 LF         =
 "                                            "
 float at row 0, column 2: 10 x 40
-│ 1/11  M-x buf                          │
+│ 1/12  M-x buf                          │
 :              ^                         :
 │>kill-buffer (C-x k)  Kill a buffer, r… │
 :      ***                               :

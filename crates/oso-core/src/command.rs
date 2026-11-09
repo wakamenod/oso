@@ -82,6 +82,10 @@ pub enum Reach {
     Person,
 }
 
+/// The largest count the dev socket or the agent channel passes on, in either direction: a
+/// command runs on the UI thread and may repeat its work this many times (ADR 0044).
+pub const MAX_REMOTE_COUNT: isize = 10_000;
+
 /// A prefix argument as `C-u`, `M--` and digits build it (ADR 0058). The dispatcher
 /// holds it between keys, and these rules are Emacs's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

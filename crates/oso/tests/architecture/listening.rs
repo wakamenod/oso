@@ -10,7 +10,7 @@
 //!   call, a path or a function pointer. The test harnesses only connect.
 //! - The transport defines them, and only its tests use them.
 //! - Only the app's agent module starts the agent channel, `channel::start`, from the
-//!   person's command.
+//!   person's command, in `app/agent/admit.rs`.
 
 use crate::lexer::{Tok, Token, test_item_lines, tokenize};
 
@@ -25,7 +25,7 @@ pub const CLIENTS: [&str; 2] = ["crates/oso/tests/", "crates/oso/examples/"];
 
 /// The one place that starts the agent channel, from the person's `agent-channel-start`
 /// (ADR 0085).
-pub const STARTS_THE_CHANNEL: &str = "crates/oso/src/app/agent.rs";
+pub const STARTS_THE_CHANNEL: &str = "crates/oso/src/app/agent/admit.rs";
 
 /// The transport, which defines them and may use them in its tests only.
 pub const TRANSPORT: &str = "crates/oso-platform/src/control/";
@@ -207,7 +207,7 @@ mod tests {
         let elsewhere = problems(&files(&[("crates/oso/src/commands/x.rs", STARTS)]));
         assert_eq!(elsewhere.len(), 1, "{elsewhere:?}");
         assert!(
-            elsewhere[0].contains("only crates/oso/src/app/agent.rs"),
+            elsewhere[0].contains("only crates/oso/src/app/agent/admit.rs"),
             "{elsewhere:?}"
         );
         let twice = format!("{STARTS}{STARTS}");

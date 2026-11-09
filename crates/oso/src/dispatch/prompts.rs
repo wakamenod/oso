@@ -70,6 +70,12 @@ impl Dispatcher {
                     },
                 )
             }
+            Some(ArgSpec::Text { prompt, history }) => (
+                prompt,
+                Kind::Text {
+                    history: Some(history),
+                },
+            ),
             Some(ArgSpec::Passphrase { prompt }) => (prompt, Kind::Passphrase),
             // What the clipboard holds is read off the UI thread, with no prompt (ADR 0074).
             Some(spec) if spec.reads_clipboard(args.raw()) && invocation.clipboard.is_none() => {
@@ -222,6 +228,9 @@ impl Dispatcher {
                     })
                 }
                 Some(Outcome::Run(name)) => {
+                    // What the person's `y` to the agent's question runs is the agent's, so
+                    // that a prompt it opens says so too (ADR 0085).
+                    let agents = editor.take_agents_answer();
                     self.forget_closed(editor);
                     let Some(id) = self.registry.lookup(name) else {
                         // A bug: a question named a command that does not exist.
@@ -233,10 +242,15 @@ impl Dispatcher {
                         confirmed: true,
                         ..Invocation::default()
                     };
-                    Some(
+                    let mut run = |editor: &mut Editor| {
                         self.execute(editor, id, Args::NONE, invocation, Step::MayJoin)
-                            .0,
-                    )
+                            .0
+                    };
+                    Some(if agents {
+                        editor.for_agent(|editor| run(editor))
+                    } else {
+                        run(editor)
+                    })
                 }
                 None => {
                     self.forget_closed(editor);
