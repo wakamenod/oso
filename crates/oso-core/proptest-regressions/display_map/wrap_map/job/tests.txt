@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c11c624d79a641b1e536a96bd8d171460028dc6b12a07fef80a4b0dc72a0126f # shrinks to text = " abcdefghij word 日本語 word abcdefghij日本語word word word word 。word 。\t\t。word abab\t\t\t word abword \tab ", steps = [(1, [(6, 3, "abab")], 8)], columns = 12

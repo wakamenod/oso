@@ -47,7 +47,7 @@ impl Window {
     fn settle(&mut self) {
         while let Some(job) = self.wrap.take_job(&self.map.snapshot()) {
             if let Some(report) = job.run() {
-                self.wrap.take_report(report);
+                self.wrap.take_report(report, &self.map.snapshot());
             }
         }
     }
@@ -98,7 +98,7 @@ fn a_newer_width_supersedes_a_job_and_its_report_is_dropped() {
         .expect("a newer job");
     assert!(first.run().is_none(), "superseded, it stops");
     let report = second.run().expect("a report");
-    assert!(window.wrap.take_report(report));
+    assert!(window.wrap.take_report(report, &window.map.snapshot()));
     assert_eq!(window.rows(), window.fresh(12));
 }
 
@@ -109,23 +109,74 @@ fn a_report_takes_the_commands_made_while_its_job_ran() {
     let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
     window.command(&[(10, 0, "longer ")]);
     window.command(&[(0, 5, "")]);
-    assert!(window.wrap.take_report(job.run().expect("a report")));
+    assert!(
+        window
+            .wrap
+            .take_report(job.run().expect("a report"), &window.map.snapshot())
+    );
     window.settle();
     assert_eq!(window.rows(), window.fresh(16));
 }
 
 #[test]
-fn a_report_past_what_is_kept_since_runs_its_job_again() {
+fn a_report_after_many_commands_is_taken_and_leaves_what_they_changed_stale() {
     let mut window = Window::new(&"word ".repeat(40), 30);
     window.wrap.set_columns(16);
     let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
-    for _ in 0..=SINCE_COMMANDS {
+    for _ in 0..100 {
         window.command(&[(0, 0, "x")]);
     }
-    assert!(!window.wrap.take_report(job.run().expect("a report")));
-    assert!(window.wrap.is_stale(), "it wants the width wrapped again");
+    let report = job.run().expect("a report");
+    assert!(window.wrap.take_report(report, &window.map.snapshot()));
+    assert!(
+        window.wrap.is_stale(),
+        "what the commands changed waits for a job"
+    );
     window.settle();
     assert_eq!(window.rows(), window.fresh(16));
+}
+
+#[test]
+fn spread_splices_past_the_budget_leave_only_their_own_rows_stale() {
+    // Lines longer than a rope chunk, so that each splice rebuilds chunks of its own.
+    let line = "word ".repeat(600);
+    let text = format!("{line}\n{line}\n{line}\n{line}\n");
+    let mut window = Window::new(&text, 12);
+    let rows_before = window.rows().len();
+    // From the end back, as the editor applies them, one a line.
+    window.command(&[
+        (10_000, 0, "x"),
+        (7_000, 0, "x"),
+        (4_000, 0, "x"),
+        (1_000, 0, "x"),
+    ]);
+    let Some(Work::Ranges(ranges)) = &window.wrap.wanted else {
+        panic!("stale ranges");
+    };
+    assert!(ranges.len() > 1, "apart: {}", ranges.len());
+    let stale: usize = ranges.iter().map(|range| range.len()).sum();
+    assert!(
+        stale < text.len() / 2,
+        "each small: {stale} of {}",
+        text.len()
+    );
+    // Each splice's rebuilt chunks are one provisional row; the rows between stay wrapped.
+    assert!(
+        window.rows().len() * 2 > rows_before,
+        "{} of {rows_before}",
+        window.rows().len()
+    );
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(12));
+}
+
+#[test]
+fn a_command_that_empties_the_buffer_leaves_no_row_behind() {
+    let mut window = Window::new("abcdefghijklmnop", 9);
+    window.command(&[(0, 16, ""), (0, 0, "y"), (0, 0, "x")]);
+    assert_eq!(window.rows(), window.fresh(9));
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(9));
 }
 
 /// Text with long lines of words and of CJK.
@@ -171,7 +222,7 @@ proptest! {
                 1 => held = window.wrap.take_job(&window.map.snapshot()).or(held),
                 2 => {
                     if let Some(report) = held.take().and_then(WrapJob::run) {
-                        window.wrap.take_report(report);
+                        window.wrap.take_report(report, &window.map.snapshot());
                     }
                 }
                 _ => {}
@@ -184,7 +235,7 @@ proptest! {
             window.command(&replacements);
         }
         if let Some(report) = held.take().and_then(WrapJob::run) {
-            window.wrap.take_report(report);
+            window.wrap.take_report(report, &window.map.snapshot());
         }
         window.settle();
         prop_assert_eq!(window.rows(), window.fresh(columns));

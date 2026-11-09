@@ -5,13 +5,16 @@
 //! the GPU. It reads a [`DisplaySnapshot`] and says where view rows start.
 //!
 //! - A [`WrapSnapshot`] is a [`SumTree`] of the rows' lengths in bounded items: runs of
-//!   logical lines that fit in a row, and at most [`ROWS_PER_ITEM`] rows of a line that
-//!   wraps. Its summary counts bytes, view rows and logical lines, so a view row and an
-//!   offset convert both ways in O(log n).
+//!   logical lines that fit in a row, and at most [`ROWS_PER_ITEM`] rows of one line or
+//!   several, which a line that wraps starts (`builder.rs`). Its summary counts bytes, view
+//!   rows and logical lines, so a view row and an offset convert both ways in O(log n).
 //! - A row ends where `breaks.rs` says, at the width less the mark's column. Below
 //!   [`MIN_COLUMNS`] nothing wraps.
 //! - An edit rewraps from the row before it, until a row starts where an old one did, past
-//!   the edit, at the same column modulo the tab width. From there every row is as before.
+//!   the edit, at the same column modulo the tab width when a tab follows on the line. From
+//!   there every row is as before (`edit.rs`).
+//! - A command's rewraps read at most a budget; past it, rows are provisional and stale, and
+//!   a [`WrapJob`] rewraps them, or a new width, off the UI thread (`job.rs`, ADR 0102).
 //!
 //! No `Debug` here prints an offset, as where rows break tells how long words are in a
 //! buffer that may hold secrets.
@@ -208,6 +211,9 @@ struct RowStream<'a> {
     at: usize,
     column: usize,
     end: usize,
+    /// Whether a line may be found to fit from its bytes; off in tests that compare it with
+    /// a scan of its clusters.
+    plain: bool,
 }
 
 impl<'a> RowStream<'a> {
@@ -223,6 +229,7 @@ impl<'a> RowStream<'a> {
             at: start,
             column: point.column,
             end: buffer_end(display),
+            plain: true,
         };
         stream.open(point);
         stream
@@ -232,6 +239,7 @@ impl<'a> RowStream<'a> {
     fn open(&mut self, point: DisplayPoint) {
         let line_end = line_end(self.display, point.row, self.end);
         if point.column == 0
+            && self.plain
             && let Some(tabs) = self.fits_plainly((self.at, line_end))
         {
             self.whole = Some((line_end, tabs));
@@ -249,23 +257,27 @@ impl<'a> RowStream<'a> {
         if self.width == usize::MAX {
             return Some(true);
         }
-        if end - start > self.width.saturating_mul(1) + 2 {
+        let len = end - start;
+        if len > self.width + 2 {
             return None;
         }
         let tab_width = self.display.tab_width().get() as usize;
-        let (mut column, mut tabs) = (0, false);
-        let text: String = self.display.text_in(start..end).collect();
-        let body = text
-            .strip_suffix("\r\n")
-            .or_else(|| text.strip_suffix('\n'))
-            .unwrap_or(&text);
-        for byte in body.bytes() {
+        let (mut column, mut tabs, mut carriage) = (0, false, false);
+        let bytes = self.display.text_in(start..end).flat_map(str::bytes);
+        for (index, byte) in bytes.enumerate() {
+            if carriage && byte != b'\n' {
+                // A lone `\r` is an escape of two cells.
+                return None;
+            }
             match byte {
                 b'\t' => {
                     tabs = true;
                     column += tab_width - column % tab_width.max(1);
                 }
                 0x20..=0x7e => column += 1,
+                // The line break that ends it, `\n` or `\r\n`.
+                b'\n' if index + 1 == len => {}
+                b'\r' if index + 2 == len => carriage = true,
                 _ => return None,
             }
         }
@@ -382,6 +394,27 @@ impl WrapSnapshot {
             tree: builder.finish().into_iter().collect(),
             width,
         })
+    }
+
+    /// The rows of `display` at `columns`, every line's clusters read, as no line is found to
+    /// fit from its bytes.
+    #[cfg(test)]
+    fn scanned(display: &DisplaySnapshot, columns: usize) -> Self {
+        let width = wrap_width(columns);
+        let mut builder = Builder::new(true);
+        let mut stream = RowStream::new(display, 0, width);
+        stream.plain = false;
+        if stream.whole.is_some() {
+            stream.whole = None;
+            stream.open(DisplayPoint::new(stream.line, 0));
+        }
+        for row in stream {
+            builder.row(row);
+        }
+        Self {
+            tree: builder.finish().into_iter().collect(),
+            width,
+        }
     }
 
     /// About how many bytes of memory its rows take, its items and their summaries, for

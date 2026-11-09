@@ -315,3 +315,22 @@ proptest! {
         prop_assert_eq!(shape(&edited, &after), shape(&WrapSnapshot::new(&after, columns), &after));
     }
 }
+
+proptest! {
+    /// A line found to fit from its bytes has the row a scan of its clusters gives it.
+    #[test]
+    fn a_plain_line_fits_as_its_clusters_say(
+        text in prop::collection::vec(
+            prop::sample::select(&["a", " ", "\t", "\r", "\r\n", "\n", "~", "\u{7f}", "é", "日"][..]),
+            0..40,
+        ),
+        columns in 8_usize..16,
+        tab_width in 1_u32..9,
+    ) {
+        let text = text.concat();
+        let display = DisplayMap::new(&Rope::from(text.as_str()), TabWidth::new(tab_width)).snapshot();
+        let plain = WrapSnapshot::new(&display, columns);
+        let scanned = WrapSnapshot::scanned(&display, columns);
+        prop_assert_eq!(shape(&plain, &display), shape(&scanned, &display));
+    }
+}
