@@ -1,0 +1,22 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: あいうえおか\\n"
+---
+before
+│あいうえ↩│
+:<><><><>m:
+│おか     │
+:^^<>     :
+│         │
+=-- test  =
+"         "
+
+composing
+│あいう  ↩│
+:<><><>  m:
+│え。おか │
+:<><>^^<> :
+_  --     _
+│         │
+=-- test  =
+"         "

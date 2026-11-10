@@ -46,6 +46,8 @@ use super::Dispatcher;
 
 mod rows;
 mod text_area;
+#[cfg(test)]
+mod wrap;
 use rows::{Style, blank_row, draw_row, draw_run, screen_row};
 use text_area::draw_text_area;
 

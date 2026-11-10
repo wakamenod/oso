@@ -169,6 +169,13 @@ or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
   edit or a stale tail wraps on a worker. Until it reports, the rows near the
   view are wrapped at once from an anchor, within what the command left of its
   budget, and the rest count one row a logical line.
+- What a frame draws is a `window::Screen`, built once a frame: the rows in view,
+  each part of a logical line from where it starts to where the next row starts.
+  A row that continues draws its text in the wrap's width and `↩` in the column
+  after, where one space may hang; a provisional line draws to the edge. A range
+  past a break fills to the row's text width. A preedit's line is laid out again
+  with it in, as if inserted, and the view follows its caret
+  ([ADR 0104](adr/0104-soft-wrap-drawn-in-view-rows.md)).
 
 ## Decorations
 
@@ -219,7 +226,8 @@ one layer:
   the input method the cursor's rectangle.
 - An input method's preedit is no buffer's and needs no InlayMap: `Editor` holds it, and
   `display_map::row_clusters` splices it into the cursor's row, moving what follows by its
-  cells. The renderer and the text-grid snapshots both read that row through it, and
+  cells. The renderer and the text-grid snapshots both read that row through it, a wrapped
+  line laid out again with the preedit in it (ADR 0104), and
   `motion::cursor_box` places the cursor box on the preedit's caret or after it
   ([ADR 0069](adr/0069-macos-input-method.md)).
 

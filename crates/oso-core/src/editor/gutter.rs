@@ -64,7 +64,9 @@ impl Editor {
             return false;
         }
         let before = self.frame;
-        self.set_frame_size(size);
+        // Within the command's budget: a narrower text area wraps the rows in view again,
+        // and the rest waits for the job (ADR 0103).
+        self.lay_out(size);
         self.frame != before
     }
 
@@ -178,6 +180,39 @@ mod tests {
         assert!(!editor.fit_gutter(), "the edit laid it out at 1000 lines");
         assert_eq!(editor.frame().window.gutter.columns, 5);
         assert_eq!(rows(&editor)[0].0, "   1 ");
+    }
+
+    #[test]
+    fn a_gutter_that_gains_a_digit_in_a_command_takes_from_its_budget() {
+        // One row, so that the rows near the view cost less than a budget.
+        let mut editor = numbered(&"x\n".repeat(998), 1);
+        let id = editor.window().buffer();
+        editor.set_wraps(id, true);
+        let columns = editor.window().size().columns;
+        editor.begin_undo_group();
+        // What the command's edits left: none.
+        editor
+            .current_mut()
+            .0
+            .wrap_map_mut()
+            .unwrap()
+            .spend_budget();
+        let edit = crate::buffer::Replacement {
+            range: 0..0,
+            text: "\n",
+        };
+        editor.apply_edits(id, &[edit]).unwrap();
+        assert_eq!(
+            editor.window().size().columns,
+            columns - 1,
+            "1000 lines, 4 digits"
+        );
+        let left = editor.window().wrap_map().unwrap().budget_left();
+        assert_eq!(
+            left, 0,
+            "the narrower rows wait for the job, as a command's edits do"
+        );
+        editor.end_undo_group();
     }
 
     #[test]

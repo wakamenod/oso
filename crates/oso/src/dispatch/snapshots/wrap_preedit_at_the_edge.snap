@@ -1,0 +1,49 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: aaaa bbb\\nnext\\n"
+---
+a word that fits
+│aaaa    ↩│
+:        m:
+│bbbx     │
+:    ^    :
+_   -     _
+│next     │
+│         │
+=-- test  =
+"         "
+
+a word past the edge
+│aaaa    ↩│
+:        m:
+│bbbxyz   │
+:      ^  :
+_   ---   _
+│next     │
+│         │
+=-- test  =
+"         "
+
+longer than a row
+│aaaa bbb↩│
+:        m:
+│にほんご↩│
+:<><><><>m:
+_-------- _
+│にゅう  ↩│
+:<><><>  m:
+_------   _
+│りょく   │
+:<><><>^  :
+_------   _
+=-- test  =
+"         "
+
+cleared
+│aaaa bbb │
+:        ^:
+│next     │
+│         │
+│         │
+=-- test  =
+"         "

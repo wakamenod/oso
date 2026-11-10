@@ -1,0 +1,29 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: short\\na line long enough to wrap twice in the window\\nlast\\n"
+---
+keys: C-x x t
+│  1 ┆short               │
+:     ^                   :
+│  2 ┆a line long enough ↩│
+:                        m:
+│    ┆to wrap twice in   ↩│
+:                        m:
+│    ┆the window          │
+│  3 ┆last                │
+│  4 ┆                    │
+=-- test  1:0  Fundamenta=
+"Truncate long lines disa"
+
+keys: C-n C-e
+│  1 ┆short               │
+│  2 ┆a line long enough ↩│
+:                        m:
+│    ┆to wrap twice in   ↩│
+:                        m:
+│    ┆the window          │
+:               ^         :
+│  3 ┆last                │
+│  4 ┆                    │
+=-- test  2:46  Fundament=
+"                        "

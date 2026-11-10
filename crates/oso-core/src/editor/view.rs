@@ -20,7 +20,14 @@ impl Editor {
     /// also show the text above any empty space below the buffer's last row.
     /// Returns whether the view moved.
     pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
+        // A resize starts each wrap's budget (ADR 0103).
         self.refill_wraps();
+        self.lay_out(size)
+    }
+
+    /// [`Editor::set_frame_size`] within what is left of the wraps' budget, for a gutter that
+    /// gained a digit in a command, which a frame laid out again does not start anew.
+    pub(super) fn lay_out(&mut self, size: FrameSize) -> bool {
         self.frame = frame::layout(size, self.gutter_columns());
         let view = self.frame.window.text.view_size();
         let tiled = self.tiled_index();

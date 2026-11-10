@@ -100,6 +100,9 @@ recommended option each time, and approved the public API in direction.
 
 - ADR 0097's line numbers come first, and this step draws them in view rows: a line's number on
   its first row, none on the rows it continues on.
+- **A gutter that gains a digit in a command** narrows the text area within the command's
+  budget, which its edits share, as ADR 0103 says of the rows near the view. A frame laid out
+  again for it starts no budget; a resize does.
 
 ### The C-x b preview
 
@@ -124,8 +127,10 @@ recommended option each time, and approved the public API in direction.
 The exact items are in the pull request and the API snapshot. In outline, with no new public
 module:
 
-- in `window`, `Screen` and `ScreenRow`;
-- `Editor::screen` and `Editor::preview_screen`;
+- in `window`, `Screen` and `ScreenRow`, and `Screen::show_lines` for a view no window holds,
+  such as a theme's sample;
+- `Editor::screen`, `Editor::preview_screen` and `Editor::prompt_screen`, the last for a
+  prompt's answer;
 - `oso_render::Face::WrapMark`;
 - `frame`'s cell functions and the editor's cell methods taking a `&Screen` in place of a
   `ViewTop` and a preedit;
