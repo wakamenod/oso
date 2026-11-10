@@ -23,6 +23,7 @@ mod copies;
 mod draw;
 mod events;
 mod files;
+mod flash;
 #[cfg(feature = "dev")]
 mod handover;
 mod ime;
@@ -156,6 +157,8 @@ pub struct App {
     log_gate: LogGate,
     /// The agent channel, once the person turns it on (ADR 0085).
     agent: agent::Agent,
+    /// The cursor flash fading after a large jump (ADR 0097).
+    flash: flash::Flash,
     #[cfg(feature = "dev")]
     dev: Option<dev::DevState>,
     /// Key latency, startup and load times, for benchmarks (ADR 0025).
@@ -226,6 +229,7 @@ impl App {
             lister,
             log_gate,
             agent: agent::Agent::default(),
+            flash: flash::Flash::default(),
             #[cfg(feature = "dev")]
             dev: None,
             #[cfg(feature = "dev")]
@@ -276,6 +280,7 @@ impl App {
     /// Does what commands asked for.
     fn apply(&mut self, event_loop: &Loop<'_>, effects: Effects) {
         let effects = effects.union(self.sync_clipboard());
+        self.flash_after_input();
         self.forget_killed();
         self.serve_files();
         self.forget_listings();

@@ -113,14 +113,6 @@ impl App {
         }
     }
 
-    /// Wakes the loop for the next deadline of leaving, if any, and otherwise lets it sleep.
-    fn set_wake(&self, event_loop: &Loop<'_>) {
-        match self.leaving.next_wake() {
-            Some(deadline) => event_loop.wake_at(deadline),
-            None => event_loop.sleep_when_idle(),
-        }
-    }
-
     /// Exits: at once, or if a save is running, once it has ended. A save the user asked
     /// for should not depend on how fast they leave, and a process that ends mid-write
     /// would leave its temporary file behind. The event loop keeps running until then, so
@@ -137,6 +129,7 @@ impl App {
             return;
         }
         self.set_wake(event_loop);
+        self.end_flash();
         if let Some(view) = &self.view {
             view.window.set_visible(false);
         }

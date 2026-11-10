@@ -96,7 +96,8 @@ impl App {
             reply,
             asked: std::time::Instant::now(),
         });
-        // Something must wake the loop when the deadline passes, as nothing else may.
+        // Something must wake the loop when the deadline passes. The app's single wake
+        // (`set_wake`) does not hold it: an event from this thread does.
         let waker = self.waker.clone();
         let spawned = std::thread::Builder::new()
             .name("oso-agent-deadline".into())
@@ -197,6 +198,7 @@ impl App {
     /// leaves one cursor, as it does for the person, so in a buffer the person already had open
     /// it ends their several cursors there.
     fn show_for_agent(&mut self, buffer: BufferId, line: Option<usize>) -> Reply {
+        let before = self.editor.view_sample();
         self.editor.show(buffer);
         if let Some(line) = line {
             let line = isize::try_from(line).unwrap_or(isize::MAX);
@@ -207,6 +209,10 @@ impl App {
                 Reach::Look,
             );
         }
+        // Showing the buffer is no input of the dispatcher's, so it is compared here.
+        let jumped = self.dispatcher.take_jump() == Some(true)
+            || self.editor.flashes(&before, &self.editor.view_sample());
+        self.flash_after_agent(jumped);
         self.request_redraw();
         let name = self.editor.buffer(buffer).map(|b| b.name().to_owned());
         self.agent_log(&format!("open {}: ok", name.as_deref().unwrap_or("")));

@@ -74,6 +74,25 @@ impl Dispatcher {
         given: Given<'_>,
         reach: Reach,
     ) -> Result<(Effects, Result<(), String>), Refused> {
+        // An agent's command is no key of the person's, so it ends no flash (ADR 0105).
+        let before = self.jump.take();
+        let ran = self.run_agent_command(editor, name, given, reach);
+        self.jump = if self.jump == Some(true) {
+            Some(true)
+        } else {
+            before
+        };
+        ran
+    }
+
+    /// [`Dispatcher::run_for_agent`], but for the cursor flash.
+    fn run_agent_command(
+        &mut self,
+        editor: &mut Editor,
+        name: &str,
+        given: Given<'_>,
+        reach: Reach,
+    ) -> Result<(Effects, Result<(), String>), Refused> {
         let refused = |why: String| Err(Refused(why));
         let (id, command) = self.by_reach(name, reach)?;
         if self.waits_for_clipboard() {

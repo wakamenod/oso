@@ -494,10 +494,13 @@ mod tests {
 
     /// A frame whose floats are `columns` wide, as 60% of it gives.
     fn frame(columns: usize) -> FrameLayout {
-        let frame = frame_layout(FrameSize {
-            rows: 30,
-            columns: columns * 10 / 6,
-        });
+        let frame = frame_layout(
+            FrameSize {
+                rows: 30,
+                columns: columns * 10 / 6,
+            },
+            0,
+        );
         assert_eq!(float_regions(&frame, 1).outer.columns, columns);
         frame
     }
@@ -628,7 +631,7 @@ mod tests {
         let label = format!("Save over it?{QUESTION_END}");
         for rows in 0..8 {
             for columns in 1..40 {
-                let frame = frame_layout(FrameSize { rows, columns });
+                let frame = frame_layout(FrameSize { rows, columns }, 0);
                 let layout = layout(&frame, &label, QUESTION, Some("Answer y or n"));
                 let inner = layout.regions.inner;
                 let end = inner.column + inner.columns;
@@ -667,7 +670,7 @@ mod tests {
             let label = format!("Save over {name}? It changed on disk since it was read.");
             for rows in 0..8 {
                 for columns in 0..80 {
-                    let frame = frame_layout(FrameSize { rows, columns });
+                    let frame = frame_layout(FrameSize { rows, columns }, 0);
                     let layout = layout(&frame, &label, QUESTION, Some("Answer y or n"));
                     let inner = layout.regions.inner;
                     let [y, n] = layout.keys;
@@ -692,10 +695,13 @@ mod tests {
     #[test]
     fn a_label_of_one_row_keeps_its_opening_and_the_start_of_a_long_name() {
         // Two text rows: the label has one row of 56 columns.
-        let frame = frame_layout(FrameSize {
-            rows: 4,
-            columns: 100,
-        });
+        let frame = frame_layout(
+            FrameSize {
+                rows: 4,
+                columns: 100,
+            },
+            0,
+        );
         let name = "n".repeat(40);
         let label = format!("Save over {name}? It changed on disk since it was read.");
         let layout = layout(&frame, &label, QUESTION, None);
@@ -707,10 +713,13 @@ mod tests {
         );
         assert!(layout.label_cut);
         // A word too long for any row starts where it is, at the narrowest float too.
-        let narrow = frame_layout(FrameSize {
-            rows: 4,
-            columns: 40,
-        });
+        let narrow = frame_layout(
+            FrameSize {
+                rows: 4,
+                columns: 40,
+            },
+            0,
+        );
         let layout = super::layout(&narrow, &label, QUESTION, None);
         let row = &label[layout.label[0].clone()];
         assert!(row.starts_with("Save over nnnn"), "{row}");
@@ -719,10 +728,13 @@ mod tests {
     #[test]
     fn a_cluster_wider_than_a_shared_row_leaves_the_keys_whole() {
         // One text row, a float of 11 columns: 3 columns of label before the keys.
-        let frame = frame_layout(FrameSize {
-            rows: 3,
-            columns: 15,
-        });
+        let frame = frame_layout(
+            FrameSize {
+                rows: 3,
+                columns: 15,
+            },
+            0,
+        );
         let layout = layout(&frame, "\u{202e}", QUESTION, None);
         let [y, n] = layout.keys;
         assert_eq!((y.columns, n.columns), (3, 3));
@@ -731,10 +743,13 @@ mod tests {
 
     #[test]
     fn a_float_of_one_row_puts_the_label_before_the_answer() {
-        let frame = frame_layout(FrameSize {
-            rows: 3,
-            columns: 100,
-        });
+        let frame = frame_layout(
+            FrameSize {
+                rows: 3,
+                columns: 100,
+            },
+            0,
+        );
         let kind = Kind::Number { history: None };
         let layout = layout(&frame, "Go to line: ", kind, None);
         let inner = layout.regions.inner;
@@ -749,10 +764,13 @@ mod tests {
 
     #[test]
     fn a_short_float_keeps_the_first_row_of_the_label() {
-        let frame = frame_layout(FrameSize {
-            rows: 4,
-            columns: 100,
-        });
+        let frame = frame_layout(
+            FrameSize {
+                rows: 4,
+                columns: 100,
+            },
+            0,
+        );
         let text = "word ".repeat(40);
         let layout = layout(&frame, &text, Kind::Number { history: None }, None);
         assert_eq!(layout.regions.inner.rows, 2);

@@ -73,10 +73,16 @@ Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
 ([ADR 0071](adr/0071-mark-and-region.md)). The same line marks the current isearch match
 with `#` and the other matches in view with `~`, from `Editor::search_cells`
-([ADR 0082](adr/0082-isearch.md)), and the current line's band with `l` and trailing
-whitespace with `t`, from `Editor::current_line_cells` and `Editor::trailing_cells`
-([ADR 0097](adr/0097-visual-aids.md)). The visual aids start off in every scenario, so a
+([ADR 0082](adr/0082-isearch.md)), and the current line's band with `l`, trailing
+whitespace with `t` and the cursor flash with `f`, from `Editor::current_line_cells`,
+`Editor::trailing_cells` and `Editor::flash_cells`
+([ADR 0097](adr/0097-visual-aids.md)). The flash shows at full strength when a step's last
+key flashes, as `Editor::flashes` says after each key. The visual aids start off in every scenario, so a
 snapshot shows only those it turns on.
+
+With line numbers on, each of a window's rows begins with the gutter's text, from
+`Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
+([ADR 0097](adr/0097-visual-aids.md)).
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `]`
@@ -92,7 +98,7 @@ lives there because `oso` is a binary crate, so `tests/` cannot reach the
 #[test]
 fn page_keys_scroll_by_a_screen() {
     let text: String = (0..12).map(|i| format!("line {i:02}\n")).collect();
-    // A name, the file's bytes, the text area's rows and columns, and the keys of
+    // A name, the file's bytes, the window's rows and columns, gutter and text, and the keys of
     // each frame. "" is a frame with no new keys. Keys add up from frame to frame.
     check("page_scrolling", text, (5, 12), &["", "C-v", "M-v"]);
 }

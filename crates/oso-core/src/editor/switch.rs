@@ -69,6 +69,9 @@ impl Editor {
             self.sync_wrap(index);
             self.restore_place(index, place);
         }
+        // At once, so that no caller lays the new buffer out at the old one's gutter, which
+        // says how many lines that one has (ADR 0097).
+        self.fit_gutter();
         self.note_secret_shown();
     }
 

@@ -70,6 +70,12 @@ pub enum Face {
     TrailingWhitespace,
     /// The band on the primary cursor's row, at the back of the fills.
     CurrentLine,
+    /// The cursor flash after a large jump, over the fills, at a strength that fades.
+    Flash,
+    /// A line's number in the gutter (ADR 0097).
+    LineNumber,
+    /// The primary cursor's line's number, brighter than the others.
+    LineNumberCurrent,
 }
 
 impl Face {
@@ -163,6 +169,16 @@ pub struct TextView<'a> {
     pub fills: &'a [(Face, &'a [CellRect])],
     /// Whether whitespace is marked (ADR 0097). A change shapes the rows in view again.
     pub whitespace: bool,
+    /// The cursor flash, filled over the fills and under the text (ADR 0097).
+    pub flash: Option<FlashFill>,
+}
+
+/// The cursor flash in a frame: its cells, as `Editor::flash_cells` gives them, filled in
+/// [`Face::Flash`]'s background at `strength`, from 1 down to 0 (ADR 0097).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlashFill {
+    pub cells: CellRect,
+    pub strength: f32,
 }
 
 /// Text in one face's foreground, in cells after the span before it. Its

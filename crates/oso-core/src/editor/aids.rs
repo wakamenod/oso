@@ -1,11 +1,13 @@
-//! The visual aids' switches, and what they fill in the tiled window: trailing whitespace and
-//! the current line's band (ADR 0097).
+//! The visual aids' switches, and what they fill in the tiled window: trailing whitespace,
+//! the current line's band and the cursor flash, with what decides that it flashes
+//! (ADR 0097).
 //!
 //! Must not depend on: `command`, `keymap` or the host's window.
 
 use std::ops::Range;
 
 use super::Editor;
+use crate::buffer::BufferId;
 use crate::display_map::DisplaySnapshot;
 use crate::frame::{self, CellRect};
 use crate::motion;
@@ -24,9 +26,9 @@ pub struct VisualAids {
     pub whitespace: bool,
     /// A band on the primary cursor's row.
     pub current_line: bool,
-    /// A band that fades after a large jump. Not drawn yet: a later step of M2-24 draws it.
+    /// A band that fades after a large jump.
     pub flash: bool,
-    /// Line numbers in a gutter. Not drawn yet: a later step of M2-24 draws them.
+    /// Line numbers in a gutter at the tiled window's left.
     pub line_numbers: bool,
 }
 
@@ -51,6 +53,7 @@ impl Editor {
     /// Turns the visual aids on and off as `aids` says.
     pub fn set_visual_aids(&mut self, aids: VisualAids) {
         self.aids = aids;
+        self.fit_gutter();
     }
 
     /// The cells of the tiled window's trailing whitespace in view, into `out`, which is
@@ -109,6 +112,74 @@ impl Editor {
             row: text.row + (top - scroll.row),
             rows: bottom - top,
             ..text
+        })
+    }
+}
+
+/// How far the primary cursor must move in one go, in display rows, for the cursor to flash.
+const FLASH_ROWS: usize = 5;
+
+/// What the cursor flash compares before and after an event (ADR 0097): which buffer the
+/// tiled window shows and which window that is, the primary cursor's display row, the top
+/// row in view, and whether isearch runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ViewSample {
+    buffer: BufferId,
+    window: usize,
+    row: usize,
+    top: usize,
+    searching: bool,
+}
+
+impl Editor {
+    /// The tiled window's view as the cursor flash compares it.
+    pub fn view_sample(&self) -> ViewSample {
+        let (window, buffer) = self.tiled();
+        let display = buffer.display();
+        ViewSample {
+            buffer: window.buffer(),
+            window: self.tiled_index(),
+            row: window.cursor_point(&display).row,
+            top: window.drawn_top(&display).row,
+            searching: self.isearch().is_some(),
+        }
+    }
+
+    /// Whether the view went from `before` to `now` by a large jump, so the cursor flashes:
+    /// another buffer or window, or the primary cursor or the view's top 5 or more rows away,
+    /// as `C-v`, `M-v` and `C-l` scroll. Never while isearch runs, as its steps have their
+    /// own current match, and never with the flash off. The view follows the cursor by the
+    /// fewest rows, so it moves that far only when the cursor does too.
+    pub fn flashes(&self, before: &ViewSample, now: &ViewSample) -> bool {
+        if !self.aids.flash || now.searching {
+            return false;
+        }
+        if (before.buffer, before.window) != (now.buffer, now.window) {
+            return true;
+        }
+        before.row.abs_diff(now.row) >= FLASH_ROWS || before.top.abs_diff(now.top) >= FLASH_ROWS
+    }
+
+    /// The cells the flash covers: from the primary cursor to the text area's right edge, on
+    /// its row, if that row is in view.
+    pub fn flash_cells(&self) -> Option<CellRect> {
+        let (window, buffer) = self.tiled();
+        let display = buffer.display();
+        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
+        let point = window.cursor_point(&display);
+        let row = point
+            .row
+            .checked_sub(scroll.row)
+            .filter(|&row| row < text.rows)?;
+        let column = point
+            .column
+            .checked_sub(scroll.left)
+            .filter(|&c| c < text.columns)?;
+        Some(CellRect {
+            row: text.row + row,
+            column: text.column + column,
+            rows: 1,
+            columns: text.columns - column,
         })
     }
 }
@@ -249,6 +320,69 @@ mod tests {
         assert_eq!(
             trailing(&rope, &display, 0, &mut left),
             Some(1..text.len() - 1)
+        );
+    }
+
+    #[test]
+    fn a_jump_of_five_rows_flashes_and_a_step_does_not() {
+        let text = "line\n".repeat(40);
+        let mut editor = editor(&text, 0);
+        let before = editor.view_sample();
+        editor.current_mut().0.selections = SelectionSet::new(5 * 4);
+        assert!(!editor.flashes(&before, &editor.view_sample()), "four rows");
+        editor.current_mut().0.selections = SelectionSet::new(5 * 5);
+        assert!(editor.flashes(&before, &editor.view_sample()), "five rows");
+        editor.set_visual_aids(VisualAids {
+            flash: false,
+            ..VisualAids::default()
+        });
+        assert!(!editor.flashes(&before, &editor.view_sample()), "off");
+    }
+
+    #[test]
+    fn a_scroll_of_five_rows_flashes_and_following_a_step_does_not() {
+        let text = "line\n".repeat(80);
+        let editor = editor(&text, 5 * 20);
+        let mut before = editor.view_sample();
+        let mut now = before;
+        now.top += 8;
+        assert!(editor.flashes(&before, &now), "C-l: the cursor stayed");
+        now.row += 2;
+        assert!(
+            editor.flashes(&before, &now),
+            "M-v: the cursor kept to the view"
+        );
+        now = before;
+        (now.row, now.top) = (now.row + 1, now.top + 1);
+        assert!(!editor.flashes(&before, &now), "following a step");
+        before.buffer = BufferId(99);
+        assert!(
+            editor.flashes(&before, &editor.view_sample()),
+            "another buffer"
+        );
+    }
+
+    #[test]
+    fn isearch_never_flashes() {
+        let editor = editor(&"line\n".repeat(40), 0);
+        let before = editor.view_sample();
+        let mut now = before;
+        now.row = 30;
+        now.searching = true;
+        assert!(!editor.flashes(&before, &now));
+    }
+
+    #[test]
+    fn the_flash_runs_from_the_cursor_to_the_right_edge() {
+        let editor = editor("abcdef\nxy\n", 9);
+        assert_eq!(
+            editor.flash_cells(),
+            Some(CellRect {
+                row: 1,
+                column: 2,
+                rows: 1,
+                columns: 38
+            })
         );
     }
 

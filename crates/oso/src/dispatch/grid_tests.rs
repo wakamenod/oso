@@ -20,7 +20,9 @@
 //! being converted with `=` (ADR 0069). A line between `+` below a row marks with `*`
 //! the cells a region takes, from `Editor::region_cells`, as the renderer fills them
 //! (ADR 0071), and with `#` and `~` the current isearch match and the others in view,
-//! from `Editor::isearch_cells` (ADR 0082). On the line between `:`, `.` marks the cells
+//! from `Editor::isearch_cells` (ADR 0082), and with `l`, `t` and `f` the current line's
+//! band, trailing whitespace and the cursor flash after a step whose last key flashes
+//! (ADR 0097). On the line between `:`, `.` marks the cells
 //! of the boxes of the cursors other than the primary, drawn as dim outlines, from
 //! `Editor::other_cursor_cells` (ADR 0091).
 //!
@@ -30,7 +32,6 @@
 //! the float hides what is under it is the renderer's, checked in its scene tests.
 
 use oso_core::buffer::Buffer;
-use std::ops::Range;
 
 use oso_core::display_map::{Preedit, text_clusters};
 use oso_core::editor::Preview;
@@ -44,16 +45,24 @@ use oso_core::window::{ViewSize, ViewTop};
 use super::Dispatcher;
 
 mod rows;
+mod text_area;
 use rows::{Style, draw_row, draw_run};
+use text_area::draw_text_area;
 
 /// The frame's screen: its regions from the top, one line per row and one per
 /// marked row.
 fn text_grid(editor: &Editor) -> String {
+    flashing_grid(editor, false)
+}
+
+/// As [`text_grid`], with the cursor flash at full strength if `flashing` (ADR 0097).
+fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let regions = editor.frame();
     let mut status = Status::default();
     editor.status_into(&mut status);
     let mut lines = Vec::new();
-    draw_text_area(editor, regions.window.text, &mut lines);
+    let flash = editor.flash_cells().filter(|_| flashing);
+    draw_text_area(editor, regions.window.text, flash, &mut lines);
     let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
     draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
     let echo = [status.echo_warnings(), &status.echo[..]];
@@ -378,97 +387,6 @@ fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
     )
 }
 
-/// The tiled window's rows. Beneath a prompt, its cursor is hollow and it shows no preedit.
-fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
-    let (window, buffer) = editor.tiled();
-    let beneath = editor.prompt().is_some();
-    let mark = if beneath { 'o' } else { '^' };
-    let display = buffer.display();
-    let scroll = window.drawn_top(&display);
-    let point = window.cursor_point(&display);
-    let preedit = editor.preedit().filter(|_| !beneath);
-    // The cursor box as the renderer draws it.
-    let (place, cells) = motion::cursor_box(&display, point, preedit);
-    let cursor = frame::cursor_rect(area, scroll, place, cells);
-    let mut region = Vec::new();
-    editor.region_cells(&mut region);
-    let mut others = Vec::new();
-    editor.other_cursor_cells(&mut others);
-    let mut found = oso_core::editor::MatchCells::default();
-    editor.isearch_cells(&mut found);
-    let (current, matches) = (found.current, found.others);
-    let (mut trailing, band) = (Vec::new(), editor.current_line_cells());
-    editor.trailing_cells(&mut trailing);
-    let whitespace = editor.visual_aids().whitespace;
-    for index in 0..area.rows {
-        let row = scroll.row + index;
-        let cursor = cursor
-            .filter(|cells| cells.row == area.row + index)
-            .map_or(0..0, |cells| {
-                let start = cells.column - area.column;
-                start..start + cells.columns
-            });
-        let spliced = preedit
-            .filter(|_| row == point.row)
-            .map(|preedit| (point.column, preedit));
-        let style = Style {
-            cursor: mark,
-            whitespace,
-        };
-        let (text, mut marks) =
-            draw_row(&display, row, scroll, area.columns, cursor, spliced, style);
-        for cells in others.iter().filter(|cells| cells.row == area.row + index) {
-            let start = cells.column - area.column;
-            marks[start..start + cells.columns].fill('.');
-        }
-        lines.push(format!("│{text}│"));
-        if marks.iter().any(|&mark| mark != ' ') {
-            let marks: String = marks.into_iter().collect();
-            lines.push(format!(":{marks}:"));
-        }
-        let mut marks = vec![' '; area.columns];
-        // In the renderer's order, so a region shows over a match, and both over the band.
-        let band = band.as_slice();
-        let fills = [
-            (band, 'l'),
-            (&trailing[..], 't'),
-            (&current, '#'),
-            (&matches, '~'),
-        ];
-        for (cells, mark) in fills.into_iter().chain([(&region[..], '*')]) {
-            for cells in cells.iter().filter(|cells| cells.row == area.row + index) {
-                let start = cells.column - area.column;
-                marks[start..start + cells.columns].fill(mark);
-            }
-        }
-        if marks.iter().any(|&mark| mark != ' ') {
-            lines.push(format!("+{}+", marks.into_iter().collect::<String>()));
-        }
-        if let Some((at, preedit)) = spliced {
-            lines.push(underline(at, preedit, scroll.left, area.columns));
-        }
-    }
-}
-
-/// The line under a row with `preedit` at column `at`: `-` under its cells and `=`
-/// under the segment being converted, as the renderer's thin and thick underlines.
-fn underline(at: usize, preedit: &Preedit, left: usize, columns: usize) -> String {
-    let mut marks = vec![' '; columns];
-    let mut mark = |cells: Range<usize>, mark: char| {
-        for column in cells {
-            if let Some(cell) = column.checked_sub(left).and_then(|i| marks.get_mut(i)) {
-                *cell = mark;
-            }
-        }
-    };
-    let (all, segment) = preedit.underlines(at);
-    mark(all, '-');
-    if let Some(segment) = segment {
-        mark(segment, '=');
-    }
-    format!("_{}_", marks.into_iter().collect::<String>())
-}
-
 /// A region of at most one row, between `edge`s: `spans`, one after the other, up to
 /// its last column.
 fn draw_spans(spans: &[&str], area: CellRect, edge: char, lines: &mut Vec<String>) {
@@ -574,6 +492,8 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
             dispatcher.handle_keys(&mut editor, sequence.0);
             assert!(dispatcher.pending().is_empty(), "{keys} left a prefix");
         }
+        // Whether the step's last key flashes, as the app asks after each input.
+        let flashing = dispatcher.take_jump() == Some(true);
         // isearch's count, as its worker would give it before the frame.
         while let Some(job) = editor.take_isearch_job() {
             let mut reports = Vec::new();
@@ -583,7 +503,10 @@ fn check_editor(name: &str, bytes: &[u8], mut editor: Editor, steps: &[&str]) {
             }
         }
         let keys = if keys.is_empty() { "none" } else { keys };
-        frames.push(format!("keys: {keys}\n{}", text_grid(&editor)));
+        frames.push(format!(
+            "keys: {keys}\n{}",
+            flashing_grid(&editor, flashing)
+        ));
     }
     assert_frames(name, bytes, &frames);
 }
@@ -659,6 +582,22 @@ mod scenarios {
             (4, 12),
             &[&on, "C-n"],
         );
+    }
+
+    #[test]
+    fn the_cursor_flashes_after_a_jump_and_not_after_a_step() {
+        let text: String = (1..=30).map(|n| format!("line {n}\n")).collect();
+        let on = m_x("beacon-mode");
+        let steps = [&on[..], "C-n", "C-v", "C-p", "M-v", "M->", "C-x b RET"];
+        check("cursor_flash", text, (8, 16), &steps);
+    }
+
+    #[test]
+    fn line_numbers_take_a_gutter_and_follow_the_view() {
+        let text: String = (1..=12).map(|n| format!("line {n}\n")).collect();
+        let on = m_x("global-display-line-numbers-mode");
+        let steps = [&on[..], "C-n", "M->", "C-x h"];
+        check("line_numbers", text, (5, 16), &steps);
     }
 
     #[test]
