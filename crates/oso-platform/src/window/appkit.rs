@@ -153,6 +153,8 @@ enum Request {
     DiscardComposition,
     /// The app's answer to an end it held (`QuitAnswer::Later`).
     AnswerQuit(bool),
+    /// Whether the app wants the input source to type ASCII (ADR 0106).
+    AsciiInput(bool),
 }
 
 /// An event that came while the handler ran. Only those that keep what the app knows of the
@@ -203,8 +205,11 @@ struct State {
     live_resize: Cell<gate::LiveResize>,
     /// An event AppKit dispatched (a key, the modifiers, the wheel) is being handled.
     in_event: Cell<bool>,
-    /// The kind of input source the handler was last told of (ADR 0106).
+    /// The kind of input source the handler was last told of, whether the app wants ASCII,
+    /// and the person's source to give back once it does not (ADR 0106).
     source: Cell<gate::SourceGate>,
+    ascii: Cell<gate::AsciiInput>,
+    switched: RefCell<Option<input_source::Switched>>,
     /// The handler's answer to the last request to end, while it is being asked.
     quit_answer: Cell<Option<QuitAnswer>>,
     /// AppKit holds an end for the app's answer (`NSTerminateLater`).
@@ -235,6 +240,8 @@ impl State {
             live_resize: Cell::new(gate::LiveResize::default()),
             in_event: Cell::new(false),
             source: Cell::new(gate::SourceGate::default()),
+            ascii: Cell::new(gate::AsciiInput::default()),
+            switched: RefCell::new(None),
             quit_answer: Cell::new(None),
             quit_held: Cell::new(false),
         }
@@ -361,6 +368,10 @@ impl State {
             self.answer_held_quit(yes);
             return;
         }
+        if let Request::AsciiInput(wanted) = request {
+            self.update_ascii(Some(wanted));
+            return;
+        }
         let Some((window, view, _)) = self.window.get() else {
             return;
         };
@@ -401,7 +412,7 @@ impl State {
             }
             Request::DiscardComposition => view.discard_marked(),
             // Answered above, with or without a window.
-            Request::AnswerQuit(_) => {}
+            Request::AnswerQuit(_) | Request::AsciiInput(_) => {}
         }
     }
 

@@ -158,6 +158,11 @@ impl Window {
         self.0.set_secure_input(wanted);
     }
 
+    /// Whether the app wants the input source to type ASCII (ADR 0106).
+    pub(super) fn set_ascii_input(&self, wanted: bool) {
+        self.0.set_ascii_input(wanted);
+    }
+
     /// Whether secure input is wanted, held by the window, and on in the system, for the
     /// dev socket.
     #[cfg(feature = "dev")]

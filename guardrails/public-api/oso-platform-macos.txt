@@ -596,6 +596,7 @@ pub fn oso_platform::window::Window::request_inner_size(&self, u32, u32)
 pub fn oso_platform::window::Window::request_redraw(&self)
 pub fn oso_platform::window::Window::scale_factor(&self) -> f64
 pub fn oso_platform::window::Window::secure_input(&self) -> (bool, bool, bool)
+pub fn oso_platform::window::Window::set_ascii_input(&self, bool)
 pub fn oso_platform::window::Window::set_ime_allowed(&self, bool)
 pub fn oso_platform::window::Window::set_ime_cursor_area(&self, oso_platform::window::CursorArea)
 pub fn oso_platform::window::Window::set_ime_excerpt(&self, &mut alloc::string::String, core::option::Option<usize>)

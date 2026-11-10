@@ -66,13 +66,17 @@ define_class!(
         #[unsafe(method(applicationDidBecomeActive:))]
         fn did_become_active(&self, _notification: &NSNotification) {
             self.ivars().state.read_focus_for_secure_input();
-            // A choice made while another app was in front counts once oso is.
+            // A choice made while another app was in front counts once oso is, and a prompt
+            // for a file's name still open has ASCII again.
             self.ivars().state.input_source_changed();
+            self.ivars().state.update_ascii(None);
         }
 
         #[unsafe(method(applicationDidResignActive:))]
         fn did_resign_active(&self, _notification: &NSNotification) {
             self.ivars().state.read_focus_for_secure_input();
+            // Another app gets the person's own source back.
+            self.ivars().state.update_ascii(None);
         }
 
         /// The OS asks to end: a Dock quit, another app's request, or the end of the session.
@@ -85,6 +89,8 @@ define_class!(
         /// The OS's request to end was answered yes: AppKit ends the process after this returns.
         #[unsafe(method(applicationWillTerminate:))]
         fn will_terminate(&self, _notification: &NSNotification) {
+            // The person's source, if oso chose ASCII for them, is theirs again.
+            self.ivars().state.update_ascii(Some(false));
             self.ivars().state.exiting();
         }
     }

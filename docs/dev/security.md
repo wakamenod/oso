@@ -174,6 +174,17 @@ and below the row, and a label's glyphs keep their own cells
   as it would through the clipboard
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md),
   [ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
+- On macOS, oso listens for the system's notice that the person chose another keyboard input
+  source. Any local process can post that notice, unauthenticated, so oso ignores what it
+  carries and reads the selected source from the Text Input Sources itself, only while it is
+  in front. It acts on it only in the prompt for a file's name, never while a buffer that may
+  hold secrets is shown, and never in a passphrase or any other prompt. The worst a forged
+  notice can do is make that prompt catch up with the source the person really has chosen.
+  While that prompt is open and oso is in front, oso also chooses an ASCII-capable input
+  source for the person, and gives theirs back when the prompt closes, oso goes behind or the
+  app ends, unless they chose another meanwhile. It changes only which installed source is
+  selected, and reads only a source's ID and its ASCII flag
+  ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)).
 - The kill ring syncs with the OS clipboard but is never persisted. oso reads the
   clipboard only on a yank, on its own thread. A kill from a buffer that may hold secrets
   goes there marked concealed for clipboard managers, never shows over the socket, and

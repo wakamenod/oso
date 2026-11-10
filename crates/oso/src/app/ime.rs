@@ -42,8 +42,23 @@ fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
 /// window shows a buffer that may hold secrets (ADR 0106). A passphrase or a question never
 /// does, and the next prompt starts without.
 fn japanese_names<I: PartialEq>(prompt: Option<(I, Kind)>, noted: Option<I>, secret: bool) -> bool {
-    let names = |kind| matches!(kind, Kind::Complete { history: "file" });
-    !secret && prompt.is_some_and(|(id, kind)| names(kind) && noted == Some(id))
+    !secret && prompt.is_some_and(|(id, kind)| names_a_file(kind) && noted == Some(id))
+}
+
+/// Whether `kind` is the prompt for a file's name, which takes Japanese once the person
+/// chooses it, and has the input source type ASCII while it is open (ADR 0106).
+fn names_a_file(kind: Kind) -> bool {
+    matches!(kind, Kind::Complete { history: "file" })
+}
+
+/// The prompt a choice of `source` marks as taking Japanese: the selected one, for a
+/// Japanese input mode, and none otherwise. oso's own switch to ASCII reads as `Other`, and its
+/// giving the person's source back comes after the prompt has closed, so neither marks one.
+fn marked<I>(source: InputSource, selected: Option<I>) -> Option<I> {
+    match source {
+        InputSource::Japanese => selected,
+        InputSource::Other => None,
+    }
 }
 
 /// What to allow the IME as now, if that changes. Turning it off during a composition
@@ -77,6 +92,8 @@ pub(super) struct ImeState {
     /// The prompt for a file's name in which the person chose a Japanese input mode, which
     /// then takes Japanese until it closes or the person chooses another (ADR 0106).
     japanese_prompt: Option<PromptId>,
+    /// Whether the window was last asked for an ASCII input source (ADR 0106).
+    ascii: bool,
 }
 
 impl App {
@@ -129,6 +146,7 @@ impl App {
         // may hold secrets while it does.
         self.give_excerpt();
         self.sync_secure_input();
+        self.sync_ascii_input();
         self.give_cursor_area();
         self.give_preedit_layout();
     }
@@ -141,6 +159,19 @@ impl App {
         if let Some(view) = &self.view {
             view.window
                 .set_secure_input(self.editor.current().1.is_secret());
+        }
+    }
+
+    /// Asks the window for an ASCII input source while a prompt for a file's name is
+    /// selected, and for the person's own once none is, when that changes (ADR 0106).
+    fn sync_ascii_input(&mut self) {
+        let wanted = self
+            .editor
+            .prompt()
+            .is_some_and(|prompt| names_a_file(prompt.kind()));
+        if let Some(view) = self.view.as_ref().filter(|_| wanted != self.ime.ascii) {
+            view.window.set_ascii_input(wanted);
+            self.ime.ascii = wanted;
         }
     }
 
@@ -175,10 +206,7 @@ impl App {
     /// Japanese input mode marks the selected prompt as taking Japanese, if it is the prompt
     /// for a file's name; anything else unmarks it. `after_event` then allows the IME or not.
     pub(super) fn input_source_chosen(&mut self, source: InputSource) {
-        self.ime.japanese_prompt = match source {
-            InputSource::Japanese => self.editor.prompt().map(Prompt::id),
-            InputSource::Other => None,
-        };
+        self.ime.japanese_prompt = marked(source, self.editor.prompt().map(Prompt::id));
     }
 
     /// Whether oso wants the IME on now ([`wants_ime`]).
@@ -343,9 +371,10 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{japanese_names, next_allowed, wants_ime};
+    use super::{japanese_names, marked, names_a_file, next_allowed, wants_ime};
     use oso_core::buffer::Buffer;
     use oso_core::minibuffer::Kind;
+    use oso_platform::window::InputSource;
 
     const FILE: Kind = Kind::Complete { history: "file" };
 
@@ -368,6 +397,21 @@ mod tests {
             verbs: ["exit", "stay"],
         };
         assert!(!japanese_names(Some((1, question)), Some(1), false));
+    }
+
+    #[test]
+    fn osos_own_switches_mark_no_prompt() {
+        // The prompt opens and oso chooses ASCII: the notice reads Other.
+        assert_eq!(marked(InputSource::Other, Some(1)), None);
+        // The prompt closed and oso gave the person's Japanese back: no prompt is selected.
+        assert_eq!(marked(InputSource::Japanese, None::<u32>), None);
+        // The person chose Japanese in the prompt.
+        assert_eq!(marked(InputSource::Japanese, Some(1)), Some(1));
+        assert!(names_a_file(FILE));
+        assert!(
+            !names_a_file(Kind::Passphrase),
+            "a passphrase has no switching"
+        );
     }
 
     #[test]

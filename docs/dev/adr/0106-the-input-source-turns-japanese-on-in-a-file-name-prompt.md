@@ -16,8 +16,10 @@ The test was made on 2026-11-11, on oso's own macOS layer
 `keyDown:` of `英数` and `かな`. Neither reached oso while the prompt kept the input method off:
 the system took the key and chose the Japanese input mode, as its menu bar showed, and oso never
 heard of it. So `かな` cannot be the trigger as ADR 0087 has it. The author chose to follow the
-input source instead, through the coordinator, and accepted this on 2026-11-11, through the
-coordinator.
+input source instead, and, as the menu bar would otherwise show Japanese while the prompt types
+ASCII, to have oso choose ASCII when the prompt opens and give the person's source back when it
+closes, as the Emacs Mac port's `mac-auto-ascii-mode` does. The author made both choices
+through the coordinator and accepted this on 2026-11-11, through the coordinator.
 
 ## Decision
 
@@ -37,16 +39,32 @@ coordinator.
   while `C-x C-f`'s or `C-x C-w`'s prompt is selected, that prompt allows the input method until
   it closes or the person chooses another kind of source. Every other prompt keeps it off, as
   ADR 0072 has it.
+- **ASCII while the prompt is open.** When the prompt for a file's name opens while oso is in
+  front, and the selected source cannot type ASCII, oso remembers it and chooses the current
+  input method's ASCII-capable source (`TISCopyCurrentASCIICapableKeyboardInputSource`), as
+  `英数` does: Kotoeri's or Google's mode for Latin letters, so that `かな` goes back to kana as
+  usual. When the prompt closes, oso gives the remembered source back, but only if the selected
+  one is still the one oso chose: a source the person chose meanwhile, as with `かな`, stays.
+  While oso is behind another app, the person's source is theirs: oso gives it back when it goes
+  behind, chooses ASCII again when it comes to the front with the prompt still open, and gives
+  it back when the app ends. The notices of oso's own choices read as `Other` while the prompt
+  is open, and as the person's kind once it has closed, when no prompt is marked, so they change
+  nothing. Only the prompt for a file's name does this; a passphrase has secure input
+  ([ADR 0073](0073-secure-input-in-secret-buffers.md)) and no switching.
 - **Never with secrets.** No prompt takes Japanese while any window shows a buffer that may
   hold secrets ([ADR 0073](0073-secure-input-in-secret-buffers.md)), and a passphrase or a
   question never does, as only the prompt for a file's name can.
-- **Public API:** `oso_platform::window` gains `Event::InputSource(InputSource)` and
-  `pub enum InputSource { Japanese, Other }`, which the author approved. winit's adapter never
-  sends it, so on Linux and Windows nothing changes.
+- **Public API:** `oso_platform::window` gains `Event::InputSource(InputSource)`,
+  `pub enum InputSource { Japanese, Other }` and, on macOS, `Window::set_ascii_input(&self,
+  wanted: bool)`, applied once the handler returns as the other requests are; the author
+  approved all three. The app says only whether it wants ASCII, when that changes, and the
+  window layer keeps the rest (`gate::AsciiInput`). winit's adapter sends no `InputSource` and
+  does nothing for `set_ascii_input`, so on Linux and Windows nothing changes.
 - **Dependencies:** `objc2-foundation` gains its `NSDistributedNotificationCenter` feature,
   which the author approved; no crate is added and `Cargo.lock` does not change. The Text Input
   Sources are bound by hand beside secure input's Carbon calls, each `unsafe` with its
-  `// SAFETY:` comment.
+  `// SAFETY:` comment, their two property keys as `static`s of an `extern` block, which
+  [ADR 0107](0107-foreign-constants-in-extern-blocks.md) allows.
 
 ## Changes to accepted ADRs
 
@@ -59,7 +77,10 @@ coordinator.
 ## Consequences
 
 - A Japanese file name can be typed in `C-x C-f` and `C-x C-w` on macOS: `かな`, then the name,
-  and `英数` to type ASCII again.
+  and `英数` to type ASCII again. The menu bar and what the prompt types always agree: the
+  prompt opens in ASCII, and the person's source comes back once it closes.
+- oso chooses an input source for the person, which macOS shows in the menu bar, and gives it
+  back; a source the person chose meanwhile is never undone.
 - oso hears of every input source change the person makes while it is in front, from any app's
   menu too, but reads only the source's ID and one flag, and acts only in that one prompt.
 - The kind is worked out from the source's ID and its ASCII flag. An input method whose
@@ -69,6 +90,13 @@ coordinator.
   report the input source (ADR 0070, stage 4).
 
 ## Alternatives considered
+
+- **Keeping the person's source when the prompt opens:** the menu bar shows Japanese while the
+  prompt types ASCII, which the author did not want.
+- **Following a source that is already Japanese when the prompt opens:** Japanese at once,
+  which a file name usually is not, and one more call for the app to ask.
+- **The keyboard layout (`TISCopyCurrentASCIICapableKeyboardLayoutInputSource`), as ABC:** it
+  leaves the input method, so `かな` would first have to bring it back.
 
 - **`かな` as a key, as ADR 0087 had it:** the system takes it before `keyDown:`, so oso cannot.
 - **A key oso always sees, such as `C-\`, to turn the input method on in the prompt:** smallest,

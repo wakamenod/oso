@@ -2,8 +2,8 @@
 //! composition is laid out and the excerpt of the cursor's line, answered only while oso has
 //! the IME on (ADR 0069, ADR 0070, ADR 0077); when secure input is held (ADR 0073); a frame
 //! owed to a window that was hidden; a live resize, whose frames are drawn at each step
-//! (ADR 0086); and which kind of input source the handler was last told of (ADR 0106). Plain
-//! values, tested without a window or a clock.
+//! (ADR 0086); and which kind of input source the handler was last told of, and whether oso
+//! switched the source to ASCII (ADR 0106). Plain values, tested without a window or a clock.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 
@@ -295,6 +295,43 @@ pub(super) struct SourceGate {
     told: Option<InputSource>,
 }
 
+/// Whether the input source should type ASCII, as while a prompt for a file's name is open,
+/// and whether oso has switched it so (ADR 0106). It is switched only while oso is in front:
+/// another app gets the person's own source back.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct AsciiInput {
+    wanted: bool,
+    switched: bool,
+}
+
+/// What `AsciiInput` asks of the input source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AsciiStep {
+    /// Choose an ASCII-capable source, remembering the person's.
+    Switch,
+    /// Give the person's source back, if they have not chosen another since.
+    Restore,
+    Nothing,
+}
+
+impl AsciiInput {
+    /// What to do now that the app wants ASCII or not (`wanted`, kept from before if `None`)
+    /// and oso is in front or not.
+    pub(super) fn step(&mut self, wanted: Option<bool>, active: bool) -> AsciiStep {
+        self.wanted = wanted.unwrap_or(self.wanted);
+        let switched = self.wanted && active;
+        if switched == self.switched {
+            return AsciiStep::Nothing;
+        }
+        self.switched = switched;
+        if switched {
+            AsciiStep::Switch
+        } else {
+            AsciiStep::Restore
+        }
+    }
+}
+
 impl SourceGate {
     /// What to tell the handler, now that the input source is of the kind `now`.
     pub(super) fn report(&mut self, active: bool, now: InputSource) -> Option<InputSource> {
@@ -412,8 +449,8 @@ impl HiddenFrame {
 #[cfg(test)]
 mod tests {
     use super::{
-        HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, LiveResize, SecureInput, SecureStep,
-        SourceGate, reads_context_now,
+        AsciiInput, AsciiStep, HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, LiveResize,
+        SecureInput, SecureStep, SourceGate, reads_context_now,
     };
     use crate::window::CursorArea;
     use crate::window::InputSource;
@@ -425,6 +462,46 @@ mod tests {
         width: 8.0,
         height: 16.0,
     };
+
+    #[test]
+    fn ascii_is_chosen_while_wanted_and_in_front_and_given_back_otherwise() {
+        let mut ascii = AsciiInput::default();
+        assert_eq!(
+            ascii.step(Some(true), true),
+            AsciiStep::Switch,
+            "the prompt opens"
+        );
+        assert_eq!(
+            ascii.step(Some(true), true),
+            AsciiStep::Nothing,
+            "still open"
+        );
+        assert_eq!(
+            ascii.step(None, false),
+            AsciiStep::Restore,
+            "oso goes behind"
+        );
+        assert_eq!(ascii.step(None, false), AsciiStep::Nothing);
+        assert_eq!(
+            ascii.step(None, true),
+            AsciiStep::Switch,
+            "back in front, still open"
+        );
+        assert_eq!(
+            ascii.step(Some(false), true),
+            AsciiStep::Restore,
+            "the prompt closes"
+        );
+        assert_eq!(
+            ascii.step(None, true),
+            AsciiStep::Nothing,
+            "in front, none open"
+        );
+        // Opened while another app is in front: switched only once oso is.
+        let mut ascii = AsciiInput::default();
+        assert_eq!(ascii.step(Some(true), false), AsciiStep::Nothing);
+        assert_eq!(ascii.step(None, true), AsciiStep::Switch);
+    }
 
     #[test]
     fn the_handler_hears_of_another_kind_of_source_only_while_oso_is_in_front() {

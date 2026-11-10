@@ -174,6 +174,10 @@ impl Window {
     /// Whether the app wants secure input. Only oso's own window layer gives it (ADR 0073).
     pub(super) fn set_secure_input(&self, _wanted: bool) {}
 
+    /// Whether the app wants the input source to type ASCII. Only oso's own window layer
+    /// chooses one (ADR 0106).
+    pub(super) fn set_ascii_input(&self, _wanted: bool) {}
+
     /// Secure input is not this layer's (ADR 0073), so the dev socket reports none.
     #[cfg(feature = "dev")]
     pub(super) fn secure_input(&self) -> Option<(bool, bool, bool)> {

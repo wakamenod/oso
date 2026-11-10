@@ -245,7 +245,8 @@ A panicking command is caught at the command boundary
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)). oso keeps its own state of
   it, and turns it off where the next key is read as a key or cannot type: a pending
   prefix or prefix argument, a read-only buffer, one that may hold secrets, the list of
-  emergency copies and a prompt. The prompt for a file's name allows it once the person
+  emergency copies and a prompt. The prompt for a file's name has the window choose an ASCII
+  input source while it is open (`Window::set_ascii_input`), and allows the IME once the person
   chooses a Japanese input mode there, which oso's macOS layer hears from the system as
   `Event::InputSource`, never while a buffer that may hold secrets is shown
   ([ADR 0106](adr/0106-the-input-source-turns-japanese-on-in-a-file-name-prompt.md)). Turning
