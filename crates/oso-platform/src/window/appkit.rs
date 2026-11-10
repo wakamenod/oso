@@ -14,6 +14,7 @@
 mod delegates;
 mod gate;
 mod handles;
+mod key_text;
 mod keys;
 mod quit;
 mod runloop;

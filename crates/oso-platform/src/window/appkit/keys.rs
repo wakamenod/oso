@@ -116,9 +116,29 @@ pub(super) fn shift_only(held: Held) -> bool {
     held.contains(Held::CONTROL) || held.contains(Held::LOGO)
 }
 
+/// The key oso takes with Control or Command held ([`shift_only`]): what Shift alone types
+/// (`shifted`), if that is a printable ASCII character. Otherwise, the layout's `other`
+/// reading if that one is: the Command layer with Command held, which is Latin on Russian,
+/// Greek or Hebrew layouts (`x`, where Shift alone types `ч`), and AppKit's `characters`
+/// with Control, which gives `2` on AZERTY's digit row (where Shift alone types `é`).
+/// Otherwise what Shift alone types. `other` is read only when it is needed.
+pub(super) fn chosen_key<'a>(
+    shifted: Option<&'a str>,
+    other: impl FnOnce() -> Option<&'a str>,
+) -> Option<&'a str> {
+    let ascii = |text: &str| {
+        let mut chars = text.chars();
+        matches!((chars.next(), chars.next()), (Some(c), None) if c.is_ascii_graphic())
+    };
+    if shifted.is_some_and(ascii) {
+        return shifted;
+    }
+    other().filter(|text| ascii(text)).or(shifted)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Route, held, is_keys_own, named, route, shift_only, takes_text};
+    use super::{Route, chosen_key, held, is_keys_own, named, route, shift_only, takes_text};
     use crate::window::{Held, SystemNamed};
     use objc2_app_kit::NSEventModifierFlags as F;
 
@@ -138,6 +158,29 @@ mod tests {
         for held_keys in [Held::NONE, Held::SHIFT, Held::ALT, Held::ALT | Held::SHIFT] {
             assert!(!shift_only(held_keys), "{held_keys:?}");
         }
+    }
+
+    #[test]
+    fn the_key_is_ascii_from_shift_alone_or_from_the_layouts_other_reading() {
+        let never = || -> Option<&str> { panic!("read only when needed") };
+        // US: Command-Shift-`,` and Control-Shift-`.`, where `characters` left Shift out.
+        assert_eq!(chosen_key(Some("<"), never), Some("<"));
+        assert_eq!(chosen_key(Some(">"), never), Some(">"));
+        // Russian: Command's layer is Latin, with Shift too.
+        assert_eq!(chosen_key(Some("ч"), || Some("x")), Some("x"), "M-x");
+        assert_eq!(chosen_key(Some("Б"), || Some("<")), Some("<"), "M-<");
+        // AZERTY's digit row with Control: `characters` gives the digit.
+        assert_eq!(chosen_key(Some("é"), || Some("2")), Some("2"), "C-2");
+        // Russian with Control: `characters` is a control character, so the letter stays.
+        assert_eq!(chosen_key(Some("ч"), || Some("\u{18}")), Some("ч"));
+        assert_eq!(chosen_key(Some("ч"), || None), Some("ч"));
+        assert_eq!(
+            chosen_key(Some("ч"), || Some("xy")),
+            Some("ч"),
+            "one character"
+        );
+        assert_eq!(chosen_key(None, || Some("x")), Some("x"));
+        assert_eq!(chosen_key(None, || None), None);
     }
 
     #[test]
