@@ -90,32 +90,62 @@ jobs:
         run: |
           export XDG_RUNTIME_DIR="$(mktemp -d)"
           chmod 700 "$XDG_RUNTIME_DIR"
+          probe="$RUNNER_TEMP/weston.probe"
           # Weston writes its own log, which it flushes, and the shell around it notes how it
-          # ended: its status, or 128 and the number of the signal that ended it.
-          ( weston --backend=headless --renderer=pixman --width=1280 --height=800 \
+          # ended: its status, or 128 and the number of the signal that ended it. The shell
+          # also notes any signal it catches, and the process group and session of Weston, of
+          # itself and of this step's shell, so that a kill of a group or a session shows. It
+          # runs without `-e`, which the step's shell has: under it, Weston's failing status
+          # would end the shell before it says so.
+          ( set +e
+            for sig in HUP INT QUIT TERM USR1 USR2 PIPE; do
+              # shellcheck disable=SC2064 # the signal's name is wanted now, the time later
+              trap "echo \"subshell caught SIG$sig at \$(date -u +%T.%N)\" >> \"$probe\"" "$sig"
+            done
+            weston --backend=headless --renderer=pixman --width=1280 --height=800 \
               --socket=wayland-oso --idle-time=0 --log="$RUNNER_TEMP/weston.log" \
-              > "$RUNNER_TEMP/weston.out" 2>&1
-            echo "weston exited with status $?" >> "$RUNNER_TEMP/weston.out" ) &
+              > "$RUNNER_TEMP/weston.out" 2>&1 &
+            weston_pid=$!
+            echo "$weston_pid" > "$RUNNER_TEMP/weston.pid"
+            ps -o pid,ppid,pgid,sid,comm -p "$weston_pid,$BASHPID,$$" >> "$probe"
+            # A caught signal ends a wait early: wait again while Weston runs.
+            while :; do
+              wait "$weston_pid"
+              weston_status=$?
+              kill -0 "$weston_pid" 2> /dev/null || break
+            done
+            echo "weston exited with status $weston_status" >> "$RUNNER_TEMP/weston.out" ) &
           for _ in $(seq 1 50); do
             [ -S "$XDG_RUNTIME_DIR/wayland-oso" ] && break
             sleep 0.2
           done
           [ -S "$XDG_RUNTIME_DIR/wayland-oso" ] || {
-            cat "$RUNNER_TEMP/weston.log" "$RUNNER_TEMP/weston.out"
+            cat "$RUNNER_TEMP/weston.log" "$RUNNER_TEMP/weston.out" "$probe"
             exit 1
           }
+          # When Weston goes, to 200 ms, to line up with the flows' own times.
+          ( set +e
+            weston_pid=$(cat "$RUNNER_TEMP/weston.pid")
+            while kill -0 "$weston_pid" 2> /dev/null; do sleep 0.2; done
+            echo "weston gone by $(date -u +%T.%N)" >> "$probe" ) &
           # No X server, so winit can only take Wayland.
           status=0
           env -u DISPLAY WAYLAND_DISPLAY=wayland-oso just e2e || status=$?
           # Whether the compositor outlived the flows: when it did not, every flow after it
-          # fails to connect.
+          # fails to connect. Then what the kernel said, as of a process it killed or that
+          # crashed, and how much memory there was.
           if pgrep -x weston > /dev/null; then
             echo "weston is still running"
           else
             echo "::warning::weston was gone before the flows ended; see the compositor's log"
+            echo "::group::The kernel's log, memory and processes"
+            sudo dmesg -T | tail -60 || true
+            free -m || true
+            ps -eo pid,ppid,pgid,sid,stat,etime,comm || true
+            echo "::endgroup::"
           fi
           exit "$status"
       - name: The compositor's log
         if: always()
-        run: cat "$RUNNER_TEMP/weston.log" "$RUNNER_TEMP/weston.out" || true
+        run: cat "$RUNNER_TEMP/weston.log" "$RUNNER_TEMP/weston.out" "$RUNNER_TEMP/weston.probe" || true
 
