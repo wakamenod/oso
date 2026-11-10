@@ -378,6 +378,10 @@ fn main() {
         wrap::wrap_costs();
         return;
     }
+    if std::env::args().any(|arg| arg == "screen") {
+        wrap::screen_costs();
+        return;
+    }
     println!("== Building (100 MB, source-like text)");
     let text = file_text(100 * MB);
     let (rope, built) = time(|| Rope::from(text.as_str()));
