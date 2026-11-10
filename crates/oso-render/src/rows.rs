@@ -161,6 +161,9 @@ pub(crate) struct ShapedRow {
     mark: Option<usize>,
     /// The frame it was last drawn in, which keeps it from eviction.
     used: u64,
+    /// Whether it came from another key, the one its place on the screen had: what it was
+    /// checked against is another row's, so it is read and compared before it is used.
+    moved: bool,
     /// The column of its line its columns count from: its first cluster's. The graphemes,
     /// glyphs and boxes count from there, so a row whose text moves along its line, as
     /// the rows after a character typed in a wrapped line do, compares equal (ADR 0104).
@@ -313,6 +316,7 @@ impl Rows {
                     && shaped.columns == columns
                     && shaped.mark == mark
                     && !shaped.spliced
+                    && !shaped.moved
             });
         if unchanged {
             let shaped = self.rows.get_mut(&key).expect("just found");
@@ -353,8 +357,9 @@ impl Rows {
         if old != key
             && !self.rows.contains_key(&key)
             && self.rows.get(&old).is_some_and(|row| row.used != frame)
-            && let Some(row) = self.rows.remove(&old)
+            && let Some(mut row) = self.rows.remove(&old)
         {
+            row.moved = true;
             self.rows.insert(key, row);
         }
     }
@@ -403,6 +408,7 @@ impl Rows {
         shaped.revision = revision;
         shaped.base = self.base;
         shaped.used = self.frame;
+        shaped.moved = false;
         shaped
     }
 
@@ -672,6 +678,55 @@ pub(crate) mod tests {
             rows.shaped_count(),
             shaped + 1,
             "the same row without its mark"
+        );
+    }
+
+    /// The characters of `lines` drawn as screen rows `0..`, each in its place, at `revision`.
+    fn draw_in_places(
+        rows: &mut Rows,
+        display: &DisplaySnapshot,
+        lines: Range<usize>,
+        revision: u64,
+    ) -> Vec<String> {
+        let mut system = Recorder::default();
+        rows.begin(buffer_id(), revision);
+        lines
+            .enumerate()
+            .map(|(place, line)| {
+                let row = rows.view_row(
+                    display,
+                    (line, 0..128),
+                    (None, Some(place)),
+                    None,
+                    &mut system,
+                );
+                shown(row).into_iter().map(|(c, _)| c).collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_row_that_takes_its_places_entry_is_read_again_before_it_is_drawn() {
+        let buffer = Buffer::from_text("t", "a\nb\nc\nd\ne\nf\ng");
+        let display = buffer.display();
+        let mut rows = Rows::default();
+        assert_eq!(
+            draw_in_places(&mut rows, &display, 1..4, 1),
+            ["b", "c", "d"]
+        );
+        // Up a row at the same revision, as a scroll is: each place had another line.
+        assert_eq!(
+            draw_in_places(&mut rows, &display, 0..3, 1),
+            ["a", "b", "c"]
+        );
+        // A page down.
+        assert_eq!(
+            draw_in_places(&mut rows, &display, 3..6, 1),
+            ["d", "e", "f"]
+        );
+        assert_eq!(
+            draw_in_places(&mut rows, &display, 3..6, 1),
+            ["d", "e", "f"]
         );
     }
 

@@ -60,9 +60,9 @@ fn pushed(screen: &Screen, point: DisplayPoint, at_preedit: bool) -> DisplayPoin
 /// The cells of the boxes of the cursors of `selections` but the primary, in a window with
 /// this `text` area showing `screen`, into `out`, which is emptied first: each over the
 /// cluster it is on, as the primary's box, and cut by the area's edges (ADR 0091). A preedit at
-/// the primary pushes what follows it on its line. Only the cursors in the rows shown are
-/// looked at, found by a binary search, so a frame costs two conversions for each one shown,
-/// however many are out of view.
+/// the primary pushes what follows it on its line. Only the cursors in the columns shown of
+/// each row are looked at, found by a binary search, so a frame costs two conversions for each
+/// one shown, however many are out of view, also on a long line that does not wrap.
 pub fn other_cursor_cells(
     text: CellRect,
     screen: &Screen,
@@ -74,25 +74,47 @@ pub fn other_cursor_cells(
     if selections.len() < 2 || text.rows == 0 {
         return;
     }
-    let span = screen.span();
     let all = selections.as_slice();
-    let first = all.partition_point(|selection| selection.cursor < span.start);
-    for (index, selection) in all.iter().enumerate().skip(first) {
-        if selection.cursor > span.end {
-            break;
+    for row in screen.rows().iter().take(text.rows) {
+        let (low, high) = shown_offsets((text, screen, display), row);
+        // The buffer's end is on its last line's last row, where a cursor can be.
+        let last = !row.continues && row.line + 1 == display.row_count();
+        let high = if last { high + 1 } else { high };
+        let first = all.partition_point(|selection| selection.cursor < low);
+        for (index, selection) in all.iter().enumerate().skip(first) {
+            if selection.cursor >= high {
+                break;
+            }
+            if index == selections.primary_index() {
+                continue;
+            }
+            let point = display.offset_to_display_point(selection.cursor);
+            let (point, cells) = motion::cursor_box(display, point, None);
+            let point = pushed(screen, point, true);
+            out.extend(cursor_rect(text, screen, point, cells));
         }
-        if index == selections.primary_index() {
-            continue;
-        }
-        let point = display.offset_to_display_point(selection.cursor);
-        let (point, cells) = motion::cursor_box(display, point, None);
-        out.extend(cursor_rect(
-            text,
-            screen,
-            pushed(screen, point, true),
-            cells,
-        ));
     }
+}
+
+/// The offsets of `row`'s clusters a range or a cursor shows in: the row's own on a row that
+/// continues; on a line's last row only those in its columns in view, as a long one that does
+/// not wrap may hold many out of view, and its line break, past its last column.
+fn shown_offsets(
+    (text, screen, display): (CellRect, &Screen, &DisplaySnapshot),
+    row: &ScreenRow,
+) -> (usize, usize) {
+    if row.continues {
+        return (row.start, row.end);
+    }
+    let origin = screen.origin(row);
+    let pushed = screen.preedit_on(row).map_or(0, |cells| cells.len());
+    let offset = |column| {
+        let point = DisplayPoint::new(row.line, column);
+        display.display_point_to_offset(point, Bias::Left)
+    };
+    let low = offset(origin.saturating_sub(pushed)).max(row.start);
+    let high = offset(origin.saturating_add(text.columns)).saturating_add(1);
+    (low, high.min(row.end))
 }
 
 /// The cells of the regions of `selections`, in a window with this `text` area showing
@@ -167,20 +189,7 @@ fn range_cells<T>(
     let shown = screen.rows().iter().enumerate().take(text.rows);
     for (index, row) in shown.skip(rows.start).take(rows.len()) {
         let origin = screen.origin(row);
-        // A line's last row looks only at its columns in view, as a long one that does not
-        // wrap may hold many ranges out of view; its line break is past its last column.
-        let (low, high) = if row.continues {
-            (row.start, row.end)
-        } else {
-            let pushed = screen.preedit_on(row).map_or(0, |cells| cells.len());
-            let offset = |column| {
-                let point = DisplayPoint::new(row.line, column);
-                display.display_point_to_offset(point, Bias::Left)
-            };
-            let low = offset(origin.saturating_sub(pushed)).max(row.start);
-            let high = offset(origin.saturating_add(text.columns)).saturating_add(1);
-            (low, high.min(row.end))
-        };
+        let (low, high) = shown_offsets((text, screen, display), row);
         first += all[first..].partition_point(|item| range_of(item).end <= low);
         for (at, item) in all.iter().enumerate().skip(first) {
             let range = range_of(item);

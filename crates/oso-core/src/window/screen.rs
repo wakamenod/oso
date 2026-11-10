@@ -82,6 +82,9 @@ pub struct Screen {
     preedit: Option<(DisplayPoint, usize)>,
     /// Room for laying out the preedit's line.
     spliced: Vec<SplicedRow>,
+    /// The rows, by line and column, whose last cell is a space hanging in the mark's column,
+    /// in order: the one cell a row may take past the wrap's width.
+    hanging: Vec<(usize, usize)>,
 }
 
 impl fmt::Debug for Screen {
@@ -137,9 +140,12 @@ impl Screen {
     /// width the window has since left, or the part of a line before where rows were wrapped
     /// from, draws to the window's edge with no mark, as a row that does not wrap (ADR 0104).
     fn marked(&self, row: &ScreenRow) -> bool {
+        let cells = row.end_column.saturating_sub(row.column);
         row.continues
             && self.width < self.columns
-            && row.end_column.saturating_sub(row.column) <= self.width.saturating_add(1)
+            && (cells <= self.width
+                || (cells == self.width + 1
+                    && self.hanging.binary_search(&(row.line, row.column)).is_ok()))
     }
 
     /// The columns of its line `row` draws the clusters that start in: to the next row's
@@ -218,6 +224,7 @@ impl Screen {
     /// Empties it, for a frame that shows no rows.
     pub(crate) fn clear(&mut self) {
         self.rows.clear();
+        self.hanging.clear();
         self.preedit = None;
     }
 
@@ -355,6 +362,7 @@ fn fill(
     } = view;
     let cursor = cursor.min(display.len());
     out.rows.clear();
+    out.hanging.clear();
     out.top = rows.row_of(scroll.start);
     out.columns = size.columns;
     out.left = if rows.wrapped() { 0 } else { scroll.left };
@@ -421,6 +429,45 @@ fn fill(
             Some((at, cells)) if at.row == point.row && last.end > cursor => point.column + cells,
             _ => point.column,
         };
+    }
+    find_hanging(out, display, pushed);
+}
+
+/// Notes the rows of `out` one cell wider than the wrap's width whose last cell is a U+0020,
+/// which hangs in the mark's column; a row wider than its width otherwise draws no mark
+/// (ADR 0100, ADR 0104). `pushed` is a preedit laid out in its line, whose cells come before
+/// what follows it there. One cluster read a row of that width.
+fn find_hanging(
+    out: &mut Screen,
+    display: &DisplaySnapshot,
+    pushed: Option<(DisplayPoint, usize)>,
+) {
+    out.hanging.clear();
+    let width = out.width;
+    for row in &out.rows {
+        if !row.continues || row.end_column.saturating_sub(row.column) != width.saturating_add(1) {
+            continue;
+        }
+        // The column in the buffer's line, with the preedit's cells taken out.
+        let column = row.column + width;
+        let column = match pushed {
+            Some((at, cells)) if at.row == row.line && column >= at.column => {
+                match column.checked_sub(cells).filter(|&c| c >= at.column) {
+                    Some(column) => column,
+                    // In the preedit: no space of the buffer's.
+                    None => continue,
+                }
+            }
+            _ => column,
+        };
+        let point = DisplayPoint::new(row.line, column);
+        let space = display
+            .clusters(point)
+            .next()
+            .is_some_and(|cluster| cluster.column == column && cluster.text == " ");
+        if space {
+            out.hanging.push((row.line, row.column));
+        }
     }
 }
 

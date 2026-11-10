@@ -58,14 +58,16 @@ recommended option each time, and approved the public API in direction.
 
 - **A provisional whole logical line** draws cut at the window's edge, with no mark, as ADR 0100
   says.
-- **A row draws the mark only while it fits** in the wrap's width and the mark's column, where
-  one space may hang. A row wider than that draws to the window's edge with no mark, as a row
-  that does not wrap, until it is wrapped again. That is:
+- **A row draws the mark only while it fits** in the wrap's width, or in that and the mark's
+  column when the cell there is a U+0020 that hangs. Any other row that continues draws to the
+  window's edge with no mark, as a row that does not wrap, until it is wrapped again. That is:
   - a row wrapped at a width the window has since left, as after a resize or a gutter that
     gained a digit, while the command's budget is spent;
   - the part of a line before an anchor rows were wrapped from, which goes on in the next row.
 - So the mark's column shows the mark, or a space hanging there, or text of a row with no
   mark.
+- **The preedit's line is laid out from the cursor's own row** when the row before it is wider
+  than that, so the layout stays within its rows.
 
 ### The narrowest wrap (author)
 

@@ -231,3 +231,20 @@ fn debug_prints_no_offset_or_column() {
     let row = format!("{:?}", shown.rows()[1]);
     assert_eq!(row, "ScreenRow { continues: true, .. }");
 }
+
+#[test]
+fn only_a_space_may_take_the_marks_column() {
+    // Rows of 11 cells wrapped at 12 columns, in a window narrowed to 11 before they are
+    // wrapped again: their last cell is a letter, which the mark's column does not take.
+    let text = "0123456789XYZ0123456789XYZ";
+    let (mut window, display) = make(text, (4, 12), true, 0);
+    window.set_size(ViewSize::new(4, 11));
+    let wrap = window.wrap_map_mut().unwrap();
+    wrap.spend_budget();
+    wrap.set_columns(11, &display);
+    let screen = screen(&window, &display, None);
+    let first = &screen.rows()[0];
+    assert_eq!((first.column, first.end_column), (0, 11), "the old row");
+    assert_eq!(screen.mark(first), None);
+    assert_eq!(screen.drawn(first), 0..11, "to the edge");
+}

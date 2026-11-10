@@ -454,3 +454,24 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn on_a_long_line_only_the_cursors_in_view_get_boxes() {
+    // One line of 300 cells scrolled 100 columns right, with cursors either side of the view.
+    let display = snapshot(&"x".repeat(300));
+    let view = View {
+        rows: 2,
+        columns: 20,
+        left: 100,
+        ..VIEW
+    };
+    let shown = screen(&display, view, None);
+    let parts = [0, 50, 105, 119, 120, 250, 300]
+        .into_iter()
+        .map(Selection::at)
+        .collect();
+    let selections = SelectionSet::from_parts(parts, 0).unwrap();
+    let mut out = Vec::new();
+    other_cursor_cells(rect(0, 0, 2, 20), &shown, &display, &selections, &mut out);
+    assert_eq!(out, [rect(0, 5, 1, 1), rect(0, 19, 1, 1)]);
+}

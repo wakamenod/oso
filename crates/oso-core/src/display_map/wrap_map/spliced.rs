@@ -39,7 +39,7 @@ impl WrapSnapshot {
         out: &mut Vec<SplicedRow>,
     ) -> usize {
         out.clear();
-        let from = self.rewrap_start(display, cursor);
+        let from = self.spliced_start(display, cursor);
         let first = self.row_of(display, from);
         if !self.wraps() || most == 0 {
             return first;
@@ -88,6 +88,28 @@ impl WrapSnapshot {
             }
         }
         first
+    }
+}
+
+impl WrapSnapshot {
+    /// Where the preedit's line is laid out from: where an edit at `cursor` would start its
+    /// rewrap, but never back over a row wider than the width and the mark's column, as a
+    /// provisional part of a line before an anchor is, which may hold a long stretch of it.
+    /// From the cursor's own row then.
+    fn spliced_start(&self, display: &DisplaySnapshot, cursor: usize) -> usize {
+        let from = self.rewrap_start(display, cursor);
+        let own = self.row_span(display, self.row_of(display, cursor)).0;
+        let column = |offset| display.offset_to_display_point(offset).column;
+        let mut row = self.row_of(display, from);
+        let mut at = from;
+        while at < own {
+            let (start, end, _) = self.row_span(display, row);
+            if column(end).saturating_sub(column(start)) > self.width.saturating_add(1) {
+                return own;
+            }
+            (row, at) = (row + 1, end);
+        }
+        from
     }
 }
 
@@ -181,6 +203,35 @@ mod tests {
         let starts: Vec<_> = out.iter().map(|row| (row.start, row.column)).collect();
         assert_eq!(starts, [(0, 0), (1, 10)]);
         assert_eq!(out[1].end, 2);
+    }
+
+    #[test]
+    fn a_long_provisional_row_before_the_cursors_is_not_laid_out() {
+        // Rows wrapped from an anchor near the cursor, after a row of all the line before it.
+        let text = "word ".repeat(200);
+        let display = snapshot(&text);
+        let mut map = super::super::WrapMap::provisional(&display, 11);
+        map.realize(&display, 900, 4);
+        let wrap = map.snapshot();
+        let cursor = 900;
+        let row = wrap.row_of(&display, cursor);
+        assert!(row > 0, "a row before the cursor's");
+        let (before, _, _) = wrap.row_span(&display, row - 1);
+        assert!(cursor - before > 200, "it holds the line before the anchor");
+        let preedit = Preedit::new("x".into(), None);
+        let mut out = Vec::new();
+        wrap.spliced_rows(&display, (cursor, &preedit), (8, usize::MAX), &mut out);
+        let column = display.offset_to_display_point(cursor).column;
+        let holds = out
+            .windows(2)
+            .any(|pair| pair[0].column <= column && column < pair[1].column)
+            || out
+                .last()
+                .is_some_and(|last| !last.continues && last.column <= column);
+        assert!(
+            holds,
+            "the cursor's row is laid out within the rows asked for"
+        );
     }
 
     #[test]

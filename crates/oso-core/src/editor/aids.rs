@@ -73,19 +73,21 @@ impl Editor {
         let (window, buffer) = self.tiled();
         let display = buffer.display();
         let text = self.frame.window.text;
-        // Only the cursors in view, found as the regions' are: selections keep their order.
-        let span = screen.span();
         let selections = window.selections.as_slice();
-        let from = selections.partition_point(|selection| selection.cursor < span.start);
-        let mut cursor_lines = selections[from..]
-            .iter()
-            .take_while(|selection| selection.cursor <= span.end)
-            .map(|selection| display.offset_to_display_point(selection.cursor).row)
-            .peekable();
         let mut left = FRAME_CHARS;
         for (index, row) in screen.rows().iter().take(text.rows).enumerate() {
-            while cursor_lines.next_if(|&line| line < row.line).is_some() {}
-            if row.continues || cursor_lines.peek() == Some(&row.line) {
+            if row.continues {
+                continue;
+            }
+            // A cursor anywhere on the line, found by a search: selections keep their order,
+            // and a long line's cursors cost nothing to skip.
+            let line = motion::line_start(&display, row.line)..row.end;
+            let first = selections.partition_point(|selection| selection.cursor < line.start);
+            let on_line = selections.get(first).is_some_and(|selection| {
+                selection.cursor < line.end
+                    || (selection.cursor == line.end && row.line + 1 == display.row_count())
+            });
+            if on_line {
                 continue;
             }
             if let Some(range) = trailing(buffer.text(), &display, row.line, &mut left) {
