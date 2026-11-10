@@ -237,4 +237,4 @@ pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::C
 pub oso_render::TextView::others: &'a [oso_core::frame::CellRect]
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64
-pub oso_render::TextView::scroll: oso_core::window::Scroll
+pub oso_render::TextView::scroll: oso_core::window::ViewTop
