@@ -2678,7 +2678,7 @@ pub fn oso_core::window::Window::size(&self) -> oso_core::window::ViewSize
 pub fn oso_core::window::Window::top_row(&self, &oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::window::Window::wrap(&self) -> core::option::Option<&oso_core::display_map::wrap_map::WrapSnapshot>
 impl core::clone::Clone for oso_core::window::Window
-pub fn oso_core::window::Window::clone(&self) -> oso_core::window::Window
+pub fn oso_core::window::Window::clone(&self) -> Self
 impl core::fmt::Debug for oso_core::window::Window
 pub fn oso_core::window::Window::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_core::window::CONTEXT_LINES: usize
