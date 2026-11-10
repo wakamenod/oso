@@ -80,6 +80,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     let mut state = json!({
         "buffer": buffer_state(window.buffer(), buffer, shows_secret),
         "window": { "rows": size.rows, "columns": size.columns },
+        "visual_aids": super::handoff::aids_state(editor.visual_aids()),
         "text": text,
         "buffers": editor
             .buffers()
@@ -607,6 +608,12 @@ mod tests {
                 "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1, "mark": null },
                 "scroll": { "top": 0, "left": 3 },
                 "window": { "rows": 5, "columns": 2 },
+                "visual_aids": {
+                    "whitespace": true,
+                    "current_line": true,
+                    "flash": true,
+                    "line_numbers": false,
+                },
                 "text": {
                     "start_row": 0,
                     "start_column": 3,

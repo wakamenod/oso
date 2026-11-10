@@ -22,6 +22,7 @@ fn c_x_b_previews_the_selected_buffer_and_switches_to_it() {
     let plan = scratch.write("plan.md", b"budget\nhiring\n");
     let notes = scratch.write("notes.md", b"agenda\n");
     let mut app = App::start(Some(&plan), scratch.path());
+    app.visual_aids_off();
     app.wait_until_ready();
     app.open_file(&notes);
     let state = app.wait_until_ready();

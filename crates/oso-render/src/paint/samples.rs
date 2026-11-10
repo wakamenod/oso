@@ -30,6 +30,7 @@ fn load_theme(name: &str) -> Theme {
     log!(\"loaded {theme}\r\");
     let tag = \"a\u{202e}\u{2066}b\";
     let bell = \"\u{7}\";
+\tlet wide = \"\u{3000}\";   
     theme
 }
 ";
@@ -81,6 +82,7 @@ fn text_pane<'a>(
             others: &OTHERS,
             preedit: None,
             fills,
+            whitespace: true,
         }),
     }
 }
@@ -130,7 +132,12 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     let found = matches();
     let current = [found[2]];
     let region = [cells(2, 16, 1, 10)];
+    // The cursor's row gets the band, and the line after the bell its trailing fill.
+    let band = [cells(3, 0, 1, COLUMNS)];
+    let trailing = [cells(6, 24, 1, 3)];
     let fills = [
+        (Face::CurrentLine, &band[..]),
+        (Face::TrailingWhitespace, &trailing[..]),
         (Face::SearchMatch, &found[..]),
         (Face::SearchCurrent, &current[..]),
         (Face::Region, &region[..]),

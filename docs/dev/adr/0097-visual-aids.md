@@ -54,6 +54,9 @@ and nothing remembered. The rest is settled here.
   and lasting choices belong to M3's configuration.
 - **Reach `Look`:** they change only what is drawn, and nothing on disk
   ([ADR 0085](0085-agent-channel-and-oso-mcp.md)).
+  - Erratum (2026-11-09, the author's choice): `global-whitespace-mode` is `Person`. Its
+    marks show lookalike spaces, so the agent channel may not turn them off before the
+    person reads a file. The other three stay `Look`.
 - **`get-state`** reports which aids are on.
 - **An `oso dev` restart** carries the switches in its handoff:
   - a handoff without them starts from the defaults, so `STATE_VERSION` stays;
@@ -103,6 +106,10 @@ and nothing remembered. The rest is settled here.
     as `motion::WalkBudget` bounds a motion;
   - a row whose trailing run does not end within the budget gets no fill. A 10 MB line
     of spaces is drawn as fast as one of letters, unmarked.
+  - Erratum (2026-11-09, as built): the walk lives in `Editor`, not the display map. It
+    takes each row's bounds from the display model (`motion::line_start` and `line_end`),
+    fills only a row that ends its line, and reads the text back from there a few bytes at
+    a time, so it counts display rows and stays right with soft wrap.
   - The fill is `Face::TrailingWhitespace`.
 
 ### The current line

@@ -309,6 +309,7 @@ mod tests {
                     cells,
                     text: c.encode_utf8(&mut buf),
                     kind: crate::display_map::CellKind::Text,
+                    whitespace: false,
                 };
                 column += cells;
                 Cluster::of(cluster)

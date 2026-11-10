@@ -8,6 +8,7 @@
 //! host-owned state and does not know its keys.
 
 mod agent;
+mod aids;
 mod buffers;
 mod complete;
 mod cursors;
@@ -39,6 +40,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    aids::COMMANDS,
     agent::COMMANDS,
     complete::COMMANDS,
     cursors::COMMANDS,
@@ -193,6 +195,8 @@ mod tests {
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
+            // Whitespace's marks, which show lookalike spaces (ADR 0097).
+            "global-whitespace-mode",
             // The theme, which is the person's and is remembered on disk (ADR 0089).
             "load-theme",
             "toggle-theme",

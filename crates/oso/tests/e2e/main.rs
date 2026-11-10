@@ -171,6 +171,7 @@ fn a_screenshot_is_a_png_of_the_window_with_the_cursor_and_the_text() {
     let blank = scratch.write("blank.txt", b"\n\n\n\n");
     let text = scratch.write("text.txt", &numbered_lines(5));
     let mut app = App::start(Some(&blank), scratch.path());
+    app.visual_aids_off();
 
     let state = app.wait_until_ready();
     let shot = app.screenshot();
