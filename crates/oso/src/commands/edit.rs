@@ -14,7 +14,6 @@ use std::borrow::Cow;
 
 use oso_core::buffer::{EditError, Replacement};
 use oso_core::command::{ArgSpec, Args, Command, CommandError, Ctx, Reach};
-use oso_core::display_map::{CellKind, DisplayPoint, DisplaySnapshot, TabWidth};
 use oso_core::motion::{self, Edge, WalkBudget};
 
 use super::budget_left;
@@ -271,49 +270,30 @@ fn tab_to_tab_stop(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     let tab_width = buffer.tab_width();
     let spaces = " ".repeat(tab_width.get() as usize);
     let mut edits = Vec::with_capacity(window.selections.len());
-    // The cursor before this one, if it is on the same row, and the column it ends at.
-    let mut earlier: Option<(DisplayPoint, usize)> = None;
+    // The cursor before this one, its line, and the column it ends at.
+    let mut earlier: Option<(usize, usize, usize)> = None;
     for selection in window.selections.iter() {
-        let point = display.offset_to_display_point(selection.cursor);
+        let line = buffer.text().offset_to_point(selection.cursor).row;
+        // What lies between keeps its cells, but a tab reaches the next stop from where it
+        // now starts, which TabMap tells without reading what lies between, counting from
+        // the line's start (ADR 0101).
         let column = match earlier {
-            Some((from, column)) if from.row == point.row => {
-                column_after(&display, tab_width, from, column, selection.cursor)
+            Some((from, row, column)) if row == line => {
+                display.column_after(from, column, selection.cursor)
             }
-            _ => point.column,
+            _ => display.offset_to_display_point(selection.cursor).column,
         };
         let stop = tab_width.next_stop(column);
         edits.push(Replacement {
             range: selection.cursor..selection.cursor,
             text: &spaces[..stop - column],
         });
-        earlier = Some((point, stop));
+        earlier = Some((selection.cursor, line, stop));
     }
     let buffer = window.buffer();
     ctx.editor.apply_edits(buffer, &edits)?;
     ctx.request_redraw();
     Ok(())
-}
-
-/// The column of the offset `to` on the row of `from`, once what is at `from` starts
-/// at `column`, after an earlier insertion. What lies between keeps its cells, except
-/// that a tab reaches the next stop from where it now starts.
-fn column_after(
-    display: &DisplaySnapshot,
-    tab_width: TabWidth,
-    from: DisplayPoint,
-    mut column: usize,
-    to: usize,
-) -> usize {
-    for cluster in display.clusters(from) {
-        if cluster.offset >= to {
-            break;
-        }
-        column = match cluster.kind {
-            CellKind::Tab => tab_width.next_stop(column),
-            _ => column + cluster.cells,
-        };
-    }
-    column
 }
 
 /// Undoes `n` steps, or redoes them if `n` is negative, stopping at the first

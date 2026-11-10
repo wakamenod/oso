@@ -192,11 +192,6 @@ item notes when it must be settled.
   the unshifted key, so holding Shift a moment too long still types. Decide whether
   `KeyResolver` does the same, or record that oso differs.
 
-- By M2-21: each cursor gets a stop's worth of reading, about 2 ms on a long run with no
-  boundary, so several cursors on such runs can pass the 8 ms budget and a few dozen spend
-  the command's ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
-  `TAB` on a row with several cursors walks what lies between them with no budget
-  ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:
   - The limit should be a pure function beside `window::wheel`, used by both.
   - By M3: "taller" compares the tiled window alone, also beneath a prompt. Splits of

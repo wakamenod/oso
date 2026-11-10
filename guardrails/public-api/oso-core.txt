@@ -751,6 +751,58 @@ pub fn usize::add_summary(&mut self, &oso_core::display_map::tab_map::TabSummary
 pub fn usize::from_summary(&S) -> Self
 impl oso_core::sum_tree::Summary for oso_core::display_map::tab_map::TabSummary
 pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
+pub mod oso_core::display_map::wrap_map
+pub struct oso_core::display_map::wrap_map::Splice
+pub oso_core::display_map::wrap_map::Splice::after: oso_core::display_map::DisplaySnapshot
+pub oso_core::display_map::wrap_map::Splice::before: oso_core::display_map::DisplaySnapshot
+pub oso_core::display_map::wrap_map::Splice::edit: oso_core::rope::RopeEdit
+impl core::clone::Clone for oso_core::display_map::wrap_map::Splice
+pub fn oso_core::display_map::wrap_map::Splice::clone(&self) -> oso_core::display_map::wrap_map::Splice
+impl core::fmt::Debug for oso_core::display_map::wrap_map::Splice
+pub fn oso_core::display_map::wrap_map::Splice::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::display_map::wrap_map::ViewRow
+pub oso_core::display_map::wrap_map::ViewRow::column: usize
+pub oso_core::display_map::wrap_map::ViewRow::continues: bool
+pub oso_core::display_map::wrap_map::ViewRow::end: usize
+pub oso_core::display_map::wrap_map::ViewRow::line: usize
+pub oso_core::display_map::wrap_map::ViewRow::start: usize
+impl core::clone::Clone for oso_core::display_map::wrap_map::ViewRow
+pub fn oso_core::display_map::wrap_map::ViewRow::clone(&self) -> oso_core::display_map::wrap_map::ViewRow
+impl core::cmp::Eq for oso_core::display_map::wrap_map::ViewRow
+impl core::cmp::PartialEq for oso_core::display_map::wrap_map::ViewRow
+pub fn oso_core::display_map::wrap_map::ViewRow::eq(&self, &oso_core::display_map::wrap_map::ViewRow) -> bool
+impl core::fmt::Debug for oso_core::display_map::wrap_map::ViewRow
+pub fn oso_core::display_map::wrap_map::ViewRow::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::display_map::wrap_map::ViewRow
+impl core::marker::StructuralPartialEq for oso_core::display_map::wrap_map::ViewRow
+pub struct oso_core::display_map::wrap_map::WrapJob
+impl oso_core::display_map::wrap_map::WrapJob
+pub fn oso_core::display_map::wrap_map::WrapJob::run(self) -> core::option::Option<oso_core::display_map::wrap_map::WrapReport>
+impl core::fmt::Debug for oso_core::display_map::wrap_map::WrapJob
+pub fn oso_core::display_map::wrap_map::WrapJob::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::display_map::wrap_map::WrapReport
+impl core::fmt::Debug for oso_core::display_map::wrap_map::WrapReport
+pub fn oso_core::display_map::wrap_map::WrapReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_core::display_map::wrap_map::WrapSnapshot
+impl oso_core::display_map::wrap_map::WrapSnapshot
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::edited(&self, &oso_core::display_map::DisplaySnapshot, &oso_core::display_map::DisplaySnapshot, &oso_core::rope::RopeEdit) -> Self
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::edited_within(&self, &oso_core::display_map::DisplaySnapshot, &oso_core::display_map::DisplaySnapshot, &oso_core::rope::RopeEdit, &mut usize) -> (Self, core::option::Option<core::ops::range::Range<usize>>)
+impl oso_core::display_map::wrap_map::WrapSnapshot
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::edited_command(&self, &[oso_core::display_map::wrap_map::Splice], &mut usize) -> (Self, alloc::vec::Vec<core::ops::range::Range<usize>>)
+impl oso_core::display_map::wrap_map::WrapSnapshot
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::heap_bytes(&self) -> usize
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::new(&oso_core::display_map::DisplaySnapshot, usize) -> Self
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::row(&self, &oso_core::display_map::DisplaySnapshot, usize) -> oso_core::display_map::wrap_map::ViewRow
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::row_count(&self) -> usize
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::row_of(&self, &oso_core::display_map::DisplaySnapshot, usize) -> usize
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::unwrapped(&oso_core::display_map::DisplaySnapshot) -> Self
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::wraps(&self) -> bool
+impl core::clone::Clone for oso_core::display_map::wrap_map::WrapSnapshot
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::clone(&self) -> oso_core::display_map::wrap_map::WrapSnapshot
+impl core::fmt::Debug for oso_core::display_map::wrap_map::WrapSnapshot
+pub fn oso_core::display_map::wrap_map::WrapSnapshot::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub const oso_core::display_map::wrap_map::COMMAND_BUDGET: usize
+pub const oso_core::display_map::wrap_map::MIN_COLUMNS: usize
 pub enum oso_core::display_map::CellKind
 pub oso_core::display_map::CellKind::Control(char)
 pub oso_core::display_map::CellKind::InvalidByte(u8)
@@ -864,6 +916,7 @@ pub struct oso_core::display_map::DisplaySnapshot
 impl oso_core::display_map::DisplaySnapshot
 pub fn oso_core::display_map::DisplaySnapshot::clip_point(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> oso_core::display_map::DisplayPoint
 pub fn oso_core::display_map::DisplaySnapshot::clusters(&self, oso_core::display_map::DisplayPoint) -> oso_core::display_map::tab_map::RowClusters<'_>
+pub fn oso_core::display_map::DisplaySnapshot::column_after(&self, usize, usize, usize) -> usize
 pub fn oso_core::display_map::DisplaySnapshot::display_point_to_offset(&self, oso_core::display_map::DisplayPoint, oso_core::sum_tree::Bias) -> usize
 pub fn oso_core::display_map::DisplaySnapshot::invalid_bytes(&self) -> &oso_core::decode::InvalidBytes
 pub fn oso_core::display_map::DisplaySnapshot::max_point(&self) -> oso_core::display_map::DisplayPoint
@@ -2199,6 +2252,7 @@ impl core::marker::Copy for oso_core::motion::Edge
 impl core::marker::StructuralPartialEq for oso_core::motion::Edge
 pub struct oso_core::motion::WalkBudget
 impl oso_core::motion::WalkBudget
+pub const fn oso_core::motion::WalkBudget::for_cursors(usize) -> Self
 pub const fn oso_core::motion::WalkBudget::is_spent(self) -> bool
 pub const fn oso_core::motion::WalkBudget::new() -> Self
 impl core::clone::Clone for oso_core::motion::WalkBudget

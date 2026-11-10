@@ -5,8 +5,8 @@
 //!
 //! Run with `cargo run --release -p oso-core --example text_perf`. Shows that
 //! per-query costs do not grow with file size or line length. The benchmarks
-//! that CI checks against the budgets are in `crates/oso/examples/perf`. `-- words` and
-//! `-- cursors` run only word motion, or only typing at many cursors.
+//! that CI checks against the budgets are in `crates/oso/examples/perf`. `-- words`,
+//! `-- cursors` and `-- wrap` run only word motion, typing at many cursors, or soft wrap.
 
 // A benchmark that reports to stdout, not editor code (ADR 0038).
 #![expect(clippy::disallowed_macros, reason = "the benchmark prints its timings")]
@@ -25,6 +25,10 @@ use oso_core::word;
 
 #[path = "text_perf/cursors.rs"]
 mod cursors;
+#[path = "text_perf/words.rs"]
+mod words;
+#[path = "text_perf/wrap.rs"]
+mod wrap;
 
 const MB: usize = 1024 * 1024;
 const QUERIES: usize = 100_000;
@@ -318,8 +322,8 @@ fn word_count_costs(label: &str, text: &str) {
     );
 }
 
-/// What word motion costs, on ordinary text and on runs with no boundary. Run with
-/// the argument `words` for this alone.
+/// What word motion costs, on ordinary text and on runs with no boundary, and at several
+/// cursors with TAB beside it. Run with the argument `words` for this alone.
 fn word_motion_costs() {
     println!("== Word motion, one key at a time");
     word_costs("100 MB file", &file_text(100 * MB));
@@ -353,6 +357,8 @@ fn word_motion_costs() {
     word_count_costs("10 MB line of 語", &"語".repeat(10 * MB / 3));
     let chain = ["👨"; 8].join("\u{200d}");
     word_count_costs("10 MB of ZWJ chains", &chain.repeat(10 * MB / chain.len()));
+    println!();
+    words::cursor_costs();
 }
 
 #[expect(
@@ -366,6 +372,10 @@ fn main() {
     }
     if std::env::args().any(|arg| arg == "cursors") {
         cursors::cursor_costs();
+        return;
+    }
+    if std::env::args().any(|arg| arg == "wrap") {
+        wrap::wrap_costs();
         return;
     }
     println!("== Building (100 MB, source-like text)");

@@ -47,11 +47,19 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   the column function of its last line, so the column of any offset is found in
   O(log n) plus a scan of one chunk, even on a 10 MB line full of tabs, and
   whether a buffer holds a bidi control in O(1). The tab width is a parameter;
-  changing it rebuilds only the TabMap.
+  changing it rebuilds only the TabMap. A chunk read often keeps checkpoints in its
+  lines longer than 128 bytes, cluster starts every 128 bytes where a scan can begin
+  in the state a scan from the chunk's start has there, so a scan in a long line reads
+  at most a stride and a cluster, plus what the segmenter looks back over
+  ([ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
 - **`DisplayMap` and `DisplaySnapshot`.** The API callers use: offset ↔
   `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
   clusters, row widths, and the clusters of a row from any column, for
-  rendering. A snapshot is O(1) to take and can go to another thread.
+  rendering. A snapshot is O(1) to take and can go to another thread. Word
+  motion reads clusters by offset instead, forward and back with no columns, and
+  `column_after` gives an offset's column once an earlier one on its line moved,
+  from the summaries between, for `TAB` at several cursors
+  ([ADR 0101](adr/0101-word-checks-by-offset-and-reading-shared-by-cursors.md)).
 - **`DisplayCluster::for_each_run`** says what a cluster puts on the grid. The
   renderer and the text-grid snapshots both draw through it
   ([ADR 0045](adr/0045-text-grid-snapshots.md)).
