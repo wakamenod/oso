@@ -33,6 +33,7 @@ mod reloads;
 mod saves;
 mod searches;
 mod theme_file;
+mod wraps;
 // The window system: winit, or oso's own layer on macOS with `native-window` (ADR 0070).
 // Both give the same loop, window and waker, under the one name.
 #[cfg(all(target_os = "macos", feature = "native-window"))]
@@ -72,6 +73,10 @@ pub enum UserEvent {
     Clipboard(clipboard::ClipboardEvent),
     /// isearch's worker found or counted something (ADR 0082).
     Search(oso_core::editor::SearchReport),
+    /// Soft wrap's worker wrapped a window's rows (ADR 0100).
+    Wrap(oso_core::display_map::wrap_map::WrapReport),
+    /// A wrap job panicked, so its window asks for it again.
+    WrapLost,
     /// The completion worker built a list or matched an input (ADR 0096).
     Completion(oso_core::complete::CompletionReport),
     /// A completion job panicked on the worker.
@@ -134,6 +139,8 @@ pub struct App {
     clipboard: Option<oso_platform::clipboard::Clipboard>,
     /// isearch's worker (ADR 0082).
     searcher: searches::Searcher,
+    /// Soft wrap's worker (ADR 0100).
+    wrapper: wraps::Wrapper,
     /// The completion worker, for a list past 5000 candidates (ADR 0096).
     completer: completions::Completer,
     /// The theme remembered from before, being read until the window opens, what writes the
@@ -210,6 +217,7 @@ impl App {
             ime: ime::ImeState::default(),
             clipboard,
             searcher: searches::Searcher::default(),
+            wrapper: wraps::Wrapper::default(),
             completer: completions::Completer::default(),
             theme_read: Some(theme_read),
             theme_writer: theme_file::Writer::start(theme_directory),

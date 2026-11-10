@@ -24,6 +24,14 @@ impl Window {
         Self { rope, map, wrap }
     }
 
+    /// A window that has just turned wrapping on: its rows provisional.
+    fn provisional(text: &str, columns: usize) -> Self {
+        let rope = Rope::from(text);
+        let map = DisplayMap::new(&rope, TabWidth::new(4));
+        let wrap = WrapMap::provisional(&map.snapshot(), columns);
+        Self { rope, map, wrap }
+    }
+
     /// One command of replacements, given in descending order as the editor applies them.
     fn command(&mut self, replacements: &[(usize, usize, &str)]) {
         let mut splices = Vec::new();
@@ -40,6 +48,7 @@ impl Window {
                 edit,
             });
         }
+        self.wrap.refill();
         self.wrap.edit(&splices);
     }
 
@@ -73,6 +82,154 @@ fn shape(wrap: &WrapSnapshot, display: &DisplaySnapshot) -> Vec<(usize, usize, b
 }
 
 #[test]
+fn a_report_from_another_maps_job_is_not_taken() {
+    let mut one = Window::new(&"word ".repeat(40), 30);
+    let mut other = Window::new(&"word ".repeat(40), 30);
+    one.wrap.set_columns(20, &one.map.snapshot());
+    other.wrap.set_columns(20, &other.map.snapshot());
+    let job = one.wrap.take_job(&one.map.snapshot()).expect("a job");
+    let _theirs = other.wrap.take_job(&other.map.snapshot()).expect("a job");
+    let report = job.run().expect("a report");
+    assert!(
+        !other.wrap.owns(&report),
+        "of the same generation, but not theirs"
+    );
+    assert!(!other.wrap.take_report(report, &other.map.snapshot()));
+}
+
+#[test]
+fn a_job_stops_once_its_map_is_gone() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    let clone = window.wrap.clone();
+    drop(window);
+    let job_of_clone = {
+        let mut clone = clone;
+        clone.set_columns(
+            12,
+            &DisplayMap::new(&Rope::from("x"), TabWidth::new(4)).snapshot(),
+        );
+        clone.take_job(&DisplayMap::new(&Rope::from("x"), TabWidth::new(4)).snapshot())
+    };
+    assert!(
+        job.run().is_none(),
+        "superseded through the clone, then gone"
+    );
+    assert!(
+        job_of_clone.expect("a job").run().is_none(),
+        "its map is gone"
+    );
+}
+
+#[test]
+fn provisional_rows_near_the_view_wrap_at_once_and_the_rest_wait() {
+    let line = "word ".repeat(60);
+    let text = format!("{line}\n{line}\n{line}\n");
+    let mut window = Window::provisional(&text, 12);
+    assert_eq!(
+        window.rows().len(),
+        4,
+        "a row a line, and the empty last one"
+    );
+    let display = window.map.snapshot();
+    let at = line.len() + 1 + 150;
+    window.wrap.refill();
+    assert!(window.wrap.realize(&display, at, 0));
+    assert_eq!(window.wrap.snapshot().len(), display.len());
+    let snapshot = window.wrap.snapshot();
+    let row = snapshot.row_span(&display, snapshot.row_of(&display, at));
+    assert!(row.1 - row.0 <= 12, "the row that holds it is wrapped");
+    assert!(window.wrap.is_stale(), "the rest waits for the job");
+    window.wrap.refill();
+    assert!(
+        !window.wrap.realize(&display, at, 0),
+        "and is not wrapped again"
+    );
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(12));
+}
+
+#[test]
+fn a_narrower_window_edited_and_wrapped_near_its_view_before_the_report_settles_to_its_width() {
+    let text = format!(
+        "{}\n{}",
+        "word and more ".repeat(30),
+        "日本語の文章です。".repeat(12)
+    );
+    let mut window = Window::new(&text, 30);
+    window.wrap.set_columns(12, &window.map.snapshot());
+    // Rows of the old width stay until the report, but those wrapped here are at the new one.
+    window.command(&[(200, 0, "x"), (40, 3, "")]);
+    let display = window.map.snapshot();
+    window.wrap.refill();
+    window.wrap.realize(&display, 100, 3);
+    window.command(&[(300, 0, "あい")]);
+    window.wrap.refill();
+    window.wrap.realize(&window.map.snapshot(), 5, 2);
+    assert_eq!(window.wrap.snapshot().len(), window.map.snapshot().len());
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(12));
+}
+
+#[test]
+fn a_report_of_the_width_before_a_resize_is_not_taken() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    window.wrap.set_columns(12, &window.map.snapshot());
+    let report = job.run().expect("no newer job yet");
+    assert!(!window.wrap.take_report(report, &window.map.snapshot()));
+    window.settle();
+    assert_eq!(window.rows(), window.fresh(12));
+}
+
+#[test]
+fn a_reset_stops_the_running_job_and_its_next_job_runs_alone() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    window.wrap.reset(&window.map.snapshot());
+    assert!(job.run().is_none(), "it stops, holding up no other job");
+    let held = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    let next = window.wrap.take_job(&window.map.snapshot());
+    assert!(next.is_none(), "one at a time");
+    let report = held.run().expect("a report");
+    assert!(window.wrap.take_report(report, &window.map.snapshot()));
+    assert_eq!(window.rows(), window.fresh(20));
+}
+
+#[test]
+fn a_job_that_ends_with_no_report_is_wanted_again_once() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    // Dropped, as one the worker never got, or one that panicked.
+    drop(window.wrap.take_job(&window.map.snapshot()).expect("a job"));
+    let job = window
+        .wrap
+        .take_job(&window.map.snapshot())
+        .expect("wanted again");
+    // Lost again, it is not asked for a third time, as one that panics each time would be.
+    drop(job);
+    assert!(window.wrap.take_job(&window.map.snapshot()).is_none());
+}
+
+#[test]
+fn a_detached_copy_takes_no_report_of_the_map_it_came_from() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    let mut copy = window.wrap.detached();
+    let report = job.run().expect("a report");
+    assert!(!copy.owns(&report) && window.wrap.owns(&report));
+    assert!(!copy.take_report(report, &window.map.snapshot()));
+    assert!(
+        copy.take_job(&window.map.snapshot()).is_some(),
+        "it wraps on its own"
+    );
+}
+
+#[test]
 fn a_command_past_its_budget_leaves_the_rest_to_a_job() {
     let text = "日本語の文章です。".repeat(8);
     let mut window = Window::new(&text, 9);
@@ -89,9 +246,9 @@ fn a_command_past_its_budget_leaves_the_rest_to_a_job() {
 #[test]
 fn a_newer_width_supersedes_a_job_and_its_report_is_dropped() {
     let mut window = Window::new(&"word ".repeat(40), 30);
-    window.wrap.set_columns(20);
+    window.wrap.set_columns(20, &window.map.snapshot());
     let first = window.wrap.take_job(&window.map.snapshot()).expect("a job");
-    window.wrap.set_columns(12);
+    window.wrap.set_columns(12, &window.map.snapshot());
     let second = window
         .wrap
         .take_job(&window.map.snapshot())
@@ -105,7 +262,7 @@ fn a_newer_width_supersedes_a_job_and_its_report_is_dropped() {
 #[test]
 fn a_report_takes_the_commands_made_while_its_job_ran() {
     let mut window = Window::new(&"word ".repeat(40), 30);
-    window.wrap.set_columns(16);
+    window.wrap.set_columns(16, &window.map.snapshot());
     let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
     window.command(&[(10, 0, "longer ")]);
     window.command(&[(0, 5, "")]);
@@ -121,7 +278,7 @@ fn a_report_takes_the_commands_made_while_its_job_ran() {
 #[test]
 fn a_report_after_many_commands_is_taken_and_leaves_what_they_changed_stale() {
     let mut window = Window::new(&"word ".repeat(40), 30);
-    window.wrap.set_columns(16);
+    window.wrap.set_columns(16, &window.map.snapshot());
     let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
     for _ in 0..100 {
         window.command(&[(0, 0, "x")]);
@@ -184,7 +341,7 @@ fn far_apart_places_typed_in_during_a_job_stay_apart_once_it_reports() {
     let line = "word ".repeat(600);
     let text = format!("{line}\n{line}\n{line}\n{line}\n");
     let mut window = Window::new(&text, 30);
-    window.wrap.set_columns(12);
+    window.wrap.set_columns(12, &window.map.snapshot());
     let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
     window.command(&[(10_000, 0, "x")]);
     window.command(&[(1_000, 0, "x")]);
@@ -254,25 +411,37 @@ proptest! {
     fn once_settled_the_rows_are_a_wrap_from_scratch(
         text in text(),
         steps in prop::collection::vec(
-            (0_usize..4, prop::collection::vec((0_usize..300, 0_usize..4, text()), 1..4), 4_usize..20),
+            (0_usize..5, prop::collection::vec((0_usize..300, 0_usize..4, text()), 1..4), 4_usize..20),
             1..8,
         ),
         columns in 4_usize..20,
+        provisional in any::<bool>(),
     ) {
-        let mut window = Window::new(&text, columns);
+        let mut window = if provisional {
+            Window::provisional(&text, columns)
+        } else {
+            Window::new(&text, columns)
+        };
         let mut columns = columns;
         let mut held = None;
         for (kind, replacements, width) in steps {
             match kind {
                 0 => {
                     columns = width;
-                    window.wrap.set_columns(width);
+                    window.wrap.set_columns(width, &window.map.snapshot());
                 }
                 1 => held = window.wrap.take_job(&window.map.snapshot()).or(held),
                 2 => {
                     if let Some(report) = held.take().and_then(WrapJob::run) {
                         window.wrap.take_report(report, &window.map.snapshot());
                     }
+                }
+                3 => {
+                    let display = window.map.snapshot();
+                    let at = replacements[0].0 % (display.len() + 1);
+                    window.wrap.refill();
+                    window.wrap.realize(&display, at, width % 5);
+                    prop_assert_eq!(window.wrap.snapshot().len(), display.len(), "rows cover the text");
                 }
                 _ => {}
             }

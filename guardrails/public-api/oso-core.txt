@@ -143,6 +143,7 @@ pub fn oso_core::buffer::Buffer::tab_width(&self) -> oso_core::display_map::cell
 pub fn oso_core::buffer::Buffer::text(&self) -> &oso_core::rope::Rope
 pub fn oso_core::buffer::Buffer::verdict(&self) -> oso_core::buffer::Verdict
 pub fn oso_core::buffer::Buffer::visiting(std::path::PathBuf) -> Self
+pub fn oso_core::buffer::Buffer::wraps(&self) -> bool
 impl oso_core::buffer::Buffer
 pub fn oso_core::buffer::Buffer::begin_loading(&mut self)
 pub fn oso_core::buffer::Buffer::forget_recovery(&mut self)
@@ -1073,7 +1074,7 @@ pub enum oso_core::editor::Preview
 pub oso_core::editor::Preview::Buffer
 pub oso_core::editor::Preview::Buffer::cursor: usize
 pub oso_core::editor::Preview::Buffer::id: oso_core::buffer::BufferId
-pub oso_core::editor::Preview::Buffer::top: usize
+pub oso_core::editor::Preview::Buffer::start: usize
 pub oso_core::editor::Preview::Text
 pub oso_core::editor::Preview::Text::entry: u64
 pub oso_core::editor::Preview::Withheld
@@ -1373,13 +1374,16 @@ pub fn oso_core::editor::Editor::preedit(&self) -> core::option::Option<&oso_cor
 pub fn oso_core::editor::Editor::preedit_layout(&self, oso_core::frame::PixelGrid, &mut alloc::vec::Vec<f32>) -> core::option::Option<oso_core::frame::PixelRect>
 pub fn oso_core::editor::Editor::preedit_withheld(&self) -> bool
 pub fn oso_core::editor::Editor::prompt_region_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::editor::Editor::recenter(&mut self, oso_core::window::Recenter) -> bool
 pub fn oso_core::editor::Editor::region_cells(&self, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::editor::Editor::restore_positions(&mut self, oso_core::selection::SelectionSet, oso_core::window::Scroll)
+pub fn oso_core::editor::Editor::scroll_lines(&mut self, isize) -> core::result::Result<bool, oso_core::motion::Edge>
 pub fn oso_core::editor::Editor::scroll_view(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::scroll_view_sideways(&mut self, isize) -> bool
 pub fn oso_core::editor::Editor::set_frame_size(&mut self, oso_core::frame::FrameSize) -> bool
 pub fn oso_core::editor::Editor::set_preedit(&mut self, core::option::Option<oso_core::display_map::Preedit>) -> bool
 pub fn oso_core::editor::Editor::set_view_size(&mut self, oso_core::window::ViewSize) -> bool
+pub fn oso_core::editor::Editor::top_row(&self) -> usize
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::cursor_excerpt(&self, &mut alloc::string::String) -> core::option::Option<usize>
 pub fn oso_core::editor::Editor::excerpt_stamp(&self) -> core::option::Option<(oso_core::buffer::BufferId, u64, usize)>
@@ -1453,6 +1457,11 @@ pub fn oso_core::editor::Editor::theme(&self) -> usize
 pub fn oso_core::editor::Editor::theme_candidates(&self) -> alloc::sync::Arc<[oso_core::complete::Candidate]>
 pub fn oso_core::editor::Editor::theme_name(&self) -> core::option::Option<&'static str>
 pub fn oso_core::editor::Editor::toggle_theme(&mut self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::loaded(&mut self, oso_core::buffer::BufferId)
+pub fn oso_core::editor::Editor::set_wraps(&mut self, oso_core::buffer::BufferId, bool) -> bool
+pub fn oso_core::editor::Editor::take_wrap_jobs(&mut self) -> alloc::vec::Vec<oso_core::display_map::wrap_map::WrapJob>
+pub fn oso_core::editor::Editor::take_wrap_report(&mut self, oso_core::display_map::wrap_map::WrapReport) -> bool
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::may_write_over(&mut self, oso_core::buffer::BufferId, std::path::PathBuf, oso_core::buffer::FileStamp, std::path::PathBuf)
 pub fn oso_core::editor::Editor::start_write(&mut self, std::path::PathBuf, bool) -> core::result::Result<bool, oso_core::editor::SaveRefused>
@@ -1712,12 +1721,12 @@ pub fn oso_core::frame::WindowRegions::hash<__H: core::hash::Hasher>(&self, &mut
 impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub const oso_core::frame::MIN_LIST_COLUMNS: usize
-pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::Scroll, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::ViewTop, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
-pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
-pub fn oso_core::frame::other_cursor_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
-pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::Scroll, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::ViewTop, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::frame::other_cursor_cells(oso_core::frame::CellRect, oso_core::window::ViewTop, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
+pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::ViewTop, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub mod oso_core::key
 pub enum oso_core::key::Key
 pub oso_core::key::Key::Char(char)
@@ -2616,7 +2625,7 @@ pub fn oso_core::window::Place::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 impl core::marker::StructuralPartialEq for oso_core::window::Place
 pub struct oso_core::window::Scroll
 pub oso_core::window::Scroll::left: usize
-pub oso_core::window::Scroll::top: usize
+pub oso_core::window::Scroll::start: usize
 impl core::clone::Clone for oso_core::window::Scroll
 pub fn oso_core::window::Scroll::clone(&self) -> oso_core::window::Scroll
 impl core::cmp::Eq for oso_core::window::Scroll
@@ -2648,6 +2657,22 @@ impl core::hash::Hash for oso_core::window::ViewSize
 pub fn oso_core::window::ViewSize::hash<__H: core::hash::Hasher>(&self, &mut __H)
 impl core::marker::Copy for oso_core::window::ViewSize
 impl core::marker::StructuralPartialEq for oso_core::window::ViewSize
+pub struct oso_core::window::ViewTop
+pub oso_core::window::ViewTop::left: usize
+pub oso_core::window::ViewTop::row: usize
+impl core::clone::Clone for oso_core::window::ViewTop
+pub fn oso_core::window::ViewTop::clone(&self) -> oso_core::window::ViewTop
+impl core::cmp::Eq for oso_core::window::ViewTop
+impl core::cmp::PartialEq for oso_core::window::ViewTop
+pub fn oso_core::window::ViewTop::eq(&self, &oso_core::window::ViewTop) -> bool
+impl core::default::Default for oso_core::window::ViewTop
+pub fn oso_core::window::ViewTop::default() -> oso_core::window::ViewTop
+impl core::fmt::Debug for oso_core::window::ViewTop
+pub fn oso_core::window::ViewTop::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for oso_core::window::ViewTop
+pub fn oso_core::window::ViewTop::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for oso_core::window::ViewTop
+impl core::marker::StructuralPartialEq for oso_core::window::ViewTop
 pub struct oso_core::window::WheelRemainder
 impl oso_core::window::WheelRemainder
 pub fn oso_core::window::WheelRemainder::add(&mut self, f64, f64) -> (isize, isize)
@@ -2666,17 +2691,22 @@ pub oso_core::window::Window::selections: oso_core::selection::SelectionSet
 impl oso_core::window::Window
 pub fn oso_core::window::Window::buffer(&self) -> oso_core::buffer::BufferId
 pub fn oso_core::window::Window::cursor_point(&self, &oso_core::display_map::DisplaySnapshot) -> oso_core::display_map::DisplayPoint
+pub fn oso_core::window::Window::cursor_row(&self, &oso_core::display_map::DisplaySnapshot) -> usize
+pub fn oso_core::window::Window::drawn_top(&self, &oso_core::display_map::DisplaySnapshot) -> oso_core::window::ViewTop
 pub fn oso_core::window::Window::new(oso_core::buffer::BufferId) -> Self
 pub fn oso_core::window::Window::places(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::window::Place)>
+pub fn oso_core::window::Window::row_count(&self, &oso_core::display_map::DisplaySnapshot) -> usize
 pub fn oso_core::window::Window::scroll(&self) -> oso_core::window::Scroll
 pub fn oso_core::window::Window::set_top(&mut self, usize, &oso_core::display_map::DisplaySnapshot) -> bool
 pub fn oso_core::window::Window::size(&self) -> oso_core::window::ViewSize
+pub fn oso_core::window::Window::top_row(&self, &oso_core::display_map::DisplaySnapshot) -> usize
+pub fn oso_core::window::Window::wrap(&self) -> core::option::Option<&oso_core::display_map::wrap_map::WrapSnapshot>
 impl core::clone::Clone for oso_core::window::Window
-pub fn oso_core::window::Window::clone(&self) -> oso_core::window::Window
+pub fn oso_core::window::Window::clone(&self) -> Self
 impl core::fmt::Debug for oso_core::window::Window
 pub fn oso_core::window::Window::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub const oso_core::window::CONTEXT_LINES: usize
-pub fn oso_core::window::follow(oso_core::window::Scroll, oso_core::window::ViewSize, oso_core::display_map::DisplayPoint, usize) -> oso_core::window::Scroll
+pub fn oso_core::window::follow(oso_core::window::ViewTop, oso_core::window::ViewSize, oso_core::display_map::DisplayPoint, usize) -> oso_core::window::ViewTop
 pub fn oso_core::window::reaches(usize, oso_core::window::ViewSize, usize) -> bool
 pub fn oso_core::window::recenter_top(usize, oso_core::window::ViewSize, oso_core::window::Recenter) -> usize
 pub fn oso_core::window::row_in_view(usize, usize, oso_core::window::ViewSize, usize) -> core::option::Option<usize>

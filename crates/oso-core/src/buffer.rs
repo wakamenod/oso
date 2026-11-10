@@ -42,7 +42,7 @@ mod splice;
 pub use crate::secret::Verdict;
 pub use baseline::{Baseline, DiskState, FileStamp};
 pub use carried::FileFacts;
-pub(crate) use edit::StagedEdit;
+pub(crate) use edit::{Rewrap, StagedEdit};
 pub use mode::Mode;
 pub(crate) use names::{base as file_base, distinct as distinct_names};
 use splice::normalized;
@@ -166,6 +166,8 @@ pub struct Buffer {
     loading: Option<Progress>,
     /// Changes whenever the content does.
     revision: u64,
+    /// Whether its long lines wrap in the windows that show it (ADR 0100).
+    wraps: bool,
     /// Whether the text may hold secrets (ADR 0044, ADR 0051). Withheld from the moment
     /// a file is visited until the host knows better.
     verdict: Verdict,
@@ -218,6 +220,7 @@ impl Buffer {
             saving: false,
             loading: None,
             revision: 0,
+            wraps: false,
             verdict: Verdict::Ordinary,
             yanked_secret: false,
             opened_by_agent: false,
@@ -318,6 +321,17 @@ impl Buffer {
     /// it (shaped rows) know when to check it again.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+
+    /// Whether its long lines wrap in the windows that show it, each at its own width, rather
+    /// than run past the right edge (ADR 0100).
+    pub fn wraps(&self) -> bool {
+        self.wraps
+    }
+
+    /// Wraps its long lines or not. The editor brings its windows along.
+    pub(crate) fn set_wraps(&mut self, wraps: bool) {
+        self.wraps = wraps;
     }
 
     /// The state of the content now. A safe save reads this with the text it

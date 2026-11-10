@@ -1,6 +1,6 @@
 //! The tests of what the state handoff carries (ADR 0090): the text of modified buffers,
-//! what was known of their files, marks and the region, kills and histories, and how a
-//! state of the version before is read.
+//! what was known of their files, marks and the region, kills and histories, and that a
+//! state two versions old is refused.
 //!
 //! Must not depend on: a window or the file system; a state is a plain value.
 
@@ -136,6 +136,7 @@ fn marks_the_region_and_the_mark_ring_round_trip_and_are_put_back() {
         buffer: new.window().buffer(),
         selections: state.selections,
         scroll: state.scroll,
+        top_is_row: false,
     };
     assert!(restore.try_apply(&mut new));
     assert_eq!(
@@ -162,6 +163,7 @@ fn marks_and_the_ring_move_to_what_exists_and_wait_for_the_file() {
             .unwrap()
             .with_ring(MarkRing::from_newest([1, 99])),
         scroll: Scroll::default(),
+        top_is_row: false,
     };
     let buffer = editor.buffer_mut(id).unwrap();
     let mut builder = oso_core::load::Builder::new(None, TabWidth::default());
@@ -200,29 +202,23 @@ fn positions_wait_behind_messages_for_their_file_and_are_there_on_the_way_back()
 }
 
 #[test]
-fn a_version_1_state_is_read_as_one_with_nothing_carried() {
+fn a_state_two_versions_old_is_refused() {
     let state = json!({
         "version": 1,
         "generation": 3,
-        "buffers": [{ "id": 0, "path": null }, { "id": 1, "path": absolute("/p/a.txt") }],
+        "buffers": [{ "id": 0, "path": null }],
         "windows": [{
-            "buffer": 1,
+            "buffer": 0,
             "primary": 0,
-            "selections": [{ "cursor": 2, "goal": null }],
+            "selections": [{ "cursor": 0, "goal": null }],
             "scroll": { "top": 0, "left": 0 },
         }],
         "selected": 0,
         "pending_keys": "",
         "frame": null,
     });
-    let state = parse(&state).unwrap();
-    assert_eq!(
-        state.paths(),
-        [None, Some(PathBuf::from(absolute("/p/a.txt")))]
-    );
-    assert!(state.buffers.iter().all(|buffer| buffer.carried.is_none()));
-    assert!(state.items.is_empty() && state.kills.is_empty() && state.histories.is_empty());
-    assert_eq!(state.selections.primary().cursor, 2);
+    let message = parse(&state).unwrap_err();
+    assert!(message.contains("version 1"), "{message}");
 }
 
 /// A state that carries a modified file, a kill and a history.
@@ -271,7 +267,7 @@ fn what_was_known_of_a_carried_file_round_trips() {
 #[test]
 fn bad_carried_fields_are_refused() {
     let bad: [(&str, Mutation); 11] = [
-        ("version 3", Box::new(|s| s["version"] = json!(3))),
+        ("version 4", Box::new(|s| s["version"] = json!(4))),
         (
             "no items",
             Box::new(|s| {

@@ -65,10 +65,11 @@ impl Editor {
         }
         let (window, buffer) = self.tiled();
         let display = buffer.display();
-        let (text, scroll) = (self.frame.window.text, window.scroll());
-        let end = (scroll.top + text.rows).min(display.row_count());
+        // Logical lines, as the frame draws them until it draws view rows (ADR 0103).
+        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
+        let end = (scroll.row + text.rows).min(display.row_count());
         // Only the cursors in view, found as the regions' are: selections keep their order.
-        let first = motion::line_start(&display, scroll.top);
+        let first = motion::line_start(&display, scroll.row);
         let selections = window.selections.as_slice();
         let from = selections.partition_point(|selection| selection.cursor < first);
         let mut cursor_rows = selections[from..]
@@ -77,7 +78,7 @@ impl Editor {
             .take_while(|&row| row < end)
             .peekable();
         let mut left = FRAME_CHARS;
-        for row in scroll.top..end {
+        for row in scroll.row..end {
             while cursor_rows.next_if(|&cursor| cursor < row).is_some() {}
             if cursor_rows.peek() == Some(&row) {
                 continue;
@@ -96,16 +97,16 @@ impl Editor {
             return None;
         }
         let (window, buffer) = self.tiled();
-        let (text, scroll) = (self.frame.window.text, window.scroll());
         let display = buffer.display();
+        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
         let rope = buffer.text();
         let line = rope.offset_to_point(window.selections.primary().cursor).row;
         let first = display.offset_to_display_point(rope.line_start(line)).row;
         let last = display.offset_to_display_point(rope.line_end(line)).row;
-        let view = scroll.top..scroll.top + text.rows;
+        let view = scroll.row..scroll.row + text.rows;
         let (top, bottom) = (first.max(view.start), (last + 1).min(view.end));
         (top < bottom).then(|| CellRect {
-            row: text.row + (top - scroll.top),
+            row: text.row + (top - scroll.row),
             rows: bottom - top,
             ..text
         })

@@ -11,7 +11,7 @@ use std::path::Path;
 use oso_core::buffer::Buffer;
 use oso_core::display_map::DisplayPoint;
 use oso_core::frame::CellRect;
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 use oso_platform::text::{self, FontRequest};
 
 use crate::pane::{
@@ -76,7 +76,7 @@ fn text_pane<'a>(
             display: buffer.display(),
             buffer: id,
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(3, 10),
             cursor_style: CursorStyle::Box,
             others: &OTHERS,

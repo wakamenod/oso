@@ -538,6 +538,8 @@ mod save_tests;
 #[cfg(test)]
 mod status_tests;
 #[cfg(test)]
+mod wrap_tests;
+#[cfg(test)]
 mod yank_pop_tests;
 
 #[cfg(test)]
@@ -667,13 +669,13 @@ mod tests {
         for _ in 0..10 {
             send(&mut dispatcher, &mut editor, "C-n");
         }
-        assert_eq!(editor.window().scroll(), Scroll { top: 1, left: 0 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (1, 0));
         assert_eq!(send(&mut dispatcher, &mut editor, "C-e"), REDRAW);
-        assert_eq!(editor.window().scroll(), Scroll { top: 1, left: 11 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (1, 11));
         send(&mut dispatcher, &mut editor, "C-b");
         assert_eq!(editor.window().scroll().left, 11, "still in view");
         send(&mut dispatcher, &mut editor, "C-a M->");
-        assert_eq!(editor.window().scroll(), Scroll { top: 21, left: 0 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (21, 0));
         send(&mut dispatcher, &mut editor, "M-<");
         assert_eq!(editor.window().scroll(), Scroll::default());
     }
@@ -684,10 +686,10 @@ mod tests {
         let text: String = (0..30).map(|i| format!("{i:02}\n")).collect();
         let mut editor = editor(&text);
         send(&mut dispatcher, &mut editor, "C-v <next>");
-        assert_eq!(editor.window().scroll().top, 16);
+        assert_eq!(editor.top_row(), 16);
         assert_eq!(point(&editor), DisplayPoint::new(16, 0));
         send(&mut dispatcher, &mut editor, "M-v <prior>");
-        assert_eq!(editor.window().scroll().top, 0);
+        assert_eq!(editor.top_row(), 0);
         assert_eq!(point(&editor), DisplayPoint::new(9, 0));
         // At the start M-v signals and changes nothing.
         assert_eq!(
@@ -907,7 +909,7 @@ mod tests {
         let mut editor = editor(&text);
         let (_, result) = dispatcher.run_command(&mut editor, "next-line", Some(50));
         assert_eq!(result, Ok(()));
-        assert_eq!(editor.window().scroll().top, 41);
+        assert_eq!(editor.top_row(), 41);
         let (effects, result) =
             dispatcher.run_command(&mut editor, "save-buffers-kill-terminal", None);
         assert!(effects.exit);

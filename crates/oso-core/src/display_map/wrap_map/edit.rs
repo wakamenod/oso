@@ -164,7 +164,7 @@ impl WrapSnapshot {
     /// or after `near`, with provisional rows between. Returns that boundary, in the old
     /// offsets, and the stale range a job should rewrap from: to the boundary, past which the
     /// job goes on until its rows meet the old ones.
-    fn join_old(
+    pub(super) fn join_old(
         &self,
         (before, display): (&DisplaySnapshot, &DisplaySnapshot),
         (at, near): (usize, usize),
@@ -358,7 +358,7 @@ impl WrapSnapshot {
     /// fall, around the new rows. Returns the old items' range with them. It reads `before`,
     /// which these rows were made with, at no offset past `until`, so that rows further on may
     /// already follow other edits.
-    fn splice(
+    pub(super) fn splice(
         &self,
         before: &DisplaySnapshot,
         (from, until): (usize, usize),
@@ -444,7 +444,7 @@ impl WrapSnapshot {
 
 /// What a rewrap puts in place of old rows: rows, or provisional lines of one row each.
 #[derive(Clone, Copy)]
-enum Fresh {
+pub(super) enum Fresh {
     Row(Row),
     Lines(u32, usize),
 }
@@ -457,7 +457,11 @@ const SEARCHED: usize = 4 * 1024;
 /// line one row, unwrapped, and the empty line after a last line break if the range reaches
 /// it. A short range with no line break but at its end, as a spent splice's within a long
 /// line, takes one search of its bytes and no scan.
-fn provisional(display: &DisplaySnapshot, range: (usize, usize), fresh: &mut Vec<Fresh>) {
+pub(super) fn provisional(
+    display: &DisplaySnapshot,
+    range: (usize, usize),
+    fresh: &mut Vec<Fresh>,
+) {
     let (at, end) = range;
     let row = |len: usize, continues: bool| {
         Fresh::Row(Row {

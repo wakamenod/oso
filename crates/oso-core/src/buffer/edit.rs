@@ -10,12 +10,22 @@ use std::slice;
 
 use super::splice::{SpliceText, apply_group, apply_marking, normalized, offset_edit};
 use super::{Buffer, EditError, Replacement};
+use crate::display_map::wrap_map::Splice as WrapSplice;
 use crate::display_map::{DisplayMap, DisplaySnapshot};
 use crate::rope::Rope;
 use crate::selection::{OffsetEdit, SelectionSet};
 #[cfg(test)]
 use crate::undo::History;
 use crate::undo::{Batch, ContentId, Direction, Group, Opening, Side, Splice};
+
+/// What the windows' wraps follow of a change (ADR 0100, ADR 0102).
+pub(crate) enum Rewrap {
+    /// Its splices, each with the display before and after it, in the order they applied;
+    /// none while the buffer does not wrap.
+    Splices(Vec<WrapSplice>),
+    /// A whole new text with a display map of its own, from which no row carries over.
+    Whole,
+}
 
 /// An edit made on clones, not yet in the buffer. Dropping it changes nothing.
 pub(crate) struct StagedEdit {
@@ -24,9 +34,15 @@ pub(crate) struct StagedEdit {
     pub(super) edits: Vec<OffsetEdit>,
     pub(super) undo: Batch,
     pub(super) changed: Vec<Range<usize>>,
+    pub(super) rewrap: Rewrap,
 }
 
 impl StagedEdit {
+    /// What the windows' wraps follow.
+    pub(crate) fn rewrap(&self) -> &Rewrap {
+        &self.rewrap
+    }
+
     pub(crate) fn display(&self) -> DisplaySnapshot {
         self.display.snapshot()
     }
@@ -46,6 +62,7 @@ impl StagedEdit {
 pub(crate) struct StagedCrossing {
     text: Rope,
     display: DisplayMap,
+    rewrap: Rewrap,
     steps: Vec<Vec<OffsetEdit>>,
     direction: Direction,
     crossed: Group,
@@ -55,6 +72,11 @@ pub(crate) struct StagedCrossing {
 impl StagedCrossing {
     pub(crate) fn display(&self) -> DisplaySnapshot {
         self.display.snapshot()
+    }
+
+    /// What the windows' wraps follow.
+    pub(crate) fn rewrap(&self) -> &Rewrap {
+        &self.rewrap
     }
 
     /// What cursors follow, batch by batch.
@@ -97,13 +119,16 @@ impl Buffer {
         let mut text = self.text.clone();
         let mut display = self.display.clone();
         let mut changed = Vec::new();
-        let undo = apply_marking(splices, &mut text, &mut display, &mut changed);
+        let mut wraps = Vec::new();
+        let collect = self.wraps.then_some(&mut wraps);
+        let undo = apply_marking(splices, &mut text, &mut display, &mut changed, collect);
         StagedEdit {
             text,
             display,
             edits: splices.iter().map(offset_edit).collect(),
             undo,
             changed,
+            rewrap: Rewrap::Splices(wraps),
         }
     }
 
@@ -146,10 +171,14 @@ impl Buffer {
         let group = self.next_crossing(direction)?;
         let mut text = self.text.clone();
         let mut display = self.display.clone();
-        let (steps, batches, changed) = apply_group(&group.batches, &mut text, &mut display);
+        let mut wraps = Vec::new();
+        let collect = self.wraps.then_some(&mut wraps);
+        let (steps, batches, changed) =
+            apply_group(&group.batches, &mut text, &mut display, collect);
         Ok(StagedCrossing {
             text,
             display,
+            rewrap: Rewrap::Splices(wraps),
             steps,
             direction,
             crossed: group.crossed(batches),

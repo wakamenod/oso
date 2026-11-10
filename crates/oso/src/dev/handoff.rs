@@ -30,14 +30,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use oso_core::buffer::{Buffer, BufferId, Verdict};
-use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
 use oso_core::editor::{Editor, SCRATCH, VisualAids};
 use oso_core::key::KeyPress;
 use oso_core::keymap::display_keys;
 use oso_core::kill::KillEntry;
 use oso_core::rope::Rope;
-use oso_core::selection::{MarkRing, Selection, SelectionSet};
-use oso_core::sum_tree::Bias;
+use oso_core::selection::SelectionSet;
 use oso_core::window::{Scroll, Window};
 use serde_json::{Map, Value, json};
 
@@ -45,6 +43,7 @@ use super::protocol::{EXIT_REFUSED, MAX_LINE, Reply};
 
 pub mod carry;
 mod format;
+mod restore;
 
 use carry::{Exported, Item, MAX_CARRIED};
 
@@ -52,10 +51,11 @@ use carry::{Exported, Item, MAX_CARRIED};
 use format::{MAX_BUFFERS, MAX_FRAME_SIDE, MAX_SELECTIONS};
 pub use format::{MAX_ITEMS, State, parse};
 use format::{MAX_KILL_PIECES, facts_state, selections_state};
+pub use restore::Restore;
 
 /// The version of the state format. Bump it on any change that the previous
 /// reader would get wrong, and keep reading the one before.
-pub const STATE_VERSION: u64 = 2;
+pub const STATE_VERSION: u64 = 3;
 
 /// The longest state, leaving room for the request line that carries it.
 const MAX_STATE: usize = MAX_LINE - 256;
@@ -121,14 +121,16 @@ pub fn export(
             let withheld = editor
                 .buffer(buffer)
                 .is_none_or(|shown| shown.is_secret() || shown.is_internal());
-            let (selections, scroll) = match waiting {
-                Some(restore) => (&restore.selections, restore.scroll),
-                None if withheld => (&at_the_top, Scroll::default()),
-                None => (selections, scroll),
+            let (selections, scroll, row) = match waiting {
+                Some(restore) => (&restore.selections, restore.scroll, restore.top_is_row),
+                None if withheld => (&at_the_top, Scroll::default(), false),
+                None => (selections, scroll, false),
             };
             let mut state = selections_state(selections);
             state["buffer"] = json!(buffer.get());
-            state["scroll"] = json!({ "top": scroll.top, "left": scroll.left });
+            // A top still waiting as a row, from a state before version 3, goes on as one.
+            let top = if row { "top" } else { "start" };
+            state["scroll"] = json!({ top: scroll.start, "left": scroll.left });
             state
         })
         .collect();
@@ -211,6 +213,10 @@ fn buffer_state(id: BufferId, buffer: &Buffer, items: &mut Vec<Item>) -> Result<
     // Said only when true, so that a state from before it reads the same (ADR 0085).
     if buffer.opened_by_agent() {
         entry["opened_by_agent"] = Value::Bool(true);
+    }
+    // Also only when true (ADR 0100).
+    if buffer.wraps() {
+        entry["wraps"] = Value::Bool(true);
     }
     Ok(entry)
 }
@@ -476,71 +482,6 @@ pub fn import_allowed(editor: &Editor) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-/// Positions waiting for their file to load, since a cursor or a mark cannot sit in
-/// text that has not arrived. The file may also have changed since the export, so
-/// they are moved to the nearest place that exists. Carried text is all there, so
-/// its positions apply at once.
-#[derive(Debug)]
-pub struct Restore {
-    pub buffer: BufferId,
-    pub selections: SelectionSet,
-    pub scroll: Scroll,
-}
-
-impl Restore {
-    /// Moves the window to the positions if the buffer holds them by now, or, if the
-    /// window has gone to another buffer meanwhile, the place it keeps for this one, which
-    /// showing it again gives back (ADR 0090). Returns whether this is over: restored, or the
-    /// window keeps no place for the buffer.
-    pub fn try_apply(&self, editor: &mut Editor) -> bool {
-        let window = editor.tiled().0;
-        let shown = window.buffer() == self.buffer;
-        let kept = window.places().any(|(buffer, _)| buffer == self.buffer);
-        let Some(buffer) = editor.buffer(self.buffer).filter(|_| shown || kept) else {
-            return true;
-        };
-        let selections = self.selections.iter();
-        let marks = selections.flat_map(|s| [Some(s.cursor), s.mark]).flatten();
-        let needed = marks
-            .chain(self.selections.mark_ring().iter())
-            .max()
-            .unwrap_or(0);
-        if buffer.loading().is_some() && buffer.text().len() < needed {
-            return false;
-        }
-        let display = buffer.display();
-        let selections = self.clipped(&display);
-        if shown {
-            editor.restore_positions(selections, self.scroll);
-        } else {
-            editor.restore_kept_place(self.buffer, selections, self.scroll);
-        }
-        true
-    }
-
-    /// The positions, each moved to the start of the display cluster it is in, or the end.
-    fn clipped(&self, display: &DisplaySnapshot) -> SelectionSet {
-        let clip = |offset: usize| {
-            let point: DisplayPoint = display.offset_to_display_point(offset);
-            display.display_point_to_offset(point, Bias::Left)
-        };
-        let selections = self
-            .selections
-            .iter()
-            .map(|selection| Selection {
-                cursor: clip(selection.cursor),
-                mark: selection.mark.map(clip),
-                goal: selection.goal,
-            })
-            .collect();
-        let mut set = SelectionSet::from_parts(selections, self.selections.primary_index())
-            .unwrap_or_default();
-        set.set_mark_active(self.selections.mark_active());
-        let ring = MarkRing::from_newest(self.selections.mark_ring().iter().map(clip));
-        set.with_ring(ring)
-    }
 }
 
 /// [`export`]'s state alone, for tests.

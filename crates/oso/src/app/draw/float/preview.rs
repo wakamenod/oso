@@ -5,7 +5,7 @@
 
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 use oso_render::{Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, TextView};
 
 use super::{Lines, Parts};
@@ -48,17 +48,20 @@ pub(super) fn preview_panes<'a>(
         None => return,
         Some(Preview::Withheld) => pane(11, preview, PaneContent::Lines(&lines.withheld)),
         Some(Preview::Text { .. }) => pane(12, preview, PaneContent::Lines(&lines.kill)),
-        Some(Preview::Buffer { id, top, cursor }) => {
+        Some(Preview::Buffer { id, start, cursor }) => {
             let Some(buffer) = editor.buffer(id) else {
                 return;
             };
             let display = buffer.display();
             let cursor = display.offset_to_display_point(cursor);
+            // Logical lines, from the one that holds the start, until the renderer draws view
+            // rows (ADR 0100).
+            let top = display.offset_to_display_point(start).row;
             let view = TextView {
                 display,
                 buffer: id,
                 revision: buffer.revision(),
-                scroll: Scroll { top, left: 0 },
+                scroll: ViewTop { row: top, left: 0 },
                 cursor,
                 cursor_style: CursorStyle::Hollow,
                 others: &[],

@@ -39,7 +39,7 @@ use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
 use oso_core::minibuffer::{self, Kind, Prompt, PromptLayout};
 use oso_core::motion;
-use oso_core::window::{Scroll, ViewSize};
+use oso_core::window::{ViewSize, ViewTop};
 
 use super::Dispatcher;
 
@@ -295,13 +295,14 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
         return String::new();
     }
     let text = match editor.preview() {
-        Some(Preview::Buffer { id, top, cursor }) => {
+        Some(Preview::Buffer { id, start, cursor }) => {
             let Some(buffer) = editor.buffer(id) else {
                 return String::new();
             };
             let display = buffer.display();
             let point = display.offset_to_display_point(cursor);
-            let scroll = Scroll { top, left: 0 };
+            let top = display.offset_to_display_point(start).row;
+            let scroll = ViewTop { row: top, left: 0 };
             let (place, cells) = motion::cursor_box(&display, point, None);
             let row = top + index;
             let cursor = frame::cursor_rect(preview, scroll, place, cells)
@@ -342,7 +343,7 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
 fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
     let (window, buffer) = editor.current();
     let display = buffer.display();
-    let scroll = window.scroll();
+    let scroll = window.drawn_top(&display);
     let point = window.cursor_point(&display);
     if editor
         .prompt()
@@ -383,7 +384,7 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     let beneath = editor.prompt().is_some();
     let mark = if beneath { 'o' } else { '^' };
     let display = buffer.display();
-    let scroll = window.scroll();
+    let scroll = window.drawn_top(&display);
     let point = window.cursor_point(&display);
     let preedit = editor.preedit().filter(|_| !beneath);
     // The cursor box as the renderer draws it.
@@ -400,7 +401,7 @@ fn draw_text_area(editor: &Editor, area: CellRect, lines: &mut Vec<String>) {
     editor.trailing_cells(&mut trailing);
     let whitespace = editor.visual_aids().whitespace;
     for index in 0..area.rows {
-        let row = scroll.top + index;
+        let row = scroll.row + index;
         let cursor = cursor
             .filter(|cells| cells.row == area.row + index)
             .map_or(0..0, |cells| {

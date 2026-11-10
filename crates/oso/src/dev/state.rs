@@ -107,7 +107,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
             "count": window.selections.len(),
             "mark": mark_state(primary.mark, &display),
         });
-        state["scroll"] = scroll_state(window);
+        state["scroll"] = scroll_state(window, &display);
     }
     if !shows_secret && !editor.echo_withheld() {
         let mut status = Status::default();
@@ -330,8 +330,14 @@ pub fn ime_state(editor: &Editor, facts: &ImeFacts) -> Value {
     })
 }
 
-fn scroll_state(window: &Window) -> Value {
-    json!({ "top": window.scroll().top, "left": window.scroll().left })
+/// Where the window's top starts, its view row, and its left column (ADR 0100).
+fn scroll_state(window: &Window, display: &DisplaySnapshot) -> Value {
+    let scroll = window.scroll();
+    json!({
+        "start": scroll.start,
+        "top": window.top_row(display),
+        "left": scroll.left,
+    })
 }
 
 /// A buffer's metadata. A buffer that may hold secrets gives no size while it is
@@ -357,6 +363,7 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
         "invalid_bytes": (!secret).then(|| buffer.invalid_bytes().len()),
         "bytes": size_shown.then(|| buffer.text().len()),
         "lines": size_shown.then(|| buffer.display().row_count()),
+        "wrapped": state_shown.then(|| buffer.wraps()),
         "loading": buffer.loading().map(|progress| json!({
             "read": size_shown.then_some(progress.read),
             "total": if size_shown { progress.total } else { None },
@@ -376,7 +383,7 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
     if !shown.is_secret() {
         let display = shown.display();
         let selections = &window.selections;
-        state["scroll"] = scroll_state(window);
+        state["scroll"] = scroll_state(window, &display);
         state["primary"] = json!(selections.primary_index());
         state["selections"] = selections
             .iter()
@@ -421,10 +428,10 @@ pub(super) fn goal_state(goal: Option<Goal>) -> Value {
 /// at [`MAX_VISIBLE_TEXT`] and says so.
 fn visible_text(window: &Window, text: &Rope, display: &DisplaySnapshot) -> Value {
     let (rows, truncated) = visible_rows(window, text, display, MAX_VISIBLE_TEXT);
-    let scroll = window.scroll();
+    let top = window.drawn_top(display);
     json!({
-        "start_row": scroll.top,
-        "start_column": scroll.left,
+        "start_row": top.row,
+        "start_column": top.left,
         "rows": rows,
         "truncated": truncated,
     })
@@ -598,6 +605,7 @@ mod tests {
             "bytes": 12,
             "lines": 2,
             "loading": null,
+            "wrapped": false,
         });
         assert_eq!(
             state,
@@ -606,7 +614,7 @@ mod tests {
                 "echo": "",
                 "buffer": buffer,
                 "cursor": { "offset": 6, "row": 1, "column": 4, "count": 1, "mark": null },
-                "scroll": { "top": 0, "left": 3 },
+                "scroll": { "start": 0, "top": 0, "left": 3 },
                 "window": { "rows": 5, "columns": 2 },
                 "visual_aids": {
                     "whitespace": true,
@@ -626,7 +634,7 @@ mod tests {
                     "selected": true,
                     "rows": 5,
                     "columns": 2,
-                    "scroll": { "top": 0, "left": 3 },
+                    "scroll": { "start": 0, "top": 0, "left": 3 },
                     "primary": 0,
                     "selections": [
                         { "cursor": 6, "row": 1, "column": 4, "goal": null, "mark": null },
@@ -663,7 +671,13 @@ mod tests {
         );
         // The cursor at the view's first cell, so that following it moves nothing.
         let cursor = SelectionSet::new(98 * "line 00\n".len() + 5);
-        editor.restore_positions(cursor, Scroll { top: 98, left: 5 });
+        editor.restore_positions(
+            cursor,
+            Scroll {
+                start: 98 * "line 00\n".len(),
+                left: 5,
+            },
+        );
         assert_eq!(
             state(&editor, &[])["text"],
             json!({
@@ -682,7 +696,7 @@ mod tests {
         // cursor is on another row: the cursor shows a whole cluster.
         let mut editor = editor("日本語\nabc\n", 2, 2);
         let cursor = SelectionSet::new("日本語\nab".len());
-        editor.restore_positions(cursor, Scroll { top: 0, left: 1 });
+        editor.restore_positions(cursor, Scroll { start: 0, left: 1 });
         assert_eq!(state(&editor, &[])["text"]["rows"], json!(["日本", "bc"]));
     }
 
@@ -901,9 +915,37 @@ mod tests {
     }
 
     #[test]
+    fn a_wrapped_secret_buffer_shows_no_top_and_not_whether_it_wraps() {
+        let text = "WORD ".repeat(200);
+        let (mut editor, _) = visiting("/p/.env", Some("/p/.env"), &text);
+        let id = editor.window().buffer();
+        assert!(editor.set_wraps(id, true));
+        editor.restore_positions(
+            SelectionSet::new(600),
+            Scroll {
+                start: 500,
+                left: 0,
+            },
+        );
+        let state = state(&editor, &[]);
+        assert!(!state.as_object().unwrap().contains_key("scroll"));
+        assert!(
+            !state["windows"][0]
+                .as_object()
+                .unwrap()
+                .contains_key("scroll")
+        );
+        assert_eq!(
+            state["buffer"]["wrapped"],
+            json!(null),
+            "a person toggles it there"
+        );
+    }
+
+    #[test]
     fn a_secret_buffer_shows_no_positions() {
         let (mut editor, _) = visiting("/p/.env", Some("/p/.env"), "ONE\nTWO THREE\n");
-        editor.restore_positions(SelectionSet::new(6), Scroll { top: 1, left: 0 });
+        editor.restore_positions(SelectionSet::new(6), Scroll { start: 4, left: 0 });
         // A mark, one in the ring and a region shown, none of which may show either.
         let selections = &mut editor.current_mut().0.selections;
         selections.push_marks();

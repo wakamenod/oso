@@ -7,7 +7,7 @@
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{CellStyle, DisplayPoint, DisplaySnapshot, Preedit};
 use oso_core::frame::CellRect;
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 
 /// What a piece of the screen means. The current theme gives it its colours (ADR 0089).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -144,7 +144,7 @@ pub struct TextView<'a> {
     /// without looking at the buffer.
     pub revision: u64,
     /// The display row and column at the top left.
-    pub scroll: Scroll,
+    pub scroll: ViewTop,
     /// The primary cursor. The box goes here, or where `preedit` puts it.
     pub cursor: DisplayPoint,
     /// How the cursor is drawn.

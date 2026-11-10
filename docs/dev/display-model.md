@@ -156,18 +156,20 @@ Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
 [ADR 0100](adr/0100-soft-wrap.md) designs it:
 
-- `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer, with Emacs's
-  argument. Each window wraps at its own width, less a column for the `↩` that
+- `toggle-truncate-lines` (`C-x x t`, on `M-x` alone until the renderer draws
+  view rows) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that
   marks a row that continues; below 8 columns nothing wraps.
 - Rows break after spaces, between CJK clusters, and with basic kinsoku, only
   between display clusters. One space at a break may take the mark's column.
 - The WrapMap is the window's: a `SumTree` of breaks in bounded items. Motion,
   kills and `TAB` read `DisplayPoint`s as before; what draws and scrolls reads
-  view rows. A window's top is an offset.
+  view rows. A window's top is an offset, and the window shows from the start
+  of the view row that holds it ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
 - An edit rewraps near itself, within a budget, on clones committed with the
   buffer ([ADR 0053](adr/0053-edit-core.md)). A width change, a load, a large
-  edit or a stale tail wraps on a worker, with the rows in view wrapped at once
-  from the top.
+  edit or a stale tail wraps on a worker. Until it reports, the rows near the
+  view are wrapped at once from an anchor, within what the command left of its
+  budget, and the rest count one row a logical line.
 
 ## Decorations
 

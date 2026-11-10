@@ -348,13 +348,17 @@ mod tests {
 
     /// The smallest state the server accepts.
     const STATE: &str = r#"{
-        "version": 1,
+        "version": 3,
+        "export": 1,
+        "items": [],
+        "kills": [],
+        "histories": [],
         "buffers": [{ "id": 0 }],
         "windows": [{
             "buffer": 0,
             "primary": 0,
             "selections": [{ "cursor": 0 }],
-            "scroll": { "top": 0, "left": 0 }
+            "scroll": { "start": 0, "left": 0 }
         }],
         "selected": 0,
         "pending_keys": ""

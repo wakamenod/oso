@@ -36,7 +36,7 @@ fn a_secret_file_behind_messages_comes_back_unshown_with_no_position() {
     let path = absolute("/p/.env");
     let mut editor = visiting(&path, &"line\n".repeat(50));
     let selections = SelectionSet::new(25);
-    editor.restore_positions(selections, Scroll { top: 2, left: 1 });
+    editor.restore_positions(selections, Scroll { start: 10, left: 1 });
     assert_ne!(editor.window().selections.primary().cursor, 0);
     editor.toggle_messages();
     let exported = export(&editor, &[], None, None).unwrap();
@@ -95,12 +95,13 @@ fn a_file_not_judged_yet_holds_no_restart_for_being_shown() {
 #[test]
 fn positions_waiting_for_another_buffer_do_not_stand_in_for_a_secret_one() {
     let mut editor = visiting(&absolute("/p/.env"), &"line\n".repeat(50));
-    editor.restore_positions(SelectionSet::new(25), Scroll { top: 2, left: 1 });
+    editor.restore_positions(SelectionSet::new(25), Scroll { start: 10, left: 1 });
     let other = editor.add_buffer(Buffer::visiting(PathBuf::from(absolute("/p/a.txt"))));
     let waiting = Restore {
         buffer: other,
         selections: SelectionSet::new(600),
-        scroll: Scroll { top: 40, left: 0 },
+        scroll: Scroll { start: 40, left: 0 },
+        top_is_row: false,
     };
     editor.toggle_messages();
     let state = parse(&export(&editor, &[], None, Some(&waiting)).unwrap()).unwrap();

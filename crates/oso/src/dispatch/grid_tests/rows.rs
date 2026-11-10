@@ -9,7 +9,7 @@ use std::ops::{ControlFlow, Range};
 use oso_core::display_map::{
     CellRun, CellStyle, DisplayPoint, DisplaySnapshot, Preedit, row_clusters,
 };
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 
 /// The left half of a wide cluster cut off by the right edge of the window.
 const LEFT_HALF: char = '▌';
@@ -30,7 +30,7 @@ pub(super) struct Style {
 pub(super) fn draw_row(
     display: &DisplaySnapshot,
     row: usize,
-    scroll: Scroll,
+    scroll: ViewTop,
     columns: usize,
     cursor: Range<usize>,
     preedit: Option<(usize, &Preedit)>,

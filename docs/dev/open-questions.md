@@ -288,6 +288,13 @@ item notes when it must be settled.
   wrap at clusters until then ([ADR 0100](adr/0100-soft-wrap.md)).
 - A `just perf` scenario with soft wrap on, whose thresholds are guard files and wait for the
   author ([ADR 0100](adr/0100-soft-wrap.md)).
+- With soft wrap, a wrapped buffer that loads in many parts, as one carried by `oso dev` or a
+  large file turned on before its load ends, is wrapped in full only after its last part, since
+  each part starts the wrap over. Following the parts as appends needs the range the rope
+  rebuilt, which a load's snapshots do not carry ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
+- A whole wrap is freed on the UI thread when a window drops it or a report replaces it, about
+  0.7 ms for 100 MB of prose at 40 columns and 5.5 ms the first time. Hand old trees to a
+  thread, as a reload's leftovers are ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
   modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
   every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start

@@ -409,9 +409,9 @@ mod tests {
 
     fn forward(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
         let (window, _) = ctx.editor.current_mut();
-        let top = window.scroll().top.saturating_add_signed(args.count());
+        let start = window.scroll().start.saturating_add_signed(args.count());
         window.set_scroll(Scroll {
-            top,
+            start,
             ..window.scroll()
         });
         ctx.request_redraw();
@@ -425,7 +425,7 @@ mod tests {
     fn explode(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
         let (window, _) = ctx.editor.current_mut();
         window.set_scroll(Scroll {
-            top: 7,
+            start: 7,
             ..window.scroll()
         });
         panic!("deliberate panic quoting SECRET-MARKER");
@@ -680,18 +680,18 @@ mod tests {
         let mut editor = Editor::default();
         let (result, effects) = run(&registry, &mut editor, "forward", Args::NONE);
         assert_eq!(result, Ok(()));
-        assert_eq!(editor.window().scroll().top, 1);
+        assert_eq!(editor.window().scroll().start, 1);
         assert!(effects.redraw && !effects.exit);
         assert_eq!(
             run(&registry, &mut editor, "forward", Args::numeric(5)).0,
             Ok(())
         );
-        assert_eq!(editor.window().scroll().top, 6);
+        assert_eq!(editor.window().scroll().start, 6);
         assert_eq!(
             run(&registry, &mut editor, "forward", Args::numeric(-2)).0,
             Ok(())
         );
-        assert_eq!(editor.window().scroll().top, 4);
+        assert_eq!(editor.window().scroll().start, 4);
 
         let (_, effects) = run(&registry, &mut editor, "quit", Args::NONE);
         assert!(effects.exit && !effects.redraw);
@@ -716,9 +716,9 @@ mod tests {
         let shown = format!("{} {:?}", result.as_ref().unwrap_err(), result);
         assert!(!shown.contains("SECRET-MARKER"), "{shown}");
         // The partial update stays (ADR 0014), and later commands still run.
-        assert_eq!(editor.window().scroll().top, 7);
+        assert_eq!(editor.window().scroll().start, 7);
         assert_eq!(run(&registry, &mut editor, "forward", Args::NONE).0, Ok(()));
-        assert_eq!(editor.window().scroll().top, 8);
+        assert_eq!(editor.window().scroll().start, 8);
     }
 
     #[test]
