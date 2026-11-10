@@ -14,6 +14,7 @@
 //! The rope's summary stays free of display concerns, and changing the tab
 //! width rebuilds only this tree.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use super::DisplayCluster;
@@ -270,6 +271,24 @@ impl TabMap {
     /// The buffer's invalid bytes.
     pub(crate) fn invalid(&self) -> &InvalidBytes {
         &self.invalid
+    }
+
+    /// The text of `range`, a chunk's piece at a time. Its ends must fall on characters'
+    /// boundaries.
+    pub(crate) fn text_in(&self, range: Range<usize>) -> impl Iterator<Item = &str> + '_ {
+        let mut cursor = self.tree.cursor::<usize>();
+        cursor.seek(&range.start, Bias::Right);
+        std::iter::from_fn(move || {
+            let start = *cursor.start();
+            if start >= range.end {
+                return None;
+            }
+            let item = cursor.item()?;
+            let from = range.start.saturating_sub(start);
+            let to = (range.end - start).min(item.text.len());
+            cursor.next();
+            item.text.get(from..to)
+        })
     }
 
     /// Adds invalid bytes at `base` plus each entry's offset, before the
