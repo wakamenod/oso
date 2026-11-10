@@ -15,7 +15,7 @@ use oso_core::window::ViewTop;
 use oso_platform::text::{self, FontRequest};
 
 use crate::pane::{
-    Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, Panel, Span, TextView,
+    Bands, CursorStyle, Face, FlashFill, Layer, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
 use crate::theme::{Theme, themes};
 
@@ -64,6 +64,7 @@ fn text_pane<'a>(
     buffer: &Buffer,
     id: oso_core::buffer::BufferId,
     fills: &'a [(Face, &'a [CellRect])],
+    flash: Option<FlashFill>,
 ) -> Pane<'a> {
     Pane {
         id: PaneId(0),
@@ -83,6 +84,7 @@ fn text_pane<'a>(
             preedit: None,
             fills,
             whitespace: true,
+            flash,
         }),
     }
 }
@@ -186,7 +188,7 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     ];
     let outer = cells(10, 10, 9, 60);
     let panes = [
-        text_pane(&buffer, id, &fills),
+        text_pane(&buffer, id, &fills, None),
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
         lines(2, cells(TEXT_ROWS + 1, 0, 1, COLUMNS), Layer::TILED, &echo),
         Pane {
@@ -211,7 +213,8 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     draw(&panes, theme)
 }
 
-/// The buffer with a question on the panel at the frame's top edge.
+/// The buffer with a question on the panel at the frame's top edge, and the cursor flash at
+/// full strength over a band, below the panel, over text and whitespace's marks.
 fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     let buffer = Buffer::from_text("sample.rs", TEXT);
     let id = oso_core::editor::Editor::default().window().buffer();
@@ -228,8 +231,14 @@ fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
         span(" keep", Face::Prompt),
     ]];
     let chips = [cells(2, 6, 1, 3), cells(2, 18, 1, 3)];
+    let band = [cells(6, 0, 1, COLUMNS)];
+    let fills = [(Face::CurrentLine, &band[..])];
+    let flash = Some(FlashFill {
+        cells: cells(6, 2, 1, COLUMNS - 2),
+        strength: 1.0,
+    });
     let panes = [
-        text_pane(&buffer, id, &[]),
+        text_pane(&buffer, id, &fills, flash),
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
         lines(2, cells(TEXT_ROWS + 1, 0, 1, COLUMNS), Layer::TILED, &echo),
         Pane {

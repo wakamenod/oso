@@ -7,6 +7,8 @@
 //! Must not depend on: what a key does or how a frame is drawn. A new event adds
 //! an arm here, and its handling goes in a module beside this one.
 
+use std::time::Instant;
+
 use oso_platform::window::Event;
 
 use super::shell::Loop;
@@ -78,6 +80,9 @@ impl App {
         // A list built here after a listing ends a wait with no report.
         self.run_held_completion(event_loop);
         self.ask_for_a_frame_if_status_changed();
+        self.draw_flash_if_due();
+        // Last, once every deadline is known.
+        self.set_wake(event_loop);
         self.note_logging();
     }
 
@@ -122,16 +127,41 @@ impl App {
                 self.ime_event(event_loop, ime);
             }
 
-            Event::Occluded(true) | Event::Other => {}
+            // A flash ends with the window out of sight (ADR 0097).
+            Event::Occluded(true) => self.end_flash(),
+            Event::Other => {}
         }
         self.after_event(event_loop);
         self.note_logging();
     }
 }
 
+/// The earliest of `deadlines`, or none.
+fn earliest(deadlines: impl IntoIterator<Item = Option<Instant>>) -> Option<Instant> {
+    deadlines.into_iter().flatten().min()
+}
+
+impl App {
+    /// Sets when the event loop wakes with no event: the earliest of the deadlines it is told
+    /// to wake for, or never (ADR 0097). The only place that sets it, as `wake_at` holds one
+    /// deadline and a second caller would cancel the first's. The agent channel's opens
+    /// wake it through an event of their own.
+    pub(super) fn set_wake(&self, event_loop: &Loop<'_>) {
+        let deadlines = [
+            self.leaving.next_wake(),
+            self.flash.next_wake(),
+            self.reload_deadline(),
+        ];
+        match earliest(deadlines) {
+            Some(deadline) => event_loop.wake_at(deadline),
+            None => event_loop.sleep_when_idle(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::keeps_state_true;
+    use super::{earliest, keeps_state_true};
     use oso_platform::window::{Event, Held};
 
     #[test]
@@ -145,5 +175,14 @@ mod tests {
         assert!(!keeps_state_true(&Event::RedrawRequested));
         assert!(!keeps_state_true(&Event::CloseRequested));
         assert!(!keeps_state_true(&Event::Other), "focus, among others");
+    }
+
+    #[test]
+    fn the_wake_is_the_earliest_deadline_or_none() {
+        let now = std::time::Instant::now();
+        let later = now + std::time::Duration::from_secs(1);
+        assert_eq!(earliest([Some(later), None, Some(now)]), Some(now));
+        assert_eq!(earliest([None, Some(later)]), Some(later));
+        assert_eq!(earliest([None, None]), None);
     }
 }

@@ -1423,6 +1423,10 @@ pub fn oso_core::editor::Editor::request_revert(&mut self)
 pub fn oso_core::editor::Editor::revert(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
 pub fn oso_core::editor::Editor::take_revert_requests(&mut self) -> alloc::vec::Vec<(oso_core::buffer::BufferId, oso_core::buffer::ContentId)>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::flash_cells(&self) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::editor::Editor::flashes(&self, &oso_core::editor::ViewSample, &oso_core::editor::ViewSample) -> bool
+pub fn oso_core::editor::Editor::view_sample(&self) -> oso_core::editor::ViewSample
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
@@ -1592,6 +1596,16 @@ pub fn oso_core::editor::Status::default() -> oso_core::editor::Status
 impl core::fmt::Debug for oso_core::editor::Status
 pub fn oso_core::editor::Status::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Status
+pub struct oso_core::editor::ViewSample
+impl core::clone::Clone for oso_core::editor::ViewSample
+pub fn oso_core::editor::ViewSample::clone(&self) -> oso_core::editor::ViewSample
+impl core::cmp::Eq for oso_core::editor::ViewSample
+impl core::cmp::PartialEq for oso_core::editor::ViewSample
+pub fn oso_core::editor::ViewSample::eq(&self, &oso_core::editor::ViewSample) -> bool
+impl core::fmt::Debug for oso_core::editor::ViewSample
+pub fn oso_core::editor::ViewSample::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ViewSample
+impl core::marker::StructuralPartialEq for oso_core::editor::ViewSample
 pub struct oso_core::editor::VisualAids
 pub oso_core::editor::VisualAids::current_line: bool
 pub oso_core::editor::VisualAids::flash: bool

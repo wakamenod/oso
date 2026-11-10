@@ -73,9 +73,11 @@ Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
 ([ADR 0071](adr/0071-mark-and-region.md)). The same line marks the current isearch match
 with `#` and the other matches in view with `~`, from `Editor::search_cells`
-([ADR 0082](adr/0082-isearch.md)), and the current line's band with `l` and trailing
-whitespace with `t`, from `Editor::current_line_cells` and `Editor::trailing_cells`
-([ADR 0097](adr/0097-visual-aids.md)). The visual aids start off in every scenario, so a
+([ADR 0082](adr/0082-isearch.md)), and the current line's band with `l`, trailing
+whitespace with `t` and the cursor flash with `f`, from `Editor::current_line_cells`,
+`Editor::trailing_cells` and `Editor::flash_cells`
+([ADR 0097](adr/0097-visual-aids.md)). The flash shows at full strength when a step's last
+key flashes, as `Editor::flashes` says after each key. The visual aids start off in every scenario, so a
 snapshot shows only those it turns on.
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.

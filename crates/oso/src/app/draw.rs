@@ -12,7 +12,8 @@ use std::time::Instant;
 use oso_core::editor::{Editor, MatchCells, Status};
 use oso_core::frame;
 use oso_render::{
-    Bands, CursorStyle, Face, Layer, Pane, PaneContent, PaneId, Redraw, RenderState, Span, TextView,
+    Bands, CursorStyle, Face, FlashFill, Layer, Pane, PaneContent, PaneId, Redraw, RenderState,
+    Span, TextView,
 };
 
 use super::App;
@@ -23,7 +24,8 @@ mod float;
 
 /// The cells a frame fills behind the text, kept from frame to frame so they are not
 /// allocated again: the regions' (ADR 0071), isearch's matches' (ADR 0082), and the current
-/// line's band and trailing whitespace (ADR 0097).
+/// line's band and trailing whitespace (ADR 0097). Also the cursor flash, which the app sets
+/// before a frame.
 #[derive(Default)]
 pub(super) struct Cells {
     region: Vec<frame::CellRect>,
@@ -32,6 +34,8 @@ pub(super) struct Cells {
     matches: MatchCells,
     band: Vec<frame::CellRect>,
     trailing: Vec<frame::CellRect>,
+    /// The cursor flash in this frame, from the app's clock (ADR 0097).
+    pub(super) flash: Option<FlashFill>,
 }
 
 /// Calls `draw` with what the frame shows, for the renderer. The cells behind the text go
@@ -77,7 +81,12 @@ pub(super) fn with_panes<R>(
         (Face::Region, &cells.region[..]),
     ];
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
-    let tiled = panes(editor, (&fills, &cells.others), &modeline, &echo);
+    let marks = Marks {
+        fills: &fills,
+        others: &cells.others,
+        flash: cells.flash,
+    };
+    let tiled = panes(editor, marks, &modeline, &echo);
     let Some(parts) = float::Parts::of(editor) else {
         return draw(&tiled);
     };
@@ -90,13 +99,25 @@ pub(super) fn with_panes<R>(
     draw(&list)
 }
 
+/// What the text pane draws besides the text: the fills behind it, the other cursors' boxes
+/// and the cursor flash.
+struct Marks<'a> {
+    fills: &'a [(Face, &'a [frame::CellRect])],
+    others: &'a [frame::CellRect],
+    flash: Option<FlashFill>,
+}
+
 /// The tiled window, then the rows reserved below it. The later panes come first if
 /// a frame runs out of room, so no amount of text can take their place (ADR 0061).
 /// Beneath a prompt, the window's cursor is hollow and it shows no preedit, as it is
 /// not selected (ADR 0072).
 fn panes<'a>(
     editor: &'a Editor,
-    (fills, others): (&'a [(Face, &'a [frame::CellRect])], &'a [frame::CellRect]),
+    Marks {
+        fills,
+        others,
+        flash,
+    }: Marks<'a>,
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
 ) -> [Pane<'a>; 3] {
@@ -121,6 +142,7 @@ fn panes<'a>(
         preedit: editor.preedit().filter(|_| !beneath),
         fills,
         whitespace: editor.visual_aids().whitespace,
+        flash,
     });
     let pane = |id, region, background, content| Pane {
         id: PaneId(id),
@@ -275,6 +297,7 @@ impl App {
         let rendering = Instant::now();
         let render_state = &mut view.render_state;
         let cells = &mut view.cells;
+        cells.flash = super::flash::fill(&self.editor, &self.flash, Instant::now());
         let result = with_panes(&self.editor, &self.status, cells, |panes| {
             render_state.render(panes, &window_size)
         });
