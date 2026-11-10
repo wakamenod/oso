@@ -44,6 +44,7 @@ mod cursors;
 mod excerpt;
 mod files;
 mod follow;
+mod gutter;
 mod isearch;
 mod kill;
 mod marks;
@@ -66,6 +67,7 @@ pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
+pub use gutter::Gutter;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
@@ -213,7 +215,7 @@ impl Editor {
             buffers: Vec::new(),
             windows: Vec::new(),
             selected: 0,
-            frame: frame::layout(FrameSize::holding(ViewSize::default())),
+            frame: frame::layout(FrameSize::holding(ViewSize::default()), 0),
             next_id: 0,
             undo_scope: None,
             join_ready: false,
@@ -818,7 +820,7 @@ mod tests {
             columns: 40,
         };
         editor.set_frame_size(frame);
-        assert_eq!(editor.frame(), frame::layout(frame));
+        assert_eq!(editor.frame(), frame::layout(frame, 0));
         assert_eq!(editor.window().size(), ViewSize::new(10, 40));
     }
 

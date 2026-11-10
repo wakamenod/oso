@@ -79,7 +79,7 @@ pub fn get_state(editor: &Editor, pending: &[KeyPress], surface_size: Option<(u3
     let text = (!buffer.is_secret()).then(|| visible_text(window, buffer.text(), &display));
     let mut state = json!({
         "buffer": buffer_state(window.buffer(), buffer, shows_secret),
-        "window": { "rows": size.rows, "columns": size.columns },
+        "window": { "rows": size.rows, "columns": columns(editor, window) },
         "visual_aids": super::handoff::aids_state(editor.visual_aids()),
         "text": text,
         "buffers": editor
@@ -371,6 +371,18 @@ fn buffer_state(id: BufferId, buffer: &Buffer, shows_secret: bool) -> Value {
     })
 }
 
+/// A window's columns: the tiled window's gutter and text together, so the gutter's width,
+/// which grows with the line count, says nothing of a secret buffer's (ADR 0097).
+fn columns(editor: &Editor, window: &Window) -> usize {
+    let tiled = std::ptr::eq(window, editor.tiled().0);
+    let gutter = if tiled {
+        editor.frame().window.gutter.columns
+    } else {
+        0
+    };
+    window.size().columns + gutter
+}
+
 fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
     let size = window.size();
     let shown = editor.shown(window);
@@ -378,7 +390,7 @@ fn window_state(editor: &Editor, window: &Window, index: usize) -> Value {
         "buffer": window.buffer().get(),
         "selected": index == editor.selected_window(),
         "rows": size.rows,
-        "columns": size.columns,
+        "columns": columns(editor, window),
     });
     if !shown.is_secret() {
         let display = shown.display();
@@ -582,6 +594,19 @@ mod tests {
         let id = editor.add_buffer(buffer);
         editor.show(id);
         (editor, id)
+    }
+
+    #[test]
+    fn a_windows_columns_are_its_gutter_and_text_together() {
+        let mut editor = editor(&"x\n".repeat(2000), 5, 20);
+        editor.set_visual_aids(oso_core::editor::VisualAids {
+            line_numbers: true,
+            ..oso_core::editor::VisualAids::default()
+        });
+        assert_eq!(editor.frame().window.gutter.columns, 5);
+        let state = get_state(&editor, &[], None);
+        assert_eq!(state["window"]["columns"], 20);
+        assert_eq!(state["windows"][0]["columns"], 20);
     }
 
     #[test]

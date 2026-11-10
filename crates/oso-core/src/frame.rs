@@ -7,7 +7,8 @@
 //! nothing here draws.
 //!
 //! A frame is a grid of whole cells. From the top: the one tiled window's text
-//! area, its modeline, then the echo area. A frame too small for all of them
+//! area, with a gutter for line numbers at its left (ADR 0097), its modeline, then the echo
+//! area. A frame too small for all of them
 //! gives up the modeline first and the echo area next, so the text keeps a row
 //! as long as there is one. The regions always add up to the frame, and never
 //! overlap. Floating windows go above them and may cover them: [`float_regions`]
@@ -29,6 +30,10 @@ use crate::motion;
 use crate::selection::{Selection, SelectionSet};
 use crate::sum_tree::Bias;
 use crate::window::{ViewSize, ViewTop};
+
+mod float;
+pub(crate) use float::completion_regions;
+pub use float::{FloatRegions, MIN_LIST_COLUMNS, float_regions};
 
 /// The rows a frame reserves below the text area: the modeline and the echo
 /// area.
@@ -78,8 +83,23 @@ impl CellRect {
 /// The regions of one window.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WindowRegions {
+    /// The columns at the left of the text area, for line numbers (ADR 0097). None wide
+    /// while they are off.
+    pub gutter: CellRect,
     pub text: CellRect,
     pub modeline: CellRect,
+}
+
+impl WindowRegions {
+    /// The gutter and the text area together, where floats centre, so the gutter's width
+    /// never moves one (ADR 0097).
+    pub fn area(&self) -> CellRect {
+        CellRect {
+            column: self.gutter.column,
+            columns: self.gutter.columns + self.text.columns,
+            ..self.text
+        }
+    }
 }
 
 /// A frame divided into regions.
@@ -90,8 +110,20 @@ pub struct FrameLayout {
     pub echo: CellRect,
 }
 
-/// Divides a frame of `size` into regions.
-pub fn layout(size: FrameSize) -> FrameLayout {
+impl FrameLayout {
+    /// The size of the frame it divides.
+    pub fn size(&self) -> FrameSize {
+        let window = &self.window;
+        FrameSize {
+            rows: window.text.rows + window.modeline.rows + self.echo.rows,
+            columns: window.area().columns,
+        }
+    }
+}
+
+/// Divides a frame of `size` into regions, with a gutter of `gutter` columns at the window's
+/// left, as far as it leaves the text area a column.
+pub fn layout(size: FrameSize, gutter: usize) -> FrameLayout {
     let echo_rows = size.rows.saturating_sub(1).min(1);
     let window_rows = size.rows - echo_rows;
     let modeline_rows = window_rows.saturating_sub(1).min(1);
@@ -102,200 +134,22 @@ pub fn layout(size: FrameSize) -> FrameLayout {
         rows,
         columns: size.columns,
     };
+    let gutter = gutter.min(size.columns.saturating_sub(1));
+    let text = rows(0, text_rows);
     FrameLayout {
         window: WindowRegions {
-            text: rows(0, text_rows),
+            gutter: CellRect {
+                columns: gutter,
+                ..text
+            },
+            text: CellRect {
+                column: gutter,
+                columns: size.columns - gutter,
+                ..text
+            },
             modeline: rows(text_rows, modeline_rows),
         },
         echo: rows(window_rows, echo_rows),
-    }
-}
-
-/// The cells a float takes over the frame (ADR 0072, ADR 0075).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct FloatRegions {
-    /// All of it: the cells its panel covers, padding included.
-    pub outer: CellRect,
-    /// What it shows, inside the padding: the label's rows, the gap and the answer's row.
-    /// The same as `outer` where no padding fits.
-    pub inner: CellRect,
-    /// Whether a row of padding goes right above the answer's row: between the label and the
-    /// answer, or at the top of a completion's float.
-    pub gap: bool,
-    /// The rows of candidates below the answer's padding, as wide as `inner` (ADR 0076), or
-    /// its left 2/5 beside a preview (ADR 0088). Empty with none, or where the frame has no
-    /// room for them.
-    pub candidates: CellRect,
-    /// Where the selected candidate's preview goes, right of the candidates past a column
-    /// that divides them, in the candidates' rows (ADR 0088). Empty with none, or where the
-    /// candidates would get fewer than [`MIN_LIST_COLUMNS`].
-    pub preview: CellRect,
-}
-
-/// The fewest columns the candidates keep beside a preview; with fewer, the preview goes.
-pub const MIN_LIST_COLUMNS: usize = 20;
-
-impl FloatRegions {
-    /// Whether a row of padding goes right below what it shows: below the answer, before any
-    /// candidates.
-    pub fn padded_below(&self) -> bool {
-        let end = self.inner.row + self.inner.rows;
-        if self.candidates.rows > 0 {
-            self.candidates.row > end
-        } else {
-            self.outer.row + self.outer.rows > end
-        }
-    }
-
-    /// Whether a row of padding goes below the candidates.
-    pub fn candidates_padded(&self) -> bool {
-        self.candidates.rows > 0
-            && self.outer.row + self.outer.rows > self.candidates.row + self.candidates.rows
-    }
-}
-
-/// The share of the frame's columns a float takes, in tenths, before its bounds.
-const FLOAT_TENTHS: usize = 6;
-
-/// The fewest columns a float takes, while the frame allows.
-const FLOAT_MIN_COLUMNS: usize = 40;
-
-/// The columns a float keeps from each edge of the frame.
-const FLOAT_EDGE: usize = 2;
-
-/// The columns of padding on each side of what a float shows, while it is wide enough.
-const FLOAT_SIDE: usize = 2;
-
-/// Where a float with `rows` rows of label goes, attached to the top edge of the window's
-/// text area in `frame` and centered, as the minibuffer does (ADR 0026, ADR 0075). It takes
-/// 60% of the columns, at least 40, and never comes closer than 2 to an edge. Below the
-/// label come a row of padding, the answer's row and a row of padding, with 2 columns of
-/// padding on each side. A small frame gives up the padding below first, then the gap, then
-/// the label's rows; with one row of text left, the label and the answer share it. It is
-/// never taller than the text area, so the modeline and the echo area stay in view.
-pub fn float_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
-    answer_regions(frame, rows)
-}
-
-/// The share of the frame's columns a completion's float takes, in hundredths.
-const COMPLETION_HUNDREDTHS: usize = 62;
-
-/// Where a completion's float goes, centered in the window's text area in `frame` (ADR 0076):
-/// the answer's row and `candidates` rows right below it, with no padding rows, as tall
-/// whatever matches. It takes 62% of the columns, at least 40, and never comes closer than 2 to
-/// an edge, with a column of padding at each side. A small frame gives up candidate rows. It is
-/// never taller than the text area.
-pub(crate) fn completion_regions(
-    frame: &FrameLayout,
-    candidates: usize,
-    previews: bool,
-) -> FloatRegions {
-    let text = frame.window.text;
-    let columns = float_columns(text.columns, COMPLETION_HUNDREDTHS, 100);
-    let side = usize::from(columns >= 5);
-    let shown = candidates.min(text.rows.saturating_sub(1));
-    let rows = (1 + shown).min(text.rows);
-    let outer = CellRect {
-        row: text.row + (text.rows - rows) / 2,
-        column: text.column + (text.columns - columns) / 2,
-        rows,
-        columns,
-    };
-    let inner = CellRect {
-        rows: usize::from(rows > 0),
-        column: outer.column + side,
-        columns: columns - 2 * side,
-        ..outer
-    };
-    let mut candidates = CellRect {
-        row: inner.row + 1,
-        rows: shown,
-        ..inner
-    };
-    let mut preview = CellRect {
-        rows: 0,
-        columns: 0,
-        ..candidates
-    };
-    // The list takes 2/5, a column divides, and the preview takes the rest.
-    let list = inner.columns * 2 / 5;
-    if previews && shown > 0 && list >= MIN_LIST_COLUMNS && inner.columns > list + 1 {
-        candidates.columns = list;
-        preview = CellRect {
-            column: inner.column + list + 1,
-            columns: inner.columns - list - 1,
-            ..candidates
-        };
-    }
-    FloatRegions {
-        outer,
-        inner,
-        gap: false,
-        candidates,
-        preview,
-    }
-}
-
-/// The columns of a float that takes `share` of `total` of the text area's `columns`, at least
-/// 40, and never closer than 2 to an edge.
-fn float_columns(columns: usize, share: usize, total: usize) -> usize {
-    let room = columns.saturating_sub(2 * FLOAT_EDGE);
-    if room == 0 {
-        columns
-    } else {
-        (columns * share / total).max(FLOAT_MIN_COLUMNS).min(room)
-    }
-}
-
-/// The columns of padding on each side of what a float of `columns` shows.
-fn float_side(columns: usize) -> usize {
-    if columns >= 12 {
-        FLOAT_SIDE
-    } else {
-        usize::from(columns >= 5)
-    }
-}
-
-/// [`float_regions`]: the label's rows, the gap, the answer and its padding.
-fn answer_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
-    let text = frame.window.text;
-    let columns = float_columns(text.columns, FLOAT_TENTHS, 10);
-    let side = float_side(columns);
-    let rows = rows.max(1);
-    let below = text.rows >= rows + 3;
-    let gap = text.rows >= rows + 2;
-    // With one row, or none, the label and the answer share what there is.
-    let content = if text.rows <= 1 {
-        text.rows
-    } else {
-        (rows + usize::from(gap) + 1).min(text.rows)
-    };
-    let outer = CellRect {
-        row: text.row,
-        column: text.column + (text.columns - columns) / 2,
-        rows: content + usize::from(below),
-        columns,
-    };
-    let inner = CellRect {
-        column: outer.column + side,
-        rows: content,
-        columns: columns - 2 * side,
-        ..outer
-    };
-    FloatRegions {
-        outer,
-        inner,
-        gap,
-        candidates: CellRect {
-            rows: 0,
-            columns: 0,
-            ..inner
-        },
-        preview: CellRect {
-            rows: 0,
-            columns: 0,
-            ..inner
-        },
     }
 }
 
@@ -580,7 +434,7 @@ mod tests {
     use proptest::prelude::*;
 
     fn frame(rows: usize, columns: usize) -> FrameLayout {
-        layout(FrameSize { rows, columns })
+        layout(FrameSize { rows, columns }, 0)
     }
 
     fn rect(row: usize, column: usize, rows: usize, columns: usize) -> CellRect {
@@ -714,7 +568,7 @@ mod tests {
     #[test]
     fn a_frame_holding_a_view_gives_it_back_as_the_text_area() {
         let view = ViewSize::default();
-        let layout = layout(FrameSize::holding(view));
+        let layout = layout(FrameSize::holding(view), 0);
         assert_eq!(layout.window.text.view_size(), view);
         assert_eq!(layout.window.modeline.rows, 1);
         assert_eq!(layout.echo.rows, 1);

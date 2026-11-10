@@ -791,12 +791,11 @@ mod tests {
         let text = "x\n".repeat(2000);
         let buffer = Buffer::from_text("t", &text);
         for frame_rows in [0, 1, 2, 3, 40, 1000] {
-            let area = frame::layout(FrameSize {
+            let size = FrameSize {
                 rows: frame_rows,
                 columns: 80,
-            })
-            .window
-            .text;
+            };
+            let area = frame::layout(size, 0).window.text;
             let mut scene = Scene::new(LIMITS, theme());
             let panes = [pane(0, area, 0, view(&buffer))];
             let system = build(&mut scene, &panes, &mut FakeAtlas::default());

@@ -72,6 +72,10 @@ pub enum Face {
     CurrentLine,
     /// The cursor flash after a large jump, over the fills, at a strength that fades.
     Flash,
+    /// A line's number in the gutter (ADR 0097).
+    LineNumber,
+    /// The primary cursor's line's number, brighter than the others.
+    LineNumberCurrent,
 }
 
 impl Face {
