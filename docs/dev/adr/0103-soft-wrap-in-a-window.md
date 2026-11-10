@@ -1,6 +1,6 @@
 # 0103. Soft wrap in a window
 
-- Status: Accepted
+- Status: Accepted, amended by 0104
 - Date: 2026-11-10
 
 ## Context

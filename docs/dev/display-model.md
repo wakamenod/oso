@@ -156,8 +156,7 @@ Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
 [ADR 0100](adr/0100-soft-wrap.md) designs it:
 
-- `toggle-truncate-lines` (`C-x x t`, on `M-x` alone until the renderer draws
-  view rows) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that
+- `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that
   marks a row that continues; below 8 columns nothing wraps.
 - Rows break after spaces, between CJK clusters, and with basic kinsoku, only
   between display clusters. One space at a break may take the mark's column.
