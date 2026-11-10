@@ -92,8 +92,9 @@ impl WrapSnapshot {
             if *budget == 0 {
                 spent += 1;
             }
-            if spent > SPENT_JOINS && rest.len() > 1 {
-                debug_assert!(index < SPLICES_READ, "a snapshot read past the bound");
+            // Its snapshots are read here, and every splice's past it only by its edit.
+            debug_assert!(index < SPLICES_READ, "a snapshot read past the bound");
+            if spent > SPENT_JOINS {
                 let (first, last) = (&rest[0], &rest[rest.len() - 1]);
                 let (before, after, delta) = changed(rest);
                 // In one go, as walking every range through every splice would cost their
