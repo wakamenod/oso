@@ -13,7 +13,7 @@ use super::{Editor, Preview};
 use crate::buffer::BufferId;
 use crate::display_map::wrap_map::WrapMap;
 use crate::frame::CellRect;
-use crate::window::{Rows, Screen, Scroll, screen};
+use crate::window::{Rows, Screen, ScreenView, Scroll, fill_screen};
 
 /// The preview's rows of the buffer it shows.
 pub(super) struct PreviewWrap {
@@ -98,13 +98,13 @@ impl Editor {
                     && kept.columns == region.columns
             })
             .map(|kept| &kept.wrap);
-        let view = screen::View {
+        let view = ScreenView {
             rows: Rows::new(&display, wrap),
             scroll: Scroll { start, left: 0 },
             size: region.view_size(),
             cursor,
         };
-        screen::fill(view, &display, None, out);
+        fill_screen(view, &display, None, out);
     }
 
     /// Brings the preview's wrap in step with what it previews, after each command: made anew

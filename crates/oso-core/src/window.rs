@@ -28,12 +28,13 @@ use crate::selection::SelectionSet;
 
 mod places;
 mod rows;
-pub(crate) mod screen;
+mod screen;
 
 pub use places::Place;
 pub(crate) use places::{Places, Walk};
 pub(crate) use rows::Rows;
 pub use screen::{Screen, ScreenRow};
+pub(crate) use screen::{View as ScreenView, fill as fill_screen};
 
 /// Rows that `C-v` and `M-v` keep from the previous screen, as Emacs's
 /// `next-screen-context-lines`.
