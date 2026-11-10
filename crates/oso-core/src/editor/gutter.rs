@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 use super::Editor;
-use crate::{frame, motion};
+use crate::frame;
 
 /// The fewest digits the line-number column takes.
 const MIN_DIGITS: usize = 3;
@@ -68,7 +68,8 @@ impl Editor {
     }
 
     /// Fills in the gutter's rows in view, reusing `gutter`'s room: none while it has no
-    /// columns.
+    /// columns. A frame draws logical lines until soft wrap's next step (M2-25 step 4), which
+    /// leaves blank the rows a line continues on, so each row drawn is a line's first.
     pub fn gutter_into(&self, gutter: &mut Gutter) {
         gutter.text.clear();
         gutter.rows.clear();
@@ -77,22 +78,14 @@ impl Editor {
             return;
         }
         let (window, buffer) = self.tiled();
-        let (display, text) = (buffer.display(), buffer.text());
-        let cursor = window.cursor_point(&display).row;
-        let current = text
-            .offset_to_point(motion::line_start(&display, cursor))
-            .row;
+        let display = buffer.display();
+        let current = window.cursor_point(&display).row;
         let top = window.drawn_top(&display).row;
         let end = display.row_count().min(top + self.frame.window.text.rows);
         for row in top..end {
             let start = gutter.text.len();
-            let point = text.offset_to_point(motion::line_start(&display, row));
-            // A row that does not start its line continues one, and stays blank.
-            if point.column == 0 {
-                let _ = write!(gutter.text, "{:>1$} ", point.row + 1, columns - 1);
-            }
-            let range = start..gutter.text.len();
-            gutter.rows.push((range, point.row == current));
+            let _ = write!(gutter.text, "{:>1$} ", row + 1, columns - 1);
+            gutter.rows.push((start..gutter.text.len(), row == current));
         }
     }
 }

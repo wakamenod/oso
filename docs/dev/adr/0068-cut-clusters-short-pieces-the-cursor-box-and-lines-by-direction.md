@@ -1,6 +1,6 @@
 # 0068. Cut clusters, short pieces, the cursor box and lines by direction
 
-- Status: Accepted
+- Status: Accepted, amended by 0105
 - Date: 2026-11-07
 
 ## Context

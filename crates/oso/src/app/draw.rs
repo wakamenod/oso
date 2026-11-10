@@ -39,6 +39,19 @@ pub(super) struct Cells {
     pub(super) flash: Option<FlashFill>,
     /// The gutter's line numbers in view (ADR 0097).
     gutter: Gutter,
+    /// Room for the gutter's spans and rows, empty between frames, so that a frame with line
+    /// numbers allocates nothing once warm. Each frame takes it at its own lifetime
+    /// ([`reuse`]).
+    numbers: Vec<[Span<'static>; 1]>,
+    rows: Vec<&'static [Span<'static>]>,
+}
+
+/// `room`'s allocation, emptied, for elements that differ from its own only in their
+/// lifetimes. Collecting a `Vec`'s own iterator reuses its buffer when the elements have the
+/// same size and alignment, as these do.
+fn reuse<T, U>(mut room: Vec<T>) -> Vec<U> {
+    room.clear();
+    room.into_iter().filter_map(|_| None).collect()
 }
 
 /// Calls `draw` with what the frame shows, for the renderer. The cells behind the text go
@@ -73,21 +86,18 @@ pub(super) fn with_panes<R>(
     editor.isearch_cells(&mut cells.matches);
     editor.trailing_cells(&mut cells.trailing);
     editor.gutter_into(&mut cells.gutter);
-    // Built each frame, and only with line numbers on: a screen of short spans costs less
-    // than keeping them (ADR 0097).
-    let numbers: Vec<[Span<'_>; 1]> = cells
-        .gutter
-        .rows()
-        .map(|(text, current)| {
-            let face = if current {
-                Face::LineNumberCurrent
-            } else {
-                Face::LineNumber
-            };
-            [span(text, face)]
-        })
-        .collect();
-    let gutter: Vec<&[Span<'_>]> = numbers.iter().map(|row| &row[..]).collect();
+    // Built each frame, only with line numbers on, in room kept from the last (ADR 0097).
+    let mut numbers: Vec<[Span<'_>; 1]> = reuse(std::mem::take(&mut cells.numbers));
+    numbers.extend(cells.gutter.rows().map(|(text, current)| {
+        let face = if current {
+            Face::LineNumberCurrent
+        } else {
+            Face::LineNumber
+        };
+        [span(text, face)]
+    }));
+    let mut gutter: Vec<&[Span<'_>]> = reuse(std::mem::take(&mut cells.rows));
+    gutter.extend(numbers.iter().map(|row| &row[..]));
     cells.band.clear();
     cells.band.extend(editor.current_line_cells());
     // From the back: the current line's band, trailing whitespace, then the current match
@@ -107,16 +117,21 @@ pub(super) fn with_panes<R>(
         gutter: &gutter,
     };
     let tiled = panes(editor, marks, &modeline, &echo);
-    let Some(parts) = float::Parts::of(editor) else {
-        return draw(&tiled);
+    let drawn = match float::Parts::of(editor) {
+        None => draw(&tiled),
+        Some(parts) => {
+            // A prompt's float goes over the tiled panes.
+            let spans = parts.spans();
+            let lines = spans.lines();
+            let mut list = Vec::with_capacity(tiled.len() + float::MAX_PANES);
+            list.extend(tiled);
+            float::panes(editor, &parts, &lines, &mut list);
+            draw(&list)
+        }
     };
-    // A prompt's float goes over the tiled panes.
-    let spans = parts.spans();
-    let lines = spans.lines();
-    let mut list = Vec::with_capacity(tiled.len() + float::MAX_PANES);
-    list.extend(tiled);
-    float::panes(editor, &parts, &lines, &mut list);
-    draw(&list)
+    cells.rows = reuse(gutter);
+    cells.numbers = reuse(numbers);
+    drawn
 }
 
 /// The gutter's pane, apart from every float's.
@@ -438,6 +453,15 @@ mod tests {
             assert_eq!(ids, [PaneId(0), GUTTER, PaneId(1), PaneId(2)]);
             assert!(panes.iter().all(|pane| pane.layer == Layer::TILED));
         });
+    }
+
+    #[test]
+    fn the_gutters_room_is_kept_from_frame_to_frame() {
+        let room: Vec<&'static str> = Vec::with_capacity(64);
+        let pointer = room.as_ptr().cast::<u8>();
+        let kept: Vec<&str> = reuse(room);
+        assert_eq!(kept.capacity(), 64);
+        assert_eq!(kept.as_ptr().cast::<u8>(), pointer, "the same buffer");
     }
 
     #[test]

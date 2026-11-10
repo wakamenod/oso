@@ -181,14 +181,6 @@ and nothing remembered. The rest is settled here.
   no cache.
   - Numbers are short pieces kept by their text, so a number already shaped costs nothing
     ([ADR 0068](0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md)).
-  - Erratum (2026-11-10, as built): a line of one span was shaped whole and kept only by
-    its row, so each scroll shaped every number in view again. A short line of one piece
-    is now a piece kept by its text too, so a scroll shapes only the numbers new to the
-    view, and the current line's moving shapes nothing.
-  - Erratum (2026-11-10, for M2-25): at a digit boundary, such as 999 and 1000 lines, a
-    newline and its deletion change the gutter's width at each key. Today that reshapes
-    the rows in view once. With soft wrap, a width change rewraps the buffer, so M2-25
-    should keep the gutter from narrowing while the buffer is edited.
 - **With soft wrap,** a logical line's number is on its first row, and the rows it
   continues on are blank.
 

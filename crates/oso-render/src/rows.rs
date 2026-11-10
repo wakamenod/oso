@@ -283,7 +283,7 @@ impl Rows {
     /// Makes what was just read the shaped `row`, shaping it unless the cache
     /// already has the same input. A short line of one piece, such as a line number, is a
     /// piece kept by its text too, so a scroll that moves numbers to other rows shapes only
-    /// the new one, and a number that changes face shapes nothing (ADR 0097).
+    /// the new one, and a number that changes face shapes nothing (ADR 0105).
     fn keep(
         &mut self,
         row: usize,
