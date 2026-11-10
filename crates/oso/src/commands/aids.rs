@@ -31,6 +31,13 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Look,
         run: beacon_mode,
     },
+    Command {
+        name: "global-display-line-numbers-mode",
+        doc: "Toggle line numbers in every buffer.\n\nAbsolute numbers in a gutter at the window's left, the current line's brighter. A positive prefix argument turns them on, zero or a negative one off.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: global_display_line_numbers_mode,
+    },
 ];
 
 fn global_whitespace_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -45,6 +52,13 @@ fn global_hl_line_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
 
 fn beacon_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     switch(ctx, args, "Beacon", |aids| &mut aids.flash);
+    Ok(())
+}
+
+fn global_display_line_numbers_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    switch(ctx, args, "Global Display-Line-Numbers", |aids| {
+        &mut aids.line_numbers
+    });
     Ok(())
 }
 
@@ -118,5 +132,16 @@ mod tests {
         );
         let _ = run(&mut editor, "beacon-mode", Args::numeric(1));
         assert!(editor.visual_aids().flash);
+    }
+
+    #[test]
+    fn line_numbers_take_the_gutter_from_the_text_area() {
+        let mut editor = editor("abc");
+        let columns = editor.window().size().columns;
+        assert!(!editor.visual_aids().line_numbers);
+        let (_, effects) = run(&mut editor, "global-display-line-numbers-mode", Args::NONE);
+        assert!(effects.redraw);
+        assert_eq!(editor.frame().window.gutter.columns, 4);
+        assert_eq!(editor.window().size().columns, columns - 4);
     }
 }

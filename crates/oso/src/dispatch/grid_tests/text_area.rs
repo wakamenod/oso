@@ -7,18 +7,37 @@
 use std::ops::Range;
 
 use oso_core::display_map::Preedit;
-use oso_core::editor::Editor;
+use oso_core::editor::{Editor, Gutter};
 use oso_core::frame::{self, CellRect};
 use oso_core::motion;
 
 use super::rows::{Style, draw_row};
 
+/// The gutter's text before each row in view, then `┆`, and the blank that stands for it
+/// before a line of marks: nothing with line numbers off (ADR 0097).
+fn gutter_rows(editor: &Editor, rows: usize) -> (Vec<String>, String) {
+    let columns = editor.frame().window.gutter.columns;
+    if columns == 0 {
+        return (vec![String::new(); rows], String::new());
+    }
+    let mut gutter = Gutter::default();
+    editor.gutter_into(&mut gutter);
+    let mut shown: Vec<String> = gutter
+        .rows()
+        .map(|(text, _)| format!("{text:<columns$}┆"))
+        .collect();
+    shown.resize(rows, format!("{}┆", " ".repeat(columns)));
+    (shown, " ".repeat(columns + 1))
+}
+
 /// The tiled window's rows. Beneath a prompt, its cursor is hollow and it shows no preedit.
 pub(super) fn draw_text_area(
     editor: &Editor,
-    (area, flash): (CellRect, Option<CellRect>),
+    area: CellRect,
+    flash: Option<CellRect>,
     lines: &mut Vec<String>,
 ) {
+    let (gutter, pad) = gutter_rows(editor, area.rows);
     let (window, buffer) = editor.tiled();
     let beneath = editor.prompt().is_some();
     let mark = if beneath { 'o' } else { '^' };
@@ -39,7 +58,7 @@ pub(super) fn draw_text_area(
     let (mut trailing, band) = (Vec::new(), editor.current_line_cells());
     editor.trailing_cells(&mut trailing);
     let whitespace = editor.visual_aids().whitespace;
-    for index in 0..area.rows {
+    for (index, gutter) in gutter.iter().enumerate() {
         let row = scroll.row + index;
         let cursor = cursor
             .filter(|cells| cells.row == area.row + index)
@@ -60,10 +79,10 @@ pub(super) fn draw_text_area(
             let start = cells.column - area.column;
             marks[start..start + cells.columns].fill('.');
         }
-        lines.push(format!("│{text}│"));
+        lines.push(format!("│{gutter}{text}│"));
         if marks.iter().any(|&mark| mark != ' ') {
             let marks: String = marks.into_iter().collect();
-            lines.push(format!(":{marks}:"));
+            lines.push(format!(":{pad}{marks}:"));
         }
         let mut marks = vec![' '; area.columns];
         // In the renderer's order, so a region shows over a match, and both over the band.
@@ -82,10 +101,11 @@ pub(super) fn draw_text_area(
             }
         }
         if marks.iter().any(|&mark| mark != ' ') {
-            lines.push(format!("+{}+", marks.into_iter().collect::<String>()));
+            lines.push(format!("+{pad}{}+", marks.into_iter().collect::<String>()));
         }
         if let Some((at, preedit)) = spliced {
-            lines.push(underline(at, preedit, scroll.left, area.columns));
+            let line = underline(at, preedit, scroll.left, area.columns);
+            lines.push(format!("_{pad}{}", &line['_'.len_utf8()..]));
         }
     }
 }

@@ -80,6 +80,10 @@ whitespace with `t` and the cursor flash with `f`, from `Editor::current_line_ce
 key flashes, as `Editor::flashes` says after each key. The visual aids start off in every scenario, so a
 snapshot shows only those it turns on.
 
+With line numbers on, each of a window's rows begins with the gutter's text, from
+`Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
+([ADR 0097](adr/0097-visual-aids.md)).
+
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `]`
 shows where one box ends and the next begins, as the renderer's 1-pixel gap does. The
@@ -94,7 +98,7 @@ lives there because `oso` is a binary crate, so `tests/` cannot reach the
 #[test]
 fn page_keys_scroll_by_a_screen() {
     let text: String = (0..12).map(|i| format!("line {i:02}\n")).collect();
-    // A name, the file's bytes, the text area's rows and columns, and the keys of
+    // A name, the file's bytes, the window's rows and columns, gutter and text, and the keys of
     // each frame. "" is a frame with no new keys. Keys add up from frame to frame.
     check("page_scrolling", text, (5, 12), &["", "C-v", "M-v"]);
 }

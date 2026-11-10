@@ -95,10 +95,13 @@ mod tests {
 
     #[test]
     fn the_count_the_label_and_the_answer_share_its_row_in_that_order() {
-        let frame = frame_layout(FrameSize {
-            rows: 42,
-            columns: 100,
-        });
+        let frame = frame_layout(
+            FrameSize {
+                rows: 42,
+                columns: 100,
+            },
+            0,
+        );
         let layout = completion_layout(&frame, "M-x", Some("No match"), 340, false);
         let inner = layout.regions.inner;
         assert_eq!(
@@ -120,10 +123,13 @@ mod tests {
 
     #[test]
     fn a_long_label_is_cut_to_a_third_of_the_row() {
-        let frame = frame_layout(FrameSize {
-            rows: 42,
-            columns: 100,
-        });
+        let frame = frame_layout(
+            FrameSize {
+                rows: 42,
+                columns: 100,
+            },
+            0,
+        );
         let label = "a label much longer than half of the float's row, by far and away";
         let layout = completion_layout(&frame, label, None, 3, false);
         assert!(layout.label_cut);
@@ -140,7 +146,7 @@ mod tests {
             label in "[a-z ]{0,80}",
             message in proptest::option::of("[a-z]{0,30}"),
         ) {
-            let frame = frame_layout(FrameSize { rows, columns });
+            let frame = frame_layout(FrameSize { rows, columns }, 0);
             let layout = completion_layout(&frame, &label, message.as_deref(), total, false);
             let outer = layout.regions.outer;
             let parts = [

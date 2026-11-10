@@ -5,8 +5,10 @@
 
 ## Context
 
-[ADR 0097](0097-visual-aids.md) decides the visual aids. Building its cursor flash showed
-three things it had not settled:
+[ADR 0097](0097-visual-aids.md) decides the visual aids. Building its line numbers showed
+that a number moved to another row was shaped again, as rows of one piece are kept only by
+their row ([ADR 0068](0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md)).
+Building its cursor flash showed three things it had not settled:
 
 - what counts as a scroll on purpose;
 - whether an agent's jump or an edit flashes;
@@ -52,12 +54,30 @@ The author chose each point below (2026-11-10).
   - The last step's frame is asked for whether or not the others were drawn, so a hidden
     window still sees it end.
 
+### Line numbers
+
+- **A short line of one piece is kept by its text.** A pane's line of one span, of up to
+  64 bytes, is a piece kept by its text, as the pieces of a row shaped in pieces are. So a
+  scroll shapes only the numbers new to the view, and the current line's moving shapes
+  nothing. A buffer's rows are shaped as before.
+- **A frame too narrow for the gutter and a column of text has no gutter,** so a number is
+  never drawn cut.
+- **oso-core fits the gutter where it changes what decides it:** a window showing another
+  buffer, an edit, and restored positions. The host also fits it after each input and
+  before each frame, for loads, which are no input.
+- **At a digit boundary,** such as 999 and 1000 lines, a newline and its deletion change
+  the gutter's width at each key. Today that reshapes the rows in view once. With soft wrap
+  a width change rewraps the buffer, so M2-25 keeps the gutter from narrowing while the
+  buffer is edited. That is deferred to M2-25.
+
 ## Consequences
 
 - Key latency during a flash matches main's on the bench.
 - The fade is three steps, not a smooth one.
 - The flash's view sample counts logical lines. Soft wrap's next step (M2-25 step 4) moves it
   to view rows.
+- Gutter rows that continue a wrapped line, and refilling every wrap map when the gutter's
+  width changes, are left to M2-25 step 4, which builds on the gutter.
 
 ## Alternatives considered
 
@@ -72,8 +92,12 @@ The author chose each point below (2026-11-10).
 
 ## Changes to accepted ADRs
 
-The passages below stay in ADR 0097 as written; what holds now follows each. ADR 0097's
-status becomes `Accepted, amended by 0105`.
+The passages below stay in their ADR as written; what holds now follows each. The status of
+ADR 0068 and ADR 0097 becomes `Accepted, amended by 0105`.
+
+- [ADR 0068](0068-cut-clusters-short-pieces-the-cursor-box-and-lines-by-direction.md), "A row
+  of one piece is shaped as before": a pane's line of one piece of up to 64 bytes is kept by
+  its text too. A buffer's rows of one piece are shaped as before.
 
 - ADR 0097, "the window is scrolled by a command that scrolls on purpose: `C-v`, `M-v`,
   `C-l`, `M-<`, `M->`": a scroll flashes when it moves the view's top 5 rows or more,
