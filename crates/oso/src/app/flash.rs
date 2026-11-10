@@ -1,6 +1,6 @@
-//! The cursor flash's clock (ADR 0097): when a flash began, how strong it is now and when
-//! its next frame is due. Whether an input flashes is the editor's (`Editor::flashes`), asked
-//! by the dispatcher after each input; this only keeps time.
+//! The cursor flash's clock (ADR 0097, ADR 0105): when a flash began, how strong it is now
+//! and when its next frame is due. Whether an input flashes is the editor's
+//! (`Editor::flashes`), asked by the dispatcher after each input; this only keeps time.
 //!
 //! Must not depend on: the renderer or the window. [`Flash`] is told the time, so it is
 //! tested with no clock.
@@ -15,7 +15,7 @@ use super::App;
 /// When each step of a flash begins, from the jump, and its strength: full at first, then
 /// two steps down, then gone. Its frames are these three only, and none comes in the first
 /// 150 ms, so keys pressed fast, as when `C-v` is held, end it before any. A frame drawn
-/// shortly before a key's makes that key's wait for the display (ADR 0097).
+/// shortly before a key's makes that key's wait for the display (ADR 0105).
 const STEPS: [(Duration, Option<f32>); 3] = [
     (Duration::from_millis(150), Some(2.0 / 3.0)),
     (Duration::from_millis(275), Some(1.0 / 3.0)),

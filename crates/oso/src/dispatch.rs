@@ -176,7 +176,7 @@ impl Dispatcher {
     /// Runs `work` as one input, as Emacs does a key: the echo area empties first,
     /// but for what waits behind keys in progress, and then shows the keys it left in
     /// progress (ADR 0063). Every input comes through here, so here alone it is asked
-    /// whether the view jumped, for the cursor flash (ADR 0097).
+    /// whether the view jumped, for the cursor flash (ADR 0097, ADR 0105).
     fn as_input<R>(
         &mut self,
         editor: &mut Editor,

@@ -1,6 +1,6 @@
 # 0097. Visual aids: whitespace, the current line, a cursor flash and line numbers
 
-- Status: Accepted
+- Status: Accepted, amended by 0105
 - Date: 2026-11-09
 
 ## Context
@@ -136,18 +136,6 @@ and nothing remembered. The rest is settled here.
   - the window is scrolled by a command that scrolls on purpose: `C-v`, `M-v`, `C-l`,
     `M-<`, `M->`;
   - another buffer is shown in the window, or another window is selected.
-  - Erratum (2026-11-10, as built): a scroll counts when it moves the view's top 5 rows or
-    more, as the cursor's move does. The view follows the cursor by the fewest rows, so
-    following moves it that far only when the cursor moves as far too. A `C-l` or `C-v`
-    that moves the view less, near a buffer's end or in a window of few rows, does not
-    flash. An agent's command that jumps flashes too, so the person sees where the view
-    went, but ends no flash, as it is no key. That is a convenience, not a safeguard, so
-    `beacon-mode` stays `Look` (the author's choice).
-  - Erratum (2026-11-10, the author's choice): an edit that moves the cursor 5 rows or more,
-    such as a yank of many lines or `C-w` of a long region, flashes too, as Emacs's beacon
-    does. The trigger compares the view, not the command. Every input asks it in one place,
-    the dispatcher's, so keys, typed text, an input method's text, a held completion's
-    answer and a yank's clipboard answer are all asked alike.
 - **It does not flash for:**
   - the scrolling that only follows the cursor, a row or a few, as `C-n` and typing do;
   - the wheel;
@@ -164,18 +152,9 @@ and nothing remembered. The rest is settled here.
   flashes.
 - **Its cost:**
   - While it fades, the app asks for a frame every 16 ms, about 25 frames, each drawing
-    what is shaped already. Nothing is reshaped. (See the erratum below: three frames.)
+    what is shaped already. Nothing is reshaped.
   - At rest it asks for nothing. A key during the fade ends it first, so typing never
     waits on it.
-  - Erratum (2026-11-10, measured; the author's choice): the band holds at full strength
-    for 150 ms, then steps down to 2/3 at 150 ms, 1/3 at 275 ms and goes at 400 ms. That is
-    three frames after the jump's own, and none in its first 150 ms, so keys pressed fast,
-    as when `C-v` is held, end it before any. A frame drawn shortly before a key's makes that
-    key's wait for the display, about a refresh. Measured on the Mac mini, with the bench's
-    scroll keys 25 to 41 ms apart: a frame every 16 ms ran ahead of the 60 Hz display and
-    filled the swap chain, and key p99 went from 2.7 ms to 25 ms; frames paced 33 ms after
-    the last one drawn still made it 16 ms. A key 150 to 400 ms after a jump may still wait
-    about a refresh, once.
 - **One place sets the event loop's wake:** the earliest of every deadline the app keeps,
   the flash's next frame and the saves' idle wait among them. `wake_at` holds one
   deadline, so two places setting it would cancel each other.
