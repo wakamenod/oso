@@ -62,6 +62,8 @@ pub oso_render::Face::Flash
 pub oso_render::Face::Float
 pub oso_render::Face::FloatBorder
 pub oso_render::Face::Key
+pub oso_render::Face::LineNumber
+pub oso_render::Face::LineNumberCurrent
 pub oso_render::Face::Modeline
 pub oso_render::Face::Preedit
 pub oso_render::Face::Prompt

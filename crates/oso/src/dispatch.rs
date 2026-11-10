@@ -185,6 +185,8 @@ impl Dispatcher {
         editor.clear_echo();
         let before = editor.view_sample();
         let out = work(self, editor);
+        // Before the view is sampled: another digit of line numbers narrows the text area.
+        editor.fit_gutter();
         self.jump = Some(editor.flashes(&before, &editor.view_sample()));
         self.show_keys_in_progress(editor);
         out

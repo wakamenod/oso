@@ -62,7 +62,7 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     editor.status_into(&mut status);
     let mut lines = Vec::new();
     let flash = editor.flash_cells().filter(|_| flashing);
-    draw_text_area(editor, (regions.window.text, flash), &mut lines);
+    draw_text_area(editor, regions.window.text, flash, &mut lines);
     let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
     draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
     let echo = [status.echo_warnings(), &status.echo[..]];
@@ -590,6 +590,14 @@ mod scenarios {
         let on = m_x("beacon-mode");
         let steps = [&on[..], "C-n", "C-v", "C-p", "M-v", "M->", "C-x b RET"];
         check("cursor_flash", text, (8, 16), &steps);
+    }
+
+    #[test]
+    fn line_numbers_take_a_gutter_and_follow_the_view() {
+        let text: String = (1..=12).map(|n| format!("line {n}\n")).collect();
+        let on = m_x("global-display-line-numbers-mode");
+        let steps = [&on[..], "C-n", "M->", "C-x h"];
+        check("line_numbers", text, (5, 16), &steps);
     }
 
     #[test]

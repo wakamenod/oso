@@ -35,6 +35,9 @@ fn load_theme(name: &str) -> Theme {
 }
 ";
 
+/// The gutter's columns in the frame that shows line numbers (ADR 0097).
+const GUTTER: usize = 4;
+
 /// Two other cursors, on the rows below the primary's (ADR 0091).
 const OTHERS: [CellRect; 2] = [cells(4, 10, 1, 1), cells(5, 10, 1, 1)];
 
@@ -60,15 +63,18 @@ fn matches() -> Vec<CellRect> {
     found
 }
 
+/// The text pane from `column`, after a gutter of that many columns, with the cells of `fills`,
+/// the other cursors and `flash` given in the frame's columns.
 fn text_pane<'a>(
     buffer: &Buffer,
     id: oso_core::buffer::BufferId,
+    (column, others): (usize, &'a [CellRect]),
     fills: &'a [(Face, &'a [CellRect])],
     flash: Option<FlashFill>,
 ) -> Pane<'a> {
     Pane {
         id: PaneId(0),
-        region: cells(0, 0, TEXT_ROWS, COLUMNS),
+        region: cells(0, column, TEXT_ROWS, COLUMNS - column),
         layer: Layer::TILED,
         background: Some(Face::Text),
         panel: None,
@@ -80,7 +86,7 @@ fn text_pane<'a>(
             scroll: ViewTop::default(),
             cursor: DisplayPoint::new(3, 10),
             cursor_style: CursorStyle::Box,
-            others: &OTHERS,
+            others,
             preedit: None,
             fills,
             whitespace: true,
@@ -188,7 +194,7 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     ];
     let outer = cells(10, 10, 9, 60);
     let panes = [
-        text_pane(&buffer, id, &fills, None),
+        text_pane(&buffer, id, (0, &OTHERS), &fills, None),
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
         lines(2, cells(TEXT_ROWS + 1, 0, 1, COLUMNS), Layer::TILED, &echo),
         Pane {
@@ -213,8 +219,9 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     draw(&panes, theme)
 }
 
-/// The buffer with a question on the panel at the frame's top edge, and the cursor flash at
-/// full strength over a band, below the panel, over text and whitespace's marks.
+/// The buffer with a question on the panel at the frame's top edge, line numbers in a gutter,
+/// and the cursor flash at full strength over a band, below the panel, over text and
+/// whitespace's marks. The band's line has the current number.
 fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     let buffer = Buffer::from_text("sample.rs", TEXT);
     let id = oso_core::editor::Editor::default().window().buffer();
@@ -231,14 +238,32 @@ fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
         span(" keep", Face::Prompt),
     ]];
     let chips = [cells(2, 6, 1, 3), cells(2, 18, 1, 3)];
-    let band = [cells(6, 0, 1, COLUMNS)];
+    let band = [cells(6, GUTTER, 1, COLUMNS - GUTTER)];
     let fills = [(Face::CurrentLine, &band[..])];
     let flash = Some(FlashFill {
-        cells: cells(6, 2, 1, COLUMNS - 2),
+        cells: cells(6, GUTTER + 2, 1, COLUMNS - GUTTER - 2),
         strength: 1.0,
     });
+    let others = OTHERS.map(|cell| cells(cell.row, cell.column + GUTTER, 1, 1));
+    let numbers: Vec<String> = (1..=TEXT.lines().count() + 1)
+        .map(|n| format!("{n:>3} "))
+        .collect();
+    let spans: Vec<[Span<'_>; 1]> = numbers
+        .iter()
+        .enumerate()
+        .map(|(row, text)| {
+            let face = if row == 6 {
+                Face::LineNumberCurrent
+            } else {
+                Face::LineNumber
+            };
+            [span(text, face)]
+        })
+        .collect();
+    let gutter: Vec<&[Span<'_>]> = spans.iter().map(|row| &row[..]).collect();
     let panes = [
-        text_pane(&buffer, id, &fills, flash),
+        text_pane(&buffer, id, (GUTTER, &others), &fills, flash),
+        lines(6, cells(0, 0, TEXT_ROWS, GUTTER), Layer::TILED, &gutter),
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
         lines(2, cells(TEXT_ROWS + 1, 0, 1, COLUMNS), Layer::TILED, &echo),
         Pane {

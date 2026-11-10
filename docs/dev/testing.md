@@ -80,6 +80,10 @@ whitespace with `t` and the cursor flash with `f`, from `Editor::current_line_ce
 key flashes, as `Editor::flashes` says after each key. The visual aids start off in every scenario, so a
 snapshot shows only those it turns on.
 
+With line numbers on, each of a window's rows begins with the gutter's text, from
+`Editor::gutter_into`, then `┆`, and the lines of marks below it are shifted by as much
+([ADR 0097](adr/0097-visual-aids.md)).
+
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `]`
 shows where one box ends and the next begins, as the renderer's 1-pixel gap does. The

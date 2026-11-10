@@ -14,13 +14,14 @@ use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{self, Recenter, Scroll, ViewSize, ViewTop, Window};
 
 impl Editor {
-    /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
+    /// Lays out a frame of `size` (ADR 0057), with the gutter line numbers need (ADR 0097).
+    /// The windows take its text area, and
     /// the selected one then scrolls to show its primary cursor. Rows it gained
     /// also show the text above any empty space below the buffer's last row.
     /// Returns whether the view moved.
     pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
         self.refill_wraps();
-        self.frame = frame::layout(size);
+        self.frame = frame::layout(size, self.gutter_columns());
         let view = self.frame.window.text.view_size();
         let tiled = self.tiled_index();
         let added = view.rows.saturating_sub(self.windows[tiled].size().rows);

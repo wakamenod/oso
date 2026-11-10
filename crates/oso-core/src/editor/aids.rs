@@ -28,7 +28,7 @@ pub struct VisualAids {
     pub current_line: bool,
     /// A band that fades after a large jump.
     pub flash: bool,
-    /// Line numbers in a gutter. Not drawn yet: a later step of M2-24 draws them.
+    /// Line numbers in a gutter at the tiled window's left.
     pub line_numbers: bool,
 }
 
@@ -53,6 +53,7 @@ impl Editor {
     /// Turns the visual aids on and off as `aids` says.
     pub fn set_visual_aids(&mut self, aids: VisualAids) {
         self.aids = aids;
+        self.fit_gutter();
     }
 
     /// The cells of the tiled window's trailing whitespace in view, into `out`, which is

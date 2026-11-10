@@ -9,7 +9,7 @@
 
 use std::time::Instant;
 
-use oso_core::editor::{Editor, MatchCells, Status};
+use oso_core::editor::{Editor, Gutter, MatchCells, Status};
 use oso_core::frame;
 use oso_render::{
     Bands, CursorStyle, Face, FlashFill, Layer, Pane, PaneContent, PaneId, Redraw, RenderState,
@@ -36,6 +36,8 @@ pub(super) struct Cells {
     trailing: Vec<frame::CellRect>,
     /// The cursor flash in this frame, from the app's clock (ADR 0097).
     pub(super) flash: Option<FlashFill>,
+    /// The gutter's line numbers in view (ADR 0097).
+    gutter: Gutter,
 }
 
 /// Calls `draw` with what the frame shows, for the renderer. The cells behind the text go
@@ -69,6 +71,22 @@ pub(super) fn with_panes<R>(
     editor.other_cursor_cells(&mut cells.others);
     editor.isearch_cells(&mut cells.matches);
     editor.trailing_cells(&mut cells.trailing);
+    editor.gutter_into(&mut cells.gutter);
+    // Built each frame, and only with line numbers on: a screen of short spans costs less
+    // than keeping them (ADR 0097).
+    let numbers: Vec<[Span<'_>; 1]> = cells
+        .gutter
+        .rows()
+        .map(|(text, current)| {
+            let face = if current {
+                Face::LineNumberCurrent
+            } else {
+                Face::LineNumber
+            };
+            [span(text, face)]
+        })
+        .collect();
+    let gutter: Vec<&[Span<'_>]> = numbers.iter().map(|row| &row[..]).collect();
     cells.band.clear();
     cells.band.extend(editor.current_line_cells());
     // From the back: the current line's band, trailing whitespace, then the current match
@@ -85,6 +103,7 @@ pub(super) fn with_panes<R>(
         fills: &fills,
         others: &cells.others,
         flash: cells.flash,
+        gutter: &gutter,
     };
     let tiled = panes(editor, marks, &modeline, &echo);
     let Some(parts) = float::Parts::of(editor) else {
@@ -99,12 +118,16 @@ pub(super) fn with_panes<R>(
     draw(&list)
 }
 
-/// What the text pane draws besides the text: the fills behind it, the other cursors' boxes
-/// and the cursor flash.
+/// The gutter's pane, apart from every float's.
+const GUTTER: PaneId = PaneId(13);
+
+/// What the tiled window draws besides the text: the fills behind it, the other cursors'
+/// boxes, the cursor flash and the gutter's rows.
 struct Marks<'a> {
     fills: &'a [(Face, &'a [frame::CellRect])],
     others: &'a [frame::CellRect],
     flash: Option<FlashFill>,
+    gutter: &'a [&'a [Span<'a>]],
 }
 
 /// The tiled window, then the rows reserved below it. The later panes come first if
@@ -117,10 +140,11 @@ fn panes<'a>(
         fills,
         others,
         flash,
+        gutter,
     }: Marks<'a>,
     modeline: &'a [&'a [Span<'a>]],
     echo: &'a [&'a [Span<'a>]],
-) -> [Pane<'a>; 3] {
+) -> [Pane<'a>; 4] {
     let (window, buffer) = editor.tiled();
     let beneath = editor.prompt().is_some();
     let display = buffer.display();
@@ -155,6 +179,13 @@ fn panes<'a>(
     };
     [
         pane(0, frame.window.text, None, text),
+        // No band and no fill: the current line's number marks the line there.
+        pane(
+            GUTTER.0,
+            frame.window.gutter,
+            None,
+            PaneContent::Lines(gutter),
+        ),
         pane(
             1,
             frame.window.modeline,
@@ -276,6 +307,8 @@ impl App {
     pub(super) fn draw_frame(&mut self) {
         let frame = Instant::now();
         self.poll_loads();
+        // A load, a reload or a key may have given the line count another digit (ADR 0097).
+        self.editor.fit_gutter();
         let Some(view) = self.view.as_mut() else {
             return;
         };
@@ -305,7 +338,7 @@ impl App {
         // `Resized` says so, and panes stop at their regions, so the editor catches
         // up now.
         let size = view.render_state.frame_size();
-        if frame::layout(size) != self.editor.frame() {
+        if size != self.editor.frame().size() {
             self.editor.set_frame_size(size);
             view.window.request_redraw();
         }
@@ -357,7 +390,8 @@ mod tests {
     /// A pane's region, its background, and its one row as spans of text and face.
     type Shown = (frame::CellRect, Option<Face>, Vec<(String, Face)>);
 
-    /// What each pane shows of an editor on bidi text, with a message in the echo area.
+    /// What each pane but the gutter shows of an editor on bidi text, with a message in the
+    /// echo area.
     fn panes_of(rows: usize) -> Vec<Shown> {
         let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", "\u{202e}"));
         editor.set_frame_size(FrameSize { rows, columns: 80 });
@@ -367,6 +401,7 @@ mod tests {
         with_panes(&editor, &status, &mut Cells::default(), |panes| {
             panes
                 .iter()
+                .filter(|pane| pane.id != GUTTER)
                 .map(|pane| {
                     let spans = match &pane.content {
                         PaneContent::Text(_) | PaneContent::Masked(_) => Vec::new(),
@@ -389,17 +424,48 @@ mod tests {
             columns: 80,
         };
         editor.set_frame_size(size);
-        let layout = frame::layout(size);
+        let layout = frame::layout(size, 0);
         let status = Status::default();
         with_panes(&editor, &status, &mut Cells::default(), |panes| {
             let regions: Vec<_> = panes.iter().map(|pane| pane.region).collect();
+            let window = layout.window;
             assert_eq!(
                 regions,
-                [layout.window.text, layout.window.modeline, layout.echo]
+                [window.text, window.gutter, window.modeline, layout.echo]
             );
             let ids: Vec<_> = panes.iter().map(|pane| pane.id).collect();
-            assert_eq!(ids, [PaneId(0), PaneId(1), PaneId(2)]);
+            assert_eq!(ids, [PaneId(0), GUTTER, PaneId(1), PaneId(2)]);
             assert!(panes.iter().all(|pane| pane.layer == Layer::TILED));
+        });
+    }
+
+    #[test]
+    fn the_gutter_shows_the_numbers_in_view_the_current_brighter() {
+        let mut editor = Editor::with_buffer(Buffer::from_text("a.txt", "a\nb\n"));
+        editor.set_frame_size(FrameSize {
+            rows: 6,
+            columns: 20,
+        });
+        editor.set_visual_aids(oso_core::editor::VisualAids {
+            line_numbers: true,
+            ..oso_core::editor::VisualAids::default()
+        });
+        let status = Status::default();
+        with_panes(&editor, &status, &mut Cells::default(), |panes| {
+            let gutter = panes.iter().find(|pane| pane.id == GUTTER).unwrap();
+            assert_eq!(gutter.region.columns, 4);
+            let PaneContent::Lines(lines) = &gutter.content else {
+                panic!("the gutter has lines");
+            };
+            let shown: Vec<_> = lines.iter().map(|row| (row[0].text, row[0].face)).collect();
+            assert_eq!(
+                shown,
+                [
+                    ("  1 ", Face::LineNumberCurrent),
+                    ("  2 ", Face::LineNumber),
+                    ("  3 ", Face::LineNumber),
+                ]
+            );
         });
     }
 
@@ -433,7 +499,7 @@ mod tests {
                 editor,
                 &status,
                 &mut Cells::default(),
-                |panes| match &panes[1].content {
+                |panes| match &panes[2].content {
                     PaneContent::Lines(lines) => (lines[0][0].text.to_owned(), lines[0][0].face),
                     PaneContent::Text(_) | PaneContent::Masked(_) => panic!("a modeline has lines"),
                 },
