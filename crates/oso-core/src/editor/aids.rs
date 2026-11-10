@@ -88,19 +88,25 @@ impl Editor {
         }
     }
 
-    /// The cells of the band on the tiled window's primary cursor's row, if the current line
-    /// is shown and that row is in view.
+    /// The cells of the band on the tiled window's primary cursor's line, if the current
+    /// line is shown and some of it is in view: every row the line takes, so a wrapped line
+    /// has the band on each of its rows (ADR 0097).
     pub fn current_line_cells(&self) -> Option<CellRect> {
         if !self.aids.current_line {
             return None;
         }
         let (window, buffer) = self.tiled();
         let (text, scroll) = (self.frame.window.text, window.scroll());
-        let row = window.cursor_point(&buffer.display()).row;
-        let shown = row.checked_sub(scroll.top).filter(|&row| row < text.rows)?;
-        Some(CellRect {
-            row: text.row + shown,
-            rows: 1,
+        let display = buffer.display();
+        let rope = buffer.text();
+        let line = rope.offset_to_point(window.selections.primary().cursor).row;
+        let first = display.offset_to_display_point(rope.line_start(line)).row;
+        let last = display.offset_to_display_point(rope.line_end(line)).row;
+        let view = scroll.top..scroll.top + text.rows;
+        let (top, bottom) = (first.max(view.start), (last + 1).min(view.end));
+        (top < bottom).then(|| CellRect {
+            row: text.row + (top - scroll.top),
+            rows: bottom - top,
             ..text
         })
     }
