@@ -33,15 +33,20 @@
 //! [`DisplaySnapshot::clusters`].
 
 pub mod cell;
+mod checkpoints;
 mod preedit;
 pub mod tab_map;
+pub mod wrap_map;
 
 use crate::decode::InvalidBytes;
 use crate::rope::{Rope, RopeEdit};
 use crate::sum_tree::Bias;
 
 pub use cell::{CellKind, CellStyle, Clusters, Escape, MAX_CLUSTER_BYTES, TabWidth, escape};
+#[cfg(test)]
+pub(crate) use checkpoints::tests::pieces;
 pub use preedit::{Preedit, row_clusters};
+pub(crate) use tab_map::{Piece, PiecesAfter, PiecesBefore};
 pub use tab_map::{TabMap, TabPoint};
 
 /// A position on screen: a display row and a cell column.
@@ -88,6 +93,9 @@ pub struct DisplayCluster<'a> {
     /// What to draw: the text, blank cells for a tab, or an escape (boxed
     /// for an invisible character or one past a cluster's limits).
     pub kind: CellKind,
+    /// Whether it is drawn with its whitespace mark, if it has one (ADR 0097). Only
+    /// [`row_clusters`] sets it, as it is asked, and never for a preedit's clusters.
+    pub whitespace: bool,
 }
 
 /// What one piece of a display cluster puts on the cell grid: its text in
@@ -110,6 +118,29 @@ impl DisplayCluster<'_> {
     /// cell. Everything that draws the grid goes through here, so the
     /// renderer and the text-grid snapshots agree (ADR 0045).
     pub fn for_each_run(&self, mut run: impl FnMut(CellRun<'_>)) {
+        if self.whitespace
+            && let Some(mark) = self.whitespace_mark()
+        {
+            run(CellRun {
+                column: self.column,
+                cells: if self.kind == CellKind::Tab {
+                    1
+                } else {
+                    self.cells
+                },
+                text: mark,
+                style: CellStyle::Whitespace,
+            });
+            if self.kind == CellKind::Tab && self.cells > 1 {
+                run(CellRun {
+                    column: self.column + 1,
+                    cells: self.cells - 1,
+                    text: " ",
+                    style: CellStyle::Text,
+                });
+            }
+            return;
+        }
         let text = match self.kind {
             CellKind::Text => self.text,
             // A space keeps ligatures from forming across the tab, and
@@ -146,6 +177,26 @@ impl DisplayCluster<'_> {
     }
 }
 
+impl DisplayCluster<'_> {
+    /// The mark whitespace shows in this cluster's place, if it is whitespace that has one.
+    /// A space a mark or a selector follows is drawn as it is, so that nothing after it is
+    /// hidden behind the mark.
+    fn whitespace_mark(&self) -> Option<&'static str> {
+        let mut chars = self.text.chars();
+        let (first, rest) = (chars.next()?, chars.next());
+        match self.kind {
+            CellKind::Tab => Some("»"),
+            CellKind::Text if rest.is_some() => None,
+            CellKind::Text => match first {
+                '\u{3000}' => Some("□"),
+                '\u{a0}' | '\u{2000}'..='\u{200a}' | '\u{202f}' | '\u{205f}' => Some("·"),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
 /// The clusters of `text` that is no buffer's, such as a modeline's, as one row
 /// from `column`. A row of its own has no tab stops and no next line, so tabs and
 /// line breaks are escapes like other control characters, and neither ends the row
@@ -175,6 +226,7 @@ pub fn text_clusters(text: &str, mut column: usize) -> impl Iterator<Item = Disp
             cells,
             text,
             kind,
+            whitespace: false,
         };
         column = column.saturating_add(cells);
         Some(cluster)
@@ -250,6 +302,21 @@ impl DisplaySnapshot {
         self.tab_map.invalid()
     }
 
+    /// The text of `range`, a piece at a time. Its ends must fall on characters' boundaries.
+    pub(crate) fn text_in(&self, range: std::ops::Range<usize>) -> impl Iterator<Item = &str> + '_ {
+        self.tab_map.text_in(range)
+    }
+
+    /// The buffer's length in bytes.
+    pub(crate) fn len(&self) -> usize {
+        self.tab_map.summary().bytes
+    }
+
+    /// The tab width.
+    pub(crate) fn tab_width(&self) -> TabWidth {
+        self.tab_map.tab_width()
+    }
+
     /// The number of display rows.
     pub fn row_count(&self) -> usize {
         self.tab_map.summary().lines + 1
@@ -278,6 +345,24 @@ impl DisplaySnapshot {
     /// [`DisplaySnapshot::offset_to_display_point`] and back finds, for less.
     pub(crate) fn cluster_at(&self, offset: usize) -> (usize, usize) {
         self.tab_map.cluster_at(offset)
+    }
+
+    /// The display clusters from the one at `offset` on, line breaks among them, with their
+    /// kind and text and no columns, for word motion (ADR 0101).
+    pub(crate) fn pieces_after(&self, offset: usize) -> PiecesAfter<'_> {
+        self.tab_map.pieces_after(offset)
+    }
+
+    /// The column at `to` once `from`, a cluster's start on the same line before it, is at
+    /// `column`, as after an insertion before `from`, in O(log n) (ADR 0101).
+    pub fn column_after(&self, from: usize, column: usize, to: usize) -> usize {
+        self.tab_map.column_after(from, column, to)
+    }
+
+    /// The display clusters that start before `offset`, from the nearest back, line breaks
+    /// among them, as [`DisplaySnapshot::pieces_after`] gives them (ADR 0101).
+    pub(crate) fn pieces_before(&self, offset: usize) -> PiecesBefore<'_> {
+        self.tab_map.pieces_before(offset)
     }
 
     /// The buffer offset of a display point. A column past the end of its
@@ -563,6 +648,7 @@ pub(crate) mod tests {
             cells: 6,
             text: "\u{301}",
             kind: CellKind::PastLimit('\u{301}'),
+            whitespace: false,
         };
         let labels: String = runs(&cluster).iter().map(|run| run.2.as_str()).collect();
         assert_eq!(labels, "U+0301");
@@ -717,6 +803,46 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn whitespace_shown_marks_tabs_and_wide_and_other_spaces_and_nothing_else() {
+        let text = "a\tb\u{3000}c\u{a0}d\u{2009} e\u{200b}";
+        let snapshot = DisplayMap::new(&Rope::from(text), TabWidth::default()).snapshot();
+        let drawn = |whitespace| {
+            let mut runs = Vec::new();
+            for mut cluster in snapshot.clusters(DisplayPoint::new(0, 0)) {
+                cluster.whitespace = whitespace;
+                cluster.for_each_run(|run| {
+                    runs.push((run.column, run.cells, run.text.to_owned(), run.style));
+                });
+            }
+            runs
+        };
+        let marks: Vec<_> = drawn(true)
+            .into_iter()
+            .filter(|run| run.3 == CellStyle::Whitespace)
+            .collect();
+        let mark =
+            |column, cells, text: &str| (column, cells, text.to_owned(), CellStyle::Whitespace);
+        // A tab's first cell, a full-width space across its two cells, and the no-break and
+        // thin spaces; neither a half-width space nor the zero-width space, which is boxed.
+        assert_eq!(
+            marks,
+            [
+                mark(1, 1, "»"),
+                mark(9, 2, "□"),
+                mark(12, 1, "·"),
+                mark(14, 1, "·")
+            ]
+        );
+        let tab_rest = drawn(true).into_iter().find(|run| run.0 == 2).unwrap();
+        assert_eq!(tab_rest, (2, 6, " ".to_owned(), CellStyle::Text));
+        assert!(
+            drawn(false)
+                .iter()
+                .all(|run| run.3 != CellStyle::Whitespace)
+        );
+    }
+
+    #[test]
     fn an_invalid_byte_draws_its_value_as_an_escape() {
         let cluster = DisplayCluster {
             offset: 0,
@@ -724,6 +850,7 @@ pub(crate) mod tests {
             cells: 4,
             text: "\u{fffd}",
             kind: CellKind::InvalidByte(0xff),
+            whitespace: false,
         };
         let labels: String = runs(&cluster).iter().map(|run| run.2.as_str()).collect();
         assert_eq!(labels, "\\xFF");

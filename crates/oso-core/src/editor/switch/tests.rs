@@ -37,7 +37,7 @@ fn coming_back_to_a_buffer_puts_every_cursor_and_the_view_back() {
         goal: None,
     };
     let selections = SelectionSet::from_parts(vec![at(4), at(8)], 0).unwrap();
-    editor.restore_positions(selections, Scroll { top: 1, left: 0 });
+    editor.restore_positions(selections, Scroll { start: 4, left: 0 });
     editor.show(b);
     assert_eq!(
         cursor(&editor),
@@ -52,7 +52,7 @@ fn coming_back_to_a_buffer_puts_every_cursor_and_the_view_back() {
         .map(|s| s.cursor)
         .collect();
     assert_eq!(cursors, [4, 8]);
-    assert_eq!(editor.window().scroll().top, 1);
+    assert_eq!(editor.top_row(), 1);
 }
 
 #[test]
@@ -267,10 +267,10 @@ fn a_killed_buffer_never_leaves_the_window_on_an_internal_one() {
 fn showing_the_buffer_shown_changes_nothing_there() {
     let (mut editor, [a, _, _]) = three();
     editor.show(a);
-    editor.restore_positions(SelectionSet::new(4), Scroll { top: 1, left: 0 });
+    editor.restore_positions(SelectionSet::new(4), Scroll { start: 4, left: 0 });
     editor.show(a);
     assert_eq!(cursor(&editor), 4);
-    assert_eq!(editor.window().scroll().top, 1);
+    assert_eq!(editor.top_row(), 1);
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn a_preview_shows_the_selected_buffer_where_the_window_was_and_never_a_secret()
     use crate::complete::Candidate;
     let (mut editor, [a, _, _]) = three();
     editor.show(a);
-    editor.restore_positions(SelectionSet::new(8), Scroll { top: 1, left: 0 });
+    editor.restore_positions(SelectionSet::new(8), Scroll { start: 4, left: 0 });
     let secret = editor.add_buffer(secret_buffer());
     editor.show(secret);
     let scratch = editor.buffer_named(SCRATCH).unwrap();
@@ -305,7 +305,7 @@ fn a_preview_shows_the_selected_buffer_where_the_window_was_and_never_a_secret()
         editor.preview(),
         Some(Preview::Buffer {
             id: a,
-            top: 1,
+            start: 4,
             cursor: 8
         })
     );

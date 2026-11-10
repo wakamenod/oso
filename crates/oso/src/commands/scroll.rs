@@ -38,16 +38,9 @@ pub const COMMANDS: &[Command] = &[
 /// motion does (ADR 0071).
 fn scroll(ctx: &mut Ctx<'_>, lines: isize) -> Result<(), CommandError> {
     super::mark::shift_select(ctx);
-    let (window, buffer) = ctx.editor.current_mut();
-    let display = buffer.display();
-    let row_count = display.row_count();
-    let top = if lines >= 0 {
-        window::scroll_up(window.scroll().top, row_count, lines.unsigned_abs())
-    } else {
-        window::scroll_down(window.scroll().top, lines.unsigned_abs())
-    }
-    .map_err(|edge| CommandError::new(edge.message()))?;
-    if window.set_top(top, &display) {
+    let moved =
+        (ctx.editor.scroll_lines(lines)).map_err(|edge| CommandError::new(edge.message()))?;
+    if moved {
         ctx.request_redraw();
     }
     Ok(())
@@ -85,11 +78,7 @@ fn recenter_top_bottom(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError
         Some(Prefix::Universal(_)) => Recenter::Middle,
         Some(prefix) => Recenter::Line(prefix.value()),
     };
-    let (window, buffer) = ctx.editor.current_mut();
-    let display = buffer.display();
-    let row = window.cursor_point(&display).row;
-    let top = window::recenter_top(row, window.size(), target);
-    if window.set_top(top, &display) {
+    if ctx.editor.recenter(target) {
         ctx.request_redraw();
     }
     Ok(())
@@ -106,15 +95,15 @@ mod tests {
         let mut editor = editor(&text);
         let (result, effects) = run(&mut editor, "scroll-up-command", Args::NONE);
         assert!(result.is_ok() && effects.redraw);
-        assert_eq!(editor.window().scroll().top, 8);
+        assert_eq!(editor.top_row(), 8);
         assert_eq!(cursor(&editor), 8 * 3, "start of the new top row");
         let _ = run(&mut editor, "scroll-up-command", Args::numeric(3));
-        assert_eq!(editor.window().scroll().top, 11);
+        assert_eq!(editor.top_row(), 11);
         let _ = run(&mut editor, "scroll-down-command", Args::NONE);
-        assert_eq!(editor.window().scroll().top, 3);
+        assert_eq!(editor.top_row(), 3);
         assert_eq!(cursor(&editor), 11 * 3, "still in view");
         let _ = run(&mut editor, "scroll-down-command", Args::NONE);
-        assert_eq!(editor.window().scroll().top, 0);
+        assert_eq!(editor.top_row(), 0);
         assert_eq!(cursor(&editor), 9 * 3, "start of the new bottom row");
         assert_eq!(
             run(&mut editor, "scroll-down-command", Args::NONE),
@@ -128,7 +117,7 @@ mod tests {
         for _ in 0..3 {
             let _ = run(&mut editor, "scroll-up-command", Args::NONE);
         }
-        assert_eq!(editor.window().scroll().top, 24);
+        assert_eq!(editor.top_row(), 24);
         assert_eq!(
             run(&mut editor, "scroll-up-command", Args::NONE),
             (Err("End of buffer".into()), Effects::default())

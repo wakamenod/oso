@@ -63,6 +63,7 @@ Below a row that needs it, a line between `:` marks its cells:
 | `~` | a cell of an escape (`^M`, `\xFF`) |
 | `#` | a cell of a boxed character: invisible (`U+202E`), or past a display cluster's limits (`U+0301`) |
 | `]` | a boxed character's last cell, so that two boxes side by side read as two ([ADR 0089](adr/0089-built-in-themes-switched-at-run-time.md)) |
+| `w` | a whitespace mark's cells, `»`, `□` or `·`, while whitespace is shown ([ADR 0097](adr/0097-visual-aids.md)) |
 
 Below the row with an input method's preedit, a line between `_` marks its
 underline with `-`, and the segment being converted with `=`
@@ -72,7 +73,10 @@ Below a row with a region, a line between `+` marks the cells it fills with `*`,
 from `Editor::region_cells`, as the renderer fills them
 ([ADR 0071](adr/0071-mark-and-region.md)). The same line marks the current isearch match
 with `#` and the other matches in view with `~`, from `Editor::search_cells`
-([ADR 0082](adr/0082-isearch.md)).
+([ADR 0082](adr/0082-isearch.md)), and the current line's band with `l` and trailing
+whitespace with `t`, from `Editor::current_line_cells` and `Editor::trailing_cells`
+([ADR 0097](adr/0097-visual-aids.md)). The visual aids start off in every scenario, so a
+snapshot shows only those it turns on.
 
 `▌` and `▐` stand for a wide cluster that an edge of the window cuts in half.
 Text that reads like an escape has no mark, which is how the two differ. `]`

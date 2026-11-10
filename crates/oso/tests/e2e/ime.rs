@@ -24,6 +24,7 @@ fn a_preedit_draws_in_the_window_and_a_commit_is_one_undo_step() {
     let scratch = Scratch::new("ime-commit");
     let file = scratch.write("notes.txt", b"abc\n");
     let mut app = App::start(Some(&file), scratch.path());
+    app.visual_aids_off();
     app.wait_until_ready();
     // The OS gets the cursor's cell once a frame is presented.
     let state = app.wait_for("a cursor area", |state| !state["ime"]["area"].is_null());

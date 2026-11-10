@@ -248,6 +248,64 @@ mod word_motion {
         assert!(left > 0 && left < long.len(), "{left}");
         send(&mut d, &mut editor, "C-z");
         assert_eq!(editor.current().1.text().len(), long.len());
+        assert!(
+            kept_messages(&editor).is_empty(),
+            "one cursor reads a stop a key"
+        );
+    }
+
+    #[test]
+    fn a_thousand_cursors_on_ordinary_text_all_move_by_a_word() {
+        // Each cursor's seeks to where it starts come apart from the bytes they share
+        // (ADR 0101), so the most cursors a window may have all move.
+        let words = "word\n".repeat(1000);
+        let ends: Vec<usize> = (0..1000).map(|line| line * 5 + 4).collect();
+        let (mut d, mut editor) = at(&words, &ends);
+        send(&mut d, &mut editor, "M-b");
+        let starts: Vec<usize> = ends.iter().map(|end| end - 4).collect();
+        assert_eq!(cursors(&editor), starts);
+        send(&mut d, &mut editor, "M-f");
+        assert_eq!(cursors(&editor), ends);
+        send(&mut d, &mut editor, "M-DEL");
+        assert_eq!(text(&editor), "\n".repeat(1000));
+        assert!(kept_messages(&editor).is_empty());
+    }
+
+    /// Lines with no word boundary, and a cursor at the start of each.
+    fn long_runs(lines: usize) -> (String, Vec<usize>) {
+        let line = format!("{}\n", "x".repeat(200_000));
+        let starts = (0..lines).map(|index| index * line.len()).collect();
+        (line.repeat(lines), starts)
+    }
+
+    #[test]
+    fn cursors_on_long_runs_share_one_commands_reading() {
+        // Each stop reads as much as it may, and the cursors share what one command at
+        // several reads (ADR 0101): the first move, and those it runs out on stay.
+        let (long, starts) = long_runs(8);
+        let (mut d, mut editor) = at(&long, &starts);
+        send(&mut d, &mut editor, "M-f");
+        let moved: Vec<bool> = cursors(&editor)
+            .iter()
+            .zip(&starts)
+            .map(|(cursor, start)| cursor > start)
+            .collect();
+        assert!(moved[0] && !moved[7], "{moved:?}");
+        assert!(moved.windows(2).all(|pair| pair[0] || !pair[1]), "in order");
+        assert_eq!(
+            kept_messages(&editor).last().map(String::as_str),
+            Some("Count too large")
+        );
+
+        let (mut d, mut editor) = at(&long, &starts);
+        send(&mut d, &mut editor, "M-d");
+        let left = text(&editor);
+        let lines: Vec<usize> = left.split('\n').map(str::len).collect();
+        assert!(lines[0] < 200_000 && lines[7] == 200_000, "{lines:?}");
+        assert_eq!(
+            kept_messages(&editor).last().map(String::as_str),
+            Some("Count too large")
+        );
     }
 }
 
@@ -330,7 +388,7 @@ mod recenter {
     }
 
     fn top(editor: &Editor) -> usize {
-        editor.window().scroll().top
+        editor.top_row()
     }
 
     #[test]
@@ -414,7 +472,7 @@ mod wheel {
         send(&mut d, &mut editor, "C-e");
         assert_eq!(editor.window().scroll().left, 41);
         assert!(editor.scroll_view(20));
-        assert_eq!(editor.window().scroll(), Scroll { top: 20, left: 0 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (20, 0));
         assert_eq!(cursors(&editor), [20 * 61], "at column 0, in view");
     }
 
@@ -439,6 +497,6 @@ mod wheel {
         send(&mut d, &mut editor, "C-f C-b");
         assert!(editor.scroll_view_sideways(10));
         assert!(editor.scroll_view(2));
-        assert_eq!(editor.window().scroll(), Scroll { top: 2, left: 10 });
+        assert_eq!((editor.top_row(), editor.window().scroll().left), (2, 10));
     }
 }

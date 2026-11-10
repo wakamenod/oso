@@ -11,7 +11,7 @@ use std::path::Path;
 use oso_core::buffer::Buffer;
 use oso_core::display_map::DisplayPoint;
 use oso_core::frame::CellRect;
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 use oso_platform::text::{self, FontRequest};
 
 use crate::pane::{
@@ -30,6 +30,7 @@ fn load_theme(name: &str) -> Theme {
     log!(\"loaded {theme}\r\");
     let tag = \"a\u{202e}\u{2066}b\";
     let bell = \"\u{7}\";
+\tlet wide = \"\u{3000}\";   
     theme
 }
 ";
@@ -75,12 +76,13 @@ fn text_pane<'a>(
             display: buffer.display(),
             buffer: id,
             revision: 1,
-            scroll: Scroll::default(),
+            scroll: ViewTop::default(),
             cursor: DisplayPoint::new(3, 10),
             cursor_style: CursorStyle::Box,
             others: &OTHERS,
             preedit: None,
             fills,
+            whitespace: true,
         }),
     }
 }
@@ -130,7 +132,12 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     let found = matches();
     let current = [found[2]];
     let region = [cells(2, 16, 1, 10)];
+    // The cursor's row gets the band, and the line after the bell its trailing fill.
+    let band = [cells(3, 0, 1, COLUMNS)];
+    let trailing = [cells(6, 24, 1, 3)];
     let fills = [
+        (Face::CurrentLine, &band[..]),
+        (Face::TrailingWhitespace, &trailing[..]),
         (Face::SearchMatch, &found[..]),
         (Face::SearchCurrent, &current[..]),
         (Face::Region, &region[..]),

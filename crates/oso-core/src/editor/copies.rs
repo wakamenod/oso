@@ -218,11 +218,13 @@ impl Editor {
         let opening = self.opening(target, buffer);
         let start = SelectionSet::new(0);
         let after = (self.window().buffer() == target).then(|| start.clone());
+        let views = self.moved_views(target, &staged.display(), &[], staged.rewrap());
 
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(target) {
             buffer.commit_recovery(staged, opening, after, verdict);
         }
+        self.commit_views(target, views);
         for window in &mut self.windows {
             if window.buffer() == target {
                 window.selections = start.clone();

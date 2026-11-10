@@ -38,9 +38,22 @@ impl Edge {
 
 /// What one command may read, in bytes read in order, at about 8 to 13 ns each:
 /// about 50 ms at most, under the 100 ms that counts as a freeze. It holds across
-/// all its cursors and its count. Bytes, not clusters: a cluster can hold many
+/// all its cursors and its count, but for word motion at several cursors, which has
+/// [`MAX_CURSORS_WALK`]. Bytes, not clusters: a cluster can hold many
 /// characters, and the cost per byte stays about the same.
 const MAX_COMMAND_WALK: usize = 1 << 22;
+
+/// What one command at several cursors may read, across all of them: about 7 ms at the
+/// slowest bytes word motion reads, about 80 KB a millisecond, so that a key at many
+/// cursors on long lines with no word boundary stays within a frame. The cursors share it
+/// in order, and a cursor it runs out on stops where it got to (ADR 0101).
+const MAX_CURSORS_WALK: usize = 1 << 19;
+
+/// The seeks to where it starts that each cursor of a command at several gets apart from
+/// [`MAX_CURSORS_WALK`]: as many as finding the word around a cursor takes, one forward
+/// and two back. Charged as bytes they would spend the bytes of a key at about a thousand
+/// cursors on any text, though one costs far less on most (ADR 0101).
+const ENTRY_SEEKS: usize = 3;
 
 /// What finding one stop may read, such as the end of a word: a key stays within
 /// its budget on a long line with no word boundary, at about 2 ms at most. Past it
@@ -64,6 +77,8 @@ pub const TOO_MUCH: &str = "Count too large";
 pub struct WalkBudget {
     left: usize,
     ran_out: bool,
+    /// Entry seeks left that take nothing from `left`, shared by the cursors.
+    seeks: usize,
 }
 
 impl WalkBudget {
@@ -72,6 +87,22 @@ impl WalkBudget {
         Self {
             left: MAX_COMMAND_WALK,
             ran_out: false,
+            seeks: 0,
+        }
+    }
+
+    /// The budget of a whole command at `cursors` cursors: [`WalkBudget::new`]'s for one,
+    /// and for several a frame's of bytes, which they share, with a few entry seeks for
+    /// each apart from it (ADR 0101).
+    pub const fn for_cursors(cursors: usize) -> Self {
+        if cursors > 1 {
+            Self {
+                left: MAX_CURSORS_WALK,
+                ran_out: false,
+                seeks: cursors.saturating_mul(ENTRY_SEEKS),
+            }
+        } else {
+            Self::new()
         }
     }
 
@@ -99,6 +130,7 @@ impl WalkBudget {
         Self {
             left: bytes,
             ran_out: false,
+            seeks: 0,
         }
     }
 
@@ -129,6 +161,18 @@ impl StopWalk<'_> {
         let enough = bytes <= self.left && self.budget.spend(bytes);
         self.left = if enough { self.left - bytes } else { 0 };
         enough
+    }
+
+    /// Takes a seek to where the stop starts reading: from the command's entry seeks while
+    /// it has some, which leave its bytes alone, else as [`SEEK_COST`] bytes. The stop pays
+    /// for it either way. A command with no bytes left takes none, as it can read nothing.
+    pub(crate) fn enter(&mut self) -> bool {
+        if self.budget.seeks == 0 || self.budget.left == 0 || self.left < SEEK_COST {
+            return self.spend(SEEK_COST);
+        }
+        self.budget.seeks -= 1;
+        self.left -= SEEK_COST;
+        true
     }
 }
 
@@ -685,6 +729,50 @@ mod tests {
         assert!(!stop.spend(1));
         assert!(!budget.is_spent(), "the command goes on");
         assert!(budget.stop().spend(1));
+    }
+
+    #[test]
+    fn several_cursors_share_a_frames_reading_and_one_keeps_a_commands() {
+        assert_eq!(WalkBudget::for_cursors(0), WalkBudget::new());
+        assert_eq!(WalkBudget::for_cursors(1), WalkBudget::new());
+        let mut budget = WalkBudget::for_cursors(2);
+        assert_eq!(budget.left(), MAX_CURSORS_WALK);
+        // A stop's worth each, for a few.
+        for _ in 0..MAX_CURSORS_WALK / MAX_STOP_WALK {
+            assert!(budget.stop().spend(MAX_STOP_WALK));
+        }
+        assert!(!budget.stop().spend(1));
+        assert!(budget.is_spent());
+    }
+
+    #[test]
+    fn several_cursors_get_entry_seeks_apart_from_the_bytes() {
+        let mut budget = WalkBudget::for_cursors(2);
+        for _ in 0..2 * ENTRY_SEEKS {
+            assert!(budget.stop().enter());
+        }
+        assert_eq!(budget.left(), MAX_CURSORS_WALK, "no bytes taken");
+        assert!(budget.stop().enter());
+        assert_eq!(
+            budget.left(),
+            MAX_CURSORS_WALK - SEEK_COST,
+            "past them, as bytes"
+        );
+        // One cursor, or a stop that has read nearly all it may, has none.
+        let mut budget = WalkBudget::new();
+        assert!(budget.stop().enter());
+        assert_eq!(budget.left(), MAX_COMMAND_WALK - SEEK_COST);
+        let mut budget = WalkBudget::for_cursors(2);
+        let mut stop = budget.stop();
+        assert!(stop.spend(MAX_STOP_WALK - 1));
+        assert!(!stop.enter());
+        // Nor does a command that has read all it may.
+        let mut budget = WalkBudget::for_cursors(2);
+        for _ in 0..MAX_CURSORS_WALK / MAX_STOP_WALK {
+            assert!(budget.stop().spend(MAX_STOP_WALK));
+        }
+        assert!(!budget.stop().enter());
+        assert!(budget.is_spent());
     }
 
     #[test]

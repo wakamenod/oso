@@ -58,10 +58,14 @@ pub struct State {
     pub shown: usize,
     pub selections: SelectionSet,
     pub scroll: Scroll,
+    /// Whether `scroll`'s start is a logical line, as a state before version 3 kept the top.
+    pub top_is_row: bool,
     pub pending_keys: Vec<KeyPress>,
     pub frame: Option<Frame>,
     /// The theme the previous instance drew in, if it said.
     pub theme: Option<String>,
+    /// The visual aids the previous instance drew with, if it said (ADR 0097).
+    pub visual_aids: Option<oso_core::editor::VisualAids>,
     /// The kill ring's entries, the newest first.
     pub kills: Vec<KillState>,
     pub histories: Vec<HistoryState>,
@@ -87,6 +91,8 @@ pub struct BufferEntry {
     pub path: Option<PathBuf>,
     pub carried: Option<Carried>,
     pub opened_by_agent: bool,
+    /// Whether its long lines wrap (ADR 0100), said only when they do.
+    pub wraps: bool,
 }
 
 /// The text a buffer held unsaved, and what it knew of its file.
@@ -181,25 +187,21 @@ pub fn selections_state(selections: &SelectionSet) -> Value {
 pub fn parse(state: &Value) -> Result<State, String> {
     let state = state.as_object().ok_or("the state is not an object")?;
     let version = match state.get("version").and_then(Value::as_u64) {
-        Some(version @ (1 | STATE_VERSION)) => version,
+        // Its own version and the one before (ADR 0090).
+        Some(version @ (2 | STATE_VERSION)) => version,
         Some(version) => {
             return Err(format!(
-                "the state has version {version}, and this build reads versions 1 and {STATE_VERSION}"
+                "the state has version {version}, and this build reads versions 2 and {STATE_VERSION}"
             ));
         }
         None => return Err("the state has no version".into()),
     };
-    let mut items = Items::default();
-    let (export, kills, histories) = if version == 1 {
-        (0, Vec::new(), Vec::new())
-    } else {
-        items = Items::parse(state)?;
-        (
-            u64_of(state, "export")?,
-            parse_kills(state, &mut items)?,
-            parse_histories(state, &mut items)?,
-        )
-    };
+    let mut items = Items::parse(state)?;
+    let (export, kills, histories) = (
+        u64_of(state, "export")?,
+        parse_kills(state, &mut items)?,
+        parse_histories(state, &mut items)?,
+    );
     let entries = array(state, "buffers")?;
     if entries.len() > MAX_BUFFERS {
         return Err(format!("the state has more than {MAX_BUFFERS} buffers"));
@@ -233,6 +235,8 @@ pub fn parse(state: &Value) -> Result<State, String> {
         .get("scroll")
         .and_then(Value::as_object)
         .ok_or("a window has no scroll position")?;
+    // Before version 3 the top was a row; one still waiting for its file goes on as a row.
+    let top_is_row = version < 3 || !scroll.contains_key("start");
     Ok(State {
         export,
         items: items.lengths,
@@ -240,12 +244,14 @@ pub fn parse(state: &Value) -> Result<State, String> {
         shown,
         selections: parse_selections(window)?,
         scroll: Scroll {
-            top: size(scroll, "top")?,
+            start: size(scroll, if top_is_row { "top" } else { "start" })?,
             left: size(scroll, "left")?,
         },
+        top_is_row,
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
         theme: super::parse_theme(state)?,
+        visual_aids: super::parse_aids(state)?,
         kills,
         histories,
     })
@@ -386,10 +392,16 @@ fn parse_buffer(entry: &Value, items: &mut Items) -> Result<BufferEntry, String>
         Some(Value::Bool(opened)) => *opened,
         Some(_) => return Err("a buffer's opened_by_agent is not true or false".into()),
     };
+    let wraps = match entry.get("wraps") {
+        None => false,
+        Some(Value::Bool(wraps)) => *wraps,
+        Some(_) => return Err("a buffer's wraps is not true or false".into()),
+    };
     Ok(BufferEntry {
         path,
         carried,
         opened_by_agent,
+        wraps,
     })
 }
 

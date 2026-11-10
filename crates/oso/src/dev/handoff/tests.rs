@@ -79,7 +79,7 @@ fn a_state_round_trips() {
     ];
     editor.restore_positions(
         SelectionSet::from_parts(selections.clone(), 1).unwrap(),
-        Scroll { top: 2, left: 1 },
+        Scroll { start: 10, left: 1 },
     );
     let pending: KeySequence = "C-x 4".parse().unwrap();
     let frame = Frame {
@@ -101,7 +101,7 @@ fn a_state_round_trips() {
         selections
     );
     assert_eq!(state.selections.primary().cursor, 11);
-    assert_eq!(state.scroll, Scroll { top: 2, left: 1 });
+    assert_eq!(state.scroll, Scroll { start: 10, left: 1 });
     assert_eq!(state.pending_keys, pending.0);
     assert_eq!(state.frame, Some(frame));
 
@@ -125,7 +125,7 @@ fn positions_still_waiting_for_their_file_are_the_ones_exported() {
     let restore = restore(600, 40, &editor);
     let state = parse(&export(&editor, &[], None, Some(&restore)).unwrap()).unwrap();
     assert_eq!(state.selections.primary().cursor, 600);
-    assert_eq!(state.scroll.top, 40);
+    assert_eq!(state.scroll.start, 40);
 }
 
 #[test]
@@ -275,7 +275,7 @@ fn another_version_is_refused() {
 
 #[test]
 fn bad_fields_are_refused() {
-    let bad: [(&str, Mutation); 13] = [
+    let bad: [(&str, Mutation); 15] = [
         ("buffers", Box::new(|s| s["buffers"] = json!(1))),
         ("path", Box::new(|s| s["buffers"][1]["path"] = json!(1))),
         (
@@ -283,6 +283,14 @@ fn bad_fields_are_refused() {
             Box::new(|s| s["buffers"][1]["path"] = json!("a.txt")),
         ),
         ("id", Box::new(|s| s["buffers"][1]["id"] = json!("x"))),
+        (
+            "wraps",
+            Box::new(|s| s["buffers"][1]["wraps"] = json!("yes")),
+        ),
+        (
+            "start",
+            Box::new(|s| s["windows"][0]["scroll"]["start"] = json!(-1)),
+        ),
         ("one window", Box::new(|s| s["windows"] = json!([]))),
         ("one window", Box::new(|s| s["selected"] = json!(1))),
         (
@@ -340,7 +348,11 @@ fn restore(cursor: usize, top: usize, editor: &Editor) -> Restore {
     Restore {
         buffer: editor.window().buffer(),
         selections: SelectionSet::new(cursor),
-        scroll: Scroll { top, left: 0 },
+        scroll: Scroll {
+            start: top,
+            left: 0,
+        },
+        top_is_row: false,
     }
 }
 
@@ -369,11 +381,7 @@ fn positions_move_to_what_exists_in_a_changed_file() {
         0,
         "the start of the character"
     );
-    assert_eq!(
-        editor.window().scroll().top,
-        0,
-        "scrolled back to the cursor"
-    );
+    assert_eq!(editor.top_row(), 0, "scrolled back to the cursor");
     assert!(restore(1000, 0, &editor).try_apply(&mut editor));
     assert_eq!(editor.window().selections.primary().cursor, 7, "the end");
 }
@@ -474,4 +482,62 @@ fn a_state_with_no_theme_reads_and_one_with_a_bad_name_is_refused() {
         let message = parse(&state).unwrap_err();
         assert!(message.contains("theme"), "{message}");
     }
+}
+
+#[test]
+fn a_buffer_that_wraps_says_so_and_comes_back_wrapped() {
+    let mut editor = visiting(&absolute("/p/a.txt"), &"word ".repeat(100));
+    let id = editor.window().buffer();
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert!(!state.buffers[state.shown].wraps, "said only when it does");
+    editor.set_wraps(id, true);
+    let exported = export(&editor, &[], None, None).unwrap();
+    assert_eq!(exported["buffers"][1]["wraps"], true);
+    assert!(parse(&exported).unwrap().buffers[1].wraps);
+}
+
+#[test]
+fn a_top_still_waiting_as_a_row_goes_on_as_one() {
+    let mut editor = Editor::default();
+    let path = PathBuf::from(absolute("/p/a.txt"));
+    let mut buffer = Buffer::visiting(path.clone());
+    buffer.judge_secret(Some(&[path]));
+    let id = editor.add_buffer(buffer);
+    editor.show(id);
+    let waiting = Restore {
+        top_is_row: true,
+        ..restore(600, 40, &editor)
+    };
+    let exported = export(&editor, &[], None, Some(&waiting)).unwrap();
+    assert_eq!(exported["windows"][0]["scroll"]["top"], 40);
+    let state = parse(&exported).unwrap();
+    assert!(state.top_is_row, "a row, not an offset");
+    assert_eq!(state.scroll.start, 40);
+}
+
+#[test]
+fn a_top_inside_a_character_comes_back_at_its_start() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "日本語\nabc\n");
+    let waiting = restore(0, 4, &editor);
+    assert!(waiting.try_apply(&mut editor));
+    assert_eq!(editor.window().scroll().start, 3, "the start of 本");
+}
+
+#[test]
+fn the_visual_aids_are_handed_over_and_a_state_without_them_keeps_the_defaults() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let aids = oso_core::editor::VisualAids {
+        whitespace: false,
+        line_numbers: true,
+        ..oso_core::editor::VisualAids::default()
+    };
+    editor.set_visual_aids(aids);
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert_eq!(state.visual_aids, Some(aids));
+    let without = with(|state| {
+        state.as_object_mut().unwrap().remove("visual_aids");
+    });
+    assert_eq!(parse(&without).unwrap().visual_aids, None);
+    let bad = with(|state| state["visual_aids"]["flash"] = json!("yes"));
+    assert!(parse(&bad).unwrap_err().contains("flash"));
 }

@@ -56,6 +56,13 @@ item notes when it must be settled.
 
 ## M2
 
+- The visual aids' cost on typing differs by how it is measured. With the aids on by default,
+  the benchmark (`perf-remote`) puts `key_p50` 0.28 ms higher (about 17%) on the Mac mini, in
+  every pair, the aids alone the difference. Measured key by key on the same machine through
+  `take-timings`, they cost about 40 µs at the median, mostly the current line's band, with
+  one frame per key and no change in waiting for a drawable or presenting. Find what the
+  benchmark's way of driving keys adds ([ADR 0097](adr/0097-visual-aids.md)).
+
 - Safe save loses a file's extended attributes other than the quarantine flag ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)). On macOS that includes Finder tags. Decide whether copying them is worth it.
 - A control socket's own file is not sealed as a screenshot is. It is a dev tool's, its peer is checked, and an inherited `deny delete` can leave a dead
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).
@@ -124,14 +131,6 @@ item notes when it must be settled.
   loses its cursors. Decide where a window keeps a buffer's places when `C-x b` comes back
   to it ([ADR 0071](adr/0071-mark-and-region.md)). M2-19 closes this: a window keeps a place
   per buffer ([ADR 0088](adr/0088-switching-and-killing-buffers.md)).
-- Motion functions take display rows (`motion::line_start(display, row)`),
-  which are buffer lines while there is no soft wrap. When the WrapMap
-  lands, `C-n`, `C-a` and `C-e` must keep moving by logical lines
-  (`display-model.md`), so they need line-level conversions then
-  ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)). `TAB` counts
-  display columns the same way ([ADR 0056](adr/0056-typing.md)), and word motion
-  treats the end of a row as the end of a word
-  ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
 - `kill-buffer` must cancel a load at once (ADR 0022). Today the app drops
   a load's handle only when it next sees the buffer gone; once a command
   can kill a buffer, the app should reconcile its loads right after
@@ -176,7 +175,8 @@ item notes when it must be settled.
   more; a profile at 1000 cursors does not show it.
 - After M2-25: deleting back leaves `left` where it is, as the fewest columns that show the
   cursor ([ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md)), so a row can stay
-  scrolled sideways with text hidden to its left. Check how that reads once rows wrap.
+  scrolled sideways with text hidden to its left. A wrapped buffer never scrolls sideways
+  ([ADR 0100](adr/0100-soft-wrap.md)), so this is for unwrapped ones.
 - What panes below the frame's top row do with the band above their first row, which they
   lose today: by M3. The modeline and the echo row keep it
   ([ADR 0063](adr/0063-modeline-echo-area-and-internal-buffers.md)), which `draw_pane` tells as
@@ -199,11 +199,6 @@ item notes when it must be settled.
   the unshifted key, so holding Shift a moment too long still types. Decide whether
   `KeyResolver` does the same, or record that oso differs.
 
-- By M2-21: each cursor gets a stop's worth of reading, about 2 ms on a long run with no
-  boundary, so several cursors on such runs can pass the 8 ms budget and a few dozen spend
-  the command's ([ADR 0058](adr/0058-word-motion-prefix-argument-and-secret-positions.md)).
-  `TAB` on a row with several cursors walks what lies between them with no budget
-  ([ADR 0056](adr/0056-typing.md)). Decide with the cap on cursors above.
 - `Editor::set_frame_size` pulls the view back when the selected window gets taller:
   - The limit should be a pure function beside `window::wheel`, used by both.
   - By M3: "taller" compares the tiled window alone, also beneath a prompt. Splits of
@@ -256,6 +251,11 @@ item notes when it must be settled.
   goes in at the cursor, though the input method now reads the cursor's line. Decide whether
   to apply one inside the excerpt last given, as ADR 0070 allows
   ([ADR 0077](adr/0077-choices-for-the-native-layers-stage-2.md)).
+- On the "Dvorak – QWERTY ⌘" layout, Meta follows Dvorak on oso's own macOS layer: the key
+  in the QWERTY `x` position gives `M-q`, where macOS's Command layer would give `M-x`, as a
+  printable ASCII reading with Shift alone wins over the Command layer. Decide whether Command
+  should follow that layer's QWERTY there ([ADR 0033](adr/0033-key-presses-and-notation.md),
+  [ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
 - The cursor's line for the input method and typing in one long line: on the native layer,
   typing and deleting in a 10 MB line were about 0.3 ms slower per key once the excerpt was
   given, in every run on a second Mac on 2026-11-09, far under the 5 ms gate. Cutting the
@@ -266,8 +266,6 @@ item notes when it must be settled.
 - Before ADR 0070's stage 4: show in CI that lavapipe presents under a headless Wayland
   compositor, as Linux CI moves off Xvfb
   ([ADR 0070](adr/0070-windowing-and-input-without-winit.md)).
-- By M2-25: a preedit pushes the rest of its row past the right edge, where it is cut off.
-  Decide what it does on a wrapped row ([ADR 0069](adr/0069-macos-input-method.md)).
 - By M3: menus add their condition to `wants_ime` in `app/ime.rs`, as prompts and isearch
   have ([ADR 0069](adr/0069-macos-input-method.md)).
 - Glyphs under the cursor box take `cursor_color` for their whole quad, including
@@ -291,6 +289,18 @@ item notes when it must be settled.
 
 ## M3
 
+- With soft wrap: a fill column to wrap at, narrower than the window, through M3's
+  configuration; and scripts that need more than spaces and cluster breaks, such as Thai, which
+  wrap at clusters until then ([ADR 0100](adr/0100-soft-wrap.md)).
+- A `just perf` scenario with soft wrap on, whose thresholds are guard files and wait for the
+  author ([ADR 0100](adr/0100-soft-wrap.md)).
+- With soft wrap, a wrapped buffer that loads in many parts, as one carried by `oso dev` or a
+  large file turned on before its load ends, is wrapped in full only after its last part, since
+  each part starts the wrap over. Following the parts as appends needs the range the rope
+  rebuilt, which a load's snapshots do not carry ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
+- A whole wrap is freed on the UI thread when a window drops it or a report replaces it, about
+  0.7 ms for 100 MB of prose at 40 columns and 5.5 ms the first time. Hand old trees to a
+  thread, as a reload's leftovers are ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
   modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
   every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start

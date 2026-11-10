@@ -58,9 +58,9 @@ pub(super) fn key_texts<'p>(
 /// `string`'s text, kept until `pool` ends.
 fn text_in<'p>(string: Option<Retained<NSString>>, pool: AutoreleasePool<'p>) -> Option<&'p str> {
     let string = string?;
-    // SAFETY: `pool` is the innermost autorelease pool here, as the view's `deliver_key` makes it, which
-    // both calls need; `string` is kept in it, NSString's text does not change while it is
-    // borrowed, and the key that borrows it lives inside the pool.
+    // SAFETY: `pool` is the innermost autorelease pool here, as the view's `deliver_key` makes
+    // it, which both calls need; `string` is kept in it, NSString's text does not change while
+    // it is borrowed, and the key that borrows it lives inside the pool.
     Some(unsafe { Retained::autorelease(string, pool).to_str(pool) })
 }
 

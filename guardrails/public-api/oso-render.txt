@@ -54,6 +54,7 @@ pub oso_render::Face::CompletionBinding
 pub oso_render::Face::CompletionMatch
 pub oso_render::Face::CompletionPrompt
 pub oso_render::Face::CompletionSelected
+pub oso_render::Face::CurrentLine
 pub oso_render::Face::Cursor
 pub oso_render::Face::Escape
 pub oso_render::Face::Field
@@ -69,7 +70,9 @@ pub oso_render::Face::SearchCurrent
 pub oso_render::Face::SearchMatch
 pub oso_render::Face::SecondaryCursor
 pub oso_render::Face::Text
+pub oso_render::Face::TrailingWhitespace
 pub oso_render::Face::Warning
+pub oso_render::Face::Whitespace
 impl core::clone::Clone for oso_render::Face
 pub fn oso_render::Face::clone(&self) -> oso_render::Face
 impl core::cmp::Eq for oso_render::Face
@@ -237,4 +240,5 @@ pub oso_render::TextView::fills: &'a [(oso_render::Face, &'a [oso_core::frame::C
 pub oso_render::TextView::others: &'a [oso_core::frame::CellRect]
 pub oso_render::TextView::preedit: core::option::Option<&'a oso_core::display_map::preedit::Preedit>
 pub oso_render::TextView::revision: u64
-pub oso_render::TextView::scroll: oso_core::window::Scroll
+pub oso_render::TextView::scroll: oso_core::window::ViewTop
+pub oso_render::TextView::whitespace: bool

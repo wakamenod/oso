@@ -6,11 +6,12 @@
 //! scrolling are pure functions elsewhere, and this applies them to the state.
 
 use super::Editor;
-use crate::display_map::{DisplayPoint, Preedit};
+use crate::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect};
 use crate::motion;
+use crate::motion::Edge;
 use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{self, Scroll, ViewSize};
+use crate::window::{self, Recenter, Scroll, ViewSize, ViewTop, Window};
 
 impl Editor {
     /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
@@ -18,6 +19,7 @@ impl Editor {
     /// also show the text above any empty space below the buffer's last row.
     /// Returns whether the view moved.
     pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
+        self.refill_wraps();
         self.frame = frame::layout(size);
         let view = self.frame.window.text.view_size();
         let tiled = self.tiled_index();
@@ -46,20 +48,29 @@ impl Editor {
     /// [`Window::set_top`]. Returns whether the view moved.
     fn fill_below_last_row(&mut self, index: usize, added: usize) -> bool {
         let (window, buffer) = self.window_mut(index);
-        let scroll = window.scroll();
-        let bottom = buffer
-            .display()
-            .row_count()
+        let display = buffer.display();
+        let top = window.top_row(&display);
+        let bottom = window
+            .row_count(&display)
             .saturating_sub(window.size().rows);
-        let top = scroll.top.saturating_sub(added).max(bottom.min(scroll.top));
-        window.set_scroll(Scroll { top, ..scroll });
-        top != scroll.top
+        let row = top.saturating_sub(added).max(bottom.min(top));
+        if row == top {
+            return false;
+        }
+        let left = window.scroll().left;
+        window.set_view_top(ViewTop { row, left }, &display)
     }
 
     /// Lays out the frame whose text area is `size`, for tests that think in text
     /// rows. Returns whether the view moved.
     pub fn set_view_size(&mut self, size: ViewSize) -> bool {
         self.set_frame_size(FrameSize::holding(size))
+    }
+
+    /// The view row at the top of the selected window.
+    pub fn top_row(&self) -> usize {
+        let (window, buffer) = self.current();
+        window.top_row(&buffer.display())
     }
 
     /// The frame's regions.
@@ -79,7 +90,7 @@ impl Editor {
             Some(layout) => layout.input,
             None => self.frame.window.text,
         };
-        let cell = frame::cursor_rect(region, window.scroll(), point, cells)?;
+        let cell = frame::cursor_rect(region, window.drawn_top(&display), point, cells)?;
         Some(grid.rect(cell))
     }
 
@@ -92,15 +103,16 @@ impl Editor {
         out.clear();
         let preedit = self.preedit.as_ref()?;
         let (window, buffer) = self.current();
-        let point = window.cursor_point(&buffer.display());
+        let display = buffer.display();
+        let point = window.cursor_point(&display);
         let region = match self.prompt_layout() {
             Some(layout) => layout.input,
             None => self.frame.window.text,
         };
-        let scroll = window.scroll();
+        let scroll = window.drawn_top(&display);
         let row = point
             .row
-            .checked_sub(scroll.top)
+            .checked_sub(scroll.row)
             .filter(|&row| row < region.rows)?;
         // Left of the text area when its start is scrolled off.
         let column = region.column as i64 + point.column as i64 - scroll.left as i64;
@@ -144,7 +156,7 @@ impl Editor {
         let display = buffer.display();
         let preedit =
             (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
-        let (text, scroll) = (self.frame.window.text, window.scroll());
+        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
         frame::region_cells(text, scroll, &display, &window.selections, preedit, out);
     }
 
@@ -156,7 +168,7 @@ impl Editor {
         let display = buffer.display();
         let preedit =
             (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
-        let (text, scroll) = (self.frame.window.text, window.scroll());
+        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
         frame::other_cursor_cells(text, scroll, &display, &window.selections, preedit, out);
     }
 
@@ -173,7 +185,7 @@ impl Editor {
             return;
         }
         let display = self.shown(window).display();
-        let scroll = window.scroll();
+        let scroll = window.drawn_top(&display);
         frame::region_cells(
             layout.input,
             scroll,
@@ -217,7 +229,9 @@ impl Editor {
 
     /// Scrolls the window at `index` as [`Editor::follow_cursor`] does the selected one.
     /// A preedit counts only in the selected window, where it shows.
+    /// Its wrap is brought in step first: on or off as its buffer is, at its width.
     pub(super) fn follow_window(&mut self, index: usize) -> bool {
+        self.sync_wrap(index);
         // The window is borrowed from the whole editor, so the preedit steps out.
         let preedit = if index == self.selected {
             self.preedit.take()
@@ -226,17 +240,15 @@ impl Editor {
         };
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
-        let point = window.cursor_point(&display);
-        let (cursor, cells) = motion::cursor_box(&display, point, preedit.as_ref());
-        let span = cursor.column - point.column + cells;
-        let (point, cells) = if span <= window.size().columns {
-            (point, span)
-        } else {
-            (DisplayPoint::new(point.row, cursor.column), cells)
-        };
-        let scroll = window::follow(window.scroll(), window.size(), point, cells);
-        let moved = scroll != window.scroll();
-        window.set_scroll(scroll);
+        let before = window.scroll();
+        // The cursor's row, then the rows in view once there, wrapped if provisional
+        // (ADR 0103); a top they moved is found again.
+        window.realize(&display, window.selections.primary().cursor, 0);
+        follow_in(window, &display, preedit.as_ref());
+        if window.realize_view(&display) {
+            follow_in(window, &display, preedit.as_ref());
+        }
+        let moved = window.scroll() != before;
         if preedit.is_some() {
             self.preedit = preedit;
         }
@@ -248,6 +260,7 @@ impl Editor {
     pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
         // The tiled window, also beneath a prompt, whose own window shows only its buffer.
         let index = self.tiled_index();
+        self.sync_wrap(index);
         let (window, buffer) = self.window_mut(index);
         let display = buffer.display();
         window.restore_positions(selections, scroll, &display);
@@ -264,16 +277,80 @@ impl Editor {
     /// that what the prompt's command acts on does not move (ADR 0072).
     pub fn scroll_view(&mut self, rows: isize) -> bool {
         let cursors_stay = self.preedit.is_some() || !self.prompts.is_empty();
+        self.refill_wraps();
         let (window, buffer) = self.window_mut(self.tiled_index());
         let display = buffer.display();
-        let row_count = display.row_count();
-        let scroll = window.scroll();
-        let top = window::wheel(scroll.top, window.size(), row_count, rows);
-        if cursors_stay {
-            window.set_scroll(Scroll { top, ..scroll });
-            return top != scroll.top;
+        let before = window.scroll();
+        // The rows the wheel reaches, wrapped first if provisional (ADR 0103).
+        let count = rows.unsigned_abs();
+        if rows < 0 {
+            // The rows just above the top first, from an anchor before it, so that a
+            // provisional row there does not take the top to its line's start.
+            window.realize(&display, window.scroll().start.saturating_sub(1), 0);
+            let row = window.top_row(&display).saturating_sub(count);
+            let at = window.rows(&display).start(row);
+            window.realize(&display, at, count);
+        } else {
+            let reach = window.size().rows.saturating_add(count);
+            window.realize(&display, window.scroll().start, reach);
         }
-        window.set_top(top, &display)
+        let top = window.top_row(&display);
+        let next = window::wheel(top, window.size(), window.row_count(&display), rows);
+        if cursors_stay {
+            let left = before.left;
+            window.set_view_top(ViewTop { row: next, left }, &display);
+        } else {
+            window.set_top(next, &display);
+        }
+        window.realize_view(&display);
+        window.scroll() != before
+    }
+
+    /// Scrolls the selected window by `lines` view rows, the text up, toward the end, if
+    /// positive, as Emacs's `scroll-up` does, and moves cursors that would leave it to the
+    /// start of its nearest row (ADR 0040). The rows it reaches are wrapped first if they are
+    /// provisional (ADR 0103). Returns whether the view moved.
+    ///
+    /// # Errors
+    ///
+    /// The edge it cannot scroll past, with nothing moved.
+    pub fn scroll_lines(&mut self, lines: isize) -> Result<bool, Edge> {
+        let (window, buffer) = self.current_mut();
+        let display = buffer.display();
+        let count = lines.unsigned_abs();
+        if lines >= 0 {
+            let reach = window.size().rows.saturating_add(count);
+            window.realize(&display, window.scroll().start, reach);
+        } else {
+            // As the wheel does going up.
+            window.realize(&display, window.scroll().start.saturating_sub(1), 0);
+            let row = window.top_row(&display).saturating_sub(count);
+            let at = window.rows(&display).start(row);
+            window.realize(&display, at, count);
+        }
+        let (top, row_count) = (window.top_row(&display), window.row_count(&display));
+        let next = if lines >= 0 {
+            window::scroll_up(top, row_count, count)
+        } else {
+            window::scroll_down(top, count)
+        }?;
+        let moved = window.set_top(next, &display);
+        window.realize_view(&display);
+        Ok(moved)
+    }
+
+    /// Scrolls the selected window so that its primary cursor's view row is where `target`
+    /// says, as `C-l` does (ADR 0058). Returns whether the view moved.
+    pub fn recenter(&mut self, target: Recenter) -> bool {
+        let (window, buffer) = self.current_mut();
+        let display = buffer.display();
+        let cursor = window.selections.primary().cursor;
+        window.realize(&display, cursor, window.size().rows);
+        let row = window.cursor_row(&display);
+        let top = window::recenter_top(row, window.size(), target);
+        let moved = window.set_top(top, &display);
+        window.realize_view(&display);
+        moved
     }
 
     /// Scrolls the selected window's view by `columns` (toward the ends of lines
@@ -283,8 +360,13 @@ impl Editor {
     /// do. Returns whether the view moved.
     pub fn scroll_view_sideways(&mut self, columns: isize) -> bool {
         let (window, buffer) = self.window_mut(self.tiled_index());
+        if window.wrap().is_some() {
+            // Nothing scrolls sideways while the buffer wraps (ADR 0100).
+            return false;
+        }
         let display = buffer.display();
         let scroll = window.scroll();
+        let top = window.drawn_top(&display).row;
         let size = window.size();
         // How wide a row must be to go all the way, so that the search can stop
         // there. Going left needs no row at all.
@@ -294,7 +376,7 @@ impl Editor {
             .saturating_add(size.columns);
         let mut widest = 0;
         if columns > 0 {
-            for row in scroll.top..scroll.top.saturating_add(size.rows) {
+            for row in top..top.saturating_add(size.rows) {
                 widest = widest.max(display.row_cells(row));
                 if widest >= wanted {
                     break;
@@ -304,5 +386,28 @@ impl Editor {
         let left = window::wheel_sideways(scroll.left, size, widest, columns);
         window.set_scroll(Scroll { left, ..scroll });
         left != scroll.left
+    }
+}
+
+/// Scrolls `window` by the fewest rows and columns that show its primary cursor, its box
+/// pushed by `preedit` (ADR 0069). While wrapped, rows are view rows and the left column 0.
+fn follow_in(window: &mut Window, display: &DisplaySnapshot, preedit: Option<&Preedit>) {
+    let point = window.cursor_point(display);
+    let (cursor, cells) = motion::cursor_box(display, point, preedit);
+    let span = cursor.column - point.column + cells;
+    let (point, cells) = if window.wrap().is_some() {
+        (DisplayPoint::new(window.cursor_row(display), 0), 1)
+    } else if span <= window.size().columns {
+        (point, span)
+    } else {
+        (DisplayPoint::new(point.row, cursor.column), cells)
+    };
+    let top = ViewTop {
+        row: window.top_row(display),
+        left: window.scroll().left,
+    };
+    let next = window::follow(top, window.size(), point, cells);
+    if next != top {
+        window.set_view_top(next, display);
     }
 }

@@ -27,6 +27,12 @@ pub(crate) fn follow_ranges(ranges: &mut [Range<usize>], edits: &[OffsetEdit]) {
     }
 }
 
+/// `offset` moved through `edits` as a marker: with [`Bias::Left`], it stays before text
+/// inserted at it.
+pub(crate) fn follow_offset(offset: usize, edits: &[OffsetEdit], bias: Bias) -> usize {
+    Follow::new(edits, bias).map(offset)
+}
+
 /// Where new text ends after `edits`, ascending. The edits are as in
 /// [`SelectionSet::follow_edits`](super::SelectionSet::follow_edits), and deletions have no new text.
 pub(crate) fn new_text_ends(edits: &[OffsetEdit]) -> impl Iterator<Item = usize> + '_ {

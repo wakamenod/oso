@@ -47,15 +47,27 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   the column function of its last line, so the column of any offset is found in
   O(log n) plus a scan of one chunk, even on a 10 MB line full of tabs, and
   whether a buffer holds a bidi control in O(1). The tab width is a parameter;
-  changing it rebuilds only the TabMap.
+  changing it rebuilds only the TabMap. A chunk read often keeps checkpoints in its
+  lines longer than 128 bytes, cluster starts every 128 bytes where a scan can begin
+  in the state a scan from the chunk's start has there, so a scan in a long line reads
+  at most a stride and a cluster, plus what the segmenter looks back over
+  ([ADR 0099](adr/0099-checkpoints-in-long-lines.md)).
 - **`DisplayMap` and `DisplaySnapshot`.** The API callers use: offset ↔
   `DisplayPoint` (row, cell column) with a `Bias` for positions inside wide
   clusters, row widths, and the clusters of a row from any column, for
-  rendering. A snapshot is O(1) to take and can go to another thread.
+  rendering. A snapshot is O(1) to take and can go to another thread. Word
+  motion reads clusters by offset instead, forward and back with no columns, and
+  `column_after` gives an offset's column once an earlier one on its line moved,
+  from the summaries between, for `TAB` at several cursors
+  ([ADR 0101](adr/0101-word-checks-by-offset-and-reading-shared-by-cursors.md)).
 - **`DisplayCluster::for_each_run`** says what a cluster puts on the grid. The
   renderer and the text-grid snapshots both draw through it
   ([ADR 0045](adr/0045-text-grid-snapshots.md)).
-- **Rows are buffer lines**, because soft wrap is off by default.
+- **A `DisplayPoint`'s row is a logical line**, a buffer line, and its
+  column a cell column in it. Soft wrap does not change that: what a window
+  shows is in **view rows**, rows on the screen, which the window's WrapMap
+  gives ([ADR 0100](adr/0100-soft-wrap.md)). Unwrapped, a logical line is
+  one view row.
 - **Invalid bytes.** The TabMap holds the buffer's invalid-byte table
   (`oso_core::decode::InvalidBytes`), its only copy: the buffer reads it
   from the display map. The U+FFFD of an invalid byte is a
@@ -73,8 +85,10 @@ M1-4 built only what the viewer needs (`oso_core::display_map`):
   were. FoldMap and InlayMap must keep this, or say what an edit changed beyond its
   chunks.
 - FoldMap and InlayMap will go below the TabMap; its items then mirror
-  InlayMap chunks. WrapMap and BlockMap will go above it; a display point
-  then differs from a TabMap point. There are no placeholder layers.
+  InlayMap chunks, and a display point then differs from a TabMap point. The
+  WrapMap goes above it, in the window, since its rows depend on the window's
+  width ([ADR 0100](adr/0100-soft-wrap.md)); whose the BlockMap is will be
+  decided when it comes. There are no placeholder layers.
 
 ## Cell grid
 
@@ -140,6 +154,22 @@ O(log n). This is cheaper than retrofitting variable heights later.
 
 Soft wrap is off by default and can be enabled per mode (for example Markdown
 or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
+[ADR 0100](adr/0100-soft-wrap.md) designs it:
+
+- `toggle-truncate-lines` (`C-x x t`, on `M-x` alone until the renderer draws
+  view rows) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that
+  marks a row that continues; below 8 columns nothing wraps.
+- Rows break after spaces, between CJK clusters, and with basic kinsoku, only
+  between display clusters. One space at a break may take the mark's column.
+- The WrapMap is the window's: a `SumTree` of breaks in bounded items. Motion,
+  kills and `TAB` read `DisplayPoint`s as before; what draws and scrolls reads
+  view rows. A window's top is an offset, and the window shows from the start
+  of the view row that holds it ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
+- An edit rewraps near itself, within a budget, on clones committed with the
+  buffer ([ADR 0053](adr/0053-edit-core.md)). A width change, a load, a large
+  edit or a stale tail wraps on a worker. Until it reports, the rows near the
+  view are wrapped at once from an anchor, within what the command left of its
+  budget, and the rest count one row a logical line.
 
 ## Decorations
 

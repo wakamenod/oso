@@ -395,6 +395,7 @@ impl Editor {
             staged.changed(),
             Selected::Logged,
         );
+        let views = self.moved_views(id, &staged.display(), staged.steps(), staged.rewrap());
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {
             buffer.commit_internal(staged);
@@ -402,6 +403,7 @@ impl Editor {
         for (index, set) in moved {
             self.windows[index].selections = set;
         }
+        self.commit_views(id, views);
         if self.window().buffer() == id {
             self.follow_cursor();
         }
@@ -739,11 +741,7 @@ mod tests {
         for index in 0..10 {
             editor.message(format!("{index}"));
         }
-        assert_eq!(
-            editor.window().scroll().top,
-            8,
-            "the empty last row in view"
-        );
+        assert_eq!(editor.top_row(), 8, "the empty last row in view");
     }
 
     #[test]

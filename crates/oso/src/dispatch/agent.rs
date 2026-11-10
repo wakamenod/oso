@@ -391,6 +391,12 @@ mod tests {
                 .contains("needs a person")
         );
         assert!(refused("answer-yes", Given::Nothing, Reach::Look).contains("needs a person"));
+        // Whitespace's marks show lookalike spaces, so an agent may not turn them off, even
+        // with a count that would; the current line's band it may (ADR 0097).
+        assert!(
+            refused("global-whitespace-mode", Given::Count(0), Reach::Look)
+                .contains("needs a person")
+        );
         assert!(refused("delete-char", Given::Nothing, Reach::Look).contains("changes"));
         assert!(refused("forward-char", Given::Nothing, Reach::Change).contains("only looks"));
         assert!(refused("goto-line", Given::Nothing, Reach::Look).contains("needs a number"));

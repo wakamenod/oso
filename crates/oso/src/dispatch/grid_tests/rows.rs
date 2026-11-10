@@ -9,24 +9,32 @@ use std::ops::{ControlFlow, Range};
 use oso_core::display_map::{
     CellRun, CellStyle, DisplayPoint, DisplaySnapshot, Preedit, row_clusters,
 };
-use oso_core::window::Scroll;
+use oso_core::window::ViewTop;
 
 /// The left half of a wide cluster cut off by the right edge of the window.
 const LEFT_HALF: char = '▌';
 /// The right half of a wide cluster cut off by the left edge of the window.
 const RIGHT_HALF: char = '▐';
 
+/// How a row is drawn beyond its text: the mark under the cursor box, and whether
+/// whitespace is marked, as the renderer draws a buffer's rows with it (ADR 0097).
+#[derive(Clone, Copy)]
+pub(super) struct Style {
+    pub(super) cursor: char,
+    pub(super) whitespace: bool,
+}
+
 /// The text of one row of `columns` cells and a mark for each of them. `cursor`
 /// holds the cells under the cursor box, counted from the row's left edge, which get
-/// `mark`. A `preedit` goes in at its column.
+/// `style`'s mark. A `preedit` goes in at its column, with no whitespace marked in it.
 pub(super) fn draw_row(
     display: &DisplaySnapshot,
     row: usize,
-    scroll: Scroll,
+    scroll: ViewTop,
     columns: usize,
     cursor: Range<usize>,
     preedit: Option<(usize, &Preedit)>,
-    mark: char,
+    style: Style,
 ) -> (String, Vec<char>) {
     let view = scroll.left..scroll.left + columns;
     let mut text = String::new();
@@ -36,6 +44,7 @@ pub(super) fn draw_row(
         display,
         DisplayPoint::new(row, view.start),
         preedit,
+        style.whitespace,
         |cluster, _| {
             if cluster.column >= view.end {
                 return ControlFlow::Break(());
@@ -61,7 +70,7 @@ pub(super) fn draw_row(
         },
     );
     text.extend(std::iter::repeat_n(' ', view.end - drawn));
-    marks[cursor].fill(mark);
+    marks[cursor].fill(style.cursor);
     (text, marks)
 }
 
@@ -76,6 +85,7 @@ pub(super) fn draw_run(run: &CellRun<'_>, start: usize, marks: &mut [char], text
             (CellStyle::Text, [first, second]) => (*first, *second) = ('<', '>'),
             (CellStyle::Escape, _) => marks.fill('~'),
             (CellStyle::Boxed, _) => marks.fill('#'),
+            (CellStyle::Whitespace, _) => marks.fill('w'),
             (CellStyle::Text, _) => {}
         }
     } else if start == run.column {

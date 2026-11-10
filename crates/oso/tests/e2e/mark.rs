@@ -16,6 +16,7 @@ fn a_region_from_shifted_keys_is_drawn_and_a_secret_buffer_shows_none_of_it() {
     let file = scratch.write("notes.txt", b"abc\ndef\n");
     let env = scratch.write(".env", format!("{FAKE_SECRET}\n").as_bytes());
     let mut app = App::start(Some(&file), scratch.path());
+    app.visual_aids_off();
     let state = app.wait_until_ready();
     let notes = state["buffer"]["id"].clone();
     let before = app.screenshot().foreground().expect("the text is drawn");

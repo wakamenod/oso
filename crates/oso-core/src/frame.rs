@@ -28,7 +28,7 @@ use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion;
 use crate::selection::{Selection, SelectionSet};
 use crate::sum_tree::Bias;
-use crate::window::{Scroll, ViewSize};
+use crate::window::{ViewSize, ViewTop};
 
 /// The rows a frame reserves below the text area: the modeline and the echo
 /// area.
@@ -304,11 +304,11 @@ fn answer_regions(frame: &FrameLayout, rows: usize) -> FloatRegions {
 /// cuts keeps the part in view, and `None` means none of it is.
 pub fn cursor_rect(
     text: CellRect,
-    scroll: Scroll,
+    scroll: ViewTop,
     point: DisplayPoint,
     cells: usize,
 ) -> Option<CellRect> {
-    let row = point.row.checked_sub(scroll.top)?;
+    let row = point.row.checked_sub(scroll.row)?;
     let start = point.column.max(scroll.left);
     let end = point
         .column
@@ -333,7 +333,7 @@ pub fn cursor_rect(
 /// frame costs two conversions for each one shown, however many are out of view.
 pub fn other_cursor_cells(
     text: CellRect,
-    scroll: Scroll,
+    scroll: ViewTop,
     display: &DisplaySnapshot,
     selections: &SelectionSet,
     preedit: Option<(DisplayPoint, usize)>,
@@ -346,15 +346,15 @@ pub fn other_cursor_cells(
     let row_start = |row| display.display_point_to_offset(DisplayPoint::new(row, 0), Bias::Left);
     // Past the last row, the end of the buffer, where a cursor can also be.
     let (start, end) = (
-        row_start(scroll.top),
-        row_start(scroll.top.saturating_add(text.rows)),
+        row_start(scroll.row),
+        row_start(scroll.row.saturating_add(text.rows)),
     );
     let all = selections.as_slice();
     let first = all.partition_point(|selection| selection.cursor < start);
     for (index, selection) in all.iter().enumerate().skip(first) {
         let past = selection.cursor > end
             || (selection.cursor == end
-                && scroll.top.saturating_add(text.rows) < display.row_count());
+                && scroll.row.saturating_add(text.rows) < display.row_count());
         if past {
             break;
         }
@@ -386,7 +386,7 @@ pub fn other_cursor_cells(
 /// out of view.
 pub fn region_cells(
     text: CellRect,
-    scroll: Scroll,
+    scroll: ViewTop,
     display: &DisplaySnapshot,
     selections: &SelectionSet,
     preedit: Option<(DisplayPoint, usize)>,
@@ -411,7 +411,7 @@ pub fn region_cells(
 /// whose line break is in one filled to the right edge. For isearch's matches (ADR 0082).
 pub fn match_cells(
     text: CellRect,
-    scroll: Scroll,
+    scroll: ViewTop,
     display: &DisplaySnapshot,
     ranges: &[Range<usize>],
     out: &mut Vec<CellRect>,
@@ -430,7 +430,7 @@ pub fn match_cells(
 #[derive(Clone, Copy)]
 struct Place<'a> {
     text: CellRect,
-    scroll: Scroll,
+    scroll: ViewTop,
     display: &'a DisplaySnapshot,
     preedit: Option<(DisplayPoint, usize)>,
 }
@@ -449,9 +449,9 @@ fn range_cells<T>(
         display,
         preedit,
     } = place;
-    let rows = scroll.top
+    let rows = scroll.row
         ..scroll
-            .top
+            .row
             .saturating_add(text.rows)
             .min(display.row_count());
     let columns = scroll.left..scroll.left.saturating_add(text.columns);
@@ -784,7 +784,7 @@ mod tests {
     #[test]
     fn the_cursor_cell_moves_with_the_scroll_position() {
         let text = rect(0, 0, 10, 20);
-        let scroll = Scroll { top: 5, left: 2 };
+        let scroll = ViewTop { row: 5, left: 2 };
         assert_eq!(
             cursor_rect(text, scroll, DisplayPoint::new(7, 3), 1),
             Some(rect(2, 1, 1, 1))
@@ -799,28 +799,28 @@ mod tests {
     #[test]
     fn a_cursor_out_of_view_has_no_cell() {
         let text = rect(0, 0, 10, 20);
-        let scroll = Scroll { top: 5, left: 2 };
+        let scroll = ViewTop { row: 5, left: 2 };
         for (row, column) in [(4, 3), (15, 3), (7, 1), (7, 22)] {
             let point = DisplayPoint::new(row, column);
             assert_eq!(cursor_rect(text, scroll, point, 1), None, "{point:?}");
         }
         let empty = rect(0, 0, 0, 20);
         let point = DisplayPoint::new(0, 0);
-        assert_eq!(cursor_rect(empty, Scroll::default(), point, 1), None);
+        assert_eq!(cursor_rect(empty, ViewTop::default(), point, 1), None);
     }
 
     #[test]
     fn a_cursor_rectangle_stops_at_the_right_edge() {
         let text = rect(0, 0, 10, 20);
         let point = DisplayPoint::new(0, 19);
-        let cells = cursor_rect(text, Scroll::default(), point, 2);
+        let cells = cursor_rect(text, ViewTop::default(), point, 2);
         assert_eq!(cells, Some(rect(0, 19, 1, 1)));
     }
 
     #[test]
     fn a_cursor_rectangle_stops_at_the_left_edge() {
         let text = rect(0, 0, 10, 20);
-        let scroll = Scroll { top: 0, left: 5 };
+        let scroll = ViewTop { row: 0, left: 5 };
         let at = |column, cells| cursor_rect(text, scroll, DisplayPoint::new(0, column), cells);
         assert_eq!(
             at(4, 2),
@@ -834,7 +834,7 @@ mod tests {
     #[test]
     fn a_cursor_rectangle_cut_on_both_sides_fills_the_area() {
         let text = rect(0, 0, 10, 4);
-        let scroll = Scroll { top: 0, left: 5 };
+        let scroll = ViewTop { row: 0, left: 5 };
         let cells = cursor_rect(text, scroll, DisplayPoint::new(0, 3), 64);
         assert_eq!(cells, Some(rect(0, 0, 1, 4)));
     }
@@ -842,7 +842,7 @@ mod tests {
     #[test]
     fn a_cursor_rectangle_keeps_to_an_area_away_from_the_origin() {
         let text = rect(3, 7, 10, 20);
-        let scroll = Scroll { top: 5, left: 2 };
+        let scroll = ViewTop { row: 5, left: 2 };
         let cells = cursor_rect(text, scroll, DisplayPoint::new(6, 1), 2);
         assert_eq!(cells, Some(rect(4, 7, 1, 1)));
     }
@@ -851,10 +851,10 @@ mod tests {
     fn huge_positions_do_not_overflow() {
         let text = rect(0, 0, 10, 20);
         let far = DisplayPoint::new(0, usize::MAX);
-        let scroll = Scroll { top: 0, left: 5 };
+        let scroll = ViewTop { row: 0, left: 5 };
         assert_eq!(cursor_rect(text, scroll, far, usize::MAX), None);
-        let scroll = Scroll {
-            top: 0,
+        let scroll = ViewTop {
+            row: 0,
             left: usize::MAX,
         };
         let cells = cursor_rect(text, scroll, far, 1);
@@ -872,7 +872,7 @@ mod tests {
 
         fn cells(
             columns: usize,
-            scroll: Scroll,
+            scroll: ViewTop,
             parts: &[(usize, usize)],
             region: MarkActive,
             preedit: Option<(DisplayPoint, usize)>,
@@ -893,7 +893,7 @@ mod tests {
                 .collect()
         }
 
-        const AT_TOP: Scroll = Scroll { top: 0, left: 0 };
+        const AT_TOP: ViewTop = ViewTop { row: 0, left: 0 };
 
         #[test]
         fn a_region_fills_its_rows_and_to_the_edge_where_its_line_break_is() {
@@ -917,13 +917,13 @@ mod tests {
 
         #[test]
         fn only_the_part_in_view_is_taken_in_the_areas_cells() {
-            let left = Scroll { top: 0, left: 1 };
+            let left = ViewTop { row: 0, left: 1 };
             let found = cells(5, left, &[(13, 2)], MarkActive::Active, None);
             assert_eq!(found, [(0, 1, 4), (1, 0, 5), (2, 0, 5), (3, 0, 1)]);
-            let down = Scroll { top: 2, left: 0 };
+            let down = ViewTop { row: 2, left: 0 };
             let found = cells(5, down, &[(13, 2)], MarkActive::Active, None);
             assert_eq!(found, [(0, 0, 5), (1, 0, 2)]);
-            let below = Scroll { top: 3, left: 0 };
+            let below = ViewTop { row: 3, left: 0 };
             assert_eq!(
                 cells(5, below, &[(1, 0)], MarkActive::Active, None),
                 [],
@@ -1019,7 +1019,7 @@ mod tests {
             row in 0usize..200, column in 0usize..200, cells in 1usize..70,
         ) {
             let text = frame(rows, columns).window.text;
-            let scroll = Scroll { top, left };
+            let scroll = ViewTop { row: top, left };
             let found = cursor_rect(text, scroll, DisplayPoint::new(row, column), cells);
             let visible = (left..left + text.columns)
                 .filter(|c| (column..column + cells).contains(c))
@@ -1046,7 +1046,7 @@ mod tests {
             rows: 2,
             columns: 10,
         };
-        let scroll = Scroll { top: 1, left: 0 };
+        let scroll = ViewTop { row: 1, left: 0 };
         let parts = [0, 3, 6, 8, 11].into_iter().map(Selection::at).collect();
         let selections = SelectionSet::from_parts(parts, 2).unwrap();
         let mut out = Vec::new();
@@ -1090,7 +1090,7 @@ mod tests {
         let mut out = Vec::new();
         other_cursor_cells(
             area,
-            Scroll::default(),
+            ViewTop::default(),
             &display,
             &selections,
             None,

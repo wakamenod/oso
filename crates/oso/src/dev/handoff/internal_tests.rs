@@ -35,7 +35,7 @@ fn messages_hold_no_restart_and_change_no_generation() {
 fn a_window_on_messages_hands_over_where_it_goes_back_to() {
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\ndef\n");
     let at = SelectionSet::new(5);
-    let scroll = Scroll { top: 1, left: 0 };
+    let scroll = Scroll { start: 4, left: 0 };
     editor.restore_positions(at.clone(), scroll);
     editor.message("Wrote a.txt");
     editor.toggle_messages();
@@ -59,7 +59,7 @@ fn a_window_on_messages_hands_over_where_it_goes_back_to() {
 fn a_window_on_the_emergency_copies_hands_over_where_it_goes_back_to() {
     let mut editor = visiting(&absolute("/p/a.txt"), "abc\ndef\n");
     let at = SelectionSet::new(5);
-    let scroll = Scroll { top: 1, left: 0 };
+    let scroll = Scroll { start: 4, left: 0 };
     editor.restore_positions(at.clone(), scroll);
     editor.toggle_copies();
     let state = export(&editor, &[], None, None).unwrap();
@@ -160,6 +160,7 @@ fn positions_still_waiting_behind_messages_are_the_imported_ones() {
         buffer: id,
         selections: SelectionSet::new(2),
         scroll: Scroll::default(),
+        top_is_row: false,
     };
     let state = export(&editor, &[], None, Some(&restore)).unwrap();
     assert_eq!(state["windows"][0]["selections"][0]["cursor"], 2);

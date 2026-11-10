@@ -29,6 +29,8 @@ mod find;
 mod isearch_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod word_tests;
 mod worker;
 
 pub use find::Toward;
@@ -478,10 +480,19 @@ impl Editor {
     fn select_words(&mut self) -> Result<Range<usize>, CursorError> {
         let display = self.current().1.display();
         let selections = &mut self.windows[self.selected].selections;
-        let primary =
-            word_around(&display, selections.primary().cursor).ok_or(CursorError::NoWord)?;
+        // The cursors share one command's reading, the primary's first, as its word is the
+        // query; one it runs out on selects nothing (ADR 0101).
+        let mut budget = WalkBudget::for_cursors(selections.len());
+        let primary = word_around(&display, selections.primary().cursor, &mut budget)
+            .ok_or(CursorError::NoWord)?;
+        let (primary_index, mut index) = (selections.primary_index(), 0);
         selections.update(|selection| {
-            let word = word_around(&display, selection.cursor);
+            let word = if index == primary_index {
+                Some(primary.clone())
+            } else {
+                word_around(&display, selection.cursor, &mut budget)
+            };
+            index += 1;
             let range = word.unwrap_or(selection.cursor..selection.cursor);
             selection.mark = Some(range.start);
             selection.move_to(range.end);
@@ -526,11 +537,15 @@ fn oriented(range: &Range<usize>, forward: bool) -> Selection {
     }
 }
 
-/// The word around `offset`: the one it is in or at the start of, or the one it ends.
-fn word_around(display: &DisplaySnapshot, offset: usize) -> Option<Range<usize>> {
-    let mut budget = WalkBudget::new();
+/// The word around `offset`: the one it is in or at the start of, or the one it ends,
+/// reading from `budget`. None if the budget runs out on it.
+fn word_around(
+    display: &DisplaySnapshot,
+    offset: usize,
+    budget: &mut WalkBudget,
+) -> Option<Range<usize>> {
     let end = if word::word_at(display, offset) {
-        word::forward_word(display, offset, &mut budget)
+        word::forward_word(display, offset, budget)
     } else {
         let before = motion::prev_cluster(display, offset)?;
         if !word::word_at(display, before) {
@@ -538,6 +553,6 @@ fn word_around(display: &DisplaySnapshot, offset: usize) -> Option<Range<usize>>
         }
         offset
     };
-    let start = word::backward_word(display, end, &mut budget);
-    (start < end).then_some(start..end)
+    let start = word::backward_word(display, end, budget);
+    (start < end && !budget.is_spent()).then_some(start..end)
 }

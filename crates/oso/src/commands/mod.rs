@@ -8,6 +8,7 @@
 //! host-owned state and does not know its keys.
 
 mod agent;
+mod aids;
 mod buffers;
 mod complete;
 mod cursors;
@@ -27,6 +28,7 @@ mod save;
 mod scroll;
 mod session;
 mod theme;
+mod view;
 
 #[cfg(test)]
 pub(crate) use messages::kept_messages;
@@ -39,6 +41,7 @@ use oso_core::motion::{TOO_MUCH, WalkBudget};
 /// register in: a list shown to the user decides its own order.
 #[rustfmt::skip]
 const TABLES: &[&[Command]] = &[
+    aids::COMMANDS,
     agent::COMMANDS,
     complete::COMMANDS,
     cursors::COMMANDS,
@@ -59,6 +62,7 @@ const TABLES: &[&[Command]] = &[
     scroll::COMMANDS,
     session::COMMANDS,
     theme::COMMANDS,
+    view::COMMANDS,
 ];
 
 /// Refuses a command that would change which buffer a window shows, while a prompt is
@@ -193,6 +197,8 @@ mod tests {
             // Exiting, and leaving what the person is doing.
             "keyboard-quit",
             "save-buffers-kill-terminal",
+            // Whitespace's marks, which show lookalike spaces (ADR 0097).
+            "global-whitespace-mode",
             // The theme, which is the person's and is remembered on disk (ADR 0089).
             "load-theme",
             "toggle-theme",

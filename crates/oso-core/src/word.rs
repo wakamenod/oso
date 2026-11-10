@@ -23,9 +23,8 @@
 //! `WalkBudget`), as a long run with no boundary must not stall a key.
 
 use crate::display_map::cell::{is_mark, takes_no_cells};
-use crate::display_map::{CellKind, DisplayCluster, DisplayPoint, DisplaySnapshot};
-use crate::motion::{self, SEEK_COST, StopWalk, WalkBudget};
-use crate::sum_tree::Bias;
+use crate::display_map::{CellKind, DisplaySnapshot, Piece, PiecesBefore};
+use crate::motion::{SEEK_COST, StopWalk, WalkBudget};
 
 /// What a cluster is to word motion. Everything but [`Class::NotWord`] is part of a
 /// word, and a word breaks where its class changes.
@@ -185,27 +184,24 @@ impl Kind {
         long_vowel: false,
     };
 
-    fn of(cluster: &DisplayCluster<'_>) -> Self {
-        match cluster.kind {
-            CellKind::Text => cluster
-                .text
-                .chars()
-                .next()
-                .map_or(Self::NOT_WORD, |c| Self {
-                    class: if asks_for_emoji(cluster.text, c) {
-                        Class::Emoji
-                    } else {
-                        class_of(c)
-                    },
-                    case: if c.is_uppercase() {
-                        Case::Upper
-                    } else if c.is_lowercase() || c.is_numeric() {
-                        Case::Lower
-                    } else {
-                        Case::None
-                    },
-                    long_vowel: matches!(c, 'ー' | 'ｰ'),
-                }),
+    /// The kind of a display cluster of `kind` that reads `text`.
+    fn of(kind: CellKind, text: &str) -> Self {
+        match kind {
+            CellKind::Text => text.chars().next().map_or(Self::NOT_WORD, |c| Self {
+                class: if asks_for_emoji(text, c) {
+                    Class::Emoji
+                } else {
+                    class_of(c)
+                },
+                case: if c.is_uppercase() {
+                    Case::Upper
+                } else if c.is_lowercase() || c.is_numeric() {
+                    Case::Lower
+                } else {
+                    Case::None
+                },
+                long_vowel: matches!(c, 'ー' | 'ｰ'),
+            }),
             CellKind::PastLimit(_) => Self {
                 class: Class::Mark,
                 ..Self::NOT_WORD
@@ -257,50 +253,68 @@ fn starts_word(before: Kind, next: Kind, after: Kind) -> bool {
     next.is_word() && (!before.is_word() || splits(before, next, after))
 }
 
-/// What the last cluster before `point` on its row is, passing marks: what a mark at
-/// `point` belongs to. Not a word if it reaches the start of the row, or if the stop has
-/// read all it may.
-fn kind_before_marks(
-    display: &DisplaySnapshot,
-    mut point: DisplayPoint,
+/// The kind of `piece`.
+fn kind_of(piece: &Piece<'_>) -> Kind {
+    Kind::of(piece.kind, piece.text)
+}
+
+/// `piece` as the next cluster on its line: none for a line break, which ends the line.
+fn on_line(piece: Option<Piece<'_>>) -> Option<Piece<'_>> {
+    piece.filter(|piece| piece.kind != CellKind::LineBreak)
+}
+
+/// Takes from `walk` what reading `piece` costs: its bytes, and a seek for each stretch the
+/// reader went back to since the last piece, as a window back cost one. The first stretch
+/// is where the reading starts, an entry seek (ADR 0101).
+fn read(
     walk: &mut StopWalk<'_>,
-) -> Kind {
-    let mut end = display.display_point_to_offset(point, Bias::Left);
-    while point.column > 0 {
-        let mut read = SEEK_COST;
-        let mut last = None;
-        let mut first = None;
-        for cluster in motion::clusters_before(display, point, end) {
-            first.get_or_insert((cluster.offset, cluster.column));
-            read += cluster.text.len();
-            let kind = Kind::of(&cluster);
-            if !kind.is_mark() {
-                last = Some(kind);
-            }
+    piece: &Piece<'_>,
+    pieces: &PiecesBefore<'_>,
+    seeks: &mut usize,
+) -> bool {
+    let refills = pieces.refills();
+    let mut new = refills - *seeks;
+    let first = *seeks == 0 && new > 0;
+    *seeks = refills;
+    if first {
+        if !walk.enter() {
+            return false;
         }
-        if !walk.spend(read) {
+        new -= 1;
+    }
+    walk.spend(piece.text.len() + new * SEEK_COST)
+}
+
+/// What the last cluster before `offset` on its line is, passing marks: what a mark at
+/// `offset` belongs to. Not a word at the start of the line, or if the stop has read all it
+/// may.
+fn kind_before_marks(display: &DisplaySnapshot, offset: usize, walk: &mut StopWalk<'_>) -> Kind {
+    let mut pieces = display.pieces_before(offset);
+    let mut seeks = 0;
+    while let Some(piece) = pieces.next() {
+        if !read(walk, &piece, &pieces, &mut seeks) || piece.kind == CellKind::LineBreak {
             return Kind::NOT_WORD;
         }
-        if let Some(last) = last {
-            return last;
+        let kind = kind_of(&piece);
+        if !kind.is_mark() {
+            return kind;
         }
-        let Some((offset, column)) = first else {
-            break;
-        };
-        end = offset;
-        point = DisplayPoint::new(point.row, column);
     }
     Kind::NOT_WORD
+}
+
+/// Whether `offset`, a cluster's start, starts its line.
+fn starts_line(display: &DisplaySnapshot, offset: usize) -> bool {
+    display
+        .pieces_before(offset)
+        .next()
+        .is_none_or(|piece| piece.kind == CellKind::LineBreak)
 }
 
 /// Whether a word is at `offset`: the cluster there is a word's, as [`forward_word`]
 /// reads it.
 pub(crate) fn word_at(display: &DisplaySnapshot, offset: usize) -> bool {
-    let point = display.offset_to_display_point(offset);
-    display
-        .clusters(point)
-        .next()
-        .is_some_and(|cluster| Kind::of(&cluster).is_word())
+    on_line(display.pieces_after(offset).next()).is_some_and(|piece| kind_of(&piece).is_word())
 }
 
 /// Whether a word starts at `offset`, as [`backward_word`] finds starts: the cluster there
@@ -313,31 +327,25 @@ pub(crate) fn may_start_word(
     budget: &mut WalkBudget,
 ) -> bool {
     let mut walk = budget.stop();
-    if !walk.spend(SEEK_COST) {
+    if !walk.enter() {
         return true;
     }
-    let point = display.offset_to_display_point(offset);
-    let mut clusters = display.clusters(point);
-    let Some(kind) = clusters.next().map(|cluster| Kind::of(&cluster)) else {
+    let offset = display.cluster_at(offset).0;
+    let mut pieces = display.pieces_after(offset);
+    let Some(kind) = on_line(pieces.next()).map(|piece| kind_of(&piece)) else {
         return false;
     };
     if kind.is_mark() {
         return false;
     }
-    let after = clusters
-        .next()
-        .map_or(Kind::NOT_WORD, |cluster| Kind::of(&cluster));
-    let before = if point.column == 0 {
-        Kind::NOT_WORD
-    } else {
-        kind_before_marks(display, point, &mut walk)
-    };
+    let after = on_line(pieces.next()).map_or(Kind::NOT_WORD, |piece| kind_of(&piece));
+    let before = kind_before_marks(display, offset, &mut walk);
     starts_word(before, kind, after)
 }
 
 /// Whether a word ends at `offset`, as [`forward_word`] finds ends: the last cluster before
 /// it, passing marks, is a word's, and the cluster at `offset` is no mark and no word, or
-/// splits from it, or the row ends there. Reads only the clusters around `offset`, within
+/// splits from it, or the line ends there. Reads only the clusters around `offset`, within
 /// `budget`: marks past it before `offset` count as no word (ADR 0091).
 pub(crate) fn may_end_word(
     display: &DisplaySnapshot,
@@ -345,22 +353,20 @@ pub(crate) fn may_end_word(
     budget: &mut WalkBudget,
 ) -> bool {
     let mut walk = budget.stop();
-    if !walk.spend(SEEK_COST) {
+    if !walk.enter() {
         return true;
     }
-    let point = display.offset_to_display_point(offset);
-    if point.column == 0 {
+    let offset = display.cluster_at(offset).0;
+    if starts_line(display, offset) {
         return false;
     }
-    let mut clusters = display.clusters(point);
-    let next = clusters.next().map(|cluster| Kind::of(&cluster));
+    let mut pieces = display.pieces_after(offset);
+    let next = on_line(pieces.next()).map(|piece| kind_of(&piece));
     if next.is_some_and(Kind::is_mark) {
         return false;
     }
-    let after = clusters
-        .next()
-        .map_or(Kind::NOT_WORD, |cluster| Kind::of(&cluster));
-    let before = kind_before_marks(display, point, &mut walk);
+    let after = on_line(pieces.next()).map_or(Kind::NOT_WORD, |piece| kind_of(&piece));
+    let before = kind_before_marks(display, offset, &mut walk);
     before.is_word() && next.is_none_or(|next| !next.is_word() || splits(before, next, after))
 }
 
@@ -369,153 +375,104 @@ pub(crate) fn may_end_word(
 /// the stop or the command has read all it may.
 pub fn forward_word(display: &DisplaySnapshot, offset: usize, budget: &mut WalkBudget) -> usize {
     let mut walk = budget.stop();
-    if !walk.spend(SEEK_COST) {
+    if !walk.enter() {
         return offset;
     }
-    let mut point = display.offset_to_display_point(offset);
     let mut end = offset;
+    let mut pieces = display.pieces_after(offset).peekable();
     // The word's last cluster, passing marks. A cursor on a mark is in what it follows.
-    let starts_on_mark = display
-        .clusters(point)
-        .next()
-        .is_some_and(|cluster| Kind::of(&cluster).is_mark());
+    let starts_on_mark =
+        on_line(pieces.peek().copied()).is_some_and(|piece| kind_of(&piece).is_mark());
     let mut word = if starts_on_mark {
-        Some(kind_before_marks(display, point, &mut walk)).filter(|kind| kind.is_word())
+        let start = display.cluster_at(offset).0;
+        Some(kind_before_marks(display, start, &mut walk)).filter(|kind| kind.is_word())
     } else {
         None
     };
-    loop {
-        let mut clusters = display.clusters(point).peekable();
-        // The kind of the next cluster, found by looking ahead.
-        let mut peeked = None;
-        while let Some(cluster) = clusters.next() {
-            if !walk.spend(cluster.text.len()) {
+    // The kind of the next cluster, found by looking ahead.
+    let mut peeked = None;
+    while let Some(piece) = pieces.next() {
+        if piece.kind == CellKind::LineBreak {
+            // A line break ends a word; past it, the next line is read for one.
+            if word.is_some() || !walk.spend(SEEK_COST) {
                 return end;
             }
-            let kind = peeked.take().unwrap_or_else(|| Kind::of(&cluster));
-            let after = clusters.peek().map_or(Kind::NOT_WORD, Kind::of);
-            peeked = Some(after);
-            if !kind.is_mark() {
-                match word {
-                    Some(before) if !kind.is_word() || splits(before, kind, after) => {
-                        return cluster.offset;
-                    }
-                    _ => word = kind.is_word().then_some(kind),
-                }
-            }
-            end = cluster.offset + cluster.text.len();
+            end = piece.offset + piece.text.len();
+            peeked = None;
+            continue;
         }
-        if word.is_some() || point.row + 1 >= display.row_count() || !walk.spend(SEEK_COST) {
+        if !walk.spend(piece.text.len()) {
             return end;
         }
-        point = DisplayPoint::new(point.row + 1, 0);
-        end = motion::line_start(display, point.row);
+        let kind = peeked.take().unwrap_or_else(|| kind_of(&piece));
+        let after = on_line(pieces.peek().copied()).map_or(Kind::NOT_WORD, |piece| kind_of(&piece));
+        peeked = Some(after);
+        if !kind.is_mark() {
+            match word {
+                Some(before) if !kind.is_word() || splits(before, kind, after) => {
+                    return piece.offset;
+                }
+                _ => word = kind.is_word().then_some(kind),
+            }
+        }
+        end = piece.offset + piece.text.len();
     }
-}
-
-/// The first cluster of a window that has been read, for the window before it.
-#[derive(Clone, Copy)]
-struct Read {
-    offset: usize,
-    column: usize,
-    len: usize,
-    kind: Kind,
+    end
 }
 
 /// Where the last word that starts before `offset` starts: past what is not a word,
 /// and back to the word's start. The start of the buffer if there is none. It stops
 /// short if the stop or the command has read all it may.
+///
+/// It reads back one cluster at a time. A cluster that is no mark waits for the one before
+/// it that is no mark, or for the start of its line, which decide whether a word starts at
+/// it, with the cluster right after it.
 pub fn backward_word(display: &DisplaySnapshot, offset: usize, budget: &mut WalkBudget) -> usize {
     let mut walk = budget.stop();
-    if !walk.spend(SEEK_COST) {
+    if !walk.enter() {
         return offset;
     }
-    let mut point = display.offset_to_display_point(offset);
-    let mut earliest = display.display_point_to_offset(point, Bias::Left);
-    // What follows the window: its first cluster's next neighbor decides the last
-    // cluster's start, and the first cluster of the window after waits for what
-    // comes before it.
-    let mut after = display
-        .clusters(point)
-        .next()
-        .map_or(Kind::NOT_WORD, |cluster| Kind::of(&cluster));
-    let mut waiting: Option<Read> = None;
-    loop {
-        let from_row_start = point.column <= motion::BACK_WINDOW;
-        // What comes before the cluster under decision, passing marks.
-        let mut before = from_row_start.then_some(Kind::NOT_WORD);
-        let mut found = None;
-        // The first cluster of the window, for where to go on from.
-        let mut first: Option<Read> = None;
-        // The first cluster with no known kind before it, which the window before
-        // this one decides, and what follows it.
-        let mut undecided: Option<(Read, Kind)> = None;
-        let mut current: Option<Read> = None;
-        let mut read = 0;
-        let mut decide = |cluster: Read, next: Kind, before: &mut Option<Kind>| {
-            match *before {
-                Some(kind) if starts_word(kind, cluster.kind, next) => found = Some(cluster.offset),
-                Some(_) => {}
-                None => undecided = undecided.or(Some((cluster, next))),
-            }
-            *before = Some(cluster.kind);
-        };
-        let window = motion::clusters_before(display, point, earliest).map(|cluster| Read {
-            offset: cluster.offset,
-            column: cluster.column,
-            len: cluster.text.len(),
-            kind: Kind::of(&cluster),
-        });
-        for next in window.chain(waiting) {
-            read += next.len;
-            first.get_or_insert(next);
-            if let Some(cluster) = current.take() {
-                decide(cluster, next.kind, &mut before);
-            }
-            if !next.kind.is_mark() {
-                current = Some(next);
-            }
-        }
-        if let Some(cluster) = current {
-            decide(cluster, after, &mut before);
-        }
-        let spent = walk.spend(read + SEEK_COST);
-        if let Some(found) = found {
-            return found;
-        }
-        earliest = first.map_or(earliest, |first| first.offset);
-        if !spent {
+    let start = display.cluster_at(offset).0;
+    // What follows the cluster read last: a mark or not, and no word past a line's end.
+    let mut after =
+        on_line(display.pieces_after(start).next()).map_or(Kind::NOT_WORD, |piece| kind_of(&piece));
+    let mut earliest = start;
+    // A cluster that is no mark, its kind, and what follows it, waiting for what is before.
+    let mut waiting: Option<(usize, Kind, Kind)> = None;
+    let mut pieces = display.pieces_before(start);
+    let mut seeks = 0;
+    while let Some(piece) = pieces.next() {
+        if !read(&mut walk, &piece, &pieces, &mut seeks) {
             return earliest;
         }
-        if from_row_start {
-            if point.row == 0 {
-                return 0;
-            }
-            let end = motion::line_end(display, point.row - 1);
-            earliest = end;
-            point = display.offset_to_display_point(end);
-            after = Kind::NOT_WORD;
-            waiting = None;
-        } else {
-            // Past the row's start is handled above, so a window always holds a
-            // cluster here.
-            let Some(first) = first else {
+        earliest = piece.offset;
+        if piece.kind == CellKind::LineBreak {
+            // Going back past a line's start costs a seek, as going on past its end does.
+            if !walk.spend(SEEK_COST) {
                 return earliest;
-            };
-            // Nothing undecided means only marks, which decide nothing, or that the
-            // kind after the window is the first cluster's.
-            match undecided {
-                Some((cluster, next)) => {
-                    waiting = Some(cluster);
-                    after = next;
-                }
-                None => {
-                    waiting = None;
-                    after = first.kind;
-                }
             }
-            point = DisplayPoint::new(point.row, first.column);
+            if let Some((at, kind, next)) = waiting.take()
+                && starts_word(Kind::NOT_WORD, kind, next)
+            {
+                return at;
+            }
+            after = Kind::NOT_WORD;
+            continue;
         }
+        let kind = kind_of(&piece);
+        if !kind.is_mark() {
+            if let Some((at, waited, next)) = waiting.take()
+                && starts_word(kind, waited, next)
+            {
+                return at;
+            }
+            waiting = Some((piece.offset, kind, after));
+        }
+        after = kind;
+    }
+    match waiting {
+        Some((at, kind, next)) if starts_word(Kind::NOT_WORD, kind, next) => at,
+        _ => 0,
     }
 }
 
@@ -543,9 +500,14 @@ pub fn move_words(
 }
 
 #[cfg(test)]
+mod by_points;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display_map::DisplayPoint;
     use crate::display_map::{DisplayMap, TabWidth};
+    use crate::motion;
     use crate::motion::next_cluster;
     use crate::rope::Rope;
     use proptest::prelude::*;
@@ -786,8 +748,8 @@ mod tests {
         assert_eq!(forward_word(&d, first, &mut budget), 2 * first);
         let back = backward_word(&d, text.len(), &mut budget);
         let read = text.len() - back;
-        // Less than it reads, as each window costs a seek as well.
-        assert!(read > motion::MAX_STOP_WALK / 8, "{read}");
+        // Less than it reads, as each stretch read back costs a seek as well (ADR 0101).
+        assert!(back > 0 && read > 0, "{read}");
         assert!(read <= motion::MAX_STOP_WALK, "{read}");
         assert!(!budget.is_spent(), "the command can go on");
         // Spaces and line breaks count too.
@@ -838,7 +800,10 @@ mod tests {
         for row in 0..d.row_count() {
             let row: Vec<_> = d
                 .clusters(DisplayPoint::new(row, 0))
-                .map(|cluster| (cluster.offset, cluster.text.len(), Kind::of(&cluster)))
+                .map(|cluster| {
+                    let kind = Kind::of(cluster.kind, cluster.text);
+                    (cluster.offset, cluster.text.len(), kind)
+                })
                 .collect();
             // What came before, passing marks.
             let mut before = Kind::NOT_WORD;
@@ -865,7 +830,7 @@ mod tests {
         words
     }
 
-    fn word_text() -> impl Strategy<Value = String> {
+    pub(super) fn word_text() -> impl Strategy<Value = String> {
         let piece = prop_oneof![
             Just("日本語"),
             Just("の"),

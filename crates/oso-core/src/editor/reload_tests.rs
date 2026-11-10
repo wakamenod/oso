@@ -140,10 +140,16 @@ fn the_view_keeps_its_top_row() {
     let content: String = (0..40).map(|i| format!("line {i}\n")).collect();
     let (mut editor, id) = visiting(&content);
     let top = content.find("line 20").unwrap();
-    editor.restore_positions(SelectionSet::new(top), Scroll { top: 20, left: 0 });
+    editor.restore_positions(
+        SelectionSet::new(top),
+        Scroll {
+            start: top,
+            left: 0,
+        },
+    );
     let changed = content.replace("line 3\n", "line three\n");
     reload(&mut editor, id, &changed);
-    assert_eq!(editor.window().scroll().top, 20);
+    assert_eq!(editor.top_row(), 20);
     assert_eq!(cursors(&editor), vec![top + 4]);
 }
 
@@ -488,4 +494,43 @@ proptest::proptest! {
             proptest::prop_assert!(cursor <= new.len() && new.is_char_boundary(cursor));
         }
     }
+}
+
+#[test]
+fn a_wrapped_buffer_read_again_wraps_its_new_text() {
+    use super::wrap_tests::{fresh, rows, settle};
+    let (mut editor, id) = visiting(&format!("{}\nend\n", "word ".repeat(60)));
+    assert!(editor.set_wraps(id, true));
+    settle(&mut editor);
+    reload(&mut editor, id, &format!("{}\nend\n", "word ".repeat(70)));
+    settle(&mut editor);
+    assert_eq!(rows(&editor), fresh(&editor));
+}
+
+#[test]
+fn a_change_around_the_view_keeps_its_top_row() {
+    let content: String = (0..40).map(|i| format!("line {i}\n")).collect();
+    let (mut editor, id) = visiting(&content);
+    let top = content.find("line 20").unwrap();
+    let cursor = content.find("line 22").unwrap();
+    editor.restore_positions(
+        SelectionSet::new(cursor),
+        Scroll {
+            start: top,
+            left: 0,
+        },
+    );
+    assert_eq!(editor.top_row(), 20);
+    // One change from line 3 to line 35, as two places changed on disk make.
+    let changed = content
+        .replace("line 3\n", "line three\n")
+        .replace("line 35\n", "line thirty-five\n");
+    reload(&mut editor, id, &changed);
+    assert_eq!(editor.top_row(), 20, "the top keeps its line");
+    // A text with invalid bytes is replaced whole, and the top still keeps its line.
+    let mut invalid = changed.into_bytes();
+    invalid.extend_from_slice(b"\xff\n");
+    let (reloaded, from) = read_again(&editor, id, &invalid);
+    editor.reload(id, reloaded, from);
+    assert_eq!(editor.top_row(), 20);
 }

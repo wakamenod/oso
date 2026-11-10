@@ -8,7 +8,7 @@
 use std::path::PathBuf;
 
 use super::recovery::NO_TIME;
-use super::{Buffer, DiskState, FileStamp, OffsetEdit, StagedEdit};
+use super::{Buffer, DiskState, FileStamp, OffsetEdit, Rewrap, StagedEdit};
 use crate::decode::FileInfo;
 use crate::load::{Change, LoadSnapshot};
 use crate::secret::{self, stricter};
@@ -186,6 +186,7 @@ impl Buffer {
             }],
             // The text was read again whole, with its own display map.
             changed: std::iter::once(0..snapshot.text.len()).collect(),
+            rewrap: Rewrap::Whole,
         })
     }
 

@@ -1,6 +1,6 @@
 # 0035. SumTree, rope chunks and the cell grid
 
-- Status: Accepted, amended by 0097
+- Status: Accepted, amended by 0097, 0099 and 0100
 - Date: 2026-11-03
 
 ## Context

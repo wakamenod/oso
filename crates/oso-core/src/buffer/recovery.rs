@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use super::{
-    Baseline, Buffer, ContentId, EditError, FileStamp, Mode, OffsetEdit, ReadOnly, StagedEdit,
-    Verdict,
+    Baseline, Buffer, ContentId, EditError, FileStamp, Mode, OffsetEdit, ReadOnly, Rewrap,
+    StagedEdit, Verdict,
 };
 use crate::decode::{FileInfo, LineEnding};
 use crate::load::Progress;
@@ -133,6 +133,7 @@ impl Buffer {
                 text: (old_len > 0).then(|| self.text.clone()),
             }],
             changed: std::iter::once(0..new_len).collect(),
+            rewrap: Rewrap::Whole,
         })
     }
 
