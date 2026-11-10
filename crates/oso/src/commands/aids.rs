@@ -24,6 +24,13 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Look,
         run: global_hl_line_mode,
     },
+    Command {
+        name: "beacon-mode",
+        doc: "Toggle the cursor flash after a large jump.\n\nThe flash fades from the cursor to the window's edge after a jump of 5 rows or more, a scroll on purpose or another buffer or window. A positive prefix argument turns it on, zero or a negative one off.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: beacon_mode,
+    },
 ];
 
 fn global_whitespace_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -33,6 +40,11 @@ fn global_whitespace_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandEr
 
 fn global_hl_line_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     switch(ctx, args, "Global Hl-Line", |aids| &mut aids.current_line);
+    Ok(())
+}
+
+fn beacon_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    switch(ctx, args, "Beacon", |aids| &mut aids.flash);
     Ok(())
 }
 
@@ -91,5 +103,20 @@ mod tests {
         let (_, effects) = run(&mut editor, "global-hl-line-mode", Args::numeric(1));
         assert!(effects.redraw);
         assert!(editor.visual_aids().current_line);
+    }
+
+    #[test]
+    fn beacon_mode_turns_the_flash_off_and_on() {
+        let mut editor = editor("abc");
+        assert!(editor.visual_aids().flash);
+        let _ = run(&mut editor, "beacon-mode", Args::NONE);
+        assert!(!editor.visual_aids().flash);
+        let said = kept_messages(&editor);
+        assert_eq!(
+            said.last().map(String::as_str),
+            Some("Beacon mode disabled")
+        );
+        let _ = run(&mut editor, "beacon-mode", Args::numeric(1));
+        assert!(editor.visual_aids().flash);
     }
 }

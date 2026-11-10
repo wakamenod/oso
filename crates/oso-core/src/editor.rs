@@ -61,7 +61,7 @@ mod yank_pop;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use agent::AgentChannel;
-pub use aids::VisualAids;
+pub use aids::{ViewSample, VisualAids};
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use cursors::{CursorError, Toward};

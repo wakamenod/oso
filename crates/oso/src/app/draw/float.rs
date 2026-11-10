@@ -565,5 +565,6 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) ->
         preedit: editor.preedit(),
         fills: &lines.fills,
         whitespace: false,
+        flash: None,
     })
 }

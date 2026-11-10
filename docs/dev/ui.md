@@ -361,8 +361,8 @@ toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
 - **Current line** (`global-hl-line-mode`): a band across the text area on the primary
   cursor's row, behind the region and isearch's matches.
 - **Cursor flash** (`beacon-mode`): after the cursor moves 5 or more rows, a command
-  scrolls the window (`C-v`, `M-v`, `C-l`, `M-<`, `M->`), or another buffer or window is
-  shown, a band from the cursor to the window's edge fades out over about 0.4 s. The
+  scrolls the window as far (`C-v`, `M-v`, `C-l`, `M-<`, `M->`), or another buffer or window
+  is shown, a band from the cursor to the window's edge fades out over about 0.4 s. The
   scrolling that follows the cursor and the wheel do not flash. The next key ends it.
 
 Off by default: **line numbers** (`global-display-line-numbers-mode`). They are absolute, the

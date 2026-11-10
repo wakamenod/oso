@@ -136,6 +136,18 @@ and nothing remembered. The rest is settled here.
   - the window is scrolled by a command that scrolls on purpose: `C-v`, `M-v`, `C-l`,
     `M-<`, `M->`;
   - another buffer is shown in the window, or another window is selected.
+  - Erratum (2026-11-10, as built): a scroll counts when it moves the view's top 5 rows or
+    more, as the cursor's move does. The view follows the cursor by the fewest rows, so
+    following moves it that far only when the cursor moves as far too. A `C-l` or `C-v`
+    that moves the view less, near a buffer's end or in a window of few rows, does not
+    flash. An agent's command that jumps flashes too, so the person sees where the view
+    went, but ends no flash, as it is no key. That is a convenience, not a safeguard, so
+    `beacon-mode` stays `Look` (the author's choice).
+  - Erratum (2026-11-10, the author's choice): an edit that moves the cursor 5 rows or more,
+    such as a yank of many lines or `C-w` of a long region, flashes too, as Emacs's beacon
+    does. The trigger compares the view, not the command. Every input asks it in one place,
+    the dispatcher's, so keys, typed text, an input method's text, a held completion's
+    answer and a yank's clipboard answer are all asked alike.
 - **It does not flash for:**
   - the scrolling that only follows the cursor, a row or a few, as `C-n` and typing do;
   - the wheel;
@@ -155,6 +167,14 @@ and nothing remembered. The rest is settled here.
     what is shaped already. Nothing is reshaped.
   - At rest it asks for nothing. A key during the fade ends it first, so typing never
     waits on it.
+  - Erratum (2026-11-10, measured): a frame every 16 ms ran ahead of a 60 Hz display and
+    filled the swap chain, so a key's frame waited about two refreshes: the bench's key p99
+    went from 2.7 ms to 25 ms on the Mac mini. The flash's frames are now paced off the
+    frames drawn, not a timer: the next is asked for only once the last is drawn, 33 ms
+    after it, and later again by as long as drawing it took, which is long when the display
+    has no room. So they never queue behind each other at any refresh rate, and a fade has
+    about 12 frames. Once it has faded, the frame that clears it is asked for whatever was
+    drawn, so a hidden window still sees it end.
 - **One place sets the event loop's wake:** the earliest of every deadline the app keeps,
   the flash's next frame and the saves' idle wait among them. `wake_at` holds one
   deadline, so two places setting it would cancel each other.
