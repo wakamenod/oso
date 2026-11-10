@@ -62,8 +62,8 @@ impl Editor {
         window.set_view_top(ViewTop { row, left }, &display)
     }
 
-    /// Lays out the frame whose text area is `size`, for tests that think in text
-    /// rows. Returns whether the view moved.
+    /// Lays out the frame whose text area is `size` while line numbers are off, for tests
+    /// that think in text rows. Returns whether the view moved.
     pub fn set_view_size(&mut self, size: ViewSize) -> bool {
         self.set_frame_size(FrameSize::holding(size))
     }
@@ -259,6 +259,8 @@ impl Editor {
     /// Puts back the selected window's cursors and view, saved together as a
     /// state handoff does, then scrolls as little as shows its primary cursor.
     pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
+        // Against the gutter the text loaded so far needs (ADR 0097).
+        self.fit_gutter();
         // The tiled window, also beneath a prompt, whose own window shows only its buffer.
         let index = self.tiled_index();
         self.sync_wrap(index);

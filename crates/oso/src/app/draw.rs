@@ -1,7 +1,8 @@
 //! Drawing: the window and its renderer, and what a frame shows.
 //!
 //! Must not depend on: key presses or commands. Before a frame it takes in what
-//! has loaded; otherwise a frame only reads the editor's state.
+//! has loaded and fits the gutter to it, as a load is no input; otherwise a frame only
+//! reads the editor's state.
 //!
 //! Whatever changes the modeline or the echo area gets a frame in one place
 //! ([`App::ask_for_a_frame_if_status_changed`]), so a failed command, a message from a

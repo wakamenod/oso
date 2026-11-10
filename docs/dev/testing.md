@@ -98,7 +98,7 @@ lives there because `oso` is a binary crate, so `tests/` cannot reach the
 #[test]
 fn page_keys_scroll_by_a_screen() {
     let text: String = (0..12).map(|i| format!("line {i:02}\n")).collect();
-    // A name, the file's bytes, the text area's rows and columns, and the keys of
+    // A name, the file's bytes, the window's rows and columns, gutter and text, and the keys of
     // each frame. "" is a frame with no new keys. Keys add up from frame to frame.
     check("page_scrolling", text, (5, 12), &["", "C-v", "M-v"]);
 }

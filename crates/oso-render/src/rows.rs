@@ -262,7 +262,7 @@ impl Rows {
             return &self.rows[&row];
         }
         self.read(display, row, &columns, preedit);
-        let shaped = self.keep(row, columns, system);
+        let shaped = self.keep(row, columns, system, false);
         shaped.spliced = preedit.is_some();
         shaped
     }
@@ -277,18 +277,22 @@ impl Rows {
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
         self.read_line(spans, end);
-        self.keep(row, 0..end, system)
+        self.keep(row, 0..end, system, true)
     }
 
     /// Makes what was just read the shaped `row`, shaping it unless the cache
-    /// already has the same input.
+    /// already has the same input. A short line of one piece, such as a line number, is a
+    /// piece kept by its text too, so a scroll that moves numbers to other rows shapes only
+    /// the new one, and a number that changes face shapes nothing (ADR 0097).
     fn keep(
         &mut self,
         row: usize,
         columns: Range<usize>,
         system: &mut dyn TextSystem,
+        line: bool,
     ) -> &mut ShapedRow {
-        if self.breaks.len() == 1 {
+        let kept_whole = line && self.text.len() <= KEPT_PIECE_BYTES;
+        if self.breaks.len() == 1 && !kept_whole {
             self.breaks.clear();
         }
         let revision = self.revision;
@@ -688,6 +692,37 @@ pub(crate) mod tests {
             system.shaped[3..],
             ["name", "13:5"],
             "a new font shapes again"
+        );
+    }
+
+    #[test]
+    fn line_numbers_that_move_rows_or_faces_are_not_shaped_again() {
+        let mut rows = Rows::default();
+        let mut system = Recorder::default();
+        let numbers = |rows: &mut Rows, system: &mut Recorder, first: usize, current: usize| {
+            for row in 0..3 {
+                let text = format!("{:>3} ", first + row);
+                let face = if first + row == current {
+                    Face::LineNumberCurrent
+                } else {
+                    Face::LineNumber
+                };
+                rows.line(row, &[span(&text, face)], 128, system);
+            }
+        };
+        numbers(&mut rows, &mut system, 1, 1);
+        assert_eq!(system.shaped, ["  1 ", "  2 ", "  3 "]);
+        numbers(&mut rows, &mut system, 2, 1);
+        assert_eq!(
+            system.shaped[3..],
+            ["  4 "],
+            "a scroll shapes the new number only"
+        );
+        numbers(&mut rows, &mut system, 2, 3);
+        assert_eq!(
+            system.shaped.len(),
+            4,
+            "another current line shapes nothing"
         );
     }
 
@@ -1310,6 +1345,13 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         rows.line(0, &[span("one row", Face::Text)], 128, &mut system);
         assert_eq!(system.shaped, ["one row"]);
+        assert_eq!(
+            rows.breaks,
+            [0],
+            "a short line is one piece kept by its text"
+        );
+        let long = "x".repeat(KEPT_PIECE_BYTES + 1);
+        rows.line(0, &[span(&long, Face::Text)], 128, &mut system);
         assert!(rows.breaks.is_empty());
     }
 
