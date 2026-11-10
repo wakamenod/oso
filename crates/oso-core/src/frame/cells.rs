@@ -15,6 +15,7 @@ use super::CellRect;
 use crate::display_map::{DisplayPoint, DisplaySnapshot};
 use crate::motion;
 use crate::selection::{Selection, SelectionSet};
+use crate::sum_tree::Bias;
 use crate::window::{Screen, ScreenRow};
 
 /// The cells of a cursor at `point`, whose cluster takes `cells` cells, in a window with this
@@ -114,12 +115,8 @@ pub fn region_cells(
         return;
     }
     // While the regions show, none overlap, so their ends are in order too.
-    range_cells(
-        (text, screen, display),
-        selections.as_slice(),
-        Selection::range,
-        out,
-    );
+    let (rows, all) = (0..screen.rows().len(), selections.as_slice());
+    range_cells((text, screen, display), rows, all, Selection::range, out);
 }
 
 /// The cells of `ranges`, which are in order and do not overlap, in a window as
@@ -132,32 +129,77 @@ pub fn match_cells(
     ranges: &[Range<usize>],
     out: &mut Vec<CellRect>,
 ) {
-    range_cells((text, screen, display), ranges, Range::clone, out);
+    let rows = 0..screen.rows().len();
+    range_cells((text, screen, display), rows, ranges, Range::clone, out);
 }
 
-/// The cells of `items`' ranges, in order and none overlapping, into `out`, as
-/// [`region_cells`] says.
+/// [`match_cells`] on the screen's row `row` alone, for a range known to end there, as a line's
+/// trailing whitespace: a row's cost, not a screen's.
+pub(crate) fn match_cells_on_row(
+    text: CellRect,
+    (screen, row): (&Screen, usize),
+    display: &DisplaySnapshot,
+    range: &Range<usize>,
+    out: &mut Vec<CellRect>,
+) {
+    let one = std::slice::from_ref(range);
+    range_cells(
+        (text, screen, display),
+        row..row + 1,
+        one,
+        Range::clone,
+        out,
+    );
+}
+
+/// The cells of `items`' ranges, in order and none overlapping, on the screen's rows `rows`,
+/// into `out`, as [`region_cells`] says. A range's ends are converted once, however many rows
+/// it spans.
 fn range_cells<T>(
     (text, screen, display): (CellRect, &Screen, &DisplaySnapshot),
+    rows: Range<usize>,
     all: &[T],
     range_of: impl Fn(&T) -> Range<usize>,
     out: &mut Vec<CellRect>,
 ) {
     let mut first = 0;
-    for (index, row) in screen.rows().iter().take(text.rows).enumerate() {
-        first += all[first..].partition_point(|item| range_of(item).end <= row.start);
-        for item in &all[first..] {
+    let mut ends: Option<(usize, DisplayPoint, DisplayPoint)> = None;
+    let shown = screen.rows().iter().enumerate().take(text.rows);
+    for (index, row) in shown.skip(rows.start).take(rows.len()) {
+        let origin = screen.origin(row);
+        // A line's last row looks only at its columns in view, as a long one that does not
+        // wrap may hold many ranges out of view; its line break is past its last column.
+        let (low, high) = if row.continues {
+            (row.start, row.end)
+        } else {
+            let pushed = screen.preedit_on(row).map_or(0, |cells| cells.len());
+            let offset = |column| {
+                let point = DisplayPoint::new(row.line, column);
+                display.display_point_to_offset(point, Bias::Left)
+            };
+            let low = offset(origin.saturating_sub(pushed)).max(row.start);
+            let high = offset(origin.saturating_add(text.columns)).saturating_add(1);
+            (low, high.min(row.end))
+        };
+        first += all[first..].partition_point(|item| range_of(item).end <= low);
+        for (at, item) in all.iter().enumerate().skip(first) {
             let range = range_of(item);
-            if range.start >= row.end {
+            if range.start >= high {
                 break;
             }
             if range.is_empty() {
                 continue;
             }
-            let start = pushed(screen, display.offset_to_display_point(range.start), true);
-            let end = pushed(screen, display.offset_to_display_point(range.end), false);
+            let (start, end) = match ends {
+                Some((cached, start, end)) if cached == at => (start, end),
+                _ => {
+                    let start = pushed(screen, display.offset_to_display_point(range.start), true);
+                    let end = pushed(screen, display.offset_to_display_point(range.end), false);
+                    ends = Some((at, start, end));
+                    (start, end)
+                }
+            };
             let columns = row_columns(screen, row, (start, end));
-            let origin = screen.origin(row);
             let from = columns.start.max(origin);
             let to = columns.end.min(origin.saturating_add(text.columns));
             if from < to {

@@ -29,7 +29,9 @@ pub(super) fn preedit_lines(pane: &Pane<'_>) -> usize {
     match &pane.content {
         PaneContent::Text(view) if view.preedit.is_some() => {
             let rows = view.screen.rows().iter().take(pane.region.rows);
-            2 * rows.filter(|row| row.line == view.cursor.row).count()
+            2 * rows
+                .filter(|row| view.screen.preedit_on(row).is_some())
+                .count()
         }
         _ => 0,
     }
@@ -47,20 +49,20 @@ pub(super) fn underline_preedit(
     let Some(preedit) = view.preedit else {
         return;
     };
+    let Some((at, _)) = view.screen.preedit() else {
+        return;
+    };
     let line = line_width(metrics);
-    let (all, segment) = preedit.underlines(view.cursor.column);
+    let (all, segment) = preedit.underlines(at.column);
     let screen = view.screen;
     for (index, row) in screen.rows().iter().enumerate() {
-        if row.line != view.cursor.row {
+        let Some(shown) = screen.preedit_on(row) else {
             continue;
-        }
+        };
         // Each row underlines the part of the preedit it shows.
         let row_layout = layout.with_left(screen.origin(row));
         let mut underline = |columns: Range<usize>, thickness: f32| {
-            let (start, end) = (
-                columns.start.max(row.column),
-                columns.end.min(row.end_column),
-            );
+            let (start, end) = (columns.start.max(shown.start), columns.end.min(shown.end));
             if start >= end {
                 return;
             }
@@ -95,29 +97,23 @@ pub(super) fn draw_text<G: GlyphSource>(
     let screen = view.screen;
     // From the window's left column; 0 while wrapped.
     let shaped = layout.shaped_columns();
-    let preedit = view.preedit.map(|preedit| (view.cursor.column, preedit));
+    // Where the screen was laid out with the preedit, and only there (ADR 0104).
+    let preedit = (screen.preedit()).zip(view.preedit);
     let shown = &screen.rows()[..screen.rows().len().min(pane.region.rows)];
     for (index, row) in shown.iter().enumerate() {
-        // A row that continues reads to the wrap's width; a line's last, as far as shaped.
-        let limit = if row.continues {
-            screen.drawn(row).end
-        } else {
-            row.end_column
-        };
+        let limit = screen.text_end(row);
         let columns = row.column + shaped.start..row.column.saturating_add(shaped.end).min(limit);
         let mark = screen.mark(row).map(|column| screen.origin(row) + column);
-        let spliced = preedit.filter(|_| row.line == view.cursor.row);
+        let spliced = preedit
+            .filter(|(at, _)| at.0.row == row.line)
+            .map(|((at, _), preedit)| (at.column, preedit));
         let line = (row.line, columns);
-        let shaped_row = rows.view_row(display, line, mark, spliced, system);
-        let row_layout = layout.with_left(screen.origin(row));
+        let shaped_row = rows.view_row(display, line, (mark, Some(index)), spliced, system);
+        // Its columns count from its first cluster's.
+        let row_layout = layout.with_left(screen.origin(row) - shaped_row.base);
         if !draws.row(&row_layout, index, shaped_row, system, glyphs) {
             break;
         }
     }
-    if let (Some(first), Some(last)) = (shown.first(), shown.last()) {
-        rows.evict(
-            (first.line, first.column)..=(last.line, last.column),
-            shown.len(),
-        );
-    }
+    rows.evict(shown.len());
 }

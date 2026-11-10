@@ -5,7 +5,7 @@
 
 use super::super::edit_tests::plain_edit;
 use super::*;
-use crate::buffer::Buffer;
+use crate::buffer::{Buffer, BufferId};
 use crate::complete::Candidate;
 use crate::display_map::Preedit;
 use crate::editor::CompletionStyle;

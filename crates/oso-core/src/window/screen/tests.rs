@@ -173,3 +173,29 @@ proptest! {
         prop_assert_eq!(shape(&shown), shape(&screen(&inserted, &display, None)));
     }
 }
+
+proptest! {
+    /// Whatever the text, the top, the window and a preedit, the cursor's place is where its
+    /// screen shows it.
+    #[test]
+    fn prop_the_cursors_place_is_its_screen_rows(
+        text in "[a あ。\n]{0,40}",
+        composed in proptest::option::of("[b い」]{1,10}"),
+        (at, top) in (0usize..64, 0usize..64),
+        rows in 1usize..6,
+        columns in 8usize..13,
+        wraps in proptest::bool::ANY,
+    ) {
+        let cursor = text.floor_char_boundary(at.min(text.len()));
+        let (mut window, display) = make(&text, (rows, columns), wraps, cursor);
+        let start = text.floor_char_boundary(top.min(text.len()));
+        window.set_scroll(Scroll { start, left: 0 });
+        let preedit = composed.map(|composed| Preedit::new(composed, None));
+        let shown = screen(&window, &display, preedit.as_ref());
+        let point = display.offset_to_display_point(cursor);
+        let expected = shown
+            .row_of(point)
+            .map(|row| (row, shown.origin(&shown.rows()[row])));
+        prop_assert_eq!(window.cursor_place(&display, preedit.as_ref()), expected);
+    }
+}

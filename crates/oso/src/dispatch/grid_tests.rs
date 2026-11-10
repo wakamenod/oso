@@ -210,7 +210,9 @@ fn draw_count(
 /// The line under the answer's row marking its region with `*`, if it shows one.
 fn draw_answer_region(editor: &Editor, inner: CellRect, pad: &str) -> Option<String> {
     let mut region = Vec::new();
-    editor.prompt_region_cells(&mut region);
+    let mut answer = Screen::default();
+    editor.prompt_screen(&mut answer);
+    editor.prompt_region_cells(&answer, &mut region);
     let mut marks = vec![' '; inner.columns];
     for cells in &region {
         let start = cells.column - inner.column;

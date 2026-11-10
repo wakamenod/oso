@@ -54,6 +54,8 @@ impl Editor {
     /// Turns the visual aids on and off as `aids` says.
     pub fn set_visual_aids(&mut self, aids: VisualAids) {
         self.aids = aids;
+        // Turned on again, the gutter fits the line count as it is.
+        self.gutter_floor = None;
         self.fit_gutter();
     }
 
@@ -81,7 +83,7 @@ impl Editor {
             .map(|selection| display.offset_to_display_point(selection.cursor).row)
             .peekable();
         let mut left = FRAME_CHARS;
-        for row in screen.rows().iter().take(text.rows) {
+        for (index, row) in screen.rows().iter().take(text.rows).enumerate() {
             while cursor_lines.next_if(|&line| line < row.line).is_some() {}
             if row.continues || cursor_lines.peek() == Some(&row.line) {
                 continue;
@@ -89,7 +91,7 @@ impl Editor {
             if let Some(range) = trailing(buffer.text(), &display, row.line, &mut left) {
                 // A run that started on a row before stays unfilled there.
                 let range = range.start.max(row.start)..range.end;
-                frame::match_cells(text, screen, &display, std::slice::from_ref(&range), out);
+                frame::match_cells_on_row(text, (screen, index), &display, &range, out);
             }
         }
     }
@@ -185,9 +187,8 @@ impl Editor {
 /// How many bytes a step of the walk back reads.
 const STEP: usize = 64;
 
-/// The trailing whitespace of display row `row`: spaces, tabs and U+3000 before its line's
-/// break or the end of the text. `None` if there is none, if the row does not end its line,
-/// as a wrapped row will not (M2-25), or if the run does not end within its share of what is
+/// The trailing whitespace of logical line `row`: spaces, tabs and U+3000 before its line's
+/// break or the end of the text. `None` if there is none, or if the run does not end within its share of what is
 /// `left` of the frame's walk, which this takes from. The walk reads back from the row's end
 /// a step at a time and stops at the first character that is not whitespace, so a short run
 /// costs little whatever the line's length.

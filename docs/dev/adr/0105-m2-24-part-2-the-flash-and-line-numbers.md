@@ -1,6 +1,6 @@
 # 0105. M2-24 part 2: the flash and line numbers
 
-- Status: Accepted
+- Status: Accepted, amended by 0104
 - Date: 2026-11-10
 
 ## Context

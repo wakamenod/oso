@@ -28,6 +28,7 @@ use crate::window::ViewSize;
 
 mod cells;
 mod float;
+pub(crate) use cells::match_cells_on_row;
 pub use cells::{cursor_rect, match_cells, other_cursor_cells, region_cells};
 pub(crate) use float::completion_regions;
 pub use float::{FloatRegions, MIN_LIST_COLUMNS, float_regions};

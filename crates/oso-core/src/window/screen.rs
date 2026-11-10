@@ -145,6 +145,25 @@ impl Screen {
         start..row.end_column.min(start.saturating_add(cells))
     }
 
+    /// The column of `row`'s line where its clusters stop: the next row's start, and no further
+    /// than the wrap's width on a row that continues, whose mark takes the column after. Past
+    /// the window's edge on a line's last row, whose columns the caller cuts.
+    pub fn text_end(&self, row: &ScreenRow) -> usize {
+        if row.continues {
+            self.drawn(row).end
+        } else {
+            row.end_column
+        }
+    }
+
+    /// The columns of `row`'s line that the preedit takes on it, if it shows there.
+    pub fn preedit_on(&self, row: &ScreenRow) -> Option<Range<usize>> {
+        let (at, cells) = self.preedit.filter(|(at, _)| at.row == row.line)?;
+        let start = at.column.max(row.column);
+        let end = at.column.saturating_add(cells).min(row.end_column);
+        (start < end).then_some(start..end)
+    }
+
     /// The text area's column of `row`'s mark, if it draws one.
     pub fn mark(&self, row: &ScreenRow) -> Option<usize> {
         (row.continues && self.width < self.columns).then_some(self.width)
@@ -174,7 +193,7 @@ impl Screen {
     /// shows them, for a view no window holds, such as a sample of a theme.
     pub fn show_lines(&mut self, display: &DisplaySnapshot, top: ViewTop, size: ViewSize) {
         let start = motion::line_start(display, top.row.min(display.row_count() - 1));
-        let view = View {
+        let view = ScreenSource {
             rows: Rows::new(display, None),
             scroll: Scroll {
                 start,
@@ -183,7 +202,7 @@ impl Screen {
             size,
             cursor: start,
         };
-        fill(view, display, None, self);
+        self.fill(view, display, None);
     }
 
     /// Empties it, for a frame that shows no rows.
@@ -214,55 +233,111 @@ impl Window {
         preedit: Option<&Preedit>,
         out: &mut Screen,
     ) {
-        let view = View {
+        let view = ScreenSource {
             rows: self.rows(display),
             scroll: self.scroll,
             size: self.size,
             cursor: self.selections.primary().cursor,
         };
-        fill(view, display, preedit, out);
+        out.fill(view, display, preedit);
     }
 }
 
 impl Window {
     /// The view row of the caret of `preedit` at the primary cursor, with the preedit's line
     /// laid out with it in, so that the view follows a preedit that wraps past the window's
-    /// last row (ADR 0104). `None` while rows do not wrap. Lays out no more than a screen
-    /// past the cursor's row.
+    /// last row (ADR 0104). `None` while rows do not wrap. Lays out the line only up to the
+    /// caret's row, and no more than a screen past the cursor's.
     pub(crate) fn caret_row(&self, display: &DisplaySnapshot, preedit: &Preedit) -> Option<usize> {
         let wrap = self.wrap().filter(|wrap| wrap.wraps())?;
         let cursor = self.selections.primary().cursor.min(display.len());
         let point = display.offset_to_display_point(cursor);
         let (caret, _) = motion::cursor_box(display, point, Some(preedit));
         let mut spliced = Vec::new();
-        let most = self.size.rows.saturating_add(SPLICED_PAST_SCREEN);
-        let first = wrap.spliced_rows(display, (cursor, preedit), most, &mut spliced);
+        let limits = (
+            self.size.rows.saturating_add(SPLICED_PAST_SCREEN),
+            caret.column,
+        );
+        let first = wrap.spliced_rows(display, (cursor, preedit), limits, &mut spliced);
         let index = spliced
             .partition_point(|row| row.column <= caret.column)
             .saturating_sub(1);
         Some(first + index)
     }
+
+    /// Where a frame shows the primary cursor, with `preedit` laid out at it: the index of its
+    /// row among those [`Window::screen_into`] gives, and the column of its line at the
+    /// area's left edge there. As those rows have it, without building them: a seek, and the
+    /// preedit's line laid out up to the cursor's row. `None` if its row is out of view.
+    pub(crate) fn cursor_place(
+        &self,
+        display: &DisplaySnapshot,
+        preedit: Option<&Preedit>,
+    ) -> Option<(usize, usize)> {
+        let rows = self.rows(display);
+        let cursor = self.selections.primary().cursor.min(display.len());
+        let top = rows.row_of(self.scroll.start);
+        let row = rows.row_of(cursor);
+        if !(top..top.saturating_add(self.size.rows)).contains(&row) {
+            return None;
+        }
+        let Some(wrap) = rows.wrap() else {
+            return Some((row - top, self.scroll.left));
+        };
+        let Some(preedit) = preedit.filter(|_| wrap.wraps()) else {
+            let column = display.offset_to_display_point(rows.start(row)).column;
+            return Some((row - top, column));
+        };
+        let point = display.offset_to_display_point(cursor);
+        let mut spliced = Vec::new();
+        let limits = (
+            self.size.rows.saturating_add(SPLICED_PAST_SCREEN),
+            point.column,
+        );
+        let first = wrap.spliced_rows(display, (cursor, preedit), limits, &mut spliced);
+        let at = spliced
+            .partition_point(|row| row.column <= point.column)
+            .checked_sub(1)?;
+        let index = if top <= first {
+            first - top + at
+        } else {
+            at.checked_sub(spliced_from(&spliced, top, first, rows, display))?
+        };
+        (index < self.size.rows).then(|| (index, spliced[at].column))
+    }
 }
 
-/// What a screen shows: view rows from a top, in a view of a size, with a cursor where a
-/// preedit goes.
+/// What a screen shows rows of: view rows from a top, in a view of a size, with a cursor
+/// where a preedit goes.
 #[derive(Clone, Copy)]
-pub(crate) struct View<'a> {
+pub(crate) struct ScreenSource<'a> {
     pub(crate) rows: Rows<'a>,
     pub(crate) scroll: Scroll,
     pub(crate) size: ViewSize,
     pub(crate) cursor: usize,
 }
 
-/// Fills `out` with the rows `view` shows over `display`, with `preedit` spliced in at its
-/// cursor if there is one.
-pub(crate) fn fill(
-    view: View<'_>,
+impl Screen {
+    /// Fills it with the rows `source` shows over `display`, with `preedit` spliced in at its
+    /// cursor if there is one.
+    pub(crate) fn fill(
+        &mut self,
+        source: ScreenSource<'_>,
+        display: &DisplaySnapshot,
+        preedit: Option<&Preedit>,
+    ) {
+        fill(source, display, preedit, self);
+    }
+}
+
+/// [`Screen::fill`] into `out`.
+fn fill(
+    view: ScreenSource<'_>,
     display: &DisplaySnapshot,
     preedit: Option<&Preedit>,
     out: &mut Screen,
 ) {
-    let View {
+    let ScreenSource {
         rows,
         scroll,
         size,
@@ -281,15 +356,19 @@ pub(crate) fn fill(
     let Some(wrap) = rows.wrap() else {
         out.width = usize::MAX;
         let end = out.top.saturating_add(wanted).min(display.row_count());
+        // Each line's start is the one before's end: one seek a row.
+        let mut start = motion::line_start(display, out.top);
         for line in out.top..end {
+            let next = next_line_start(display, line);
             out.push(ScreenRow {
                 line,
                 column: 0,
                 end_column: usize::MAX,
                 continues: false,
-                start: motion::line_start(display, line),
-                end: next_line_start(display, line),
+                start,
+                end: next,
             });
+            start = next;
         }
         return;
     };
@@ -300,8 +379,8 @@ pub(crate) fn fill(
     match preedit.filter(|_| wrap.wraps() && in_view) {
         Some(preedit) => {
             let mut spliced = std::mem::take(&mut out.spliced);
-            let most = wanted.saturating_add(SPLICED_PAST_SCREEN);
-            let first = wrap.spliced_rows(display, (cursor, preedit), most, &mut spliced);
+            let limits = (wanted.saturating_add(SPLICED_PAST_SCREEN), usize::MAX);
+            let first = wrap.spliced_rows(display, (cursor, preedit), limits, &mut spliced);
             push_rows(out, (wrap, display), top..first, wanted);
             let shown = spliced_from(&spliced, top, first, rows, display);
             let line = display.offset_to_display_point(cursor).row;

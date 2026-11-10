@@ -133,7 +133,7 @@ pub(super) fn with_panes<R>(
         gutter: &gutter,
     };
     let tiled = panes(editor, marks, &modeline, &echo);
-    let drawn = match float::Parts::of(editor) {
+    let drawn = match float::Parts::of(editor, &cells.answer) {
         None => draw(&tiled),
         Some(parts) => {
             // A prompt's float goes over the tiled panes.
@@ -200,7 +200,8 @@ fn panes<'a>(
             CursorStyle::Box
         },
         others,
-        preedit: editor.preedit().filter(|_| !beneath),
+        // Where the screen was laid out with it: not beneath a prompt (ADR 0104).
+        preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
         fills,
         whitespace: editor.visual_aids().whitespace,
         flash,

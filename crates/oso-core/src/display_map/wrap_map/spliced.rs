@@ -28,14 +28,14 @@ pub(crate) struct SplicedRow {
 impl WrapSnapshot {
     /// The rows of the logical line that holds `cursor`, a cluster start, with `preedit`
     /// spliced in there, into `out`, emptied first: from the row an edit at the cursor would
-    /// start its rewrap at, until the line ends or `out` holds `most` rows. Returns that row's
-    /// index among these rows; nothing when rows do not wrap. Each row reads at most a row's
-    /// clusters and the rules' lookahead.
+    /// start its rewrap at, until the line ends, `out` holds `most` rows, or a row holds the
+    /// column `until`. Returns that row's index among these rows; nothing when rows do not
+    /// wrap. Each row reads at most a row's clusters and the rules' lookahead.
     pub(crate) fn spliced_rows(
         &self,
         display: &DisplaySnapshot,
         (cursor, preedit): (usize, &Preedit),
-        most: usize,
+        (most, until): (usize, usize),
         out: &mut Vec<SplicedRow>,
     ) -> usize {
         out.clear();
@@ -83,7 +83,7 @@ impl WrapSnapshot {
                 continues: row.continues,
             });
             (row_start, column) = (row.end, row.next_column);
-            if !row.continues || out.len() == most {
+            if !row.continues || out.len() == most || column > until {
                 break;
             }
         }
@@ -108,7 +108,12 @@ mod tests {
         let wrap = WrapSnapshot::new(&display, columns);
         let preedit = Preedit::new(composed.into(), None);
         let mut out = Vec::new();
-        let first = wrap.spliced_rows(&display, (cursor, &preedit), usize::MAX, &mut out);
+        let first = wrap.spliced_rows(
+            &display,
+            (cursor, &preedit),
+            (usize::MAX, usize::MAX),
+            &mut out,
+        );
         // It starts on a row the window has.
         assert_eq!(wrap.row(&display, first).start, out[0].start);
         out.iter().map(|row| (row.column, row.continues)).collect()
@@ -156,9 +161,11 @@ mod tests {
         let wrap = WrapSnapshot::new(&display, 9);
         let preedit = Preedit::new("xy".into(), None);
         let mut out = Vec::new();
-        wrap.spliced_rows(&display, (0, &preedit), 2, &mut out);
+        wrap.spliced_rows(&display, (0, &preedit), (2, usize::MAX), &mut out);
         assert_eq!(out.len(), 2);
-        wrap.spliced_rows(&display, (0, &preedit), usize::MAX, &mut out);
+        wrap.spliced_rows(&display, (0, &preedit), (usize::MAX, 3), &mut out);
+        assert_eq!(out.len(), 1, "the first row holds column 3");
+        wrap.spliced_rows(&display, (0, &preedit), (usize::MAX, usize::MAX), &mut out);
         assert!(!out.last().unwrap().continues);
         assert!(out.iter().all(|row| row.end <= 20));
     }
@@ -169,7 +176,7 @@ mod tests {
         let wrap = WrapSnapshot::new(&display, 9);
         let preedit = Preedit::new("0123456789abc".into(), None);
         let mut out = Vec::new();
-        wrap.spliced_rows(&display, (1, &preedit), usize::MAX, &mut out);
+        wrap.spliced_rows(&display, (1, &preedit), (usize::MAX, usize::MAX), &mut out);
         let starts: Vec<_> = out.iter().map(|row| (row.start, row.column)).collect();
         assert_eq!(starts, [(0, 0), (1, 8)]);
         assert_eq!(out[1].end, 2);
@@ -181,7 +188,7 @@ mod tests {
         let wrap = WrapSnapshot::unwrapped(&display);
         let mut out = Vec::new();
         let preedit = Preedit::new("x".into(), None);
-        wrap.spliced_rows(&display, (1, &preedit), 4, &mut out);
+        wrap.spliced_rows(&display, (1, &preedit), (4, usize::MAX), &mut out);
         assert!(out.is_empty());
     }
 

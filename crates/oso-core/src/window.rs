@@ -33,8 +33,8 @@ mod screen;
 pub use places::Place;
 pub(crate) use places::{Places, Walk};
 pub(crate) use rows::Rows;
+pub(crate) use screen::ScreenSource;
 pub use screen::{Screen, ScreenRow};
-pub(crate) use screen::{View as ScreenView, fill as fill_screen};
 
 /// Rows that `C-v` and `M-v` keep from the previous screen, as Emacs's
 /// `next-screen-context-lines`.
@@ -202,6 +202,16 @@ impl Window {
     /// until a job reports.
     pub fn wrap(&self) -> Option<&WrapSnapshot> {
         self.wrap.as_ref().map(WrapMap::snapshot)
+    }
+
+    /// Its rows of `display`, its buffer as it shows now, while the buffer wraps: none while
+    /// they are of another text, as until the editor brings them along, when a frame shows
+    /// one row a logical line.
+    pub fn wrap_of(&self, display: &DisplaySnapshot) -> Option<&WrapSnapshot> {
+        self.wrap
+            .as_ref()
+            .map(WrapMap::snapshot)
+            .filter(|wrap| wrap.len() == display.len())
     }
 
     pub(crate) fn wrap_map(&self) -> Option<&WrapMap> {

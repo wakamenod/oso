@@ -31,7 +31,7 @@ pub fn get_text(editor: &Editor, start_row: usize, rows: usize) -> Result<TextJo
         text: buffer.text().clone(),
         display: buffer.display(),
         // O(1), so that the rows are read off the UI thread too.
-        wrap: window.wrap().cloned(),
+        wrap: window.wrap_of(&buffer.display()).cloned(),
         start_row,
         rows,
     })
@@ -117,7 +117,7 @@ impl TextJob {
             row.start.min(len)..end.clamp(row.start.min(len), len)
         };
         if start_row < end {
-            let bytes = span(end - 1).end - span(start_row).start;
+            let bytes = span(end - 1).end.saturating_sub(span(start_row).start);
             if bytes > MAX_TEXT {
                 return Err(format!(
                     "rows {start_row} to {} hold {bytes} bytes, and get-text returns at most {MAX_TEXT}; ask for fewer rows",

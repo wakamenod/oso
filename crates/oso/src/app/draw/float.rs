@@ -50,7 +50,7 @@ pub(super) struct Parts<'a> {
 
 impl<'a> Parts<'a> {
     /// The innermost prompt's parts, if one is open.
-    pub(super) fn of(editor: &'a Editor) -> Option<Self> {
+    pub(super) fn of(editor: &'a Editor, answer: &Screen) -> Option<Self> {
         let prompt = editor.prompt()?;
         let layout = editor.prompt_layout()?;
         let mask = (prompt.kind() == Kind::Passphrase).then(|| {
@@ -75,7 +75,7 @@ impl<'a> Parts<'a> {
             (candidates, count)
         });
         let mut region = Vec::new();
-        editor.prompt_region_cells(&mut region);
+        editor.prompt_region_cells(answer, &mut region);
         let preview = layout.regions.preview;
         let kill = match editor.preview() {
             Some(Preview::Text { entry }) => {
@@ -580,7 +580,8 @@ fn answer<'a>(
         cursor,
         cursor_style: CursorStyle::Box,
         others: &[],
-        preedit: editor.preedit(),
+        // Where the answer's rows were laid out with it (ADR 0104).
+        preedit: editor.preedit().filter(|_| screen.preedit().is_some()),
         fills: &lines.fills,
         whitespace: false,
         flash: None,

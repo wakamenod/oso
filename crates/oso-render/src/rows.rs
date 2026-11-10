@@ -34,7 +34,7 @@
 //!   compared each frame while it has one, and the frame after (ADR 0069).
 
 use std::collections::HashMap;
-use std::ops::{ControlFlow, Range, RangeInclusive};
+use std::ops::{ControlFlow, Range};
 
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{
@@ -159,6 +159,12 @@ pub(crate) struct ShapedRow {
     spliced: bool,
     /// The column of its line where it draws the wrap mark, if it continues.
     mark: Option<usize>,
+    /// The frame it was last drawn in, which keeps it from eviction.
+    used: u64,
+    /// The column of its line its columns count from: its first cluster's. The graphemes,
+    /// glyphs and boxes count from there, so a row whose text moves along its line, as
+    /// the rows after a character typed in a wrapped line do, compares equal (ADR 0104).
+    pub(crate) base: usize,
     /// What the shaper and the placer were given. The glyphs depend on
     /// nothing else but the font, so the same input gives the same glyphs,
     /// and comparing the bytes leaves no false match that could show stale
@@ -169,9 +175,10 @@ pub(crate) struct ShapedRow {
     /// Where the text was cut into pieces shaped on their own. Empty for a row
     /// of one piece, which is one call to the shaper.
     breaks: Vec<u32>,
-    /// Sorted by column.
+    /// Sorted by column, from [`ShapedRow::base`].
     pub(crate) glyphs: Vec<PlacedGlyph>,
-    /// Boxed characters and cut clusters: their first column and cells.
+    /// Boxed characters and cut clusters: their first column, from [`ShapedRow::base`],
+    /// and cells.
     pub(crate) boxes: Vec<(usize, usize)>,
 }
 
@@ -184,7 +191,13 @@ pub(crate) struct Rows {
     /// The revision of the buffer this frame shows.
     revision: u64,
     rows: HashMap<(usize, usize), ShapedRow>,
-    /// Scratch space for reading a row.
+    /// The frame being drawn, counted at each [`Rows::begin`] and [`Rows::begin_lines`].
+    frame: u64,
+    /// The key each place on the screen had in the last frame, so that a row whose key moved,
+    /// as the rows after an edit in a wrapped line do, is compared with what was there.
+    slots: Vec<(usize, usize)>,
+    /// Scratch space for reading a row, its columns from `base`.
+    base: usize,
     text: String,
     graphemes: Vec<Grapheme>,
     breaks: Vec<u32>,
@@ -220,6 +233,7 @@ impl Rows {
     /// Starts a frame of `buffer` at `revision`: another buffer's rows and
     /// kept pieces are dropped, and the pieces of another revision.
     pub(crate) fn begin(&mut self, buffer: BufferId, revision: u64) {
+        self.frame += 1;
         if self.buffer != Some(buffer) {
             self.buffer = Some(buffer);
             self.rows.clear();
@@ -233,20 +247,27 @@ impl Rows {
     /// Starts a frame of text that is no buffer's. Rows left from a buffer are
     /// dropped, and so are these when a buffer comes back.
     pub(crate) fn begin_lines(&mut self) {
+        self.frame += 1;
         if self.buffer.take().is_some() {
             self.rows.clear();
             self.pieces.clear();
         }
     }
 
-    /// Drops cached rows outside `keep`, by line and start column, or by row and 0 for text
-    /// that is no buffer's, once there are many more of them than the `shown` rows, and the
-    /// kept pieces with them. A long wrapped line's rows go too, each its own key.
-    pub(crate) fn evict(&mut self, keep: RangeInclusive<(usize, usize)>, shown: usize) {
+    /// Drops the cached rows this frame did not draw once there are many more of them than
+    /// the `shown` rows, and the kept pieces with them.
+    pub(crate) fn evict(&mut self, shown: usize) {
         if self.rows.len() > 2 * shown + 64 {
-            self.rows.retain(|key, _| keep.contains(key));
+            let frame = self.frame;
+            self.rows.retain(|_, row| row.used == frame);
             self.pieces.clear();
         }
+    }
+
+    /// How many rows are cached, for tests.
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.rows.len()
     }
 
     /// Rows shaped so far.
@@ -264,23 +285,27 @@ impl Rows {
         preedit: Option<(usize, &Preedit)>,
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
-        self.view_row(display, (line, columns), None, preedit, system)
+        self.view_row(display, (line, columns), (None, None), preedit, system)
     }
 
     /// The shaped `columns` of logical line `line`, the clusters that start in them, and
     /// the wrap mark at column `mark` of the line if the row continues, shaping them if the
     /// cache has none for the text there now. A row is kept by its line and the first of
     /// `columns`, and while the revision holds, it is reused if its columns and its mark are
-    /// as they were. A `preedit` goes in at its column.
+    /// as they were. A row with no entry takes the one its place on the screen, `slot`, had
+    /// in the last frame, and is compared with it. A `preedit` goes in at its column.
     pub(crate) fn view_row(
         &mut self,
         display: &DisplaySnapshot,
         (line, columns): (usize, Range<usize>),
-        mark: Option<usize>,
+        (mark, slot): (Option<usize>, Option<usize>),
         preedit: Option<(usize, &Preedit)>,
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
         let key = (line, columns.start);
+        if let Some(slot) = slot {
+            self.take_slot(slot, key);
+        }
         let revision = self.revision;
         let unchanged = preedit.is_none()
             && self.rows.get(&key).is_some_and(|shaped| {
@@ -290,7 +315,9 @@ impl Rows {
                     && !shaped.spliced
             });
         if unchanged {
-            return &self.rows[&key];
+            let shaped = self.rows.get_mut(&key).expect("just found");
+            shaped.used = self.frame;
+            return shaped;
         }
         self.read(display, line, &columns, preedit);
         if let Some(column) = mark {
@@ -313,6 +340,23 @@ impl Rows {
     ) -> &ShapedRow {
         self.read_line(spans, end);
         self.keep((row, 0), 0..end, system, true)
+    }
+
+    /// Gives `key` the entry place `slot` had in the last frame, if it has none of its own
+    /// and that one is not drawn in this frame yet, and notes that `slot` has `key` now.
+    fn take_slot(&mut self, slot: usize, key: (usize, usize)) {
+        if self.slots.len() <= slot {
+            self.slots.resize(slot + 1, (usize::MAX, usize::MAX));
+        }
+        let old = std::mem::replace(&mut self.slots[slot], key);
+        let frame = self.frame;
+        if old != key
+            && !self.rows.contains_key(&key)
+            && self.rows.get(&old).is_some_and(|row| row.used != frame)
+            && let Some(row) = self.rows.remove(&old)
+        {
+            self.rows.insert(key, row);
+        }
     }
 
     /// Makes what was just read the shaped `row`, shaping it unless the cache
@@ -357,6 +401,8 @@ impl Rows {
         shaped.boxes.clone_from(&self.boxes);
         shaped.columns = columns;
         shaped.revision = revision;
+        shaped.base = self.base;
+        shaped.used = self.frame;
         shaped
     }
 
@@ -375,9 +421,15 @@ impl Rows {
         let mut spent = 0;
         let mut face = None;
         let start = DisplayPoint::new(row, columns.start);
+        // From the first cluster, which may start before the first column.
+        self.base = columns.start;
+        let mut first = true;
         row_clusters(display, start, preedit, self.whitespace, |cluster, own| {
             if cluster.column >= columns.end {
                 return ControlFlow::Break(());
+            }
+            if std::mem::take(&mut first) {
+                self.base = cluster.column.min(columns.start);
             }
             let first = self.graphemes.len();
             let shown = if own { Face::Preedit } else { Face::Text };
@@ -393,6 +445,7 @@ impl Rows {
     /// A piece to shape starts at each span and wherever the face changes.
     fn read_line(&mut self, spans: &[Span<'_>], end: usize) {
         self.clear_scratch();
+        self.base = 0;
         let budget = end.saturating_mul(CHARS_PER_COLUMN);
         let mut column = 0;
         for span in spans {
@@ -416,7 +469,7 @@ impl Rows {
         self.breaks.push(byte);
         self.graphemes.push(Grapheme {
             byte,
-            column,
+            column: column.saturating_sub(self.base),
             cells: 1,
             face: Face::WrapMark,
         });
@@ -462,7 +515,11 @@ impl Rows {
     ) -> bool {
         let whole = *spent < budget;
         let mut cut = false;
+        let base = self.base;
+        let cluster_column = cluster.column.saturating_sub(base);
         cluster.for_each_run(|run| {
+            // From the row's first cluster (see `ShapedRow::base`).
+            let column = run.column.saturating_sub(base);
             let mut face = face.of_run(run.style);
             let mut text = run.text;
             if !whole && first_char(run.text).len() < run.text.len() {
@@ -471,17 +528,17 @@ impl Rows {
                 cut = true;
                 // Cut clusters side by side share a box.
                 match self.boxes.last_mut() {
-                    Some((column, cells)) if self.cut_end == Some(run.column) => {
-                        *cells = run.column + run.cells - *column;
+                    Some((first, cells)) if self.cut_end == Some(column) => {
+                        *cells = column + run.cells - *first;
                     }
-                    _ => self.boxes.push((run.column, run.cells)),
+                    _ => self.boxes.push((column, run.cells)),
                 }
-                self.cut_end = Some(run.column + run.cells);
+                self.cut_end = Some(column + run.cells);
             }
             // One box per boxed character, across its label's runs.
             if run.style == CellStyle::Boxed {
-                if run.column == cluster.column {
-                    self.boxes.push((run.column, run.cells));
+                if column == cluster_column {
+                    self.boxes.push((column, run.cells));
                     self.cut_end = None;
                 } else if let Some((_, cells)) = self.boxes.last_mut() {
                     *cells += run.cells;
@@ -489,7 +546,7 @@ impl Rows {
             }
             self.graphemes.push(Grapheme {
                 byte: self.text.len() as u32,
-                column: run.column,
+                column,
                 cells: u32::try_from(run.cells).unwrap_or(u32::MAX),
                 face,
             });
@@ -602,15 +659,15 @@ pub(crate) mod tests {
         assert!(empty.glyphs.is_empty());
         assert_eq!(rows.shaped_count(), 4);
         // A row that continues ends with the wrap mark, a piece of its own.
-        rows.view_row(&display, (2, 0..3), Some(3), None, &mut system);
+        rows.view_row(&display, (2, 0..3), (Some(3), None), None, &mut system);
         assert_eq!(
             system.shaped[system.shaped.len() - 2..],
             ["thr", "\u{21a9}"]
         );
         let shaped = rows.shaped_count();
-        rows.view_row(&display, (2, 0..3), Some(3), None, &mut system);
+        rows.view_row(&display, (2, 0..3), (Some(3), None), None, &mut system);
         assert_eq!(rows.shaped_count(), shaped, "from the cache");
-        rows.view_row(&display, (2, 0..3), None, None, &mut system);
+        rows.view_row(&display, (2, 0..3), (None, None), None, &mut system);
         assert_eq!(
             rows.shaped_count(),
             shaped + 1,
@@ -819,7 +876,7 @@ pub(crate) mod tests {
         rows.begin(buffer_id(), 2);
         rows.row(&display, 70, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 6, "a new revision shapes them again");
-        rows.evict((0, 0)..=(0, usize::MAX), 1);
+        rows.evict(1);
         rows.row(&display, 71, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 9, "evicted rows take their pieces");
     }
@@ -832,7 +889,7 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         let shaped = rows.row(&buffer.display(), 0, 640..768, None, &mut system);
         assert_eq!(system.shaped[0].chars().count(), 64);
-        assert_eq!(shaped.glyphs[0].column, 640);
+        assert_eq!(shaped.base + shaped.glyphs[0].column, 640);
     }
 
     #[test]
@@ -919,7 +976,7 @@ pub(crate) mod tests {
             let shaped = rows.row(&buffer.display(), 0, columns, spliced, &mut system);
             let read: usize = system.shaped.iter().map(|text| text.chars().count()).sum();
             assert_eq!(read, 64, "from {start}");
-            assert_eq!(shaped.glyphs[0].column, start);
+            assert_eq!(shaped.base + shaped.glyphs[0].column, start);
         }
     }
 
@@ -1019,10 +1076,14 @@ pub(crate) mod tests {
         oso_core::editor::Editor::default().window().buffer()
     }
 
+    /// The characters of `row` and the columns of its line they are at.
     fn shown(row: &ShapedRow) -> Vec<(char, usize)> {
         row.glyphs
             .iter()
-            .map(|g| (char::from_u32(u32::from(g.key.glyph.0)).unwrap(), g.column))
+            .map(|g| {
+                let c = char::from_u32(u32::from(g.key.glyph.0)).unwrap();
+                (c, row.base + g.column)
+            })
             .collect()
     }
 
@@ -1154,9 +1215,10 @@ pub(crate) mod tests {
         let mut frames = Frames::new();
         frames.draw(&text, 0..1, 64..192);
         assert_eq!(frames.shown(0), [('あ', 63), ('b', 65), ('c', 66)]);
-        // The bytes from the start column on are the same, one cell later.
+        // The same clusters from the first one, a cell later: they count from it, so nothing
+        // is shaped again, and they draw where they now are.
         text.replace(0..0, "a");
-        assert_eq!(frames.draw(&text, 0..1, 64..192), 1);
+        assert_eq!(frames.draw(&text, 0..1, 64..192), 0);
         assert_eq!(frames.shown(0), [('あ', 64), ('b', 66), ('c', 67)]);
     }
 

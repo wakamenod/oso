@@ -181,7 +181,7 @@ fn a_region_in_the_answer_takes_its_cells_and_not_the_window_beneath() {
     editor.open_prompt("Go to line: ", NUMBER).unwrap();
     type_in_prompt(&mut editor, "12345");
     let mut cells = Vec::new();
-    editor.prompt_region_cells(&mut cells);
+    editor.prompt_region_cells(&prompt_screen(&editor), &mut cells);
     assert!(cells.is_empty(), "no region yet");
     let (window, _) = editor.current_mut();
     let selection = Selection {
@@ -190,7 +190,7 @@ fn a_region_in_the_answer_takes_its_cells_and_not_the_window_beneath() {
     };
     window.selections = SelectionSet::from_parts(vec![selection], 0).unwrap();
     window.selections.set_mark_active(MarkActive::Active);
-    editor.prompt_region_cells(&mut cells);
+    editor.prompt_region_cells(&prompt_screen(&editor), &mut cells);
     let input = editor.prompt_layout().unwrap().input;
     assert_eq!(
         cells,
@@ -318,4 +318,11 @@ fn a_carried_history_goes_behind_what_is_there_and_keeps_its_bounds() {
         editor.histories.entries("other").count(),
         crate::minibuffer::HISTORY_LENGTH
     );
+}
+
+/// The innermost prompt's answer as a frame shows it.
+fn prompt_screen(editor: &Editor) -> crate::window::Screen {
+    let mut screen = crate::window::Screen::default();
+    editor.prompt_screen(&mut screen);
+    screen
 }

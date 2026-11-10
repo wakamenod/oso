@@ -45,12 +45,20 @@ fn columns_for(lines: usize) -> usize {
 }
 
 impl Editor {
-    /// The gutter's columns for the tiled window as it is: none with line numbers off.
+    /// The gutter's columns for the tiled window as it is: none with line numbers off. They
+    /// never narrow while it shows one buffer, so that a line count crossing a digit boundary
+    /// back and forth, as a newline typed and deleted at 1000 lines, does not change the text
+    /// area's width at each key, which would wrap its rows again (ADR 0104, ADR 0105).
     pub(super) fn gutter_columns(&self) -> usize {
         if !self.aids.line_numbers {
             return 0;
         }
-        columns_for(self.tiled().1.text().line_count())
+        let (window, buffer) = self.tiled();
+        let own = columns_for(buffer.text().line_count());
+        match self.gutter_floor {
+            Some((id, floor)) if id == window.buffer() => own.max(floor),
+            _ => own,
+        }
     }
 
     /// Lays the frame out again if the gutter's width changed, as when the line count gains
@@ -213,6 +221,28 @@ mod tests {
             "the narrower rows wait for the job, as a command's edits do"
         );
         editor.end_undo_group();
+    }
+
+    #[test]
+    fn a_gutter_does_not_narrow_while_its_buffer_is_edited() {
+        let mut editor = numbered(&"x\n".repeat(999), 5);
+        assert_eq!(editor.frame().window.gutter.columns, 5, "1000 lines");
+        let id = editor.window().buffer();
+        let delete = crate::buffer::Replacement {
+            range: 0..2,
+            text: "",
+        };
+        editor.apply_edits(id, &[delete]).unwrap();
+        editor.fit_gutter();
+        assert_eq!(editor.frame().window.gutter.columns, 5, "999 lines, still");
+        let other = editor.add_buffer(Buffer::from_text("other", "a"));
+        editor.show(other);
+        editor.show(id);
+        assert_eq!(
+            editor.frame().window.gutter.columns,
+            4,
+            "shown again, it fits"
+        );
     }
 
     #[test]

@@ -45,11 +45,7 @@ pub(super) fn screen_row(screen: &Screen, index: usize, columns: usize) -> Optio
     Some(RowView {
         line: row.line,
         view: origin..origin + columns,
-        limit: if row.continues {
-            screen.drawn(row).end
-        } else {
-            row.end_column
-        },
+        limit: screen.text_end(row),
         mark: screen.mark(row).filter(|&column| column < columns),
     })
 }

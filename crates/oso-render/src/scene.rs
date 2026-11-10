@@ -497,7 +497,7 @@ fn draw_lines<G: GlyphSource>(
         }
     }
     let shown = lines.len().min(shown);
-    rows.evict((0, 0)..=(shown.saturating_sub(1), 0), shown);
+    rows.evict(shown);
 }
 
 #[cfg(test)]
@@ -1317,11 +1317,18 @@ mod tests {
         let buffer = Buffer::from_text("t", "abc");
         // Converting な, the second of two cells of kana.
         let preedit = Preedit::new("かな".into(), Some(3..6));
+        // The rows laid out with it at the cursor, after `a`.
+        let mut editor = oso_core::editor::Editor::with_buffer(Buffer::from_text("t", "abc"));
+        editor.set_view_size(ViewSize::new(1, 10));
+        editor.current_mut().0.selections = oso_core::selection::SelectionSet::new(1);
+        editor.set_preedit(Some(preedit.clone()));
+        let mut screen = Screen::default();
+        editor.screen(&mut screen);
         let content = PaneContent::Text(TextView {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            screen: screen_of(&buffer.display(), ViewTop::default()),
+            screen: &screen,
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1433,6 +1440,104 @@ mod tests {
         assert_eq!(cells[4..], [(0, 4), (0, 8), (1, 0), (1, 1), (1, 2), (1, 3)]);
         let mark = scene.quads()[5].color();
         assert_eq!(mark, theme().foreground(Face::WrapMark));
+    }
+
+    /// A frame of `editor`'s tiled window in a region of `rows` by `columns`, and how many rows
+    /// it shaped.
+    fn frame_of(
+        scene: &mut Scene,
+        editor: &oso_core::editor::Editor,
+        (rows, columns): (usize, usize),
+    ) -> u64 {
+        let before = scene.shaped_count();
+        let mut screen = Screen::default();
+        editor.screen(&mut screen);
+        let (window, buffer) = editor.current();
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: window.buffer(),
+            revision: buffer.revision(),
+            screen: &screen,
+            cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
+            others: &[],
+            preedit: None,
+            fills: &[],
+            whitespace: false,
+            flash: None,
+        });
+        let panes = [pane(0, rect(0, 0, rows, columns), 0, content)];
+        build(scene, &panes, &mut FakeAtlas::default());
+        scene.shaped_count() - before
+    }
+
+    #[test]
+    fn typing_in_a_wrapped_line_shapes_only_the_rows_that_change() {
+        // 9 columns: `a ` and then a row for each word, which moves a cell along its line with
+        // each character typed at the start but keeps its text.
+        let text = format!("a {}", "bbbbbbb ".repeat(20));
+        let mut editor = oso_core::editor::Editor::with_buffer(Buffer::from_text("t", &text));
+        editor.set_view_size(ViewSize::new(8, 9));
+        let id = editor.window().buffer();
+        editor.set_wraps(id, true);
+        let mut scene = Scene::new(LIMITS, theme());
+        assert_eq!(
+            frame_of(&mut scene, &editor, (8, 9)),
+            8,
+            "every row at first"
+        );
+        for typed in 0..3 {
+            editor.begin_undo_group();
+            let edit = oso_core::buffer::Replacement {
+                range: typed..typed,
+                text: "x",
+            };
+            editor.apply_edits(id, &[edit]).unwrap();
+            editor.end_undo_group();
+            assert_eq!(
+                frame_of(&mut scene, &editor, (8, 9)),
+                1,
+                "the first row only"
+            );
+        }
+    }
+
+    #[test]
+    fn scrolling_sideways_keeps_a_screen_of_rows_and_redraws_shape_nothing() {
+        let text = format!("{}\n", "x".repeat(4096)).repeat(20);
+        let buffer = Buffer::from_text("t", &text);
+        let display = buffer.display();
+        let mut scene = Scene::new(LIMITS, theme());
+        let frame = |left: usize, scene: &mut Scene| {
+            let mut screen = Screen::default();
+            screen.show_lines(&display, ViewTop { row: 0, left }, ViewSize::new(20, 40));
+            let content = PaneContent::Text(TextView {
+                display: buffer.display(),
+                buffer: id(),
+                revision: 1,
+                screen: &screen,
+                cursor: DisplayPoint::new(1000, 0),
+                cursor_style: CursorStyle::Box,
+                others: &[],
+                preedit: None,
+                fills: &[],
+                whitespace: false,
+                flash: None,
+            });
+            let panes = [pane(0, rect(0, 0, 20, 40), 0, content)];
+            let before = scene.shaped_count();
+            build(scene, &panes, &mut FakeAtlas::default());
+            scene.shaped_count() - before
+        };
+        for step in 0..60 {
+            frame(step * 64, &mut scene);
+            assert!(scene.rows[0].1.len() <= 2 * 20 + 64);
+        }
+        assert_eq!(
+            frame(59 * 64, &mut scene),
+            0,
+            "an idle redraw shapes nothing"
+        );
     }
 
     #[test]

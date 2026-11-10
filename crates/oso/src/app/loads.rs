@@ -215,7 +215,7 @@ impl App {
     fn reaches_offset(&self, offset: usize) -> bool {
         let (window, buffer) = self.editor.tiled();
         let display = buffer.display();
-        let row = match window.wrap() {
+        let row = match window.wrap_of(&display) {
             Some(wrap) => wrap.row_of(&display, offset),
             None => display.offset_to_display_point(offset).row,
         };

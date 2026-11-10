@@ -45,7 +45,7 @@ pub(super) fn draw_text_area(
     let mark = if beneath { 'o' } else { '^' };
     let display = buffer.display();
     let point = window.cursor_point(&display);
-    let preedit = editor.preedit().filter(|_| !beneath);
+    let preedit = editor.preedit().filter(|_| screen.preedit().is_some());
     // The cursor box as the renderer draws it.
     let (place, cells) = motion::cursor_box(&display, point, preedit);
     let cursor = frame::cursor_rect(area, screen, place, cells);
@@ -106,8 +106,11 @@ pub(super) fn draw_text_area(
         if marks.iter().any(|&mark| mark != ' ') {
             lines.push(format!("+{pad}{}+", marks.into_iter().collect::<String>()));
         }
-        if let (Some((at, preedit)), Some(shown)) = (spliced, screen.rows().get(index)) {
-            let columns = shown.column..shown.end_column;
+        let on_row = screen
+            .rows()
+            .get(index)
+            .and_then(|row| Some((row, screen.preedit_on(row)?)));
+        if let (Some((at, preedit)), Some((shown, columns))) = (spliced, on_row) {
             let line = underline(at, preedit, (screen.origin(shown), columns), area.columns);
             if line.contains(['-', '=']) {
                 lines.push(format!("_{pad}{}", &line['_'.len_utf8()..]));

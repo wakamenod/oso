@@ -69,7 +69,12 @@ recommended option each time, and approved the public API in direction.
     same, with no preedit on it.
   - Otherwise it reads the row and compares what it would shape, as ADR 0051 says.
   - So a report or rows wrapped near the view above the top, which change row numbers, shape
-    nothing again. A line inserted above does, as it did.
+    nothing again.
+  - A row's clusters count their columns from its first cluster's, and a row with no entry
+    takes the one its place on the screen had in the last frame and is compared with it. So
+    the rows after a character typed in a wrapped line, which move a cell along it with the
+    same text, shape nothing again; only rows whose text changed do.
+  - The rows a frame did not draw go once there are many more than a screen of them.
 - **The mark is part of the shaped row,** a piece of its own in `Face::WrapMark`, so whether a
   row continues is compared as its content is. A hanging space is left out of what is shaped,
   and the mark draws in its cell.
@@ -103,6 +108,9 @@ recommended option each time, and approved the public API in direction.
 - **A gutter that gains a digit in a command** narrows the text area within the command's
   budget, which its edits share, as ADR 0103 says of the rows near the view. A frame laid out
   again for it starts no budget; a resize does.
+- **The gutter does not narrow while its buffer is edited,** as ADR 0105 left to M2-25: it
+  widens at once, and fits the line count again when a buffer is shown or the aids change.
+  So a newline typed and deleted at 1000 lines does not wrap the rows again at each key.
 
 ### The C-x b preview
 
@@ -129,8 +137,9 @@ module:
 
 - in `window`, `Screen` and `ScreenRow`, and `Screen::show_lines` for a view no window holds,
   such as a theme's sample;
+- `Window::wrap_of`, a window's wrap only while it follows its buffer's text;
 - `Editor::screen`, `Editor::preview_screen` and `Editor::prompt_screen`, the last for a
-  prompt's answer;
+  prompt's answer, and `Editor::text_screen`, the rows with no preedit, for the dev socket;
 - `oso_render::Face::WrapMark`;
 - `frame`'s cell functions and the editor's cell methods taking a `&Screen` in place of a
   `ViewTop` and a preedit;
@@ -140,13 +149,16 @@ module:
 ## Changes to accepted ADRs
 
 The passages below stay in their ADR as written; what holds now follows each. ADR 0100's status
-becomes `Accepted, amended by 0102, 0103 and 0104`, and ADR 0103's `Accepted, amended by 0104`.
+becomes `Accepted, amended by 0102, 0103 and 0104`, and ADR 0103's and ADR 0105's
+`Accepted, amended by 0104`.
 
 - [ADR 0100](0100-soft-wrap.md), "Rows are kept as ADR 0051 says: by their place on the screen,
   compared by content": by their logical line and start column, compared by content.
 - ADR 0100, "A range that goes on past a view row fills to that row's last cell, the mark's
   column included when a hanging space is in the range": to the cell before the mark's column,
   the row's text width, and the mark's column with a hanging space.
+- ADR 0100, "`WrapMap` itself is `pub(crate)`, held only by `Window`": and by the editor for
+  the `C-x b` preview's buffer, which no window shows.
 - ADR 0100, "If the budget runs out before the view is full, the rest of the view shows its
   logical lines unwrapped, cut at the edge, until the report": and the part of a line before an
   anchor, which goes on in the next row, cut at the wrap's width with the mark.
@@ -158,6 +170,11 @@ becomes `Accepted, amended by 0102, 0103 and 0104`, and ADR 0103's `Accepted, am
 - ADR 0103, "`text.rows` stay logical lines until the renderer's step": they are view rows.
 - ADR 0103, "`toggle-truncate-lines` is on `M-x` until the renderer draws view rows": it is on
   `C-x x t`.
+- [ADR 0105](0105-m2-24-part-2-the-flash-and-line-numbers.md), "M2-25 keeps the gutter from
+  narrowing while the buffer is edited. That is deferred to M2-25", and "refilling every wrap
+  map when the gutter's width changes, are left to M2-25 step 4": the gutter keeps its width
+  while its buffer is edited, and a width it gains in a command narrows the text area within
+  the command's budget.
 - ADR 0103's public API, "in `oso-render`, `TextView::scroll` as a `ViewTop`", "`frame`'s cell
   functions … taking a `ViewTop`" and `Window::drawn_top`: as listed above.
 

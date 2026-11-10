@@ -439,10 +439,10 @@ pub(super) fn goal_state(goal: Option<Goal>) -> Value {
 /// view row, each from its start to where the next starts, cut at the window's left and right
 /// edges, so that a space that hangs in the mark's column stays on its row. A wide character
 /// across either edge is included. Stops at [`MAX_VISIBLE_TEXT`] and says so. A preedit is no
-/// buffer's text, and is left out.
+/// buffer's text: the rows are laid out without it, so they say nothing of one.
 fn visible_text(editor: &Editor, text: &Rope, display: &DisplaySnapshot) -> Value {
     let mut screen = Screen::default();
-    editor.screen(&mut screen);
+    editor.text_screen(&mut screen);
     let mut budget = MAX_VISIBLE_TEXT;
     let mut rows = Vec::new();
     let mut truncated = false;

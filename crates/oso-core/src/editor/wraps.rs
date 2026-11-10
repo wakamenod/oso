@@ -9,14 +9,27 @@
 //!   buffer; its place keeps the top's offset.
 //! - Each command, wheel scroll, resize and report gives each wrap its budget anew, which
 //!   its edits and the rows wrapped near the view share (ADR 0102, ADR 0103).
+//! - The `C-x b` preview's buffer is shown by no window, so the editor keeps its wrap at the
+//!   preview's width: provisional, one row a logical line, made in O(log n) when the preview
+//!   changes buffer, width or text, and wrapped near the preview's start within each
+//!   command's budget. No job wraps the rest, as nothing scrolls a preview (ADR 0104).
 
-use super::Editor;
+use super::{Editor, Preview};
 use crate::buffer::{BufferId, Rewrap};
 use crate::display_map::DisplaySnapshot;
 use crate::display_map::wrap_map::{WrapJob, WrapMap, WrapReport};
 use crate::selection::{OffsetEdit, follow_offset};
 use crate::sum_tree::Bias;
 use crate::window::Scroll;
+
+/// The preview's rows of the buffer it shows.
+pub(super) struct PreviewWrap {
+    id: BufferId,
+    /// The buffer's revision and the preview's width the rows were made for.
+    revision: u64,
+    columns: usize,
+    wrap: WrapMap,
+}
 
 /// A window's wrap and view once a change of its buffer is in, by window position.
 pub(super) type MovedViews = Vec<(usize, Option<WrapMap>, Scroll)>;
@@ -44,6 +57,8 @@ impl Editor {
     /// led to: a wrap starts over, its top in the text as before.
     pub fn loaded(&mut self, id: BufferId) {
         self.refill_wraps();
+        // A previewed buffer's part too.
+        self.fit_preview();
         for index in 0..self.tiled_count() {
             if self.windows[index].buffer() == id {
                 self.sync_wrap(index);
@@ -188,5 +203,52 @@ impl Editor {
             self.follow_window(index);
         }
         taken
+    }
+
+    /// The preview's wrap of `id` at `revision`, `columns` wide, if it has that one.
+    pub(super) fn preview_wrap_of(
+        &self,
+        id: BufferId,
+        revision: u64,
+        columns: usize,
+    ) -> Option<&WrapMap> {
+        self.preview_wrap
+            .as_ref()
+            .filter(|kept| kept.id == id && kept.revision == revision && kept.columns == columns)
+            .map(|kept| &kept.wrap)
+    }
+
+    /// Brings the preview's wrap in step with what it previews, after each command: made anew
+    /// for another buffer, width or text, dropped for a buffer that does not wrap, and wrapped
+    /// near the preview's start within the command's budget.
+    pub(super) fn fit_preview(&mut self) {
+        let previewed = match self.preview() {
+            Some(Preview::Buffer { id, start, .. }) => Some((id, start)),
+            _ => None,
+        };
+        let region = self.prompt_layout().map(|layout| layout.regions.preview);
+        let wanted = previewed
+            .zip(region)
+            .filter(|(_, region)| region.rows > 0 && region.columns > 0)
+            .and_then(|((id, start), region)| {
+                let buffer = self.buffer(id).filter(|buffer| buffer.wraps())?;
+                Some((id, start, region, buffer.display(), buffer.revision()))
+            });
+        let Some((id, start, region, display, revision)) = wanted else {
+            self.preview_wrap = None;
+            return;
+        };
+        let kept = self.preview_wrap.take().filter(|kept| {
+            kept.id == id && kept.revision == revision && kept.columns == region.columns
+        });
+        let mut kept = kept.unwrap_or_else(|| PreviewWrap {
+            id,
+            revision,
+            columns: region.columns,
+            wrap: WrapMap::provisional(&display, region.columns),
+        });
+        kept.wrap.refill();
+        kept.wrap.realize(&display, start, region.rows);
+        self.preview_wrap = Some(kept);
     }
 }

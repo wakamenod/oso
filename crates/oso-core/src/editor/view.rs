@@ -28,7 +28,10 @@ impl Editor {
     /// [`Editor::set_frame_size`] within what is left of the wraps' budget, for a gutter that
     /// gained a digit in a command, which a frame laid out again does not start anew.
     pub(super) fn lay_out(&mut self, size: FrameSize) -> bool {
-        self.frame = frame::layout(size, self.gutter_columns());
+        let gutter = self.gutter_columns();
+        let shown = self.tiled().0.buffer();
+        self.gutter_floor = self.aids.line_numbers.then_some((shown, gutter));
+        self.frame = frame::layout(size, gutter);
         let view = self.frame.window.text.view_size();
         let tiled = self.tiled_index();
         let added = view.rows.saturating_sub(self.windows[tiled].size().rows);
@@ -95,9 +98,19 @@ impl Editor {
         let point = window.cursor_point(&display);
         let cells = motion::cursor_cells(&display, point);
         // With a preedit, its start: the cursor's cell with the preedit laid out (ADR 0104).
-        let (screen, region) = self.selected_screen();
-        let cell = frame::cursor_rect(region, &screen, point, cells)?;
-        Some(grid.rect(cell))
+        let (row, origin) = window.cursor_place(&display, self.preedit.as_ref())?;
+        let region = self.selected_region();
+        let start = point.column.max(origin);
+        let end =
+            (point.column.saturating_add(cells.max(1))).min(origin.saturating_add(region.columns));
+        (row < region.rows && start < end).then(|| {
+            grid.rect(CellRect {
+                row: region.row + row,
+                column: region.column + (start - origin),
+                rows: 1,
+                columns: end - start,
+            })
+        })
     }
 
     /// Where the composition is drawn, for the input method (ADR 0077): the rectangle of its
@@ -113,9 +126,10 @@ impl Editor {
         let point = window.cursor_point(&display);
         // Where it starts as its line is laid out with it in (ADR 0104). A preedit that wraps
         // keeps one rectangle, its start's, for now.
-        let (screen, region) = self.selected_screen();
-        let row = screen.row_of(point).filter(|&row| row < region.rows)?;
-        let origin = screen.origin(&screen.rows()[row]);
+        let region = self.selected_region();
+        let (row, origin) = window
+            .cursor_place(&display, Some(preedit))
+            .filter(|&(row, _)| row < region.rows)?;
         // Left of the text area when its start is scrolled off.
         let column = region.column as i64 + point.column as i64 - origin as i64;
         let [x, y] = grid.cell((region.row + row) as i64, column);
@@ -167,10 +181,11 @@ impl Editor {
         frame::other_cursor_cells(text, screen, &buffer.display(), &window.selections, out);
     }
 
-    /// The cells of the innermost prompt's answer that its regions take, into `out`, which
-    /// is emptied first, and none while they are hidden or no prompt is open (ADR 0076). No
-    /// input method composes in a prompt, so no preedit pushes them.
-    pub fn prompt_region_cells(&self, out: &mut Vec<CellRect>) {
+    /// The cells of the innermost prompt's answer that its regions take, as `screen` shows it
+    /// ([`Editor::prompt_screen`]), into `out`, which is emptied first, and none while they are
+    /// hidden or no prompt is open (ADR 0076). A preedit there pushes them as it pushes the
+    /// text.
+    pub fn prompt_region_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
         out.clear();
         let (Some(_), Some(layout)) = (self.prompt(), self.prompt_layout()) else {
             return;
@@ -180,10 +195,7 @@ impl Editor {
             return;
         }
         let display = self.shown(window).display();
-        // A prompt's answer is one row that never wraps.
-        let mut screen = Screen::default();
-        window.screen_into(&display, None, &mut screen);
-        frame::region_cells(layout.input, &screen, &display, &window.selections, out);
+        frame::region_cells(layout.input, screen, &display, &window.selections, out);
     }
 
     /// What an input method is composing, if anything (ADR 0069).
