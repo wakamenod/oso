@@ -77,6 +77,11 @@ enum Name {
     BgTrailing,
     /// The current line's band.
     BgCurrentLine,
+    /// The cursor flash, at full strength.
+    BgFlash,
+    /// Line numbers, dim, and the current line's, bright.
+    FgLineNumber,
+    FgLineNumberCurrent,
 }
 
 /// How a float's panel is drawn, beyond its faces' colours: sizes in points (the cell's height
@@ -218,7 +223,7 @@ impl Theme {
 }
 
 /// Every face, in the order of [`index`], so that a theme keeps a table of them.
-const FACES: [Face; 25] = [
+const FACES: [Face; 28] = [
     Face::Text,
     Face::Escape,
     Face::Boxed,
@@ -244,6 +249,9 @@ const FACES: [Face; 25] = [
     Face::Whitespace,
     Face::TrailingWhitespace,
     Face::CurrentLine,
+    Face::Flash,
+    Face::LineNumber,
+    Face::LineNumberCurrent,
 ];
 
 /// Where `face` is in [`FACES`]. A match with no wildcard, so that a new face does not
@@ -275,6 +283,9 @@ const fn index(face: Face) -> usize {
         Face::Whitespace => 22,
         Face::TrailingWhitespace => 23,
         Face::CurrentLine => 24,
+        Face::Flash => 25,
+        Face::LineNumber => 26,
+        Face::LineNumberCurrent => 27,
     }
 }
 
@@ -310,6 +321,9 @@ fn faces(face: Face) -> (Name, Name) {
         Face::Whitespace => (FgWhitespace, BgMain),
         Face::TrailingWhitespace => (FgMain, BgTrailing),
         Face::CurrentLine => (FgMain, BgCurrentLine),
+        Face::Flash => (FgMain, BgFlash),
+        Face::LineNumber => (FgLineNumber, BgMain),
+        Face::LineNumberCurrent => (FgLineNumberCurrent, BgMain),
     }
 }
 
@@ -341,6 +355,9 @@ fn dark(name: Name) -> Color {
         FgWhitespace => rgb(0x9aa0b8),
         BgTrailing => rgb(0x3a1b22),
         BgCurrentLine => rgb(0x181a22),
+        BgFlash => rgb(0x4a2a5a),
+        FgLineNumber => rgb(0x767c93),
+        FgLineNumberCurrent => rgb(0xd8dbe6),
         Hairline => rgba(0xffffff, 0.05),
         Border => rgb(0x30344a),
         Shadow => rgba(0x000000, 0.6),
@@ -374,6 +391,9 @@ fn light(name: Name) -> Color {
         FgWhitespace => rgb(0x5f6577),
         BgTrailing => rgb(0xf5d6d6),
         BgCurrentLine => rgb(0xeeefe8),
+        BgFlash => rgb(0xebc9ef),
+        FgLineNumber => rgb(0x6e7385),
+        FgLineNumberCurrent => rgb(0x272a33),
         Hairline => rgba(0x000000, 0.08),
         Border => rgb(0xc2c6d4),
         Shadow => rgba(0x1a1f33, 0.18),
@@ -409,6 +429,9 @@ fn dusk(name: Name) -> Color {
         FgWhitespace => rgb(0xa3a7bd),
         BgTrailing => rgb(0x5d3a46),
         BgCurrentLine => rgb(0x4a4a52),
+        BgFlash => rgb(0x603c6c),
+        FgLineNumber => rgb(0xb0b3c4),
+        FgLineNumberCurrent => rgb(0xf3f3f6),
         Hairline => rgba(0xffffff, 0.035),
         Border => rgb(0x505265),
         Shadow => rgba(0x08090e, 0.55),
@@ -522,6 +545,7 @@ pub(crate) mod tests {
             Face::Text => &[
                 (Face::Text, READ),
                 (Face::CurrentLine, READ),
+                (Face::Flash, READ),
                 (Face::Region, READ),
                 (Face::SearchMatch, READ),
                 (Face::SearchCurrent, READ),
@@ -538,6 +562,7 @@ pub(crate) mod tests {
             Face::Escape => &[
                 (Face::Text, LABEL),
                 (Face::CurrentLine, LABEL),
+                (Face::Flash, LABEL),
                 (Face::Region, LABEL),
                 (Face::SearchMatch, LABEL),
                 (Face::SearchCurrent, LABEL),
@@ -552,11 +577,15 @@ pub(crate) mod tests {
                 &[(LIST[0], LABEL), (LIST[1], LABEL)]
             }
             Face::CompletionPrompt => &[(Face::Text, LABEL)],
+            // The gutter has no band and no fill: only the background.
+            Face::LineNumber => &[(Face::Text, LABEL)],
+            Face::LineNumberCurrent => &[(Face::Text, READ)],
             // A mark sits on everything behind buffer text.
             Face::Whitespace => &[
                 (Face::Text, MARK),
                 (Face::CurrentLine, MARK),
                 (Face::TrailingWhitespace, MARK),
+                (Face::Flash, MARK),
                 (Face::Region, MARK),
                 (Face::SearchMatch, MARK),
                 (Face::SearchCurrent, MARK),
@@ -571,7 +600,8 @@ pub(crate) mod tests {
             | Face::SearchCurrent
             | Face::SecondaryCursor
             | Face::TrailingWhitespace
-            | Face::CurrentLine => &[],
+            | Face::CurrentLine
+            | Face::Flash => &[],
         }
     }
 
@@ -711,6 +741,7 @@ pub(crate) mod tests {
                 (Face::Field, float),
                 (Face::CurrentLine, behind_text),
                 (Face::TrailingWhitespace, behind_text),
+                (Face::Flash, behind_text),
             ] {
                 let step = (oklab(theme.background(face))[0] - oklab(behind)[0]).abs();
                 assert!(step >= 0.02, "{}: {face:?} {step:.3}", theme.name());
@@ -745,10 +776,39 @@ pub(crate) mod tests {
                 Face::SearchMatch,
                 Face::SearchCurrent,
                 Face::TrailingWhitespace,
+                Face::Flash,
             ] {
                 let apart = distance(theme.background(face), band);
                 assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
             }
+        }
+    }
+
+    /// The flash is no fill the cursor's row can have for another reason, so it never reads as
+    /// a region or a match there.
+    #[test]
+    fn the_flash_stands_apart_from_every_other_fill() {
+        for theme in &themes() {
+            let flash = theme.background(Face::Flash);
+            for face in [
+                Face::Region,
+                Face::SearchMatch,
+                Face::SearchCurrent,
+                Face::TrailingWhitespace,
+                Face::CompletionSelected,
+            ] {
+                let apart = distance(theme.background(face), flash);
+                assert!(apart >= 0.05, "{}: {face:?} {apart:.3}", theme.name());
+            }
+        }
+    }
+
+    #[test]
+    fn the_current_lines_number_stands_apart_from_the_others() {
+        for theme in &themes() {
+            let current = theme.foreground(Face::LineNumberCurrent);
+            let apart = distance(current, theme.foreground(Face::LineNumber));
+            assert!(apart >= 0.05, "{}: {apart:.3}", theme.name());
         }
     }
 

@@ -1229,23 +1229,16 @@ impl core::marker::StructuralPartialEq for oso_core::editor::CompletionStyle
 pub struct oso_core::editor::Editor
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::add_buffer(&mut self, oso_core::buffer::Buffer) -> oso_core::buffer::BufferId
-pub fn oso_core::editor::Editor::allow_undo_join(&mut self)
 pub fn oso_core::editor::Editor::apply_edits(&mut self, oso_core::buffer::BufferId, &[oso_core::buffer::Replacement<'_>]) -> core::result::Result<(), oso_core::buffer::EditError>
-pub fn oso_core::editor::Editor::begin_undo_group(&mut self)
 pub fn oso_core::editor::Editor::buffer(&self, oso_core::buffer::BufferId) -> core::option::Option<&oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::buffer_mut(&mut self, oso_core::buffer::BufferId) -> core::option::Option<&mut oso_core::buffer::Buffer>
 pub fn oso_core::editor::Editor::buffers(&self) -> impl core::iter::traits::iterator::Iterator<Item = (oso_core::buffer::BufferId, &oso_core::buffer::Buffer)>
 pub fn oso_core::editor::Editor::current(&self) -> (&oso_core::window::Window, &oso_core::buffer::Buffer)
 pub fn oso_core::editor::Editor::current_mut(&mut self) -> (&mut oso_core::window::Window, &oso_core::buffer::Buffer)
-pub fn oso_core::editor::Editor::end_undo_group(&mut self)
-pub fn oso_core::editor::Editor::end_undo_group_after_panic(&mut self)
-pub fn oso_core::editor::Editor::keep_undo_step_apart(&mut self)
-pub fn oso_core::editor::Editor::redo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::selected_window(&self) -> usize
 pub fn oso_core::editor::Editor::show(&mut self, oso_core::buffer::BufferId)
 pub fn oso_core::editor::Editor::shown(&self, &oso_core::window::Window) -> &oso_core::buffer::Buffer
 pub fn oso_core::editor::Editor::shows_secret(&self) -> bool
-pub fn oso_core::editor::Editor::undo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 pub fn oso_core::editor::Editor::window(&self) -> &oso_core::window::Window
 pub fn oso_core::editor::Editor::windows(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = &oso_core::window::Window>
 pub fn oso_core::editor::Editor::with_buffer(oso_core::buffer::Buffer) -> Self
@@ -1275,6 +1268,14 @@ pub fn oso_core::editor::Editor::set_agent_channel(&mut self, oso_core::editor::
 pub fn oso_core::editor::Editor::take_agent_allowed(&mut self) -> bool
 pub fn oso_core::editor::Editor::take_agent_channel_request(&mut self) -> core::option::Option<bool>
 pub fn oso_core::editor::Editor::take_agents_answer(&mut self) -> bool
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::allow_undo_join(&mut self)
+pub fn oso_core::editor::Editor::begin_undo_group(&mut self)
+pub fn oso_core::editor::Editor::end_undo_group(&mut self)
+pub fn oso_core::editor::Editor::end_undo_group_after_panic(&mut self)
+pub fn oso_core::editor::Editor::keep_undo_step_apart(&mut self)
+pub fn oso_core::editor::Editor::redo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
+pub fn oso_core::editor::Editor::undo(&mut self) -> core::result::Result<(), oso_core::buffer::EditError>
 impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::answer_question(&mut self, bool) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::ask(&mut self, impl core::convert::Into<alloc::string::String>, &'static str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
@@ -1423,6 +1424,13 @@ pub fn oso_core::editor::Editor::request_revert(&mut self)
 pub fn oso_core::editor::Editor::revert(&mut self, oso_core::buffer::BufferId, oso_core::load::Reloaded, oso_core::buffer::ContentId) -> (oso_core::editor::ReloadOutcome, oso_core::editor::Leftover)
 pub fn oso_core::editor::Editor::take_revert_requests(&mut self) -> alloc::vec::Vec<(oso_core::buffer::BufferId, oso_core::buffer::ContentId)>
 impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::fit_gutter(&mut self) -> bool
+pub fn oso_core::editor::Editor::gutter_into(&self, &mut oso_core::editor::Gutter)
+impl oso_core::editor::Editor
+pub fn oso_core::editor::Editor::flash_cells(&self) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::editor::Editor::flashes(&self, &oso_core::editor::ViewSample, &oso_core::editor::ViewSample) -> bool
+pub fn oso_core::editor::Editor::view_sample(&self) -> oso_core::editor::ViewSample
+impl oso_core::editor::Editor
 pub fn oso_core::editor::Editor::go_to_listed_mark(&mut self, &str) -> core::result::Result<(), oso_core::minibuffer::PromptError>
 pub fn oso_core::editor::Editor::open_mark_list(&mut self, &str) -> core::result::Result<oso_core::minibuffer::PromptId, oso_core::minibuffer::PromptError>
 impl oso_core::editor::Editor
@@ -1497,6 +1505,13 @@ impl core::fmt::Display for oso_core::editor::ExitRefused
 pub fn oso_core::editor::ExitRefused::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::editor::ExitRefused
 impl core::marker::StructuralPartialEq for oso_core::editor::ExitRefused
+pub struct oso_core::editor::Gutter
+impl oso_core::editor::Gutter
+pub fn oso_core::editor::Gutter::rows(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, bool)>
+impl core::default::Default for oso_core::editor::Gutter
+pub fn oso_core::editor::Gutter::default() -> oso_core::editor::Gutter
+impl core::fmt::Debug for oso_core::editor::Gutter
+pub fn oso_core::editor::Gutter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub struct oso_core::editor::Isearch
 impl oso_core::editor::Isearch
 pub fn oso_core::editor::Isearch::around_secret(&self) -> bool
@@ -1592,6 +1607,16 @@ pub fn oso_core::editor::Status::default() -> oso_core::editor::Status
 impl core::fmt::Debug for oso_core::editor::Status
 pub fn oso_core::editor::Status::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::StructuralPartialEq for oso_core::editor::Status
+pub struct oso_core::editor::ViewSample
+impl core::clone::Clone for oso_core::editor::ViewSample
+pub fn oso_core::editor::ViewSample::clone(&self) -> oso_core::editor::ViewSample
+impl core::cmp::Eq for oso_core::editor::ViewSample
+impl core::cmp::PartialEq for oso_core::editor::ViewSample
+pub fn oso_core::editor::ViewSample::eq(&self, &oso_core::editor::ViewSample) -> bool
+impl core::fmt::Debug for oso_core::editor::ViewSample
+pub fn oso_core::editor::ViewSample::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::editor::ViewSample
+impl core::marker::StructuralPartialEq for oso_core::editor::ViewSample
 pub struct oso_core::editor::VisualAids
 pub oso_core::editor::VisualAids::current_line: bool
 pub oso_core::editor::VisualAids::flash: bool
@@ -1652,6 +1677,8 @@ impl core::marker::StructuralPartialEq for oso_core::frame::FloatRegions
 pub struct oso_core::frame::FrameLayout
 pub oso_core::frame::FrameLayout::echo: oso_core::frame::CellRect
 pub oso_core::frame::FrameLayout::window: oso_core::frame::WindowRegions
+impl oso_core::frame::FrameLayout
+pub fn oso_core::frame::FrameLayout::size(&self) -> oso_core::frame::FrameSize
 impl core::clone::Clone for oso_core::frame::FrameLayout
 pub fn oso_core::frame::FrameLayout::clone(&self) -> oso_core::frame::FrameLayout
 impl core::cmp::Eq for oso_core::frame::FrameLayout
@@ -1707,8 +1734,11 @@ pub fn oso_core::frame::PixelRect::fmt(&self, &mut core::fmt::Formatter<'_>) -> 
 impl core::marker::Copy for oso_core::frame::PixelRect
 impl core::marker::StructuralPartialEq for oso_core::frame::PixelRect
 pub struct oso_core::frame::WindowRegions
+pub oso_core::frame::WindowRegions::gutter: oso_core::frame::CellRect
 pub oso_core::frame::WindowRegions::modeline: oso_core::frame::CellRect
 pub oso_core::frame::WindowRegions::text: oso_core::frame::CellRect
+impl oso_core::frame::WindowRegions
+pub fn oso_core::frame::WindowRegions::area(&self) -> oso_core::frame::CellRect
 impl core::clone::Clone for oso_core::frame::WindowRegions
 pub fn oso_core::frame::WindowRegions::clone(&self) -> oso_core::frame::WindowRegions
 impl core::cmp::Eq for oso_core::frame::WindowRegions
@@ -1722,8 +1752,9 @@ impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub const oso_core::frame::MIN_LIST_COLUMNS: usize
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::ViewTop, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::frame::fitting_gutter(oso_core::frame::FrameSize, usize) -> usize
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
-pub fn oso_core::frame::layout(oso_core::frame::FrameSize) -> oso_core::frame::FrameLayout
+pub fn oso_core::frame::layout(oso_core::frame::FrameSize, usize) -> oso_core::frame::FrameLayout
 pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::ViewTop, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::other_cursor_cells(oso_core::frame::CellRect, oso_core::window::ViewTop, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)
 pub fn oso_core::frame::region_cells(oso_core::frame::CellRect, oso_core::window::ViewTop, &oso_core::display_map::DisplaySnapshot, &oso_core::selection::SelectionSet, core::option::Option<(oso_core::display_map::DisplayPoint, usize)>, &mut alloc::vec::Vec<oso_core::frame::CellRect>)

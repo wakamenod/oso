@@ -20,7 +20,7 @@
 //! modeline and the echo area say is in [`status`], and messages in [`messages`]. The
 //! buffers that show emergency copies are in [`copies`], prompts in [`prompts`], kills and
 //! yanks in [`kill`], isearch in [`isearch`], and files read again after they changed on disk
-//! in [`reload`]. Undo groups are in [`undo`].
+//! in [`reload`].
 //!
 //! Internal buffers (ADR 0063) are in the editor but not in [`Editor::buffers`], so
 //! whatever goes through a user's work leaves them out without having to know them.
@@ -44,6 +44,7 @@ mod cursors;
 mod excerpt;
 mod files;
 mod follow;
+mod gutter;
 mod isearch;
 mod kill;
 mod marks;
@@ -55,7 +56,7 @@ mod screen;
 mod status;
 mod switch;
 mod themes;
-mod undo;
+mod undo_group;
 mod view;
 mod wraps;
 mod write;
@@ -63,11 +64,12 @@ mod yank_pop;
 
 pub use crate::search::{SearchJob, SearchReport};
 pub use agent::AgentChannel;
-pub use aids::VisualAids;
+pub use aids::{ViewSample, VisualAids};
 pub use completion::CompletionStyle;
 pub use copies::RecoveryAction;
 pub use cursors::{CursorError, Toward};
 pub use files::Looked;
+pub use gutter::Gutter;
 pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use messages::row_text;
@@ -217,7 +219,7 @@ impl Editor {
             buffers: Vec::new(),
             windows: Vec::new(),
             selected: 0,
-            frame: frame::layout(FrameSize::holding(ViewSize::default())),
+            frame: frame::layout(FrameSize::holding(ViewSize::default()), 0),
             next_id: 0,
             undo_scope: None,
             join_ready: false,
@@ -426,6 +428,8 @@ impl Editor {
         }
         self.commit_views(id, views);
         self.note_edited(id);
+        // The line count may have another digit (ADR 0097).
+        self.fit_gutter();
         Ok(())
     }
 
@@ -686,7 +690,7 @@ mod tests {
             columns: 40,
         };
         editor.set_frame_size(frame);
-        assert_eq!(editor.frame(), frame::layout(frame));
+        assert_eq!(editor.frame(), frame::layout(frame, 0));
         assert_eq!(editor.window().size(), ViewSize::new(10, 40));
     }
 

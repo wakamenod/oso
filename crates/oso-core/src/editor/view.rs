@@ -14,13 +14,14 @@ use crate::selection::{MarkActive, SelectionSet};
 use crate::window::{self, Recenter, Scroll, ViewSize, ViewTop, Window};
 
 impl Editor {
-    /// Lays out a frame of `size` (ADR 0057). The windows take its text area, and
+    /// Lays out a frame of `size` (ADR 0057), with the gutter line numbers need (ADR 0097).
+    /// The windows take its text area, and
     /// the selected one then scrolls to show its primary cursor. Rows it gained
     /// also show the text above any empty space below the buffer's last row.
     /// Returns whether the view moved.
     pub fn set_frame_size(&mut self, size: FrameSize) -> bool {
         self.refill_wraps();
-        self.frame = frame::layout(size);
+        self.frame = frame::layout(size, self.gutter_columns());
         let view = self.frame.window.text.view_size();
         let tiled = self.tiled_index();
         let added = view.rows.saturating_sub(self.windows[tiled].size().rows);
@@ -61,8 +62,8 @@ impl Editor {
         window.set_view_top(ViewTop { row, left }, &display)
     }
 
-    /// Lays out the frame whose text area is `size`, for tests that think in text
-    /// rows. Returns whether the view moved.
+    /// Lays out the frame whose text area is `size` while line numbers are off, for tests
+    /// that think in text rows. Returns whether the view moved.
     pub fn set_view_size(&mut self, size: ViewSize) -> bool {
         self.set_frame_size(FrameSize::holding(size))
     }
@@ -260,6 +261,8 @@ impl Editor {
     /// Puts back the selected window's cursors and view, saved together as a
     /// state handoff does, then scrolls as little as shows its primary cursor.
     pub fn restore_positions(&mut self, selections: SelectionSet, scroll: Scroll) {
+        // Against the gutter the text loaded so far needs (ADR 0097).
+        self.fit_gutter();
         // The tiled window, also beneath a prompt, whose own window shows only its buffer.
         let index = self.tiled_index();
         self.sync_wrap(index);

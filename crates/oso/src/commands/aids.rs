@@ -24,6 +24,20 @@ pub const COMMANDS: &[Command] = &[
         reach: Reach::Look,
         run: global_hl_line_mode,
     },
+    Command {
+        name: "beacon-mode",
+        doc: "Toggle the cursor flash after a large jump.\n\nThe flash fades from the cursor to the window's edge after a jump of 5 rows or more, a scroll on purpose or another buffer or window. A positive prefix argument turns it on, zero or a negative one off.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: beacon_mode,
+    },
+    Command {
+        name: "global-display-line-numbers-mode",
+        doc: "Toggle line numbers in every buffer.\n\nAbsolute numbers in a gutter at the window's left, the current line's brighter. A positive prefix argument turns them on, zero or a negative one off.",
+        args: ArgSpec::Count,
+        reach: Reach::Look,
+        run: global_display_line_numbers_mode,
+    },
 ];
 
 fn global_whitespace_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
@@ -33,6 +47,18 @@ fn global_whitespace_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandEr
 
 fn global_hl_line_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
     switch(ctx, args, "Global Hl-Line", |aids| &mut aids.current_line);
+    Ok(())
+}
+
+fn beacon_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    switch(ctx, args, "Beacon", |aids| &mut aids.flash);
+    Ok(())
+}
+
+fn global_display_line_numbers_mode(ctx: &mut Ctx<'_>, args: Args) -> Result<(), CommandError> {
+    switch(ctx, args, "Global Display-Line-Numbers", |aids| {
+        &mut aids.line_numbers
+    });
     Ok(())
 }
 
@@ -91,5 +117,31 @@ mod tests {
         let (_, effects) = run(&mut editor, "global-hl-line-mode", Args::numeric(1));
         assert!(effects.redraw);
         assert!(editor.visual_aids().current_line);
+    }
+
+    #[test]
+    fn beacon_mode_turns_the_flash_off_and_on() {
+        let mut editor = editor("abc");
+        assert!(editor.visual_aids().flash);
+        let _ = run(&mut editor, "beacon-mode", Args::NONE);
+        assert!(!editor.visual_aids().flash);
+        let said = kept_messages(&editor);
+        assert_eq!(
+            said.last().map(String::as_str),
+            Some("Beacon mode disabled")
+        );
+        let _ = run(&mut editor, "beacon-mode", Args::numeric(1));
+        assert!(editor.visual_aids().flash);
+    }
+
+    #[test]
+    fn line_numbers_take_the_gutter_from_the_text_area() {
+        let mut editor = editor("abc");
+        let columns = editor.window().size().columns;
+        assert!(!editor.visual_aids().line_numbers);
+        let (_, effects) = run(&mut editor, "global-display-line-numbers-mode", Args::NONE);
+        assert!(effects.redraw);
+        assert_eq!(editor.frame().window.gutter.columns, 4);
+        assert_eq!(editor.window().size().columns, columns - 4);
     }
 }

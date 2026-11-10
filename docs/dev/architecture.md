@@ -123,9 +123,9 @@ oso-render: lay out only visible rows on a monospace cell grid, draw with wgpu
   ([ADR 0100](adr/0100-soft-wrap.md), [ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
   The app runs the wraps' jobs on one thread, as it runs isearch's. There is one window until splits (M3). See
   [ADR 0040](adr/0040-buffers-loading-motion-and-scrolling.md). A pure function,
-  `oso_core::frame::layout`, divides the frame into whole cells: its size is the
-  window's text area, above a modeline row and the echo area
-  ([ADR 0057](adr/0057-frame-layout.md)).
+  `oso_core::frame::layout`, divides the frame into whole cells: the
+  window's text area, with a gutter for line numbers at its left, above a modeline row and
+  the echo area ([ADR 0057](adr/0057-frame-layout.md), [ADR 0097](adr/0097-visual-aids.md)).
 - **Selections** are per window and support multiple cursors
   (`oso_core::selection::SelectionSet`). Each selection has a cursor, a
   goal column for vertical motion and its own mark. The set says whether the

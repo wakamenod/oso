@@ -372,6 +372,20 @@ impl App {
         }
     }
 
+    /// When the message that names the buffers reloaded is due, if it is held for a read
+    /// still running: once the last of them to start has run its patience out. One already
+    /// past wakes the loop once, and [`App::tell_reloaded`] then says it, so it cannot spin.
+    pub(super) fn reload_deadline(&self) -> Option<Instant> {
+        if self.disk.reloaded.is_empty() {
+            return None;
+        }
+        self.disk
+            .running
+            .iter()
+            .map(|running| running.started + READ_PATIENCE)
+            .max()
+    }
+
     /// Says in one message which buffers were reloaded, once no other read has started in
     /// the last [`READ_PATIENCE`], so that a checkout that changed many files says so once, and
     /// a read that hangs holds back nothing.

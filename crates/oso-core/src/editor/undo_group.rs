@@ -1,10 +1,8 @@
-//! Undo groups, a command's at a time, and undoing and redoing them (ADR 0030, ADR 0053).
+//! The undo group of a command (ADR 0053): opening it before the command runs, joining or
+//! keeping apart what follows, closing it after, also after a panic, and undoing or redoing
+//! a step with the selected window's cursors as they were.
 //!
 //! Must not depend on: `command`, `keymap`, or the host's window, threads or I/O.
-//!
-//! The dispatcher opens a group before it runs a command and closes it after, also when the
-//! command panics. Undo and redo go through the same staging as an edit: every window's
-//! cursors and wrap are worked out against the result before anything changes.
 
 use super::follow::Selected;
 use super::{Editor, UndoScope};

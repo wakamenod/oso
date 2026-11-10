@@ -1,0 +1,98 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: line 1\\nline 2\\nline 3\\nline 4\\nline 5\\nline 6\\nline 7\\nline 8\\nline 9\\nline 10\\nline 11\\nline 12\\nline 13\\nline 14\\nline 15\\nline 16\\nline 17\\nline 18\\nline 19\\nline 20\\nline 21\\nline 22\\nline 23\\nline 24\\nline 25\\nline 26\\nline 27\\nline 28\\nline 29\\nline 30\\n"
+---
+keys: M-x b e a c o n - m o d e RET
+│line 1          │
+:^               :
+│line 2          │
+│line 3          │
+│line 4          │
+│line 5          │
+│line 6          │
+│line 7          │
+│line 8          │
+=-- test  1:0  Fu=
+"Beacon mode enab"
+
+keys: C-n
+│line 1          │
+│line 2          │
+:^               :
+│line 3          │
+│line 4          │
+│line 5          │
+│line 6          │
+│line 7          │
+│line 8          │
+=-- test  2:0  Fu=
+"                "
+
+keys: C-v
+│line 7          │
+:^               :
++ffffffffffffffff+
+│line 8          │
+│line 9          │
+│line 10         │
+│line 11         │
+│line 12         │
+│line 13         │
+│line 14         │
+=-- test  7:0  Fu=
+"                "
+
+keys: C-p
+│line 6          │
+:^               :
+│line 7          │
+│line 8          │
+│line 9          │
+│line 10         │
+│line 11         │
+│line 12         │
+│line 13         │
+=-- test  6:0  Fu=
+"                "
+
+keys: M-v
+│line 1          │
+│line 2          │
+│line 3          │
+│line 4          │
+│line 5          │
+│line 6          │
+:^               :
++ffffffffffffffff+
+│line 7          │
+│line 8          │
+=-- test  6:0  Fu=
+"                "
+
+keys: M->
+│line 24         │
+│line 25         │
+│line 26         │
+│line 27         │
+│line 28         │
+│line 29         │
+│line 30         │
+│                │
+:^               :
++ffffffffffffffff+
+=-- test  31:0  F=
+"Mark set        "
+
+keys: C-x b RET
+│Beacon mode enab│
+:^               :
++ffffffffffffffff+
+│Mark set        │
+│                │
+│                │
+│                │
+│                │
+│                │
+│                │
+=%% *Messages*  1=
+"                "

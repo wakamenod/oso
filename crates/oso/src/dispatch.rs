@@ -75,6 +75,8 @@ pub struct Dispatcher {
     from_socket: bool,
     /// `RET` or `TAB`, held while a worker matches the input (ADR 0096).
     completion_held: Option<held::HeldTake>,
+    /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
+    jump: Option<bool>,
 }
 
 impl Dispatcher {
@@ -115,6 +117,7 @@ impl Dispatcher {
             waiting: None,
             from_socket: false,
             completion_held: None,
+            jump: None,
         }
     }
 
@@ -172,16 +175,28 @@ impl Dispatcher {
 
     /// Runs `work` as one input, as Emacs does a key: the echo area empties first,
     /// but for what waits behind keys in progress, and then shows the keys it left in
-    /// progress (ADR 0063).
+    /// progress (ADR 0063). Every input comes through here, so here alone it is asked
+    /// whether the view jumped, for the cursor flash (ADR 0097, ADR 0105).
     fn as_input<R>(
         &mut self,
         editor: &mut Editor,
         work: impl FnOnce(&mut Self, &mut Editor) -> R,
     ) -> R {
         editor.clear_echo();
+        let before = editor.view_sample();
         let out = work(self, editor);
+        // Before the view is sampled: another digit of line numbers narrows the text area.
+        editor.fit_gutter();
+        self.jump = Some(editor.flashes(&before, &editor.view_sample()));
         self.show_keys_in_progress(editor);
         out
+    }
+
+    /// Whether the last input since this was last asked made the view jump, so the cursor
+    /// flashes, or none came. An input that did not jump ends a flash; an agent's never
+    /// does, so after one only a jump is reported.
+    pub fn take_jump(&mut self) -> Option<bool> {
+        self.jump.take()
     }
 
     /// Picks up a prefix in progress, for a state handoff, and the echo area shows it.

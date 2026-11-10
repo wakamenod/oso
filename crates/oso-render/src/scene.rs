@@ -83,6 +83,16 @@ impl Draws {
         }
     }
 
+    /// Fills `rect` in `face`'s background at `strength`, from 1 down to 0, over what is
+    /// behind it, if it shows and there is room.
+    fn fill_faded(&mut self, rect: Option<PixelRect>, face: Face, strength: f32) {
+        let start = self.rects.len();
+        self.fill(rect, face);
+        if let Some(rect) = self.rects.get_mut(start) {
+            rect.color[3] *= strength.clamp(0.0, 1.0);
+        }
+    }
+
     /// Adds what `row` shows. Returns false once there is no room for more.
     fn row<G: GlyphSource>(
         &mut self,
@@ -339,6 +349,10 @@ fn draw_pane<G: GlyphSource>(
                     draws.fill(unscrolled.frame_cells(*cells), face);
                 }
             }
+            if let Some(flash) = view.flash {
+                let cells = unscrolled.frame_cells(flash.cells);
+                draws.fill_faded(cells, Face::Flash, flash.strength);
+            }
             let mut layout = Layout::new(metrics, pane.region, view.scroll).with_bands(pane.bands);
             if let Some(cells) = cursor.filter(|_| !hollow) {
                 // Glyphs take the box's color only where the box is.
@@ -560,7 +574,7 @@ fn draw_lines<G: GlyphSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pane::{Bands, Panel};
+    use crate::pane::{Bands, FlashFill, Panel};
     use crate::rows::tests::Recorder;
     use oso_core::buffer::{Buffer, BufferId};
     use oso_core::display_map::DisplayPoint;
@@ -645,6 +659,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         })
     }
 
@@ -744,6 +759,7 @@ mod tests {
                     preedit: None,
                     fills: &[],
                     whitespace: false,
+                    flash: None,
                 })
             };
             let mut panes = [pane(0, region, 0, content)];
@@ -775,12 +791,11 @@ mod tests {
         let text = "x\n".repeat(2000);
         let buffer = Buffer::from_text("t", &text);
         for frame_rows in [0, 1, 2, 3, 40, 1000] {
-            let area = frame::layout(FrameSize {
+            let size = FrameSize {
                 rows: frame_rows,
                 columns: 80,
-            })
-            .window
-            .text;
+            };
+            let area = frame::layout(size, 0).window.text;
             let mut scene = Scene::new(LIMITS, theme());
             let panes = [pane(0, area, 0, view(&buffer))];
             let system = build(&mut scene, &panes, &mut FakeAtlas::default());
@@ -819,6 +834,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let panes = [pane(0, rect(0, 0, 2, 4), 0, content)];
         let (mut scene, mut atlas) = (Scene::new(LIMITS, theme()), FakeAtlas::default());
@@ -1070,6 +1086,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1105,6 +1122,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1199,6 +1217,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 120), 0, content)];
         let limits = Limits {
@@ -1233,6 +1252,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let panes = [pane(0, rect(1, 1, 1, 3), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1244,6 +1264,74 @@ mod tests {
         assert_eq!(last.size, [30.0, 20.0]);
         let boxed = scene.rects()[0];
         assert_eq!(boxed.size, [30.0, 20.0], "the box is cut too");
+    }
+
+    #[test]
+    fn the_flash_is_filled_over_the_fills_at_its_strength() {
+        let buffer = Buffer::from_text("t", "ab\ncd");
+        let band = [rect(1, 0, 1, 8)];
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: ViewTop::default(),
+            cursor: DisplayPoint::new(1, 1),
+            cursor_style: CursorStyle::Box,
+            others: &[],
+            preedit: None,
+            fills: &[(Face::CurrentLine, &band)],
+            whitespace: false,
+            flash: Some(FlashFill {
+                cells: rect(1, 1, 1, 7),
+                strength: 0.25,
+            }),
+        });
+        let panes = [pane(0, rect(0, 0, 2, 8), 0, content)];
+        let mut scene = Scene::new(LIMITS, theme());
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let rects = scene.rects();
+        assert_eq!(rects[0].color, theme().background(Face::CurrentLine));
+        let mut faded = theme().background(Face::Flash);
+        faded[3] *= 0.25;
+        assert_eq!(
+            (rects[1].position, rects[1].size),
+            ([18.0, 28.0], [70.0, 20.0])
+        );
+        assert_eq!(rects[1].color, faded, "over the band, at a quarter");
+    }
+
+    /// What marks an escape or an invisible character stays over the flash, so a flash never
+    /// hides one.
+    #[test]
+    fn the_boxes_stay_over_the_flash() {
+        let buffer = Buffer::from_text("t", "a\u{202e}b");
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id(),
+            revision: 1,
+            scroll: ViewTop::default(),
+            cursor: DisplayPoint::new(0, 0),
+            cursor_style: CursorStyle::Box,
+            others: &[],
+            preedit: None,
+            fills: &[],
+            whitespace: false,
+            flash: Some(FlashFill {
+                cells: rect(0, 0, 1, 12),
+                strength: 1.0,
+            }),
+        });
+        let panes = [pane(0, rect(0, 0, 1, 12), 0, content)];
+        let mut scene = Scene::new(LIMITS, theme());
+        build(&mut scene, &panes, &mut FakeAtlas::default());
+        let colors: Vec<_> = scene.rects().iter().map(|rect| rect.color).collect();
+        let flash = colors
+            .iter()
+            .position(|&c| c == theme().background(Face::Flash));
+        let boxed = colors
+            .iter()
+            .position(|&c| c == theme().background(Face::Boxed));
+        assert!(flash < boxed && flash.is_some(), "{colors:?}");
     }
 
     #[test]
@@ -1261,6 +1349,7 @@ mod tests {
             preedit: None,
             fills: &[(Face::Region, &region)],
             whitespace: false,
+            flash: None,
         });
         let mut panes = [pane(0, rect(1, 1, 2, 8), 0, content)];
         panes[0].background = Some(Face::Text);
@@ -1301,6 +1390,7 @@ mod tests {
             preedit: Some(&preedit),
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let panes = [pane(0, rect(0, 0, 1, 10), 0, content)];
         let mut scene = Scene::new(LIMITS, theme());
@@ -1341,6 +1431,7 @@ mod tests {
                 preedit: None,
                 fills: &[],
                 whitespace: false,
+                flash: None,
             })
         };
         let mut scene = Scene::new(LIMITS, theme());
@@ -1384,6 +1475,7 @@ mod tests {
                 preedit: None,
                 fills: &[],
                 whitespace,
+                flash: None,
             })
         };
         let mut scene = Scene::new(LIMITS, theme());
@@ -1424,6 +1516,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let mut scene = Scene::new(LIMITS, theme());
         build(
@@ -1457,6 +1550,7 @@ mod tests {
                 preedit: None,
                 fills: &[],
                 whitespace: false,
+                flash: None,
             })
         };
         let panes = |first, second_id| {
@@ -1619,6 +1713,7 @@ mod tests {
             preedit: None,
             fills: &[],
             whitespace: false,
+            flash: None,
         });
         let mut panes = [pane(0, rect(0, 0, 2, 200), 0, content)];
         panes[0].background = Some(Face::Modeline);
