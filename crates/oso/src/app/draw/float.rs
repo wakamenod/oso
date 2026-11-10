@@ -437,10 +437,11 @@ pub(super) fn panes<'a>(
     } else {
         &[]
     };
-    // The panel's pane is the text area beneath, which its shadow stays in (ADR 0075).
+    // The panel's pane is the window's gutter and text beneath, which its shadow stays in, as
+    // floats centre on both (ADR 0075, ADR 0097).
     list.push(Pane {
         id: PaneId(3),
-        region: editor.frame().window.text,
+        region: editor.frame().window.area(),
         layer: Layer::FLOAT,
         background: None,
         panel: Some(Panel {

@@ -52,7 +52,7 @@ pub struct FrameSize {
 }
 
 impl FrameSize {
-    /// The frame whose text area is `view`.
+    /// The frame whose text area is `view`, with no gutter.
     pub fn holding(view: ViewSize) -> Self {
         Self {
             rows: view.rows.saturating_add(RESERVED_ROWS),
@@ -121,8 +121,14 @@ impl FrameLayout {
     }
 }
 
+/// The gutter's columns in a frame of `size`: all of `gutter`, or none if the text area would
+/// keep no column, so a number is never drawn cut.
+pub fn fitting_gutter(size: FrameSize, gutter: usize) -> usize {
+    if gutter < size.columns { gutter } else { 0 }
+}
+
 /// Divides a frame of `size` into regions, with a gutter of `gutter` columns at the window's
-/// left, as far as it leaves the text area a column.
+/// left while the text area keeps a column, and none otherwise.
 pub fn layout(size: FrameSize, gutter: usize) -> FrameLayout {
     let echo_rows = size.rows.saturating_sub(1).min(1);
     let window_rows = size.rows - echo_rows;
@@ -134,7 +140,7 @@ pub fn layout(size: FrameSize, gutter: usize) -> FrameLayout {
         rows,
         columns: size.columns,
     };
-    let gutter = gutter.min(size.columns.saturating_sub(1));
+    let gutter = fitting_gutter(size, gutter);
     let text = rows(0, text_rows);
     FrameLayout {
         window: WindowRegions {
@@ -832,6 +838,28 @@ mod tests {
             for region in [text, modeline, echo] {
                 prop_assert_eq!((region.column, region.columns), (0, columns));
             }
+        }
+
+        /// The gutter and the text area share the window's columns, the text keeps one, and a
+        /// float is where it would be with no gutter (ADR 0097).
+        #[test]
+        fn prop_a_gutter_takes_from_the_text_and_moves_no_float(
+            rows in 0usize..60, columns in 0usize..200, gutter in 0usize..20,
+            content in 0usize..10, listed in 0usize..30,
+        ) {
+            let size = FrameSize { rows, columns };
+            let (with, without) = (layout(size, gutter), layout(size, 0));
+            let window = with.window;
+            prop_assert_eq!(window.gutter.columns + window.text.columns, columns);
+            prop_assert_eq!(window.text.column, window.gutter.columns);
+            prop_assert!(window.text.columns > 0 || columns == 0);
+            prop_assert_eq!(window.area(), without.window.text);
+            prop_assert_eq!(with.size(), size);
+            prop_assert_eq!(float_regions(&with, content), float_regions(&without, content));
+            prop_assert_eq!(
+                completion_regions(&with, listed, true),
+                completion_regions(&without, listed, true)
+            );
         }
 
         /// A float stays inside the text area, its inner cells inside it, and leaves the

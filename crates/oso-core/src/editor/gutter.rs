@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::ops::Range;
 
 use super::Editor;
-use crate::motion;
+use crate::{frame, motion};
 
 /// The fewest digits the line-number column takes.
 const MIN_DIGITS: usize = 3;
@@ -56,11 +56,14 @@ impl Editor {
     /// a digit by an edit, a load or another buffer shown, or line numbers were turned on.
     /// Returns whether it did, so a frame is drawn.
     pub fn fit_gutter(&mut self) -> bool {
-        if self.gutter_columns() == self.frame.window.gutter.columns {
+        // As the layout gives it: none in a frame too narrow for it and a column of text.
+        let size = self.frame.size();
+        let wanted = frame::fitting_gutter(size, self.gutter_columns());
+        if wanted == self.frame.window.gutter.columns {
             return false;
         }
         let before = self.frame;
-        self.set_frame_size(self.frame.size());
+        self.set_frame_size(size);
         self.frame != before
     }
 
@@ -177,9 +180,30 @@ mod tests {
             text: "\n",
         };
         editor.apply_edits(id, &[edit]).unwrap();
-        assert!(editor.fit_gutter(), "1000 lines");
+        assert!(!editor.fit_gutter(), "the edit laid it out at 1000 lines");
         assert_eq!(editor.frame().window.gutter.columns, 5);
         assert_eq!(rows(&editor)[0].0, "   1 ");
+    }
+
+    #[test]
+    fn another_buffer_shown_takes_its_own_gutter_at_once() {
+        let mut editor = numbered(&"x\n".repeat(1000), 5);
+        assert_eq!(editor.frame().window.gutter.columns, 5);
+        let small = editor.add_buffer(Buffer::from_text("small", "a"));
+        editor.show(small);
+        assert_eq!(editor.frame().window.gutter.columns, 4);
+        assert_eq!(editor.window().size().columns, 16);
+    }
+
+    #[test]
+    fn a_frame_narrower_than_the_gutter_is_laid_out_once() {
+        let mut editor = numbered("a", 5);
+        editor.set_frame_size(FrameSize {
+            rows: 5,
+            columns: 3,
+        });
+        assert_eq!(editor.frame().window.gutter.columns, 0, "no cut numbers");
+        assert!(!editor.fit_gutter());
     }
 
     #[test]

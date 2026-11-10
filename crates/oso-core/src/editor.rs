@@ -423,6 +423,8 @@ impl Editor {
         }
         self.commit_views(id, views);
         self.note_edited(id);
+        // The line count may have another digit (ADR 0097).
+        self.fit_gutter();
         Ok(())
     }
 

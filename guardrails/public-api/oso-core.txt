@@ -1751,6 +1751,7 @@ impl core::marker::Copy for oso_core::frame::WindowRegions
 impl core::marker::StructuralPartialEq for oso_core::frame::WindowRegions
 pub const oso_core::frame::MIN_LIST_COLUMNS: usize
 pub fn oso_core::frame::cursor_rect(oso_core::frame::CellRect, oso_core::window::ViewTop, oso_core::display_map::DisplayPoint, usize) -> core::option::Option<oso_core::frame::CellRect>
+pub fn oso_core::frame::fitting_gutter(oso_core::frame::FrameSize, usize) -> usize
 pub fn oso_core::frame::float_regions(&oso_core::frame::FrameLayout, usize) -> oso_core::frame::FloatRegions
 pub fn oso_core::frame::layout(oso_core::frame::FrameSize, usize) -> oso_core::frame::FrameLayout
 pub fn oso_core::frame::match_cells(oso_core::frame::CellRect, oso_core::window::ViewTop, &oso_core::display_map::DisplaySnapshot, &[core::ops::range::Range<usize>], &mut alloc::vec::Vec<oso_core::frame::CellRect>)
