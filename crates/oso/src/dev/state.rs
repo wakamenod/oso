@@ -914,6 +914,9 @@ mod tests {
             json!(null),
             "a person toggles it there"
         );
+        // Nor its view rows, which say how long its words are (ADR 0100).
+        assert_eq!(state["text"], json!(null));
+        assert!(get_text(&editor, 0, 10).is_err());
     }
 
     #[test]

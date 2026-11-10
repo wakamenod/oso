@@ -128,3 +128,32 @@ fn the_view_follows_a_preedit_that_wraps_past_the_last_row() {
     editor.screen(&mut screen);
     assert_eq!(shape(&screen), [(1, 0, false), (2, 0, true), (2, 5, false)]);
 }
+
+#[test]
+fn a_buffer_that_may_hold_secrets_is_previewed_with_no_rows_and_no_wrap() {
+    let mut editor = Editor::default();
+    editor.set_frame_size(FrameSize {
+        rows: 30,
+        columns: 100,
+    });
+    let secret = editor.add_buffer(super::super::test_buffers::secret_buffer());
+    editor.set_wraps(secret, true);
+    editor.show(secret);
+    let scratch = editor.buffer_named(crate::editor::SCRATCH).unwrap();
+    editor.show(scratch);
+    let names = [".env"].map(|name| Candidate::new(name, "", ""));
+    let style = CompletionStyle {
+        given_order: true,
+        takes_input: true,
+        preview: true,
+    };
+    editor
+        .open_completion_as("Switch to buffer:", "buffer", names.into(), style)
+        .unwrap();
+    editor.follow_cursor();
+    assert_eq!(editor.preview(), Some(Preview::Withheld));
+    let mut screen = Screen::default();
+    editor.preview_screen(&mut screen);
+    assert!(screen.rows().is_empty());
+    assert!(editor.preview_wrap.is_none());
+}

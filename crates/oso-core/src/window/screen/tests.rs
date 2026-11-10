@@ -199,3 +199,13 @@ proptest! {
         prop_assert_eq!(window.cursor_place(&display, preedit.as_ref()), expected);
     }
 }
+
+#[test]
+fn debug_prints_no_offset_or_column() {
+    // Where rows break says how long words are (ADR 0100).
+    let (window, display) = make("aaaa bbbb ccccc", (4, 9), true, 0);
+    let shown = screen(&window, &display, None);
+    assert_eq!(format!("{shown:?}"), "Screen { rows: 3, .. }");
+    let row = format!("{:?}", shown.rows()[1]);
+    assert_eq!(row, "ScreenRow { continues: true, .. }");
+}
