@@ -71,7 +71,9 @@ pub fn run<T: 'static, H: Handler<T> + 'static>(start: impl FnOnce(Waker<T>) -> 
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
     // The delegate goes when this returns, and the system's notifications must not reach it.
+    // A panic leaves the person on ASCII otherwise, if a prompt for a file's name was open.
     delegate.stop_observing();
+    state.update_ascii(Some(false));
 
     // The loop stopped: the handler asked to exit, or panicked.
     if let Some(payload) = state.panic.take() {
@@ -205,11 +207,8 @@ struct State {
     live_resize: Cell<gate::LiveResize>,
     /// An event AppKit dispatched (a key, the modifiers, the wheel) is being handled.
     in_event: Cell<bool>,
-    /// The kind of input source the handler was last told of, whether the app wants ASCII,
-    /// and the person's source to give back once it does not (ADR 0106).
-    source: Cell<gate::SourceGate>,
-    ascii: Cell<gate::AsciiInput>,
-    switched: RefCell<Option<input_source::Switched>>,
+    /// The input source, as the handler was told of it and as oso chose it (ADR 0106).
+    input: RefCell<input_source::SystemTracker>,
     /// The handler's answer to the last request to end, while it is being asked.
     quit_answer: Cell<Option<QuitAnswer>>,
     /// AppKit holds an end for the app's answer (`NSTerminateLater`).
@@ -239,9 +238,7 @@ impl State {
             panic: RefCell::new(None),
             live_resize: Cell::new(gate::LiveResize::default()),
             in_event: Cell::new(false),
-            source: Cell::new(gate::SourceGate::default()),
-            ascii: Cell::new(gate::AsciiInput::default()),
-            switched: RefCell::new(None),
+            input: RefCell::new(input_source::Tracker::default()),
             quit_answer: Cell::new(None),
             quit_held: Cell::new(false),
         }

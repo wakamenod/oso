@@ -19,9 +19,15 @@ the coordinator, and accepted this on 2026-11-11, through the coordinator.
 
 ## Decision
 
-- **A `static` declared inside an `extern` block is allowed:** it names a constant that a
-  foreign library defines and oso only reads. It holds no state of oso's, and reading one is
-  `unsafe`, with a `// SAFETY:` comment, as every foreign call is.
+- **A `static` declared inside an `extern` block is allowed,** where the block is at the top
+  of a file or of a module, and the `static`'s type cannot hold state: it names a constant that
+  a foreign library defines and oso only reads. Reading one is `unsafe`, with a `// SAFETY:`
+  comment, as every foreign call is.
+- **Its type holds no state:** a foreign `static` whose type has interior mutability
+  (`Cell`, `RefCell`, `UnsafeCell`, `OnceCell`, `LazyCell`), a lock (`Mutex`, `RwLock`,
+  `OnceLock`, `LazyLock`), an atomic (`Atomic…`), or a `*mut` or `&mut` is rejected.
+- **Only at the top of a file or a module:** an `extern` block in a function's body, a
+  macro's or any other group is not counted, so a `static` there is rejected.
 - **Nothing else changes:** a `static mut` is rejected everywhere, an `extern` block's
   included, and a `static` outside an `extern` block or a top-level test item is rejected as
   before. `extern crate` and `extern fn` open no block.
@@ -39,8 +45,9 @@ the coordinator, and accepted this on 2026-11-11, through the coordinator.
 
 - A system constant is declared where its functions are, as Carbon's property keys are in
   `oso-platform`'s `window/appkit/input_source.rs`.
-- The check still cannot tell a constant from a foreign mutable global declared as a plain
-  `static`; review catches that, as `extern` blocks are few and each is in `oso-platform`.
+- The check reads tokens, not types: a foreign mutable global declared with a plain type, or
+  through a type alias that hides one of the above, passes it. Review catches that, as
+  `extern` blocks are few and each is in `oso-platform`.
 
 ## Alternatives considered
 

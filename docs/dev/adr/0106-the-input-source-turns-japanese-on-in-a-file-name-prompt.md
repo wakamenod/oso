@@ -47,7 +47,11 @@ through the coordinator and accepted this on 2026-11-11, through the coordinator
   one is still the one oso chose: a source the person chose meanwhile, as with `かな`, stays.
   While oso is behind another app, the person's source is theirs: oso gives it back when it goes
   behind, chooses ASCII again when it comes to the front with the prompt still open, and gives
-  it back when the app ends. The notices of oso's own choices read as `Other` while the prompt
+  it back when the app ends, and when the loop stops after a panic. Coming to the front, it
+  chooses ASCII before it reads the source, so that the person's source it gave back while
+  behind is not taken as a choice made in the prompt. A crash ends the process with no chance
+  to give it back, and the person is left with the ASCII mode, which one `英数` or `かな` press
+  changes. The notices of oso's own choices read as `Other` while the prompt
   is open, and as the person's kind once it has closed, when no prompt is marked, so they change
   nothing. Only the prompt for a file's name does this; a passphrase has secure input
   ([ADR 0073](0073-secure-input-in-secret-buffers.md)) and no switching.
