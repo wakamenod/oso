@@ -122,3 +122,20 @@ fn typing_in_a_wrapped_line_moves_the_rows_after_it() {
     );
     assert_eq!(wrap.row(&display, 1).start, 18);
 }
+
+#[test]
+fn c_x_x_t_toggles_wrapping_and_a_positive_argument_truncates() {
+    let (mut d, mut editor) = at(&paragraph(), &[0]);
+    let id = editor.window().buffer();
+    send(&mut d, &mut editor, "C-x x t");
+    assert!(editor.buffer(id).unwrap().wraps());
+    send(&mut d, &mut editor, "C-x x t");
+    assert!(!editor.buffer(id).unwrap().wraps());
+    send(&mut d, &mut editor, "C-u 0 C-x x t");
+    assert!(editor.buffer(id).unwrap().wraps(), "zero wraps");
+    send(&mut d, &mut editor, "C-u 1 C-x x t");
+    assert!(
+        !editor.buffer(id).unwrap().wraps(),
+        "a positive argument truncates"
+    );
+}

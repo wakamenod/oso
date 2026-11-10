@@ -224,6 +224,8 @@ impl Editor {
     /// cursor box, or the box alone if both do not fit (ADR 0069). Returns whether
     /// the view moved.
     pub fn follow_cursor(&mut self) -> bool {
+        // So does the preview's wrap, which a command may have moved (ADR 0100).
+        self.fit_preview();
         self.follow_window(self.selected)
     }
 
@@ -396,7 +398,11 @@ fn follow_in(window: &mut Window, display: &DisplaySnapshot, preedit: Option<&Pr
     let (cursor, cells) = motion::cursor_box(display, point, preedit);
     let span = cursor.column - point.column + cells;
     let (point, cells) = if window.wrap().is_some() {
-        (DisplayPoint::new(window.cursor_row(display), 0), 1)
+        // While composing, the caret's row as the preedit wraps (ADR 0104).
+        let row = preedit
+            .and_then(|preedit| window.caret_row(display, preedit))
+            .unwrap_or_else(|| window.cursor_row(display));
+        (DisplayPoint::new(row, 0), 1)
     } else if span <= window.size().columns {
         (point, span)
     } else {

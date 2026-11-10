@@ -28,6 +28,7 @@ mod edit;
 mod job;
 mod map;
 mod realize;
+mod spliced;
 
 use std::fmt;
 use std::sync::Arc;
@@ -37,6 +38,7 @@ use self::builder::Builder;
 pub(crate) use self::job::SPLICES_READ;
 pub use self::job::{COMMAND_BUDGET, Splice, WrapJob, WrapReport};
 pub(crate) use self::map::WrapMap;
+pub(crate) use self::spliced::SplicedRow;
 use super::{DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::sum_tree::{Bias, Dimension, Item, SumTree, Summary};
 
@@ -441,6 +443,12 @@ impl WrapSnapshot {
     /// How many bytes its rows cover, which is its buffer's length.
     pub(crate) fn len(&self) -> usize {
         self.tree.summary().bytes
+    }
+
+    /// The cells a row's text takes, the mark's column after them; `usize::MAX` when nothing
+    /// wraps.
+    pub(crate) fn width(&self) -> usize {
+        self.width
     }
 
     /// Whether rows wrap at all.

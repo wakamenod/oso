@@ -27,9 +27,13 @@ use crate::motion::{self, Edge};
 use crate::selection::SelectionSet;
 
 mod places;
+mod rows;
+pub(crate) mod screen;
 
 pub use places::Place;
 pub(crate) use places::{Places, Walk};
+pub(crate) use rows::Rows;
+pub use screen::{Screen, ScreenRow};
 
 /// Rows that `C-v` and `M-v` keep from the previous screen, as Emacs's
 /// `next-screen-context-lines`.
@@ -75,57 +79,6 @@ impl Default for ViewSize {
     /// 24 by 80, until the window reports its size.
     fn default() -> Self {
         Self::new(24, 80)
-    }
-}
-
-/// A window's view rows over its buffer as it shows now: its wrap's, or one a logical line.
-#[derive(Clone, Copy)]
-pub(crate) struct Rows<'a> {
-    display: &'a DisplaySnapshot,
-    wrap: Option<&'a WrapSnapshot>,
-}
-
-impl<'a> Rows<'a> {
-    /// The rows of `wrap` over `display`, or one a logical line without it, or with one
-    /// whose text is not `display`'s, as the editor brings it along at the next command.
-    pub(crate) fn new(display: &'a DisplaySnapshot, wrap: Option<&'a WrapMap>) -> Self {
-        Self {
-            display,
-            wrap: wrap
-                .map(WrapMap::snapshot)
-                .filter(|wrap| wrap.len() == display.len()),
-        }
-    }
-
-    /// How many there are.
-    pub(crate) fn count(&self) -> usize {
-        match self.wrap {
-            Some(wrap) => wrap.row_count(),
-            None => self.display.row_count(),
-        }
-    }
-
-    /// The row that holds `offset`; the last at or past the end.
-    pub(crate) fn row_of(&self, offset: usize) -> usize {
-        let offset = offset.min(self.display.len());
-        match self.wrap {
-            Some(wrap) => wrap.row_of(self.display, offset),
-            None => self.display.offset_to_display_point(offset).row,
-        }
-    }
-
-    /// Where row `row` starts, clamped to the last.
-    pub(crate) fn start(&self, row: usize) -> usize {
-        let row = row.min(self.count() - 1);
-        match self.wrap {
-            Some(wrap) => wrap.row_span(self.display, row).0,
-            None => motion::line_start(self.display, row),
-        }
-    }
-
-    /// Whether rows wrap.
-    pub(crate) fn wrapped(&self) -> bool {
-        self.wrap.is_some()
     }
 }
 
