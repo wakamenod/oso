@@ -49,9 +49,8 @@ pub struct Scroll {
     pub left: usize,
 }
 
-/// The first row a window shows and its left column. The rules of scrolling count it in view
-/// rows. The frame's cells and the renderer count it in logical lines, from
-/// [`Window::drawn_top`], until the renderer draws view rows (ADR 0100's next step).
+/// The first row a window shows and its left column, in view rows, as the rules of scrolling
+/// count it. What a frame draws from it is a [`Screen`] (ADR 0104).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ViewTop {
     pub row: usize,
@@ -264,16 +263,6 @@ impl Window {
     /// The view row of the primary cursor.
     pub fn cursor_row(&self, display: &DisplaySnapshot) -> usize {
         self.rows(display).row_of(self.selections.primary().cursor)
-    }
-
-    /// The first row a frame draws and its left column. Until the renderer draws view rows
-    /// (ADR 0100's next step), a frame draws logical lines, from the one that holds the top.
-    pub fn drawn_top(&self, display: &DisplaySnapshot) -> ViewTop {
-        let start = self.scroll.start.min(display.len());
-        ViewTop {
-            row: display.offset_to_display_point(start).row,
-            left: self.scroll.left,
-        }
     }
 
     /// The top and the left column as rows count them.

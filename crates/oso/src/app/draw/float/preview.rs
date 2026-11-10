@@ -5,7 +5,7 @@
 
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
-use oso_core::window::ViewTop;
+use oso_core::window::Screen;
 use oso_render::{Bands, CursorStyle, Layer, Pane, PaneContent, PaneId, TextView};
 
 use super::{Lines, Parts};
@@ -19,7 +19,7 @@ const PREVIEW_PANES: u32 = 1 << 20;
 /// said of a buffer that may hold secrets in its place (ADR 0088).
 pub(super) fn preview_panes<'a>(
     editor: &'a Editor,
-    parts: &'a Parts<'a>,
+    (parts, screen): (&'a Parts<'a>, &'a Screen),
     lines: &'a Lines<'a>,
     list: &mut Vec<Pane<'a>>,
 ) {
@@ -48,20 +48,19 @@ pub(super) fn preview_panes<'a>(
         None => return,
         Some(Preview::Withheld) => pane(11, preview, PaneContent::Lines(&lines.withheld)),
         Some(Preview::Text { .. }) => pane(12, preview, PaneContent::Lines(&lines.kill)),
-        Some(Preview::Buffer { id, start, cursor }) => {
+        Some(Preview::Buffer { id, cursor, .. }) => {
             let Some(buffer) = editor.buffer(id) else {
                 return;
             };
             let display = buffer.display();
             let cursor = display.offset_to_display_point(cursor);
-            // Logical lines, from the one that holds the start, until the renderer draws view
-            // rows (ADR 0100).
-            let top = display.offset_to_display_point(start).row;
+            // From the row that holds the start, wrapped at the preview's width while the
+            // buffer wraps (ADR 0100).
             let view = TextView {
                 display,
                 buffer: id,
                 revision: buffer.revision(),
-                scroll: ViewTop { row: top, left: 0 },
+                screen,
                 cursor,
                 cursor_style: CursorStyle::Hollow,
                 others: &[],

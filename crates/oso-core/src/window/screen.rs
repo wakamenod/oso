@@ -20,7 +20,7 @@
 use std::fmt;
 use std::ops::Range;
 
-use super::{Rows, Scroll, ViewSize, Window};
+use super::{Rows, Scroll, ViewSize, ViewTop, Window};
 use crate::display_map::wrap_map::{SplicedRow, WrapSnapshot};
 use crate::display_map::{DisplayPoint, DisplaySnapshot, Preedit};
 use crate::motion;
@@ -115,6 +115,12 @@ impl Screen {
         self.columns
     }
 
+    /// The cells a wrapped row's text takes, the mark's column after them; `usize::MAX` when
+    /// nothing wraps.
+    pub(crate) fn width(&self) -> usize {
+        self.width
+    }
+
     /// The point a preedit is spliced in at and the cells it takes, which push what follows
     /// it on its line.
     pub fn preedit(&self) -> Option<(DisplayPoint, usize)> {
@@ -162,6 +168,22 @@ impl Screen {
             (Some(first), Some(last)) => first.start..last.end,
             _ => 0..0,
         }
+    }
+
+    /// Fills it with the logical lines of `display` from `top`, unwrapped, as a view of `size`
+    /// shows them, for a view no window holds, such as a sample of a theme.
+    pub fn show_lines(&mut self, display: &DisplaySnapshot, top: ViewTop, size: ViewSize) {
+        let start = motion::line_start(display, top.row.min(display.row_count() - 1));
+        let view = View {
+            rows: Rows::new(display, None),
+            scroll: Scroll {
+                start,
+                left: top.left,
+            },
+            size,
+            cursor: start,
+        };
+        fill(view, display, None, self);
     }
 
     /// Empties it, for a frame that shows no rows.

@@ -201,7 +201,7 @@ fn a_region_in_the_answer_takes_its_cells_and_not_the_window_beneath() {
             columns: 3,
         }]
     );
-    editor.region_cells(&mut cells);
+    editor.region_cells(&editor.screen_now(), &mut cells);
     assert!(cells.is_empty(), "the window beneath has none");
 }
 

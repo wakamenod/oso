@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use oso_core::editor::{Editor, Gutter, MatchCells, Status};
 use oso_core::frame;
+use oso_core::window::Screen;
 use oso_render::{
     Bands, CursorStyle, Face, FlashFill, Layer, Pane, PaneContent, PaneId, Redraw, RenderState,
     Span, TextView,
@@ -35,8 +36,14 @@ pub(super) struct Cells {
     matches: MatchCells,
     band: Vec<frame::CellRect>,
     trailing: Vec<frame::CellRect>,
-    /// The cursor flash in this frame, from the app's clock (ADR 0097).
-    pub(super) flash: Option<FlashFill>,
+    /// The cursor flash's strength in this frame, from the app's clock (ADR 0097).
+    pub(super) flash: Option<f32>,
+    /// The tiled window's rows in view, built once a frame, which everything it draws reads
+    /// (ADR 0104).
+    screen: Screen,
+    /// The rows of the innermost prompt's answer, and of the buffer it previews (ADR 0088).
+    answer: Screen,
+    preview: Screen,
     /// The gutter's line numbers in view (ADR 0097).
     gutter: Gutter,
     /// Room for the gutter's spans and rows, empty between frames, so that a frame with line
@@ -81,11 +88,19 @@ pub(super) fn with_panes<R>(
         span(status.echo_warnings(), Face::Warning),
         span(&status.echo[..], Face::Text),
     ];
-    editor.region_cells(&mut cells.region);
-    editor.other_cursor_cells(&mut cells.others);
-    editor.isearch_cells(&mut cells.matches);
-    editor.trailing_cells(&mut cells.trailing);
-    editor.gutter_into(&mut cells.gutter);
+    editor.screen(&mut cells.screen);
+    editor.prompt_screen(&mut cells.answer);
+    editor.preview_screen(&mut cells.preview);
+    let screen = &cells.screen;
+    editor.region_cells(screen, &mut cells.region);
+    editor.other_cursor_cells(screen, &mut cells.others);
+    editor.isearch_cells(screen, &mut cells.matches);
+    editor.trailing_cells(screen, &mut cells.trailing);
+    editor.gutter_into(screen, &mut cells.gutter);
+    let flash = (cells.flash).and_then(|strength| {
+        let cells = editor.flash_cells(screen)?;
+        Some(FlashFill { cells, strength })
+    });
     // Built each frame, only with line numbers on, in room kept from the last (ADR 0097).
     let mut numbers: Vec<[Span<'_>; 1]> = reuse(std::mem::take(&mut cells.numbers));
     numbers.extend(cells.gutter.rows().map(|(text, current)| {
@@ -99,7 +114,7 @@ pub(super) fn with_panes<R>(
     let mut gutter: Vec<&[Span<'_>]> = reuse(std::mem::take(&mut cells.rows));
     gutter.extend(numbers.iter().map(|row| &row[..]));
     cells.band.clear();
-    cells.band.extend(editor.current_line_cells());
+    cells.band.extend(editor.current_line_cells(screen));
     // From the back: the current line's band, trailing whitespace, then the current match
     // first, so that it always has room, and the regions over the matches.
     let fills = [
@@ -111,9 +126,10 @@ pub(super) fn with_panes<R>(
     ];
     let (modeline, echo) = ([&modeline[..]], [&echo[..]]);
     let marks = Marks {
+        screen,
         fills: &fills,
         others: &cells.others,
-        flash: cells.flash,
+        flash,
         gutter: &gutter,
     };
     let tiled = panes(editor, marks, &modeline, &echo);
@@ -125,7 +141,11 @@ pub(super) fn with_panes<R>(
             let lines = spans.lines();
             let mut list = Vec::with_capacity(tiled.len() + float::MAX_PANES);
             list.extend(tiled);
-            float::panes(editor, &parts, &lines, &mut list);
+            let screens = float::Screens {
+                answer: &cells.answer,
+                preview: &cells.preview,
+            };
+            float::panes(editor, (&parts, screens), &lines, &mut list);
             draw(&list)
         }
     };
@@ -140,6 +160,7 @@ const GUTTER: PaneId = PaneId(13);
 /// What the tiled window draws besides the text: the fills behind it, the other cursors'
 /// boxes, the cursor flash and the gutter's rows.
 struct Marks<'a> {
+    screen: &'a Screen,
     fills: &'a [(Face, &'a [frame::CellRect])],
     others: &'a [frame::CellRect],
     flash: Option<FlashFill>,
@@ -153,6 +174,7 @@ struct Marks<'a> {
 fn panes<'a>(
     editor: &'a Editor,
     Marks {
+        screen,
         fills,
         others,
         flash,
@@ -165,13 +187,12 @@ fn panes<'a>(
     let beneath = editor.prompt().is_some();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
-    let scroll = window.drawn_top(&display);
     let frame = editor.frame();
     let text = PaneContent::Text(TextView {
         display,
         buffer: window.buffer(),
         revision: buffer.revision(),
-        scroll,
+        screen,
         cursor,
         cursor_style: if beneath {
             CursorStyle::Hollow
@@ -346,7 +367,7 @@ impl App {
         let rendering = Instant::now();
         let render_state = &mut view.render_state;
         let cells = &mut view.cells;
-        cells.flash = super::flash::fill(&self.editor, &self.flash, Instant::now());
+        cells.flash = self.flash.strength(Instant::now());
         let result = with_panes(&self.editor, &self.status, cells, |panes| {
             render_state.render(panes, &window_size)
         });

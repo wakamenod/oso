@@ -40,13 +40,13 @@ use oso_core::frame::{self, CellRect, FrameSize};
 use oso_core::key::KeySequence;
 use oso_core::minibuffer::{self, Kind, Prompt, PromptLayout};
 use oso_core::motion;
-use oso_core::window::{ViewSize, ViewTop};
+use oso_core::window::{Screen, ViewSize};
 
 use super::Dispatcher;
 
 mod rows;
 mod text_area;
-use rows::{Style, draw_row, draw_run};
+use rows::{Style, blank_row, draw_row, draw_run, screen_row};
 use text_area::draw_text_area;
 
 /// The frame's screen: its regions from the top, one line per row and one per
@@ -61,8 +61,10 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let mut status = Status::default();
     editor.status_into(&mut status);
     let mut lines = Vec::new();
-    let flash = editor.flash_cells().filter(|_| flashing);
-    draw_text_area(editor, regions.window.text, flash, &mut lines);
+    let mut screen = Screen::default();
+    editor.screen(&mut screen);
+    let flash = editor.flash_cells(&screen).filter(|_| flashing);
+    draw_text_area(editor, (regions.window.text, &screen), flash, &mut lines);
     let modeline = [&status.warnings[..], &status.name[..], &status.state[..]];
     draw_spans(&modeline, regions.window.modeline, '=', &mut lines);
     let echo = [status.echo_warnings(), &status.echo[..]];
@@ -304,17 +306,16 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
         return String::new();
     }
     let text = match editor.preview() {
-        Some(Preview::Buffer { id, start, cursor }) => {
+        Some(Preview::Buffer { id, cursor, .. }) => {
             let Some(buffer) = editor.buffer(id) else {
                 return String::new();
             };
             let display = buffer.display();
             let point = display.offset_to_display_point(cursor);
-            let top = display.offset_to_display_point(start).row;
-            let scroll = ViewTop { row: top, left: 0 };
+            let mut screen = Screen::default();
+            editor.preview_screen(&mut screen);
             let (place, cells) = motion::cursor_box(&display, point, None);
-            let row = top + index;
-            let cursor = frame::cursor_rect(preview, scroll, place, cells)
+            let cursor = frame::cursor_rect(preview, &screen, place, cells)
                 .filter(|cells| cells.row == preview.row + index)
                 .map_or(0..0, |cells| {
                     let start = cells.column - preview.column;
@@ -324,8 +325,10 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
                 cursor: 'o',
                 whitespace: false,
             };
-            let (text, marks) =
-                draw_row(&display, row, scroll, preview.columns, cursor, None, style);
+            let (text, marks) = match screen_row(&screen, index, preview.columns) {
+                Some(row) => draw_row(&display, &row, cursor, None, style),
+                None => blank_row(preview.columns),
+            };
             // The cursor's mark shows in the text, as the row of marks is the list's.
             text.chars()
                 .zip(marks)
@@ -352,8 +355,9 @@ fn preview_row(editor: &Editor, layout: &PromptLayout, index: usize) -> String {
 fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
     let (window, buffer) = editor.current();
     let display = buffer.display();
-    let scroll = window.drawn_top(&display);
     let point = window.cursor_point(&display);
+    let mut screen = Screen::default();
+    editor.prompt_screen(&mut screen);
     if editor
         .prompt()
         .is_some_and(|prompt| prompt.kind() == Kind::Passphrase)
@@ -368,7 +372,7 @@ fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
         return (text, marks);
     }
     let (place, cells) = motion::cursor_box(&display, point, None);
-    let cursor = frame::cursor_rect(area, scroll, place, cells).map_or(0..0, |cells| {
+    let cursor = frame::cursor_rect(area, &screen, place, cells).map_or(0..0, |cells| {
         let start = cells.column - area.column;
         start..start + cells.columns
     });
@@ -376,15 +380,10 @@ fn draw_input(editor: &Editor, area: CellRect) -> (String, Vec<char>) {
         cursor: '^',
         whitespace: false,
     };
-    draw_row(
-        &display,
-        point.row,
-        scroll,
-        area.columns,
-        cursor,
-        None,
-        style,
-    )
+    match screen_row(&screen, 0, area.columns) {
+        Some(row) => draw_row(&display, &row, cursor, None, style),
+        None => blank_row(area.columns),
+    }
 }
 
 /// A region of at most one row, between `edge`s: `spans`, one after the other, up to

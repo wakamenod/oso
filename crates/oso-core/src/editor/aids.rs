@@ -12,6 +12,7 @@ use crate::display_map::DisplaySnapshot;
 use crate::frame::{self, CellRect};
 use crate::motion;
 use crate::rope::Rope;
+use crate::window::Screen;
 
 /// The most whitespace one row's walk back over its trailing run may pass.
 const ROW_CHARS: usize = 512;
@@ -56,72 +57,73 @@ impl Editor {
         self.fit_gutter();
     }
 
-    /// The cells of the tiled window's trailing whitespace in view, into `out`, which is
-    /// emptied first: none with whitespace off, and none on a line with a cursor, so that
-    /// typing a space at a line's end does not flash a fill. A row whose trailing run does
-    /// not end within its share of the walk gets none, so a long line costs no more than a
-    /// short one.
-    pub fn trailing_cells(&self, out: &mut Vec<CellRect>) {
+    /// The cells of the tiled window's trailing whitespace in view, as `screen` shows it
+    /// ([`Editor::screen`]), into `out`, which is emptied first: none with whitespace off,
+    /// only on a line's last view row, where spaces come before its break, and none on a line
+    /// with a cursor, so that typing a space at a line's end does not flash a fill. A row whose
+    /// trailing run does not end within its share of the walk gets none, so a long line costs
+    /// no more than a short one.
+    pub fn trailing_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
         out.clear();
         if !self.aids.whitespace {
             return;
         }
         let (window, buffer) = self.tiled();
         let display = buffer.display();
-        // Logical lines, as the frame draws them until it draws view rows (ADR 0103).
-        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
-        let end = (scroll.row + text.rows).min(display.row_count());
+        let text = self.frame.window.text;
         // Only the cursors in view, found as the regions' are: selections keep their order.
-        let first = motion::line_start(&display, scroll.row);
+        let span = screen.span();
         let selections = window.selections.as_slice();
-        let from = selections.partition_point(|selection| selection.cursor < first);
-        let mut cursor_rows = selections[from..]
+        let from = selections.partition_point(|selection| selection.cursor < span.start);
+        let mut cursor_lines = selections[from..]
             .iter()
+            .take_while(|selection| selection.cursor <= span.end)
             .map(|selection| display.offset_to_display_point(selection.cursor).row)
-            .take_while(|&row| row < end)
             .peekable();
         let mut left = FRAME_CHARS;
-        for row in scroll.row..end {
-            while cursor_rows.next_if(|&cursor| cursor < row).is_some() {}
-            if cursor_rows.peek() == Some(&row) {
+        for row in screen.rows().iter().take(text.rows) {
+            while cursor_lines.next_if(|&line| line < row.line).is_some() {}
+            if row.continues || cursor_lines.peek() == Some(&row.line) {
                 continue;
             }
-            if let Some(range) = trailing(buffer.text(), &display, row, &mut left) {
-                frame::match_cells(text, scroll, &display, std::slice::from_ref(&range), out);
+            if let Some(range) = trailing(buffer.text(), &display, row.line, &mut left) {
+                // A run that started on a row before stays unfilled there.
+                let range = range.start.max(row.start)..range.end;
+                frame::match_cells(text, screen, &display, std::slice::from_ref(&range), out);
             }
         }
     }
 
-    /// The cells of the band on the tiled window's primary cursor's line, if the current
-    /// line is shown and some of it is in view: every row the line takes, so a wrapped line
-    /// has the band on each of its rows (ADR 0097).
-    pub fn current_line_cells(&self) -> Option<CellRect> {
+    /// The cells of the band on the tiled window's primary cursor's line, as `screen` shows it
+    /// ([`Editor::screen`]), if the current line is shown and some of it is in view: every
+    /// view row the line takes, so a wrapped line has the band on each of its rows (ADR 0097).
+    pub fn current_line_cells(&self, screen: &Screen) -> Option<CellRect> {
         if !self.aids.current_line {
             return None;
         }
         let (window, buffer) = self.tiled();
-        let display = buffer.display();
-        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
-        let rope = buffer.text();
-        let line = rope.offset_to_point(window.selections.primary().cursor).row;
-        let first = display.offset_to_display_point(rope.line_start(line)).row;
-        let last = display.offset_to_display_point(rope.line_end(line)).row;
-        let view = scroll.row..scroll.row + text.rows;
-        let (top, bottom) = (first.max(view.start), (last + 1).min(view.end));
-        (top < bottom).then(|| CellRect {
-            row: text.row + (top - scroll.row),
-            rows: bottom - top,
+        let line = window.cursor_point(&buffer.display()).row;
+        let text = self.frame.window.text;
+        let rows = &screen.rows()[..screen.rows().len().min(text.rows)];
+        let top = rows.iter().position(|row| row.line == line)?;
+        let count = rows[top..]
+            .iter()
+            .take_while(|row| row.line == line)
+            .count();
+        Some(CellRect {
+            row: text.row + top,
+            rows: count,
             ..text
         })
     }
 }
 
-/// How far the primary cursor must move in one go, in display rows, for the cursor to flash.
+/// How far the primary cursor must move in one go, in view rows, for the cursor to flash.
 const FLASH_ROWS: usize = 5;
 
 /// What the cursor flash compares before and after an event (ADR 0097): which buffer the
-/// tiled window shows and which window that is, the primary cursor's display row, the top
-/// row in view, and whether isearch runs.
+/// tiled window shows and which window that is, the primary cursor's view row, the top
+/// row in view, and whether isearch runs (ADR 0100).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ViewSample {
     buffer: BufferId,
@@ -139,8 +141,8 @@ impl Editor {
         ViewSample {
             buffer: window.buffer(),
             window: self.tiled_index(),
-            row: window.cursor_point(&display).row,
-            top: window.drawn_top(&display).row,
+            row: window.cursor_row(&display),
+            top: window.top_row(&display),
             searching: self.isearch().is_some(),
         }
     }
@@ -161,19 +163,15 @@ impl Editor {
     }
 
     /// The cells the flash covers: from the primary cursor to the text area's right edge, on
-    /// its row, if that row is in view.
-    pub fn flash_cells(&self) -> Option<CellRect> {
+    /// its view row, if that row is in view as `screen` shows it ([`Editor::screen`]).
+    pub fn flash_cells(&self, screen: &Screen) -> Option<CellRect> {
         let (window, buffer) = self.tiled();
-        let display = buffer.display();
-        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
-        let point = window.cursor_point(&display);
-        let row = point
-            .row
-            .checked_sub(scroll.row)
-            .filter(|&row| row < text.rows)?;
+        let text = self.frame.window.text;
+        let point = window.cursor_point(&buffer.display());
+        let row = screen.row_of(point).filter(|&row| row < text.rows)?;
         let column = point
             .column
-            .checked_sub(scroll.left)
+            .checked_sub(screen.origin(&screen.rows()[row]))
             .filter(|&c| c < text.columns)?;
         Some(CellRect {
             row: text.row + row,
@@ -275,7 +273,7 @@ mod tests {
     fn trailing_whitespace_is_filled_but_on_a_line_with_a_cursor() {
         let mut editor = editor("a  \nb\t\nc\u{3000}\r\nd e\n  \n", 0);
         let mut cells = Vec::new();
-        editor.trailing_cells(&mut cells);
+        editor.trailing_cells(&editor.screen_now(), &mut cells);
         // The cursor's line keeps its two spaces unmarked; the tab, the full-width space
         // before a `\r\n`, and a line of nothing but spaces are filled.
         assert_eq!(rows(&cells), [(1, 1, 7), (2, 1, 2), (4, 0, 2)]);
@@ -283,7 +281,7 @@ mod tests {
             whitespace: false,
             ..VisualAids::default()
         });
-        editor.trailing_cells(&mut cells);
+        editor.trailing_cells(&editor.screen_now(), &mut cells);
         assert!(cells.is_empty());
     }
 
@@ -292,7 +290,7 @@ mod tests {
         let long = format!("x{}\nshort  \n", " ".repeat(ROW_CHARS + 10));
         let editor = editor(&long, long.len());
         let mut cells = Vec::new();
-        editor.trailing_cells(&mut cells);
+        editor.trailing_cells(&editor.screen_now(), &mut cells);
         assert_eq!(
             rows(&cells),
             [(1, 5, 2)],
@@ -376,7 +374,7 @@ mod tests {
     fn the_flash_runs_from_the_cursor_to_the_right_edge() {
         let editor = editor("abcdef\nxy\n", 9);
         assert_eq!(
-            editor.flash_cells(),
+            editor.flash_cells(&editor.screen_now()),
             Some(CellRect {
                 row: 1,
                 column: 2,
@@ -390,7 +388,7 @@ mod tests {
     fn the_band_is_on_the_primary_cursors_row_in_view() {
         let mut editor = editor("one\ntwo\nthree\n", 5);
         assert_eq!(
-            editor.current_line_cells(),
+            editor.current_line_cells(&editor.screen_now()),
             Some(CellRect {
                 row: 1,
                 column: 0,
@@ -402,6 +400,6 @@ mod tests {
             current_line: false,
             ..VisualAids::default()
         });
-        assert_eq!(editor.current_line_cells(), None);
+        assert_eq!(editor.current_line_cells(&editor.screen_now()), None);
     }
 }

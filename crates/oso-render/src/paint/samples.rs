@@ -11,7 +11,7 @@ use std::path::Path;
 use oso_core::buffer::Buffer;
 use oso_core::display_map::DisplayPoint;
 use oso_core::frame::CellRect;
-use oso_core::window::ViewTop;
+use oso_core::window::{Screen, ViewSize, ViewTop};
 use oso_platform::text::{self, FontRequest};
 
 use crate::pane::{
@@ -63,10 +63,18 @@ fn matches() -> Vec<CellRect> {
     found
 }
 
+/// The rows the sample's text pane shows of `buffer`, from its top.
+fn sample_screen(buffer: &Buffer) -> Screen {
+    let mut screen = Screen::default();
+    let size = ViewSize::new(TEXT_ROWS, COLUMNS);
+    screen.show_lines(&buffer.display(), ViewTop::default(), size);
+    screen
+}
+
 /// The text pane from `column`, after a gutter of that many columns, with the cells of `fills`,
 /// the other cursors and `flash` given in the frame's columns.
 fn text_pane<'a>(
-    buffer: &Buffer,
+    (buffer, screen): (&Buffer, &'a Screen),
     id: oso_core::buffer::BufferId,
     (column, others): (usize, &'a [CellRect]),
     fills: &'a [(Face, &'a [CellRect])],
@@ -83,7 +91,7 @@ fn text_pane<'a>(
             display: buffer.display(),
             buffer: id,
             revision: 1,
-            scroll: ViewTop::default(),
+            screen,
             cursor: DisplayPoint::new(3, 10),
             cursor_style: CursorStyle::Box,
             others,
@@ -136,6 +144,7 @@ fn draw(panes: &[Pane<'_>], theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
 /// The buffer with the region, isearch's matches and a completion's float over it.
 fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     let buffer = Buffer::from_text("sample.rs", TEXT);
+    let screen = sample_screen(&buffer);
     let id = oso_core::editor::Editor::default().window().buffer();
     let found = matches();
     let current = [found[2]];
@@ -194,7 +203,7 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     ];
     let outer = cells(10, 10, 9, 60);
     let panes = [
-        text_pane(&buffer, id, (0, &OTHERS), &fills, None),
+        text_pane((&buffer, &screen), id, (0, &OTHERS), &fills, None),
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
         lines(2, cells(TEXT_ROWS + 1, 0, 1, COLUMNS), Layer::TILED, &echo),
         Pane {
@@ -224,6 +233,7 @@ fn completion_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
 /// whitespace's marks. The band's line has the current number.
 fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
     let buffer = Buffer::from_text("sample.rs", TEXT);
+    let screen = sample_screen(&buffer);
     let id = oso_core::editor::Editor::default().window().buffer();
     let modeline: [&[Span<'_>]; 1] = [&[span(" sample.rs   4:10   ", Face::Modeline)]];
     let echo: [&[Span<'_>]; 1] = [&[span("", Face::Text)]];
@@ -262,7 +272,7 @@ fn question_frame(theme: Theme) -> Option<(u32, u32, Vec<u8>)> {
         .collect();
     let gutter: Vec<&[Span<'_>]> = spans.iter().map(|row| &row[..]).collect();
     let panes = [
-        text_pane(&buffer, id, (GUTTER, &others), &fills, flash),
+        text_pane((&buffer, &screen), id, (GUTTER, &others), &fills, flash),
         lines(6, cells(0, 0, TEXT_ROWS, GUTTER), Layer::TILED, &gutter),
         lines(1, cells(TEXT_ROWS, 0, 1, COLUMNS), Layer::TILED, &modeline),
         lines(2, cells(TEXT_ROWS + 1, 0, 1, COLUMNS), Layer::TILED, &echo),

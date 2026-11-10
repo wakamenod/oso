@@ -12,6 +12,7 @@
 use super::{Editor, Preview};
 use crate::buffer::BufferId;
 use crate::display_map::wrap_map::WrapMap;
+use crate::frame::CellRect;
 use crate::window::{Rows, Screen, Scroll, screen};
 
 /// The preview's rows of the buffer it shows.
@@ -31,6 +32,44 @@ impl Editor {
         let (window, buffer) = self.tiled();
         let preedit = self.preedit.as_ref().filter(|_| self.prompts.is_empty());
         window.screen_into(&buffer.display(), preedit, out);
+    }
+
+    /// The rows a frame shows of the innermost prompt's answer, its window's, with the preedit
+    /// at its cursor, into `out`; none while no prompt is open (ADR 0072). An answer never
+    /// wraps.
+    pub fn prompt_screen(&self, out: &mut Screen) {
+        if self.prompts.is_empty() {
+            out.clear();
+            return;
+        }
+        let window = &self.windows[self.selected];
+        let display = self.shown(window).display();
+        window.screen_into(&display, self.preedit.as_ref(), out);
+    }
+
+    /// The rows of the selected window as a frame shows them, and the area they are in: the
+    /// innermost prompt's answer while one is open, and the tiled window's text area
+    /// otherwise.
+    pub(super) fn selected_screen(&self) -> (Screen, CellRect) {
+        let mut screen = Screen::default();
+        match self.prompt_layout() {
+            Some(layout) => {
+                self.prompt_screen(&mut screen);
+                (screen, layout.input)
+            }
+            None => {
+                self.screen(&mut screen);
+                (screen, self.frame.window.text)
+            }
+        }
+    }
+
+    /// The tiled window's rows as [`Editor::screen`] gives them, for tests.
+    #[cfg(test)]
+    pub(crate) fn screen_now(&self) -> Screen {
+        let mut screen = Screen::default();
+        self.screen(&mut screen);
+        screen
     }
 
     /// The rows a frame shows of the buffer the innermost prompt previews, in the preview's

@@ -15,6 +15,7 @@ use oso_core::complete::{self, Candidates};
 use oso_core::editor::{Editor, Preview};
 use oso_core::frame::CellRect;
 use oso_core::minibuffer::{self, Kind, PromptLayout, cells_of};
+use oso_core::window::Screen;
 use oso_render::{
     Bands, CursorStyle, Face, Layer, Masked, Pane, PaneContent, PaneId, Panel, Span, TextView,
 };
@@ -399,10 +400,19 @@ pub(super) struct Lines<'a> {
     kill: Vec<&'a [Span<'a>]>,
 }
 
+/// The rows a float's text panes show, built once a frame (ADR 0104).
+#[derive(Clone, Copy)]
+pub(super) struct Screens<'a> {
+    /// The prompt's answer.
+    pub(super) answer: &'a Screen,
+    /// The buffer it previews, wrapped at the preview's width while that buffer wraps.
+    pub(super) preview: &'a Screen,
+}
+
 /// Adds the float's panes to `list`, after the tiled ones.
 pub(super) fn panes<'a>(
     editor: &'a Editor,
-    parts: &'a Parts<'a>,
+    (parts, screens): (&'a Parts<'a>, Screens<'a>),
     lines: &'a Lines<'a>,
     list: &mut Vec<Pane<'a>>,
 ) {
@@ -473,7 +483,11 @@ pub(super) fn panes<'a>(
         list.push(content(5, region, PaneContent::Lines(&lines.keys)));
     }
     if layout.input.columns > 0 {
-        list.push(content(6, layout.input, answer(editor, parts, lines)));
+        list.push(content(
+            6,
+            layout.input,
+            answer(editor, (parts, screens.answer), lines),
+        ));
     }
     if parts.message.is_some() && layout.message.columns > 0 {
         list.push(content(
@@ -483,7 +497,7 @@ pub(super) fn panes<'a>(
         ));
     }
     list_panes(parts, lines, list);
-    preview_panes(editor, parts, lines, list);
+    preview_panes(editor, (parts, screens.preview), lines, list);
 }
 
 /// Adds a list's panes to `list`: its count, and its candidates' rows, which keep the padding
@@ -544,7 +558,11 @@ fn selected_row(parts: &Parts<'_>) -> Option<CellRect> {
 
 /// What the answer's pane shows: the prompt's window, or one `*` per character of a
 /// passphrase.
-fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) -> PaneContent<'a> {
+fn answer<'a>(
+    editor: &'a Editor,
+    (parts, screen): (&'a Parts<'a>, &'a Screen),
+    lines: &'a Lines<'a>,
+) -> PaneContent<'a> {
     if let Some((text, cursor)) = &parts.mask {
         return PaneContent::Masked(Masked {
             text,
@@ -554,12 +572,11 @@ fn answer<'a>(editor: &'a Editor, parts: &'a Parts<'a>, lines: &'a Lines<'a>) ->
     let (window, buffer) = editor.current();
     let display = buffer.display();
     let cursor = window.cursor_point(&display);
-    let scroll = window.drawn_top(&display);
     PaneContent::Text(TextView {
         display,
         buffer: window.buffer(),
         revision: buffer.revision(),
-        scroll,
+        screen,
         cursor,
         cursor_style: CursorStyle::Box,
         others: &[],

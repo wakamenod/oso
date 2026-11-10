@@ -9,6 +9,7 @@ use std::ops::Range;
 
 use super::Editor;
 use crate::frame;
+use crate::window::Screen;
 
 /// The fewest digits the line-number column takes.
 const MIN_DIGITS: usize = 3;
@@ -67,10 +68,10 @@ impl Editor {
         self.frame != before
     }
 
-    /// Fills in the gutter's rows in view, reusing `gutter`'s room: none while it has no
-    /// columns. A frame draws logical lines until soft wrap's next step (M2-25 step 4), which
-    /// leaves blank the rows a line continues on, so each row drawn is a line's first.
-    pub fn gutter_into(&self, gutter: &mut Gutter) {
+    /// Fills in the gutter's rows in view, as `screen` shows them ([`Editor::screen`]),
+    /// reusing `gutter`'s room: none while it has no columns. A line's number is on its first
+    /// view row, and the rows it continues on stay blank (ADR 0100).
+    pub fn gutter_into(&self, screen: &Screen, gutter: &mut Gutter) {
         gutter.text.clear();
         gutter.rows.clear();
         let columns = self.frame.window.gutter.columns;
@@ -78,14 +79,15 @@ impl Editor {
             return;
         }
         let (window, buffer) = self.tiled();
-        let display = buffer.display();
-        let current = window.cursor_point(&display).row;
-        let top = window.drawn_top(&display).row;
-        let end = display.row_count().min(top + self.frame.window.text.rows);
-        for row in top..end {
+        let current = window.cursor_point(&buffer.display()).row;
+        for row in screen.rows().iter().take(self.frame.window.text.rows) {
             let start = gutter.text.len();
-            let _ = write!(gutter.text, "{:>1$} ", row + 1, columns - 1);
-            gutter.rows.push((start..gutter.text.len(), row == current));
+            if row.starts_line() {
+                let _ = write!(gutter.text, "{:>1$} ", row.line + 1, columns - 1);
+            }
+            gutter
+                .rows
+                .push((start..gutter.text.len(), row.line == current));
         }
     }
 }
@@ -111,7 +113,7 @@ mod tests {
 
     fn rows(editor: &Editor) -> Vec<(String, bool)> {
         let mut gutter = Gutter::default();
-        editor.gutter_into(&mut gutter);
+        editor.gutter_into(&editor.screen_now(), &mut gutter);
         gutter
             .rows()
             .map(|(text, current)| (text.to_owned(), current))

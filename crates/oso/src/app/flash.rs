@@ -7,9 +7,6 @@
 
 use std::time::{Duration, Instant};
 
-use oso_core::editor::Editor;
-use oso_render::FlashFill;
-
 use super::App;
 
 /// When each step of a flash begins, from the jump, and its strength: full at first, then
@@ -121,13 +118,6 @@ impl App {
             self.request_redraw();
         }
     }
-}
-
-/// The flash's cells in the tiled window and its strength, for a frame drawn at `now`.
-pub(super) fn fill(editor: &Editor, flash: &Flash, now: Instant) -> Option<FlashFill> {
-    let strength = flash.strength(now)?;
-    let cells = editor.flash_cells()?;
-    Some(FlashFill { cells, strength })
 }
 
 #[cfg(test)]

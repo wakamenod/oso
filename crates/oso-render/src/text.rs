@@ -14,7 +14,6 @@
 use std::ops::Range;
 
 use bytemuck::{Pod, Zeroable};
-use oso_core::display_map::DisplayPoint;
 use oso_core::frame::{CellRect, PixelGrid, PixelRect};
 use oso_core::window::ViewTop;
 use oso_platform::text::{CellMetrics, GlyphFormat};
@@ -119,11 +118,12 @@ pub(crate) struct Layout {
     /// The same in pixels. Nothing of the pane is drawn outside it, but for
     /// [`Self::top_band`].
     clip: PixelRect,
-    /// The display row and column at the region's top-left cell.
+    /// The row and the column of its line at the region's top-left cell. A buffer's rows
+    /// are counted from the region's top, each with its own line's column (ADR 0104).
     scroll: ViewTop,
-    /// The cells under the cursor box: its display point and width. Glyphs
-    /// there are drawn on it, in [`Face::Cursor`].
-    cursor: (DisplayPoint, usize),
+    /// The frame's cells under the cursor box. Glyphs there are drawn on it, in
+    /// [`Face::Cursor`].
+    cursor: Option<CellRect>,
     /// Glyphs keep the band above the region, on the row above it.
     keeps_band_above: bool,
     /// Glyphs keep the band below the region, on the row below it.
@@ -140,7 +140,7 @@ impl Layout {
             region,
             clip: grid.rect(region),
             scroll,
-            cursor: (DisplayPoint::default(), 0),
+            cursor: None,
             keeps_band_above: false,
             keeps_band_below: false,
         }
@@ -165,12 +165,23 @@ impl Layout {
         }
     }
 
-    /// The same with a cursor box on display row `row`, over the frame's `cells`.
-    /// They are in the region, as `frame::cursor_rect` gives them.
-    pub(crate) fn with_cursor(self, row: usize, cells: CellRect) -> Self {
-        let column = self.scroll.left + (cells.column - self.region.column);
+    /// The same with a cursor box over the frame's `cells`, in the region, as
+    /// `frame::cursor_rect` gives them.
+    pub(crate) fn with_cursor(self, cells: CellRect) -> Self {
         Self {
-            cursor: (DisplayPoint::new(row, column), cells.columns),
+            cursor: Some(cells),
+            ..self
+        }
+    }
+
+    /// The same with `left`, a column of a row's line, at the region's left edge: a view
+    /// row's start, or the window's left column on a line that does not wrap.
+    pub(crate) fn with_left(self, left: usize) -> Self {
+        Self {
+            scroll: ViewTop {
+                left,
+                ..self.scroll
+            },
             ..self
         }
     }
@@ -301,10 +312,16 @@ impl Layout {
             (cell_y - descent).max(self.clip.y - self.top_band()),
             bottom.min(self.clip.y + self.clip.height + bottom_band),
         )?;
-        let (cursor, cursor_cells) = self.cursor;
-        let under_cursor = row == cursor.row
-            && glyph.column < cursor.column + cursor_cells
-            && cursor.column < glyph.column + glyph.cells as usize;
+        // In the frame's cells, where the cursor box is.
+        let frame_row = self.region.row as i64 + row as i64 - self.scroll.row as i64;
+        let frame_column =
+            self.region.column as i64 + glyph.column as i64 - self.scroll.left as i64;
+        let under_cursor = self.cursor.is_some_and(|cells| {
+            let (row, column) = (cells.row as i64, cells.column as i64);
+            frame_row == row
+                && frame_column < column + cells.columns as i64
+                && column < frame_column + i64::from(glyph.cells)
+        });
         let face = if under_cursor {
             Face::Cursor
         } else {
@@ -579,15 +596,12 @@ mod tests {
             rows: 5,
             columns: 20,
         };
-        Layout::new(METRICS, cells, ViewTop::default()).with_cursor(
-            0,
-            CellRect {
-                column: 3,
-                rows: 1,
-                columns: 1,
-                ..cells
-            },
-        )
+        Layout::new(METRICS, cells, ViewTop::default()).with_cursor(CellRect {
+            column: 3,
+            rows: 1,
+            columns: 1,
+            ..cells
+        })
     }
 
     fn glyph(column: usize, cells: u32) -> PlacedGlyph {
@@ -667,7 +681,12 @@ mod tests {
             under
         );
         // A cursor on a 4-cell escape covers all of its label.
-        l.cursor = (DisplayPoint::new(0, 4), 4);
+        l.cursor = Some(CellRect {
+            row: 0,
+            column: 4,
+            rows: 1,
+            columns: 4,
+        });
         let escape = PlacedGlyph {
             face: Face::Escape,
             ..glyph(7, 1)
@@ -677,7 +696,12 @@ mod tests {
             l.quad(0, &glyph(8, 1), &entry(), &theme()).unwrap().color,
             text
         );
-        l.cursor = (DisplayPoint::new(5, 0), 1);
+        l.cursor = Some(CellRect {
+            row: 5,
+            column: 0,
+            rows: 1,
+            columns: 1,
+        });
         let label = l.quad(0, &escape, &entry(), &theme()).unwrap();
         assert_eq!(label.color, color(Face::Escape));
     }

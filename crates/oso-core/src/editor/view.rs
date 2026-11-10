@@ -11,7 +11,7 @@ use crate::frame::{self, CellRect, FrameLayout, FrameSize, PixelGrid, PixelRect}
 use crate::motion;
 use crate::motion::Edge;
 use crate::selection::{MarkActive, SelectionSet};
-use crate::window::{self, Recenter, Scroll, ViewSize, ViewTop, Window};
+use crate::window::{self, Recenter, Screen, Scroll, ViewSize, ViewTop, Window};
 
 impl Editor {
     /// Lays out a frame of `size` (ADR 0057), with the gutter line numbers need (ADR 0097).
@@ -87,11 +87,9 @@ impl Editor {
         let display = buffer.display();
         let point = window.cursor_point(&display);
         let cells = motion::cursor_cells(&display, point);
-        let region = match self.prompt_layout() {
-            Some(layout) => layout.input,
-            None => self.frame.window.text,
-        };
-        let cell = frame::cursor_rect(region, window.drawn_top(&display), point, cells)?;
+        // With a preedit, its start: the cursor's cell with the preedit laid out (ADR 0104).
+        let (screen, region) = self.selected_screen();
+        let cell = frame::cursor_rect(region, &screen, point, cells)?;
         Some(grid.rect(cell))
     }
 
@@ -106,17 +104,13 @@ impl Editor {
         let (window, buffer) = self.current();
         let display = buffer.display();
         let point = window.cursor_point(&display);
-        let region = match self.prompt_layout() {
-            Some(layout) => layout.input,
-            None => self.frame.window.text,
-        };
-        let scroll = window.drawn_top(&display);
-        let row = point
-            .row
-            .checked_sub(scroll.row)
-            .filter(|&row| row < region.rows)?;
+        // Where it starts as its line is laid out with it in (ADR 0104). A preedit that wraps
+        // keeps one rectangle, its start's, for now.
+        let (screen, region) = self.selected_screen();
+        let row = screen.row_of(point).filter(|&row| row < region.rows)?;
+        let origin = screen.origin(&screen.rows()[row]);
         // Left of the text area when its start is scrolled off.
-        let column = region.column as i64 + point.column as i64 - scroll.left as i64;
+        let column = region.column as i64 + point.column as i64 - origin as i64;
         let [x, y] = grid.cell((region.row + row) as i64, column);
         preedit.char_positions(grid.cell_width(), out);
         if out.is_empty() {
@@ -144,33 +138,26 @@ impl Editor {
         selections.set_mark_active(MarkActive::Inactive).is_active()
     }
 
-    /// The cells of the selected window's text area that its regions take, into
-    /// `out`, which is emptied first, and none while they are hidden (ADR 0071). A
-    /// preedit pushes them as it pushes the text.
-    pub fn region_cells(&self, out: &mut Vec<CellRect>) {
+    /// The cells of the tiled window's text area that its regions take, also beneath a prompt,
+    /// as `screen` shows it ([`Editor::screen`]), into `out`, which is emptied first, and none
+    /// while they are hidden (ADR 0071). A preedit pushes them as it pushes the text.
+    pub fn region_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
         out.clear();
-        // The tiled window's, also beneath a prompt, whose text area these cells are in.
         let (window, buffer) = self.tiled();
         if !window.selections.mark_active().is_active() {
             return;
         }
-        let display = buffer.display();
-        let preedit =
-            (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
-        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
-        frame::region_cells(text, scroll, &display, &window.selections, preedit, out);
+        let text = self.frame.window.text;
+        frame::region_cells(text, screen, &buffer.display(), &window.selections, out);
     }
 
     /// The cells of the tiled window's text area that the boxes of its cursors other than the
-    /// primary take, into `out`, which is emptied first (ADR 0091). A preedit pushes them as it
-    /// pushes the text.
-    pub fn other_cursor_cells(&self, out: &mut Vec<CellRect>) {
+    /// primary take, as `screen` shows it ([`Editor::screen`]), into `out`, which is emptied
+    /// first (ADR 0091). A preedit pushes them as it pushes the text.
+    pub fn other_cursor_cells(&self, screen: &Screen, out: &mut Vec<CellRect>) {
         let (window, buffer) = self.tiled();
-        let display = buffer.display();
-        let preedit =
-            (self.preedit.as_ref()).map(|preedit| (window.cursor_point(&display), preedit.cells()));
-        let (text, scroll) = (self.frame.window.text, window.drawn_top(&display));
-        frame::other_cursor_cells(text, scroll, &display, &window.selections, preedit, out);
+        let text = self.frame.window.text;
+        frame::other_cursor_cells(text, screen, &buffer.display(), &window.selections, out);
     }
 
     /// The cells of the innermost prompt's answer that its regions take, into `out`, which
@@ -186,15 +173,10 @@ impl Editor {
             return;
         }
         let display = self.shown(window).display();
-        let scroll = window.drawn_top(&display);
-        frame::region_cells(
-            layout.input,
-            scroll,
-            &display,
-            &window.selections,
-            None,
-            out,
-        );
+        // A prompt's answer is one row that never wraps.
+        let mut screen = Screen::default();
+        window.screen_into(&display, None, &mut screen);
+        frame::region_cells(layout.input, &screen, &display, &window.selections, out);
     }
 
     /// What an input method is composing, if anything (ADR 0069).
@@ -371,7 +353,8 @@ impl Editor {
         }
         let display = buffer.display();
         let scroll = window.scroll();
-        let top = window.drawn_top(&display).row;
+        // Unwrapped, as nothing scrolls sideways while wrapped: a view row is a line.
+        let top = window.top_row(&display);
         let size = window.size();
         // How wide a row must be to go all the way, so that the search can stop
         // there. Going left needs no row at all.

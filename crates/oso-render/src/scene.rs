@@ -18,8 +18,7 @@
 
 use std::ops::Range;
 
-use oso_core::frame::{self, CellRect, PixelRect};
-use oso_core::motion;
+use oso_core::frame::{CellRect, PixelRect};
 use oso_core::window::ViewTop;
 use oso_platform::text::{CellMetrics, GlyphKey, TextSystem};
 
@@ -31,6 +30,9 @@ use crate::text::{GlyphInstance, Layout};
 use crate::theme::Theme;
 
 mod panel;
+mod text_pane;
+
+use text_pane::{cursor_cells, draw_text, preedit_lines, underline_preedit};
 
 /// Where a frame's glyphs come from, as an atlas gives them.
 pub(crate) trait GlyphSource {
@@ -353,10 +355,11 @@ fn draw_pane<G: GlyphSource>(
                 let cells = unscrolled.frame_cells(flash.cells);
                 draws.fill_faded(cells, Face::Flash, flash.strength);
             }
-            let mut layout = Layout::new(metrics, pane.region, view.scroll).with_bands(pane.bands);
+            let left = view.screen.left();
+            let mut layout = unscrolled.with_left(left).with_bands(pane.bands);
             if let Some(cells) = cursor.filter(|_| !hollow) {
                 // Glyphs take the box's color only where the box is.
-                layout = layout.with_cursor(view.cursor.row, cells);
+                layout = layout.with_cursor(cells);
             }
             draw_text(draws, view, pane, &layout, rows, system, glyphs);
             draws.held -= held;
@@ -379,7 +382,7 @@ fn draw_pane<G: GlyphSource>(
         PaneContent::Masked(masked) => {
             let mut layout = unscrolled.with_bands(pane.bands);
             if let Some(cells) = cursor {
-                layout = layout.with_cursor(0, cells);
+                layout = layout.with_cursor(cells);
             }
             let span = [Span {
                 text: masked.text,
@@ -475,81 +478,6 @@ fn masked_cursor(masked: &Masked<'_>, region: CellRect) -> Option<CellRect> {
     })
 }
 
-/// The frame's cells under the cursor box of `view` in `region`, if it shows.
-/// The box covers the whole character under it, two cells for a full-width one
-/// (ADR 0026), and goes where a preedit puts it (ADR 0069).
-fn cursor_cells(view: &TextView<'_>, region: CellRect) -> Option<CellRect> {
-    let (point, cells) = motion::cursor_box(&view.display, view.cursor, view.preedit);
-    frame::cursor_rect(region, view.scroll, point, cells)
-}
-
-/// The rectangles a pane's preedit underlines take.
-fn preedit_lines(pane: &Pane<'_>) -> usize {
-    match &pane.content {
-        PaneContent::Text(view) if view.preedit.is_some() => 2,
-        _ => 0,
-    }
-}
-
-/// Underlines `view`'s preedit, one line thick, and the segment being converted
-/// two lines thick, at the bottom of its cells, as macOS text views draw them
-/// (ADR 0069).
-fn underline_preedit(
-    draws: &mut Draws,
-    view: &TextView<'_>,
-    layout: &Layout,
-    metrics: CellMetrics,
-) {
-    let Some(preedit) = view.preedit else {
-        return;
-    };
-    let line = line_width(metrics);
-    let at = view.cursor.column;
-    let mut underline = |column: usize, cells: usize, thickness: f32| {
-        let cells = layout.display_cells(view.cursor.row, column, cells);
-        let rect = cells.map(|rect| PixelRect {
-            y: rect.y + rect.height - thickness,
-            height: thickness,
-            ..rect
-        });
-        draws.fill(rect, Face::Preedit);
-    };
-    let (all, segment) = preedit.underlines(at);
-    underline(all.start, all.len(), line);
-    if let Some(segment) = segment {
-        underline(segment.start, segment.len(), 2.0 * line);
-    }
-}
-
-/// Draws a window's view of a buffer in `layout`: the rows of its region.
-fn draw_text<G: GlyphSource>(
-    draws: &mut Draws,
-    view: &TextView,
-    pane: &Pane<'_>,
-    layout: &Layout,
-    rows: &mut Rows,
-    system: &mut dyn TextSystem,
-    glyphs: &mut G,
-) {
-    let display = &view.display;
-    rows.set_whitespace(view.whitespace);
-    rows.begin(view.buffer, view.revision);
-    let columns = layout.shaped_columns();
-    let top = view.scroll.row;
-    let visible = top..top
-        .saturating_add(pane.region.rows)
-        .min(display.row_count());
-    let preedit = view.preedit.map(|preedit| (view.cursor.column, preedit));
-    for row in visible.clone() {
-        let spliced = preedit.filter(|_| row == view.cursor.row);
-        let shaped = rows.row(display, row, columns.clone(), spliced, system);
-        if !draws.row(layout, row, shaped, system, glyphs) {
-            break;
-        }
-    }
-    rows.evict(visible.start.saturating_sub(visible.len())..visible.end + visible.len());
-}
-
 /// Draws rows that are no buffer's, from the region's top row.
 fn draw_lines<G: GlyphSource>(
     draws: &mut Draws,
@@ -568,7 +496,8 @@ fn draw_lines<G: GlyphSource>(
             break;
         }
     }
-    rows.evict(0..lines.len().min(shown));
+    let shown = lines.len().min(shown);
+    rows.evict((0, 0)..=(shown.saturating_sub(1), 0), shown);
 }
 
 #[cfg(test)]
@@ -577,8 +506,9 @@ mod tests {
     use crate::pane::{Bands, FlashFill, Panel};
     use crate::rows::tests::Recorder;
     use oso_core::buffer::{Buffer, BufferId};
-    use oso_core::display_map::DisplayPoint;
+    use oso_core::display_map::{DisplayPoint, DisplaySnapshot};
     use oso_core::frame::FrameSize;
+    use oso_core::window::{Screen, ViewSize, ViewTop};
     use oso_platform::text::GlyphFormat;
 
     const LIMITS: Limits = Limits {
@@ -647,12 +577,20 @@ mod tests {
         oso_core::editor::Editor::default().window().buffer()
     }
 
+    /// The logical lines of `display` from `top`, as a large window shows them, kept for as
+    /// long as the test runs.
+    fn screen_of(display: &DisplaySnapshot, top: ViewTop) -> &'static Screen {
+        let mut screen = Screen::default();
+        screen.show_lines(display, top, ViewSize::new(2048, 1024));
+        Box::leak(Box::new(screen))
+    }
+
     fn view(buffer: &Buffer) -> PaneContent<'static> {
         PaneContent::Text(TextView {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -752,7 +690,7 @@ mod tests {
                     display: buffer.display(),
                     buffer: id(),
                     revision: 1,
-                    scroll: ViewTop { row: top, left },
+                    screen: screen_of(&buffer.display(), ViewTop { row: top, left }),
                     cursor: DisplayPoint::new(top + 1, left + 1),
                     cursor_style: CursorStyle::Box,
                     others: &[],
@@ -795,7 +733,7 @@ mod tests {
                 rows: frame_rows,
                 columns: 80,
             };
-            let area = frame::layout(size, 0).window.text;
+            let area = oso_core::frame::layout(size, 0).window.text;
             let mut scene = Scene::new(LIMITS, theme());
             let panes = [pane(0, area, 0, view(&buffer))];
             let system = build(&mut scene, &panes, &mut FakeAtlas::default());
@@ -827,7 +765,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop { row: 3, left: 64 },
+            screen: screen_of(&buffer.display(), ViewTop { row: 3, left: 64 }),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1079,7 +1017,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &others,
@@ -1115,7 +1053,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Hollow,
             others: &[],
@@ -1210,7 +1148,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1245,7 +1183,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1274,7 +1212,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(1, 1),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1309,7 +1247,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1342,7 +1280,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(1, 1),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1383,7 +1321,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(0, 1),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1424,7 +1362,7 @@ mod tests {
                 display: buffer.display(),
                 buffer: id(),
                 revision: 1,
-                scroll: ViewTop::default(),
+                screen: screen_of(&buffer.display(), ViewTop::default()),
                 cursor: DisplayPoint::new(0, 0),
                 cursor_style: CursorStyle::Box,
                 others: &[],
@@ -1461,6 +1399,43 @@ mod tests {
     }
 
     #[test]
+    fn a_wrapped_row_goes_on_from_the_left_edge_and_marks_the_last_column() {
+        // 9 columns: `aaaa ` and the mark's column, then `bbbb` from the left edge.
+        let mut editor = oso_core::editor::Editor::with_buffer(Buffer::from_text("t", "aaaa bbbb"));
+        editor.set_view_size(ViewSize::new(3, 9));
+        let id = editor.window().buffer();
+        editor.set_wraps(id, true);
+        let mut screen = Screen::default();
+        editor.screen(&mut screen);
+        let buffer = editor.current().1;
+        let content = PaneContent::Text(TextView {
+            display: buffer.display(),
+            buffer: id,
+            revision: buffer.revision(),
+            screen: &screen,
+            cursor: DisplayPoint::new(1000, 0),
+            cursor_style: CursorStyle::Box,
+            others: &[],
+            preedit: None,
+            fills: &[],
+            whitespace: false,
+            flash: None,
+        });
+        let mut scene = Scene::new(LIMITS, theme());
+        let system = build(
+            &mut scene,
+            &[pane(0, rect(0, 0, 3, 9), 0, content)],
+            &mut FakeAtlas::default(),
+        );
+        assert_eq!(system.shaped, ["aaaa ", "\u{21a9}", "bbbb"]);
+        let quads = u32::try_from(scene.quads().len()).unwrap();
+        let cells = quad_cells(&scene, 0..quads);
+        assert_eq!(cells[4..], [(0, 4), (0, 8), (1, 0), (1, 1), (1, 2), (1, 3)]);
+        let mark = scene.quads()[5].color();
+        assert_eq!(mark, theme().foreground(Face::WrapMark));
+    }
+
+    #[test]
     fn turning_whitespace_on_shapes_the_rows_again_and_draws_the_marks() {
         let buffer = Buffer::from_text("t", "a\tb");
         let content = |whitespace| {
@@ -1468,7 +1443,7 @@ mod tests {
                 display: buffer.display(),
                 buffer: id(),
                 revision: 1,
-                scroll: ViewTop::default(),
+                screen: screen_of(&buffer.display(), ViewTop::default()),
                 cursor: DisplayPoint::new(1000, 0),
                 cursor_style: CursorStyle::Box,
                 others: &[],
@@ -1509,7 +1484,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(1000, 0),
             cursor_style: CursorStyle::Box,
             others: &[],
@@ -1543,7 +1518,7 @@ mod tests {
                 display: buffer.display(),
                 buffer: id,
                 revision: 1,
-                scroll: ViewTop::default(),
+                screen: screen_of(&buffer.display(), ViewTop::default()),
                 cursor: DisplayPoint::new(1000, 0),
                 cursor_style: CursorStyle::Box,
                 others: &[],
@@ -1706,7 +1681,7 @@ mod tests {
             display: buffer.display(),
             buffer: id(),
             revision: 1,
-            scroll: ViewTop::default(),
+            screen: screen_of(&buffer.display(), ViewTop::default()),
             cursor: DisplayPoint::new(0, 0),
             cursor_style: CursorStyle::Box,
             others: &[],

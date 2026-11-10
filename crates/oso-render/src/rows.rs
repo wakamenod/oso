@@ -1,5 +1,5 @@
 //! The shaping cache: rows of buffer text shaped through the text system
-//! and placed on the cell grid, by display row (ADR 0040).
+//! and placed on the cell grid, by logical line and start column (ADR 0040, ADR 0104).
 //!
 //! Must not depend on: the GPU or `text`, which turns rows into quads.
 //!
@@ -8,9 +8,13 @@
 //! - A shaped row is reused without looking at the buffer while the
 //!   buffer's revision holds. After a change, it is reused if what the
 //!   shaper would be given for its columns is the same as last time, wherever
-//!   that text now is in the buffer (ADR 0051). Rows are kept by display
-//!   row, so scrolling reuses them and a row that moves to another display
-//!   row is shaped again.
+//!   that text now is in the buffer (ADR 0051). Rows are kept by their logical
+//!   line and the column of it they start at, so scrolling reuses them, and so
+//!   do rows wrapped above the view, which change no row's key. A row that
+//!   moves to another line is shaped again.
+//! - A view row that continues ends with the wrap mark `↩`, a piece of its own in
+//!   [`Face::WrapMark`], so whether it continues is compared as its text is
+//!   (ADR 0100).
 //! - Control characters, invalid bytes and invisible characters are never
 //!   shaped. Their escapes from the display model (`^M`, `\xFF`,
 //!   `U+202E`) are shaped instead, as plain ASCII labels (security.md, T3),
@@ -30,7 +34,7 @@
 //!   compared each frame while it has one, and the frame after (ADR 0069).
 
 use std::collections::HashMap;
-use std::ops::{ControlFlow, Range};
+use std::ops::{ControlFlow, Range, RangeInclusive};
 
 use oso_core::buffer::BufferId;
 use oso_core::display_map::{
@@ -134,6 +138,9 @@ fn shape_pieces(
     }
 }
 
+/// What a view row that continues ends with (ADR 0100).
+const WRAP_MARK: &str = "\u{21a9}";
+
 /// The first character of `text`.
 fn first_char(text: &str) -> &str {
     text.chars().next().map_or("", |c| &text[..c.len_utf8()])
@@ -150,6 +157,8 @@ pub(crate) struct ShapedRow {
     revision: u64,
     /// Whether it was read with a preedit, which the revision says nothing of.
     spliced: bool,
+    /// The column of its line where it draws the wrap mark, if it continues.
+    mark: Option<usize>,
     /// What the shaper and the placer were given. The glyphs depend on
     /// nothing else but the font, so the same input gives the same glyphs,
     /// and comparing the bytes leaves no false match that could show stale
@@ -166,14 +175,15 @@ pub(crate) struct ShapedRow {
     pub(crate) boxes: Vec<(usize, usize)>,
 }
 
-/// Shaped rows of one pane, by display row: the shaping cache. Each pane has
-/// its own, because [`Rows::begin`] drops another buffer's rows.
+/// Shaped rows of one pane, by logical line and start column, or by row for text that
+/// is no buffer's: the shaping cache. Each pane has its own, because [`Rows::begin`]
+/// drops another buffer's rows.
 #[derive(Default)]
 pub(crate) struct Rows {
     buffer: Option<BufferId>,
     /// The revision of the buffer this frame shows.
     revision: u64,
-    rows: HashMap<usize, ShapedRow>,
+    rows: HashMap<(usize, usize), ShapedRow>,
     /// Scratch space for reading a row.
     text: String,
     graphemes: Vec<Grapheme>,
@@ -229,11 +239,12 @@ impl Rows {
         }
     }
 
-    /// Drops cached rows outside `keep` once there are many more of them
-    /// than a screen, and the kept pieces with them.
-    pub(crate) fn evict(&mut self, keep: Range<usize>) {
-        if self.rows.len() > 2 * keep.len() + 64 {
-            self.rows.retain(|row, _| keep.contains(row));
+    /// Drops cached rows outside `keep`, by line and start column, or by row and 0 for text
+    /// that is no buffer's, once there are many more of them than the `shown` rows, and the
+    /// kept pieces with them. A long wrapped line's rows go too, each its own key.
+    pub(crate) fn evict(&mut self, keep: RangeInclusive<(usize, usize)>, shown: usize) {
+        if self.rows.len() > 2 * shown + 64 {
+            self.rows.retain(|key, _| keep.contains(key));
             self.pieces.clear();
         }
     }
@@ -243,27 +254,51 @@ impl Rows {
         self.shaped
     }
 
-    /// The shaped `columns` of `row`, shaping them if the cache has none
-    /// for the text there now. A `preedit` goes in at its column.
+    /// The shaped `columns` of logical line `line`, with no wrap mark.
+    #[cfg(test)]
     pub(crate) fn row(
         &mut self,
         display: &DisplaySnapshot,
-        row: usize,
+        line: usize,
         columns: Range<usize>,
         preedit: Option<(usize, &Preedit)>,
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
+        self.view_row(display, (line, columns), None, preedit, system)
+    }
+
+    /// The shaped `columns` of logical line `line`, the clusters that start in them, and
+    /// the wrap mark at column `mark` of the line if the row continues, shaping them if the
+    /// cache has none for the text there now. A row is kept by its line and the first of
+    /// `columns`, and while the revision holds, it is reused if its columns and its mark are
+    /// as they were. A `preedit` goes in at its column.
+    pub(crate) fn view_row(
+        &mut self,
+        display: &DisplaySnapshot,
+        (line, columns): (usize, Range<usize>),
+        mark: Option<usize>,
+        preedit: Option<(usize, &Preedit)>,
+        system: &mut dyn TextSystem,
+    ) -> &ShapedRow {
+        let key = (line, columns.start);
         let revision = self.revision;
         let unchanged = preedit.is_none()
-            && self.rows.get(&row).is_some_and(|shaped| {
-                shaped.revision == revision && shaped.columns == columns && !shaped.spliced
+            && self.rows.get(&key).is_some_and(|shaped| {
+                shaped.revision == revision
+                    && shaped.columns == columns
+                    && shaped.mark == mark
+                    && !shaped.spliced
             });
         if unchanged {
-            return &self.rows[&row];
+            return &self.rows[&key];
         }
-        self.read(display, row, &columns, preedit);
-        let shaped = self.keep(row, columns, system, false);
+        self.read(display, line, &columns, preedit);
+        if let Some(column) = mark {
+            self.push_mark(column);
+        }
+        let shaped = self.keep(key, columns, system, false);
         shaped.spliced = preedit.is_some();
+        shaped.mark = mark;
         shaped
     }
 
@@ -277,7 +312,7 @@ impl Rows {
         system: &mut dyn TextSystem,
     ) -> &ShapedRow {
         self.read_line(spans, end);
-        self.keep(row, 0..end, system, true)
+        self.keep((row, 0), 0..end, system, true)
     }
 
     /// Makes what was just read the shaped `row`, shaping it unless the cache
@@ -286,7 +321,7 @@ impl Rows {
     /// the new one, and a number that changes face shapes nothing (ADR 0105).
     fn keep(
         &mut self,
-        row: usize,
+        key: (usize, usize),
         columns: Range<usize>,
         system: &mut dyn TextSystem,
         line: bool,
@@ -296,7 +331,7 @@ impl Rows {
             self.breaks.clear();
         }
         let revision = self.revision;
-        let shaped = self.rows.entry(row).or_default();
+        let shaped = self.rows.entry(key).or_default();
         if shaped.text != self.text
             || shaped.graphemes != self.graphemes
             || shaped.breaks != self.breaks
@@ -373,6 +408,19 @@ impl Rows {
                 self.break_at(first, cut, &mut face);
             }
         }
+    }
+
+    /// Adds the wrap mark at `column`, a piece of its own (ADR 0100).
+    fn push_mark(&mut self, column: usize) {
+        let byte = u32::try_from(self.text.len()).unwrap_or(u32::MAX);
+        self.breaks.push(byte);
+        self.graphemes.push(Grapheme {
+            byte,
+            column,
+            cells: 1,
+            face: Face::WrapMark,
+        });
+        self.text.push_str(WRAP_MARK);
     }
 
     /// Starts a piece to shape wherever the graphemes from `first` on change from
@@ -530,7 +578,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn rows_are_cached_by_display_row_and_reshaped_when_their_text_changes() {
+    fn rows_are_cached_by_line_and_start_column_and_reshaped_when_their_text_changes() {
         let mut rows = Rows::default();
         let mut system = Recorder::default();
         let buffer = Buffer::from_text("t", "one\ntwo\nthree");
@@ -549,9 +597,25 @@ pub(crate) mod tests {
         rows.row(&longer.display(), 1, 0..128, None, &mut system);
         assert_eq!(rows.shaped_count(), 4);
         assert_eq!(system.shaped.last().unwrap(), "three four");
-        // Other columns shape again.
-        rows.row(&longer.display(), 1, 64..192, None, &mut system);
-        assert_eq!(rows.shaped_count(), 5);
+        // Other columns are another row, here with nothing in them to shape.
+        let empty = rows.row(&longer.display(), 1, 64..192, None, &mut system);
+        assert!(empty.glyphs.is_empty());
+        assert_eq!(rows.shaped_count(), 4);
+        // A row that continues ends with the wrap mark, a piece of its own.
+        rows.view_row(&display, (2, 0..3), Some(3), None, &mut system);
+        assert_eq!(
+            system.shaped[system.shaped.len() - 2..],
+            ["thr", "\u{21a9}"]
+        );
+        let shaped = rows.shaped_count();
+        rows.view_row(&display, (2, 0..3), Some(3), None, &mut system);
+        assert_eq!(rows.shaped_count(), shaped, "from the cache");
+        rows.view_row(&display, (2, 0..3), None, None, &mut system);
+        assert_eq!(
+            rows.shaped_count(),
+            shaped + 1,
+            "the same row without its mark"
+        );
     }
 
     #[test]
@@ -755,7 +819,7 @@ pub(crate) mod tests {
         rows.begin(buffer_id(), 2);
         rows.row(&display, 70, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 6, "a new revision shapes them again");
-        rows.evict(0..1);
+        rows.evict((0, 0)..=(0, usize::MAX), 1);
         rows.row(&display, 71, 0..128, None, &mut system);
         assert_eq!(system.shaped.len(), 9, "evicted rows take their pieces");
     }
@@ -908,6 +972,8 @@ pub(crate) mod tests {
         rows: Rows,
         system: Recorder,
         revision: u64,
+        /// The first column the last frame drew, which keys its rows.
+        start: usize,
     }
 
     impl Frames {
@@ -916,6 +982,7 @@ pub(crate) mod tests {
                 rows: Rows::default(),
                 system: Recorder::default(),
                 revision: 0,
+                start: 0,
             }
         }
 
@@ -932,6 +999,7 @@ pub(crate) mod tests {
             columns: Range<usize>,
         ) -> u64 {
             self.revision += 1;
+            self.start = columns.start;
             self.rows.begin(buffer_id(), self.revision);
             let before = self.rows.shaped_count();
             for row in rows {
@@ -943,7 +1011,7 @@ pub(crate) mod tests {
 
         /// What the cached `row` shows, as characters and their columns.
         fn shown(&self, row: usize) -> Vec<(char, usize)> {
-            shown(&self.rows.rows[&row])
+            shown(&self.rows.rows[&(row, self.start)])
         }
     }
 
@@ -1018,11 +1086,11 @@ pub(crate) mod tests {
         let text = Text::new("one\ntwo\n\tsix\u{202e}");
         let mut frames = Frames::new();
         frames.draw(&text, 0..3, 0..128);
-        let glyphs = frames.rows.rows[&2].glyphs.clone();
-        let boxes = frames.rows.rows[&2].boxes.clone();
+        let glyphs = frames.rows.rows[&(2, 0)].glyphs.clone();
+        let boxes = frames.rows.rows[&(2, 0)].boxes.clone();
         assert_eq!(frames.draw(&text, 0..3, 0..128), 0);
-        assert_eq!(frames.rows.rows[&2].glyphs, glyphs);
-        assert_eq!(frames.rows.rows[&2].boxes, boxes);
+        assert_eq!(frames.rows.rows[&(2, 0)].glyphs, glyphs);
+        assert_eq!(frames.rows.rows[&(2, 0)].boxes, boxes);
     }
 
     #[test]
@@ -1452,10 +1520,10 @@ pub(crate) mod tests {
         let mut text = Text::new("\u{202e}\u{200b}");
         let mut frames = Frames::new();
         frames.draw(&text, 0..1, 0..128);
-        assert_eq!(frames.rows.rows[&0].boxes, [(0, 6), (6, 6)]);
+        assert_eq!(frames.rows.rows[&(0, 0)].boxes, [(0, 6), (6, 6)]);
         text.replace(3..6, "");
         frames.draw(&text, 0..1, 0..128);
-        assert_eq!(frames.rows.rows[&0].boxes, [(0, 6)]);
+        assert_eq!(frames.rows.rows[&(0, 0)].boxes, [(0, 6)]);
     }
 
     proptest::proptest! {
@@ -1608,7 +1676,7 @@ pub(crate) mod tests {
         let mut system = Recorder::default();
         for row in rows {
             let new = fresh.row(display, row, columns.clone(), None, &mut system);
-            let old = &cached.rows[&row];
+            let old = &cached.rows[&(row, columns.start)];
             proptest::prop_assert_eq!(&old.glyphs, &new.glyphs, "row {}", row);
             proptest::prop_assert_eq!(&old.boxes, &new.boxes, "row {}", row);
         }
