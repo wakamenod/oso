@@ -108,11 +108,37 @@ pub(super) fn held(flags: NSEventModifierFlags) -> Held {
     .fold(Held::NONE, |all, (_, held)| all | held)
 }
 
+/// Whether the key oso takes is the one Shift alone would type, and not AppKit's
+/// `characters`. With Control or Command held, `characters` leaves Shift out of a punctuation
+/// key on some layouts and input sources (`,` for Command-Shift-`,`), or gives a control
+/// character, where Shift belongs in the character (ADR 0033): `M-<`, `C->`.
+pub(super) fn shift_only(held: Held) -> bool {
+    held.contains(Held::CONTROL) || held.contains(Held::LOGO)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Route, held, is_keys_own, named, route, takes_text};
+    use super::{Route, held, is_keys_own, named, route, shift_only, takes_text};
     use crate::window::{Held, SystemNamed};
     use objc2_app_kit::NSEventModifierFlags as F;
+
+    #[test]
+    fn with_control_or_command_the_key_is_what_shift_alone_types() {
+        for held_keys in [
+            Held::CONTROL,
+            Held::LOGO,
+            Held::CONTROL | Held::LOGO,
+            Held::CONTROL | Held::SHIFT,
+            Held::LOGO | Held::SHIFT,
+            Held::CONTROL | Held::LOGO | Held::SHIFT,
+            Held::CONTROL | Held::ALT,
+        ] {
+            assert!(shift_only(held_keys), "{held_keys:?}");
+        }
+        for held_keys in [Held::NONE, Held::SHIFT, Held::ALT, Held::ALT | Held::SHIFT] {
+            assert!(!shift_only(held_keys), "{held_keys:?}");
+        }
+    }
 
     #[test]
     fn named_keys_go_by_their_code_and_letters_by_their_text() {

@@ -461,8 +461,13 @@ impl OsoView {
         let (characters, base) = if named.is_some() {
             (None, None)
         } else {
-            let characters = event.characters();
-            let held = keys::held(event.modifierFlags());
+            let flags = event.modifierFlags();
+            let held = keys::held(flags);
+            let characters = if keys::shift_only(held) {
+                event.charactersByApplyingModifiers(flags & NSEventModifierFlags::Shift)
+            } else {
+                event.characters()
+            };
             let base = if held.contains(Held::CONTROL) || held.contains(Held::ALT) {
                 event.charactersByApplyingModifiers(NSEventModifierFlags::empty())
             } else {
