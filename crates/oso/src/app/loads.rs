@@ -202,18 +202,24 @@ impl App {
         }
     }
 
-    /// How many rows the tiled window, also beneath a prompt, draws of `id`, if it shows it:
-    /// logical lines, until the renderer draws view rows (ADR 0100).
-    fn rows_shown(&self, id: BufferId) -> Option<usize> {
+    /// Where the text of `id` ends, if the tiled window, also beneath a prompt, shows it: what a
+    /// load's next part comes after.
+    fn shown_end(&self, id: BufferId) -> Option<usize> {
         let (window, buffer) = self.editor.tiled();
-        (window.buffer() == id).then(|| buffer.display().row_count())
+        (window.buffer() == id).then(|| buffer.text().len())
     }
 
-    /// Whether the tiled window's view reaches its drawn row `row` or those after it.
-    fn reaches_row(&self, row: usize) -> bool {
+    /// Whether the tiled window's view reaches the view row that holds `offset`, or those
+    /// after it. Both are its rows as they are now: a load's part starts a wrap over, so a row
+    /// counted before it means nothing after (ADR 0103).
+    fn reaches_offset(&self, offset: usize) -> bool {
         let (window, buffer) = self.editor.tiled();
-        let top = window.drawn_top(&buffer.display()).row;
-        window::reaches(top, window.size(), row)
+        let display = buffer.display();
+        let row = match window.wrap() {
+            Some(wrap) => wrap.row_of(&display, offset),
+            None => display.offset_to_display_point(offset).row,
+        };
+        window::reaches(window.top_row(&display), window.size(), row)
     }
 
     /// Applies one update of `self.loads[index]`. Returns whether a frame
@@ -221,8 +227,8 @@ impl App {
     /// that changed, or the buffer was replaced.
     fn apply_load(&mut self, index: usize, update: LoadUpdate) -> bool {
         let id = self.loads[index].handle.buffer();
-        let old_rows = self.rows_shown(id);
-        let shown = old_rows.is_some();
+        let old_end = self.shown_end(id);
+        let shown = old_end.is_some();
         if self.take_what_was_found(index, id) {
             return true;
         }
@@ -260,7 +266,7 @@ impl App {
                 }
                 // The windows showing it wrap the text that came, if it wraps (ADR 0103).
                 self.editor.loaded(id);
-                old_rows.is_some_and(|rows| self.reaches_row(rows - 1))
+                old_end.is_some_and(|end| self.reaches_offset(end))
             }
             // The buffer holds carried text, and only its verdict was missing.
             #[cfg(feature = "dev")]
