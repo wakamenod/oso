@@ -12,29 +12,28 @@ use oso_render::FlashFill;
 
 use super::App;
 
-/// How long a flash fades.
-const FADE: Duration = Duration::from_millis(400);
+/// When each step of a flash begins, from the jump, and its strength: full at first, then
+/// two steps down, then gone. Its frames are these three only, and none comes in the first
+/// 150 ms, so keys pressed fast, as when `C-v` is held, end it before any. A frame drawn
+/// shortly before a key's makes that key's wait for the display (ADR 0097).
+const STEPS: [(Duration, Option<f32>); 3] = [
+    (Duration::from_millis(150), Some(2.0 / 3.0)),
+    (Duration::from_millis(275), Some(1.0 / 3.0)),
+    (Duration::from_millis(400), None),
+];
 
-/// How long after a frame of the flash is drawn the next may be asked for: every other frame
-/// of a 60 Hz display. Every 16 ms ran ahead of the display, filled the swap chain, and a
-/// key's frame then waited about two refreshes for room (ADR 0097).
-const FRAME: Duration = Duration::from_millis(33);
-
-/// How early a wake may come and still count as the frame's. The timer's date passes
+/// How early a wake may come and still count as the step's. The timer's date passes
 /// through a float, so it can fire a little before the deadline it was given, and the loop
 /// would then sleep with the same deadline set again.
 const EARLY: Duration = Duration::from_millis(1);
 
-/// A flash fading, if one is. Its frames never queue behind each other: the next is asked
-/// for only once the last is drawn, and later by as long as drawing it took, which is long
-/// when the display is slow to give a frame room. So a key's frame finds room at any refresh
-/// rate.
+/// A flash on screen, if one is.
 #[derive(Debug, Default)]
 pub(super) struct Flash {
     /// When it began, until the frame that clears it is asked for.
     began: Option<Instant>,
-    /// When its next frame may be asked for, once the last one is drawn.
-    due: Option<Instant>,
+    /// How many of [`STEPS`] have had their frame asked for.
+    stepped: usize,
 }
 
 impl Flash {
@@ -42,7 +41,7 @@ impl Flash {
     /// first frame.
     pub(super) fn begin(&mut self, now: Instant) {
         self.began = Some(now);
-        self.due = None;
+        self.stepped = 0;
     }
 
     /// Ends a flash. Returns whether one was on screen, so a frame clears it.
@@ -52,43 +51,36 @@ impl Flash {
         was_on
     }
 
-    /// Its strength in a frame drawn at `now`, from 1 down to 0, or none once it has faded.
+    /// Its strength in a frame drawn at `now`, from 1 down, or none once it has gone.
     pub(super) fn strength(&self, now: Instant) -> Option<f32> {
         let elapsed = now.saturating_duration_since(self.began?);
-        (elapsed < FADE).then(|| 1.0 - elapsed.as_secs_f32() / FADE.as_secs_f32())
+        STEPS
+            .iter()
+            .rev()
+            .find(|(at, _)| elapsed >= *at)
+            .map_or(Some(1.0), |&(_, strength)| strength)
     }
 
-    /// A frame was drawn from `started` to `now`: the next may be asked for a [`FRAME`]
-    /// later, and later again by as long as this one took.
-    pub(super) fn drawn(&mut self, started: Instant, now: Instant) {
-        if self.began.is_some() {
-            self.due = Some(now + FRAME + now.saturating_duration_since(started));
-        }
-    }
-
-    /// Whether a frame should be asked for at `now`. None is while the last is not drawn
-    /// yet. Once it has faded, the frame that clears it is the last, drawn or not, so a
-    /// window that draws nothing still sees it end.
+    /// Whether a frame should be asked for at `now`: once per step, the last of which clears
+    /// it, drawn or not, so a window that draws nothing still sees it end.
     pub(super) fn frame_due(&mut self, now: Instant) -> bool {
-        let Some(began) = self.began else {
+        let Some(due) = self.next_wake() else {
             return false;
         };
-        if now + EARLY >= began + FADE {
+        if now + EARLY < due {
+            return false;
+        }
+        self.stepped += 1;
+        if self.stepped == STEPS.len() {
             self.end();
-            return true;
         }
-        if self.due.is_some_and(|due| now + EARLY >= due) {
-            self.due = None;
-            return true;
-        }
-        false
+        true
     }
 
-    /// When the loop should wake for it: its next frame, or while one is not drawn yet, the
-    /// end of the fade.
+    /// When the loop should wake for its next step.
     pub(super) fn next_wake(&self) -> Option<Instant> {
-        let began = self.began?;
-        Some(self.due.unwrap_or(began + FADE).min(began + FADE))
+        let (at, _) = STEPS.get(self.stepped)?;
+        Some(self.began? + *at)
     }
 }
 
@@ -142,52 +134,44 @@ pub(super) fn fill(editor: &Editor, flash: &Flash, now: Instant) -> Option<Flash
 mod tests {
     use super::*;
 
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
     #[test]
-    fn a_flash_fades_over_its_time_and_one_frame_after_clears_it() {
+    fn a_flash_holds_then_steps_down_in_three_frames() {
         let start = Instant::now();
         let mut flash = Flash::default();
-        assert!(!flash.frame_due(start + FADE));
+        assert!(!flash.frame_due(start + ms(500)));
         assert_eq!(flash.next_wake(), None, "at rest it asks for nothing");
         flash.begin(start);
-        assert_eq!(flash.strength(start), Some(1.0));
-        let half = flash.strength(start + FADE / 2).unwrap();
-        assert!((half - 0.5).abs() < 1e-3, "{half}");
-        assert_eq!(flash.strength(start + FADE), None);
-        assert!(flash.frame_due(start + FADE), "the frame that clears it");
+        assert_eq!(flash.strength(start + ms(149)), Some(1.0));
+        assert_eq!(flash.next_wake(), Some(start + ms(150)));
+        assert!(
+            !flash.frame_due(start + ms(100)),
+            "no frame in the first 150 ms"
+        );
+        let mut frames = Vec::new();
+        for t in (0..=450).step_by(5) {
+            if flash.frame_due(start + ms(t)) {
+                frames.push((t, flash.strength(start + ms(t))));
+            }
+        }
+        assert_eq!(
+            frames,
+            [(150, Some(2.0 / 3.0)), (275, Some(1.0 / 3.0)), (400, None)]
+        );
         assert_eq!(flash.next_wake(), None);
-        assert!(!flash.end(), "it had ended");
+        assert!(!flash.end(), "the last step ended it");
     }
 
     #[test]
-    fn the_next_frame_waits_for_the_last_to_be_drawn() {
+    fn a_wake_a_little_early_is_the_steps() {
         let start = Instant::now();
         let mut flash = Flash::default();
         flash.begin(start);
-        assert!(
-            !flash.frame_due(start + FRAME * 2),
-            "the first is not drawn yet"
-        );
-        assert_eq!(flash.next_wake(), Some(start + FADE));
-        let drawn = start + FRAME * 2;
-        flash.drawn(drawn - Duration::from_millis(1), drawn);
-        let due = drawn + FRAME + Duration::from_millis(1);
-        assert_eq!(flash.next_wake(), Some(due));
-        assert!(!flash.frame_due(due - EARLY * 2));
-        assert!(
-            flash.frame_due(due - EARLY / 2),
-            "a wake a little early counts"
-        );
-        assert!(!flash.frame_due(due), "asked for once");
-    }
-
-    #[test]
-    fn a_frame_slow_to_find_room_spaces_out_the_next() {
-        let start = Instant::now();
-        let mut flash = Flash::default();
-        flash.begin(start);
-        let slow = Duration::from_millis(30);
-        flash.drawn(start, start + slow);
-        assert_eq!(flash.next_wake(), Some(start + slow + FRAME + slow));
+        assert!(flash.frame_due(start + ms(150) - EARLY / 2));
+        assert_eq!(flash.next_wake(), Some(start + ms(275)));
     }
 
     #[test]
@@ -198,11 +182,5 @@ mod tests {
         assert!(flash.end());
         assert_eq!(flash.next_wake(), None);
         assert_eq!(flash.strength(start), None);
-        flash.drawn(start, start);
-        assert_eq!(
-            flash.next_wake(),
-            None,
-            "a frame drawn after it ended asks for none"
-        );
     }
 }

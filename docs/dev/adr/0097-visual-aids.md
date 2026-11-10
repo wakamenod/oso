@@ -164,17 +164,18 @@ and nothing remembered. The rest is settled here.
   flashes.
 - **Its cost:**
   - While it fades, the app asks for a frame every 16 ms, about 25 frames, each drawing
-    what is shaped already. Nothing is reshaped.
+    what is shaped already. Nothing is reshaped. (See the erratum below: three frames.)
   - At rest it asks for nothing. A key during the fade ends it first, so typing never
     waits on it.
-  - Erratum (2026-11-10, measured): a frame every 16 ms ran ahead of a 60 Hz display and
-    filled the swap chain, so a key's frame waited about two refreshes: the bench's key p99
-    went from 2.7 ms to 25 ms on the Mac mini. The flash's frames are now paced off the
-    frames drawn, not a timer: the next is asked for only once the last is drawn, 33 ms
-    after it, and later again by as long as drawing it took, which is long when the display
-    has no room. So they never queue behind each other at any refresh rate, and a fade has
-    about 12 frames. Once it has faded, the frame that clears it is asked for whatever was
-    drawn, so a hidden window still sees it end.
+  - Erratum (2026-11-10, measured; the author's choice): the band holds at full strength
+    for 150 ms, then steps down to 2/3 at 150 ms, 1/3 at 275 ms and goes at 400 ms. That is
+    three frames after the jump's own, and none in its first 150 ms, so keys pressed fast,
+    as when `C-v` is held, end it before any. A frame drawn shortly before a key's makes that
+    key's wait for the display, about a refresh. Measured on the Mac mini, with the bench's
+    scroll keys 25 to 41 ms apart: a frame every 16 ms ran ahead of the 60 Hz display and
+    filled the swap chain, and key p99 went from 2.7 ms to 25 ms; frames paced 33 ms after
+    the last one drawn still made it 16 ms. A key 150 to 400 ms after a jump may still wait
+    about a refresh, once.
 - **One place sets the event loop's wake:** the earliest of every deadline the app keeps,
   the flash's next frame and the saves' idle wait among them. `wake_at` holds one
   deadline, so two places setting it would cancel each other.

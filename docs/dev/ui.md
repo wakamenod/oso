@@ -362,8 +362,9 @@ toggle menu once it exists ([ADR 0097](adr/0097-visual-aids.md)):
   cursor's row, behind the region and isearch's matches.
 - **Cursor flash** (`beacon-mode`): after the cursor moves 5 or more rows, a command
   scrolls the window as far (`C-v`, `M-v`, `C-l`, `M-<`, `M->`), or another buffer or window
-  is shown, a band from the cursor to the window's edge fades out over about 0.4 s. The
-  scrolling that follows the cursor and the wheel do not flash. The next key ends it.
+  is shown, a band from the cursor to the window's edge holds for 150 ms, then fades out in
+  two steps by 0.4 s. The scrolling that follows the cursor and the wheel do not flash. The
+  next key ends it.
 
 Off by default: **line numbers** (`global-display-line-numbers-mode`). They are absolute, the
 current one brighter, in a gutter as wide as the line count's digits plus one, at least

@@ -291,7 +291,9 @@ impl App {
         let window = &view.window;
         let window_size = || window.inner_size();
         self.editor.status_into(&mut self.status);
+        #[cfg(feature = "dev")]
         let presented = view.render_state.presented_frames();
+        #[cfg(feature = "dev")]
         let rendering = Instant::now();
         let render_state = &mut view.render_state;
         let cells = &mut view.cells;
@@ -299,9 +301,6 @@ impl App {
         let result = with_panes(&self.editor, &self.status, cells, |panes| {
             render_state.render(panes, &window_size)
         });
-        if view.render_state.presented_frames() > presented {
-            self.flash.drawn(rendering, Instant::now());
-        }
         // Recovering from a surface error can configure it to a new size before
         // `Resized` says so, and panes stop at their regions, so the editor catches
         // up now.
