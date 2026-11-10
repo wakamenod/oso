@@ -199,6 +199,9 @@ pub(crate) struct Rows {
     /// The key each place on the screen had in the last frame, so that a row whose key moved,
     /// as the rows after an edit in a wrapped line do, is compared with what was there.
     slots: Vec<(usize, usize)>,
+    /// The keys this frame draws, sorted: an entry one of them has is kept for it, and no
+    /// other row takes it.
+    drawn: Vec<(usize, usize)>,
     /// Scratch space for reading a row, its columns from `base`.
     base: usize,
     text: String,
@@ -346,8 +349,17 @@ impl Rows {
         self.keep((row, 0), 0..end, system, true)
     }
 
+    /// Notes the keys this frame draws, before it draws them, so that a row takes the entry of
+    /// its place only when no row of this frame has that entry's key. A scroll then keeps the
+    /// entries of the rows still on the screen, and shapes only the rows new to it.
+    pub(crate) fn will_draw(&mut self, keys: impl IntoIterator<Item = (usize, usize)>) {
+        self.drawn.clear();
+        self.drawn.extend(keys);
+        self.drawn.sort_unstable();
+    }
+
     /// Gives `key` the entry place `slot` had in the last frame, if it has none of its own
-    /// and that one is not drawn in this frame yet, and notes that `slot` has `key` now.
+    /// and no row of this frame has that one's key, and notes that `slot` has `key` now.
     fn take_slot(&mut self, slot: usize, key: (usize, usize)) {
         if self.slots.len() <= slot {
             self.slots.resize(slot + 1, (usize::MAX, usize::MAX));
@@ -356,6 +368,7 @@ impl Rows {
         let frame = self.frame;
         if old != key
             && !self.rows.contains_key(&key)
+            && self.drawn.binary_search(&old).is_err()
             && self.rows.get(&old).is_some_and(|row| row.used != frame)
             && let Some(mut row) = self.rows.remove(&old)
         {
@@ -690,6 +703,7 @@ pub(crate) mod tests {
     ) -> Vec<String> {
         let mut system = Recorder::default();
         rows.begin(buffer_id(), revision);
+        rows.will_draw(lines.clone().map(|line| (line, 0)));
         lines
             .enumerate()
             .map(|(place, line)| {

@@ -1514,6 +1514,44 @@ mod tests {
     }
 
     #[test]
+    fn scrolling_up_a_row_shapes_only_the_row_that_comes_into_view() {
+        let text: String = (0..100).map(|line| format!("line {line}\n")).collect();
+        let buffer = Buffer::from_text("t", &text);
+        let display = buffer.display();
+        let mut scene = Scene::new(LIMITS, theme());
+        let frame = |top: usize, scene: &mut Scene| {
+            let mut screen = Screen::default();
+            screen.show_lines(
+                &display,
+                ViewTop { row: top, left: 0 },
+                ViewSize::new(40, 20),
+            );
+            let content = PaneContent::Text(TextView {
+                display: buffer.display(),
+                buffer: id(),
+                revision: 1,
+                screen: &screen,
+                cursor: DisplayPoint::new(1000, 0),
+                cursor_style: CursorStyle::Box,
+                others: &[],
+                preedit: None,
+                fills: &[],
+                whitespace: false,
+                flash: None,
+            });
+            let panes = [pane(0, rect(0, 0, 40, 20), 0, content)];
+            let before = scene.shaped_count();
+            build(scene, &panes, &mut FakeAtlas::default());
+            scene.shaped_count() - before
+        };
+        assert_eq!(frame(50, &mut scene), 40);
+        // Up a row, then a page down past what was shaped, then up a row from there.
+        assert_eq!(frame(49, &mut scene), 1, "only line 49 is new");
+        assert_eq!(frame(59, &mut scene), 9, "lines 90 to 98");
+        assert_eq!(frame(58, &mut scene), 0, "line 58 is kept");
+    }
+
+    #[test]
     fn scrolling_sideways_keeps_a_screen_of_rows_and_redraws_shape_nothing() {
         let text = format!("{}\n", "x".repeat(4096)).repeat(20);
         let buffer = Buffer::from_text("t", &text);

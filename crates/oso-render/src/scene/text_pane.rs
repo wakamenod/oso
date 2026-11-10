@@ -14,6 +14,7 @@ use super::{Draws, GlyphSource, line_width};
 use crate::pane::{Face, Pane, PaneContent, TextView};
 use crate::rows::Rows;
 use crate::text::Layout;
+use oso_core::window::ScreenRow;
 
 /// The frame's cells under the cursor box of `view` in `region`, if it shows.
 /// The box covers the whole character under it, two cells for a full-width one
@@ -100,9 +101,14 @@ pub(super) fn draw_text<G: GlyphSource>(
     // Where the screen was laid out with the preedit, and only there (ADR 0104).
     let preedit = (screen.preedit()).zip(view.preedit);
     let shown = &screen.rows()[..screen.rows().len().min(pane.region.rows)];
-    for (index, row) in shown.iter().enumerate() {
+    // The key of each row, its line and first column shaped (`Rows::view_row`).
+    let columns_of = |row: &ScreenRow| {
         let limit = screen.text_end(row);
-        let columns = row.column + shaped.start..row.column.saturating_add(shaped.end).min(limit);
+        row.column + shaped.start..row.column.saturating_add(shaped.end).min(limit)
+    };
+    rows.will_draw(shown.iter().map(|row| (row.line, columns_of(row).start)));
+    for (index, row) in shown.iter().enumerate() {
+        let columns = columns_of(row);
         let mark = screen.mark(row).map(|column| screen.origin(row) + column);
         let spliced = preedit
             .filter(|(at, _)| at.0.row == row.line)
