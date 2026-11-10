@@ -262,6 +262,10 @@ impl App {
                 .unwrap_or((frame.width, frame.height));
             self.resize(width, height);
         }
+        // Before positions, so that what the aids lay out is there first (ADR 0097).
+        if let Some(aids) = state.visual_aids {
+            self.editor.set_visual_aids(aids);
+        }
         self.handover.restore = Some(handoff::Restore {
             buffer: shown,
             selections: state.selections,

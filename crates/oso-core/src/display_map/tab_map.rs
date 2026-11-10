@@ -563,6 +563,7 @@ impl<'a> Iterator for RowClusters<'a> {
                     cells,
                     text,
                     kind,
+                    whitespace: false,
                 };
                 self.column = self.column.saturating_add(cells);
                 return Some(cluster);

@@ -1,0 +1,23 @@
+---
+source: crates/oso/src/dispatch/grid_tests.rs
+description: "text: one\\ntwo\\nthree\\n"
+---
+keys: M-x g l o b a l - h l - l i n e - m o d e RET
+│one         │
+:^           :
++llllllllllll+
+│two         │
+│three       │
+│            │
+=-- test  1:0=
+"Global Hl-Li"
+
+keys: C-n
+│one         │
+│two         │
+:^           :
++llllllllllll+
+│three       │
+│            │
+=-- test  2:0=
+"            "

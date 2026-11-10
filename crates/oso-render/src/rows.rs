@@ -186,6 +186,8 @@ pub(crate) struct Rows {
     placer: Placer,
     /// Rows shaped since the cache was created, for tests and logs.
     shaped: u64,
+    /// Whether a buffer's rows mark whitespace (ADR 0097).
+    whitespace: bool,
 }
 
 impl Rows {
@@ -193,6 +195,16 @@ impl Rows {
     pub(crate) fn invalidate(&mut self) {
         self.rows.clear();
         self.pieces.clear();
+    }
+
+    /// Marks whitespace in a buffer's rows, or not. A change shapes every row again, as the
+    /// revision says nothing of it.
+    pub(crate) fn set_whitespace(&mut self, whitespace: bool) {
+        if self.whitespace != whitespace {
+            self.whitespace = whitespace;
+            self.rows.clear();
+            self.pieces.clear();
+        }
     }
 
     /// Starts a frame of `buffer` at `revision`: another buffer's rows and
@@ -324,7 +336,7 @@ impl Rows {
         let mut spent = 0;
         let mut face = None;
         let start = DisplayPoint::new(row, columns.start);
-        row_clusters(display, start, preedit, |cluster, own| {
+        row_clusters(display, start, preedit, self.whitespace, |cluster, own| {
             if cluster.column >= columns.end {
                 return ControlFlow::Break(());
             }

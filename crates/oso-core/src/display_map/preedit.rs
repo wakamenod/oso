@@ -107,6 +107,7 @@ impl Preedit {
                 cells: cluster.cells,
                 text: &self.text[cluster.bytes.clone()],
                 kind: cluster.kind,
+                whitespace: false,
             })
     }
 
@@ -174,11 +175,18 @@ pub fn row_clusters<'a>(
     display: &'a DisplaySnapshot,
     start: DisplayPoint,
     preedit: Option<(usize, &'a Preedit)>,
+    whitespace: bool,
     mut each: impl FnMut(DisplayCluster<'a>, bool) -> ControlFlow<()>,
 ) {
+    // The buffer's clusters carry the whitespace marks if asked; a preedit's never do, as
+    // it is drawn as it is composed (ADR 0097).
+    let marked = |mut cluster: DisplayCluster<'a>| {
+        cluster.whitespace = whitespace;
+        cluster
+    };
     let Some((at, preedit)) = preedit else {
         for cluster in display.clusters(start) {
-            if each(cluster, false).is_break() {
+            if each(marked(cluster), false).is_break() {
                 return;
             }
         }
@@ -189,7 +197,7 @@ pub fn row_clusters<'a>(
             if cluster.column >= at {
                 break;
             }
-            if each(cluster, false).is_break() {
+            if each(marked(cluster), false).is_break() {
                 return;
             }
         }
@@ -206,7 +214,7 @@ pub fn row_clusters<'a>(
     let from = start.column.saturating_sub(width).max(at);
     for mut cluster in display.clusters(DisplayPoint::new(start.row, from)) {
         cluster.column += width;
-        if each(cluster, false).is_break() {
+        if each(marked(cluster), false).is_break() {
             return;
         }
     }
@@ -229,7 +237,7 @@ mod tests {
         preedit: Option<(usize, &Preedit)>,
     ) -> Vec<(usize, String, bool)> {
         let mut out = Vec::new();
-        row_clusters(display, start, preedit, |cluster, own| {
+        row_clusters(display, start, preedit, false, |cluster, own| {
             out.push((cluster.column, cluster.text.to_owned(), own));
             ControlFlow::Continue(())
         });
@@ -387,6 +395,7 @@ mod tests {
             &display,
             DisplayPoint::new(0, 0),
             Some((3, &preedit)),
+            false,
             |_, _| {
                 seen += 1;
                 ControlFlow::Break(())
@@ -404,6 +413,7 @@ mod tests {
             &display,
             DisplayPoint::new(0, 0),
             Some((1, &preedit)),
+            false,
             |_, _| {
                 seen += 1;
                 if seen == 2 {

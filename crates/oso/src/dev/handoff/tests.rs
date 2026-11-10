@@ -522,3 +522,22 @@ fn a_top_inside_a_character_comes_back_at_its_start() {
     assert!(waiting.try_apply(&mut editor));
     assert_eq!(editor.window().scroll().start, 3, "the start of 本");
 }
+
+#[test]
+fn the_visual_aids_are_handed_over_and_a_state_without_them_keeps_the_defaults() {
+    let mut editor = visiting(&absolute("/p/a.txt"), "abc\n");
+    let aids = oso_core::editor::VisualAids {
+        whitespace: false,
+        line_numbers: true,
+        ..oso_core::editor::VisualAids::default()
+    };
+    editor.set_visual_aids(aids);
+    let state = parse(&export(&editor, &[], None, None).unwrap()).unwrap();
+    assert_eq!(state.visual_aids, Some(aids));
+    let without = with(|state| {
+        state.as_object_mut().unwrap().remove("visual_aids");
+    });
+    assert_eq!(parse(&without).unwrap().visual_aids, None);
+    let bad = with(|state| state["visual_aids"]["flash"] = json!("yes"));
+    assert!(parse(&bad).unwrap_err().contains("flash"));
+}

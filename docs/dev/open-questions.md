@@ -56,6 +56,13 @@ item notes when it must be settled.
 
 ## M2
 
+- The visual aids' cost on typing differs by how it is measured. With the aids on by default,
+  the benchmark (`perf-remote`) puts `key_p50` 0.28 ms higher (about 17%) on the Mac mini, in
+  every pair, the aids alone the difference. Measured key by key on the same machine through
+  `take-timings`, they cost about 40 µs at the median, mostly the current line's band, with
+  one frame per key and no change in waiting for a drawable or presenting. Find what the
+  benchmark's way of driving keys adds ([ADR 0097](adr/0097-visual-aids.md)).
+
 - Safe save loses a file's extended attributes other than the quarantine flag ([ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)). On macOS that includes Finder tags. Decide whether copying them is worth it.
 - A control socket's own file is not sealed as a screenshot is. It is a dev tool's, its peer is checked, and an inherited `deny delete` can leave a dead
   socket behind ([ADR 0065](adr/0065-access-lists-on-private-directories.md)).

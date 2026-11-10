@@ -64,6 +64,8 @@ pub struct State {
     pub frame: Option<Frame>,
     /// The theme the previous instance drew in, if it said.
     pub theme: Option<String>,
+    /// The visual aids the previous instance drew with, if it said (ADR 0097).
+    pub visual_aids: Option<oso_core::editor::VisualAids>,
     /// The kill ring's entries, the newest first.
     pub kills: Vec<KillState>,
     pub histories: Vec<HistoryState>,
@@ -249,6 +251,7 @@ pub fn parse(state: &Value) -> Result<State, String> {
         pending_keys: parse_keys(state)?,
         frame: parse_frame(state)?,
         theme: super::parse_theme(state)?,
+        visual_aids: super::parse_aids(state)?,
         kills,
         histories,
     })
