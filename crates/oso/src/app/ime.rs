@@ -18,7 +18,8 @@
 use oso_core::buffer::{Buffer, BufferId};
 use oso_core::display_map::Preedit;
 use oso_core::frame::PixelRect;
-use oso_platform::window::ImeEvent;
+use oso_core::minibuffer::{Kind, Prompt, PromptId};
+use oso_platform::window::{ImeEvent, InputSource};
 
 use super::App;
 use super::shell::{ANSWERS_INPUT_METHOD, COMMITS_WHEN_TURNED_OFF, Loop};
@@ -34,6 +35,15 @@ fn wants_ime(buffer: &Buffer, reads_keys: bool, reads_input: bool) -> bool {
     // As macOS password fields do.
     let secret = buffer.is_secret();
     !(answers || refuses || secret || reads_keys || reads_input)
+}
+
+/// Whether the selected `prompt` takes Japanese now: the person chose a Japanese input mode
+/// while this very prompt was selected (`noted`), it is the prompt for a file's name, and no
+/// window shows a buffer that may hold secrets (ADR 0106). A passphrase or a question never
+/// does, and the next prompt starts without.
+fn japanese_names<I: PartialEq>(prompt: Option<(I, Kind)>, noted: Option<I>, secret: bool) -> bool {
+    let names = |kind| matches!(kind, Kind::Complete { history: "file" });
+    !secret && prompt.is_some_and(|(id, kind)| names(kind) && noted == Some(id))
 }
 
 /// What to allow the IME as now, if that changes. Turning it off during a composition
@@ -64,6 +74,9 @@ pub(super) struct ImeState {
     /// What the excerpt last given was worked out from ([`Editor::excerpt_stamp`]), or none
     /// while the IME is off.
     excerpt_for: Option<(BufferId, u64, usize)>,
+    /// The prompt for a file's name in which the person chose a Japanese input mode, which
+    /// then takes Japanese until it closes or the person chooses another (ADR 0106).
+    japanese_prompt: Option<PromptId>,
 }
 
 impl App {
@@ -97,6 +110,11 @@ impl App {
     /// started by the next key opens its candidate window there, and where each character of
     /// a composition is drawn.
     pub(super) fn sync_ime_after_event(&mut self, event_loop: &Loop<'_>) {
+        // Japanese chosen in a prompt goes with it: none is kept for the next (ADR 0106).
+        let selected = self.editor.prompt().map(Prompt::id);
+        if self.ime.japanese_prompt.is_some() && self.ime.japanese_prompt != selected {
+            self.ime.japanese_prompt = None;
+        }
         // What follows logs, and the event may have brought a secret buffer into view.
         self.note_logging();
         if self.composing() && self.editor.current().1.is_secret() {
@@ -153,8 +171,25 @@ impl App {
         self.ime.area.map(|(area, _)| area)
     }
 
+    /// The person chose another kind of input source while oso was in front (ADR 0106). A
+    /// Japanese input mode marks the selected prompt as taking Japanese, if it is the prompt
+    /// for a file's name; anything else unmarks it. `after_event` then allows the IME or not.
+    pub(super) fn input_source_chosen(&mut self, source: InputSource) {
+        self.ime.japanese_prompt = match source {
+            InputSource::Japanese => self.editor.prompt().map(Prompt::id),
+            InputSource::Other => None,
+        };
+    }
+
     /// Whether oso wants the IME on now ([`wants_ime`]).
     pub(super) fn ime_wanted(&self) -> bool {
+        let prompt = self
+            .editor
+            .prompt()
+            .map(|prompt| (prompt.id(), prompt.kind()));
+        if japanese_names(prompt, self.ime.japanese_prompt, self.editor.shows_secret()) {
+            return wants_ime(self.editor.current().1, self.dispatcher.reads_keys(), false);
+        }
         let reads_input = self.editor.prompt().is_some() || self.editor.isearch().is_some();
         wants_ime(
             self.editor.current().1,
@@ -308,8 +343,40 @@ impl App {
 
 #[cfg(test)]
 mod tests {
-    use super::{next_allowed, wants_ime};
+    use super::{japanese_names, next_allowed, wants_ime};
     use oso_core::buffer::Buffer;
+    use oso_core::minibuffer::Kind;
+
+    const FILE: Kind = Kind::Complete { history: "file" };
+
+    #[test]
+    fn only_the_file_name_prompt_it_was_chosen_in_takes_japanese() {
+        assert!(japanese_names(Some((1, FILE)), Some(1), false));
+        assert!(!japanese_names(Some((1, FILE)), None, false), "not chosen");
+        assert!(
+            !japanese_names(Some((1, FILE)), Some(1), true),
+            "a secret buffer is shown"
+        );
+        let buffer = Kind::Complete { history: "buffer" };
+        assert!(
+            !japanese_names(Some((1, buffer)), Some(1), false),
+            "another prompt"
+        );
+        assert!(!japanese_names(Some((1, Kind::Passphrase)), Some(1), false));
+        let question = Kind::Question {
+            yes: "exit",
+            verbs: ["exit", "stay"],
+        };
+        assert!(!japanese_names(Some((1, question)), Some(1), false));
+    }
+
+    #[test]
+    fn the_mark_goes_with_its_prompt() {
+        // C-x C-f's prompt closed: nothing is selected, then the next prompt is another one,
+        // even another prompt for a file's name.
+        assert!(!japanese_names(None::<(u32, Kind)>, Some(1), false));
+        assert!(!japanese_names(Some((2, FILE)), Some(1), false));
+    }
 
     #[test]
     fn the_ime_is_wanted_only_where_a_letter_types() {

@@ -78,10 +78,6 @@ item notes when it must be settled.
 - By M2-14: kills from a passphrase prompt reach neither the kill ring nor the OS clipboard, and a
   yank into it works. By M3: keyboard macros do not record what is typed there
   ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md)).
-- By M2-18: try at the keyboard whether かな reaches oso while the IME is off in a prompt. If it does,
-  it turns the IME on for that prompt, for Japanese file names; if not, the author decides again
-  ([ADR 0072](adr/0072-floating-windows-the-minibuffer-and-questions.md),
-  [ADR 0087](adr/0087-finding-files-writing-under-a-new-name-and-large-files.md)).
 - `C-x C-f`'s look at a row follows a symbolic link to say what it leads to, which can reach an
   automounted or slow file system and hold that listing thread until it answers. Decide whether a
   look stops at links that leave the listed tree

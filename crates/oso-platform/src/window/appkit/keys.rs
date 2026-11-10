@@ -6,7 +6,7 @@
 
 use objc2_app_kit::NSEventModifierFlags;
 
-use crate::window::{Held, SystemNamed};
+use crate::window::{Held, InputSource, SystemNamed};
 
 /// The named key for a virtual key code (Carbon's `kVK_` codes, which do not depend on the
 /// layout), or `None` for a key that types a character.
@@ -136,9 +136,25 @@ pub(super) fn chosen_key<'a>(
     other().filter(|text| ascii(text)).or(shifted)
 }
 
+/// The kind of input source the Text Input Sources describe (ADR 0106): a Japanese input
+/// mode is one that cannot type ASCII and whose ID names Japanese, as Kotoeri's
+/// `…Kotoeri.RomajiTyping.Japanese`, Google's `…inputmethod.Japanese.base` and other input
+/// methods' Japanese modes do. Their modes for Latin letters (`….Roman`), keyboard layouts and
+/// other languages' input methods are `Other`.
+pub(super) fn input_source(id: &str, ascii_capable: bool) -> InputSource {
+    if !ascii_capable && id.contains("Japanese") {
+        InputSource::Japanese
+    } else {
+        InputSource::Other
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Route, chosen_key, held, is_keys_own, named, route, shift_only, takes_text};
+    use super::{
+        Route, chosen_key, held, input_source, is_keys_own, named, route, shift_only, takes_text,
+    };
+    use crate::window::InputSource;
     use crate::window::{Held, SystemNamed};
     use objc2_app_kit::NSEventModifierFlags as F;
 
@@ -181,6 +197,35 @@ mod tests {
         );
         assert_eq!(chosen_key(None, || Some("x")), Some("x"));
         assert_eq!(chosen_key(None, || None), None);
+    }
+
+    #[test]
+    fn only_a_japanese_input_mode_counts_as_japanese() {
+        for id in [
+            "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese",
+            "com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese.Katakana",
+            "com.apple.inputmethod.Kotoeri.KanaTyping.Japanese",
+            "com.google.inputmethod.Japanese.base",
+            "com.justsystems.inputmethod.atok34.Japanese",
+        ] {
+            assert_eq!(input_source(id, false), InputSource::Japanese, "{id}");
+            assert_eq!(
+                input_source(id, true),
+                InputSource::Other,
+                "{id} typing ASCII"
+            );
+        }
+        // Latin modes and layouts type ASCII; other languages' input methods are not Japanese.
+        for (id, ascii) in [
+            ("com.apple.keylayout.ABC", true),
+            ("com.apple.inputmethod.Kotoeri.RomajiTyping.Roman", true),
+            ("com.google.inputmethod.Japanese.Roman", true),
+            ("com.apple.inputmethod.SCIM.ITABC", false),
+            ("com.apple.inputmethod.Korean.2SetKorean", false),
+            ("", false),
+        ] {
+            assert_eq!(input_source(id, ascii), InputSource::Other, "{id}");
+        }
     }
 
     #[test]

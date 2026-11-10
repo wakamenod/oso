@@ -39,7 +39,20 @@ pub enum Event<'a> {
     ModifiersChanged(Held),
     Key(KeyInput<'a>),
     Ime(ImeEvent),
+    /// The person chose another kind of keyboard input source while oso was in front, from
+    /// a key such as `かな`, the menu bar or a shortcut (ADR 0106). Only oso's own macOS layer
+    /// says so.
+    InputSource(InputSource),
     /// Anything the app does not handle.
+    Other,
+}
+
+/// What kind of keyboard input source the person has chosen (ADR 0106).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InputSource {
+    /// A Japanese input mode of an input method, which composes kana and kanji.
+    Japanese,
+    /// Anything else: a keyboard layout, or an input method's mode for Latin letters.
     Other,
 }
 

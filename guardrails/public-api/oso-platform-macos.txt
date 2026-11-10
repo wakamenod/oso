@@ -413,6 +413,7 @@ pub enum oso_platform::window::Event<'a>
 pub oso_platform::window::Event::CloseRequested
 pub oso_platform::window::Event::Focused
 pub oso_platform::window::Event::Ime(oso_platform::window::ImeEvent)
+pub oso_platform::window::Event::InputSource(oso_platform::window::InputSource)
 pub oso_platform::window::Event::Key(oso_platform::window::KeyInput<'a>)
 pub oso_platform::window::Event::ModifiersChanged(oso_platform::window::Held)
 pub oso_platform::window::Event::Occluded(bool)
@@ -427,6 +428,18 @@ pub enum oso_platform::window::ImeEvent
 pub oso_platform::window::ImeEvent::Commit(alloc::string::String)
 pub oso_platform::window::ImeEvent::Disabled
 pub oso_platform::window::ImeEvent::Preedit(alloc::string::String, core::option::Option<core::ops::range::Range<usize>>)
+pub enum oso_platform::window::InputSource
+pub oso_platform::window::InputSource::Japanese
+pub oso_platform::window::InputSource::Other
+impl core::clone::Clone for oso_platform::window::InputSource
+pub fn oso_platform::window::InputSource::clone(&self) -> oso_platform::window::InputSource
+impl core::cmp::Eq for oso_platform::window::InputSource
+impl core::cmp::PartialEq for oso_platform::window::InputSource
+pub fn oso_platform::window::InputSource::eq(&self, &oso_platform::window::InputSource) -> bool
+impl core::fmt::Debug for oso_platform::window::InputSource
+pub fn oso_platform::window::InputSource::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_platform::window::InputSource
+impl core::marker::StructuralPartialEq for oso_platform::window::InputSource
 pub enum oso_platform::window::QuitAnswer
 pub oso_platform::window::QuitAnswer::Cancel
 pub oso_platform::window::QuitAnswer::Later

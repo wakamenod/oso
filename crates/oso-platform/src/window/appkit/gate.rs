@@ -1,15 +1,16 @@
 //! What the input method may learn of the cursor: the cell the app last gave, where the
 //! composition is laid out and the excerpt of the cursor's line, answered only while oso has
 //! the IME on (ADR 0069, ADR 0070, ADR 0077); when secure input is held (ADR 0073); a frame
-//! owed to a window that was hidden; and a live resize, whose frames are drawn at each step
-//! (ADR 0086). Plain values, tested without a window or a clock.
+//! owed to a window that was hidden; a live resize, whose frames are drawn at each step
+//! (ADR 0086); and which kind of input source the handler was last told of (ADR 0106). Plain
+//! values, tested without a window or a clock.
 //!
 //! Must not depend on: the view or the run loop; nothing here calls AppKit.
 
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use crate::window::{CursorArea, utf16};
+use crate::window::{CursorArea, InputSource, utf16};
 
 /// Whether oso has the IME on, the cursor's cell the app last gave, and where it lays out the
 /// composition, and the excerpt of the cursor's line. No `Debug`: it holds text being typed
@@ -287,6 +288,24 @@ impl SecureInput {
 /// How long a frame owed to a hidden window waits before the window is looked at again.
 pub(super) const HIDDEN_RETRY: Duration = Duration::from_millis(150);
 
+/// The kind of input source the handler was last told of (ADR 0106): it hears of the
+/// person's choice only while oso is in front, and only when the kind changes.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct SourceGate {
+    told: Option<InputSource>,
+}
+
+impl SourceGate {
+    /// What to tell the handler, now that the input source is of the kind `now`.
+    pub(super) fn report(&mut self, active: bool, now: InputSource) -> Option<InputSource> {
+        if !active || self.told == Some(now) {
+            return None;
+        }
+        self.told = Some(now);
+        Some(now)
+    }
+}
+
 /// A live resize, as the person drags the window's edge: while one runs, each step of it is
 /// drawn at once, with its new size in the same Core Animation transaction, so that no frame
 /// is stretched to a size it was not drawn at. It counts the steps and the frames drawn for
@@ -394,9 +413,10 @@ impl HiddenFrame {
 mod tests {
     use super::{
         HIDDEN_RETRY, HiddenCheck, HiddenFrame, ImeGate, LiveResize, SecureInput, SecureStep,
-        reads_context_now,
+        SourceGate, reads_context_now,
     };
     use crate::window::CursorArea;
+    use crate::window::InputSource;
     use std::time::Instant;
 
     const CELL: CursorArea = CursorArea {
@@ -405,6 +425,31 @@ mod tests {
         width: 8.0,
         height: 16.0,
     };
+
+    #[test]
+    fn the_handler_hears_of_another_kind_of_source_only_while_oso_is_in_front() {
+        let mut gate = SourceGate::default();
+        assert_eq!(
+            gate.report(false, InputSource::Japanese),
+            None,
+            "not in front"
+        );
+        assert_eq!(
+            gate.report(true, InputSource::Japanese),
+            Some(InputSource::Japanese)
+        );
+        assert_eq!(
+            gate.report(true, InputSource::Japanese),
+            None,
+            "the same kind"
+        );
+        assert_eq!(gate.report(false, InputSource::Other), None, "not in front");
+        assert_eq!(
+            gate.report(true, InputSource::Other),
+            Some(InputSource::Other)
+        );
+        assert_eq!(gate.report(true, InputSource::Other), None);
+    }
 
     #[test]
     fn the_cell_is_answered_only_while_the_ime_is_on() {
