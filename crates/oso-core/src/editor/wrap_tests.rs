@@ -90,13 +90,13 @@ fn a_report_of_a_wrap_turned_off_and_on_again_is_not_taken() {
     let text = "word ".repeat(100);
     let (mut editor, id) = wrapped(&text, ViewSize::new(10, 20));
     let job = editor.take_wrap_jobs().pop().expect("a job");
-    let clone = editor.window().clone();
+    // A clone of the map shares its generation, and keeps it alive, so the job finishes.
+    let kept = editor.window().wrap_map().cloned();
     editor.set_wraps(id, false);
     editor.set_wraps(id, true);
-    // The clone keeps the old map alive, so the job finishes.
     let report = job.run().expect("a report");
     assert!(!editor.take_wrap_report(report), "another map's");
-    drop(clone);
+    drop(kept);
     settle(&mut editor);
     assert_eq!(rows(&editor), fresh(&editor));
 }

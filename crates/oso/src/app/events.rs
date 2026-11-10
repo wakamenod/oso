@@ -48,6 +48,8 @@ impl App {
             UserEvent::Clipboard(event) => self.clipboard_event(event_loop, event),
             UserEvent::Search(report) => self.isearch_reported(report),
             UserEvent::Wrap(report) => self.wrap_reported(report),
+            // `before_waiting` asks for the job again.
+            UserEvent::WrapLost => {}
             UserEvent::Completion(report) => self.completion_reported(event_loop, report),
             UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),

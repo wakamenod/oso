@@ -7,6 +7,8 @@
 //! - The thread starts with the first job and then waits for the next. A job a newer one of
 //!   its window supersedes stops at its next check, and one whose window dropped its wrap
 //!   stops too, so the queue moves on.
+//! - A job that panics wakes the event loop, so that its window asks for it again. If the
+//!   thread cannot start, no job is asked for again: the rows near the view still wrap.
 //! - Nothing here logs what a worker reports: where rows break says how long words are in a
 //!   buffer that may hold secrets.
 
@@ -22,6 +24,8 @@ use super::{App, UserEvent, Waker};
 #[derive(Default)]
 pub(super) struct Wrapper {
     jobs: Option<Sender<WrapJob>>,
+    /// The thread could not start or has gone.
+    broken: bool,
 }
 
 impl Wrapper {
@@ -43,7 +47,10 @@ impl Wrapper {
                                 let _ = waker.send(UserEvent::Wrap(report));
                             }
                             Ok(None) => {}
-                            Err(_) => log::warn!("a wrap job panicked"),
+                            Err(_) => {
+                                log::warn!("a wrap job panicked");
+                                let _ = waker.send(UserEvent::WrapLost);
+                            }
                         }
                     }
                 });
@@ -63,11 +70,17 @@ impl App {
     /// Sends the jobs the windows' wraps want to the worker. Each report comes back as a
     /// [`UserEvent::Wrap`].
     pub(super) fn start_wraps(&mut self) {
+        if self.wrapper.broken {
+            return;
+        }
         for job in self.editor.take_wrap_jobs() {
             if self.wrapper.send(job, &self.waker).is_err() {
                 // The rows near the view still wrap on this thread; the rest stay
                 // provisional.
-                self.wrapper = Wrapper::default();
+                self.wrapper = Wrapper {
+                    jobs: None,
+                    broken: true,
+                };
                 log::warn!("the wrap thread could not start");
                 return;
             }

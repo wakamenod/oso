@@ -130,7 +130,6 @@ impl<'a> Rows<'a> {
 }
 
 /// A window: a view of one buffer.
-#[derive(Clone)]
 pub struct Window {
     buffer: BufferId,
     /// The cursors.
@@ -144,6 +143,22 @@ pub struct Window {
     wrap: Option<WrapMap>,
     /// The buffer's revision the wrap follows.
     wrap_revision: u64,
+}
+
+impl Clone for Window {
+    /// A window like this one, whose wrap has a generation of its own, so that no job of this
+    /// window reports to it, as a split will need (M3).
+    fn clone(&self) -> Self {
+        Self {
+            buffer: self.buffer,
+            selections: self.selections.clone(),
+            scroll: self.scroll,
+            size: self.size,
+            places: self.places.clone(),
+            wrap: self.wrap.as_ref().map(WrapMap::detached),
+            wrap_revision: self.wrap_revision,
+        }
+    }
 }
 
 impl fmt::Debug for Window {

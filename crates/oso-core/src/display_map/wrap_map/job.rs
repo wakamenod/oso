@@ -6,8 +6,8 @@
 
 use std::fmt;
 use std::ops::Range;
-use std::sync::Weak;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 
 use super::{WrapSnapshot, wrap_width};
 use crate::display_map::DisplaySnapshot;
@@ -128,6 +128,25 @@ impl WrapSnapshot {
     }
 }
 
+/// The edits of a command's `splices`, in the order they were applied: those past
+/// [`SPLICES_READ`] folded into one, which holds them all, so that what follows them, as stale
+/// ranges do, costs O(splices) however many ranges it moves.
+pub(super) fn command_edits(splices: &[Splice]) -> Vec<RopeEdit> {
+    let read = splices.len().min(SPLICES_READ);
+    let mut edits: Vec<RopeEdit> = splices[..read]
+        .iter()
+        .map(|splice| splice.edit.clone())
+        .collect();
+    if splices.len() > read {
+        let (before, after, _) = changed(&splices[read..]);
+        edits.push(RopeEdit {
+            old: before,
+            new: after,
+        });
+    }
+    edits
+}
+
 /// What `splices` changed, as one range in the offsets from before the first and the same in
 /// the offsets after the last, and how much longer they made the text. One range grows over
 /// each splice in turn, so that it holds every one: nothing before its start changed, and
@@ -220,6 +239,9 @@ pub struct WrapJob {
     pub(super) generation: u64,
     /// The generation of its map's newest job, gone with the map.
     pub(super) live: Weak<AtomicU64>,
+    /// Held by the job and then its report, so that its map sees one that ended with none, as
+    /// when it panicked or never reached the worker.
+    pub(super) alive: Arc<()>,
 }
 
 impl fmt::Debug for WrapJob {
@@ -265,6 +287,7 @@ impl WrapJob {
             owner: self.live,
             wrap,
             display: self.display,
+            _alive: self.alive,
         })
     }
 }
@@ -276,6 +299,8 @@ pub struct WrapReport {
     pub(super) owner: Weak<AtomicU64>,
     pub(super) wrap: WrapSnapshot,
     pub(super) display: DisplaySnapshot,
+    /// The job's, kept until the report is taken or dropped.
+    _alive: Arc<()>,
 }
 
 impl fmt::Debug for WrapReport {

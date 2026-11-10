@@ -13,7 +13,8 @@ use crate::buffer::{BufferId, ContentId, DiskState, Noticed, Rewrap};
 use crate::display_map::DisplaySnapshot;
 use crate::load::{Change, LoadSnapshot, Reloaded};
 use crate::rope::Rope;
-use crate::selection::{MarkActive, OffsetEdit, SelectionSet};
+use crate::selection::{MarkActive, SelectionSet};
+use crate::sum_tree::Bias;
 
 /// What became of a file read again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -236,13 +237,14 @@ impl Editor {
         let after = moved
             .iter()
             .find_map(|(index, set)| (*index == self.selected).then(|| set.clone()));
-        // The tops follow the change as markers; the wraps start over from the new text.
-        let step = vec![OffsetEdit {
-            start: change.start,
-            old_len: change.old_end - change.start,
-            new_len: change.new_end - change.start,
-        }];
-        let views = self.moved_views(id, &display, std::slice::from_ref(&step), &Rewrap::Whole);
+        // The wraps start over from the new text. Each top keeps its line, as the cursors do
+        // (ADR 0083), at the start of the cluster it lands in.
+        let mut views = self.moved_views(id, &display, &[], &Rewrap::Whole);
+        for (_, _, scroll) in &mut views {
+            let start = through_reload(scroll.start, &old, &snapshot.text, change);
+            let point = display.offset_to_display_point(start);
+            scroll.start = display.display_point_to_offset(point, Bias::Left);
+        }
 
         // Nothing past this point can panic part way.
         if let Some(buffer) = self.buffer_mut(id) {

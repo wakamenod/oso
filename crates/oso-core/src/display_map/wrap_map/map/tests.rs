@@ -185,19 +185,48 @@ fn a_report_of_the_width_before_a_resize_is_not_taken() {
 }
 
 #[test]
-fn a_reset_drops_the_running_jobs_report_and_its_next_job_supersedes_it() {
+fn a_reset_stops_the_running_job_and_its_next_job_runs_alone() {
     let mut window = Window::new(&"word ".repeat(40), 30);
     window.wrap.set_columns(20, &window.map.snapshot());
     let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
     window.wrap.reset(&window.map.snapshot());
-    let report = job.run().expect("not yet superseded");
-    assert!(!window.wrap.take_report(report, &window.map.snapshot()));
+    assert!(job.run().is_none(), "it stops, holding up no other job");
     let held = window.wrap.take_job(&window.map.snapshot()).expect("a job");
     let next = window.wrap.take_job(&window.map.snapshot());
     assert!(next.is_none(), "one at a time");
     let report = held.run().expect("a report");
     assert!(window.wrap.take_report(report, &window.map.snapshot()));
     assert_eq!(window.rows(), window.fresh(20));
+}
+
+#[test]
+fn a_job_that_ends_with_no_report_is_wanted_again_once() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    // Dropped, as one the worker never got, or one that panicked.
+    drop(window.wrap.take_job(&window.map.snapshot()).expect("a job"));
+    let job = window
+        .wrap
+        .take_job(&window.map.snapshot())
+        .expect("wanted again");
+    // Lost again, it is not asked for a third time, as one that panics each time would be.
+    drop(job);
+    assert!(window.wrap.take_job(&window.map.snapshot()).is_none());
+}
+
+#[test]
+fn a_detached_copy_takes_no_report_of_the_map_it_came_from() {
+    let mut window = Window::new(&"word ".repeat(40), 30);
+    window.wrap.set_columns(20, &window.map.snapshot());
+    let job = window.wrap.take_job(&window.map.snapshot()).expect("a job");
+    let mut copy = window.wrap.detached();
+    let report = job.run().expect("a report");
+    assert!(!copy.owns(&report) && window.wrap.owns(&report));
+    assert!(!copy.take_report(report, &window.map.snapshot()));
+    assert!(
+        copy.take_job(&window.map.snapshot()).is_some(),
+        "it wraps on its own"
+    );
 }
 
 #[test]

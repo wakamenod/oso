@@ -6,12 +6,13 @@
 //! its jobs.
 
 use std::ops::Range;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 
-use super::job::{Hulls, MAX_STALE, WHOLE_PAST, Work, shifted};
+use super::job::{Hulls, MAX_STALE, WHOLE_PAST, Work, command_edits, shifted};
 use super::{COMMAND_BUDGET, Splice, WrapJob, WrapReport, WrapSnapshot, wrap_width};
 use crate::display_map::DisplaySnapshot;
+use crate::rope::RopeEdit;
 
 /// A window's wrap of its buffer: the rows, what is stale in them, and the job under way. A
 /// clone shares the generation, so that a window can follow an edit on a clone and swap it in
@@ -26,13 +27,18 @@ pub(crate) struct WrapMap {
     /// The generation of the job whose report is awaited, and that the job reads to stop.
     live: Arc<AtomicU64>,
     running: bool,
+    /// The running job's, or its report's, while either is held.
+    job_alive: Weak<()>,
+    /// A job ended with no report since the last report, so that one that panics each time
+    /// is asked for once more, not without end.
+    lost: bool,
     /// What the commands since the running job's snapshot changed.
     since: Hulls,
     /// What the running command may still read on the UI thread, its edits and the rows
     /// near the view together.
     pub(super) budget: usize,
     /// The provisional rows not yet wrapped near the view, sorted and apart: every row of
-    /// a new width, and what edits left stale (`view.rs`).
+    /// a new width, and what edits left stale (`realize.rs`).
     pub(super) unrealized: Vec<Range<usize>>,
 }
 
@@ -65,6 +71,8 @@ impl WrapMap {
             wanted: None,
             live: Arc::new(AtomicU64::new(0)),
             running: false,
+            job_alive: Weak::new(),
+            lost: false,
             since: Hulls::default(),
             budget: COMMAND_BUDGET,
             unrealized: Vec::new(),
@@ -79,9 +87,21 @@ impl WrapMap {
         self.wrap = fresh.wrap;
         self.unrealized = fresh.unrealized;
         self.since = Hulls::default();
-        // A job of the old text must not report; the next job supersedes it.
+        // A job of the old text must not report, and stops now, so that it holds up no other.
+        self.live.fetch_add(1, Ordering::Relaxed);
         self.running = false;
         self.wanted = fresh.wanted;
+    }
+
+    /// The same rows, for another window, with a generation of their own, so that no job of
+    /// this one reports to it: every row is wanted again at its width.
+    pub(crate) fn detached(&self) -> Self {
+        let mut map = Self::with_rows(self.wrap.clone(), self.columns);
+        if map.wrap.wraps() {
+            map.wanted = Some(Work::Columns(self.columns));
+            map.unrealized = std::iter::once(0..self.wrap.len()).collect();
+        }
+        map
     }
 
     /// Gives the next command its budget.
@@ -103,13 +123,14 @@ impl WrapMap {
     /// Follows one command's splices, in the order they were applied, within what is left of
     /// the command's budget; what it leaves stale waits for a job.
     pub(crate) fn edit(&mut self, splices: &[Splice]) {
+        let edits = command_edits(splices);
         if let Some(Work::Ranges(ranges)) = &mut self.wanted {
-            follow_splices(ranges, splices);
+            follow_edits(ranges, &edits);
         }
-        follow_splices(&mut self.unrealized, splices);
+        follow_edits(&mut self.unrealized, &edits);
         if self.running {
-            for splice in splices {
-                self.since.grow(&splice.edit);
+            for edit in &edits {
+                self.since.grow(edit);
             }
         }
         let (wrap, stale) = self.wrap.edited_command(splices, &mut self.budget);
@@ -164,6 +185,16 @@ impl WrapMap {
     /// new width supersedes it. Stale ranges of more than [`WHOLE_PAST`] bytes in all make a
     /// wrap of the whole buffer.
     pub(crate) fn take_job(&mut self, display: &DisplaySnapshot) -> Option<WrapJob> {
+        if self.running && self.job_alive.strong_count() == 0 {
+            // The job ended with no report, as when it panicked or never reached the
+            // worker: what it was to wrap is wanted again, all of it, once.
+            self.running = false;
+            self.since = Hulls::default();
+            if !self.lost {
+                self.wanted = Some(Work::Columns(self.columns));
+            }
+            self.lost = true;
+        }
         let supersedes = matches!(self.wanted, Some(Work::Columns(_)));
         if self.wanted.is_none() || (self.running && !supersedes) {
             return None;
@@ -179,12 +210,15 @@ impl WrapMap {
         let generation = self.live.fetch_add(1, Ordering::Relaxed) + 1;
         self.running = true;
         self.since = Hulls::default();
+        let alive = Arc::new(());
+        self.job_alive = Arc::downgrade(&alive);
         Some(WrapJob {
             wrap: self.wrap.clone(),
             display: display.clone(),
             work,
             generation,
             live: Arc::downgrade(&self.live),
+            alive,
         })
     }
 
@@ -201,6 +235,7 @@ impl WrapMap {
             return false;
         }
         self.running = false;
+        self.lost = false;
         let since = std::mem::take(&mut self.since);
         let (wrap, stale) = since.join(report.wrap, (&report.display, display));
         // What is still provisional: what a job is wanted for.
@@ -222,15 +257,15 @@ impl WrapMap {
     }
 }
 
-/// `ranges`, sorted and apart, moved along with `splices`, in the order they were applied;
+/// `ranges`, sorted and apart, moved along with `edits`, in the order they were applied;
 /// those that grew to meet become one.
-fn follow_splices(ranges: &mut Vec<Range<usize>>, splices: &[Splice]) {
+fn follow_edits(ranges: &mut Vec<Range<usize>>, edits: &[RopeEdit]) {
     if ranges.is_empty() {
         return;
     }
-    for splice in splices {
+    for edit in edits {
         for range in ranges.iter_mut() {
-            *range = shifted(range, &splice.edit);
+            *range = shifted(range, edit);
         }
     }
     let moved = std::mem::take(ranges);

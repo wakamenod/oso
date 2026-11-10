@@ -285,9 +285,9 @@ item notes when it must be settled.
   large file turned on before its load ends, is wrapped in full only after its last part, since
   each part starts the wrap over. Following the parts as appends needs the range the rope
   rebuilt, which a load's snapshots do not carry ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
-- A wrap job that panics, or that the app cannot hand to its thread, leaves its window's rows
-  provisional, but near the view, until its width changes, wrapping turns off and on, or a load
-  or reload starts the wrap over; edits do not ask for the job again ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
+- A whole wrap is freed on the UI thread when a window drops it or a report replaces it, about
+  0.7 ms for 100 MB of prose at 40 columns and 5.5 ms the first time. Hand old trees to a
+  thread, as a reload's leftovers are ([ADR 0103](adr/0103-soft-wrap-in-a-window.md)).
 - The visual aids' lasting settings: which are on, per buffer or per mode as Emacs's minor
   modes are, and keys or the toggle menu to reach them. Until configuration, they toggle for
   every buffer by `M-x` (`global-…` names, leaving the buffer-local ones for then) and start

@@ -46,6 +46,9 @@ the public API in outline.
 - **It follows edits as a marker that stays before an insertion at it, wrapped or not.** In a
   buffer that does not wrap, an edit above the view no longer moves the text in view down, as
   Emacs's `window-start` does not (author).
+- **A reload keeps the top's line, as it keeps the cursors'** ([ADR 0083](0083-reloading-files-changed-on-disk.md)):
+  a top inside the change keeps its line and column, so that a change from above the view to
+  below it, as a formatter makes, leaves the view where it was.
 - **`Scroll` holds `start`, the offset, and `left`.** The field is renamed from `top`, so that
   every reader of the old row had to be visited (the coordinator chose the name).
   - A place, isearch's view for `C-g`, `restore_positions` and the handoff keep a `Scroll`.
@@ -94,8 +97,9 @@ the public API in outline.
   Starting over makes the rows provisional, wraps the rows near the view and wants a job for the
   whole buffer. A load's next part supersedes that job, so a wrapped buffer that loads is wrapped
   in full once its last part is in.
-- **Edits, undo and redo, `*Messages*` and recovery hand each window's wrap their splices,** each
-  with the display before and after it. The splices are collected only while the buffer wraps.
+- **Edits, undo and redo, and `*Messages*` hand each window's wrap their splices,** each with the
+  display before and after it. The splices are collected only while the buffer wraps. An
+  emergency copy put back is a whole new text, and starts the wrap over.
 - **Each window follows them on a clone of its wrap,** put in with the buffer's text in ADR 0053's
   step, which cannot panic. A wrap that missed a change since starts over instead.
 - **A command keeps the displays of at most its first 129 splices,** as many as a rewrap reads:
@@ -104,18 +108,25 @@ the public API in outline.
   keep no copy of the display map's path for each.
 - **The rest of a spent command joins in one go in O(splices),** one range grown over each splice
   in turn, where ADR 0102's took each splice's range back through those before it, which costs
-  the square of their number: undoing 20 keys typed at 1000 cursors made 20,000 splices.
+  the square of their number: undoing 20 keys typed at 1000 cursors made 20,000 splices. The
+  stale ranges, the rows not yet wrapped near the view and the places a running job's report
+  will join follow that one range too, not every splice.
 
 ### The jobs
 
 - **A new width supersedes the running job at once,** so that its report, at the old width, is
-  not taken.
+  not taken. So does starting over, so that the old job stops and holds up no other.
+- **A job that ends with no report,** as one that panicked or never reached the thread, is asked
+  for once more, all of it. A job that panics wakes the event loop for that.
 - **A job holds a weak reference to its map's generation, and a report names its map.**
-  - A map takes only its own reports, and a clone of a map counts as the same map.
+  - A map takes only its own reports. The clone a window follows an edit on counts as the same
+    map; a copy of a window, as a split will make (M3), gets a generation and a job of its own.
   - A job whose map is gone stops at its next check: after a toggle off, or when its window shows
     another buffer.
 - **The app runs the jobs on one thread, `oso-wrap`,** as isearch's run on theirs. A job that
-  panics leaves its window's rows provisional, and the thread goes on.
+  panics leaves its window's rows provisional until it is asked for again, and the thread goes
+  on. If the thread cannot start, no job is asked for again, and only the rows near the view
+  wrap.
 
 ### The command
 
@@ -139,9 +150,10 @@ the public API in outline.
   - the top is an offset, `scroll.start`;
   - a buffer that wraps says `"wraps": true`.
 
-  It still reads versions 1 and 2, whose top is a row, as the start of that logical line. A row
-  top still waiting for its file is exported as `scroll.top`, a row, so that a second restart
-  reads it right. An imported top goes to the start of the cluster it is in.
+  It still reads version 2, whose top is a row, as the start of that logical line, and no longer
+  version 1: a reader takes its own version and the one before (ADR 0090). A row top still
+  waiting for its file is exported as `scroll.top`, a row, so that a second restart reads it
+  right. An imported top goes to the start of the cluster it is in.
 - **`Debug` on a `Window` prints no offsets** (ADR 0100).
 
 ### The public API
@@ -194,8 +206,8 @@ becomes `Accepted, amended by 0102 and 0103`.
   110 ms.
 - Once the report is in, a key at one cursor in a wrapped 10 MB line of words costs about 24 µs at
   p50, and 89 µs in CJK. A thousand cursors add about 1.5 ms to the 3.5 to 5.5 ms the edit costs
-  truncated. Undoing 20 keys typed at a thousand cursors takes about 67 ms wrapped and 57 ms
-  truncated, 117 and 107 in CJK.
+  truncated. Undoing 20 keys typed at a thousand cursors takes about 62 ms wrapped and 55 ms
+  truncated, 113 and 108 in CJK.
 - Before the report, a key in a long provisional line costs up to the budget, about 2 ms, since
   its rewrap reads into the provisional row. So does a line that repeats one short piece of text,
   whose shifted breaks may never meet the old ones; its rest waits for the worker.
@@ -205,6 +217,9 @@ becomes `Accepted, amended by 0102 and 0103`.
   view where it was.
 - Until the renderer's step, a wrapped buffer draws its logical lines cut at the edge; that is why
   the toggle waits there for its key.
+- A whole wrap is freed on the UI thread when a window drops it or a report replaces it: about
+  0.7 ms for 100 MB of prose at 40 columns, 5.5 ms the first time. Handing old trees to a thread,
+  as a reload's leftovers are, is left for later.
 
 ## Alternatives considered
 

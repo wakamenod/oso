@@ -269,8 +269,8 @@ pub fn hand_over<I: Instance>(
     }
 }
 
-/// Moves each item `state` names from `old` to `new`, a piece at a time. A state of
-/// version 1 names none.
+/// Moves each item `state` names from `old` to `new`, a piece at a time. A state with no
+/// items names none.
 fn carry<I: Instance>(old: &mut I, new: &mut I, state: &Value) -> Result<(), String> {
     let Some(items) = state["items"].as_array() else {
         return Ok(());

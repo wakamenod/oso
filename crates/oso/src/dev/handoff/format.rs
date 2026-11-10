@@ -185,25 +185,21 @@ pub fn selections_state(selections: &SelectionSet) -> Value {
 pub fn parse(state: &Value) -> Result<State, String> {
     let state = state.as_object().ok_or("the state is not an object")?;
     let version = match state.get("version").and_then(Value::as_u64) {
-        Some(version @ (1 | 2 | STATE_VERSION)) => version,
+        // Its own version and the one before (ADR 0090).
+        Some(version @ (2 | STATE_VERSION)) => version,
         Some(version) => {
             return Err(format!(
-                "the state has version {version}, and this build reads versions 1 to {STATE_VERSION}"
+                "the state has version {version}, and this build reads versions 2 and {STATE_VERSION}"
             ));
         }
         None => return Err("the state has no version".into()),
     };
-    let mut items = Items::default();
-    let (export, kills, histories) = if version == 1 {
-        (0, Vec::new(), Vec::new())
-    } else {
-        items = Items::parse(state)?;
-        (
-            u64_of(state, "export")?,
-            parse_kills(state, &mut items)?,
-            parse_histories(state, &mut items)?,
-        )
-    };
+    let mut items = Items::parse(state)?;
+    let (export, kills, histories) = (
+        u64_of(state, "export")?,
+        parse_kills(state, &mut items)?,
+        parse_histories(state, &mut items)?,
+    );
     let entries = array(state, "buffers")?;
     if entries.len() > MAX_BUFFERS {
         return Err(format!("the state has more than {MAX_BUFFERS} buffers"));

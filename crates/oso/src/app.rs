@@ -75,6 +75,8 @@ pub enum UserEvent {
     Search(oso_core::editor::SearchReport),
     /// Soft wrap's worker wrapped a window's rows (ADR 0100).
     Wrap(oso_core::display_map::wrap_map::WrapReport),
+    /// A wrap job panicked, so its window asks for it again.
+    WrapLost,
     /// The completion worker built a list or matched an input (ADR 0096).
     Completion(oso_core::complete::CompletionReport),
     /// A completion job panicked on the worker.
