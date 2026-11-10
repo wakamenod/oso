@@ -47,11 +47,11 @@ fn previewing(text: &str, wraps: bool) -> (Editor, BufferId) {
 
 #[test]
 fn the_tiled_windows_rows_lay_a_preedit_out_in_its_line() {
-    let mut editor = Editor::with_buffer(Buffer::from_text("t", "aaaa bbb\nnext"));
-    editor.set_view_size(ViewSize::new(10, 9));
+    let mut editor = Editor::with_buffer(Buffer::from_text("t", "aaaa bbbbb\nnext"));
+    editor.set_view_size(ViewSize::new(10, 11));
     let id = editor.window().buffer();
     editor.set_wraps(id, true);
-    editor.current_mut().0.selections = SelectionSet::new(8);
+    editor.current_mut().0.selections = SelectionSet::new(10);
     editor.follow_cursor();
     let mut screen = Screen::default();
     editor.screen(&mut screen);
@@ -114,12 +114,12 @@ fn a_preview_follows_its_buffers_text_and_goes_with_the_prompt() {
 
 #[test]
 fn the_view_follows_a_preedit_that_wraps_past_the_last_row() {
-    // Three rows of 9 columns, the cursor at the end of the last one in view.
-    let mut editor = Editor::with_buffer(Buffer::from_text("t", "a\nb\naaaa bbb"));
-    editor.set_view_size(ViewSize::new(3, 9));
+    // Three rows of 11 columns, the cursor at the end of the last one in view.
+    let mut editor = Editor::with_buffer(Buffer::from_text("t", "a\nb\naaaa bbbbb"));
+    editor.set_view_size(ViewSize::new(3, 11));
     let id = editor.window().buffer();
     editor.set_wraps(id, true);
-    editor.current_mut().0.selections = SelectionSet::new(12);
+    editor.current_mut().0.selections = SelectionSet::new(14);
     editor.follow_cursor();
     assert_eq!(editor.window().top_row(&editor.current().1.display()), 0);
     let moved = editor.set_preedit(Some(Preedit::new("xyz".into(), None)));

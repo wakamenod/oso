@@ -137,28 +137,28 @@ mod tests {
 
     #[test]
     fn a_preedit_at_a_rows_end_wraps_as_if_inserted() {
-        // 9 columns, 8 for text.
-        let text = "aaaa bbb cc";
+        // 11 columns, 10 for text.
+        let text = "aaaa bbbbb cc";
         assert_eq!(
-            spliced(text, 8, "xyz", 9),
-            [(0, true), (5, true), (12, false)]
+            spliced(text, 10, "xyz", 11),
+            [(0, true), (5, true), (14, false)]
         );
-        assert_eq!(spliced(text, 8, "xyz", 9), inserted(text, 8, "xyz", 9));
+        assert_eq!(spliced(text, 10, "xyz", 11), inserted(text, 10, "xyz", 11));
     }
 
     #[test]
     fn a_closing_mark_at_a_rows_start_pulls_the_row_before_it() {
-        // Four wide characters fill a row of 8 cells; `。` may not start the next.
-        let text = "あいうえおか";
-        let rows = spliced(text, 12, "。", 9);
-        assert_eq!(rows, inserted(text, 12, "。", 9));
-        assert_eq!(rows[1], (6, false), "え moves down with 。");
+        // Five wide characters fill a row of 10 cells; `。` may not start the next.
+        let text = "あいうえおかき";
+        let rows = spliced(text, 15, "。", 11);
+        assert_eq!(rows, inserted(text, 15, "。", 11));
+        assert_eq!(rows[1], (8, false), "お moves down with 。");
     }
 
     #[test]
     fn rows_after_the_line_are_not_laid_out_and_the_count_is_kept() {
         let display = snapshot("aaaa bbbb cccc dddd\nnext");
-        let wrap = WrapSnapshot::new(&display, 9);
+        let wrap = WrapSnapshot::new(&display, 11);
         let preedit = Preedit::new("xy".into(), None);
         let mut out = Vec::new();
         wrap.spliced_rows(&display, (0, &preedit), (2, usize::MAX), &mut out);
@@ -166,6 +166,7 @@ mod tests {
         wrap.spliced_rows(&display, (0, &preedit), (usize::MAX, 3), &mut out);
         assert_eq!(out.len(), 1, "the first row holds column 3");
         wrap.spliced_rows(&display, (0, &preedit), (usize::MAX, usize::MAX), &mut out);
+        assert_eq!(out.len(), 3);
         assert!(!out.last().unwrap().continues);
         assert!(out.iter().all(|row| row.end <= 20));
     }
@@ -173,12 +174,12 @@ mod tests {
     #[test]
     fn a_row_that_starts_in_the_preedit_starts_at_the_cursor() {
         let display = snapshot("ab");
-        let wrap = WrapSnapshot::new(&display, 9);
+        let wrap = WrapSnapshot::new(&display, 11);
         let preedit = Preedit::new("0123456789abc".into(), None);
         let mut out = Vec::new();
         wrap.spliced_rows(&display, (1, &preedit), (usize::MAX, usize::MAX), &mut out);
         let starts: Vec<_> = out.iter().map(|row| (row.start, row.column)).collect();
-        assert_eq!(starts, [(0, 0), (1, 8)]);
+        assert_eq!(starts, [(0, 0), (1, 10)]);
         assert_eq!(out[1].end, 2);
     }
 
@@ -200,7 +201,7 @@ mod tests {
             text in "[a あ。、「（\n]{0,40}",
             composed in "[b い。」）]{1,12}",
             at in 0usize..64,
-            columns in 8usize..14,
+            columns in 10usize..16,
         ) {
             let cursor = text.floor_char_boundary(at.min(text.len()));
             prop_assert_eq!(

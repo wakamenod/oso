@@ -157,7 +157,7 @@ or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
 [ADR 0100](adr/0100-soft-wrap.md) designs it:
 
 - `toggle-truncate-lines` (`C-x x t`) turns it on for a buffer, with Emacs's argument. Each window wraps at its own width, less a column for the `↩` that
-  marks a row that continues; below 8 columns nothing wraps.
+  marks a row that continues; below 10 columns nothing wraps.
 - Rows break after spaces, between CJK clusters, and with basic kinsoku, only
   between display clusters. One space at a break may take the mark's column.
 - The WrapMap is the window's: a `SumTree` of breaks in bounded items. Motion,
@@ -172,7 +172,8 @@ or org) or toggled per buffer. `C-n` and `C-p` move by logical lines.
 - What a frame draws is a `window::Screen`, built once a frame: the rows in view,
   each part of a logical line from where it starts to where the next row starts.
   A row that continues draws its text in the wrap's width and `↩` in the column
-  after, where one space may hang; a provisional line draws to the edge. A range
+  after, where one space may hang; a provisional line, or a row wider than that,
+  draws to the edge with no mark. A range
   past a break fills to the row's text width. A preedit's line is laid out again
   with it in, as if inserted, and the view follows its caret
   ([ADR 0104](adr/0104-soft-wrap-drawn-in-view-rows.md)).

@@ -1,67 +1,65 @@
 ---
 source: crates/oso/src/dispatch/grid_tests.rs
-description: "text: aaaa bbbb cccc dddd\\nend\\n"
+description: "text: aaaaaa bbbbbb cccccc dddddd\\nend\\n"
 ---
 keys: C-x x t
-│aaaa    ↩│
-:^       m:
-│bbbb    ↩│
-:        m:
-│cccc    ↩│
-:        m:
-│dddd     │
-=-- test  =
-"Truncate "
+│aaaaaa    ↩│
+:^         m:
+│bbbbbb    ↩│
+:          m:
+│cccccc    ↩│
+:          m:
+│dddddd     │
+=-- test  1:=
+"Truncate lo"
 
-keys: C-f C-f C-SPC C-u 6 C-f
-│aaaa    ↩│
-:        m:
-+  ****** +
-│bbbb    ↩│
-:   ^    m:
-+***      +
-│cccc    ↩│
-:        m:
-│dddd     │
-=-- test  =
-"         "
+keys: C-f C-f C-SPC C-u 8 C-f
+│aaaaaa    ↩│
+:          m:
++  ******** +
+│bbbbbb    ↩│
+:   ^      m:
++***        +
+│cccccc    ↩│
+:          m:
+│dddddd     │
+=-- test  1:=
+"           "
 
-keys: C-u 8 C-f
-│aaaa    ↩│
-:        m:
-+  ****** +
-│bbbb    ↩│
-:        m:
-+******** +
-│cccc    ↩│
-:        m:
-+******** +
-│dddd     │
-: ^       :
-+*        +
-=-- test  =
-"         "
+keys: C-u 1 0 C-f
+│aaaaaa    ↩│
+:          m:
++  ******** +
+│bbbbbb    ↩│
+:          m:
++********** +
+│cccccc    ↩│
+:      ^   m:
++******     +
+│dddddd     │
+=-- test  1:=
+"           "
 
 keys: C-g C-a
-│aaaa    ↩│
-:^       m:
-│bbbb    ↩│
-:        m:
-│cccc    ↩│
-:        m:
-│dddd     │
-=-- test  =
-"         "
+│aaaaaa    ↩│
+:^         m:
+│bbbbbb    ↩│
+:          m:
+│cccccc    ↩│
+:          m:
+│dddddd     │
+=-- test  1:=
+"           "
 
 keys: C-s a SPC b
-│aaaa    ↩│
-:        m:
-+   ##### +
-│bbbb    ↩│
-: ^      m:
-+#        +
-│cccc    ↩│
-:        m:
-│dddd     │
-=-- test  =
-"I-search:"
+│aaaaaa    ↩│
+:          m:
++     ##### +
+│bbbbbb    ↩│
+: ^        m:
++#          +
+│cccccc    ↩│
+:          m:
+│dddddd     │
+=-- test  1:=
+"I-search: a"

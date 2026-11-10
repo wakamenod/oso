@@ -230,7 +230,8 @@ fn row_columns(
     if end.row == row.line && end.column <= row.end_column {
         return from..end.column;
     }
-    if !row.continues {
+    // Past a line's last row, or a row with no mark, which draws to the edge.
+    if screen.mark(row).is_none() {
         return from..usize::MAX;
     }
     let mark = row.column.saturating_add(screen.width());

@@ -1407,9 +1407,10 @@ mod tests {
 
     #[test]
     fn a_wrapped_row_goes_on_from_the_left_edge_and_marks_the_last_column() {
-        // 9 columns: `aaaa ` and the mark's column, then `bbbb` from the left edge.
-        let mut editor = oso_core::editor::Editor::with_buffer(Buffer::from_text("t", "aaaa bbbb"));
-        editor.set_view_size(ViewSize::new(3, 9));
+        // 11 columns: `aaaaaa ` and the mark's column, then `bbbbbb` from the left edge.
+        let text = "aaaaaa bbbbbb";
+        let mut editor = oso_core::editor::Editor::with_buffer(Buffer::from_text("t", text));
+        editor.set_view_size(ViewSize::new(3, 11));
         let id = editor.window().buffer();
         editor.set_wraps(id, true);
         let mut screen = Screen::default();
@@ -1431,14 +1432,24 @@ mod tests {
         let mut scene = Scene::new(LIMITS, theme());
         let system = build(
             &mut scene,
-            &[pane(0, rect(0, 0, 3, 9), 0, content)],
+            &[pane(0, rect(0, 0, 3, 11), 0, content)],
             &mut FakeAtlas::default(),
         );
-        assert_eq!(system.shaped, ["aaaa ", "\u{21a9}", "bbbb"]);
+        assert_eq!(system.shaped, ["aaaaaa ", "\u{21a9}", "bbbbbb"]);
         let quads = u32::try_from(scene.quads().len()).unwrap();
         let cells = quad_cells(&scene, 0..quads);
-        assert_eq!(cells[4..], [(0, 4), (0, 8), (1, 0), (1, 1), (1, 2), (1, 3)]);
-        let mark = scene.quads()[5].color();
+        let rest = [
+            (0, 6),
+            (0, 10),
+            (1, 0),
+            (1, 1),
+            (1, 2),
+            (1, 3),
+            (1, 4),
+            (1, 5),
+        ];
+        assert_eq!(cells[6..], rest);
+        let mark = scene.quads()[7].color();
         assert_eq!(mark, theme().foreground(Face::WrapMark));
     }
 
@@ -1473,16 +1484,16 @@ mod tests {
 
     #[test]
     fn typing_in_a_wrapped_line_shapes_only_the_rows_that_change() {
-        // 9 columns: `a ` and then a row for each word, which moves a cell along its line with
+        // 11 columns: `a ` and then a row for each word, which moves a cell along its line with
         // each character typed at the start but keeps its text.
-        let text = format!("a {}", "bbbbbbb ".repeat(20));
+        let text = format!("a {}", "bbbbbbbbb ".repeat(20));
         let mut editor = oso_core::editor::Editor::with_buffer(Buffer::from_text("t", &text));
-        editor.set_view_size(ViewSize::new(8, 9));
+        editor.set_view_size(ViewSize::new(8, 11));
         let id = editor.window().buffer();
         editor.set_wraps(id, true);
         let mut scene = Scene::new(LIMITS, theme());
         assert_eq!(
-            frame_of(&mut scene, &editor, (8, 9)),
+            frame_of(&mut scene, &editor, (8, 11)),
             8,
             "every row at first"
         );
@@ -1495,7 +1506,7 @@ mod tests {
             editor.apply_edits(id, &[edit]).unwrap();
             editor.end_undo_group();
             assert_eq!(
-                frame_of(&mut scene, &editor, (8, 9)),
+                frame_of(&mut scene, &editor, (8, 11)),
                 1,
                 "the first row only"
             );

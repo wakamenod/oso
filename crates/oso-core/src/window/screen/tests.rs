@@ -65,67 +65,89 @@ fn unwrapped_each_logical_line_is_a_row_from_the_left_column() {
 
 #[test]
 fn wrapped_rows_end_where_the_next_starts_and_draw_the_mark_after_the_width() {
-    // 9 columns: 8 of text and the mark's.
-    let (window, display) = make("aaaa bbbb ccccc\nend", (10, 9), true, 0);
+    // 11 columns: 10 of text and the mark's.
+    let (window, display) = make("aaaaaa bbbbbb cccccc\nend", (10, 11), true, 0);
     let screen = screen(&window, &display, None);
     assert_eq!(
         shape(&screen),
         [
-            (0, 0, 5, true),
-            (0, 5, 10, true),
-            (0, 10, END, false),
+            (0, 0, 7, true),
+            (0, 7, 14, true),
+            (0, 14, END, false),
             (1, 0, END, false)
         ]
     );
     let first = &screen.rows()[0];
-    assert_eq!(screen.drawn(first), 0..5);
-    assert_eq!(screen.mark(first), Some(8));
+    assert_eq!(screen.drawn(first), 0..7);
+    assert_eq!(screen.mark(first), Some(10));
     assert!(first.starts_line() && !screen.rows()[1].starts_line());
     assert_eq!(
         screen.drawn(&screen.rows()[2]),
-        10..19,
+        14..25,
         "the last row reaches the edge"
     );
 }
 
 #[test]
 fn a_hanging_space_is_on_its_row_in_the_marks_column() {
-    // 8 cells of text, then a space that hangs.
-    let (window, display) = make("aaaaaaaa bb", (10, 9), true, 0);
+    // 10 cells of text, then a space that hangs.
+    let (window, display) = make("aaaaaaaaaa bb", (10, 11), true, 0);
     let screen = screen(&window, &display, None);
-    assert_eq!(shape(&screen), [(0, 0, 9, true), (0, 9, END, false)]);
-    assert_eq!(screen.row_of(DisplayPoint::new(0, 8)), Some(0), "the space");
+    assert_eq!(shape(&screen), [(0, 0, 11, true), (0, 11, END, false)]);
+    assert_eq!(
+        screen.row_of(DisplayPoint::new(0, 10)),
+        Some(0),
+        "the space"
+    );
     assert_eq!(
         screen.drawn(&screen.rows()[0]),
-        0..8,
+        0..10,
         "the mark takes its cell"
     );
-    assert_eq!(screen.row_of(DisplayPoint::new(0, 9)), Some(1));
+    assert_eq!(screen.mark(&screen.rows()[0]), Some(10));
+    assert_eq!(screen.row_of(DisplayPoint::new(0, 11)), Some(1));
     assert_eq!(screen.row_of(DisplayPoint::new(1, 0)), None, "no such line");
 }
 
 #[test]
+fn a_row_wider_than_the_width_draws_to_the_edge_with_no_mark() {
+    // Rows wrapped at 16 columns, in a window narrowed to 11 before they are wrapped again.
+    let text = "aaaaaaaaaaaaa bbbbbbbbbbbbb";
+    let (mut window, display) = make(text, (4, 16), true, 0);
+    window.set_size(ViewSize::new(4, 11));
+    let wrap = window.wrap_map_mut().unwrap();
+    wrap.spend_budget();
+    wrap.set_columns(11, &display);
+    let screen = screen(&window, &display, None);
+    let first = &screen.rows()[0];
+    assert_eq!((first.column, first.end_column), (0, 14), "the old row");
+    assert_eq!(screen.mark(first), None);
+    assert_eq!(screen.drawn(first), 0..11, "to the edge");
+    assert_eq!(screen.text_end(first), 14);
+}
+
+#[test]
 fn the_rows_start_at_the_row_that_holds_the_top_and_fill_the_window() {
-    let (mut window, display) = make("aaaa bbbb cccc dddd", (2, 9), true, 0);
+    let (mut window, display) = make("aaaaaa bbbbbb cccccc dddddd", (2, 11), true, 0);
     // In the middle of the second row.
-    window.set_scroll(Scroll { start: 7, left: 0 });
+    window.set_scroll(Scroll { start: 9, left: 0 });
     let screen = screen(&window, &display, None);
     assert_eq!(screen.top(), 1);
-    assert_eq!(shape(&screen), [(0, 5, 10, true), (0, 10, 15, true)]);
+    assert_eq!(shape(&screen), [(0, 7, 14, true), (0, 14, 21, true)]);
 }
 
 #[test]
 fn a_preedit_at_a_rows_end_wraps_and_moves_the_rows_after_it_down() {
-    let text = "aaaa bbb\nnext";
-    let (window, display) = make(text, (10, 9), true, 8);
+    let text = "aaaa bbbbb\nnext";
+    let (window, display) = make(text, (10, 11), true, 10);
     let preedit = Preedit::new("xyz".into(), None);
     let screen = screen(&window, &display, Some(&preedit));
     assert_eq!(
         shape(&screen),
         [(0, 0, 5, true), (0, 5, END, false), (1, 0, END, false)]
     );
-    assert_eq!(screen.preedit(), Some((DisplayPoint::new(0, 8), 3)));
-    let (inserted, display) = make("aaaa bbbxyz\nnext", (10, 9), true, 8);
+    assert_eq!(screen.preedit(), Some((DisplayPoint::new(0, 10), 3)));
+    let (inserted, display) = make("aaaa bbbbbxyz\nnext", (10, 11), true, 10);
     assert_eq!(
         shape(&screen),
         shape(&self::screen(&inserted, &display, None))
@@ -134,11 +156,11 @@ fn a_preedit_at_a_rows_end_wraps_and_moves_the_rows_after_it_down() {
 
 #[test]
 fn a_preedit_out_of_view_lays_nothing_out() {
-    let (mut window, display) = make("aaaa bbbb cccc dddd", (1, 9), true, 0);
-    window.set_scroll(Scroll { start: 10, left: 0 });
+    let (mut window, display) = make("aaaaaa bbbbbb cccccc dddddd", (1, 11), true, 0);
+    window.set_scroll(Scroll { start: 14, left: 0 });
     let preedit = Preedit::new("x".repeat(30), None);
     let screen = screen(&window, &display, Some(&preedit));
-    assert_eq!(shape(&screen), [(0, 10, 15, true)]);
+    assert_eq!(shape(&screen), [(0, 14, 21, true)]);
 }
 
 #[test]
@@ -159,7 +181,7 @@ proptest! {
         composed in "[b い」]{1,10}",
         at in 0usize..64,
         rows in 1usize..8,
-        columns in 8usize..13,
+        columns in 10usize..15,
     ) {
         let cursor = text.floor_char_boundary(at.min(text.len()));
         let (window, display) = make(&text, (rows, columns), true, cursor);
@@ -183,7 +205,7 @@ proptest! {
         composed in proptest::option::of("[b い」]{1,10}"),
         (at, top) in (0usize..64, 0usize..64),
         rows in 1usize..6,
-        columns in 8usize..13,
+        columns in 10usize..15,
         wraps in proptest::bool::ANY,
     ) {
         let cursor = text.floor_char_boundary(at.min(text.len()));
@@ -203,7 +225,7 @@ proptest! {
 #[test]
 fn debug_prints_no_offset_or_column() {
     // Where rows break says how long words are (ADR 0100).
-    let (window, display) = make("aaaa bbbb ccccc", (4, 9), true, 0);
+    let (window, display) = make("aaaaaa bbbbbb cccccc", (4, 11), true, 0);
     let shown = screen(&window, &display, None);
     assert_eq!(format!("{shown:?}"), "Screen { rows: 3, .. }");
     let row = format!("{:?}", shown.rows()[1]);

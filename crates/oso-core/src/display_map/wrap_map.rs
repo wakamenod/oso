@@ -42,8 +42,10 @@ pub(crate) use self::spliced::SplicedRow;
 use super::{DisplayCluster, DisplayPoint, DisplaySnapshot};
 use crate::sum_tree::{Bias, Dimension, Item, SumTree, Summary};
 
-/// Below this many text columns, a window does not wrap and shows no mark.
-pub const MIN_COLUMNS: usize = 8;
+/// Below this many text columns, a window does not wrap and shows no mark. A row then holds
+/// the widest display cluster, a boxed label of 8 cells, with the mark's column after it
+/// (ADR 0104).
+pub const MIN_COLUMNS: usize = 10;
 
 /// The most rows an item of a wrapped line holds, so that an edit copies only a few.
 #[cfg(not(test))]

@@ -54,12 +54,24 @@ recommended option each time, and approved the public API in direction.
 - **Building it reads the rows in view:** a seek to the top, then one conversion a row.
 - **`Window::drawn_top` goes away,** and nothing that draws counts logical lines.
 
-### Provisional rows (author)
+### Provisional rows and rows wider than the width (author)
 
 - **A provisional whole logical line** draws cut at the window's edge, with no mark, as ADR 0100
   says.
-- **A provisional part of a line before an anchor,** which goes on in the next row, draws cut at
-  the wrap's width, with the mark. So the mark's column never shows text.
+- **A row draws the mark only while it fits** in the wrap's width and the mark's column, where
+  one space may hang. A row wider than that draws to the window's edge with no mark, as a row
+  that does not wrap, until it is wrapped again. That is:
+  - a row wrapped at a width the window has since left, as after a resize or a gutter that
+    gained a digit, while the command's budget is spent;
+  - the part of a line before an anchor rows were wrapped from, which goes on in the next row.
+- So the mark's column shows the mark, or a space hanging there, or text of a row with no
+  mark.
+
+### The narrowest wrap (author)
+
+- **Below 10 text columns, nothing wraps,** where ADR 0100 said 8. A row then holds the widest
+  display cluster, a box of 8 cells for a character past a cluster's limits
+  ([ADR 0054](0054-limits-on-a-display-cluster.md)), and the mark's column after it.
 
 ### The renderer (author)
 
@@ -160,8 +172,10 @@ becomes `Accepted, amended by 0102, 0103 and 0104`, and ADR 0103's and ADR 0105'
 - ADR 0100, "`WrapMap` itself is `pub(crate)`, held only by `Window`": and by the editor for
   the `C-x b` preview's buffer, which no window shows.
 - ADR 0100, "If the budget runs out before the view is full, the rest of the view shows its
-  logical lines unwrapped, cut at the edge, until the report": and the part of a line before an
-  anchor, which goes on in the next row, cut at the wrap's width with the mark.
+  logical lines unwrapped, cut at the edge, until the report": and a row wider than the wrap's
+  width and the mark's column, as the part of a line before an anchor, draws as one, with no
+  mark.
+- ADR 0100, "Below 8 text columns, nothing wraps": below 10.
 - ADR 0100, "The view follows the cursor's view row": while composing, the caret's view row with
   the preedit laid out in its line.
 - [ADR 0103](0103-soft-wrap-in-a-window.md), "Until the renderer draws view rows, a frame draws
@@ -195,8 +209,12 @@ becomes `Accepted, amended by 0102, 0103 and 0104`, and ADR 0103's and ADR 0105'
 - **Kept by their place on the screen:** every scroll shapes the screen again.
 - **A range past a break filled only to its last cell of text:** a region over a wrap would look
   ragged where a wide character moved to the next row.
-- **No mark on any provisional row:** the part before an anchor, wider than the window, would
-  show text in the mark's column.
+- **The part of a line before an anchor cut at the wrap's width, with the mark,** as first
+  chosen: text past the width would show on no row while the mark said the row went on.
+- **A row wrapped at an old width cut at the new one:** the same.
+- **Narrowing a window resets its rows to one a logical line:** a resize would lose the rows
+  already wrapped near the view.
+- **8 text columns, as ADR 0100 said:** the widest cluster would reach the mark's column.
 - **Only the cursor's row followed while composing:** a preedit that wraps past the last row
   would compose out of view.
 - **Each character's row for the input method now:** changes `Editor::preedit_layout` and the

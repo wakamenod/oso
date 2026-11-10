@@ -188,24 +188,24 @@ fn huge_positions_do_not_overflow() {
 
 #[test]
 fn a_cursor_on_a_hanging_space_is_in_the_marks_cell() {
-    // 9 columns: 8 of text, then a space that hangs into the mark's.
-    let display = snapshot("aaaaaaaa bb");
+    // 11 columns: 10 of text, then a space that hangs into the mark's.
+    let display = snapshot("aaaaaaaaaa bb");
     let wrapped = screen(
         &display,
         View {
-            columns: 9,
+            columns: 11,
             wraps: true,
             ..VIEW
         },
         None,
     );
-    let text = rect(0, 0, 10, 9);
-    let space = DisplayPoint::new(0, 8);
+    let text = rect(0, 0, 10, 11);
+    let space = DisplayPoint::new(0, 10);
     assert_eq!(
         cursor_rect(text, &wrapped, space, 1),
-        Some(rect(0, 8, 1, 1))
+        Some(rect(0, 10, 1, 1))
     );
-    let b = DisplayPoint::new(0, 9);
+    let b = DisplayPoint::new(0, 11);
     assert_eq!(cursor_rect(text, &wrapped, b, 1), Some(rect(1, 0, 1, 1)));
 }
 
@@ -313,10 +313,10 @@ mod regions {
         assert_eq!(found, [(0, 2, 2)]);
     }
 
-    /// 9 columns, 8 for text and the mark's.
+    /// 11 columns, 10 for text and the mark's.
     const WRAPPED: View = View {
         rows: 4,
-        columns: 9,
+        columns: 11,
         top: 0,
         left: 0,
         wraps: true,
@@ -324,34 +324,35 @@ mod regions {
 
     #[test]
     fn a_region_past_a_break_fills_to_the_rows_text_width() {
-        // Rows `aaaa ` and `bbbb`: from the second `a` to the second `b`.
-        let found = cells("aaaa bbbb", WRAPPED, &[(1, 7)], MarkActive::Active, None);
-        assert_eq!(found, [(0, 1, 7), (1, 0, 2)], "not into the mark's column");
+        // Rows `aaaaaa ` and `bbbbbb`: from the second `a` to the second `b`.
+        let text = "aaaaaa bbbbbb";
+        let found = cells(text, WRAPPED, &[(1, 9)], MarkActive::Active, None);
+        assert_eq!(found, [(0, 1, 9), (1, 0, 2)], "not into the mark's column");
         // Ending right at the break, it fills only the row's text.
-        let at_break = cells("aaaa bbbb", WRAPPED, &[(1, 5)], MarkActive::Active, None);
-        assert_eq!(at_break, [(0, 1, 4)]);
+        let at_break = cells(text, WRAPPED, &[(1, 7)], MarkActive::Active, None);
+        assert_eq!(at_break, [(0, 1, 6)]);
     }
 
     #[test]
     fn a_hanging_space_in_a_region_takes_the_marks_column() {
-        // `aaaaaaaa` fills the row and its space hangs in the mark's column.
-        let text = "aaaaaaaa bb";
-        let found = cells(text, WRAPPED, &[(7, 10)], MarkActive::Active, None);
-        assert_eq!(found, [(0, 7, 2), (1, 0, 1)]);
-        let from_b = cells(text, WRAPPED, &[(9, 10)], MarkActive::Active, None);
+        // `aaaaaaaaaa` fills the row and its space hangs in the mark's column.
+        let text = "aaaaaaaaaa bb";
+        let found = cells(text, WRAPPED, &[(9, 12)], MarkActive::Active, None);
+        assert_eq!(found, [(0, 9, 2), (1, 0, 1)]);
+        let from_b = cells(text, WRAPPED, &[(11, 12)], MarkActive::Active, None);
         assert_eq!(from_b, [(1, 0, 1)], "nothing of the row before");
     }
 
     #[test]
     fn a_region_past_a_lines_last_row_fills_to_the_edge() {
         let found = cells(
-            "aaaa bbbb\nc",
+            "aaaaaa bbbbbb\nc",
             WRAPPED,
-            &[(6, 11)],
+            &[(8, 15)],
             MarkActive::Active,
             None,
         );
-        assert_eq!(found, [(1, 1, 8), (2, 0, 1)]);
+        assert_eq!(found, [(1, 1, 10), (2, 0, 1)]);
     }
 
     #[test]
@@ -366,18 +367,18 @@ mod regions {
 
 #[test]
 fn a_match_over_a_break_takes_cells_on_both_rows() {
-    let display = snapshot("aaaa bbbb");
+    let display = snapshot("aaaaaa bbbbbb");
     let view = View {
         rows: 4,
-        columns: 9,
+        columns: 11,
         wraps: true,
         ..VIEW
     };
     let shown = screen(&display, view, None);
     let mut out = Vec::new();
-    let one = std::slice::from_ref(&(3..6));
-    match_cells(rect(0, 0, 4, 9), &shown, &display, one, &mut out);
-    assert_eq!(out, [rect(0, 3, 1, 5), rect(1, 0, 1, 1)]);
+    let one = std::slice::from_ref(&(5..8));
+    match_cells(rect(0, 0, 4, 11), &shown, &display, one, &mut out);
+    assert_eq!(out, [rect(0, 5, 1, 5), rect(1, 0, 1, 1)]);
 }
 
 #[test]

@@ -34,29 +34,29 @@ fn a_paragraph_of_english_wraps_after_spaces_and_motion_stays_on_its_line() {
 
 #[test]
 fn a_space_that_hangs_takes_the_marks_cell_and_the_cursor_shows_there() {
-    // 9 columns: `aaaaaaaa` fills the row's 8, and its space hangs in the mark's column.
-    let text = "aaaaaaaa bbbb cccc\n";
-    let steps = [WRAP, "C-u 8 C-f", "C-f", "C-x x t"];
-    check("wrap_hanging_space", text, (4, 9), &steps);
+    // 11 columns: `aaaaaaaaaa` fills the row's 10, and its space hangs in the mark's column.
+    let text = "aaaaaaaaaa bbbbbb cccccc\n";
+    let steps = [WRAP, "C-u 1 0 C-f", "C-f", "C-x x t"];
+    check("wrap_hanging_space", text, (4, 11), &steps);
 }
 
 #[test]
 fn a_region_and_a_match_over_a_break_fill_to_the_rows_text_width() {
-    let text = "aaaa bbbb cccc dddd\nend\n";
+    let text = "aaaaaa bbbbbb cccccc dddddd\nend\n";
     let steps = [
         WRAP,
-        "C-f C-f C-SPC C-u 6 C-f",
-        "C-u 8 C-f",
+        "C-f C-f C-SPC C-u 8 C-f",
+        "C-u 1 0 C-f",
         "C-g C-a",
         "C-s a SPC b",
     ];
-    check("wrap_region_and_match", text, (4, 9), &steps);
+    check("wrap_region_and_match", text, (4, 11), &steps);
 }
 
 #[test]
 fn a_preedit_at_a_rows_end_wraps_as_if_it_were_typed() {
-    let text = "aaaa bbb\nnext\n";
-    let mut editor = open(text.as_bytes(), (4, 9));
+    let text = "aaaa bbbbb\nnext\n";
+    let mut editor = open(text.as_bytes(), (4, 11));
     let mut dispatcher = Dispatcher::new();
     let keys: KeySequence = format!("{WRAP} C-e").parse().unwrap();
     dispatcher.handle_keys(&mut editor, keys.0);
@@ -75,12 +75,12 @@ fn a_preedit_at_a_rows_end_wraps_as_if_it_were_typed() {
 
 #[test]
 fn a_closing_mark_typed_at_a_rows_start_pulls_the_row_before() {
-    // Four wide characters fill a row of 8; `。` may not start the next, so `え` comes down
+    // Five wide characters fill a row of 10; `。` may not start the next, so `お` comes down
     // with it as it will when committed.
-    let text = "あいうえおか\n";
-    let mut editor = open(text.as_bytes(), (3, 9));
+    let text = "あいうえおかき\n";
+    let mut editor = open(text.as_bytes(), (3, 11));
     let mut dispatcher = Dispatcher::new();
-    let keys: KeySequence = format!("{WRAP} C-u 4 C-f").parse().unwrap();
+    let keys: KeySequence = format!("{WRAP} C-u 5 C-f").parse().unwrap();
     dispatcher.handle_keys(&mut editor, keys.0);
     let before = format!("before\n{}", text_grid(&editor));
     editor.set_preedit(Some(Preedit::new("。".into(), None)));

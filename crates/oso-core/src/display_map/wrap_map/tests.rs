@@ -36,12 +36,12 @@ fn shape(wrap: &WrapSnapshot, display: &DisplaySnapshot) -> Vec<(usize, usize, b
 
 #[test]
 fn a_paragraph_wraps_at_the_width_less_the_marks_column() {
-    let text = "one two three four\nshort\n";
+    let text = "one two three four five\nshort\n";
     let display = display(text);
-    let wrap = WrapSnapshot::new(&display, 9);
+    let wrap = WrapSnapshot::new(&display, 11);
     assert_eq!(
         rows(&wrap, &display, text),
-        ["one two |", "three |", "four\n", "short\n", ""]
+        ["one two |", "three four |", "five\n", "short\n", ""]
     );
     assert!(wrap.wraps());
 }
@@ -88,19 +88,19 @@ fn a_long_line_spans_many_items() {
 
 #[test]
 fn a_tab_across_the_edge_goes_to_the_next_row_with_its_width() {
-    let text = "abcdefg\thi";
+    let text = "abcdefghi\thi";
     let display = display(text);
-    let wrap = WrapSnapshot::new(&display, 8);
-    assert_eq!(rows(&wrap, &display, text), ["abcdefg|", "\thi"]);
-    // It keeps the one cell it has at column 7 of its line.
+    let wrap = WrapSnapshot::new(&display, 10);
+    assert_eq!(rows(&wrap, &display, text), ["abcdefghi|", "\thi"]);
+    // It keeps the cells it has at column 9 of its line.
     let row = wrap.row(&display, 1);
-    assert_eq!(row.column, 7);
+    assert_eq!(row.column, 9);
 }
 
 #[test]
 fn debug_prints_no_offsets() {
-    let display = display("one two three four");
-    let wrap = WrapSnapshot::new(&display, 9);
+    let display = display("one two three four five");
+    let wrap = WrapSnapshot::new(&display, 11);
     assert_eq!(format!("{wrap:?}"), "WrapSnapshot { rows: 3, .. }");
     assert_eq!(
         format!("{:?}", wrap.row(&display, 1)),

@@ -132,13 +132,23 @@ impl Screen {
         row.column.saturating_add(self.left)
     }
 
+    /// Whether `row` draws the mark: it continues, and it fits in the wrap's width and the
+    /// mark's column, which a space may hang in. A row wider than that, as one wrapped at a
+    /// width the window has since left, or the part of a line before where rows were wrapped
+    /// from, draws to the window's edge with no mark, as a row that does not wrap (ADR 0104).
+    fn marked(&self, row: &ScreenRow) -> bool {
+        row.continues
+            && self.width < self.columns
+            && row.end_column.saturating_sub(row.column) <= self.width.saturating_add(1)
+    }
+
     /// The columns of its line `row` draws the clusters that start in: to the next row's
-    /// start, and no further than the wrap's width on a row that continues, whose mark takes
-    /// the column after, or than the window's edge on one that does not.
+    /// start, and no further than the wrap's width on a row with the mark, which takes the
+    /// column after, or than the window's edge on one without.
     pub fn drawn(&self, row: &ScreenRow) -> Range<usize> {
         let start = self.origin(row);
-        let cells = if row.continues {
-            self.width.min(self.columns)
+        let cells = if self.marked(row) {
+            self.width
         } else {
             self.columns
         };
@@ -146,10 +156,10 @@ impl Screen {
     }
 
     /// The column of `row`'s line where its clusters stop: the next row's start, and no further
-    /// than the wrap's width on a row that continues, whose mark takes the column after. Past
-    /// the window's edge on a line's last row, whose columns the caller cuts.
+    /// than the wrap's width on a row with the mark, which takes the column after. Past the
+    /// window's edge on a row without, whose columns the caller cuts.
     pub fn text_end(&self, row: &ScreenRow) -> usize {
-        if row.continues {
+        if self.marked(row) {
             self.drawn(row).end
         } else {
             row.end_column
@@ -166,7 +176,7 @@ impl Screen {
 
     /// The text area's column of `row`'s mark, if it draws one.
     pub fn mark(&self, row: &ScreenRow) -> Option<usize> {
-        (row.continues && self.width < self.columns).then_some(self.width)
+        self.marked(row).then_some(self.width)
     }
 
     /// The index of the row that shows `point`, in the columns of [`ScreenRow::column`], if
