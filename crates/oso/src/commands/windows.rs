@@ -165,7 +165,7 @@ fn delete_window(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
 
 fn delete_other_windows(ctx: &mut Ctx<'_>, _: Args) -> Result<(), CommandError> {
     not_in_prompt(ctx)?;
-    if ctx.editor.splits().iter().nth(1).is_some() {
+    if ctx.editor.frame().windows().len() > 1 {
         ctx.editor.delete_other_windows();
         ctx.request_redraw();
     }

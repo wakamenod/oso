@@ -76,19 +76,17 @@ fn flashing_grid(editor: &Editor, flashing: bool) -> String {
     let mut lines = Vec::new();
     let mut screen = Screen::default();
     for (id, window) in regions.windows() {
-        let outer = window.outer();
+        let (text, divider) = (window.text, window.divider.map_or(0, |d| d.columns));
+        let rows = text.rows + window.modeline.rows;
+        let columns = window.gutter.columns + text.columns + divider;
         if several {
             let selected = if *id == tiled { ", selected" } else { "" };
             lines.push(format!(
-                "window {} at row {}, column {}: {} x {}{selected}",
-                id.get(),
-                outer.row,
-                outer.column,
-                outer.rows,
-                outer.columns
+                "{id:?} at row {}, column {}: {rows} x {columns}{selected}",
+                text.row, window.gutter.column
             ));
         }
-        if outer.rows == 0 || outer.columns == 0 {
+        if rows == 0 || columns == 0 {
             continue;
         }
         editor.status_into(*id, &mut status);

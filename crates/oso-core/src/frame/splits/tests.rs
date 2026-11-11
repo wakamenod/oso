@@ -32,7 +32,7 @@ fn outer(frame: &FrameLayout, window: WindowId) -> CellRect {
     frame
         .regions(window)
         .map(WindowRegions::outer)
-        .unwrap_or_default()
+        .unwrap_or(CellRect::EMPTY)
 }
 
 /// `A` split `way` into `A` and `B` in a frame of 41 rows (40 tiled) by 81 columns.
@@ -93,6 +93,36 @@ fn a_split_leaves_each_half_two_rows_and_ten_columns_of_text() {
     let frame = layout(size(30, 28), &splits, A, |_| 4);
     assert_eq!(splits.split(A, Way::Across, B, &frame), Err(TooSmall));
     let frame = layout(size(30, 29), &splits, A, |_| 4);
+    assert_eq!(splits.split(A, Way::Across, B, &frame), Ok(()));
+}
+
+#[test]
+fn a_split_leaves_each_half_room_across_the_split_too() {
+    // Stacked halves of 9 columns of text, or with a gutter of 4 and 13 columns.
+    for (rows, columns, gutter) in [(41, 9, 0), (41, 13, 4), (0, 31, 0)] {
+        let mut splits = Splits::new(A);
+        let frame = layout(size(rows, columns), &splits, A, |_| gutter);
+        assert_eq!(
+            splits.split(A, Way::Down, B, &frame),
+            Err(TooSmall),
+            "{rows} by {columns}"
+        );
+    }
+    let mut splits = Splits::new(A);
+    let frame = lay(&splits, 41, 10);
+    assert_eq!(splits.split(A, Way::Down, B, &frame), Ok(()));
+    // Side by side halves of 1 row of text, or none.
+    for rows in [0, 1, 3] {
+        let mut splits = Splits::new(A);
+        let frame = lay(&splits, rows, 31);
+        assert_eq!(
+            splits.split(A, Way::Across, B, &frame),
+            Err(TooSmall),
+            "{rows} rows"
+        );
+    }
+    let mut splits = Splits::new(A);
+    let frame = lay(&splits, 4, 31);
     assert_eq!(splits.split(A, Way::Across, B, &frame), Ok(()));
 }
 
@@ -246,8 +276,41 @@ fn a_frame_too_small_for_every_window_drops_the_last_but_never_the_kept() {
     assert_eq!([A, B, C].map(|w| outer(&one, w).rows), [0, 1, 0]);
     assert_eq!(one.regions(B).unwrap().modeline.rows, 0);
     // And they come back.
-    assert_eq!(lay(&splits, 41, 81), lay(&splits, 41, 81));
     assert_eq!(outer(&lay(&splits, 41, 81), C).rows, 10);
+}
+
+#[test]
+fn a_run_too_small_for_its_windows_still_gives_its_cells_to_one() {
+    // A over D over (B | C), in one column: B takes the cells of B and C.
+    let mut splits = Splits::new(A);
+    let frame = lay(&splits, 41, 81);
+    splits.split(A, Way::Down, D, &frame).unwrap();
+    let frame = lay(&splits, 41, 81);
+    splits.split(D, Way::Down, B, &frame).unwrap();
+    let frame = lay(&splits, 41, 81);
+    splits.split(B, Way::Across, C, &frame).unwrap();
+    let thin = lay(&splits, 7, 1);
+    assert_eq!(outer(&thin, B), rect(4, 0, 2, 1));
+    assert_eq!(outer(&thin, C).columns, 0);
+    for row in 0..6 {
+        assert!(thin.hit(row, 0).is_some(), "row {row} is a window's");
+    }
+}
+
+#[test]
+fn a_window_whose_right_neighbour_has_no_room_has_no_divider() {
+    // A | B | C at 23 columns: room for A and B, each with a column of text and a divider,
+    // but not C; B is the right-most shown and draws none.
+    let mut splits = Splits::new(A);
+    let frame = lay(&splits, 41, 81);
+    splits.split(A, Way::Across, B, &frame).unwrap();
+    let frame = lay(&splits, 41, 81);
+    splits.split(B, Way::Across, C, &frame).unwrap();
+    let narrow = lay(&splits, 41, 4);
+    assert_eq!(outer(&narrow, C).columns, 0);
+    assert!(narrow.regions(A).unwrap().divider.is_some());
+    assert_eq!(narrow.regions(B).unwrap().divider, None);
+    assert_eq!(outer(&narrow, A).columns + outer(&narrow, B).columns, 4);
 }
 
 #[test]
@@ -313,21 +376,23 @@ fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         (0usize..8, any::<bool>()).prop_map(|(w, across)| Op::Split(w, across)),
         (0usize..8).prop_map(Op::Remove),
-        (0usize..8, any::<bool>(), -30isize..30).prop_map(|(w, a, c)| Op::Resize(w, a, c)),
+        (0usize..8, any::<bool>(), -300isize..300).prop_map(|(w, a, c)| Op::Resize(w, a, c)),
         Just(Op::Balance),
-        (0usize..80, 0usize..200).prop_map(|(r, c)| Op::Frame(r, c)),
+        (0usize..40, 0usize..100).prop_map(|(r, c)| Op::Frame(r, c)),
     ]
 }
 
 proptest! {
-    /// Whatever is done, the windows' cells add up to the tiled area, never overlap, show
-    /// each window of the tree once in its order, and give each its least while the frame
-    /// holds every window so.
+    /// Whatever is done, every cell of the tiled area is one window's and no two windows
+    /// overlap; the layout shows each window of the tree once in its order, keeps the kept
+    /// one shown, gives each shown window a column and a row of text, and a row and a
+    /// modeline while all fit. `hit` and `neighbour` agree with the cells, a frame resized
+    /// and back lays out the same, and a removal shrinks none of the windows left.
     #[test]
     fn prop_the_layout_tiles_the_frame(ops in prop::collection::vec(op(), 0..40), gutter in 0usize..6) {
         let mut splits = Splits::new(A);
         let mut next = 1;
-        let (mut rows, mut columns) = (41, 120);
+        let (mut rows, mut columns) = (31, 90);
         for op in ops {
             let windows: Vec<WindowId> = splits.iter().collect();
             let frame = layout(size(rows, columns), &splits, windows[0], |_| gutter);
@@ -342,11 +407,25 @@ proptest! {
                 Op::Remove(w) => {
                     let removed = splits.remove(pick(w), &frame);
                     prop_assert_eq!(removed, windows.len() > 1);
+                    let after = layout(size(rows, columns), &splits, windows[0], |_| gutter);
+                    let all_shown = frame.windows().iter().all(|(_, r)| shown(r.outer()));
+                    if removed && all_shown && pick(w) != windows[0] {
+                        for (id, regions) in after.windows() {
+                            let (old, new) = (outer(&frame, *id), regions.outer());
+                            // A run that takes the cells grows its windows in proportion,
+                            // so they may move, but none gets smaller.
+                            prop_assert!(
+                                new.rows >= old.rows && new.columns >= old.columns,
+                                "{:?} shrank from {:?} to {:?}", id, old, new
+                            );
+                        }
+                    }
                 }
                 Op::Resize(w, across, cells) => {
                     let way = if across { Way::Across } else { Way::Down };
                     let moved = splits.resize(pick(w), way, cells, &frame);
                     prop_assert!(moved.unsigned_abs() <= cells.unsigned_abs());
+                    prop_assert!(moved == 0 || moved.signum() == cells.signum());
                 }
                 Op::Balance => splits.balance(),
                 Op::Frame(r, c) => (rows, columns) = (r, c),
@@ -356,37 +435,64 @@ proptest! {
             let frame = layout(size(rows, columns), &splits, keep, |_| gutter);
             let laid: Vec<WindowId> = frame.windows().iter().map(|(id, _)| *id).collect();
             prop_assert_eq!(&laid, &windows);
+            let resized = layout(size(rows / 2 + 3, columns * 2 + 1), &splits, keep, |_| gutter);
+            prop_assert!(resized.windows().len() == frame.windows().len());
+            prop_assert_eq!(&layout(size(rows, columns), &splits, keep, |_| gutter), &frame);
             let tiled = frame.echo.row;
-            let mut covered = 0;
-            for (i, (id, regions)) in frame.windows().iter().enumerate() {
+            // Each cell of the tiled area is in exactly one window, as `hit` says.
+            for row in 0..tiled {
+                for column in 0..columns {
+                    let owners: Vec<WindowId> = frame
+                        .windows()
+                        .iter()
+                        .filter(|(_, r)| r.outer().contains(row, column))
+                        .map(|(id, _)| *id)
+                        .collect();
+                    prop_assert_eq!(owners.len(), 1, "cell {},{}", row, column);
+                    prop_assert_eq!(frame.hit(row, column).map(|h| h.window), Some(owners[0]));
+                }
+            }
+            prop_assert_eq!(frame.hit(tiled, 0), None);
+            let multiple = frame.windows().iter().filter(|(_, r)| shown(r.outer())).count() > 1;
+            for (id, regions) in frame.windows() {
                 let o = regions.outer();
-                covered += o.rows * o.columns;
-                prop_assert!(o.row + o.rows <= tiled && o.column + o.columns <= columns);
-                if *id == keep && tiled > 0 && columns > 0 {
-                    prop_assert!(o.rows > 0 && o.columns > 0, "the kept window shows");
-                }
-                for (_, other) in &frame.windows()[i + 1..] {
-                    let p = other.outer();
-                    let apart = o.row + o.rows <= p.row || p.row + p.rows <= o.row
-                        || o.column + o.columns <= p.column || p.column + p.columns <= o.column;
-                    prop_assert!(apart || o.rows * o.columns == 0 || p.rows * p.columns == 0);
-                }
                 prop_assert_eq!(regions.gutter.columns + regions.text.columns
                     + regions.divider.map_or(0, |d| d.columns), o.columns);
-            }
-            let all_shown = frame.windows().iter().all(|(_, r)| {
-                let o = r.outer();
-                o.rows > 0 && o.columns > 0
-            });
-            // A frame of one tiled row has no room for a modeline under any window.
-            if all_shown && tiled >= 2 {
-                prop_assert_eq!(covered, tiled * columns, "the windows fill the tiled area");
-                for (_, regions) in frame.windows() {
-                    if frame.windows().len() > 1 {
-                        prop_assert!(regions.text.rows >= 1 && regions.modeline.rows == 1);
+                if *id == keep && tiled > 0 && columns > 0 {
+                    prop_assert!(shown(o), "the kept window shows");
+                }
+                if !shown(o) {
+                    continue;
+                }
+                prop_assert!(regions.text.columns >= 1 && regions.text.rows >= 1);
+                if let Some(divider) = regions.divider {
+                    prop_assert!(divider.column + 1 < columns, "a divider has a window to its right");
+                }
+                if multiple && tiled >= 2 {
+                    prop_assert_eq!(regions.modeline.rows, 1);
+                }
+                // The window past each edge, as `hit` finds it, is the neighbour there.
+                for side in [Side::Left, Side::Right, Side::Up, Side::Down] {
+                    let cells: Vec<usize> = match side {
+                        Side::Left | Side::Right => (o.row..o.row + o.rows).collect(),
+                        Side::Up | Side::Down => (o.column..o.column + o.columns).collect(),
+                    };
+                    for cell in cells {
+                        let past = match side {
+                            Side::Left => o.column.checked_sub(1).map(|c| (cell, c)),
+                            Side::Right => Some((cell, o.column + o.columns)),
+                            Side::Up => o.row.checked_sub(1).map(|r| (r, cell)),
+                            Side::Down => Some((o.row + o.rows, cell)),
+                        };
+                        let there = past.and_then(|(r, c)| frame.hit(r, c)).map(|h| h.window);
+                        prop_assert_eq!(frame.neighbour(*id, side, cell), there);
                     }
                 }
             }
         }
     }
+}
+
+fn shown(cells: CellRect) -> bool {
+    cells.rows > 0 && cells.columns > 0
 }

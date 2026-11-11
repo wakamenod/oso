@@ -27,7 +27,7 @@ fn ok(editor: &mut Editor, name: &str, args: Args) {
 }
 
 fn ids(editor: &Editor) -> Vec<WindowId> {
-    editor.splits().iter().collect()
+    editor.frame().windows().iter().map(|(id, _)| *id).collect()
 }
 
 fn selected(editor: &Editor) -> WindowId {

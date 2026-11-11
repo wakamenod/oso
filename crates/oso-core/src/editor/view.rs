@@ -118,9 +118,9 @@ impl Editor {
     /// The regions of the selected tiled window, or of the one beneath the prompts: none
     /// while it has no room in the frame.
     pub fn tiled_regions(&self) -> WindowRegions {
-        self.regions(self.tiled().0.id())
-            .copied()
-            .unwrap_or_default()
+        let regions = self.regions(self.tiled().0.id());
+        debug_assert!(regions.is_some(), "the tiled window is in the layout");
+        regions.copied().unwrap_or(WindowRegions::EMPTY)
     }
 
     /// Where the selected window's primary cursor is on the surface, in physical

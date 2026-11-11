@@ -24,7 +24,7 @@ fn editor(text: &str, (rows, columns): (usize, usize)) -> Editor {
 }
 
 fn ids(editor: &Editor) -> Vec<WindowId> {
-    editor.splits().iter().collect()
+    editor.splits.iter().collect()
 }
 
 fn selected(editor: &Editor) -> WindowId {
@@ -396,7 +396,7 @@ fn a_buffer_a_window_never_showed_starts_where_the_window_selected_last_left_it(
     editor.select_window(other);
     editor.show(file);
     assert_eq!(editor.window().selections.primary().cursor, row * 60);
-    let first = editor.splits().iter().next().unwrap();
+    let first = editor.splits.iter().next().unwrap();
     let start = editor.window_by_id(first).unwrap().scroll().start;
     assert_eq!(editor.window().scroll().start, start);
 }
