@@ -54,6 +54,15 @@ pub(super) fn others_can_write(_: &fs::Metadata) -> super::Writers {
     super::Writers::Nobody
 }
 
+/// There are no modes to go by: only the file is looked at, through links.
+pub(super) fn who_can_change(path: &Path) -> io::Result<super::WhoCanChange> {
+    Ok(super::WhoCanChange {
+        file: super::Writers::Nobody,
+        way: super::Writers::Nobody,
+        metadata: fs::metadata(path)?,
+    })
+}
+
 /// Makes sure the directory at `path` is a real directory, creating it if missing.
 pub(super) fn open_private(path: &Path) -> io::Result<()> {
     check_private(path)?;

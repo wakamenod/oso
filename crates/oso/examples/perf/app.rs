@@ -43,7 +43,13 @@ impl App {
     pub fn start(exe: &Path, file: Option<&Path>) -> Result<Self, String> {
         let config_home = config_home()?;
         let mut command = process::command(exe);
-        command.env("XDG_CONFIG_HOME", &config_home);
+        // Where `oso_platform::privacy::config_home` looks.
+        let variable = if cfg!(windows) {
+            "APPDATA"
+        } else {
+            "XDG_CONFIG_HOME"
+        };
+        command.env(variable, &config_home);
         if let Some(file) = file {
             command.arg("--").arg(file);
         }
@@ -198,11 +204,28 @@ fn config_home() -> Result<PathBuf, String> {
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&directory)
         .map_err(|e| format!("cannot make {}: {e}", directory.display()))?;
+    // Modes that oso reads whatever the umask: only this user may change the way to the file.
+    set_mode(&home, 0o700)?;
+    set_mode(&directory, 0o700)?;
     if let Some(config) = std::env::var_os("OSO_PERF_CONFIG") {
-        std::fs::copy(&config, directory.join("config.toml"))
-            .map_err(|e| format!("cannot copy OSO_PERF_CONFIG: {e}"))?;
+        let file = directory.join("config.toml");
+        std::fs::copy(&config, &file).map_err(|e| format!("cannot copy OSO_PERF_CONFIG: {e}"))?;
+        set_mode(&file, 0o644)?;
     }
     Ok(home)
+}
+
+/// Gives `path` `mode`, on systems with modes.
+fn set_mode(path: &Path, mode: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .map_err(|e| format!("cannot set the mode of {}: {e}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+    Ok(())
 }
 
 fn connect(child: &mut Child) -> Result<ControlStream, String> {

@@ -219,12 +219,19 @@ impl core::clone::Clone for oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::clone(&self) -> oso_platform::privacy::PrivateDir
 impl core::fmt::Debug for oso_platform::privacy::PrivateDir
 pub fn oso_platform::privacy::PrivateDir::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct oso_platform::privacy::WhoCanChange
+pub oso_platform::privacy::WhoCanChange::file: oso_platform::privacy::Writers
+pub oso_platform::privacy::WhoCanChange::metadata: std::fs::Metadata
+pub oso_platform::privacy::WhoCanChange::way: oso_platform::privacy::Writers
+impl core::fmt::Debug for oso_platform::privacy::WhoCanChange
+pub fn oso_platform::privacy::WhoCanChange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn oso_platform::privacy::config_home() -> core::option::Option<std::path::PathBuf>
 pub fn oso_platform::privacy::disable_core_dumps() -> std::io::error::Result<()>
 pub fn oso_platform::privacy::has_one_name(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::is_this_users(&std::fs::Metadata) -> bool
 pub fn oso_platform::privacy::others_can_write(&std::fs::Metadata) -> oso_platform::privacy::Writers
 pub fn oso_platform::privacy::state_home() -> core::option::Option<std::path::PathBuf>
+pub fn oso_platform::privacy::who_can_change(&std::path::Path) -> std::io::error::Result<oso_platform::privacy::WhoCanChange>
 pub mod oso_platform::process
 pub enum oso_platform::process::Sink
 pub oso_platform::process::Sink::Inherit

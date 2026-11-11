@@ -11,6 +11,7 @@
 //! it refused again, as a directory's mode may have changed without the file's.
 
 use std::fs;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Read};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
@@ -45,7 +46,7 @@ pub enum Report {
 }
 
 /// What the file was when last looked at, to tell when to read it again.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Seen {
     Missing,
     Stamp(FileStamp),
@@ -74,10 +75,14 @@ struct State {
     stopped: bool,
 }
 
-/// What the thread last found, to tell when to read the file again.
-struct Last {
-    seen: Seen,
-    refused: bool,
+/// What the thread last said, to say it only when it changes: a refusal again only for a new
+/// reason or a changed file, and a file read again only for new text, so that a look asked for
+/// on every focus and save says nothing new.
+#[derive(PartialEq, Eq)]
+enum Said {
+    Missing,
+    Refused(String, Seen),
+    Read(u64),
 }
 
 impl Shared {
@@ -138,34 +143,48 @@ impl Drop for Reader {
     }
 }
 
-/// The thread: reads `file` at once, and again whenever it is found changed.
+/// The thread: reads `file` at once, and again whenever it is found changed. A panic anywhere
+/// on it, as the loader and the saver catch theirs, is said, and ends it.
 fn run(file: &Path, shared: &Shared) {
+    if catch_unwind(AssertUnwindSafe(|| watch(file, shared))).is_err() {
+        let refused = Report::Refused("reading it failed".to_owned());
+        let _ = catch_unwind(AssertUnwindSafe(|| deliver(shared, refused)));
+    }
+}
+
+/// Reads `file` whenever it is found changed, or a look is asked for, and says what is new.
+fn watch(file: &Path, shared: &Shared) {
     let registry = commands::registry();
     let defaults = bindings::global_keymap(&registry);
     let themes: Vec<&str> = oso_render::theme::themes()
         .iter()
         .map(|theme| theme.name())
         .collect();
-    let mut last: Option<Last> = None;
+    let mut seen: Option<Seen> = None;
+    let mut said: Option<Said> = None;
     let mut poked = false;
     loop {
         let now = look(file);
-        let retry = poked && last.as_ref().is_some_and(|last| last.refused);
-        if retry || last.as_ref().is_none_or(|last| last.seen != now) {
-            let report = match &now {
-                Seen::Missing => Report::Missing,
+        let refused = matches!(said, Some(Said::Refused(..)));
+        if (poked && refused) || seen.as_ref() != Some(&now) {
+            let (report, saying) = match &now {
+                Seen::Missing => (Report::Missing, Said::Missing),
                 Seen::Stamp(_) | Seen::Unknown(_) => {
-                    // The loader and the saver catch their own panics too: one here would
-                    // leave the file unread from then on, with nothing said.
-                    catch_unwind(AssertUnwindSafe(|| {
-                        read_and_parse(file, &registry, &defaults, &themes)
-                    }))
-                    .unwrap_or_else(|_| Report::Refused("reading it failed".to_owned()))
+                    match read_and_parse(file, &registry, &defaults, &themes) {
+                        (Report::Refused(why), _) => (
+                            Report::Refused(why.clone()),
+                            Said::Refused(why, now.clone()),
+                        ),
+                        (Report::Missing, _) => (Report::Missing, Said::Missing),
+                        (report, text) => (report, Said::Read(text)),
+                    }
                 }
             };
-            let refused = matches!(report, Report::Refused(_));
-            last = Some(Last { seen: now, refused });
-            deliver(shared, report);
+            seen = Some(now);
+            if said.as_ref() != Some(&saying) {
+                said = Some(saying);
+                deliver(shared, report);
+            }
         }
         let mut state = shared.lock();
         if !state.poked && !state.stopped {
@@ -182,21 +201,45 @@ fn run(file: &Path, shared: &Shared) {
     }
 }
 
-/// Reads `file` and parses it.
+/// Reads `file` and parses it, with a hash of what was read, to tell new text from old.
 fn read_and_parse(
     file: &Path,
     registry: &oso_core::command::Registry,
     defaults: &oso_core::keymap::Keymap,
     themes: &[&str],
-) -> Report {
-    match read(file) {
-        Ok((text, group_writes)) => Report::Read {
-            loaded: parse(&text, registry, defaults, themes),
-            group_writes,
-        },
-        Err(Unread::Missing) => Report::Missing,
-        Err(Unread::Refused(why)) => Report::Refused(why),
-    }
+) -> (Report, u64) {
+    let read = catch_unwind(AssertUnwindSafe(|| match read(file) {
+        Ok((text, group_writes)) => {
+            let mut hash = DefaultHasher::new();
+            (&text, group_writes).hash(&mut hash);
+            let mut loaded = parse(&text, registry, defaults, themes);
+            if may_hold_secrets(file) {
+                for problem in &mut loaded.problems {
+                    problem.message = WITHHELD.to_owned();
+                }
+            }
+            let report = Report::Read {
+                loaded,
+                group_writes,
+            };
+            (report, hash.finish())
+        }
+        Err(Unread::Missing) => (Report::Missing, 0),
+        Err(Unread::Refused(why)) => (Report::Refused(why), 0),
+    }));
+    read.unwrap_or_else(|_| (Report::Refused("reading it failed".to_owned()), 0))
+}
+
+/// What a problem says in a file whose name, or where it leads, says it may hold secrets
+/// (ADR 0044): its line and column, and none of its text.
+const WITHHELD: &str = "a problem here, not quoted, as the file may hold secrets";
+
+/// Whether `file`'s name, or where it leads, says it may hold secrets, as a buffer of it would
+/// be judged.
+fn may_hold_secrets(file: &Path) -> bool {
+    let mut probe = oso_core::buffer::Buffer::visiting(file.to_path_buf());
+    crate::loader::resolve(file).judge(&mut probe);
+    probe.verdict().is_withheld()
 }
 
 /// Hands `report` to the app, and wakes it.
@@ -233,69 +276,53 @@ enum Unread {
     Refused(String),
 }
 
-/// The text of `file`, through links, if it passes the checks: a regular file that only this
-/// user or root can change, in a directory that only they can, of at most [`MAX_BYTES`] of
-/// UTF-8 (ADR 0108). With whether its group, or its directory's, may change it.
+/// The text of `file`, through links, if it passes the checks (ADR 0108, ADR 0110): a regular
+/// file of at most [`MAX_BYTES`] of UTF-8 that only this user or root can change, nor anything
+/// on the way to it, through every link. The way is judged before the file is opened, and the
+/// file opened must be the one judged. With whether the users of a group can change it or the
+/// way.
 fn read(file: &Path) -> Result<(String, bool), Unread> {
     let refused = |why: &str| Err(Unread::Refused(why.to_owned()));
-    let (mut opened, metadata) = match open_for_reading(file) {
-        Ok(Some(opened)) => opened,
-        Ok(None) => return refused("it is not a regular file"),
+    let who = match privacy::who_can_change(file) {
+        Ok(who) => who,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(Unread::Missing),
+        Err(_) => return refused("the way to it cannot be looked at"),
+    };
+    if who.file == Writers::Anyone {
+        return refused("other users can change it");
+    }
+    if who.way == Writers::Anyone {
+        return refused("other users can change a directory or link on the way to it");
+    }
+    if !who.metadata.is_file() {
+        return refused("it is not a regular file");
+    }
+    let too_large = || {
+        Err(Unread::Refused(format!(
+            "it is larger than {} KiB",
+            MAX_BYTES / 1024
+        )))
+    };
+    if who.metadata.len() > MAX_BYTES {
+        return too_large();
+    }
+    let mut opened = match open_for_reading(file) {
+        Ok(Some((opened, metadata))) if same_file(&metadata, &who.metadata) => opened,
+        Ok(_) => return refused("it changed as it was read"),
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Err(Unread::Missing),
         Err(e) => return Err(Unread::Refused(format!("it cannot be opened: {e}"))),
     };
-    let group_writes = match writers(file, &metadata)? {
-        Writers::Nobody => false,
-        Writers::Group => true,
-        Writers::Anyone => return refused("other users can change it"),
-    };
-    if metadata.len() > MAX_BYTES {
-        return Err(Unread::Refused(format!(
-            "it is larger than {} KiB",
-            MAX_BYTES / 1024
-        )));
-    }
     let mut bytes = Vec::new();
     if let Err(e) = (&mut opened).take(MAX_BYTES + 1).read_to_end(&mut bytes) {
         return Err(Unread::Refused(format!("it cannot be read: {e}")));
     }
     if bytes.len() as u64 > MAX_BYTES {
-        return Err(Unread::Refused(format!(
-            "it is larger than {} KiB",
-            MAX_BYTES / 1024
-        )));
+        return too_large();
     }
     let Ok(text) = String::from_utf8(bytes) else {
         return refused("it is not UTF-8 text");
     };
-    Ok((text, group_writes))
-}
-
-/// Who besides this user and root can change the file opened from `file`, whose `metadata` that
-/// is, or the directory it is named in, or the one it really is in, through links: a link must
-/// not take the file out of a directory other users can change. The file the path leads to is
-/// checked to be the one opened, so the directory judged is the one that holds it.
-fn writers(file: &Path, metadata: &fs::Metadata) -> Result<Writers, Unread> {
-    let refused = |why: &str| Err(Unread::Refused(why.to_owned()));
-    let Ok(resolved) = fs::canonicalize(file) else {
-        return refused("its directory cannot be looked at");
-    };
-    match fs::metadata(&resolved) {
-        Ok(now) if same_file(&now, metadata) => {}
-        _ => return refused("it changed as it was read"),
-    }
-    let mut worst = privacy::others_can_write(metadata);
-    for directory in [file.parent(), resolved.parent()] {
-        let Some(Ok(directory)) = directory.map(fs::metadata) else {
-            return refused("its directory cannot be looked at");
-        };
-        match privacy::others_can_write(&directory) {
-            Writers::Anyone => return refused("other users can change the directory it is in"),
-            Writers::Group => worst = worst.max(Writers::Group),
-            Writers::Nobody => {}
-        }
-    }
-    Ok(worst)
+    Ok((text, who.file.max(who.way) == Writers::Group))
 }
 
 #[cfg(test)]

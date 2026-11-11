@@ -12,10 +12,32 @@ use serde_json::{Value, json};
 use super::cursor;
 use super::harness::{App, Scratch};
 
+/// Gives `path` `mode`, whatever the umask, so that the file is read as the person's own.
+fn set_mode(path: &Path, mode: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            .expect("the scratch directory is ours");
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+}
+
+/// A scratch directory only this user can change, holding a configuration file with `text`.
+fn with_config(test: &str, text: &[u8]) -> (Scratch, std::path::PathBuf) {
+    let scratch = Scratch::new(test);
+    set_mode(scratch.path(), 0o700);
+    let config = scratch.write("config.toml", text);
+    set_mode(&config, 0o644);
+    (scratch, config)
+}
+
 /// Replaces `path` with `text` as most editors do: a new file renamed over it.
 fn replace(path: &Path, text: &str) {
     let new = path.with_extension("new");
     fs::write(&new, text).expect("the scratch directory is writable");
+    set_mode(&new, 0o644);
     fs::rename(&new, path).expect("the scratch directory is writable");
 }
 
@@ -30,12 +52,11 @@ fn messages(app: &mut App) -> Vec<Value> {
 #[test]
 #[ignore = "opens windows; run with `just e2e`"]
 fn the_files_keys_apply_its_problems_are_said_and_a_change_applies_at_once() {
-    let scratch = Scratch::new("config-keys");
-    let file = scratch.write("notes.txt", b"one\ntwo\nthree\n");
-    let config = scratch.write(
-        "config.toml",
+    let (scratch, config) = with_config(
+        "config-keys",
         b"[keys.global]\n\"C-c e\" = \"end-of-buffer\"\n\"C-c x\" = \"no-such-command\"\n",
     );
+    let file = scratch.write("notes.txt", b"one\ntwo\nthree\n");
     let mut app = App::start_with_config(Some(&file), scratch.path(), &config);
     app.wait_until_ready();
     let state = app.wait_for("the problem, said", |state| {
@@ -76,9 +97,8 @@ fn the_files_keys_apply_its_problems_are_said_and_a_change_applies_at_once() {
 #[ignore = "opens windows; run with `just e2e`"]
 fn a_file_other_users_can_change_is_not_read() {
     use std::os::unix::fs::PermissionsExt;
-    let scratch = Scratch::new("config-refused");
-    let config = scratch.write(
-        "config.toml",
+    let (scratch, config) = with_config(
+        "config-refused",
         b"[keys.global]\n\"C-c e\" = \"end-of-buffer\"\n",
     );
     fs::set_permissions(&config, fs::Permissions::from_mode(0o646))

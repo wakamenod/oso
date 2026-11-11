@@ -47,7 +47,8 @@ pub fn outcome(report: Report, name: &str, troubled: bool) -> Outcome {
             let mut notes = Vec::new();
             if group_writes {
                 notes.push(format!(
-                    "{name}: the users of its group, or of its directory's, can change it"
+                    "{name}: other users in a group can change it, or the way to it (on macOS, \
+                     a group such as staff can hold every account)"
                 ));
             }
             notes.extend(
@@ -131,7 +132,8 @@ mod tests {
         assert_eq!(
             said.notes,
             [
-                "config.toml: the users of its group, or of its directory's, can change it",
+                "config.toml: other users in a group can change it, or the way to it (on macOS, a \
+                 group such as staff can hold every account)",
                 "config.toml:1:1: wrong",
                 "config.toml:2:1: wrong",
                 "config.toml: 3 more problems",

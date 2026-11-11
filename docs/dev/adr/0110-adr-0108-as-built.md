@@ -114,23 +114,31 @@ are on 2026-11-11, through the coordinator.
 - **The thread, `oso-config`, starts first thing in `main`,** as the theme's read does, with
   `config::STACK`, and is given the event loop's waker once there is one. A read done by the first
   frame is applied before it; a later one arrives as an event.
-- **The file is opened through links and judged by what was opened:** a regular file
-  (`file_meta::open_for_reading`) of at most 256 KiB of UTF-8, which neither it, the directory
-  it is named in nor the one it really is in leaves to `Anyone`. A link must not take the file
-  out of a directory other users can change. The path, resolved, must lead to the file opened,
-  so the directory judged is the one holding it. `Group` reads it with a warning, counted as a
-  problem. Any other failure leaves what was in force, and the echo area says why
-  ("Configuration not read: other users can change it"). A panic on the thread is caught and
-  said the same way, so the file is still watched.
+- **The way to the file is judged before it is opened, and the file opened must be the one
+  judged.** `privacy::who_can_change`, new in `oso-platform`, walks the path from the root as
+  the system does: every directory, as written and through every link, every link's owner, and
+  the file. Each entry is judged with the directory holding it; in a sticky directory every user
+  may write, an entry this user or root owns counts as no one else's. `Anyone` anywhere refuses
+  the file. Then it must be a regular file of at most 256 KiB, opened with
+  `file_meta::open_for_reading`, the same file by device and inode, of UTF-8. `Group` reads it
+  with a warning, counted as a problem; on macOS a group such as `staff` can hold every account,
+  and the warning says so. Any other failure leaves what was in force, and the echo area says
+  why ("Configuration not read: other users can change it"). A panic anywhere on the thread is
+  caught and said the same way.
 - **It is read again when its time, size, mode, device or inode changes,** or it comes or goes,
   as ADR 0083 compares files: looked at once a second, when oso gains the focus, and after any
   save oso makes, so that a save of the file applies at once without telling which file it was.
   A look asked for reads a refused file again whatever its stamp, as fixing its directory's mode
-  changes nothing in it. A file that goes leaves the defaults, with a log line. The thread wakes
+  changes nothing in it. What a look finds is said only when it changes: a refusal again only
+  for another reason or a changed file, and a file read again only for other text, so that a
+  focus or a save says nothing new. A file that goes leaves the defaults, with a log line. The thread wakes
   once a second for itself, beside the loader's watcher; the UI thread is woken only for news.
 - **Each problem is a line of `*Messages*`, `config.toml:3:11: …`, and the echo area says one
-  line** ("Configuration: 2 problems, see *Messages*", or "Configuration not loaded: …" for a
-  syntax error). `Editor::note`, new in `oso-core`, writes `*Messages*` and the log without the
+  line.** For a file whose name, or where it leads, matches the secret patterns
+  ([ADR 0044](0044-control-socket-trust-and-secret-buffers.md)), a problem gives its line and
+  column and none of its text.
+- **The echo line** is "Configuration: 2 problems, see *Messages*", or "Configuration not
+  loaded: …" for a syntax error. `Editor::note`, new in `oso-core`, writes `*Messages*` and the log without the
   echo area; from a command around a buffer that may hold secrets it goes nowhere. The first good
   load after a bad one says "Configuration loaded"; any other only logs. `config::outcome` decides
   all of it, so the app only carries it out. Writing 22 notes and the line into a full
@@ -143,14 +151,19 @@ are on 2026-11-11, through the coordinator.
   build, comes first after `--emergency-dir` and `--clipboard`,** as they do, and is made
   absolute. The end-to-end flows pass `--no-config`, or `--config` for the configuration's own.
   `just perf` gives each instance a configuration directory of its own through
-  `XDG_CONFIG_HOME`: empty, as for a person with no file, or holding the file `OSO_PERF_CONFIG`
+  `XDG_CONFIG_HOME` (`APPDATA` on Windows), mode 0700: empty, as for a person with no file, or holding the file `OSO_PERF_CONFIG`
   names. Not an option, so that `perf-remote`'s base, built from before, runs the same.
 - **The agent channel never saves into the person's configuration directory, nor the one
   holding the `--config` file:** `config_home()` counts under `--config` and `--no-config` too,
   as the person's next start reads it.
-- **A restart under `oso dev` passes no options,** so the new instance reads the person's file
-  even if the first was given `--config`. ADR 0108 says a new instance reads the file itself; the
-  supervisor is left as it is.
+- **A restart under `oso dev` passes `--no-config` on if the first instance had it, and no other
+  option,** so a new instance reads the person's file even if the first was given `--config`.
+  ADR 0108 says a new instance reads the file itself. `oso dev`'s instances get
+  `XDG_CONFIG_HOME` and `APPDATA` from its environment, so they read the file the person's
+  shell names.
+- **Where the file is comes from the environment oso was started with.** An oso started from
+  the Dock or Finder does not see an `XDG_CONFIG_HOME` that only a shell sets, so it reads, and
+  keeps the agent channel out of, `~/.config/oso`.
 - **The settings are parsed and not yet applied;** step 4 applies them.
 
 ## Changes to accepted ADRs

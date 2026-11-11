@@ -70,6 +70,32 @@ pub fn others_can_write(metadata: &std::fs::Metadata) -> Writers {
     backend::others_can_write(metadata)
 }
 
+/// Who besides this user and root can change a file, and who can change the way to it.
+#[derive(Debug)]
+pub struct WhoCanChange {
+    /// The file's own [`Writers`].
+    pub file: Writers,
+    /// The most of any directory or link on the way to it, through every link: whoever can
+    /// change one can put another file in its place.
+    pub way: Writers,
+    /// The file's metadata, through links, to tell that a file opened later is the one judged.
+    pub metadata: std::fs::Metadata,
+}
+
+/// Who besides this user and root can change the file at `path`, an absolute one, and the way
+/// to it (ADR 0108, ADR 0110): every directory it passes through, as written and through
+/// every link, and every link's owner, from the root down, as the system walks it. In a
+/// directory every user may write that keeps each entry to its owner (sticky), an entry this
+/// user or root owns counts as no one else's. By mode and owner, as [`others_can_write`] goes.
+/// Windows has no modes to go by, and says [`Writers::Nobody`] for all of it.
+///
+/// # Errors
+///
+/// If something on the way cannot be looked at, is missing, or links too many times.
+pub fn who_can_change(path: &Path) -> io::Result<WhoCanChange> {
+    backend::who_can_change(path)
+}
+
 /// Whether a file with `metadata` is this user's. Windows has no such simple answer, and
 /// relies on the per-user place the caller chose.
 pub fn is_this_users(metadata: &std::fs::Metadata) -> bool {
