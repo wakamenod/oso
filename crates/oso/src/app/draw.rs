@@ -77,7 +77,8 @@ pub(super) fn with_panes<R>(
     ];
     let echo = [&echo[..]];
     let mut room = std::mem::take(&mut cells.room);
-    let spans = tiled::spans_of(statuses, &cells.windows, &empty, &mut room);
+    let windows = editor.frame().windows();
+    let spans = tiled::spans_of(windows, statuses, &cells.windows, &empty, &mut room);
     let rows = tiled::rows_of(&spans.0, &spans.1, &mut room);
     let drawn = tiled::Drawn {
         cells: &cells.windows,
@@ -319,7 +320,7 @@ mod tests {
 
     /// The tiled window's gutter pane.
     fn gutter_id(editor: &Editor) -> PaneId {
-        PaneId(16 + 4 * u32::try_from(editor.tiled().0.id().get()).unwrap() + 1)
+        tiled::pane_id(editor.tiled().0.id(), tiled::Part::Gutter)
     }
 
     /// A pane's region, its background, and its one row as spans of text and face.
@@ -426,12 +427,13 @@ mod tests {
         let panes = split_panes(&editor);
         let [left, right] = [first, second].map(|id| *editor.regions(id).unwrap());
         let ids: Vec<_> = panes.iter().map(|pane| pane.0.0).collect();
-        // The texts, then the gutters, the modelines, the divider and the echo area.
-        assert_eq!(ids, [16, 20, 17, 21, 18, 22, 19, ECHO.0]);
-        assert_eq!(panes[0].1, left.text);
-        assert_eq!(panes[0].3, "Box", "the selected window");
-        assert_eq!(panes[1].1, right.text);
-        assert_eq!(panes[1].3, "Hollow", "the other");
+        // The texts, the selected one's last, then the gutters, the modelines, the divider and
+        // the echo area.
+        assert_eq!(ids, [20, 16, 17, 21, 18, 22, 19, ECHO.0]);
+        assert_eq!(panes[0].1, right.text);
+        assert_eq!(panes[0].3, "Hollow", "the other");
+        assert_eq!(panes[1].1, left.text);
+        assert_eq!(panes[1].3, "Box", "the selected window");
         assert_eq!(panes[4].2, Some(Face::Modeline));
         assert!(panes[4].3.starts_with("Agent  Prompt"), "{}", panes[4].3);
         assert_eq!(panes[5].2, Some(Face::ModelineInactive));
@@ -645,6 +647,8 @@ mod tests {
                         {
                             let region = pane.region;
                             assert!(region.row + region.rows <= text.row + text.rows, "{rows}");
+                            // Below the windows' ids, which start at 16.
+                            assert!(pane.id.0 < 16, "{:?}", pane.id);
                         }
                     },
                 );

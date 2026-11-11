@@ -608,7 +608,12 @@ pub(crate) mod tests {
                 (Face::Float, LABEL),
             ],
             Face::Boxed => &[(Face::Boxed, LABEL)],
-            Face::Prompt => &[(Face::Float, LABEL)],
+            // A prompt's label, and the dim `Agent` on a modeline (ADR 0085, ADR 0112).
+            Face::Prompt => &[
+                (Face::Float, LABEL),
+                (Face::Modeline, LABEL),
+                (Face::ModelineInactive, LABEL),
+            ],
             Face::Key => &[(Face::Key, LABEL)],
             Face::CompletionAnnotation | Face::CompletionBinding => {
                 &[(LIST[0], LABEL), (LIST[1], LABEL)]

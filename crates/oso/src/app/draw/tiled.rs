@@ -22,7 +22,7 @@ const PER_WINDOW: u32 = 4;
 
 /// Which of a window's panes.
 #[derive(Clone, Copy)]
-enum Part {
+pub(super) enum Part {
     Text = 0,
     Gutter = 1,
     Modeline = 2,
@@ -32,7 +32,7 @@ enum Part {
 /// The id of a window's pane, from the window's id, so that a window keeps its shaped rows
 /// when another is split or deleted (ADR 0112). Ids come round again only after a billion
 /// windows, far apart from any two shown together.
-fn pane_id(window: WindowId, part: Part) -> PaneId {
+pub(super) fn pane_id(window: WindowId, part: Part) -> PaneId {
     let slots = (u32::MAX - FIRST) / PER_WINDOW;
     let slot = u32::try_from(window.get() % u64::from(slots)).unwrap_or(0);
     PaneId(FIRST + slot * PER_WINDOW + part as u32)
@@ -153,19 +153,36 @@ pub(super) struct Room {
     fills: Vec<[(Face, &'static [CellRect]); 5]>,
 }
 
+/// The status of the window `id`, the `index`th in the tree, among `statuses`, by its id so
+/// that a window never takes another's modeline: `empty` if it has none.
+fn status_of<'a>(
+    statuses: &'a [(WindowId, Status)],
+    (index, id): (usize, WindowId),
+    empty: &'a Status,
+) -> &'a Status {
+    let found = statuses
+        .get(index)
+        .filter(|(other, _)| *other == id)
+        .or_else(|| statuses.iter().find(|(other, _)| *other == id));
+    found.map_or(empty, |(_, status)| status)
+}
+
 /// The spans of every window's modeline and gutter, and the fills behind its text, in
 /// `room`'s allocations. A window with no status has `empty`'s modeline.
 pub(super) fn spans_of<'a>(
+    windows: &[(WindowId, WindowRegions)],
     statuses: &'a [(WindowId, Status)],
     cells: &'a [WindowCells],
     empty: &'a Status,
     room: &mut Room,
 ) -> Spans<'a> {
     let mut modelines: Vec<[Span<'a>; 4]> = super::reuse(std::mem::take(&mut room.modelines));
-    modelines.extend((0..cells.len()).map(|index| {
-        let status = statuses.get(index).map_or(empty, |(_, status)| status);
-        modeline_spans(status)
-    }));
+    modelines.extend(
+        windows
+            .iter()
+            .enumerate()
+            .map(|(index, (id, _))| modeline_spans(status_of(statuses, (index, *id), empty))),
+    );
     let mut numbers: Vec<[Span<'a>; 1]> = super::reuse(std::mem::take(&mut room.numbers));
     for window in cells {
         numbers.extend(window.gutter.rows().map(|(text, current)| {
@@ -230,12 +247,15 @@ pub(super) struct Drawn<'a> {
     pub(super) flash: Option<f32>,
 }
 
-/// Pushes every tiled window's panes onto `list`: all their texts, then their gutters,
-/// modelines and dividers, as later panes come first if a frame runs out of room, so no
-/// amount of text can take their place (ADR 0061).
+/// Pushes every tiled window's panes onto `list`: all their texts, the selected one's last
+/// among them, then their gutters, modelines and dividers, as later panes come first if a
+/// frame runs out of room, so no amount of text can take their place, nor another window's
+/// text the selected one's (ADR 0061).
 pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pane<'a>>) {
     let windows = editor.frame().windows();
-    let selected = editor.window().id();
+    let empty = Status::default();
+    let selected =
+        |index: usize, id: WindowId| status_of(drawn.statuses, (index, id), &empty).selected;
     let pane = |id, region, background, content| Pane {
         id,
         region,
@@ -246,9 +266,14 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
         content,
     };
     let shown = || windows.iter().zip(drawn.cells).enumerate();
-    for (index, ((id, regions), cells)) in shown() {
-        let content = text(editor, (*id, *id == selected), cells, drawn, index);
-        list.push(pane(pane_id(*id, Part::Text), regions.text, None, content));
+    for last in [false, true] {
+        for (index, ((id, regions), cells)) in shown() {
+            let selected = selected(index, *id);
+            if selected == last {
+                let content = text(editor, (*id, selected), cells, drawn, index);
+                list.push(pane(pane_id(*id, Part::Text), regions.text, None, content));
+            }
+        }
     }
     let mut at = 0;
     for ((id, regions), cells) in windows.iter().zip(drawn.cells) {
@@ -266,10 +291,7 @@ pub(super) fn panes<'a>(editor: &'a Editor, drawn: &Drawn<'a>, list: &mut Vec<Pa
     }
     for (index, ((id, regions), _)) in shown() {
         let modeline = drawn.modelines.get(index).map_or(&[][..], |row| &row[..]);
-        let face = drawn
-            .statuses
-            .get(index)
-            .map_or(Face::ModelineInactive, |(_, status)| modeline_face(status));
+        let face = modeline_face(status_of(drawn.statuses, (index, *id), &empty));
         let content = PaneContent::Lines(modeline);
         list.push(pane(
             pane_id(*id, Part::Modeline),
@@ -298,7 +320,8 @@ fn divider<'a>(id: WindowId, regions: &WindowRegions, list: &mut Vec<Pane<'a>>) 
     }
 }
 
-/// The text pane's content of window `id`, which draws as the selected one if `selected`.
+/// The text pane's content of window `id`, which draws as the selected one if its status says
+/// so ([`Status::selected`]).
 /// Beneath a prompt every window's cursor is hollow and none shows a preedit, as none is
 /// selected (ADR 0072).
 fn text<'a>(
