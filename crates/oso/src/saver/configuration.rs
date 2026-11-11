@@ -120,9 +120,10 @@ pub fn refuse(job: &SaveJob, directory: Option<&Path>) -> io::Result<bool> {
 /// configuration file kept elsewhere and linked into it, by path or by device and inode. A
 /// directory that does not exist holds nothing.
 ///
-/// Past [`MAX_ENTRIES`] entries the directory cannot be told apart from what it might lead to,
-/// so the answer is yes. So it is for a directory in it that cannot be listed: what is in it can
-/// still be read by name, and may lead anywhere (ADR 0110).
+/// Past [`MAX_ENTRIES`] entries, all levels together, or with a directory deeper than
+/// [`MAX_DEPTH`], the directory cannot be told apart from what it might lead to, so the answer
+/// is yes. So it is for a directory in it that cannot be listed: what is in it can still be read
+/// by name, and may lead anywhere (ADR 0110).
 ///
 /// # Errors
 ///
@@ -164,7 +165,8 @@ fn held_by(path: &Path, directory: &Path) -> io::Result<bool> {
 }
 
 /// Whether an entry of `directory`, at most [`MAX_DEPTH`] down, leads to `target`, a resolved
-/// path: by path, by holding it, or, on Unix, by device and inode, as a hard link would.
+/// path: by path, by holding it, or, on Unix, by device and inode, as a hard link would. A
+/// directory deeper than that, or one that cannot be listed, might, so it does.
 fn leads_there(directory: &Path, target: &Path) -> io::Result<bool> {
     #[cfg(unix)]
     let identity = {
@@ -178,9 +180,8 @@ fn leads_there(directory: &Path, target: &Path) -> io::Result<bool> {
     let mut pending = vec![(directory.to_path_buf(), 0)];
     let mut seen = 0;
     while let Some((dir, depth)) = pending.pop() {
-        // A directory that can be searched but not listed, at any depth, still holds what
-        // its entries lead to, which can be read by name: what it might lead to cannot be
-        // ruled out (ADR 0110).
+        // A directory that can be searched but not listed still holds what its entries lead
+        // to, which can be read by name: what it might lead to cannot be ruled out (ADR 0110).
         let Ok(entries) = fs::read_dir(&dir) else {
             return Ok(true);
         };
@@ -205,7 +206,12 @@ fn leads_there(directory: &Path, target: &Path) -> io::Result<bool> {
                     return Ok(true);
                 }
             }
-            if depth < MAX_DEPTH && fs::metadata(&led).is_ok_and(|meta| meta.is_dir()) {
+            if fs::metadata(&led).is_ok_and(|meta| meta.is_dir()) {
+                // Past the depth looked through, as past the entries, what a directory leads
+                // to cannot be ruled out (ADR 0110).
+                if depth >= MAX_DEPTH {
+                    return Ok(true);
+                }
                 pending.push((path, depth + 1));
             }
         }

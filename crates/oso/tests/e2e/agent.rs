@@ -783,33 +783,15 @@ fn the_agent_never_saves_into_the_configuration_directory() {
     }
     // A link of the same name elsewhere, into the configuration directory.
     let link = scratch.symlink("dotfiles/config.toml", &config);
-    let mut app = App::start_with_config(Some(&config), scratch.path(), &config);
-    app.wait_until_ready();
-    let mut agent = let_in(&mut app);
 
-    // The person's own buffer of it, by its path and through the link: refused, whatever
-    // else would let the save go without a question.
-    for path in [&config, &link] {
-        let opened = agent.call("open", Some(json!({ "path": path })));
-        assert!(opened.is_ok(), "{}: {opened:?}", path.display());
-        insert(&mut agent, "agent = 1\n");
-        let refused = agent.run("save-buffer", None, "change").unwrap_err();
-        assert!(
-            refused.starts_with("refused:"),
-            "{}: {refused}",
-            path.display()
-        );
-        assert_eq!(
-            std::fs::read(&config).unwrap(),
-            b"# mine\n",
-            "nothing written"
-        );
-        let echo = app.state()["echo"].as_str().unwrap_or_default().to_owned();
-        assert!(
-            echo.contains("never saves into oso's configuration directory"),
-            "{echo}"
-        );
-    }
+    // Through the link, the person's buffer by that name, with nothing holding the file by
+    // its own: the save goes through the link, and is refused, though it would go without a
+    // question.
+    let mut app = App::start_with_config(Some(&link), scratch.path(), &config);
+    app.wait_until_ready();
+    assert_eq!(app.state()["buffer"]["path"].as_str(), link.to_str());
+    let mut agent = let_in(&mut app);
+    save_is_refused(&mut app, &mut agent, &link, &config);
 
     // A file outside it, which the person opened, saves, and the reply says so once written.
     app.open_file(&notes);
@@ -820,4 +802,43 @@ fn the_agent_never_saves_into_the_configuration_directory() {
     let saved = agent.run("save-buffer", None, "change").unwrap();
     assert_eq!(saved["saved"], true, "{saved}");
     assert_eq!(std::fs::read(&notes).unwrap(), b"x one\n");
+    drop((agent, app));
+
+    // The person's own buffer of it, by its path: refused the same.
+    let mut app = App::start_with_config(Some(&config), scratch.path(), &config);
+    app.wait_until_ready();
+    let mut agent = let_in(&mut app);
+    save_is_refused(&mut app, &mut agent, &config, &config);
+}
+
+/// Has the agent open `path`, change it and save it, and checks that the save is refused,
+/// that `config` is as it was, and that the person's echo area now says why.
+fn save_is_refused(
+    app: &mut App,
+    agent: &mut Agent,
+    path: &std::path::Path,
+    config: &std::path::Path,
+) {
+    let opened = agent.call("open", Some(json!({ "path": path })));
+    assert!(opened.is_ok(), "{}: {opened:?}", path.display());
+    insert(agent, "agent = 1\n");
+    let echo = |app: &mut App| app.state()["echo"].as_str().unwrap_or_default().to_owned();
+    let before = echo(app);
+    let refused = agent.run("save-buffer", None, "change").unwrap_err();
+    assert!(
+        refused.starts_with("refused:"),
+        "{}: {refused}",
+        path.display()
+    );
+    assert_eq!(
+        std::fs::read(config).unwrap(),
+        b"# mine\n",
+        "nothing written"
+    );
+    let after = echo(app);
+    assert_ne!(after, before, "said now");
+    assert!(
+        after.contains("never saves into oso's configuration directory"),
+        "{after}"
+    );
 }

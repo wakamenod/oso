@@ -4,7 +4,7 @@
 
 use std::fs;
 
-use super::is_inside;
+use super::{MAX_DEPTH, is_inside};
 use crate::saver::tests::Scratch;
 
 #[test]
@@ -211,5 +211,27 @@ fn a_directory_in_it_that_cannot_be_listed_refuses_what_it_might_lead_to() {
     assert!(
         !is_inside(&other, &config).unwrap(),
         "once it can be listed again"
+    );
+}
+
+#[test]
+fn a_directory_deeper_than_the_look_goes_refuses_what_it_might_lead_to() {
+    let scratch = Scratch::new("config-deep");
+    let config = scratch.path().join("oso");
+    let mut deepest = config.clone();
+    for level in 1..=MAX_DEPTH {
+        deepest.push(format!("d{level}"));
+    }
+    fs::create_dir_all(&deepest).unwrap();
+    let other = scratch.file("notes.md", b"");
+    assert!(
+        !is_inside(&other, &config).unwrap(),
+        "every directory down to the depth is looked through"
+    );
+    // One level more: what is in it, as a link out, is not looked at.
+    fs::create_dir(deepest.join("deeper")).unwrap();
+    assert!(
+        is_inside(&other, &config).unwrap(),
+        "what it might lead to cannot be ruled out"
     );
 }
