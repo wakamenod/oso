@@ -1,5 +1,6 @@
 //! Sample frames of every face in each theme, drawn off screen with the OS's
-//! font, for the author to pick colours from (ADR 0089). Run with `OSO_THEME_SAMPLES=<dir>
+//! font, for the author to pick colours from (ADR 0089), split windows' modelines among
+//! them (ADR 0112). Run with `OSO_THEME_SAMPLES=<dir>
 //! cargo test -p oso-render -- --ignored theme_samples`: it writes each frame's RGBA pixels
 //! and a table of the contrast of each face's pairs.
 //!
@@ -322,6 +323,9 @@ fn theme_samples() {
         };
         write(dir, &format!("{name}-completion"), completion);
         write(dir, &format!("{name}-question"), question);
+        if let Some(split) = split_frame(theme) {
+            write(dir, &format!("{name}-split"), split);
+        }
         writeln!(
             table,
             "## {name}\n\n{}",
@@ -331,41 +335,6 @@ fn theme_samples() {
     }
     std::fs::write(dir.join("ratios.md"), table).unwrap();
 }
-
-/// Candidate modelines for each theme, the selected window's `(text, fill)` then the others',
-/// in sRGB, the first being the theme's own, for the author to pick from (ADR 0112).
-/// The selected window's modeline and the others', each `(text, fill)` in sRGB.
-type Modelines = ((u32, u32), (u32, u32));
-
-const MODELINES: [(&str, [Modelines; 4]); 3] = [
-    (
-        "dark",
-        [
-            ((0xeceef4, 0x262938), (0xa6b0d0, 0x1b1d26)),
-            ((0xffffff, 0x3a3f5b), (0x8e95ad, 0x15171e)),
-            ((0xffffff, 0x2c3f6e), (0x8e95ad, 0x15171e)),
-            ((0xffffff, 0x363b55), (0x7c8296, 0x121318)),
-        ],
-    ),
-    (
-        "light",
-        [
-            ((0x15161b, 0xd9dce8), (0x46507a, 0xeceef3)),
-            ((0x0b0c10, 0xc6cbdb), (0x5a6178, 0xf0f1f4)),
-            ((0x0b0c10, 0xb8cdf2), (0x5a6178, 0xeef0f4)),
-            ((0x0b0c10, 0xc6cad9), (0x63687a, 0xf3f3ef)),
-        ],
-    ),
-    (
-        "dusk",
-        [
-            ((0xf3f3f6, 0x51515f), (0xd2d6e4, 0x484855)),
-            ((0xf3f3f6, 0x50505d), (0xb8bccc, 0x33333d)),
-            ((0xf3f3f6, 0x44507a), (0xb8bccc, 0x35353f)),
-            ((0xffffff, 0x51515f), (0xaeb2c2, 0x393944)),
-        ],
-    ),
-];
 
 /// A frame of two windows side by side, the left one selected with `Agent` and a warning on
 /// its modeline, a divider between them, in `theme` (ADR 0112).
@@ -462,44 +431,4 @@ fn tiled_pane<'a>(
         bands: Bands::NONE,
         content,
     }
-}
-
-#[test]
-#[ignore = "draws with the OS's font on a real GPU, and writes files"]
-fn modeline_samples() {
-    let Some(dir) = std::env::var_os("OSO_THEME_SAMPLES") else {
-        return;
-    };
-    let dir = Path::new(&dir);
-    std::fs::create_dir_all(dir).unwrap();
-    let mut table = String::from(
-        "| theme | candidate | selected on text | inactive on text | selected on inactive | short |\n|---|---|---|---|---|---|\n",
-    );
-    for theme in themes() {
-        let name = theme.name();
-        let (_, candidates) = MODELINES.iter().find(|(n, _)| *n == name).unwrap();
-        for (index, &(active, inactive)) in candidates.iter().enumerate() {
-            let candidate = theme.with_modelines(active, inactive);
-            let short = crate::theme::tests::short_pairs_of(&candidate);
-            let apart = |a, b| {
-                let (ratio, step) = crate::theme::tests::apart(&candidate, a, b);
-                format!("{ratio:.2}:1, L {step:.3}")
-            };
-            writeln!(
-                table,
-                "| {name} | {index} | {} | {} | {} | {} |",
-                apart(Face::Modeline, Face::Text),
-                apart(Face::ModelineInactive, Face::Text),
-                apart(Face::Modeline, Face::ModelineInactive),
-                short.join("; "),
-            )
-            .unwrap();
-            let Some(frame) = split_frame(candidate) else {
-                log::warn!("no text backend on this OS: no samples");
-                return;
-            };
-            write(dir, &format!("modeline-{name}-{index}"), frame);
-        }
-    }
-    std::fs::write(dir.join("modelines.md"), table).unwrap();
 }

@@ -84,6 +84,8 @@ enum Name {
     FgLineNumberCurrent,
     /// The wrap mark: dim, as whitespace's marks, in a hue of its own.
     FgWrapMark,
+    /// The selected window's modeline text.
+    FgMode,
     /// A modeline of a window that is not selected: dimmer than the selected one's.
     FgModeInactive,
     BgModeInactive,
@@ -199,18 +201,6 @@ impl Theme {
         Self { text, ..self }
     }
 
-    /// The theme with the selected window's modeline in `active` and the others' in
-    /// `inactive`, each `(text, fill)` in sRGB, for samples that compare candidates
-    /// (ADR 0112).
-    #[cfg(test)]
-    pub(crate) fn with_modelines(mut self, active: (u32, u32), inactive: (u32, u32)) -> Self {
-        for (face, (text, fill)) in [(Face::Modeline, active), (Face::ModelineInactive, inactive)] {
-            self.foreground[index(face)] = rgb(text).linear();
-            self.background[index(face)] = rgb(fill).linear();
-        }
-        self
-    }
-
     /// The theme with every face's colours swapped, foreground for background, for tests.
     #[cfg(test)]
     pub(crate) fn swapped(self) -> Self {
@@ -323,7 +313,7 @@ fn faces(face: Face) -> (Name, Name) {
         Face::Boxed => (Escape, BgEscape),
         // The glyphs on the cursor take the background's colour, on a box of the text's.
         Face::Cursor => (BgMain, FgMain),
-        Face::Modeline => (FgMain, BgMode),
+        Face::Modeline => (FgMode, BgMode),
         Face::Warning => (Warning, BgMain),
         Face::Preedit => (FgMain, FgMain),
         Face::Float => (FgMain, BgFloat),
@@ -363,7 +353,8 @@ fn dark(name: Name) -> Color {
         BgMain => rgb(0x0d0e12),
         BgFloat => rgb(0x181a22),
         BgKey => rgb(0x2b2e3b),
-        BgMode => rgb(0x262938),
+        // The selected window's modeline in blue, far apart from the others' (ADR 0112).
+        BgMode => rgb(0x2c3f6e),
         BgRegion => rgb(0x26365c),
         BgEscape => rgb(0x3a2718),
         BgMatch => rgb(0x3a2e10),
@@ -388,8 +379,9 @@ fn dark(name: Name) -> Color {
         FgLineNumber => rgb(0x767c93),
         FgLineNumberCurrent => rgb(0xd8dbe6),
         FgWrapMark => rgb(0x6aa6c4),
-        FgModeInactive => rgb(0xa6b0d0),
-        BgModeInactive => rgb(0x1b1d26),
+        FgMode => rgb(0xffffff),
+        FgModeInactive => rgb(0x8e95ad),
+        BgModeInactive => rgb(0x15171e),
         Divider => rgb(0x60667e),
         Hairline => rgba(0xffffff, 0.05),
         Border => rgb(0x30344a),
@@ -404,7 +396,7 @@ fn light(name: Name) -> Color {
         BgMain => rgb(0xfbfbf8),
         BgFloat => rgb(0xeff0f5),
         BgKey => rgb(0xdadeea),
-        BgMode => rgb(0xd9dce8),
+        BgMode => rgb(0xb8cdf2),
         BgRegion => rgb(0xc8d6f5),
         BgEscape => rgb(0xf7e2cf),
         BgMatch => rgb(0xf6e6b4),
@@ -428,8 +420,9 @@ fn light(name: Name) -> Color {
         FgLineNumber => rgb(0x6e7385),
         FgLineNumberCurrent => rgb(0x272a33),
         FgWrapMark => rgb(0x2f6684),
-        FgModeInactive => rgb(0x46507a),
-        BgModeInactive => rgb(0xeceef3),
+        FgMode => rgb(0x0b0c10),
+        FgModeInactive => rgb(0x5a6178),
+        BgModeInactive => rgb(0xeef0f4),
         Divider => rgb(0x858a9b),
         Hairline => rgba(0x000000, 0.08),
         Border => rgb(0xc2c6d4),
@@ -445,7 +438,7 @@ fn dusk(name: Name) -> Color {
         BgMain => rgb(0x3f3f4b),
         BgFloat => rgb(0x474959),
         BgKey => rgb(0x555769),
-        BgMode => rgb(0x51515f),
+        BgMode => rgb(0x44507a),
         BgRegion => rgb(0x3f5375),
         BgEscape => rgb(0x6b452b),
         BgMatch => rgb(0x613f10),
@@ -470,8 +463,9 @@ fn dusk(name: Name) -> Color {
         FgLineNumber => rgb(0xb0b3c4),
         FgLineNumberCurrent => rgb(0xf3f3f6),
         FgWrapMark => rgb(0x94cde6),
-        FgModeInactive => rgb(0xd2d6e4),
-        BgModeInactive => rgb(0x484855),
+        FgMode => rgb(0xf3f3f6),
+        FgModeInactive => rgb(0xb8bccc),
+        BgModeInactive => rgb(0x35353f),
         Divider => rgb(0x8c8fa3),
         Hairline => rgba(0xffffff, 0.035),
         Border => rgb(0x505265),
@@ -742,7 +736,7 @@ pub(crate) mod tests {
     }
 
     /// Each pair of `theme` short of its floor.
-    pub(crate) fn short_pairs_of(theme: &Theme) -> Vec<String> {
+    fn short_pairs_of(theme: &Theme) -> Vec<String> {
         let mut short = Vec::new();
         for face in FACES {
             for &(behind, floor) in pairs(face) {
@@ -757,13 +751,6 @@ pub(crate) mod tests {
             }
         }
         short
-    }
-
-    /// WCAG's contrast of `a`'s background on `b`'s in `theme`, and the step in lightness
-    /// between them, for comparing modelines (ADR 0112).
-    pub(crate) fn apart(theme: &Theme, a: Face, b: Face) -> (f32, f32) {
-        let (a, b) = (theme.background(a), theme.background(b));
-        (contrast(a, b), (oklab(a)[0] - oklab(b)[0]).abs())
     }
 
     #[test]
