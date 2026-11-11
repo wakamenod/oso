@@ -2807,6 +2807,7 @@ impl core::fmt::Debug for oso_core::syntax::Splice
 pub fn oso_core::syntax::Splice::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for oso_core::syntax::Splice
 impl core::marker::StructuralPartialEq for oso_core::syntax::Splice
+pub const oso_core::syntax::MAX_BYTES: usize
 pub fn oso_core::syntax::compose(&[oso_core::syntax::Splice], &[oso_core::syntax::Splice]) -> core::option::Option<alloc::vec::Vec<oso_core::syntax::Splice>>
 pub mod oso_core::window
 pub enum oso_core::window::Recenter

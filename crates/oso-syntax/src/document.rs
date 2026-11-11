@@ -21,8 +21,8 @@ use crate::edit::input_edits;
 use crate::language::Language;
 
 /// The largest text parsed: a larger buffer stays plain. A tree costs 35 to 60 times its text
-/// (ADR 0111, as built).
-pub const MAX_BYTES: usize = 2 << 20;
+/// (ADR 0111, as built). The buffer keeps no log of edits past it either.
+pub const MAX_BYTES: usize = oso_core::syntax::MAX_BYTES;
 
 /// How much of the worker's time a parse from nothing may take.
 const FIRST_LIMIT: Duration = Duration::from_secs(5);
@@ -112,10 +112,9 @@ impl Document {
         if self.running.is_some() {
             let joined = match self.waiting.take() {
                 None => Some(splices.to_vec()),
-                Some((batch, _)) => batch
-                    .and_then(|batch| compose(&batch, splices))
-                    .filter(|batch| batch.len() <= MAX_WAITING),
-            };
+                Some((batch, _)) => batch.and_then(|batch| compose(&batch, splices)),
+            }
+            .filter(|batch| batch.len() <= MAX_WAITING);
             self.waiting = Some((joined, after.clone()));
             return;
         }

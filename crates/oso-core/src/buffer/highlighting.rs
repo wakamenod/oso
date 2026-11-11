@@ -6,12 +6,16 @@
 
 use std::collections::VecDeque;
 
-use super::Buffer;
+use super::{Buffer, Mode};
 use crate::selection::OffsetEdit;
-use crate::syntax::{Highlights, Splice, compose};
+use crate::syntax::{Highlights, MAX_BYTES, Splice, compose};
 
 /// How many revisions' batches a buffer keeps. A report or a job older than that starts over.
 const LOG_REVISIONS: usize = 64;
+
+/// How many splices the log holds in all, so that a few commands at many cursors cannot make
+/// it large. The oldest batches go first.
+const LOG_SPLICES: usize = 4096;
 
 /// What highlighting keeps on a buffer.
 #[derive(Clone, Debug, Default)]
@@ -19,19 +23,30 @@ pub(super) struct Highlighting {
     highlights: Option<Highlights>,
     /// Each recent revision with the batch that made it, oldest first.
     log: VecDeque<(u64, Vec<Splice>)>,
+    /// The splices in `log`.
+    logged: usize,
 }
 
 /// What an edit, an undo or a redo made on clones does to highlighting, to commit with it.
 #[derive(Debug)]
 pub(crate) struct StagedHighlighting {
+    /// The edit's batch, or `None` to keep no log: the buffer cannot be highlighted, or the
+    /// steps did not compose.
     batch: Option<Vec<Splice>>,
     highlights: Option<Highlights>,
 }
 
 impl Highlighting {
-    /// Maps the highlights through `steps`, batch by batch as they applied, on a clone. Steps that
-    /// do not compose leave no batch, and no highlights.
-    pub(super) fn stage(&self, steps: &[Vec<OffsetEdit>]) -> StagedHighlighting {
+    /// Maps the highlights through `steps`, batch by batch as they applied, on a clone, if the
+    /// buffer can be highlighted afterwards (`keep`). Steps that do not compose leave no batch,
+    /// and no highlights.
+    fn stage(&self, steps: &[Vec<OffsetEdit>], keep: bool) -> StagedHighlighting {
+        if !keep {
+            return StagedHighlighting {
+                batch: None,
+                highlights: None,
+            };
+        }
         let mut batch = Some(Vec::new());
         let mut highlights = self.highlights.clone();
         for step in steps {
@@ -47,18 +62,33 @@ impl Highlighting {
         }
     }
 
-    /// Puts a staged change in, as the content becomes `revision`. Cannot panic.
+    /// Puts a staged change in, as the content becomes `revision`. Moves only, and cannot panic.
     pub(super) fn commit(&mut self, revision: u64, staged: StagedHighlighting) {
         self.highlights = staged.highlights;
-        match staged.batch {
-            Some(batch) => {
-                if self.log.len() == LOG_REVISIONS {
-                    self.log.pop_front();
-                }
-                self.log.push_back((revision, batch));
-            }
-            None => self.log.clear(),
+        let Some(batch) = staged.batch else {
+            self.forget_log();
+            return;
+        };
+        self.logged += batch.len();
+        self.log.push_back((revision, batch));
+        while self.log.len() > LOG_REVISIONS || self.logged > LOG_SPLICES {
+            let Some((_, oldest)) = self.log.pop_front() else {
+                break;
+            };
+            self.logged -= oldest.len();
         }
+    }
+
+    /// Drops the highlights and the log, as for a buffer that can no longer be highlighted.
+    pub(super) fn forget(&mut self) {
+        self.highlights = None;
+        self.forget_log();
+    }
+
+    /// Drops the log, so that no report or job from before now is followed.
+    pub(super) fn forget_log(&mut self) {
+        self.log.clear();
+        self.logged = 0;
     }
 
     /// The batch from `revision` to `now`, or `None` if the log no longer reaches it.
@@ -85,6 +115,35 @@ fn splice_of(edit: &OffsetEdit) -> Splice {
 }
 
 impl Buffer {
+    /// Whether the buffer can be highlighted with a text of `len` bytes: a language mode, not an
+    /// internal buffer, no larger than [`MAX_BYTES`], and not one that may hold secrets, which is
+    /// never parsed (ADR 0111). Any other keeps no highlights and no log.
+    fn highlightable(&self, len: usize) -> bool {
+        let language = match self.mode {
+            Mode::Rust | Mode::Markdown | Mode::Toml => true,
+            Mode::Fundamental | Mode::CopyList | Mode::CopyView => false,
+        };
+        language && !self.internal && len <= MAX_BYTES && !self.is_secret()
+    }
+
+    /// What an edit's steps, which leave `len` bytes, do to highlighting, made on clones while
+    /// the edit is staged.
+    pub(super) fn stage_highlighting(
+        &self,
+        steps: &[Vec<OffsetEdit>],
+        len: usize,
+    ) -> StagedHighlighting {
+        self.highlighting.stage(steps, self.highlightable(len))
+    }
+
+    /// Drops the highlights and the log if the buffer can no longer be highlighted, after its
+    /// verdict, its mode or its text changed otherwise than by an edit.
+    pub(super) fn recheck_highlighting(&mut self) {
+        if !self.highlightable(self.text.len()) {
+            self.highlighting.forget();
+        }
+    }
+
     /// What the text is, run by run, as the syntax worker last reported and the edits since
     /// guessed, or `None` if the buffer is not highlighted (ADR 0111).
     pub fn highlights(&self) -> Option<&Highlights> {
@@ -96,10 +155,10 @@ impl Buffer {
     }
 
     /// Takes highlights the worker made for `revision`, mapped through the edits since. Returns
-    /// false, and keeps what it had, if the buffer may hold secrets, the log no longer reaches
-    /// that revision, or the highlights do not cover the text.
+    /// false, and keeps what it had, if the buffer cannot be highlighted, the log no longer
+    /// reaches that revision, or the highlights do not cover the text.
     pub fn take_highlights(&mut self, revision: u64, mut highlights: Highlights) -> bool {
-        if self.is_secret() {
+        if !self.highlightable(self.text.len()) {
             return false;
         }
         let Some(batch) = self.highlighting.since(revision, self.revision) else {
@@ -113,14 +172,24 @@ impl Buffer {
         true
     }
 
-    /// Stops showing highlights, as when the buffer may now hold secrets or changes mode.
+    /// Whether it keeps highlights or a log at all, whatever it shows.
+    #[cfg(test)]
+    pub(crate) fn keeps_highlighting(&self) -> bool {
+        self.highlighting.highlights.is_some() || !self.highlighting.log.is_empty()
+    }
+
+    /// Stops showing highlights, as when highlighting is turned off.
     pub fn drop_highlights(&mut self) {
         self.highlighting.highlights = None;
     }
 
     /// One batch that takes the text at `revision` to the text now, for the worker's parse, or
-    /// `None` if the log no longer reaches it and the worker must parse from nothing.
+    /// `None` if the log no longer reaches it, the buffer cannot be highlighted, or a load or a
+    /// reload came since, so that the worker must parse from nothing.
     pub fn splices_since(&self, revision: u64) -> Option<Vec<Splice>> {
+        if !self.highlightable(self.text.len()) {
+            return None;
+        }
         self.highlighting.since(revision, self.revision)
     }
 }

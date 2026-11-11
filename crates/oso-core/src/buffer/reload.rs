@@ -150,6 +150,7 @@ impl Buffer {
             Err(seen) => secret::judge_unresolved(path, seen),
         };
         self.verdict = stricter(self.verdict, verdict);
+        self.recheck_highlighting();
     }
 
     /// The text read again, on clones, as one edit of the bytes `change` covers that undoes
@@ -171,14 +172,17 @@ impl Buffer {
             old_end,
             new_end,
         } = change;
+        let edits = vec![OffsetEdit {
+            start,
+            old_len: old_end - start,
+            new_len: new_end - start,
+        }];
+        let highlighting =
+            self.stage_highlighting(std::slice::from_ref(&edits), snapshot.text.len());
         Some(StagedEdit {
             text: snapshot.text.clone(),
             display: snapshot.display.clone(),
-            edits: vec![OffsetEdit {
-                start,
-                old_len: old_end - start,
-                new_len: new_end - start,
-            }],
+            edits,
             undo: vec![Splice {
                 start,
                 len: new_end - start,
@@ -187,6 +191,7 @@ impl Buffer {
             // The text was read again whole, with its own display map.
             changed: std::iter::once(0..snapshot.text.len()).collect(),
             rewrap: Rewrap::Whole,
+            highlighting,
         })
     }
 
@@ -199,6 +204,8 @@ impl Buffer {
         after: Option<SelectionSet>,
     ) {
         self.commit_edit(staged, opening, after);
+        // A report or a job from before a reload is dropped, not mapped (ADR 0111).
+        self.highlighting.forget_log();
         self.info = snapshot.info;
         self.saved = self.content;
         self.reloaded();

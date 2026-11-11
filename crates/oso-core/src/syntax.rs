@@ -10,6 +10,10 @@ mod highlights;
 pub use compose::compose;
 pub use highlights::{Highlights, Runs};
 
+/// The largest text highlighted: a larger buffer stays plain, and keeps no log of its edits. A
+/// tree costs 35 to 60 times its text (ADR 0111, as built).
+pub const MAX_BYTES: usize = 2 << 20;
+
 /// One replacement in a batch of edits: `old_len` bytes at `start` became `new_len` bytes.
 ///
 /// A batch is what one command did to a buffer. Its splices are ascending and apart, and every

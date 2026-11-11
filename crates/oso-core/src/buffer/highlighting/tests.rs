@@ -4,11 +4,11 @@
 
 use std::path::PathBuf;
 
-use crate::buffer::{Buffer, Replacement};
+use crate::buffer::{Buffer, Mode, Replacement};
 use crate::display_map::TabWidth;
 use crate::load::Builder;
 use crate::rope::Rope;
-use crate::syntax::{Highlight, Highlights, Splice};
+use crate::syntax::{Highlight, Highlights, MAX_BYTES, Splice};
 use crate::undo::{Direction, Opening};
 
 const S: Option<Highlight> = Some(Highlight::String);
@@ -21,9 +21,20 @@ fn edit(buffer: &mut Buffer, range: std::ops::Range<usize>, text: &str) {
     buffer.commit_edit(staged, Opening::New(None), None);
 }
 
-fn undo(buffer: &mut Buffer) {
-    let staged = buffer.stage_crossing(Direction::Undo).unwrap();
+fn cross(buffer: &mut Buffer, direction: Direction) {
+    let staged = buffer.stage_crossing(direction).unwrap();
     buffer.commit_crossing(staged);
+}
+
+fn undo(buffer: &mut Buffer) {
+    cross(buffer, Direction::Undo);
+}
+
+/// A buffer of Rust source holding `text`, which can be highlighted.
+fn rust(text: &str) -> Buffer {
+    let mut buffer = Buffer::from_text("t.rs", text);
+    buffer.set_mode(Mode::Rust);
+    buffer
 }
 
 /// `len` bytes, with a string over `string`.
@@ -60,7 +71,7 @@ fn replay(text: &Rope, batch: &[Splice], after: &Rope) -> String {
 
 #[test]
 fn a_report_for_an_older_revision_follows_the_edits_since() {
-    let mut buffer = Buffer::from_text("t", "let s = \"ab\";");
+    let mut buffer = rust("let s = \"ab\";");
     let reported = buffer.revision();
     assert!(buffer.highlights().is_none());
     // Typed inside the string, and at the start, before the report comes.
@@ -75,7 +86,7 @@ fn a_report_for_an_older_revision_follows_the_edits_since() {
 
 #[test]
 fn a_report_that_does_not_cover_the_text_is_dropped() {
-    let mut buffer = Buffer::from_text("t", "abc");
+    let mut buffer = rust("abc");
     let now = buffer.revision();
     assert!(!buffer.take_highlights(now, Highlights::new(2)));
     assert!(!buffer.take_highlights(now + 1, Highlights::new(3)));
@@ -85,7 +96,7 @@ fn a_report_that_does_not_cover_the_text_is_dropped() {
 
 #[test]
 fn the_log_reaches_back_64_revisions() {
-    let mut buffer = Buffer::from_text("t", "");
+    let mut buffer = rust("");
     let start = buffer.revision();
     for _ in 0..64 {
         let end = buffer.text().len();
@@ -108,7 +119,7 @@ fn the_log_reaches_back_64_revisions() {
 
 #[test]
 fn splices_since_a_revision_take_its_text_to_the_text_now() {
-    let mut buffer = Buffer::from_text("t", "fn main() {}\n// note\n");
+    let mut buffer = rust("fn main() {}\n// note\n");
     let start = buffer.revision();
     let before = buffer.text().clone();
     edit(&mut buffer, 3..7, "start");
@@ -124,27 +135,113 @@ fn splices_since_a_revision_take_its_text_to_the_text_now() {
 }
 
 #[test]
-fn undo_and_a_load_map_highlights_too() {
-    let mut buffer = Buffer::from_text("t", "\"abc\"");
+fn undo_and_redo_map_highlights_and_a_load_drops_them() {
+    let mut buffer = rust("\"abc\"");
     assert!(buffer.take_highlights(buffer.revision(), string(5, 0..5)));
     edit(&mut buffer, 2..4, "");
     assert_eq!(runs(&buffer), [(0..3, S)]);
     undo(&mut buffer);
     assert_eq!(runs(&buffer), [(0..5, S)]);
+    cross(&mut buffer, Direction::Redo);
+    assert_eq!(runs(&buffer), [(0..3, S)]);
+    let before = buffer.revision();
     let mut builder = Builder::new(None, TabWidth::default());
     builder.push(b"new text");
     builder.finish();
     buffer.apply_load(builder.snapshot());
-    assert_eq!(runs(&buffer), [(0..8, None)]);
+    assert!(
+        buffer.highlights().is_none(),
+        "a report from before a load is dropped"
+    );
+    assert_eq!(buffer.splices_since(before), None);
+    assert!(!buffer.take_highlights(before, Highlights::new(3)));
+}
+
+#[test]
+fn buffers_that_cannot_be_highlighted_keep_no_log() {
+    let mut fundamental = Buffer::from_text("t", "abc");
+    let start = fundamental.revision();
+    edit(&mut fundamental, 0..0, "x");
+    assert_eq!(fundamental.splices_since(start), None);
+    assert!(!fundamental.take_highlights(fundamental.revision(), Highlights::new(4)));
+
+    let mut internal = Buffer::internal("*m*");
+    internal.set_mode(Mode::Rust);
+    let start = internal.revision();
+    let staged = internal
+        .stage_internal(&[Replacement {
+            range: 0..0,
+            text: "x",
+        }])
+        .unwrap();
+    internal.commit_internal(staged);
+    assert_eq!(internal.splices_since(start), None);
+
+    let mut large = rust(&"x".repeat(MAX_BYTES));
+    let start = large.revision();
+    assert_eq!(large.splices_since(start), Some(Vec::new()));
+    edit(&mut large, 0..0, "y");
+    assert_eq!(large.splices_since(start), None, "past the size limit");
+}
+
+#[test]
+fn the_log_holds_at_most_4096_splices() {
+    let mut buffer = rust(&"ab".repeat(5000));
+    let start = buffer.revision();
+    let edits: Vec<_> = (0..5000)
+        .map(|index| Replacement {
+            range: index * 2..index * 2 + 1,
+            text: "c",
+        })
+        .collect();
+    let staged = buffer.stage_edits(&edits).unwrap().unwrap();
+    buffer.commit_edit(staged, Opening::New(None), None);
+    assert_eq!(buffer.splices_since(start), None);
+    let middle = buffer.revision();
+    edit(&mut buffer, 0..0, "z");
+    assert_eq!(buffer.splices_since(middle).map(|b| b.len()), Some(1));
+}
+
+#[test]
+fn a_new_mode_forgets_what_the_old_one_had() {
+    let mut buffer = rust("abc");
+    let start = buffer.revision();
+    assert!(buffer.take_highlights(start, string(3, 0..3)));
+    edit(&mut buffer, 0..0, "x");
+    buffer.set_mode(Mode::Toml);
+    assert!(!buffer.keeps_highlighting());
+    assert_eq!(buffer.splices_since(start), None);
 }
 
 #[test]
 fn a_buffer_that_may_hold_secrets_shows_and_takes_none() {
-    let mut buffer = Buffer::from_text("t", "abc");
-    assert!(buffer.take_highlights(buffer.revision(), string(3, 0..3)));
+    let mut buffer = rust("abc");
+    let start = buffer.revision();
+    assert!(buffer.take_highlights(start, string(3, 0..3)));
+    edit(&mut buffer, 0..0, "x");
     assert!(buffer.treat_as_secret());
+    assert!(!buffer.keeps_highlighting());
+    assert_eq!(
+        buffer.splices_since(start),
+        None,
+        "no log of a secret buffer"
+    );
+    assert!(!buffer.take_highlights(buffer.revision(), string(4, 0..4)));
+    edit(&mut buffer, 0..0, "y");
+    assert!(!buffer.keeps_highlighting(), "nor of its edits");
+}
+
+#[test]
+fn a_judgement_that_withholds_drops_highlights_and_the_log() {
+    let mut buffer = Buffer::visiting(PathBuf::from("/p/credentials.toml"));
+    buffer.set_mode(Mode::Toml);
+    assert!(buffer.is_secret(), "unjudged");
+    assert!(!buffer.take_highlights(buffer.revision(), Highlights::new(0)));
+    buffer.judge_secret(Some(&[PathBuf::from("/p/credentials.toml")]));
+    assert!(buffer.is_secret());
     assert!(buffer.highlights().is_none());
-    assert!(!buffer.take_highlights(buffer.revision(), string(3, 0..3)));
-    let visiting = Buffer::visiting(PathBuf::from("/tmp/notes.md"));
-    assert!(visiting.is_secret(), "unjudged");
+    let mut ordinary = Buffer::visiting(PathBuf::from("/p/Cargo.toml"));
+    ordinary.set_mode(Mode::Toml);
+    ordinary.judge_secret(Some(&[PathBuf::from("/p/Cargo.toml")]));
+    assert!(!ordinary.is_secret());
 }

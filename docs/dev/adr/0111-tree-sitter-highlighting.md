@@ -467,15 +467,29 @@ decision above. The options not taken are listed with their trade-offs.
   `at`, `replace` and `splice`) and `compose`, which makes two batches one.
 - **Line breaks carry no highlight,** by the worker's rule, so the guess for inserted text needs
   no text: it takes the highlight of the byte before it, which after a line break is none.
-- **The buffer keeps each of its last 64 revisions' batches,** composed for an undo's or a
-  redo's several. `Buffer::splices_since` composes those since a revision into one batch for the
-  worker's parse, and `Buffer::take_highlights` (in the plan, `take_report`) maps a report
-  through it. Every commit maps the highlights, an edit, an undo, an internal buffer's edit and a
-  load alike, computed before anything moves, so a panic there leaves the buffer as it was.
-- **A buffer that may hold secrets shows no highlights and takes none,** whatever it held before,
-  and a yank that makes it secret drops them.
+- **The buffer keeps each of its last 64 revisions' batches,** at most 4096 splices in all, the
+  oldest going first, and composed for an undo's or a redo's several. `Buffer::splices_since`
+  composes those since a revision into one batch for the worker's parse, and
+  `Buffer::take_highlights` (in the plan, `take_report`) maps a report through it. A load, or a
+  reload whether it edits or replaces, empties the log, so a report or a job from before it is
+  dropped and the worker parses from nothing, as the Decision says.
+- **Only a buffer that can be highlighted keeps any of it:** a language mode, not an internal
+  buffer, at most 2 MiB (`oso_core::syntax::MAX_BYTES`, which `oso-syntax` uses), and not one that
+  may hold secrets. Every path that changes the verdict, a judgement, a reload's, a copy's, a
+  recovery, its undo and a yank, and a change of mode, drops the highlights and the log of a
+  buffer that no longer qualifies, and none is logged while it does not.
+- **The mapping is made while an edit stages,** on the clones, beside the rope and the display
+  map, so the commit only moves it (ADR 0053).
+- **Each splice replaces only the runs around it,** from the one before it to the one that holds
+  its end, with `SumTree::replace_items`, so a command's splices share the path they copy.
+  Measured with `text_perf -- highlights`, release, on the author's Mac, on a map of 2 MiB with a
+  run every few bytes and each edit staged on a clone: typing at one cursor costs about 0.3 µs, at
+  1000 cursors 0.24–0.26 ms at the median and 0.45–0.6 ms at p99, within ADR 0091's 4 ms, and one
+  batch of 100,000 splices 57–66 ms. The first version split the tree several times a splice:
+  6.4–9.6 ms at 1000 cursors.
+- **`compose` drops empty splices,** given or made.
 - **Edits that wait for a stopped parse are one batch,** composed as they come. Past 4096
-  splices, or if they do not compose, the next parse starts from nothing.
+  splices, the first batch too, or if they do not compose, the next parse starts from nothing.
 
 ## Alternatives considered
 

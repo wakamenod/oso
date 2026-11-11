@@ -21,6 +21,9 @@ pub fn compose(first: &[Splice], then: &[Splice]) -> Option<Vec<Splice>> {
         if splice.start < end {
             return None;
         }
+        if splice.old_len == 0 && splice.new_len == 0 {
+            continue;
+        }
         let start = splice.start.checked_add_signed(shift)?;
         middle.push((
             start,
@@ -48,7 +51,9 @@ pub fn compose(first: &[Splice], then: &[Splice]) -> Option<Vec<Splice>> {
                 return None;
             }
             then_end = t.start.checked_add(t.old_len)?;
-            items.push((t.start, then_end, delta(t)?, false));
+            if t.old_len > 0 || t.new_len > 0 {
+                items.push((t.start, then_end, delta(t)?, false));
+            }
         }
     }
     let mut out: Vec<Splice> = Vec::new();
@@ -74,11 +79,14 @@ pub fn compose(first: &[Splice], then: &[Splice]) -> Option<Vec<Splice>> {
         let between = end - start;
         let old_len = between.checked_add_signed(-first_in)?;
         let new_len = between.checked_add_signed(then_in)?;
-        out.push(Splice {
-            start: old_start,
-            old_len,
-            new_len,
-        });
+        // A group whose text `then` took back out changed nothing.
+        if old_len > 0 || new_len > 0 {
+            out.push(Splice {
+                start: old_start,
+                old_len,
+                new_len,
+            });
+        }
         first_before = first_before.checked_add(first_in)?;
     }
     Some(out)

@@ -8,6 +8,7 @@
 use std::ops::Range;
 use std::slice;
 
+use super::highlighting::StagedHighlighting;
 use super::splice::{SpliceText, apply_group, apply_marking, normalized, offset_edit};
 use super::{Buffer, EditError, Replacement};
 use crate::display_map::wrap_map::Splice as WrapSplice;
@@ -35,6 +36,8 @@ pub(crate) struct StagedEdit {
     pub(super) undo: Batch,
     pub(super) changed: Vec<Range<usize>>,
     pub(super) rewrap: Rewrap,
+    /// What it does to highlighting, made on clones too (ADR 0111).
+    pub(super) highlighting: StagedHighlighting,
 }
 
 impl StagedEdit {
@@ -67,6 +70,7 @@ pub(crate) struct StagedCrossing {
     direction: Direction,
     crossed: Group,
     changed: Vec<Range<usize>>,
+    highlighting: StagedHighlighting,
 }
 
 impl StagedCrossing {
@@ -122,13 +126,16 @@ impl Buffer {
         let mut wraps = Vec::new();
         let collect = self.wraps.then_some(&mut wraps);
         let undo = apply_marking(splices, &mut text, &mut display, &mut changed, collect);
+        let edits: Vec<OffsetEdit> = splices.iter().map(offset_edit).collect();
+        let highlighting = self.stage_highlighting(slice::from_ref(&edits), text.len());
         StagedEdit {
             text,
             display,
-            edits: splices.iter().map(offset_edit).collect(),
+            edits,
             undo,
             changed,
             rewrap: Rewrap::Splices(wraps),
+            highlighting,
         }
     }
 
@@ -140,13 +147,12 @@ impl Buffer {
         opening: Opening,
         after: Option<SelectionSet>,
     ) {
-        let highlighting = self.highlighting.stage(staged.steps());
         let before = self.content;
         self.content = self.new_content();
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
-        self.highlighting.commit(self.revision, highlighting);
+        self.highlighting.commit(self.revision, staged.highlighting);
         if self.no_history {
             return;
         }
@@ -177,6 +183,7 @@ impl Buffer {
         let collect = self.wraps.then_some(&mut wraps);
         let (steps, batches, changed) =
             apply_group(&group.batches, &mut text, &mut display, collect);
+        let highlighting = self.stage_highlighting(&steps, text.len());
         Ok(StagedCrossing {
             text,
             display,
@@ -185,18 +192,18 @@ impl Buffer {
             direction,
             crossed: group.crossed(batches),
             changed,
+            highlighting,
         })
     }
 
     /// Puts a staged undo or redo in the buffer, and restores the content id
     /// of the state it returns to.
     pub(crate) fn commit_crossing(&mut self, staged: StagedCrossing) {
-        let highlighting = self.highlighting.stage(staged.steps());
         self.content = staged.crossed.source.content;
         self.text = staged.text;
         self.display = staged.display;
         self.revision += 1;
-        self.highlighting.commit(self.revision, highlighting);
+        self.highlighting.commit(self.revision, staged.highlighting);
         self.history.cross(staged.direction, staged.crossed);
         self.note_crossing();
     }

@@ -121,19 +121,54 @@ impl Highlights {
     /// Follows a batch of edits, as [`Splice`] says: replaced text goes, and new text takes the
     /// highlight of the byte before it, as Emacs's text is rear-sticky. At the buffer's start,
     /// and after a line break, which the worker leaves plain, it takes none. The next report
-    /// puts right what this guessed. O(log n) a splice.
+    /// puts right what this guessed.
+    ///
+    /// Each splice replaces the runs from the one before it to the one that holds its end, in
+    /// place where one leaf holds them, so a command's splices share the path they copy: O(log
+    /// n) a splice, with a few runs allocated.
     pub fn splice(&mut self, splices: &[Splice]) {
         for splice in splices.iter().rev() {
-            let guess = splice
-                .start
-                .checked_sub(1)
-                .and_then(|before| self.at(before));
-            let end = splice.start.saturating_add(splice.old_len);
-            let mut middle = Vec::new();
-            push_run(&mut middle, splice.new_len, guess);
-            let len = self.len();
-            self.put(splice.start.min(len)..end.min(len), middle);
+            if splice.old_len > 0 || splice.new_len > 0 {
+                self.splice_one(splice);
+            }
         }
+    }
+
+    fn splice_one(&mut self, splice: &Splice) {
+        let len = self.len();
+        let start = splice.start.min(len);
+        let end = splice
+            .start
+            .saturating_add(splice.old_len)
+            .clamp(start, len);
+        let mut cursor = self.runs.cursor::<usize>();
+        // The run that holds the byte before the splice, or the first run.
+        cursor.seek(&start.saturating_sub(1), Bias::Right);
+        let Some(&first) = cursor.item() else {
+            // An empty map.
+            let mut runs = Vec::new();
+            push_run(&mut runs, splice.new_len, None);
+            self.runs = runs.into_iter().collect();
+            return;
+        };
+        let span_start = *cursor.start();
+        let guess = if start == 0 { None } else { first.highlight };
+        let mut runs = Vec::with_capacity(3);
+        push_run(&mut runs, start - span_start, first.highlight);
+        push_run(&mut runs, splice.new_len, guess);
+        // To the run that holds the byte after the splice, which keeps its tail; a splice that
+        // ends at the end takes every run to it.
+        let span_end = if end < len {
+            cursor.seek(&end, Bias::Right);
+            let span_end = cursor.end();
+            if let Some(&last) = cursor.item() {
+                push_run(&mut runs, span_end - end, last.highlight);
+            }
+            span_end
+        } else {
+            len
+        };
+        self.runs.replace_items(span_start..span_end, runs);
     }
 
     /// Puts `middle`, runs with neighbours apart and none empty, in place of `range`, joining
