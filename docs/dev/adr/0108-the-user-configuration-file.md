@@ -1,6 +1,6 @@
 # 0108. The user configuration file
 
-- Status: Accepted
+- Status: Accepted, amended by 0110
 - Date: 2026-11-11
 
 ## Context
@@ -132,12 +132,6 @@ start = false                     # start it at launch (ADR 0085)
   entry is refused with a message. A plain rebinding of the same sequence needs nothing.
 - `where-is`, `M-x`'s binding annotations and the keymaps `M-x` judges commands by read the
   user layer over the global one, so a hidden default is never shown.
-- Erratum (2026-11-11, as built in step 1):
-  - an undefined sequence is still taken without Shift, as Emacs translates a key bound to nil,
-    and a prefix made where a key was unbound hides the defaults under it, as Emacs's fresh
-    prefix map does;
-  - a typing key left undefined is echoed as `<char> is undefined` in a passphrase prompt;
-  - `M-x` shows no default key that a user command on a shorter key cuts short.
 - Binding a `Person` command is allowed: a key is pressed by the person. The channel has no
   `send-keys` and runs commands by name, so no binding widens what it reaches, and no setting
   changes a command's reach.

@@ -9,7 +9,7 @@
 //! Emacs's `command-completion-default-include-p` does. The binding shown is the shortest
 //! in the layers active now that no higher layer shadows, and that no shorter part of it cuts
 //! short, as `where-is` finds it. A global binding the user's keys shadow binds nothing, so a
-//! command the user left without a key is listed with none (ADR 0108).
+//! command the user left without a key is listed with none (ADR 0108, ADR 0110).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

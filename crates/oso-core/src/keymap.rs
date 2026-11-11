@@ -105,7 +105,7 @@ impl Keymap {
     }
 
     /// Leaves `keys` undefined, so that a lower layer's binding of it, and of every longer
-    /// sequence it starts, is hidden (ADR 0108). On a prefix, the prefix stays, and hides
+    /// sequence it starts, is hidden (ADR 0108, ADR 0110). On a prefix, the prefix stays, and hides
     /// what lower layers bind under it that it does not. Unbinding twice changes nothing.
     ///
     /// Fails, and leaves the keymap unchanged, if `keys` is empty, bound to a command, or
@@ -436,7 +436,7 @@ impl KeyResolver {
             }
             Some(Binding::Prefix(_)) => Resolution::Pending,
             // An undefined sequence is taken without Shift as an unbound one is, as Emacs
-            // translates a key bound to nil.
+            // translates a key bound to nil (ADR 0110).
             Some(Binding::Undefined) | None => match self.unshift_last(layers, key) {
                 Some(Binding::Command(id)) => {
                     self.keys.clear();

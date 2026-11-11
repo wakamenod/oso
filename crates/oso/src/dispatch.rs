@@ -516,7 +516,7 @@ impl Dispatcher {
                         None
                     }
                 };
-                // Only the user's keys can leave a typing key undefined (ADR 0108). In a
+                // Only the user's keys can leave a typing key undefined (ADR 0110). In a
                 // passphrase prompt, its character is part of what is typed, and stays off
                 // the screen.
                 let hidden = editor
