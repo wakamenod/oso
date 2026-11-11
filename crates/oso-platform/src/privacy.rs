@@ -1,5 +1,6 @@
 //! Keeping what the editor holds private to its user: no core dumps, and a directory
-//! only the user can reach (ADR 0028, ADR 0062, ADR 0065).
+//! only the user can reach (ADR 0028, ADR 0062, ADR 0065). Also where oso's own state and
+//! configuration live, and who else can change a file read as the person's (ADR 0108).
 //!
 //! Must not depend on: `control`, `process` or `text`. `control` uses the checks here, so
 //! that the two kinds of private directory cannot drift apart.
@@ -40,6 +41,52 @@ pub fn disable_core_dumps() -> io::Result<()> {
 /// value counts. Asks the environment and not the disk.
 pub fn state_home() -> Option<PathBuf> {
     backend::state_home_from(&|name| std::env::var_os(name))
+}
+
+/// oso's configuration directory, asking the environment and not the disk:
+/// `$XDG_CONFIG_HOME/oso` when that is set and absolute, else `~/.config/oso`, on Linux and macOS,
+/// and `%APPDATA%\oso` on Windows (ADR 0108). `None` with no absolute base to go by.
+pub fn config_home() -> Option<PathBuf> {
+    backend::config_home_from(&|name| std::env::var_os(name))
+}
+
+/// Who besides this user and root can change a file or directory, by its mode and owner, as
+/// [`who_can_change`] tells, fewest first. Access lists are not read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Writers {
+    /// Only this user, or root.
+    Nobody,
+    /// The users of its group too.
+    Group,
+    /// Every user, or it is another user's own.
+    Anyone,
+}
+
+/// Who besides this user and root can change a file, and who can change the way to it.
+#[derive(Debug)]
+pub struct WhoCanChange {
+    /// The file's own [`Writers`].
+    pub file: Writers,
+    /// The most of any directory or link on the way to it, through every link: whoever can
+    /// change one can put another file in its place.
+    pub way: Writers,
+    /// The file's metadata, through links, to tell that a file opened later is the one judged.
+    pub metadata: std::fs::Metadata,
+}
+
+/// Who besides this user and root can change the file at `path`, an absolute one, and the way
+/// to it (ADR 0108, ADR 0110): every directory it passes through, as written and through
+/// every link, and every link's owner, from the root down, as the system walks it. In a
+/// directory every user may write that keeps each entry to its owner (sticky), an entry this
+/// user or root owns counts as no one else's. By mode and owner: every user if every user may
+/// write it or another user owns it, else a group if its group may.
+/// Windows has no modes to go by, and says [`Writers::Nobody`] for all of it.
+///
+/// # Errors
+///
+/// If something on the way cannot be looked at, is missing, or links too many times.
+pub fn who_can_change(path: &Path) -> io::Result<WhoCanChange> {
+    backend::who_can_change(path)
 }
 
 /// Whether a file with `metadata` is this user's. Windows has no such simple answer, and
@@ -475,6 +522,40 @@ mod tests {
                 check_dir(false, true, 501, mode, 501),
                 Err(DirProblem::LooseMode),
                 "{mode:o}"
+            );
+        }
+    }
+
+    #[test]
+    fn config_home_comes_from_the_environment_and_only_an_absolute_path_counts() {
+        use super::backend::config_home_from;
+        use std::path::PathBuf;
+        let home = |vars: &'static [(&'static str, &'static str)]| {
+            config_home_from(&|name| {
+                vars.iter()
+                    .find(|(var, _)| *var == name)
+                    .map(|(_, value)| value.into())
+            })
+        };
+        assert_eq!(home(&[]), None);
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                home(&[("APPDATA", r"C:\Users\me\AppData\Roaming")]),
+                Some(PathBuf::from(r"C:\Users\me\AppData\Roaming\oso"))
+            );
+            assert_eq!(home(&[("APPDATA", "relative")]), None);
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(
+                home(&[("XDG_CONFIG_HOME", "/x/conf"), ("HOME", "/home/me")]),
+                Some(PathBuf::from("/x/conf/oso"))
+            );
+            // A relative value does not count, and the home's .config is used, on macOS too.
+            assert_eq!(
+                home(&[("XDG_CONFIG_HOME", "conf"), ("HOME", "/home/me")]),
+                Some(PathBuf::from("/home/me/.config/oso"))
             );
         }
     }

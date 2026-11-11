@@ -5,8 +5,6 @@
 //! the loader's threads, never here, and what a look means is the editor's to decide.
 
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Sender};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use oso_core::buffer::{Baseline, Buffer, BufferId, ContentId, DiskState};
@@ -37,8 +35,6 @@ pub(super) struct Disk {
     fresh: bool,
     /// The buffers or their paths may have changed since the watcher was given them.
     files_changed: bool,
-    /// The thread that frees what reloads leave, or none if it could not start.
-    freer: Option<Sender<Box<dyn Send>>>,
 }
 
 /// How long a read may run before the message about the reloads done waits no longer for it:
@@ -52,26 +48,10 @@ impl Disk {
         if let Err(e) = &watcher {
             log::warn!("cannot watch files for changes on disk: {e}");
         }
-        let (freer, freed) = mpsc::channel::<Box<dyn Send>>();
-        // Freeing a large file's text can take longer than a frame, so it is done here.
-        let freer = thread::Builder::new()
-            .name("oso-free".into())
-            .spawn(move || freed.iter().for_each(drop))
-            .is_ok()
-            .then_some(freer);
         Self {
             watcher: watcher.ok(),
             files_changed: true,
-            freer,
             ..Self::default()
-        }
-    }
-
-    /// Drops `value` on the freeing thread, or here if it could not start.
-    fn free<T: Send + 'static>(&self, value: T) {
-        if let Some(freer) = &self.freer {
-            // A thread that has gone hands it back in the error, and it is dropped here.
-            drop(freer.send(Box::new(value)));
         }
     }
 
@@ -312,14 +292,14 @@ impl App {
             LoadUpdate::Judged => return false,
             // A reload sends its text whole.
             LoadUpdate::Snapshot(snapshot) => {
-                self.disk.free(snapshot);
+                self.freer.free(snapshot);
                 return false;
             }
         };
         // Where the opened file is could not be told, so its text would pair with a place a
         // save could not trust. It stays out, as a first load's would be refused a save.
         let Some(baseline) = baseline else {
-            self.disk.free(reloaded);
+            self.freer.free(reloaded);
             let message = format!(
                 "Not reloaded, as where its file leads could not be told as it was read: {name}"
             );
@@ -332,7 +312,7 @@ impl App {
         } else {
             self.editor.reload(id, *reloaded, read_from)
         };
-        self.disk.free(leftover);
+        self.freer.free(leftover);
         match outcome {
             ReloadOutcome::Reloaded | ReloadOutcome::Same => {
                 if let Some(buffer) = self.editor.buffer_mut(id) {

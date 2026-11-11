@@ -9,10 +9,6 @@ mod app;
 mod bindings;
 mod channel;
 mod commands;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the watcher that reads the file comes next")
-)]
 mod config;
 #[cfg(feature = "dev")]
 mod dev;
@@ -32,7 +28,7 @@ use app::App;
 use app::UserEvent;
 use emergency::Emergency;
 
-const USAGE: &str = "usage: oso [FILE]";
+const USAGE: &str = "usage: oso [--no-config] [FILE]";
 
 fn main() {
     let started = std::time::Instant::now();
@@ -67,10 +63,19 @@ fn main() {
     // A release build always uses the system's (ADR 0074).
     #[cfg(not(feature = "dev"))]
     let clipboard = oso_platform::clipboard::Source::System;
-    let file = match parse_args(args) {
+    #[cfg(feature = "dev")]
+    let (args, config_file) = dev::take_config_file(args);
+    #[cfg(not(feature = "dev"))]
+    let config_file = None;
+    let (file, read_config) = match parse_args(args) {
         Ok(Invocation::Help) => exit_with_usage(None),
-        Ok(Invocation::Open(file)) => file,
+        Ok(Invocation::Open { file, config }) => (file, config),
         Err(message) => exit_with_usage(Some(&message)),
+    };
+    let config_source = match (read_config, config_file) {
+        (false, _) => config::Source::Nothing,
+        (true, Some(file)) => config::Source::File(file),
+        (true, None) => config::Source::Home,
     };
 
     let log_gate = app::LogGate::install();
@@ -86,6 +91,7 @@ fn main() {
         .map(std::path::Path::to_path_buf);
     // Read while the event loop and the GPU start, and taken as the window opens.
     let theme_read = app::ThemeRead::start(theme_directory.clone());
+    let config_reader = config::Reader::start(&config_source);
     let emergency = Emergency::new(emergency_directory);
     emergency.install_hook();
     app::run(started, |waker| {
@@ -103,6 +109,7 @@ fn main() {
             theme_directory,
             theme_read,
         );
+        app.set_configuration(&config_source, config_reader);
         #[cfg(feature = "dev")]
         app.set_dev(dev);
         app.check_emergency_directory();
@@ -149,20 +156,27 @@ fn exit_with_usage(error: Option<&str>) -> ! {
 #[derive(Debug, PartialEq, Eq)]
 enum Invocation {
     Help,
-    /// Open the editor, visiting a file if one is given.
-    Open(Option<PathBuf>),
+    /// Open the editor, visiting a file if one is given, with the user configuration file unless
+    /// `--no-config` says not to (ADR 0108).
+    Open {
+        file: Option<PathBuf>,
+        config: bool,
+    },
 }
 
-/// Parses `oso [FILE]`. `--` ends the options, so a file named `-x` can be
+/// Parses `oso [--no-config] [FILE]`. `--` ends the options, so a file named `-x` can be
 /// opened as `oso -- -x`.
 fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Invocation, String> {
     let mut file = None;
+    let mut config = true;
     let mut options = true;
     for arg in args {
         if options && arg == "--" {
             options = false;
         } else if options && (arg == "-h" || arg == "--help") {
             return Ok(Invocation::Help);
+        } else if options && arg == "--no-config" {
+            config = false;
         } else if options && arg.to_string_lossy().starts_with('-') && arg != "-" {
             return Err(format!("unknown option {}", arg.to_string_lossy()));
         } else if file.is_some() {
@@ -171,7 +185,7 @@ fn parse_args(args: impl IntoIterator<Item = OsString>) -> Result<Invocation, St
             file = Some(PathBuf::from(arg));
         }
     }
-    Ok(Invocation::Open(file))
+    Ok(Invocation::Open { file, config })
 }
 
 #[cfg(test)]
@@ -183,18 +197,29 @@ mod tests {
         parse_args(args.iter().map(Into::into))
     }
 
+    fn open(file: Option<&str>, config: bool) -> Result<Invocation, String> {
+        Ok(Invocation::Open {
+            file: file.map(PathBuf::from),
+            config,
+        })
+    }
+
     #[test]
     fn parses_an_optional_file() {
-        assert_eq!(parse(&[]), Ok(Invocation::Open(None)));
-        assert_eq!(
-            parse(&["notes.md"]),
-            Ok(Invocation::Open(Some(PathBuf::from("notes.md"))))
-        );
-        assert_eq!(
-            parse(&["--", "-x"]),
-            Ok(Invocation::Open(Some(PathBuf::from("-x"))))
-        );
+        assert_eq!(parse(&[]), open(None, true));
+        assert_eq!(parse(&["notes.md"]), open(Some("notes.md"), true));
+        assert_eq!(parse(&["--", "-x"]), open(Some("-x"), true));
         assert_eq!(parse(&["--help"]), Ok(Invocation::Help));
+    }
+
+    #[test]
+    fn no_config_starts_with_the_defaults_in_every_build() {
+        assert_eq!(parse(&["--no-config"]), open(None, false));
+        assert_eq!(parse(&["--no-config", "a"]), open(Some("a"), false));
+        assert_eq!(
+            parse(&["--", "--no-config"]),
+            open(Some("--no-config"), true)
+        );
     }
 
     #[test]

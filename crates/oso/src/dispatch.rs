@@ -66,6 +66,8 @@ pub struct Dispatcher {
     /// The user's keymap given while a prefix key was pending, which goes in once none is
     /// (ADR 0108).
     user_waiting: Option<Keymap>,
+    /// The user's keymaps waiting ones replaced, for the caller to drop elsewhere.
+    replaced: Vec<Keymap>,
     /// The command that ran last, with no undefined or cancelled key since, and
     /// how many times in a row it had run before that.
     last: Option<(CommandId, usize)>,
@@ -120,6 +122,7 @@ impl Dispatcher {
             resolver: KeyResolver::new(),
             prefix: None,
             user_waiting: None,
+            replaced: Vec::new(),
             last: None,
             publisher: None,
             waiting: None,
@@ -210,12 +213,14 @@ impl Dispatcher {
         out
     }
 
-    /// Puts in the user's keymap that waited for a prefix key, once none is pending.
+    /// Puts in the user's keymap that waited for a prefix key, once none is pending. The one
+    /// it replaces waits in turn, for [`Dispatcher::take_replaced_keymap`].
     fn take_waiting_user(&mut self) {
         if self.resolver.pending().is_empty()
             && let Some(user) = self.user_waiting.take()
         {
-            self.keymaps.user = user;
+            let old = std::mem::replace(&mut self.keymaps.user, user);
+            self.replaced.push(old);
         }
     }
 
@@ -223,17 +228,25 @@ impl Dispatcher {
     /// those before; an empty keymap takes them away (ADR 0108). While a prefix key is
     /// pending, they wait for it to resolve, so that its next key reads the keymaps it
     /// started in.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the configuration's reader comes next (ADR 0108)")
-    )]
-    pub fn set_user_keymap(&mut self, user: Keymap) {
+    ///
+    /// Returns the keymap this replaces now, the one in force or one that was waiting, for the
+    /// caller to drop elsewhere: a large one takes milliseconds to drop. One that a waiting
+    /// keymap replaces later is kept for [`Dispatcher::take_replaced_keymap`].
+    pub fn set_user_keymap(&mut self, user: Keymap) -> Option<Keymap> {
         if self.resolver.pending().is_empty() {
-            self.keymaps.user = user;
-            self.user_waiting = None;
+            if let Some(stale) = self.user_waiting.take() {
+                self.replaced.push(stale);
+            }
+            Some(std::mem::replace(&mut self.keymaps.user, user))
         } else {
-            self.user_waiting = Some(user);
+            self.user_waiting.replace(user)
         }
+    }
+
+    /// A user's keymap that a waiting one replaced, once its prefix key resolved, for the
+    /// caller to drop elsewhere. Call it until it gives `None`.
+    pub fn take_replaced_keymap(&mut self) -> Option<Keymap> {
+        self.replaced.pop()
     }
 
     /// Whether the last input since this was last asked made the view jump, so the cursor

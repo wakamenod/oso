@@ -87,9 +87,9 @@ const CARGO_ENV: [&str; 16] = [
     "PKG_CONFIG_PATH",
 ];
 
-/// What an editor instance needs beyond the base set: its log filter, and how
-/// to reach the display and the control directory.
-const INSTANCE_ENV: [&str; 7] = [
+/// What an editor instance needs beyond the base set: its log filter, how to reach the display
+/// and the control directory, and where the person's configuration is (ADR 0108).
+const INSTANCE_ENV: [&str; 9] = [
     "RUST_LOG",
     "RUST_BACKTRACE",
     "DISPLAY",
@@ -97,6 +97,8 @@ const INSTANCE_ENV: [&str; 7] = [
     "WAYLAND_DISPLAY",
     "XDG_RUNTIME_DIR",
     "XDG_SESSION_TYPE",
+    "XDG_CONFIG_HOME",
+    "APPDATA",
 ];
 
 /// Runs `oso dev` if the first argument is `dev`, and returns its exit status.
@@ -134,15 +136,19 @@ fn run(args: Vec<OsString>) -> i32 {
     }
 }
 
-/// The arguments for the first instance. `None` means help was asked for.
+/// The arguments for the first instance. `None` means help was asked for. `--no-config` goes
+/// first, and to every instance after it.
 fn parse_args(args: Vec<OsString>) -> Result<Option<Vec<OsString>>, String> {
     let mut file = None;
+    let mut no_config = false;
     let mut options = true;
     for arg in args {
         if options && arg == "--" {
             options = false;
         } else if options && (arg == "-h" || arg == "--help") {
             return Ok(None);
+        } else if options && arg == NO_CONFIG {
+            no_config = true;
         } else if options && arg.to_string_lossy().starts_with('-') && arg != "-" {
             return Err(format!("unknown option {}", arg.to_string_lossy()));
         } else if file.is_some() {
@@ -151,9 +157,25 @@ fn parse_args(args: Vec<OsString>) -> Result<Option<Vec<OsString>>, String> {
             file = Some(arg);
         }
     }
-    Ok(Some(file.map_or_else(Vec::new, |file| {
-        vec![OsString::from("--"), file]
-    })))
+    let mut first: Vec<OsString> = no_config.then(|| NO_CONFIG.into()).into_iter().collect();
+    if let Some(file) = file {
+        first.extend([OsString::from("--"), file]);
+    }
+    Ok(Some(first))
+}
+
+/// The option that starts each instance with the defaults (ADR 0108).
+const NO_CONFIG: &str = "--no-config";
+
+/// The arguments for an instance after the first: `--no-config` if the first had it, and no file,
+/// as the handoff brings the buffers.
+fn restart_args(first: &[OsString]) -> Vec<OsString> {
+    first
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .filter(|arg| *arg == NO_CONFIG)
+        .cloned()
+        .collect()
 }
 
 fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
@@ -171,6 +193,7 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
     // Counts the builds that made a new binary, to tell who runs the newest.
     let mut newest = 0;
     let mut instances = Instances::new(Running::start(&binary, &first_args, &root, &dir, newest)?);
+    let later_args = restart_args(&first_args);
     let mut retry = false;
     log::info!("oso dev: watching the sources; a failed build keeps this instance");
     loop {
@@ -220,7 +243,8 @@ fn supervise(first_args: Vec<OsString>) -> io::Result<i32> {
             }
         };
         let build_time = started.elapsed();
-        let start = || Running::start(&binary, &[], &root, &dir, newest).map_err(|e| e.to_string());
+        let start =
+            || Running::start(&binary, &later_args, &root, &dir, newest).map_err(|e| e.to_string());
         retry = !restart(&mut instances, start);
         if !retry {
             log::info!(
@@ -726,5 +750,21 @@ mod tests {
         assert_eq!(parse(&["--help"]), Ok(None));
         assert!(parse(&["-q"]).unwrap_err().contains("unknown option"));
         assert!(parse(&["a", "b"]).unwrap_err().contains("only one"));
+    }
+
+    #[test]
+    fn no_config_goes_to_the_first_instance_and_every_one_after() {
+        let parse = |args: &[&str]| parse_args(args.iter().map(OsString::from).collect());
+        let os = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
+        let first = parse(&["a.txt", "--no-config"]).unwrap().unwrap();
+        assert_eq!(first, os(&["--no-config", "--", "a.txt"]));
+        assert_eq!(super::restart_args(&first), os(&["--no-config"]));
+        let plain = parse(&["a.txt"]).unwrap().unwrap();
+        assert!(super::restart_args(&plain).is_empty());
+        assert_eq!(
+            parse(&["--", "--no-config"]).unwrap().unwrap(),
+            os(&["--", "--no-config"]),
+            "a file of that name"
+        );
     }
 }

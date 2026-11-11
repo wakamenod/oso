@@ -8,6 +8,8 @@
 //! message from a command run around a buffer that may hold secrets, whatever the command
 //! is, since what it says can depend on the text, and one from a command that took such a
 //! buffer off the screen goes nowhere. The dispatcher marks where a command begins and ends.
+//! [`Editor::note`] reaches `*Messages*` and the log, and not the echo area, for lines one
+//! message sums up; around such a buffer it goes nowhere.
 //!
 //! What a command run in a prompt says goes in the prompt instead of the echo area, as
 //! the person looks there (ADR 0072). The echo area keeps its text until the next key. What was echoed around such a buffer,
@@ -112,6 +114,22 @@ impl Editor {
         // Last, so that the log and the echo area have it if this panics. Outside a command
         // that is a panic like any other: the hook writes the emergency copies, and the process
         // ends (ADR 0062). So nothing here may catch it. Inside one, the boundary catches it.
+        self.add_to_messages_buffer(&shown);
+    }
+
+    /// Adds a message to `*Messages*` and the log, and not to the echo area: one of several
+    /// that a single [`Editor::message`] sums up there, such as the problems in the
+    /// configuration file (ADR 0108). Like a message, it must never quote buffer text. From a
+    /// command run around a buffer that may hold secrets it goes nowhere, as a message would
+    /// reach only the echo area.
+    pub fn note(&mut self, text: impl Into<String>) {
+        if let Some(left_secret) = self.command_left_secret
+            && (left_secret || self.shows_secret() || self.passphrase_command)
+        {
+            return;
+        }
+        let shown = capped(log_text(&capped(text.into())));
+        log::info!("{shown}");
         self.add_to_messages_buffer(&shown);
     }
 
@@ -493,6 +511,61 @@ mod tests {
             echo(&editor),
             "cannot open a\nb\u{202e}c",
             "the echo area escapes them as it draws"
+        );
+    }
+
+    #[test]
+    fn a_note_from_a_command_around_a_secret_goes_nowhere() {
+        let mut editor = on_a_secret();
+        let before = messages_text(&editor);
+        editor.begin_command();
+        editor.note("about the secret");
+        editor.end_command();
+        assert_eq!(messages_text(&editor), before);
+        assert_eq!(echo(&editor), "");
+    }
+
+    #[test]
+    fn a_note_goes_to_the_messages_buffer_and_not_the_echo_area() {
+        let mut editor = Editor::default();
+        editor.message("first");
+        editor.note("a\u{202e}b");
+        assert_eq!(echo(&editor), "first");
+        assert_eq!(
+            messages_text(&editor),
+            "first\na\\u{202e}b\n",
+            "escaped as a message is"
+        );
+    }
+
+    /// What a configuration load with problems writes on the UI thread, 22 notes and one
+    /// message into a full `*Messages*`, stays well under a millisecond (ADR 0110). Run it by
+    /// hand in release: `cargo test --release -p oso-core notes_of_a -- --ignored`.
+    #[test]
+    #[ignore = "a timing to read, run by hand in release"]
+    fn notes_of_a_configuration_load_take_well_under_a_millisecond() {
+        use std::time::{Duration, Instant};
+        let mut editor = Editor::default();
+        for index in 0..MAX_MESSAGES {
+            editor.message(format!("{index}"));
+        }
+        let problem = format!(
+            "config.toml:3:11: \"C-c x\": no command is named \"{}\"",
+            "x".repeat(80)
+        );
+        let mut best = Duration::MAX;
+        for _ in 0..20 {
+            let start = Instant::now();
+            for _ in 0..22 {
+                editor.note(problem.as_str());
+            }
+            editor.message("Configuration: 22 problems, see *Messages*");
+            best = best.min(start.elapsed());
+        }
+        // A debug build is several times slower; the budget is a release build's.
+        assert!(
+            cfg!(debug_assertions) || best.as_micros() < 1000,
+            "22 notes and a message in {best:?}"
         );
     }
 

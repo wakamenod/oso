@@ -1,4 +1,5 @@
-//! The private directory and the core dump limit on Unix.
+//! The private directory, the core dump limit, where state and configuration live, and who else
+//! can change a file, on Unix.
 //!
 //! Must not depend on: `control`, `process` or `text`.
 
@@ -10,8 +11,9 @@ use std::os::unix::fs::{DirBuilderExt, MetadataExt};
 use std::path::{Component, Path, PathBuf};
 
 use super::{
-    DirProblem, ancestor_is_safe, check_dir, list_stops_making, list_stops_the_way,
-    list_stops_writing, own_list_problem, parent_list_problem, way_list_problem,
+    DirProblem, WhoCanChange, Writers, ancestor_is_safe, check_dir, list_stops_making,
+    list_stops_the_way, list_stops_writing, own_list_problem, parent_list_problem,
+    way_list_problem,
 };
 use crate::file_meta::{AccessEntry, directory_access_list};
 
@@ -70,6 +72,101 @@ pub(super) fn state_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<
     match absolute("XDG_STATE_HOME") {
         Some(base) => Some(base),
         None => Some(absolute("HOME")?.join(".local").join("state")),
+    }
+}
+
+/// oso's configuration directory: `$XDG_CONFIG_HOME/oso` or `~/.config/oso`, on macOS too, as
+/// most dotfile setups and cross-platform tools have it (ADR 0108). Only an absolute value counts.
+pub(super) fn config_home_from(var: &dyn Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let absolute = |name: &str| {
+        var(name)
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute())
+    };
+    match absolute("XDG_CONFIG_HOME") {
+        Some(base) => Some(base.join("oso")),
+        None => Some(absolute("HOME")?.join(".config").join("oso")),
+    }
+}
+
+/// Who besides this user and root can change the file at `path` and the way to it: each entry
+/// on the way, from the root, is judged with the directory it is in, as [`walk_the_way`] walks
+/// a private directory's.
+pub(super) fn who_can_change(path: &Path) -> io::Result<WhoCanChange> {
+    let euid = euid();
+    let mut steps: VecDeque<Step> = steps_of(path, false);
+    let mut current = PathBuf::new();
+    // Who can change what is in `current`, and whether it keeps each entry to its owner.
+    let mut holder: Option<(Writers, bool)> = None;
+    let mut way = Writers::Nobody;
+    let mut links = 0;
+    while let Some(step) = steps.pop_front() {
+        if step.part == ".." {
+            current.pop();
+            let meta = fs::symlink_metadata(&current)
+                .map_err(|e| with_path(&e, "cannot inspect", &current))?;
+            holder = Some(holding(&meta, euid));
+            continue;
+        }
+        let next = current.join(&step.part);
+        if next.parent().is_none() {
+            // A root, from the path or a link's target: the walk starts again there.
+            holder = None;
+        }
+        let meta =
+            fs::symlink_metadata(&next).map_err(|e| with_path(&e, "cannot inspect", &next))?;
+        if let Some((writers, sticky)) = holder {
+            let owned = meta.uid() == euid || meta.uid() == 0;
+            if !(sticky && owned) {
+                way = way.max(writers);
+            }
+        }
+        let last = steps.is_empty();
+        if meta.file_type().is_symlink() {
+            // A link's own mode means nothing, but its owner can change where it leads.
+            way = way.max(writers(0o700, meta.uid(), euid));
+            links += 1;
+            if links > MAX_LINKS {
+                return Err(refused(&next, "is one link too many"));
+            }
+            let target = fs::read_link(&next).map_err(|e| with_path(&e, "cannot read", &next))?;
+            for step in steps_of(&target, true).into_iter().rev() {
+                steps.push_front(step);
+            }
+        } else if last {
+            return Ok(WhoCanChange {
+                file: writers(meta.mode(), meta.uid(), euid),
+                way,
+                metadata: meta,
+            });
+        } else if meta.is_dir() {
+            holder = Some(holding(&meta, euid));
+            current = next;
+        } else {
+            return Err(refused(&next, "is not a directory"));
+        }
+    }
+    Err(refused(path, "leads to no file"))
+}
+
+/// Who can change what is in a directory with `meta`, and whether it keeps each entry to its
+/// owner.
+fn holding(meta: &fs::Metadata, euid: u32) -> (Writers, bool) {
+    (
+        writers(meta.mode(), meta.uid(), euid),
+        meta.mode() & 0o1000 != 0,
+    )
+}
+
+/// Who besides this user and root can change a file or directory with `mode` and `owner`, as
+/// user `euid`.
+fn writers(mode: u32, owner: u32, euid: u32) -> Writers {
+    if (owner != euid && owner != 0) || mode & 0o002 != 0 {
+        Writers::Anyone
+    } else if mode & 0o020 != 0 {
+        Writers::Group
+    } else {
+        Writers::Nobody
     }
 }
 
@@ -1095,6 +1192,97 @@ mod tests {
             assert!(PrivateDir::open(path.join("inner")).is_err());
             assert!(!path.join("inner").exists());
         }
+    }
+
+    /// A file of this user's, mode 0644, at `path`.
+    fn own_file(path: &Path) {
+        fs::write(path, b"").unwrap();
+        fs::set_permissions(path, Permissions::from_mode(0o644)).unwrap();
+    }
+
+    /// A directory of this user's at `path`, with `mode`.
+    fn own_dir(path: &Path, mode: u32) {
+        fs::create_dir(path).unwrap();
+        fs::set_permissions(path, Permissions::from_mode(mode)).unwrap();
+    }
+
+    #[test]
+    fn who_can_change_a_file_goes_by_every_directory_and_link_on_the_way() {
+        use super::{Writers, who_can_change};
+        use std::os::unix::fs::symlink;
+        let scratch = Scratch::new();
+        let safe = scratch.join("safe");
+        own_dir(&safe, 0o755);
+        let file = safe.join("config.toml");
+        own_file(&file);
+        let found = who_can_change(&file).unwrap();
+        assert_eq!((found.file, found.way), (Writers::Nobody, Writers::Nobody));
+
+        // A directory every user may write, holding a link to a safe directory.
+        let shared = scratch.join("shared");
+        own_dir(&shared, 0o777);
+        symlink(&safe, shared.join("oso")).unwrap();
+        let through = who_can_change(&shared.join("oso/config.toml")).unwrap();
+        assert_eq!(through.way, Writers::Anyone, "the link's directory");
+        assert_eq!(through.file, Writers::Nobody);
+
+        // A chain of links, one of them in such a directory.
+        let first = scratch.join("first");
+        symlink(shared.join("second"), &first).unwrap();
+        symlink(&file, shared.join("second")).unwrap();
+        assert_eq!(
+            who_can_change(&first).unwrap().way,
+            Writers::Anyone,
+            "a middle link's"
+        );
+
+        // Such a directory above the one holding the file.
+        let deep = shared.join("deep");
+        own_dir(&deep, 0o755);
+        let below = deep.join("config.toml");
+        own_file(&below);
+        assert_eq!(
+            who_can_change(&below).unwrap().way,
+            Writers::Anyone,
+            "a grandparent"
+        );
+
+        // A link to a directory, in one its group may write.
+        let group = scratch.join("group");
+        own_dir(&group, 0o775);
+        symlink(&safe, group.join("oso")).unwrap();
+        let grouped = who_can_change(&group.join("oso/config.toml")).unwrap();
+        assert_eq!(grouped.way, Writers::Group);
+
+        // One that keeps each entry to its owner: this user's own entry is no one else's.
+        let sticky = scratch.join("sticky");
+        own_dir(&sticky, 0o1777);
+        let kept = sticky.join("config.toml");
+        own_file(&kept);
+        assert_eq!(who_can_change(&kept).unwrap().way, Writers::Nobody);
+
+        for path in [&shared, &group, &sticky] {
+            fs::set_permissions(path, Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+
+    #[test]
+    fn who_else_can_write_goes_by_the_owner_and_the_group_and_others_bits() {
+        use super::{Writers, writers};
+        assert_eq!(writers(0o644, 501, 501), Writers::Nobody);
+        assert_eq!(writers(0o755, 0, 501), Writers::Nobody, "root's own");
+        assert_eq!(writers(0o664, 501, 501), Writers::Group);
+        assert_eq!(writers(0o646, 501, 501), Writers::Anyone);
+        assert_eq!(
+            writers(0o1777, 0, 501),
+            Writers::Anyone,
+            "sticky is still every user's"
+        );
+        assert_eq!(
+            writers(0o600, 502, 501),
+            Writers::Anyone,
+            "another user's own"
+        );
     }
 
     #[test]

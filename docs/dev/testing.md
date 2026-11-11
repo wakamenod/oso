@@ -350,6 +350,11 @@ the dev control socket ([ADR 0023](adr/0023-control-socket-protocol-and-restart.
 - `dev-panic` panics on the UI thread outside the command boundary, and `dev-end-unasked` ends the event loop with nobody having agreed to it. The command `dev-panic`
   panics under the boundary. Each panic's message quotes the buffer's text, to show that it goes nowhere
   ([ADR 0062](adr/0062-emergency-save-and-the-panic-hook.md)). `--emergency-dir DIR`, as a dev build's first argument, sends the copies elsewhere, and the harness always passes it.
+- The harness passes `--no-config`, so no flow reads the person's configuration file, or
+  `--config FILE`, a dev build's, after `--emergency-dir` and `--clipboard`, for the flows of the
+  configuration itself ([ADR 0108](adr/0108-the-user-configuration-file.md)). `just perf` gives
+  each instance an empty configuration directory of its own through `XDG_CONFIG_HOME`, or one
+  holding the file `OSO_PERF_CONFIG` names.
 - Secret-pattern buffers give no text, no screenshot and no positions
   ([ADR 0044](adr/0044-control-socket-trust-and-secret-buffers.md),
   [ADR 0051](adr/0051-m2-plan-decisions.md)). While one is shown, `get-state` gives no

@@ -2,42 +2,10 @@
 //!
 //! Must not depend on: the editor; these make files and ask the check.
 
-use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
 
-use super::{config_home_from, is_inside};
+use super::is_inside;
 use crate::saver::tests::Scratch;
-
-#[test]
-fn the_directory_comes_from_the_environment_only() {
-    let vars = |pairs: &'static [(&'static str, &'static str)]| {
-        move |name: &str| {
-            pairs
-                .iter()
-                .find(|(key, _)| *key == name)
-                .map(|(_, value)| OsString::from(value))
-        }
-    };
-    if cfg!(windows) {
-        let found = config_home_from(&vars(&[("APPDATA", r"C:\Users\me\AppData\Roaming")]));
-        assert_eq!(
-            found,
-            Some(PathBuf::from(r"C:\Users\me\AppData\Roaming\oso"))
-        );
-        assert_eq!(config_home_from(&vars(&[("APPDATA", "relative")])), None);
-        return;
-    }
-    let xdg = config_home_from(&vars(&[
-        ("XDG_CONFIG_HOME", "/x/conf"),
-        ("HOME", "/home/me"),
-    ]));
-    assert_eq!(xdg, Some(PathBuf::from("/x/conf/oso")));
-    // A relative value does not count, and the home's .config is used.
-    let relative = config_home_from(&vars(&[("XDG_CONFIG_HOME", "conf"), ("HOME", "/home/me")]));
-    assert_eq!(relative, Some(PathBuf::from("/home/me/.config/oso")));
-    assert_eq!(config_home_from(&vars(&[])), None);
-}
 
 #[test]
 fn a_file_in_the_directory_or_below_it_is_inside_and_one_beside_it_is_not() {
@@ -117,7 +85,7 @@ fn an_agents_save_into_the_directory_is_refused_and_writes_nothing() {
     fs::create_dir(&config).unwrap();
     let file = config.join("config.toml");
     fs::write(&file, b"theme = \"dusk\"\n").unwrap();
-    let report = run_for_agent(save_of(&file, "agent = 1\n"), Some(&config));
+    let report = run_for_agent(save_of(&file, "agent = 1\n"), std::slice::from_ref(&config));
     assert!(matches!(report.outcome, Err(SaveError::IntoConfiguration)));
     assert!(report.agent_failure().unwrap().starts_with("refused:"));
     assert_eq!(
@@ -125,9 +93,15 @@ fn an_agents_save_into_the_directory_is_refused_and_writes_nothing() {
         b"theme = \"dusk\"\n",
         "nothing written"
     );
+    // Each directory counts: the person's, and the one `--config` names.
+    let other = scratch.path().join("e2e");
+    fs::create_dir(&other).unwrap();
+    let both = [other, config.clone()];
+    let report = run_for_agent(save_of(&file, "agent = 1\n"), &both);
+    assert!(matches!(report.outcome, Err(SaveError::IntoConfiguration)));
     // Outside it, the save goes on as any other, and the agent hears no failure.
     let notes = scratch.file("notes.md", b"old\n");
-    let report = run_for_agent(save_of(&notes, "new\n"), Some(&config));
+    let report = run_for_agent(save_of(&notes, "new\n"), std::slice::from_ref(&config));
     assert!(report.outcome.is_ok(), "{:?}", report.outcome);
     assert_eq!(report.agent_failure(), None);
     assert_eq!(fs::read(&notes).unwrap(), b"new\n");
@@ -147,7 +121,10 @@ fn a_file_kept_elsewhere_and_linked_into_the_directory_is_refused_by_either_name
     let link = config.join("config.toml");
     std::os::unix::fs::symlink(&real, &link).unwrap();
     for opened in [&link, &real] {
-        let report = run_for_agent(save_of(opened, "agent = 1\n"), Some(&config));
+        let report = run_for_agent(
+            save_of(opened, "agent = 1\n"),
+            std::slice::from_ref(&config),
+        );
         assert!(
             matches!(report.outcome, Err(SaveError::IntoConfiguration)),
             "{}: {:?}",
@@ -198,7 +175,7 @@ fn a_write_to_a_new_place_is_judged_where_it_would_go() {
         open: Vec::new(),
         name: "config.toml".into(),
     });
-    let report = run_for_agent(job, Some(&config));
+    let report = run_for_agent(job, std::slice::from_ref(&config));
     assert!(matches!(report.outcome, Err(SaveError::IntoConfiguration)));
     assert!(!config.join("config.toml").exists());
 }

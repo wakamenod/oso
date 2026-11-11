@@ -5,7 +5,7 @@
 //! the process and the socket.
 
 use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Stdio};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -30,12 +30,26 @@ pub struct App {
     next_id: u64,
     /// Wall-clock microseconds just before the process was started.
     spawned_unix_us: u64,
+    /// The configuration directory it was given, removed when this is dropped.
+    config_home: PathBuf,
 }
 
 impl App {
-    /// Starts `exe`, visiting `file` if given, and connects to its socket.
+    /// Starts `exe`, visiting `file` if given, and connects to its socket. Its configuration
+    /// directory is one of its own, so that the person's file never changes what is measured
+    /// (ADR 0108): empty, as for a person with no file, or holding the file `OSO_PERF_CONFIG`
+    /// names, to measure with. An environment variable and not an option, so that a base built
+    /// before the configuration was read runs the same.
     pub fn start(exe: &Path, file: Option<&Path>) -> Result<Self, String> {
+        let config_home = config_home()?;
         let mut command = process::command(exe);
+        // Where `oso_platform::privacy::config_home` looks.
+        let variable = if cfg!(windows) {
+            "APPDATA"
+        } else {
+            "XDG_CONFIG_HOME"
+        };
+        command.env(variable, &config_home);
         if let Some(file) = file {
             command.arg("--").arg(file);
         }
@@ -48,14 +62,19 @@ impl App {
                 .as_micros(),
         )
         .unwrap_or(u64::MAX);
-        let mut child = command
-            .spawn()
-            .map_err(|e| format!("cannot start {}: {e}", exe.display()))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&config_home);
+                return Err(format!("cannot start {}: {e}", exe.display()));
+            }
+        };
         let stream = match connect(&mut child) {
             Ok(stream) => stream,
             Err(e) => {
                 let _ = child.kill();
                 let _ = child.wait();
+                let _ = std::fs::remove_dir_all(&config_home);
                 return Err(e);
             }
         };
@@ -68,6 +87,7 @@ impl App {
             writer: stream,
             next_id: 1,
             spawned_unix_us,
+            config_home,
         })
     }
 
@@ -168,7 +188,44 @@ impl Drop for App {
         // Does nothing if it has exited.
         let _ = self.child.kill();
         let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.config_home);
     }
+}
+
+/// A configuration directory of the harness's own, as `XDG_CONFIG_HOME`: `oso/config.toml` in it
+/// is a copy of the file `OSO_PERF_CONFIG` names, or missing.
+fn config_home() -> Result<PathBuf, String> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let home = std::env::temp_dir().join(format!("oso-perf-config-{}-{now}", std::process::id()));
+    let directory = home.join("oso");
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&directory)
+        .map_err(|e| format!("cannot make {}: {e}", directory.display()))?;
+    // Modes that oso reads whatever the umask: only this user may change the way to the file.
+    set_mode(&home, 0o700)?;
+    set_mode(&directory, 0o700)?;
+    if let Some(config) = std::env::var_os("OSO_PERF_CONFIG") {
+        let file = directory.join("config.toml");
+        std::fs::copy(&config, &file).map_err(|e| format!("cannot copy OSO_PERF_CONFIG: {e}"))?;
+        set_mode(&file, 0o644)?;
+    }
+    Ok(home)
+}
+
+/// Gives `path` `mode`, on systems with modes.
+fn set_mode(path: &Path, mode: u32) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .map_err(|e| format!("cannot set the mode of {}: {e}", path.display()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+    Ok(())
 }
 
 fn connect(child: &mut Child) -> Result<ControlStream, String> {

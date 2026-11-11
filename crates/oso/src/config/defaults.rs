@@ -93,7 +93,7 @@ impl<'a> Shadows<'a> {
                     entry.spelled,
                     format_args!(
                         "{} begins the keys under {} by default, without Shift; this makes it a \
-                         prefix of its own and hides those {}",
+                         prefix of its own and hides the {} there",
                         quoted(display_keys(&keys[..*len])),
                         quoted(display_keys(without)),
                         DefaultKeys(under),
@@ -120,7 +120,7 @@ impl<'a> Shadows<'a> {
                 entry.at,
                 entry.spelled,
                 format_args!(
-                    "begins the keys under {} by default, without Shift; this hides those {}",
+                    "begins the keys under {} by default, without Shift; this hides the {} there",
                     quoted(display_keys(&without)),
                     DefaultKeys(under),
                 ),

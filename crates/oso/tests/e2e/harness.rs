@@ -112,7 +112,7 @@ fn oso() -> Executable {
 /// and no runtime directory leave winit nothing to connect to.
 #[cfg(target_os = "linux")]
 pub fn start_without_a_window_system(cwd: &Path) -> (ExitStatus, String) {
-    let args: Vec<OsString> = vec!["--clipboard".into(), "memory".into()];
+    let args: Vec<OsString> = vec!["--clipboard".into(), "memory".into(), "--no-config".into()];
     let mut child = spawn(&Spawn {
         executable: &oso(),
         args: &args,
@@ -153,8 +153,18 @@ pub struct App {
 impl App {
     /// Starts an instance, visiting `file` if given, running in `cwd`, and
     /// connects to its socket. Its emergency copies go in `cwd`, whatever happens to
-    /// it, and never among the real ones, and its clipboard is in memory.
+    /// it, and never among the real ones, its clipboard is in memory, and it reads no
+    /// configuration file.
     pub fn start(file: Option<&Path>, cwd: &Path) -> Self {
+        Self::launch(file, cwd, None)
+    }
+
+    /// [`App::start`], reading the configuration from `config` (ADR 0108).
+    pub fn start_with_config(file: Option<&Path>, cwd: &Path, config: &Path) -> Self {
+        Self::launch(file, cwd, Some(config))
+    }
+
+    fn launch(file: Option<&Path>, cwd: &Path, config: Option<&Path>) -> Self {
         let mut args: Vec<OsString> = vec![
             "--emergency-dir".into(),
             emergency_dir(cwd).into_os_string(),
@@ -162,6 +172,11 @@ impl App {
             "--clipboard".into(),
             "memory".into(),
         ];
+        // Never the person's configuration either (ADR 0108).
+        match config {
+            Some(config) => args.extend(["--config".into(), config.as_os_str().to_owned()]),
+            None => args.push("--no-config".into()),
+        }
         args.extend(
             file.iter()
                 .flat_map(|file| [OsString::from("--"), file.into()]),

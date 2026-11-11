@@ -17,6 +17,7 @@ use oso_core::window::WheelRemainder;
 mod agent;
 mod clipboard;
 mod completions;
+mod configuration;
 #[cfg(feature = "dev")]
 mod control;
 mod copies;
@@ -67,6 +68,8 @@ pub enum UserEvent {
     Save(SaveReport),
     /// The watcher saw open files change on disk (ADR 0083).
     Watch,
+    /// The configuration's thread has found something new in the file (ADR 0108).
+    Configuration,
     /// No emergency copy could be written, for this reason (ADR 0062).
     NoEmergencyCopies(String),
     /// A thread working on the emergency copies on offer has something to say (ADR 0064).
@@ -115,6 +118,11 @@ pub struct App {
     loads: Vec<Load>,
     /// What is known of open files on disk, and the thread that looks at them.
     disk: reloads::Disk,
+    /// The user configuration file's thread, and what has been said of the file (ADR 0108).
+    configuration: configuration::Configuration,
+    /// Drops what the UI thread is done with and would take long to drop: a reloaded file's
+    /// text, a replaced user keymap.
+    freer: Freer,
     /// An exit waiting for running saves, once this instance has agreed to go.
     leaving: Leaving,
     /// What the panic hook and the end of the event loop write (ADR 0062).
@@ -173,6 +181,29 @@ pub struct App {
     handover: handover::Handover,
 }
 
+/// The thread that drops what the UI thread is done with, or none if it could not start.
+struct Freer(Option<std::sync::mpsc::Sender<Box<dyn Send>>>);
+
+impl Freer {
+    fn start() -> Self {
+        let (freer, freed) = std::sync::mpsc::channel::<Box<dyn Send>>();
+        // Freeing a large file's text can take longer than a frame, so it is done there.
+        let started = std::thread::Builder::new()
+            .name("oso-free".into())
+            .spawn(move || freed.iter().for_each(drop))
+            .is_ok();
+        Self(started.then_some(freer))
+    }
+
+    /// Drops `value` on the freeing thread, or here if it could not start.
+    fn free<T: Send + 'static>(&self, value: T) {
+        if let Some(freer) = &self.0 {
+            // A thread that has gone hands it back in the error, and it is dropped here.
+            drop(freer.send(Box::new(value)));
+        }
+    }
+}
+
 impl App {
     /// An app with no window yet, showing `*scratch*`, with the clipboard of `source`.
     /// Loading threads and the clipboard report through `waker`, and `log_gate` is the
@@ -209,6 +240,8 @@ impl App {
             waker,
             loads: Vec::new(),
             disk,
+            configuration: configuration::Configuration::default(),
+            freer: Freer::start(),
             leaving,
             emergency,
             offer,

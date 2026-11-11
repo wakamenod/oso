@@ -14,7 +14,7 @@ often, so it must rebuild within 2 s.
   a module in `src/commands/` and, if it has default keys, one of the same name
   in `src/bindings/`.
 - `src/app.rs` holds the app's state and what its concerns share, and `src/app/`
-  the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`,
+  the concerns: `shell` runs winit, or `native` oso's own layer (ADR 0070), `events` routes, `input`, `ime`, `draw`, `configuration`,
   `loads`, `reloads`, `saves`, `copies`, `clipboard`, `searches`, `wraps` and `flash` do the work, `control`
   answers the dev socket, and `handover` exports and imports the state of an `oso dev` restart.
 - `src/emergency.rs` and `src/emergency/` hold the panic hook and the emergency copies

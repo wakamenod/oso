@@ -5,8 +5,8 @@
 //! Must not depend on: `app`, `dispatch` or winit; the dispatcher takes the keymap it builds.
 //!
 //! [`parse`] and the files under it do no I/O: text in, a finished value out, so they run on any
-//! thread and their tests need no files. The thread that reads and watches the file joins them
-//! here in ADR 0108's next step.
+//! thread and their tests need no files. `watch` is the thread that reads the file, at start and
+//! when it changes, and parses it.
 //!
 //! - A syntax error rejects the whole file: no keys and no settings, and every syntax error is
 //!   a problem.
@@ -15,8 +15,11 @@
 
 mod defaults;
 mod keys;
+mod outcome;
 mod problems;
 mod settings;
+mod source;
+mod watch;
 
 use std::fmt;
 
@@ -25,8 +28,13 @@ use oso_core::keymap::Keymap;
 use toml::Spanned;
 use toml::de::{DeTable, DeValue};
 
+pub use outcome::outcome;
 pub use problems::Problem;
 pub use settings::Settings;
+#[cfg(test)]
+pub use source::FILE_NAME;
+pub use source::Source;
+pub use watch::{Reader, Report};
 
 use problems::{Found, MAX_QUOTED, quoted};
 
@@ -37,6 +45,10 @@ pub struct Loaded {
     /// then nothing in it applies: what was in force stays (ADR 0108).
     pub keys: Option<Keymap>,
     /// The settings the file gives. All unset if it was rejected.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "ADR 0108's next step applies the settings")
+    )]
     pub settings: Settings,
     /// What is wrong, in the order of the file: the first [`MAX_PROBLEMS`](problems::MAX_PROBLEMS)
     /// problems.
@@ -47,6 +59,7 @@ pub struct Loaded {
 
 impl Loaded {
     /// Whether a syntax error rejected the whole file.
+    #[cfg(test)]
     pub fn rejected(&self) -> bool {
         self.keys.is_none()
     }
