@@ -7,7 +7,9 @@
 //! A command that reads the key that ran it is left out, and so is one bound only in a
 //! keymap that is not active beneath the prompt, such as a question's `answer-yes`, as
 //! Emacs's `command-completion-default-include-p` does. The binding shown is the shortest
-//! in the layers active now that no higher layer shadows, as `where-is` finds it.
+//! in the layers active now that no higher layer shadows, and that no shorter part of it cuts
+//! short, as `where-is` finds it. A global binding the user's keys shadow binds nothing, so a
+//! command the user left without a key is listed with none (ADR 0108, ADR 0110).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -15,7 +17,8 @@ use std::sync::Arc;
 use oso_core::command::{ArgSpec, CommandId, Prefix};
 use oso_core::complete::Candidate;
 use oso_core::editor::Editor;
-use oso_core::keymap::{Binding, display_keys};
+use oso_core::key::KeyPress;
+use oso_core::keymap::{Binding, CANCEL, Layers, display_keys};
 
 use super::Dispatcher;
 
@@ -28,7 +31,7 @@ impl Dispatcher {
         let mut shortest: HashMap<CommandId, (usize, String)> = HashMap::new();
         for keymap in layers.iter() {
             keymap.bindings(|keys, id| {
-                if layers.lookup(keys) != Some(Binding::Command(id)) {
+                if !reaches(&layers, keys, id) {
                     return;
                 }
                 let text = display_keys(keys).to_string();
@@ -42,9 +45,16 @@ impl Dispatcher {
             });
         }
         let mut bound = HashSet::new();
+        let over_global = Layers {
+            user: self.keymaps.user(),
+            ..Layers::global(&self.keymaps.global)
+        };
         for keymap in self.keymaps.all() {
-            keymap.bindings(|_, id| {
-                bound.insert(id);
+            let global = std::ptr::eq(keymap, &self.keymaps.global);
+            keymap.bindings(|keys, id| {
+                if !global || reaches(&over_global, keys, id) {
+                    bound.insert(id);
+                }
             });
         }
         self.registry
@@ -58,6 +68,30 @@ impl Dispatcher {
             })
             .collect()
     }
+}
+
+/// Whether `keys` run `id` in `layers`, as the resolver reads them a key at a time: no shorter
+/// part of them is bound to a command or left undefined, and `C-g` comes only first, where the
+/// user's keys do not bind it (ADR 0108).
+fn reaches(layers: &Layers<'_>, keys: &[KeyPress], id: CommandId) -> bool {
+    let cancels = |key: &KeyPress| *key == CANCEL || key.unshifted() == Some(CANCEL);
+    let Some((first, rest)) = keys.split_first() else {
+        return false;
+    };
+    if rest.iter().any(cancels) {
+        return false;
+    }
+    let layers = &Layers {
+        user: layers.user.filter(|_| !cancels(first)),
+        ..*layers
+    };
+    layers.lookup(keys) == Some(Binding::Command(id))
+        && (1..keys.len()).all(|len| {
+            !matches!(
+                layers.lookup(&keys[..len]),
+                Some(Binding::Command(_) | Binding::Undefined)
+            )
+        })
 }
 
 /// `prompt` with the prefix argument it passes on before it, as Emacs's `M-x` says it:
