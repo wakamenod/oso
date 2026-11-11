@@ -77,6 +77,9 @@ pub struct Dispatcher {
     completion_held: Option<held::HeldTake>,
     /// Whether the last input made the cursor flash, until the host takes it (ADR 0097).
     jump: Option<bool>,
+    /// A command ran for the agent channel since the host last asked: what it queued is the
+    /// agent's, so the saves it queued are checked as the channel's (ADR 0108).
+    ran_for_agent: bool,
 }
 
 impl Dispatcher {
@@ -118,7 +121,14 @@ impl Dispatcher {
             from_socket: false,
             completion_held: None,
             jump: None,
+            ran_for_agent: false,
         }
+    }
+
+    /// Whether a command ran for the agent channel since this was last asked, so that the
+    /// saves it queued are the agent's (ADR 0108).
+    pub fn take_ran_for_agent(&mut self) -> bool {
+        std::mem::take(&mut self.ran_for_agent)
     }
 
     /// Keeps the emergency save up to date through `publisher`.
