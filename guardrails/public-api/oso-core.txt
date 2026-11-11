@@ -41,7 +41,11 @@ pub enum oso_core::buffer::Mode
 pub oso_core::buffer::Mode::CopyList
 pub oso_core::buffer::Mode::CopyView
 pub oso_core::buffer::Mode::Fundamental
+pub oso_core::buffer::Mode::Markdown
+pub oso_core::buffer::Mode::Rust
+pub oso_core::buffer::Mode::Toml
 impl oso_core::buffer::Mode
+pub fn oso_core::buffer::Mode::for_path(&std::path::Path) -> Self
 pub fn oso_core::buffer::Mode::name(self) -> &'static str
 pub fn oso_core::buffer::Mode::shows_copies(self) -> bool
 impl core::clone::Clone for oso_core::buffer::Mode
@@ -2742,6 +2746,20 @@ impl oso_core::sum_tree::Summary for oso_core::display_map::tab_map::TabSummary
 pub fn oso_core::display_map::tab_map::TabSummary::add_summary(&mut self, &Self)
 impl oso_core::sum_tree::Summary for oso_core::rope::TextSummary
 pub fn oso_core::rope::TextSummary::add_summary(&mut self, &Self)
+pub mod oso_core::syntax
+pub struct oso_core::syntax::Splice
+pub oso_core::syntax::Splice::new_len: usize
+pub oso_core::syntax::Splice::old_len: usize
+pub oso_core::syntax::Splice::start: usize
+impl core::clone::Clone for oso_core::syntax::Splice
+pub fn oso_core::syntax::Splice::clone(&self) -> oso_core::syntax::Splice
+impl core::cmp::Eq for oso_core::syntax::Splice
+impl core::cmp::PartialEq for oso_core::syntax::Splice
+pub fn oso_core::syntax::Splice::eq(&self, &oso_core::syntax::Splice) -> bool
+impl core::fmt::Debug for oso_core::syntax::Splice
+pub fn oso_core::syntax::Splice::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for oso_core::syntax::Splice
+impl core::marker::StructuralPartialEq for oso_core::syntax::Splice
 pub mod oso_core::window
 pub enum oso_core::window::Recenter
 pub oso_core::window::Recenter::Line(isize)

@@ -35,6 +35,8 @@ crates/
 ├── oso-core/       buffers, selections, display model, command registry,
 │                   keymaps; no GPU, #![forbid(unsafe_code)]
 ├── oso-render/     wgpu pipeline, glyph atlas
+├── oso-syntax/     tree-sitter, its grammars and oso's queries; the only C
+│                   parsers, and only the tip crate uses it
 └── oso-platform/   OS abstractions: the text-system trait and its
                     shaping/rasterizing backends, the window layer,
                     clipboard, filesystem and paths, process spawning, PTY
@@ -57,9 +59,10 @@ holds beyond its mode, and for opening it without waiting,
 [ADR 0067](adr/0067-access-lists-and-the-quarantine-flag-in-a-save.md)).
 
 Dependencies point one way: `oso` depends on the libraries, `oso-render`
-depends on `oso-core` and `oso-platform`, and neither of those depends on
-another workspace crate. Only `oso-render` uses wgpu, and only
-`oso-platform` uses OS bindings. These rules, and the allowed layers of
+depends on `oso-core` and `oso-platform`, `oso-syntax` on `oso-core`, and neither of
+those two depends on another workspace crate. Only `oso-render` uses wgpu, only
+`oso-platform` uses OS bindings, and only `oso-syntax` uses tree-sitter
+([ADR 0111](adr/0111-tree-sitter-highlighting.md)). These rules, and the allowed layers of
 modules inside each crate, are listed in
 [`guardrails/layers.txt`](../../guardrails/layers.txt) and enforced by
 `crates/oso/tests/architecture`
@@ -496,7 +499,7 @@ The UI thread never blocks on I/O or parsing:
   in `oso-core` (`syntax::Highlights`) that follows edits with the buffer, and the worker's
   reports replace it, mapped through the edits made since. Colour is applied when glyph
   instances are built, so a highlight never reshapes a row. Buffers that may hold secrets and
-  files over 8 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
+  files over 2 MiB are not parsed ([ADR 0111](adr/0111-tree-sitter-highlighting.md)).
 - Project search (in-process and ripgrep-style,
   [ADR 0114](adr/0114-projects-trust-finding-files-and-searching-a-project.md)),
   git status and language servers stream results in asynchronously.

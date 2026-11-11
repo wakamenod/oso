@@ -8,7 +8,7 @@ nightly := "nightly-2026-05-25"
 cargo_public_api := "0.52.0"
 # Snapshots are taken for one target so that they read the same on every OS.
 api_target := "x86_64-unknown-linux-gnu"
-api_crates := "oso-core oso-platform oso-render"
+api_crates := "oso-core oso-platform oso-render oso-syntax"
 # oso's own macOS window layer exists only there, so oso-platform also has a snapshot
 # taken for macOS, on macOS (ADR 0070).
 api_macos_target := "aarch64-apple-darwin"
@@ -81,6 +81,34 @@ check:
 lint:
     cargo clippy --locked --workspace --all-targets -- -D warnings
     cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+# Lint for Windows from any OS, before every push. The grammars' C is not compiled here:
+# `cc` gets the stubs below, so only Rust is checked, and CI's Windows job builds the C
+# (ADR 0111). The `std::os::unix::net` entries of clippy.toml warn there, as expected.
+clippy-windows:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    stubs=$(just c-stubs)
+    CC_x86_64_pc_windows_msvc="$stubs/cc" AR_x86_64_pc_windows_msvc="$stubs/ar" \
+        cargo clippy --locked --workspace --all-targets --all-features \
+        --target x86_64-pc-windows-msvc -- -D warnings
+
+# Write a C compiler and an archiver that compile nothing, for checks of a target whose C
+# headers this machine lacks, and print their directory (ADR 0111). Each writes empty files
+# where it is told to write, so build scripts that compile C finish and nothing links them.
+c-stubs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="$PWD/target/c-stubs"
+    mkdir -p "$dir"
+    printf '%s\n' '#!/bin/sh' \
+        'while [ $# -gt 0 ]; do case "$1" in -o) shift; : > "$1";; -Fo*) : > "${1#-Fo}";; esac; shift; done' \
+        > "$dir/cc"
+    printf '%s\n' '#!/bin/sh' \
+        'for a in "$@"; do case "$a" in -out:*) printf "!<arch>\n" > "${a#-out:}"; exit 0;; *.a|*.lib) printf "!<arch>\n" > "$a"; exit 0;; esac; done' \
+        > "$dir/ar"
+    chmod +x "$dir/cc" "$dir/ar"
+    echo "$dir"
 
 # Format code
 fmt:
@@ -366,6 +394,11 @@ public-api:
     have=$(cargo public-api --version 2>/dev/null || true)
     [ "$have" = "cargo-public-api {{cargo_public_api}}" ] \
         || { echo "error: need cargo-public-api {{cargo_public_api}}, found '${have:-none}'"; exit 1; }
+    # oso-syntax's grammars compile C, for which another OS has no Linux headers (ADR 0111).
+    if [ "$(uname -s)" != Linux ]; then
+        stubs=$(just c-stubs)
+        export CC_x86_64_unknown_linux_gnu="$stubs/cc" AR_x86_64_unknown_linux_gnu="$stubs/ar"
+    fi
     for crate in {{api_crates}}; do
         cargo +{{nightly}} public-api --color never -p "$crate" --all-features -ss \
             --target {{api_target}} > "guardrails/public-api/$crate.txt"

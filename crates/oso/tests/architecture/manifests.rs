@@ -232,6 +232,8 @@ pub fn owner(dependency: &str) -> Option<&'static str> {
         Some("oso-render")
     } else if dependency == "winit" {
         Some("oso")
+    } else if dependency == "tree-sitter" || dependency.starts_with("tree-sitter-") {
+        Some("oso-syntax")
     } else if OS_BINDINGS.contains(&dependency)
         || OS_BINDING_PREFIXES
             .iter()
@@ -307,6 +309,8 @@ dev = ["dep:libc"]
         assert_eq!(owner("objc2-core-text"), Some("oso-platform"));
         assert_eq!(owner("windows-sys"), Some("oso-platform"));
         assert_eq!(owner("wgpu-hal"), Some("oso-render"));
+        assert_eq!(owner("tree-sitter"), Some("oso-syntax"));
+        assert_eq!(owner("tree-sitter-md"), Some("oso-syntax"));
         assert_eq!(owner("log"), None);
         let manifest = Manifest::parse(MANIFEST, &BTreeMap::new()).unwrap();
         let problems = ownership_problems(&[manifest]);

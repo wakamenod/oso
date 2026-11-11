@@ -1,0 +1,22 @@
+[package]
+name = "oso-syntax"
+description = "oso syntax highlighting: tree-sitter, its grammars and oso's queries"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+oso-core.workspace = true
+# The only crate that may use tree-sitter and its grammars (ADR 0111, deny.toml).
+tree-sitter.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-md.workspace = true
+tree-sitter-toml-ng.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
