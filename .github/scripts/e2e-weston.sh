@@ -32,7 +32,8 @@ sudo sysctl -q -w "kernel.core_pattern=$dir/cores/core.%e.%p"
 
 # Message strings that could carry text from a buffer: IME text, surrounding text, titles.
 # None of oso's do today, but the log must not start to quote one: their arguments go.
-redact='s/((surrounding_text|commit_string|preedit_string|set_title|set_app_id)\().*$/\1(redacted))/'
+# Clipboard and drag-and-drop data travel through file descriptors, never in a message.
+redact='s/((surrounding_text|commit_string|preedit_string|set_title|set_class|set_app_id)\().*$/\1(redacted))/'
 
 # The shell around Weston notes how it ended: its status, or 128 and the number of the
 # signal that ended it. It also notes any signal it catches, and the process group and
