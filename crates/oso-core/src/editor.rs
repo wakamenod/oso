@@ -29,6 +29,7 @@ use crate::buffer::{Buffer, BufferId, ContentId, EditError, Replacement};
 use crate::display_map::Preedit;
 use crate::frame::{self, FrameLayout, FrameSize, Splits};
 use crate::minibuffer::{Histories, Outcome, Prompt, PromptLayout};
+use crate::project::Project;
 use crate::selection::SelectionSet;
 use crate::undo::Opening;
 use crate::window::{ViewSize, Window, WindowId};
@@ -50,6 +51,7 @@ mod kill;
 mod macros;
 mod marks;
 mod messages;
+mod projects;
 mod prompts;
 mod reload;
 mod replace;
@@ -79,6 +81,7 @@ pub use isearch::{Isearch, MatchCells};
 pub use kill::{ClipboardWrite, YankError};
 pub use macros::{MAX_MACRO_EVENTS, MAX_MACRO_TEXT, MacroError, MacroEvent};
 pub use messages::row_text;
+pub use projects::ProjectRequest;
 pub use prompts::Quit;
 pub use reload::{Leftover, ReloadOutcome};
 pub use replace::{Replace, ReplaceAnswer, ReplaceError};
@@ -223,6 +226,10 @@ pub struct Editor {
     marking: Option<cursors::Marking>,
     /// Buffers a person asked to read again from their files, for the host (ADR 0083).
     reverts: Vec<(BufferId, ContentId)>,
+    /// The projects buffers are in, which `ProjectId` indexes (ADR 0114).
+    projects: Vec<Project>,
+    /// Files whose project the host should find.
+    project_requests: Vec<ProjectRequest>,
     themes: themes::Themes,
     aids: VisualAids,
     /// Whitespace cleanup: the setting, and the scans under way (ADR 0113).
@@ -298,6 +305,8 @@ impl Editor {
             search_job: None,
             marking: None,
             reverts: Vec::new(),
+            projects: Vec::new(),
+            project_requests: Vec::new(),
             themes: themes::Themes::default(),
             aids: VisualAids::default(),
             trims: trim::Trims::default(),
@@ -990,6 +999,8 @@ mod tests {
 
 #[cfg(test)]
 mod edit_tests;
+#[cfg(test)]
+mod highlight_tests;
 #[cfg(test)]
 mod isearch_tests;
 #[cfg(test)]

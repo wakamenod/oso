@@ -47,6 +47,10 @@ impl Buffer {
     }
 
     pub(crate) fn set_mode(&mut self, mode: Mode) {
+        if mode != self.mode {
+            // Highlights and edits logged for another language mean nothing in this one.
+            self.highlighting.forget();
+        }
         self.mode = mode;
     }
 
@@ -86,6 +90,7 @@ impl Buffer {
     /// nothing touches the disk (ADR 0064).
     pub fn judge_copy(&mut self, paths: &[PathBuf], at_least: Verdict) {
         self.verdict = secret::judge_copy(paths, at_least);
+        self.recheck_highlighting();
     }
 
     /// Sets the BOM and line ending a save writes, from a copy, when no file says. If
@@ -119,14 +124,16 @@ impl Buffer {
             return Err(EditError::ReadOnly(ReadOnly::Loading));
         }
         let (old_len, new_len) = (self.text.len(), source.text.len());
+        let edits = vec![OffsetEdit {
+            start: 0,
+            old_len,
+            new_len,
+        }];
+        let highlighting = self.stage_highlighting(std::slice::from_ref(&edits), new_len);
         Ok(StagedEdit {
             text: source.text.clone(),
             display: source.display.clone(),
-            edits: vec![OffsetEdit {
-                start: 0,
-                old_len,
-                new_len,
-            }],
+            edits,
             undo: vec![Splice {
                 start: 0,
                 len: new_len,
@@ -134,6 +141,7 @@ impl Buffer {
             }],
             changed: std::iter::once(0..new_len).collect(),
             rewrap: Rewrap::Whole,
+            highlighting,
         })
     }
 
@@ -158,6 +166,7 @@ impl Buffer {
         self.commit_edit(staged, opening, after);
         // The text may be what a view withheld, and it is no less so here.
         self.verdict = stricter(self.verdict, source_verdict);
+        self.recheck_highlighting();
         self.recovery = Some(RecoveryMark {
             before,
             after: self.content,
@@ -197,6 +206,7 @@ impl Buffer {
         self.info = side.info;
         self.baseline = side.baseline;
         self.verdict = side.verdict;
+        self.recheck_highlighting();
     }
 
     /// Whether a copy's text was put in this buffer, and no undo has taken that back.

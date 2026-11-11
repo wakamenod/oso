@@ -30,6 +30,7 @@ pub(crate) use buffers::size;
 mod clipboard;
 mod extended;
 mod held;
+mod hold_all;
 mod keymaps;
 mod macros;
 mod prompts;
@@ -82,6 +83,8 @@ pub struct Dispatcher {
     waiting: Option<clipboard::Waiting>,
     /// Keyboard macros: what a recording takes, and a replay's state here (ADR 0113).
     macros: macros::MacroInput,
+    /// Input held while query-replace's `!` runs (ADR 0113).
+    held_during_all: hold_all::HeldDuringAll,
     /// The input being handled came through the dev socket, which never reads the system
     /// clipboard. It travels with what waits or is held.
     from_socket: bool,
@@ -141,6 +144,7 @@ impl Dispatcher {
             publisher: None,
             waiting: None,
             macros,
+            held_during_all: hold_all::HeldDuringAll::default(),
             from_socket: false,
             completion_held: None,
             jump: None,
@@ -328,25 +332,6 @@ impl Dispatcher {
         self.take_text(editor, text, false)
     }
 
-    /// Text from a key or an input method, recorded in a keyboard macro as it comes (ADR 0113),
-    /// and run as one command: an undo step of its own if an input method `commit`ted it.
-    fn take_text(&mut self, editor: &mut Editor, text: &str, commit: bool) -> Effects {
-        let event = MacroEvent::Text {
-            text: text.to_owned(),
-            commit,
-        };
-        if let Some(done) = self.macro_before(editor, &event) {
-            return done;
-        }
-        if self.hold_text(text, commit) {
-            return Effects::default();
-        }
-        let step = if commit { Step::Apart } else { Step::MayJoin };
-        let effects = self.as_input(editor, |this, editor| this.run_text(editor, text, step));
-        self.macro_after(editor);
-        effects
-    }
-
     /// Starts an input method's composition, which counts as a key: keys never reach
     /// oso during one (ADR 0069).
     pub fn begin_composition(&mut self, editor: &mut Editor) {
@@ -493,6 +478,9 @@ impl Dispatcher {
     /// area empties first, as in Emacs, but for what waits behind keys in progress, and
     /// then says what the key left.
     pub fn handle_key(&mut self, editor: &mut Editor, key: KeyPress) -> Effects {
+        if let Some(done) = self.hold_during_all(editor, hold_all::Held::Key(key)) {
+            return done;
+        }
         if let Some(done) = self.macro_before(editor, &MacroEvent::Key(key)) {
             return done;
         }

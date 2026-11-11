@@ -31,6 +31,7 @@ mod ime;
 mod input;
 mod loads;
 mod log_gate;
+mod projects;
 mod reloads;
 mod saves;
 mod searches;
@@ -91,6 +92,8 @@ pub enum UserEvent {
     CompletionFailed,
     /// The lister answered a prompt that reads a path (ADR 0087).
     Listed,
+    /// The thread that finds projects answered (ADR 0114).
+    Projects,
     /// A control socket request, in dev builds.
     #[cfg(feature = "dev")]
     Control(dev::UiRequest),
@@ -167,6 +170,8 @@ pub struct App {
     remembered_theme: ShownTheme,
     /// The threads that list directories for a prompt that reads a path (ADR 0087).
     lister: crate::lister::Lister,
+    /// The thread that finds each file's project (ADR 0114).
+    projects: crate::project::Detector,
     /// What keeps the log to warnings and errors around a buffer that may hold secrets
     /// (ADR 0078).
     log_gate: LogGate,
@@ -239,6 +244,7 @@ impl App {
         let clipboard = clipboard::start(source, waker.clone());
         let disk = reloads::Disk::start(waker.clone());
         let lister = files::lister(&waker);
+        let projects = projects::detector(&waker);
         let mut editor = Editor::default();
         // Read once: `~` stands for it, and a path typed in a buffer with no file starts there.
         editor.set_home(std::env::var_os("HOME").map(std::path::PathBuf::from));
@@ -281,6 +287,7 @@ impl App {
             themes,
             remembered_theme,
             lister,
+            projects,
             log_gate,
             agent: agent::Agent::default(),
             flash: flash::Flash::default(),

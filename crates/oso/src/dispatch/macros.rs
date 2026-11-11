@@ -65,6 +65,37 @@ fn repeat_key() -> Option<KeyPress> {
 }
 
 impl Dispatcher {
+    /// Text from a key or an input method, recorded in a keyboard macro as it comes (ADR 0113),
+    /// and run as one command: an undo step of its own if an input method `commit`ted it.
+    pub(super) fn take_text(&mut self, editor: &mut Editor, text: &str, commit: bool) -> Effects {
+        let event = MacroEvent::Text {
+            text: text.to_owned(),
+            commit,
+        };
+        // Held while `!` runs, it is recorded when it runs.
+        let held = super::hold_all::Held::Text {
+            text: text.to_owned(),
+            commit,
+        };
+        if let Some(done) = self.hold_during_all(editor, held) {
+            return done;
+        }
+        if let Some(done) = self.macro_before(editor, &event) {
+            return done;
+        }
+        if self.hold_text(text, commit) {
+            return Effects::default();
+        }
+        let step = if commit {
+            super::Step::Apart
+        } else {
+            super::Step::MayJoin
+        };
+        let effects = self.as_input(editor, |this, editor| this.run_text(editor, text, step));
+        self.macro_after(editor);
+        effects
+    }
+
     /// Notes that the command `id` ran, and how it ended, for a recording and a replay.
     pub(super) fn macro_ran(&mut self, id: CommandId, failed: bool, editor: &Editor) {
         self.macros.failed |= failed;
@@ -146,9 +177,8 @@ impl Dispatcher {
         self.waiting.is_some()
             || self.completion_held.is_some()
             || editor.isearch().is_some_and(|search| search.searching())
-            || editor
-                .replace()
-                .is_some_and(|replace| replace.searching() || replace.replacing_all())
+            || editor.replace().is_some_and(|replace| replace.searching())
+            || editor.replace_works()
             || editor.cursor_search_waits()
             || editor.current().1.loading().is_some()
     }

@@ -57,6 +57,7 @@ impl App {
             UserEvent::Completion(report) => self.completion_reported(event_loop, report),
             UserEvent::CompletionFailed => self.completion_failed(),
             UserEvent::Listed => self.listed(),
+            UserEvent::Projects => self.projects_found(),
             #[cfg(feature = "dev")]
             UserEvent::Control(request) => self.handle_control(event_loop, request),
             UserEvent::Agent(request) => self.handle_agent(event_loop, request),
@@ -73,12 +74,13 @@ impl App {
         self.begin_logging();
         self.check_leaving(event_loop);
         self.scan_if_a_file_has_loaded();
+        self.find_projects();
         self.check_disk();
         self.free_replaced_keymap();
         // A load may have grown the buffer under isearch.
         self.start_searches();
         // `!` replaces a slice a turn, and a keyboard macro replays a little (ADR 0113).
-        self.replace_slice();
+        self.replace_slice(event_loop);
         self.replay_macro(event_loop);
         // Commands, a resize or a load may have left rows to wrap.
         self.start_wraps();

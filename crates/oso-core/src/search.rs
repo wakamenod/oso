@@ -25,7 +25,7 @@ mod needle;
 mod regexp;
 
 pub(crate) use case::casified;
-pub(crate) use job::{Find, MatchWork, Matched, Report, Scope};
+pub(crate) use job::{Counting, Find, MatchWork, Matched, Report, after};
 pub use job::{SearchJob, SearchReport};
 pub(crate) use needle::Needle;
 pub(crate) use regexp::{

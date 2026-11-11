@@ -83,3 +83,25 @@ fn c_m_percent_keeps_its_prompt_open_for_a_regexp_that_does_not_compile() {
     );
     assert_eq!(text(&editor), "v=k\n");
 }
+
+#[test]
+fn input_during_bang_waits_for_it_and_c_g_stops_it() {
+    let many = "ab ".repeat(3000);
+    let (mut d, mut editor) = at(&many, &[0]);
+    send(&mut d, &mut editor, "M-% a b RET c RET !");
+    assert!(editor.replace_works(), "more than one slice");
+    send(&mut d, &mut editor, "C-e");
+    assert!(editor.replace_works(), "the key waits");
+    while editor.replace_works() {
+        editor.replace_continue();
+    }
+    d.run_held_during_all(&mut editor);
+    assert_eq!(text(&editor), "c ".repeat(3000));
+    assert_eq!(cursors(&editor), [6000], "C-e ran after it");
+
+    let (mut d, mut editor) = at(&many, &[0]);
+    send(&mut d, &mut editor, "M-% a b RET c RET !");
+    send(&mut d, &mut editor, "C-g");
+    assert!(editor.replace().is_none());
+    assert!(text(&editor).starts_with("c c "), "kept what it replaced");
+}

@@ -82,12 +82,7 @@ pub fn export(
     if shows_judged_secret(editor) {
         return Err(SECRET_SHOWN.into());
     }
-    if editor.prompt().is_some() {
-        return Err(PROMPTING.into());
-    }
-    if let Some(why) = under_way(editor) {
-        return Err(why.into());
-    }
+    held(editor)?;
     carried_bytes(editor)?;
     let mut items = Vec::new();
     let mut buffers = Vec::new();
@@ -379,13 +374,23 @@ pub fn check(editor: &Editor) -> Reply {
     if editor.preedit().is_some() {
         return Err(COMPOSING.into());
     }
+    held(editor)?;
+    Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
+}
+
+/// What holds a handover back whatever the buffers hold: a prompt, a search, or a frame of
+/// more than one window.
+fn held(editor: &Editor) -> Result<(), String> {
     if editor.prompt().is_some() {
         return Err(PROMPTING.into());
     }
     if let Some(why) = under_way(editor) {
         return Err(why.into());
     }
-    Ok(json!({ "generation": generation(editor), "unsaved": unsaved }))
+    if editor.frame().windows().len() > 1 {
+        return Err(SPLIT.into());
+    }
+    Ok(())
 }
 
 /// Why a restart waits for a composition to end: its text is in no buffer, so a new
@@ -412,6 +417,9 @@ fn under_way(editor: &Editor) -> Option<&'static str> {
     }
 }
 const MACRO: &str = "cannot hand over: a keyboard macro is being recorded or run";
+/// Why a restart waits while the frame is split: the state carries one window until its
+/// version 4 carries the layout (ADR 0112), and a reader refuses more.
+const SPLIT: &str = "cannot hand over: the frame has more than one window";
 
 /// Why a restart waits while a buffer that may hold secrets is shown: the reason is the same
 /// whatever that buffer holds.
@@ -473,6 +481,9 @@ pub fn exit_allowed(editor: &Editor, expected: Option<u64>) -> Result<(), String
         Some(_) if editor.isearch().is_some() || editor.replace().is_some() => {
             Err(format!("{EXIT_REFUSED}: a search is under way"))
         }
+        Some(_) if editor.frame().windows().len() > 1 => Err(format!(
+            "{EXIT_REFUSED}: the frame has more than one window"
+        )),
         Some(expected) if expected != generation(editor) => Err(format!(
             "{EXIT_REFUSED}: the buffers have changed since generation {expected}"
         )),

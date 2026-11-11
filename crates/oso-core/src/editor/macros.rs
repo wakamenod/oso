@@ -82,7 +82,7 @@ struct Replay {
     /// The iterations left after this one; `None` for as many as run until one stops it.
     left: Option<usize>,
     /// Each buffer's state when it began, so that what it changed undoes as one step.
-    began: Vec<(BufferId, ContentId)>,
+    began: Vec<(BufferId, (ContentId, u64))>,
 }
 
 /// The recording, the last macro and the replay.
@@ -196,7 +196,7 @@ impl Editor {
         }
         let began = self
             .buffers()
-            .map(|(id, buffer)| (id, buffer.content_id()))
+            .map(|(id, buffer)| (id, buffer.undo_mark()))
             .collect();
         self.macros.replay = Some(Replay {
             events: last.events.clone(),
@@ -240,9 +240,9 @@ impl Editor {
         };
         for (id, began) in replay.began {
             if let Some(buffer) = self.buffer_mut(id)
-                && buffer.content_id() != began
+                && buffer.content_id() != began.0
             {
-                buffer.join_undo_since(began);
+                buffer.join_undo_since(began, None);
             }
         }
         if let Some(why) = why {
